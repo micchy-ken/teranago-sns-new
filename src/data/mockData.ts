@@ -1,9 +1,9 @@
-import { Post, User, CalendarEvent, WorkflowApplication, BoardTopic, ChatRoom, Memo, DailyReport, OfficeMaster, DivisionMaster } from '../types';
+import { Post, User, CalendarEvent, WorkflowApplication, BoardTopic, ChatRoom, Memo, DailyReport, OfficeMaster, DivisionMaster, PositionMaster } from '../types';
 
 export const initialOffices: OfficeMaster[] = [
   {
     id: 'off-1',
-    name: '名古屋支店',
+    name: '名古屋',
     type: 'branch',
     code: 'OFF-NGY',
     location: '愛知県名古屋市中村区名駅1-1-4 中村ビル7F',
@@ -45,21 +45,40 @@ export const initialDivisions: DivisionMaster[] = [
   { id: 'div-7', name: '総務', code: 'DIV-GEN', description: '拠点総務・庶務・労務手続き' },
 ];
 
+export const initialPositions: PositionMaster[] = [
+  { id: 'pos-1', name: '代表取締役', code: 'POS-EXEC', description: '経営全般統括' },
+  { id: 'pos-2', name: '部長', code: 'POS-DIR', description: '部門・拠点の統括責任者' },
+  { id: 'pos-3', name: '課長', code: 'POS-MGR', description: '課・チームの運用管理責任者' },
+  { id: 'pos-4', name: '課長補佐', code: 'POS-AMGR', description: '課長の補佐及びプロジェクト進行管理' },
+  { id: 'pos-5', name: '主任', code: 'POS-LEAD', description: '業務リーダー・若手指導' },
+  { id: 'pos-6', name: '一般', code: 'POS-STAFF', description: '一般社員・実務担当' },
+];
+
 export const currentUser: User = {
   id: 'u1',
-  name: '健介',
-  office: '本社',
-  division: '設計',
-  department: '本社 設計',
+  loginId: 'yamamichi',
+  password: 'test',
+  name: '山道 健介',
+  kanaName: 'ヤマミチ ケンスケ',
+  office: '名古屋',
+  division: '総務',
+  position: '課長補佐',
+  department: '名古屋 総務 課長補佐',
   avatarUrl: 'https://i.pravatar.cc/150?u=u1',
   isAdmin: true,
   role: 'admin',
-  email: 'kensuke@teranago.co.jp',
-  phone: '090-1234-5678',
+  email: 'yamamichi@teraoka-ads.co.jp',
+  mobileEmail: 'micchy.k@gmail.com',
+  phoneOutside: '',
+  phoneExtension: '16',
+  mobilePhone: '080-3281-6140',
+  phone: '080-3281-6140',
 };
 
 export const approverUser: User = {
   id: 'u4',
+  loginId: 'tanaka',
+  password: 'password',
   name: '田中 部長',
   office: '本社',
   division: '管理',
@@ -73,6 +92,8 @@ export const approverUser: User = {
 
 export const user2: User = {
   id: 'u2',
+  loginId: 'sato',
+  password: 'password',
   name: '佐藤 デザイン',
   office: '名古屋支店',
   division: '総務',
@@ -86,6 +107,8 @@ export const user2: User = {
 
 export const user3: User = {
   id: 'u3',
+  loginId: 'takahashi',
+  password: 'password',
   name: '高橋 営業',
   office: '静岡営業所',
   division: '営業',
@@ -99,6 +122,8 @@ export const user3: User = {
 
 export const user5: User = {
   id: 'u5',
+  loginId: 'suzuki',
+  password: 'password',
   name: '鈴木 保守',
   office: '浜松営業所',
   division: '保守営業',
@@ -255,32 +280,99 @@ export const initialTopics: BoardTopic[] = [
   {
     id: 't1',
     category: 'general',
-    title: '夏季休業のお知らせ',
-    content: '今年の夏季休業期間は8月13日(金)〜8月16日(月)となります。休業中の緊急連絡先については...',
+    title: '【重要】夏季休業および有給休暇推奨日のご案内',
+    content: '今年の夏季休業期間は8月13日(金)〜8月16日(月)となります。休業中の緊急連絡先やシステムの保守対応体制については添付のガイドラインファイルをご確認ください。\n\n各部署での業務調整をお願いいたします。',
     author: user3,
     createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 5).toISOString(),
     views: 142,
-    commentsCount: 3,
+    commentsCount: 2,
+    office: '全社',
+    division: '全部署',
+    tags: ['全社告知', '重要', '総務', '夏季休業'],
+    isPinned: true,
+    hasPeriod: true,
+    startDate: '2026-07-01',
+    endDate: '2026-08-31',
+    attachments: [
+      { id: 'att1', name: '2026年夏季休業ガイドライン.pdf', size: '1.2 MB' }
+    ],
+    comments: [
+      { id: 'cm1', author: currentUser, content: '内容確認いたしました。部署内でも周知します。', createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 4).toISOString() },
+      { id: 'cm2', author: user2, content: '緊急連絡先の担当表をアップロードいたしました。', createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 3).toISOString() }
+    ],
+    viewers: [
+      { user: currentUser, viewedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 4).toISOString() },
+      { user: user2, viewedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 3).toISOString() },
+      { user: approverUser, viewedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2).toISOString() }
+    ]
   },
   {
     id: 't2',
     category: 'it',
-    title: '社内VPNのメンテナンスについて',
-    content: '今週末の日曜日深夜2時〜4時にかけて、社内VPNサーバーのメンテナンスを実施します。',
+    title: '社内VPNおよび基幹システム定期メンテナンス',
+    content: '今週末の日曜日深夜2時〜4時にかけて、社内VPNサーバーおよびデータベースの定期メンテナンスを実施します。\n当該時間帯は外部からのアクセスが一時遮断されますのでご注意ください。',
     author: approverUser,
     createdAt: new Date(Date.now() - 1000 * 60 * 60 * 48).toISOString(),
     views: 89,
     commentsCount: 0,
+    office: '全社',
+    division: '全部署',
+    tags: ['システム更新', 'ITインフラ', '重要'],
+    isPinned: false,
+    hasPeriod: false,
+    attachments: [],
+    comments: [],
+    viewers: [
+      { user: currentUser, viewedAt: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString() }
+    ]
   },
   {
     id: 't3',
     category: 'hr',
-    title: '秋の健康診断について',
-    content: '秋の定期健康診断の予約受付を開始しました。各自指定の医療機関で予約を行ってください。',
+    title: '秋の定期健康診断のご案内および受診予約',
+    content: '秋の定期健康診断の予約受付を開始しました。各自指定の医療機関Webサイトより受診予約を行ってください。\n受診期限は10月末までとなっております。',
     author: approverUser,
     createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 1).toISOString(),
     views: 45,
     commentsCount: 1,
+    office: '全社',
+    division: '総務',
+    tags: ['健康診断', '総務', '福利厚生'],
+    isPinned: false,
+    hasPeriod: true,
+    startDate: '2026-07-20',
+    endDate: '2026-10-31',
+    attachments: [
+      { id: 'att2', name: '受診指定医療機関一覧.xlsx', size: '480 KB' }
+    ],
+    comments: [
+      { id: 'cm3', author: user3, content: '健診票はいつ頃配布されますでしょうか？', createdAt: new Date(Date.now() - 1000 * 60 * 60 * 12).toISOString() }
+    ],
+    viewers: [
+      { user: user3, viewedAt: new Date(Date.now() - 1000 * 60 * 60 * 12).toISOString() }
+    ]
+  },
+  {
+    id: 't4',
+    category: 'general',
+    title: '【設計部】新CADソフトウエア導入説明会のご案内',
+    content: '設計部のメンバー対象に、来月より全面移行する新CADソフトウエアのオンライン講習会を開催いたします。対象者は事前にマニュアルのダウンロードをお願いします。',
+    author: currentUser,
+    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 6).toISOString(),
+    views: 28,
+    commentsCount: 0,
+    office: '本社',
+    division: '設計',
+    tags: ['設計部', '研修', 'CAD'],
+    isPinned: true,
+    hasPeriod: false,
+    attachments: [
+      { id: 'att3', name: '新CAD操作マニュアル_v1.pdf', size: '3.5 MB' }
+    ],
+    comments: [],
+    viewers: [
+      { user: currentUser, viewedAt: new Date(Date.now() - 1000 * 60 * 60 * 5).toISOString() }
+    ]
   }
 ];
 
@@ -289,34 +381,72 @@ export const initialChatRooms: ChatRoom[] = [
     id: 'c1',
     type: 'dm',
     participants: [currentUser, user2],
-    lastUpdated: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
+    lastUpdated: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
     messages: [
       {
         id: 'm1',
         sender: user2,
         content: '明日のデザインレビューですが、14時からで大丈夫ですか？',
-        createdAt: new Date(Date.now() - 1000 * 60 * 20).toISOString(),
+        createdAt: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
+        type: 'text',
       },
       {
         id: 'm2',
         sender: currentUser,
         content: 'はい、大丈夫です！よろしくお願いします。',
-        createdAt: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
+        createdAt: new Date(Date.now() - 1000 * 60 * 25).toISOString(),
+        type: 'text',
+      },
+      {
+        id: 'm2-stamp',
+        sender: currentUser,
+        content: '了解です！',
+        type: 'stamp',
+        stampId: 'ryokai',
+        stampText: '了解です！',
+        stampCategory: 'あいさつ',
+        createdAt: new Date(Date.now() - 1000 * 60 * 24).toISOString(),
+      },
+      {
+        id: 'm2-img',
+        sender: user2,
+        content: 'レビュー対象のアジェンダ資料です！',
+        type: 'image',
+        imageUrl: 'https://images.unsplash.com/photo-1531403009284-440f080d1e12?w=800&auto=format&fit=crop&q=80',
+        createdAt: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
       }
     ]
   },
   {
     id: 'c2',
-    name: '開発チーム共有',
+    name: '開発プロジェクト連絡',
     type: 'group',
-    participants: [currentUser, approverUser, user2],
-    lastUpdated: new Date(Date.now() - 1000 * 60 * 60 * 3).toISOString(),
+    participants: [currentUser, approverUser, user2, user3],
+    lastUpdated: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(),
     messages: [
       {
         id: 'm3',
         sender: approverUser,
-        content: 'デプロイ完了しました。確認お願いします。',
+        content: '新機能のデプロイ作業が完了しました。各担当者様はご確認をお願いします。',
         createdAt: new Date(Date.now() - 1000 * 60 * 60 * 3).toISOString(),
+        type: 'text',
+      },
+      {
+        id: 'm4',
+        sender: user3,
+        content: 'お疲れ様です！',
+        type: 'stamp',
+        stampId: 'otsukare',
+        stampText: 'お疲れ様です！',
+        stampCategory: 'あいさつ',
+        createdAt: new Date(Date.now() - 1000 * 60 * 60 * 2.5).toISOString(),
+      },
+      {
+        id: 'm5',
+        sender: currentUser,
+        content: '確認いたしました。問題なく動作しております！',
+        createdAt: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(),
+        type: 'text',
       }
     ]
   }
@@ -327,18 +457,89 @@ export const initialMemos: Memo[] = [
     id: 'memo1',
     fromName: '山田 太郎',
     fromCompany: 'A株式会社',
+    fromPhone: '090-1234-5678',
+    fromEmail: 'yamada@a-corp.co.jp',
+    notificationEmail: 'yamamichi@teraoka-ads.co.jp',
+    notificationMobileEmail: 'micchy.k@gmail.com',
+    targetOffices: ['名古屋'],
+    targetDivisions: ['総務'],
+    toUsers: [currentUser, user2],
     toUser: currentUser,
-    content: 'システムの見積もりの件でご相談がありました。折り返しお電話をお願いします。（TEL: 090-XXXX-XXXX）',
+    requirementType: 'please_call_back',
+    requirementText: '折り返し連絡下さい',
+    content: '新システムの見積もり内容とスケジュールについて確認のご連絡でした。折り返しお電話をお願いします。',
     status: 'unread',
     createdAt: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
+    createdByUser: user3,
+    recipientStatuses: [
+      {
+        userId: currentUser.id,
+        userName: currentUser.name,
+        avatarUrl: currentUser.avatarUrl,
+        department: currentUser.department,
+        office: currentUser.office,
+        division: currentUser.division,
+        isViewed: true,
+        viewedAt: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
+        isHandled: false,
+      },
+      {
+        userId: user2.id,
+        userName: user2.name,
+        avatarUrl: user2.avatarUrl,
+        department: user2.department,
+        office: user2.office,
+        division: user2.division,
+        isViewed: false,
+        isHandled: false,
+      }
+    ]
   },
   {
     id: 'memo2',
     fromName: '鈴木 次郎',
-    toUser: currentUser,
-    content: '来週の打ち合わせの件、メールでお送りした資料をご確認くださいとのことでした。',
-    status: 'read',
+    fromCompany: '中部テクノロジー株式会社',
+    fromPhone: '052-999-8877',
+    fromEmail: 'suzuki@chubu-tech.jp',
+    targetOffices: ['浜松営業所', '静岡営業所'],
+    targetDivisions: ['営業', '保守営業'],
+    toUsers: [user3, user5],
+    requirementType: 'has_message',
+    requirementText: '伝言があります',
+    content: '来週月曜の打ち合わせの資料を先ほどメールでお送りしたとのことです。内容のご確認をお願いします。',
+    status: 'handled',
     createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(),
+    createdByUser: approverUser,
+    recipientStatuses: [
+      {
+        userId: user3.id,
+        userName: user3.name,
+        avatarUrl: user3.avatarUrl,
+        department: user3.department,
+        office: user3.office,
+        division: user3.division,
+        isViewed: true,
+        viewedAt: new Date(Date.now() - 1000 * 60 * 60 * 20).toISOString(),
+        isHandled: true,
+        handledAt: new Date(Date.now() - 1000 * 60 * 60 * 18).toISOString(),
+        handledByUserId: user3.id,
+        handledByUserName: user3.name,
+      },
+      {
+        userId: user5.id,
+        userName: user5.name,
+        avatarUrl: user5.avatarUrl,
+        department: user5.department,
+        office: user5.office,
+        division: user5.division,
+        isViewed: true,
+        viewedAt: new Date(Date.now() - 1000 * 60 * 60 * 22).toISOString(),
+        isHandled: true,
+        handledAt: new Date(Date.now() - 1000 * 60 * 60 * 19).toISOString(),
+        handledByUserId: user5.id,
+        handledByUserName: user5.name,
+      }
+    ]
   }
 ];
 

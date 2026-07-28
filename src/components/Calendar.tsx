@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { CalendarEvent, EventType, User, OfficeMaster, DivisionMaster } from '../types';
-import { ChevronLeft, ChevronRight, List as ListIcon, Calendar as CalendarIcon, Plus, MapPin, Video, AlignLeft, RefreshCw, Clock, Link as LinkIcon, Loader2, Building2, Users } from 'lucide-react';
+import { ChevronLeft, ChevronRight, List as ListIcon, Calendar as CalendarIcon, Plus, MapPin, Video, AlignLeft, RefreshCw, Clock, Link as LinkIcon, Loader2, Building2, Users, Paperclip } from 'lucide-react';
 import { EventModal } from './EventModal';
 import { fetchIcalFeed } from '../utils/icalParser';
 import { initialOffices, initialDivisions } from '../data/mockData';
+import { renderWithClickableLinks } from '../utils/linkify';
 
 interface CalendarProps {
   events: CalendarEvent[];
@@ -11,6 +12,7 @@ interface CalendarProps {
   onUpdateEvent?: (event: CalendarEvent) => void;
   onDeleteEvent?: (eventId: string) => void;
   currentUser?: User;
+  allUsers?: User[];
   offices?: OfficeMaster[];
   divisions?: DivisionMaster[];
 }
@@ -37,6 +39,7 @@ export function Calendar({
   onUpdateEvent,
   onDeleteEvent,
   currentUser,
+  allUsers,
   offices = initialOffices,
   divisions = initialDivisions,
 }: CalendarProps) {
@@ -667,7 +670,7 @@ export function Calendar({
                           <span>{e.isIcal ? `[iCal] ${e.title}` : e.title}</span>
                           <span className="text-[10px] px-2 py-0.5 bg-white/60 rounded-full">{e.isIcal ? 'iCal連携' : typeLabels[e.type]}</span>
                         </div>
-                        {e.memo && <div className="text-xs font-normal mt-1 opacity-90">{e.memo}</div>}
+                        {e.memo && <div className="text-xs font-normal mt-1 opacity-90">{renderWithClickableLinks(e.memo)}</div>}
                       </div>
                     ))}
                   </div>
@@ -717,6 +720,11 @@ export function Calendar({
                             <div>
                               <div className="font-bold text-sm text-slate-900">{e.isIcal ? `[iCal] ${e.title}` : e.title}</div>
                               <div className="text-xs font-medium text-slate-600 mt-0.5">{formatEventTime(e)} {e.location ? `• ${e.location}` : ''}</div>
+                              {e.memo && (
+                                <div className="text-xs text-slate-700 mt-1 bg-white/50 p-1.5 rounded border border-slate-200/50">
+                                  {renderWithClickableLinks(e.memo)}
+                                </div>
+                              )}
                             </div>
                             <span className="text-[10px] px-2.5 py-1 rounded-md font-bold border bg-white/80 self-start sm:self-center">
                               {e.isIcal ? 'iCal連携' : typeLabels[e.type]}
@@ -760,10 +768,30 @@ export function Calendar({
                       {e.isIcal && <LinkIcon className="w-4 h-4 text-purple-600 ml-1" title="iCal連携カレンダー" />}
                       {e.isGoogleSynced && <RefreshCw className="w-4 h-4 text-blue-500 ml-1" title="Googleカレンダー同期済み" />}
                     </div>
-                    <div className="flex flex-wrap gap-5 text-xs text-slate-500 mt-2.5 font-medium">
+                    {e.memo && (
+                      <div className="text-xs text-slate-700 my-2 bg-slate-50 p-2 rounded-lg border border-slate-100">
+                        {renderWithClickableLinks(e.memo)}
+                      </div>
+                    )}
+                    <div className="flex flex-wrap gap-4 text-xs text-slate-500 mt-2 font-medium items-center">
                       {e.location && <div className="flex items-center gap-1.5"><MapPin className="w-4 h-4 text-slate-400"/> {e.location}</div>}
-                      {e.url && <div className="flex items-center gap-1.5"><Video className="w-4 h-4 text-slate-400"/> オンライン</div>}
-                      {e.memo && <div className="flex items-center gap-1.5"><AlignLeft className="w-4 h-4 text-slate-400"/> 詳細あり</div>}
+                      {e.attendees && e.attendees.length > 0 && (
+                        <div className="flex items-center gap-1.5">
+                          <Users className="w-4 h-4 text-slate-400" />
+                          <div className="flex -space-x-1.5">
+                            {e.attendees.map(u => (
+                              <img key={u.id} src={u.avatarUrl} alt={u.name} title={u.name} className="w-4 h-4 rounded-full border border-white object-cover" />
+                            ))}
+                          </div>
+                          <span>({e.attendees.length}名)</span>
+                        </div>
+                      )}
+                      {e.attachments && e.attachments.length > 0 && (
+                        <div className="flex items-center gap-1 text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full text-[11px] font-semibold border border-indigo-100">
+                          <Paperclip className="w-3 h-3" />
+                          <span>添付ファイル ({e.attachments.length})</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -788,6 +816,7 @@ export function Calendar({
         defaultInitialDate={selectedInitialDate}
         offices={offices}
         divisions={divisions}
+        allUsers={allUsers}
       />
     </div>
   );

@@ -19,21 +19,28 @@ import {
   Layers,
   Mail,
   UserPlus,
-  CheckCircle2
+  CheckCircle2,
+  Briefcase,
+  Smartphone,
+  KeyRound
 } from 'lucide-react';
-import { User, OfficeMaster, DivisionMaster, OfficeType } from '../types';
+import { User, OfficeMaster, DivisionMaster, PositionMaster, OfficeType } from '../types';
 
 interface AdminPanelProps {
   currentUser: User;
   allUsers: User[];
   offices: OfficeMaster[];
   divisions: DivisionMaster[];
+  positions?: PositionMaster[];
   onAddOffice: (office: Omit<OfficeMaster, 'id'>) => void;
   onUpdateOffice: (office: OfficeMaster) => void;
   onDeleteOffice: (id: string) => void;
   onAddDivision: (division: Omit<DivisionMaster, 'id'>) => void;
   onUpdateDivision: (division: DivisionMaster) => void;
   onDeleteDivision: (id: string) => void;
+  onAddPosition?: (position: Omit<PositionMaster, 'id'>) => void;
+  onUpdatePosition?: (position: PositionMaster) => void;
+  onDeletePosition?: (id: string) => void;
   onAddUser: (user: Omit<User, 'id'>) => void;
   onUpdateUser: (user: User) => void;
   onDeleteUser: (id: string) => void;
@@ -53,19 +60,23 @@ export function AdminPanel({
   allUsers,
   offices,
   divisions,
+  positions = [],
   onAddOffice,
   onUpdateOffice,
   onDeleteOffice,
   onAddDivision,
   onUpdateDivision,
   onDeleteDivision,
+  onAddPosition,
+  onUpdatePosition,
+  onDeletePosition,
   onAddUser,
   onUpdateUser,
   onDeleteUser,
   onToggleUserAdmin,
   onSwitchUser,
 }: AdminPanelProps) {
-  const [activeSubTab, setActiveSubTab] = useState<'users' | 'offices' | 'divisions' | 'system'>('users');
+  const [activeSubTab, setActiveSubTab] = useState<'users' | 'offices' | 'divisions' | 'positions' | 'system'>('users');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedOfficeFilter, setSelectedOfficeFilter] = useState<string>('all');
 
@@ -74,10 +85,17 @@ export function AdminPanel({
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [userFormData, setUserFormData] = useState({
     name: '',
-    office: offices[0]?.name || '名古屋支店',
+    kanaName: '',
+    loginId: '',
+    password: 'test',
+    office: offices[0]?.name || '名古屋',
     division: divisions[0]?.name || '総務',
+    position: positions[0]?.name || '課長補佐',
     email: '',
-    phone: '',
+    mobileEmail: '',
+    phoneOutside: '',
+    phoneExtension: '',
+    mobilePhone: '',
     isAdmin: false,
   });
   const [userFormError, setUserFormError] = useState<string | null>(null);
@@ -97,6 +115,15 @@ export function AdminPanel({
   const [isDivisionModalOpen, setIsDivisionModalOpen] = useState(false);
   const [editingDivision, setEditingDivision] = useState<DivisionMaster | null>(null);
   const [divisionFormData, setDivisionFormData] = useState({
+    name: '',
+    code: '',
+    description: '',
+  });
+
+  // Modal State for Position Master
+  const [isPositionModalOpen, setIsPositionModalOpen] = useState(false);
+  const [editingPosition, setEditingPosition] = useState<PositionMaster | null>(null);
+  const [positionFormData, setPositionFormData] = useState({
     name: '',
     code: '',
     description: '',
@@ -123,7 +150,7 @@ export function AdminPanel({
               動作確認用のユーザー切り替え
             </div>
             <p>
-              「健介」アカウントには管理者権限が付与されています。以下のボタンからユーザーを切り替えて操作をお試しいただけます。
+              「山道 健介」アカウントには管理者権限が付与されています。以下のボタンからユーザーを切り替えて操作をお試しいただけます。
             </p>
           </div>
 
@@ -156,10 +183,17 @@ export function AdminPanel({
     setEditingUser(null);
     setUserFormData({
       name: '',
-      office: offices[0]?.name || '名古屋支店',
+      kanaName: '',
+      loginId: '',
+      password: 'test',
+      office: offices[0]?.name || '名古屋',
       division: divisions[0]?.name || '総務',
+      position: positions[0]?.name || '課長補佐',
       email: '',
-      phone: '',
+      mobileEmail: '',
+      phoneOutside: '',
+      phoneExtension: '',
+      mobilePhone: '',
       isAdmin: false,
     });
     setUserFormError(null);
@@ -170,10 +204,17 @@ export function AdminPanel({
     setEditingUser(user);
     setUserFormData({
       name: user.name,
-      office: user.office || offices[0]?.name || '名古屋支店',
+      kanaName: user.kanaName || '',
+      loginId: user.loginId || '',
+      password: user.password || 'test',
+      office: user.office || offices[0]?.name || '名古屋',
       division: user.division || divisions[0]?.name || '総務',
+      position: user.position || positions[0]?.name || '課長補佐',
       email: user.email || '',
-      phone: user.phone || '',
+      mobileEmail: user.mobileEmail || '',
+      phoneOutside: user.phoneOutside || '',
+      phoneExtension: user.phoneExtension || '',
+      mobilePhone: user.mobilePhone || user.phone || '',
       isAdmin: !!user.isAdmin,
     });
     setUserFormError(null);
@@ -187,17 +228,26 @@ export function AdminPanel({
       return;
     }
 
-    const deptString = `${userFormData.office} ${userFormData.division}`.trim();
+    const deptString = `${userFormData.office} ${userFormData.division} ${userFormData.position}`.trim();
+    const finalLoginId = userFormData.loginId.trim() || `user_${Date.now().toString().slice(-4)}`;
 
     if (editingUser) {
       onUpdateUser({
         ...editingUser,
         name: userFormData.name.trim(),
+        kanaName: userFormData.kanaName.trim(),
+        loginId: finalLoginId,
+        password: userFormData.password.trim() || 'test',
         office: userFormData.office,
         division: userFormData.division,
+        position: userFormData.position,
         department: deptString,
         email: userFormData.email.trim(),
-        phone: userFormData.phone.trim(),
+        mobileEmail: userFormData.mobileEmail.trim(),
+        phoneOutside: userFormData.phoneOutside.trim(),
+        phoneExtension: userFormData.phoneExtension.trim(),
+        mobilePhone: userFormData.mobilePhone.trim(),
+        phone: userFormData.mobilePhone.trim() || userFormData.phoneOutside.trim() || editingUser.phone,
         isAdmin: userFormData.isAdmin,
         role: userFormData.isAdmin ? 'admin' : 'user',
       });
@@ -205,12 +255,20 @@ export function AdminPanel({
       const newId = `u-${Date.now()}`;
       onAddUser({
         name: userFormData.name.trim(),
+        kanaName: userFormData.kanaName.trim(),
+        loginId: finalLoginId,
+        password: userFormData.password.trim() || 'test',
         office: userFormData.office,
         division: userFormData.division,
+        position: userFormData.position,
         department: deptString,
         avatarUrl: `https://i.pravatar.cc/150?u=${newId}`,
         email: userFormData.email.trim(),
-        phone: userFormData.phone.trim(),
+        mobileEmail: userFormData.mobileEmail.trim(),
+        phoneOutside: userFormData.phoneOutside.trim(),
+        phoneExtension: userFormData.phoneExtension.trim(),
+        mobilePhone: userFormData.mobilePhone.trim(),
+        phone: userFormData.mobilePhone.trim() || userFormData.phoneOutside.trim(),
         isAdmin: userFormData.isAdmin,
         role: userFormData.isAdmin ? 'admin' : 'user',
       });
@@ -321,6 +379,52 @@ export function AdminPanel({
     setIsDivisionModalOpen(false);
   };
 
+  // --- POSITION MASTER HANDLERS ---
+  const handleOpenAddPositionModal = () => {
+    setEditingPosition(null);
+    setPositionFormData({
+      name: '',
+      code: `POS-${Date.now().toString().slice(-3)}`,
+      description: '',
+    });
+    setIsPositionModalOpen(true);
+  };
+
+  const handleOpenEditPositionModal = (pos: PositionMaster) => {
+    setEditingPosition(pos);
+    setPositionFormData({
+      name: pos.name,
+      code: pos.code,
+      description: pos.description || '',
+    });
+    setIsPositionModalOpen(true);
+  };
+
+  const handleSavePosition = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!positionFormData.name.trim()) return;
+
+    if (editingPosition) {
+      if (onUpdatePosition) {
+        onUpdatePosition({
+          ...editingPosition,
+          name: positionFormData.name.trim(),
+          code: positionFormData.code.trim() || editingPosition.code,
+          description: positionFormData.description.trim(),
+        });
+      }
+    } else {
+      if (onAddPosition) {
+        onAddPosition({
+          name: positionFormData.name.trim(),
+          code: positionFormData.code.trim() || `POS-${Date.now().toString().slice(-3)}`,
+          description: positionFormData.description.trim(),
+        });
+      }
+    }
+    setIsPositionModalOpen(false);
+  };
+
   // Filter Users
   const filteredUsers = allUsers.filter((u) => {
     const matchesSearch = 
@@ -429,6 +533,18 @@ export function AdminPanel({
         </button>
 
         <button
+          onClick={() => setActiveSubTab('positions')}
+          className={`flex-1 py-2.5 text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition-all ${
+            activeSubTab === 'positions'
+              ? 'bg-indigo-600 text-white shadow-sm'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+          }`}
+        >
+          <Briefcase className="w-4 h-4" />
+          役職マスター ({positions.length})
+        </button>
+
+        <button
           onClick={() => setActiveSubTab('system')}
           className={`flex-1 py-2.5 text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition-all ${
             activeSubTab === 'system'
@@ -520,7 +636,7 @@ export function AdminPanel({
                         )}
                       </div>
 
-                      {/* Affiliation Badges (Office + Division) */}
+                      {/* Affiliation Badges (Office + Division + Position) */}
                       <div className="flex flex-wrap items-center gap-2 pt-0.5">
                         <span className="text-xs font-bold text-slate-800 bg-slate-100 px-2.5 py-0.5 rounded border border-slate-200 flex items-center gap-1">
                           <Building2 className="w-3 h-3 text-slate-500" />
@@ -531,6 +647,15 @@ export function AdminPanel({
                           <Layers className="w-3 h-3 text-indigo-500" />
                           {user.division || '部署未設定'}
                         </span>
+                        {user.position && (
+                          <>
+                            <span className="text-slate-300 font-bold">/</span>
+                            <span className="text-xs font-extrabold text-purple-700 bg-purple-50 px-2.5 py-0.5 rounded border border-purple-200 flex items-center gap-1">
+                              <Briefcase className="w-3 h-3 text-purple-500" />
+                              {user.position}
+                            </span>
+                          </>
+                        )}
                       </div>
 
                       <div className="flex flex-wrap items-center gap-x-4 text-xs text-slate-500 pt-1">
@@ -764,6 +889,86 @@ export function AdminPanel({
         </div>
       )}
 
+      {/* SUB TAB 4: POSITION MASTERS */}
+      {activeSubTab === 'positions' && (
+        <div className="space-y-6">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
+                  <Briefcase className="w-5 h-5 text-indigo-600" />
+                  役職マスター（社長・部長・課長・課長補佐・主任・一般 等）一覧
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  全社共通の役職定義です。ここで登録された役職がメンバー登録や名刺プロフィールに反映されます。
+                </p>
+              </div>
+
+              <button
+                onClick={handleOpenAddPositionModal}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition-colors shadow-sm shrink-0"
+              >
+                <Plus className="w-4 h-4" />
+                役職マスター追加
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {positions.map((pos) => {
+                const memberCount = allUsers.filter((u) => u.position === pos.name).length;
+
+                return (
+                  <div key={pos.id} className="p-4 bg-white border border-slate-200 rounded-xl shadow-xs space-y-2 relative hover:border-indigo-300 transition-colors">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-mono font-bold bg-slate-100 text-slate-500 px-2 py-0.5 rounded">
+                        {pos.code}
+                      </span>
+
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => handleOpenEditPositionModal(pos)}
+                          className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-slate-100 rounded transition-colors"
+                          title="編集"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (window.confirm(`役職マスター「${pos.name}」を削除してもよろしいですか？`)) {
+                              if (onDeletePosition) onDeletePosition(pos.id);
+                            }
+                          }}
+                          className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                          title="削除"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full bg-indigo-600 shrink-0" />
+                      <h4 className="text-base font-bold text-slate-900">{pos.name}</h4>
+                    </div>
+
+                    <p className="text-xs text-slate-500 leading-relaxed min-h-[32px]">
+                      {pos.description || '社内役職・権限区分です。'}
+                    </p>
+
+                    <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
+                      <span className="text-slate-500">該当メンバー数:</span>
+                      <span className="font-extrabold text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded border border-indigo-100">
+                        {memberCount} 名
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* SUB TAB 4: SYSTEM SETTINGS */}
       {activeSubTab === 'system' && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-6">
@@ -802,12 +1007,18 @@ export function AdminPanel({
 
       {/* MEMBER (USER) ADD/EDIT MODAL */}
       {isUserModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden ring-1 ring-slate-900/5">
+        <div
+          onClick={() => setIsUserModalOpen(false)}
+          className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-50 p-4 backdrop-blur-sm overflow-y-auto"
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden ring-1 ring-slate-900/5 my-8 max-h-[90vh] overflow-y-auto"
+          >
             <div className="px-6 py-4 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
               <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
                 <UserPlus className="w-5 h-5 text-indigo-600" />
-                {editingUser ? 'メンバーの拠点・部署・情報を編集' : '新規メンバー登録'}
+                {editingUser ? 'メンバープロフィールの編集' : '新規メンバー登録'}
               </h2>
               <button
                 onClick={() => setIsUserModalOpen(false)}
@@ -825,90 +1036,190 @@ export function AdminPanel({
                 </div>
               )}
 
-              {/* Name */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  氏名 <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="例: 山田 太郎"
-                  value={userFormData.name}
-                  onChange={(e) => {
-                    setUserFormData({ ...userFormData, name: e.target.value });
-                    setUserFormError(null);
-                  }}
-                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
-                />
+              {/* Name & Kana */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    氏名 <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="例: 山道 健介"
+                    value={userFormData.name}
+                    onChange={(e) => {
+                      setUserFormData({ ...userFormData, name: e.target.value });
+                      setUserFormError(null);
+                    }}
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    名前（フリガナ）
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="例: ヤマミチ ケンスケ"
+                    value={userFormData.kanaName}
+                    onChange={(e) => setUserFormData({ ...userFormData, kanaName: e.target.value })}
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
+                  />
+                </div>
               </div>
 
-              {/* Office Selector (Master) */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  所属拠点 (マスターより選択) <span className="text-red-500">*</span>
-                </label>
-                <select
-                  value={userFormData.office}
-                  onChange={(e) => setUserFormData({ ...userFormData, office: e.target.value })}
-                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white cursor-pointer"
-                >
-                  {offices.map((off) => (
-                    <option key={off.id} value={off.name}>
-                      {off.name} ({off.code})
-                    </option>
-                  ))}
-                </select>
+              {/* Login Credentials */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    ユーザー名 (ログインID)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="例: yamamichi"
+                    value={userFormData.loginId}
+                    onChange={(e) => setUserFormData({ ...userFormData, loginId: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    パスワード
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="例: test"
+                    value={userFormData.password}
+                    onChange={(e) => setUserFormData({ ...userFormData, password: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
+                  />
+                </div>
               </div>
 
-              {/* Division Selector (Master) */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  所属部署 (マスターより選択) <span className="text-red-500">*</span>
-                </label>
-                <select
-                  value={userFormData.division}
-                  onChange={(e) => setUserFormData({ ...userFormData, division: e.target.value })}
-                  className="w-full px-3.5 py-2.5 bg-purple-50 border border-purple-200 rounded-lg text-xs font-bold text-purple-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:bg-white cursor-pointer"
-                >
-                  {divisions.map((div) => (
-                    <option key={div.id} value={div.name}>
-                      {div.name} ({div.code})
-                    </option>
-                  ))}
-                </select>
+              {/* Office, Division, Position */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    拠点マスター <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={userFormData.office}
+                    onChange={(e) => setUserFormData({ ...userFormData, office: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                  >
+                    <option value="名古屋">名古屋</option>
+                    {offices.map((off) => (
+                      <option key={off.id} value={off.name}>
+                        {off.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    部署マスター <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={userFormData.division}
+                    onChange={(e) => setUserFormData({ ...userFormData, division: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-purple-900 focus:outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer"
+                  >
+                    <option value="総務">総務</option>
+                    {divisions.map((div) => (
+                      <option key={div.id} value={div.name}>
+                        {div.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    役職マスター <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={userFormData.position}
+                    onChange={(e) => setUserFormData({ ...userFormData, position: e.target.value })}
+                    className="w-full px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-lg text-xs font-bold text-indigo-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                  >
+                    <option value="課長補佐">課長補佐</option>
+                    {positions.map((pos) => (
+                      <option key={pos.id} value={pos.name}>
+                        {pos.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
               {/* Preview */}
               <div className="p-3 bg-indigo-50 rounded-xl border border-indigo-100 flex items-center justify-between text-xs">
                 <span className="text-slate-600 font-medium">登録表記プレビュー:</span>
-                <span className="font-extrabold text-indigo-900 text-sm bg-white px-3 py-1 rounded-lg border border-indigo-200 shadow-2xs">
-                  {userFormData.office} {userFormData.division}
+                <span className="font-extrabold text-indigo-900 text-xs bg-white px-3 py-1 rounded-lg border border-indigo-200 shadow-2xs">
+                  {userFormData.office} / {userFormData.division} / {userFormData.position}
                 </span>
               </div>
 
-              {/* Email */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">メールアドレス</label>
-                <input
-                  type="email"
-                  placeholder="example@teranago.co.jp"
-                  value={userFormData.email}
-                  onChange={(e) => setUserFormData({ ...userFormData, email: e.target.value })}
-                  className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
-                />
+              {/* Emails */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">メールアドレス</label>
+                  <input
+                    type="email"
+                    placeholder="yamamichi@teraoka-ads.co.jp"
+                    value={userFormData.email}
+                    onChange={(e) => setUserFormData({ ...userFormData, email: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">携帯メールアドレス</label>
+                  <input
+                    type="email"
+                    placeholder="micchy.k@gmail.com"
+                    value={userFormData.mobileEmail}
+                    onChange={(e) => setUserFormData({ ...userFormData, mobileEmail: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
+                  />
+                </div>
               </div>
 
-              {/* Phone */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">電話番号</label>
-                <input
-                  type="text"
-                  placeholder="090-0000-0000"
-                  value={userFormData.phone}
-                  onChange={(e) => setUserFormData({ ...userFormData, phone: e.target.value })}
-                  className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
-                />
+              {/* Phones */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">電話番号 (外線)</label>
+                  <input
+                    type="text"
+                    placeholder="052-123-4567"
+                    value={userFormData.phoneOutside}
+                    onChange={(e) => setUserFormData({ ...userFormData, phoneOutside: e.target.value })}
+                    className="w-full px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">電話番号 (内線)</label>
+                  <input
+                    type="text"
+                    placeholder="16"
+                    value={userFormData.phoneExtension}
+                    onChange={(e) => setUserFormData({ ...userFormData, phoneExtension: e.target.value })}
+                    className="w-full px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">電話番号 (携帯)</label>
+                  <input
+                    type="text"
+                    placeholder="080-3281-6140"
+                    value={userFormData.mobilePhone}
+                    onChange={(e) => setUserFormData({ ...userFormData, mobilePhone: e.target.value })}
+                    className="w-full px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
+                  />
+                </div>
               </div>
 
               {/* Admin toggle */}
@@ -944,8 +1255,14 @@ export function AdminPanel({
 
       {/* OFFICE MASTER MODAL */}
       {isOfficeModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden ring-1 ring-slate-900/5">
+        <div
+          onClick={() => setIsOfficeModalOpen(false)}
+          className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-50 p-4 backdrop-blur-sm"
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden ring-1 ring-slate-900/5"
+          >
             <div className="px-6 py-4 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
               <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
                 <Building2 className="w-5 h-5 text-indigo-600" />
@@ -1045,8 +1362,14 @@ export function AdminPanel({
 
       {/* DIVISION MASTER MODAL */}
       {isDivisionModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden ring-1 ring-slate-900/5">
+        <div
+          onClick={() => setIsDivisionModalOpen(false)}
+          className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-50 p-4 backdrop-blur-sm"
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden ring-1 ring-slate-900/5"
+          >
             <div className="px-6 py-4 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
               <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
                 <Layers className="w-5 h-5 text-indigo-600" />
@@ -1110,6 +1433,86 @@ export function AdminPanel({
                   className="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors shadow-sm"
                 >
                   {editingDivision ? '更新保存' : '追加する'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* POSITION MASTER MODAL */}
+      {isPositionModalOpen && (
+        <div
+          onClick={() => setIsPositionModalOpen(false)}
+          className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-50 p-4 backdrop-blur-sm"
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden ring-1 ring-slate-900/5"
+          >
+            <div className="px-6 py-4 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+              <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                <Briefcase className="w-5 h-5 text-indigo-600" />
+                {editingPosition ? '役職マスター編集' : '役職マスター追加'}
+              </h2>
+              <button
+                onClick={() => setIsPositionModalOpen(false)}
+                className="p-1 text-slate-400 hover:bg-slate-200 rounded-full transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSavePosition} className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  役職名 <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="例: 社長, 部長, 課長, 課長補佐, 主任, 一般"
+                  value={positionFormData.name}
+                  onChange={(e) => setPositionFormData({ ...positionFormData, name: e.target.value })}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-bold text-indigo-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">識別コード</label>
+                <input
+                  type="text"
+                  placeholder="POS-001"
+                  value={positionFormData.code}
+                  onChange={(e) => setPositionFormData({ ...positionFormData, code: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">説明・職責の定義</label>
+                <textarea
+                  rows={3}
+                  placeholder="例: 部署内の業務統括及び意思決定を補佐"
+                  value={positionFormData.description}
+                  onChange={(e) => setPositionFormData({ ...positionFormData, description: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsPositionModalOpen(false)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                >
+                  キャンセル
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors shadow-sm"
+                >
+                  {editingPosition ? '更新保存' : '追加する'}
                 </button>
               </div>
             </form>

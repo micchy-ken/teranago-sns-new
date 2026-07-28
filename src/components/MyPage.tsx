@@ -1,335 +1,1003 @@
 import React, { useState } from 'react';
-import { User, Post, WorkflowApplication } from '../types';
-import { User as UserIcon, Building2, Mail, Calendar as CalendarIcon, MessageSquare, FileText, Bell, Link as LinkIcon, Check, Sparkles, HelpCircle, X, Settings } from 'lucide-react';
+import { User, CalendarEvent, BoardTopic, Memo, WorkflowApplication, OfficeMaster, DivisionMaster, PositionMaster } from '../types';
+import { AppTab } from './Sidebar';
+import { 
+  User as UserIcon, 
+  Calendar as CalendarIcon, 
+  Monitor, 
+  Phone, 
+  FileText, 
+  Check, 
+  Clock, 
+  ChevronRight, 
+  AlertCircle, 
+  Building2, 
+  Briefcase, 
+  MapPin, 
+  Users, 
+  ExternalLink, 
+  X, 
+  MessageSquare,
+  CheckCircle2,
+  XCircle,
+  ShieldAlert,
+  ArrowUpRight,
+  Settings,
+  Copy,
+  RefreshCw,
+  Edit2
+} from 'lucide-react';
+import { TopicDetailModal } from './TopicDetailModal';
 
 interface MyPageProps {
   user: User;
-  myPosts: Post[];
-  myApplications: WorkflowApplication[];
+  events: CalendarEvent[];
+  topics: BoardTopic[];
+  memos: Memo[];
+  applications: WorkflowApplication[];
+  offices?: OfficeMaster[];
+  divisions?: DivisionMaster[];
+  positions?: PositionMaster[];
+  onChangeTab: (tab: AppTab) => void;
   onUpdateUser?: (updatedUser: User) => void;
+  onUpdateMemo?: (updatedMemos: Memo[]) => void;
+  onUpdateTopic?: (updatedTopic: BoardTopic) => void;
+  onUpdateApplication?: (updatedApp: WorkflowApplication) => void;
 }
 
-export function MyPage({ user, myPosts, myApplications, onUpdateUser }: MyPageProps) {
-  const [isEditing, setIsEditing] = useState(false);
-  const [icalUrlInput, setIcalUrlInput] = useState(user.icalUrl || '');
-  const [nameInput, setNameInput] = useState(user.name);
-  const [departmentInput, setDepartmentInput] = useState(user.department);
-  const [emailInput, setEmailInput] = useState(user.email || 'kensuke@example.com');
-  const [saveSuccessMessage, setSaveSuccessMessage] = useState<string | null>(null);
+export function MyPage({
+  user,
+  events,
+  topics,
+  memos,
+  applications,
+  offices = [],
+  divisions = [],
+  positions = [],
+  onChangeTab,
+  onUpdateUser,
+  onUpdateMemo,
+  onUpdateTopic,
+  onUpdateApplication,
+}: MyPageProps) {
+  // ローカル既読状態管理（スケジュールイベント用）
+  const [readEventIds, setReadEventIds] = useState<string[]>(() => {
+    const saved = localStorage.getItem(`read_events_${user.id}`);
+    return saved ? JSON.parse(saved) : ['e1'];
+  });
 
-  const handleSaveProfile = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (onUpdateUser) {
-      onUpdateUser({
-        ...user,
-        name: nameInput,
-        department: departmentInput,
-        email: emailInput,
-        icalUrl: icalUrlInput.trim(),
-      });
-    }
-    setIsEditing(false);
-    setSaveSuccessMessage('プロフィールとカレンダー連携設定を更新しました');
-    setTimeout(() => {
-      setSaveSuccessMessage(null);
-    }, 4000);
+  // モーダル管理
+  const [selectedTopic, setSelectedTopic] = useState<BoardTopic | null>(null);
+  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
+  // 設定フォーム状態
+  const [settingsForm, setSettingsForm] = useState<User>(user);
+  const [copiedICal, setCopiedICal] = useState(false);
+
+  const handleOpenSettings = () => {
+    setSettingsForm(user);
+    setIsSettingsOpen(true);
   };
 
-  const handleSetSampleIcal = () => {
-    setIcalUrlInput('sample://work-schedule.ics');
+  const handleSaveSettings = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (onUpdateUser) {
+      onUpdateUser(settingsForm);
+    }
+    setIsSettingsOpen(false);
+  };
+
+  // イベント既読化
+  const markEventAsRead = (eventId: string) => {
+    if (!readEventIds.includes(eventId)) {
+      const next = [...readEventIds, eventId];
+      setReadEventIds(next);
+      localStorage.setItem(`read_events_${user.id}`, JSON.stringify(next));
+    }
+  };
+
+  // メモの対応ステータストグル
+  const handleToggleMemoStatus = (memoId: string) => {
+    if (onUpdateMemo) {
+      const updated = memos.map((m) =>
+        m.id === memoId ? { ...m, status: (m.status === 'unread' ? 'read' : 'unread') as 'read' | 'unread' } : m
+      );
+      onUpdateMemo(updated);
+    }
+  };
+
+  // 1. 直近スケジュール（自分が参加 または 全社・自拠点宛て）
+  const myEvents = events.filter((e) => {
+    const isAttendee = e.attendees ? e.attendees.some((a) => a?.id === user?.id || a?.name === user?.name) : false;
+    const isTargetOffice = e.office === '全社' || e.office === user?.office;
+    return isAttendee || isTargetOffice;
+  }).sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
+
+  const unreadEvents = myEvents.filter((e) => !readEventIds.includes(e.id));
+
+  // 2. 対象の掲示板トピック（全社・自拠点・自部署宛て）
+  const myTopics = topics.filter((t) => {
+    const matchOffice = !t.office || t.office === '全社' || t.office === user?.office;
+    const matchDivision = !t.division || t.division === '全部署' || t.division === user?.division;
+    return matchOffice && matchDivision;
+  }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  // トピック既読判定（viewersの中に自分が含まれているか）
+  const isTopicRead = (topic: BoardTopic) => {
+    if (!topic.viewers) return false;
+    return topic.viewers.some((v) => v?.user?.id === user?.id || v?.user?.name === user?.name);
+  };
+
+  const unreadTopics = myTopics.filter((t) => !isTopicRead(t));
+
+  // 3. 自分宛ての伝言メモ
+  const myMemos = memos.filter((m) => {
+    if (m.recipientStatuses && m.recipientStatuses.length > 0) {
+      return m.recipientStatuses.some((st) => st.userId === user?.id);
+    }
+    if (m.toUsers && m.toUsers.length > 0) {
+      return m.toUsers.some((u) => u?.id === user?.id || u?.name === user?.name);
+    }
+    if (m.toUser) {
+      return m.toUser.id === user?.id || m.toUser.name === user?.name || (m.toUser.loginId && m.toUser.loginId === user?.loginId);
+    }
+    return true;
+  }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  const unreadMemos = myMemos.filter((m) => m.status === 'unread');
+
+  // 4. 自分に関係するワークフロー（自分が申請者 または 承認者）
+  const myApplications = applications.filter(
+    (a) =>
+      a.applicant?.id === user?.id ||
+      a.applicant?.name === user?.name ||
+      a.approver?.id === user?.id ||
+      a.approver?.name === user?.name
+  ).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  // 自分が承認者で承認待ち (pending) または 自分が申請者で最近ステータスが変わったもの
+  const pendingApprovals = myApplications.filter(
+    (a) => (a.approver?.id === user?.id || a.approver?.name === user?.name) && a.status === 'pending'
+  );
+
+  // ワークフロー承認・却下アクションハンドラー
+  const handleWorkflowAction = (appId: string, status: 'approved' | 'rejected') => {
+    if (onUpdateApplication) {
+      const target = applications.find((a) => a.id === appId);
+      if (target) {
+        onUpdateApplication({ ...target, status });
+      }
+    }
   };
 
   return (
-    <div className="flex-1 overflow-y-auto bg-slate-50/30 rounded-xl border border-slate-200 h-[calc(100vh-8rem)]">
-      <div className="bg-indigo-600 h-32 w-full"></div>
-      
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 -mt-16 pb-12">
-        {saveSuccessMessage && (
-          <div className="mb-4 p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm font-semibold rounded-xl shadow-sm flex items-center justify-between animate-fadeIn">
-            <div className="flex items-center gap-2">
-              <Check className="w-5 h-5 text-emerald-600 shrink-0" />
-              <span>{saveSuccessMessage}</span>
-            </div>
-            <button 
-              onClick={() => setSaveSuccessMessage(null)}
-              className="text-emerald-500 hover:text-emerald-700 p-1"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        )}
+    <div className="flex-1 overflow-y-auto bg-slate-50/50 rounded-xl border border-slate-200 h-[calc(100vh-8rem)] p-4 sm:p-6 space-y-6">
+      {/* ユーザーヘッダー（拠点・iCal同期などのごちゃついた表示は削除し洗練） */}
+      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-5 sm:p-6 flex flex-col sm:flex-row items-center justify-between gap-4 relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-64 h-full bg-gradient-to-l from-indigo-50/50 to-transparent pointer-events-none" />
 
-        {/* Profile Card */}
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 mb-8 relative">
-          <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6">
-            <img 
-              src={user.avatarUrl} 
-              alt={user.name} 
-              className="w-32 h-32 rounded-full border-4 border-white shadow-md bg-white -mt-12 sm:mt-0 object-cover"
+        <div className="flex items-center gap-4 z-10">
+          <div className="relative">
+            <img
+              src={user.avatarUrl}
+              alt={user.name}
+              className="w-16 h-16 sm:w-20 sm:h-20 rounded-full border-2 border-indigo-500/20 shadow-sm object-cover bg-slate-100"
             />
-            <div className="flex-1 text-center sm:text-left mt-2 sm:mt-0">
-              <h1 className="text-2xl font-bold text-slate-900">{user.name}</h1>
-              <div className="flex flex-wrap items-center justify-center sm:justify-start gap-4 mt-3 text-sm text-slate-600">
-                <div className="flex items-center gap-1.5">
-                  <Building2 className="w-4 h-4 text-slate-400" />
-                  {user.department}
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <Mail className="w-4 h-4 text-slate-400" />
-                  {user.email || 'kensuke@example.com'}
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <CalendarIcon className="w-4 h-4 text-slate-400" />
-                  入社: 2022年4月
-                </div>
-              </div>
-
-              {/* iCal Status Badge */}
-              <div className="mt-4 flex items-center justify-center sm:justify-start gap-2">
-                {user.icalUrl ? (
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-medium rounded-full">
-                    <LinkIcon className="w-3.5 h-3.5 text-indigo-500" />
-                    iCalカレンダー連携済み
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-50 border border-amber-200 text-amber-700 text-xs font-medium rounded-full">
-                    <HelpCircle className="w-3.5 h-3.5 text-amber-500" />
-                    iCal未設定
-                  </span>
-                )}
-              </div>
-            </div>
-            <div className="mt-4 sm:mt-0">
-               <button 
-                onClick={() => setIsEditing(true)}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-lg transition-colors shadow-sm flex items-center gap-2"
-               >
-                 <Settings className="w-4 h-4" />
-                 設定 / プロフィール編集
-               </button>
-            </div>
+            <span className="absolute bottom-0 right-0 w-4 h-4 bg-emerald-500 border-2 border-white rounded-full" title="オンライン" />
           </div>
-        </div>
 
-        {/* iCal Quick Settings Box */}
-        <div className="bg-gradient-to-r from-indigo-900 to-slate-900 rounded-xl p-6 text-white mb-8 shadow-md relative overflow-hidden">
-          <div className="absolute top-0 right-0 p-8 opacity-10 pointer-events-none">
-            <CalendarIcon className="w-48 h-48 text-white" />
-          </div>
-          <div className="relative z-10 max-w-2xl">
-            <div className="flex items-center gap-2 mb-2">
-              <span className="px-2.5 py-0.5 bg-indigo-500/30 border border-indigo-400/30 text-indigo-200 text-xs font-semibold rounded-full flex items-center gap-1">
-                <Sparkles className="w-3 h-3 text-indigo-300" />
-                カレンダー同期機能
+          <div className="space-y-1">
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">{user.name}</h1>
+              {user.kanaName && (
+                <span className="text-xs font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
+                  {user.kanaName}
+                </span>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap text-xs">
+              <span className="font-mono font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                ID: {user.loginId || 'yamamichi'}
+              </span>
+              <span className="font-bold text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded border border-indigo-100 flex items-center gap-1">
+                <Briefcase className="w-3 h-3 text-indigo-500" />
+                {user.office || '名古屋'} {user.division || '総務'} {user.position || '課長補佐'}
               </span>
             </div>
-            <h2 className="text-lg font-bold mb-2">外部iCal(ICS) カレンダー連携</h2>
-            <p className="text-slate-300 text-xs leading-relaxed mb-4">
-              GoogleカレンダーやOutlook、Appleカレンダーなどの iCal/ICS URL を登録すると、個人の外部予定が社内カレンダーに自動でまとめて表示されます。
-            </p>
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-              <input 
-                type="text" 
-                value={icalUrlInput}
-                onChange={(e) => setIcalUrlInput(e.target.value)}
-                placeholder="https://... または webcal://... のiCal URLを入力"
-                className="flex-1 bg-slate-800/80 border border-slate-700 rounded-lg px-3.5 py-2 text-sm text-white placeholder-slate-400 focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400"
-              />
-              <button 
-                onClick={(e) => {
-                  handleSaveProfile(e);
-                }}
-                className="px-5 py-2 bg-indigo-500 hover:bg-indigo-600 text-white text-sm font-bold rounded-lg transition-colors shadow shrink-0"
-              >
-                連携URLを保存
-              </button>
-            </div>
-            <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
-              <span>※ webcal:// や https:// で始まるiCal公開URLに対応しています</span>
-              <button 
-                type="button"
-                onClick={handleSetSampleIcal}
-                className="text-indigo-300 hover:text-white underline text-xs transition-colors"
-              >
-                サンプルiCal URLをセット(動作テスト)
-              </button>
-            </div>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-2 space-y-8">
-            {/* My Activities - Posts */}
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-              <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center gap-2">
-                <MessageSquare className="w-4 h-4 text-indigo-500" />
-                <h2 className="text-sm font-bold text-slate-800">最近の投稿</h2>
-              </div>
-              <div className="divide-y divide-slate-100">
-                {myPosts.length > 0 ? myPosts.map(post => (
-                  <div key={post.id} className="p-4 hover:bg-slate-50 transition-colors">
-                    <p className="text-sm text-slate-800 line-clamp-2 mb-2">{post.content}</p>
-                    <div className="flex items-center gap-2 text-[10px] text-slate-400">
-                      <span>{new Date(post.createdAt).toLocaleDateString('ja-JP')}</span>
-                      <span>•</span>
-                      <span>{post.likes} いいね</span>
-                    </div>
-                  </div>
-                )) : (
-                  <div className="p-8 text-center text-slate-500 text-sm">投稿はありません</div>
-                )}
-              </div>
-            </div>
-
-            {/* My Activities - Applications */}
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-              <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center gap-2">
-                <FileText className="w-4 h-4 text-indigo-500" />
-                <h2 className="text-sm font-bold text-slate-800">最近の申請履歴</h2>
-              </div>
-              <div className="divide-y divide-slate-100">
-                {myApplications.length > 0 ? myApplications.map(app => (
-                  <div key={app.id} className="p-4 hover:bg-slate-50 transition-colors flex items-center justify-between">
-                    <div>
-                      <h3 className="text-sm font-semibold text-slate-800 mb-1">{app.title}</h3>
-                      <div className="text-xs text-slate-500">{new Date(app.createdAt).toLocaleDateString('ja-JP')}</div>
-                    </div>
-                    <div>
-                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                        app.status === 'approved' ? 'bg-emerald-100 text-emerald-700' :
-                        app.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
-                        'bg-red-100 text-red-700'
-                      }`}>
-                        {app.status === 'approved' ? '承認済' : app.status === 'pending' ? '申請中' : '却下'}
-                      </span>
-                    </div>
-                  </div>
-                )) : (
-                  <div className="p-8 text-center text-slate-500 text-sm">申請履歴はありません</div>
-                )}
-              </div>
+        <div className="flex items-center gap-3 shrink-0 z-10 w-full sm:w-auto justify-end">
+          <div className="text-right hidden sm:block">
+            <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">マイダッシュボード</div>
+            <div className="text-xs font-extrabold text-slate-700">
+              未読通知合計:{' '}
+              <span className="text-rose-600 text-sm font-black">
+                {unreadEvents.length + unreadTopics.length + unreadMemos.length + pendingApprovals.length} 件
+              </span>
             </div>
           </div>
 
-          <div className="space-y-8">
-             {/* Notifications */}
-             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-              <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Bell className="w-4 h-4 text-indigo-500" />
-                  <h2 className="text-sm font-bold text-slate-800">通知</h2>
-                </div>
-                <span className="bg-rose-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">3</span>
-              </div>
-              <div className="divide-y divide-slate-100">
-                <div className="p-4 hover:bg-slate-50 transition-colors cursor-pointer bg-blue-50/30">
-                  <p className="text-xs text-slate-800 font-medium mb-1">新しい伝言メモがあります</p>
-                  <span className="text-[10px] text-slate-400">10分前</span>
-                </div>
-                <div className="p-4 hover:bg-slate-50 transition-colors cursor-pointer bg-blue-50/30">
-                  <p className="text-xs text-slate-800 font-medium mb-1">出張申請が承認されました</p>
-                  <span className="text-[10px] text-slate-400">2時間前</span>
-                </div>
-                <div className="p-4 hover:bg-slate-50 transition-colors cursor-pointer bg-blue-50/30">
-                  <p className="text-xs text-slate-800 font-medium mb-1">高橋さんがあなたの投稿にいいねしました</p>
-                  <span className="text-[10px] text-slate-400">昨日</span>
-                </div>
-              </div>
-            </div>
-          </div>
+          <button
+            onClick={handleOpenSettings}
+            className="px-3.5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl flex items-center gap-2 transition-all shadow-sm hover:shadow shrink-0 cursor-pointer"
+          >
+            <Settings className="w-4 h-4 text-indigo-300" />
+            <span>個人設定・連携</span>
+          </button>
         </div>
       </div>
 
-      {/* Edit Profile & iCal Modal */}
-      {isEditing && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 max-w-lg w-full p-6 animate-fadeIn">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-5">
-              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                <Settings className="w-5 h-5 text-indigo-600" />
-                プロフィール・カレンダー連携設定
-              </h2>
-              <button 
-                onClick={() => setIsEditing(false)}
-                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100"
+      {/* 4つの未読通知サマリーカード */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        {/* スケジュール */}
+        <div
+          onClick={() => {
+            const el = document.getElementById('my-events-section');
+            if (el) el.scrollIntoView({ behavior: 'smooth' });
+          }}
+          className={`p-4 rounded-xl border shadow-xs transition-all cursor-pointer hover:shadow-md ${
+            unreadEvents.length > 0
+              ? 'bg-amber-50/60 border-amber-200 text-amber-900'
+              : 'bg-white border-slate-200 text-slate-800'
+          }`}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <div className="p-2 bg-amber-100 text-amber-700 rounded-lg">
+              <CalendarIcon className="w-5 h-5" />
+            </div>
+            {unreadEvents.length > 0 ? (
+              <span className="px-2 py-0.5 bg-rose-500 text-white font-extrabold text-[10px] rounded-full animate-pulse shadow-2xs">
+                未確認 {unreadEvents.length}
+              </span>
+            ) : (
+              <span className="px-2 py-0.5 bg-slate-100 text-slate-500 font-bold text-[10px] rounded-full">
+                確認済
+              </span>
+            )}
+          </div>
+          <div className="text-xs font-bold text-slate-500">参加スケジュール</div>
+          <div className="text-lg font-black text-slate-900 mt-0.5">{myEvents.length} 件</div>
+        </div>
+
+        {/* 掲示板 */}
+        <div
+          onClick={() => {
+            const el = document.getElementById('my-topics-section');
+            if (el) el.scrollIntoView({ behavior: 'smooth' });
+          }}
+          className={`p-4 rounded-xl border shadow-xs transition-all cursor-pointer hover:shadow-md ${
+            unreadTopics.length > 0
+              ? 'bg-indigo-50/60 border-indigo-200 text-indigo-900'
+              : 'bg-white border-slate-200 text-slate-800'
+          }`}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <div className="p-2 bg-indigo-100 text-indigo-700 rounded-lg">
+              <Monitor className="w-5 h-5" />
+            </div>
+            {unreadTopics.length > 0 ? (
+              <span className="px-2 py-0.5 bg-indigo-600 text-white font-extrabold text-[10px] rounded-full shadow-2xs">
+                未読 {unreadTopics.length}
+              </span>
+            ) : (
+              <span className="px-2 py-0.5 bg-slate-100 text-slate-500 font-bold text-[10px] rounded-full">
+                既読
+              </span>
+            )}
+          </div>
+          <div className="text-xs font-bold text-slate-500">対象掲示板</div>
+          <div className="text-lg font-black text-slate-900 mt-0.5">{myTopics.length} 件</div>
+        </div>
+
+        {/* 伝言メモ */}
+        <div
+          onClick={() => {
+            const el = document.getElementById('my-memos-section');
+            if (el) el.scrollIntoView({ behavior: 'smooth' });
+          }}
+          className={`p-4 rounded-xl border shadow-xs transition-all cursor-pointer hover:shadow-md ${
+            unreadMemos.length > 0
+              ? 'bg-rose-50/60 border-rose-200 text-rose-900'
+              : 'bg-white border-slate-200 text-slate-800'
+          }`}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <div className="p-2 bg-rose-100 text-rose-700 rounded-lg">
+              <Phone className="w-5 h-5" />
+            </div>
+            {unreadMemos.length > 0 ? (
+              <span className="px-2 py-0.5 bg-rose-600 text-white font-extrabold text-[10px] rounded-full shadow-2xs">
+                未対応 {unreadMemos.length}
+              </span>
+            ) : (
+              <span className="px-2 py-0.5 bg-slate-100 text-slate-500 font-bold text-[10px] rounded-full">
+                対応済
+              </span>
+            )}
+          </div>
+          <div className="text-xs font-bold text-slate-500">自分宛て伝言メモ</div>
+          <div className="text-lg font-black text-slate-900 mt-0.5">{myMemos.length} 件</div>
+        </div>
+
+        {/* ワークフロー */}
+        <div
+          onClick={() => {
+            const el = document.getElementById('my-workflow-section');
+            if (el) el.scrollIntoView({ behavior: 'smooth' });
+          }}
+          className={`p-4 rounded-xl border shadow-xs transition-all cursor-pointer hover:shadow-md ${
+            pendingApprovals.length > 0
+              ? 'bg-purple-50/60 border-purple-200 text-purple-900'
+              : 'bg-white border-slate-200 text-slate-800'
+          }`}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <div className="p-2 bg-purple-100 text-purple-700 rounded-lg">
+              <FileText className="w-5 h-5" />
+            </div>
+            {pendingApprovals.length > 0 ? (
+              <span className="px-2 py-0.5 bg-purple-600 text-white font-extrabold text-[10px] rounded-full shadow-2xs">
+                要承認 {pendingApprovals.length}
+              </span>
+            ) : (
+              <span className="px-2 py-0.5 bg-slate-100 text-slate-500 font-bold text-[10px] rounded-full">
+                処理済
+              </span>
+            )}
+          </div>
+          <div className="text-xs font-bold text-slate-500">ワークフロー</div>
+          <div className="text-lg font-black text-slate-900 mt-0.5">{myApplications.length} 件</div>
+        </div>
+      </div>
+
+      {/* メイングリッド (2列レイアウト) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        
+        {/* 1. 自分が参加の直近スケジュール */}
+        <section id="my-events-section" className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+          <div className="p-4 border-b border-slate-100 bg-slate-50/80 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 bg-amber-500 text-white rounded-lg shadow-2xs">
+                <CalendarIcon className="w-4 h-4" />
+              </div>
+              <h2 className="text-sm font-extrabold text-slate-900">参加スケジュール（直近）</h2>
+              {unreadEvents.length > 0 && (
+                <span className="px-2 py-0.5 bg-rose-500 text-white text-[10px] font-black rounded-full">
+                  未確認 {unreadEvents.length}
+                </span>
+              )}
+            </div>
+
+            <button
+              onClick={() => onChangeTab('calendar')}
+              className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 hover:underline"
+            >
+              カレンダーへ
+              <ArrowUpRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          <div className="p-4 flex-1 space-y-3">
+            {myEvents.length > 0 ? (
+              myEvents.slice(0, 5).map((evt) => {
+                const isUnread = !readEventIds.includes(evt.id);
+                const eventDate = new Date(evt.start);
+
+                return (
+                  <div
+                    key={evt.id}
+                    onClick={() => {
+                      setSelectedEvent(evt);
+                      markEventAsRead(evt.id);
+                    }}
+                    className={`p-3.5 rounded-xl border transition-all cursor-pointer flex items-start gap-3 relative ${
+                      isUnread
+                        ? 'bg-amber-50/40 border-amber-300 hover:border-amber-400 shadow-xs'
+                        : 'bg-white border-slate-200 hover:border-indigo-300 hover:bg-slate-50/50'
+                    }`}
+                  >
+                    {isUnread && (
+                      <span className="absolute top-3 right-3 px-2 py-0.5 bg-rose-500 text-white text-[9px] font-black rounded-full shadow-2xs">
+                        NEW 未確認
+                      </span>
+                    )}
+
+                    <div className="bg-slate-100 text-slate-800 p-2.5 rounded-xl text-center min-w-[56px] shrink-0 border border-slate-200">
+                      <div className="text-[10px] font-extrabold text-indigo-600 uppercase">
+                        {eventDate.toLocaleDateString('ja-JP', { weekday: 'short' })}
+                      </div>
+                      <div className="text-base font-black leading-tight">
+                        {eventDate.getDate()}
+                      </div>
+                    </div>
+
+                    <div className="flex-1 min-w-0 pr-12">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className={`px-2 py-0.5 text-[10px] font-bold rounded ${
+                          evt.type === 'company' ? 'bg-purple-100 text-purple-700' :
+                          evt.type === 'team' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-700'
+                        }`}>
+                          {evt.type === 'company' ? '全社' : evt.type === 'team' ? 'チーム' : '個人'}
+                        </span>
+                        <span className="text-xs font-mono text-slate-500">
+                          {eventDate.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+
+                      <h3 className="text-sm font-bold text-slate-900 truncate">{evt.title}</h3>
+
+                      {evt.location && (
+                        <p className="text-xs text-slate-500 flex items-center gap-1 mt-1 truncate">
+                          <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
+                          {evt.location}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="p-8 text-center text-slate-400 text-xs">
+                直近の参加予定はありません
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* 2. 自分が対象になっている掲示板 */}
+        <section id="my-topics-section" className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+          <div className="p-4 border-b border-slate-100 bg-slate-50/80 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 bg-indigo-600 text-white rounded-lg shadow-2xs">
+                <Monitor className="w-4 h-4" />
+              </div>
+              <h2 className="text-sm font-extrabold text-slate-900">対象掲示板（直近）</h2>
+              {unreadTopics.length > 0 && (
+                <span className="px-2 py-0.5 bg-indigo-600 text-white text-[10px] font-black rounded-full">
+                  未読 {unreadTopics.length}
+                </span>
+              )}
+            </div>
+
+            <button
+              onClick={() => onChangeTab('board')}
+              className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 hover:underline"
+            >
+              掲示板一覧へ
+              <ArrowUpRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          <div className="p-4 flex-1 space-y-3">
+            {myTopics.length > 0 ? (
+              myTopics.slice(0, 5).map((topic) => {
+                const unread = !isTopicRead(topic);
+
+                return (
+                  <div
+                    key={topic.id}
+                    onClick={() => {
+                      setSelectedTopic(topic);
+                      // トピック既読化処理
+                      if (onUpdateTopic && unread) {
+                        const newViewers = [...(topic.viewers || []), { user, viewedAt: new Date().toISOString() }];
+                        onUpdateTopic({ ...topic, viewers: newViewers });
+                      }
+                    }}
+                    className={`p-3.5 rounded-xl border transition-all cursor-pointer flex items-start justify-between gap-3 relative ${
+                      unread
+                        ? 'bg-indigo-50/40 border-indigo-300 hover:border-indigo-400 shadow-xs'
+                        : 'bg-white border-slate-200 hover:border-indigo-300 hover:bg-slate-50/50'
+                    }`}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        {unread ? (
+                          <span className="px-2 py-0.5 bg-rose-500 text-white font-black text-[9px] rounded-full">
+                            未読
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 bg-slate-100 text-slate-500 font-bold text-[9px] rounded-full">
+                            既読
+                          </span>
+                        )}
+
+                        <span className="text-[10px] font-bold bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded">
+                          {topic.office || '全社'} / {topic.division || '全部署'}
+                        </span>
+
+                        <span className="text-[10px] text-slate-400">
+                          {new Date(topic.createdAt).toLocaleDateString('ja-JP')}
+                        </span>
+                      </div>
+
+                      <h3 className="text-sm font-bold text-slate-900 line-clamp-1">{topic.title}</h3>
+                      <p className="text-xs text-slate-500 line-clamp-1 mt-0.5">{topic.content}</p>
+                    </div>
+
+                    <div className="flex items-center gap-1 text-slate-400 text-xs shrink-0 pt-1">
+                      <MessageSquare className="w-3.5 h-3.5" />
+                      <span>{topic.commentsCount || 0}</span>
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="p-8 text-center text-slate-400 text-xs">
+                対象の掲示板はありません
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* 3. 自分に対する伝言メモ */}
+        <section id="my-memos-section" className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+          <div className="p-4 border-b border-slate-100 bg-slate-50/80 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 bg-rose-500 text-white rounded-lg shadow-2xs">
+                <Phone className="w-4 h-4" />
+              </div>
+              <h2 className="text-sm font-extrabold text-slate-900">自分宛ての伝言メモ</h2>
+              {unreadMemos.length > 0 && (
+                <span className="px-2 py-0.5 bg-rose-500 text-white text-[10px] font-black rounded-full">
+                  未対応 {unreadMemos.length}
+                </span>
+              )}
+            </div>
+
+            <button
+              onClick={() => onChangeTab('memo')}
+              className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 hover:underline"
+            >
+              伝言メモ一覧へ
+              <ArrowUpRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          <div className="p-4 flex-1 space-y-3">
+            {myMemos.length > 0 ? (
+              myMemos.map((memo) => {
+                const isUnread = memo.status === 'unread';
+
+                return (
+                  <div
+                    key={memo.id}
+                    className={`p-3.5 rounded-xl border transition-all flex flex-col gap-2 ${
+                      isUnread
+                        ? 'bg-rose-50/40 border-rose-300 shadow-xs'
+                        : 'bg-white border-slate-200 opacity-80'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        {isUnread ? (
+                          <span className="px-2 py-0.5 bg-rose-500 text-white font-black text-[10px] rounded-full flex items-center gap-1">
+                            <Clock className="w-3 h-3" /> 未対応
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 bg-slate-100 text-slate-600 font-bold text-[10px] rounded-full flex items-center gap-1">
+                            <Check className="w-3 h-3 text-emerald-600" /> 対応完了
+                          </span>
+                        )}
+                        <span className="text-xs font-bold text-slate-900">
+                          {memo.fromName} 様 {memo.fromCompany && <span className="text-slate-500 font-normal">({memo.fromCompany})</span>}
+                        </span>
+                      </div>
+
+                      <button
+                        onClick={() => handleToggleMemoStatus(memo.id)}
+                        className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-colors border ${
+                          isUnread
+                            ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700'
+                            : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
+                        }`}
+                      >
+                        {isUnread ? '確認済にする' : '未対応に戻す'}
+                      </button>
+                    </div>
+
+                    <div className="bg-white/80 p-2.5 rounded-lg border border-slate-100 text-xs text-slate-700 whitespace-pre-wrap leading-relaxed">
+                      {memo.content}
+                    </div>
+
+                    <div className="text-[10px] text-slate-400 text-right">
+                      {new Date(memo.createdAt).toLocaleString('ja-JP')}
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="p-8 text-center text-slate-400 text-xs">
+                自分宛ての伝言メモはありません
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* 4. ワークフロー（申請・承認） */}
+        <section id="my-workflow-section" className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+          <div className="p-4 border-b border-slate-100 bg-slate-50/80 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 bg-purple-600 text-white rounded-lg shadow-2xs">
+                <FileText className="w-4 h-4" />
+              </div>
+              <h2 className="text-sm font-extrabold text-slate-900">関係ワークフロー</h2>
+              {pendingApprovals.length > 0 && (
+                <span className="px-2 py-0.5 bg-purple-600 text-white text-[10px] font-black rounded-full">
+                  要承認 {pendingApprovals.length}
+                </span>
+              )}
+            </div>
+
+            <button
+              onClick={() => onChangeTab('workflow')}
+              className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 hover:underline"
+            >
+              ワークフロー一覧へ
+              <ArrowUpRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          <div className="p-4 flex-1 space-y-3">
+            {myApplications.length > 0 ? (
+              myApplications.slice(0, 5).map((app) => {
+                const isMyApproval = (app.approver?.id === user?.id || app.approver?.name === user?.name) && app.status === 'pending';
+
+                return (
+                  <div
+                    key={app.id}
+                    className={`p-3.5 rounded-xl border transition-all flex flex-col gap-2 ${
+                      isMyApproval
+                        ? 'bg-purple-50/50 border-purple-300 shadow-xs'
+                        : 'bg-white border-slate-200'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {app.status === 'approved' && (
+                          <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-extrabold rounded">
+                            承認済
+                          </span>
+                        )}
+                        {app.status === 'rejected' && (
+                          <span className="px-2 py-0.5 bg-rose-100 text-rose-800 text-[10px] font-extrabold rounded">
+                            却下
+                          </span>
+                        )}
+                        {app.status === 'pending' && (
+                          <span className="px-2 py-0.5 bg-amber-100 text-amber-800 text-[10px] font-extrabold rounded">
+                            申請中
+                          </span>
+                        )}
+
+                        <span className="text-xs font-extrabold text-slate-900">{app.title}</span>
+                      </div>
+
+                      {isMyApproval && (
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => handleWorkflowAction(app.id, 'approved')}
+                            className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold rounded shadow-2xs flex items-center gap-0.5"
+                          >
+                            <CheckCircle2 className="w-3 h-3" /> 承認
+                          </button>
+                          <button
+                            onClick={() => handleWorkflowAction(app.id, 'rejected')}
+                            className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-bold rounded shadow-2xs flex items-center gap-0.5"
+                          >
+                            <XCircle className="w-3 h-3" /> 却下
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    <p className="text-xs text-slate-500 line-clamp-1">{app.description}</p>
+
+                    <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-100">
+                      <span>申請者: {app.applicant.name}</span>
+                      <span>承認者: {app.approver.name}</span>
+                      <span>{new Date(app.createdAt).toLocaleDateString('ja-JP')}</span>
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="p-8 text-center text-slate-400 text-xs">
+                関係するワークフローはありません
+              </div>
+            )}
+          </div>
+        </section>
+
+      </div>
+
+      {/* スケジュール詳細モーダル */}
+      {selectedEvent && (
+        <div
+          onClick={() => setSelectedEvent(null)}
+          className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-50 p-4 backdrop-blur-xs"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden p-6 space-y-4"
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <span className="text-xs font-bold text-amber-700 bg-amber-50 px-2.5 py-1 rounded-md border border-amber-200">
+                スケジュール詳細
+              </span>
+              <button
+                onClick={() => setSelectedEvent(null)}
+                className="p-1 text-slate-400 hover:bg-slate-100 rounded-full transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveProfile} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">氏名</label>
-                <input 
-                  type="text" 
-                  value={nameInput}
-                  onChange={(e) => setNameInput(e.target.value)}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  required
-                />
-              </div>
+            <div>
+              <h3 className="text-lg font-bold text-slate-900">{selectedEvent.title}</h3>
+              <p className="text-xs text-slate-500 mt-1">
+                {new Date(selectedEvent.start).toLocaleString('ja-JP')}
+              </p>
+            </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">所属部署 / 肩書</label>
-                <input 
-                  type="text" 
-                  value={departmentInput}
-                  onChange={(e) => setDepartmentInput(e.target.value)}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  required
-                />
+            {selectedEvent.location && (
+              <div className="text-xs text-slate-700 flex items-center gap-2 bg-slate-50 p-3 rounded-xl border border-slate-100">
+                <MapPin className="w-4 h-4 text-indigo-500 shrink-0" />
+                <span>場所: {selectedEvent.location}</span>
               </div>
+            )}
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">メールアドレス</label>
-                <input 
-                  type="email" 
-                  value={emailInput}
-                  onChange={(e) => setEmailInput(e.target.value)}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  required
-                />
+            {selectedEvent.memo && (
+              <div className="text-xs text-slate-600 bg-slate-50 p-3 rounded-xl border border-slate-100 leading-relaxed whitespace-pre-wrap">
+                {selectedEvent.memo}
               </div>
+            )}
 
-              <div className="pt-2 border-t border-slate-100">
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                    <LinkIcon className="w-4 h-4 text-indigo-600" />
-                    iCalカレンダー連携 URL (.ics)
-                  </label>
-                  <button 
-                    type="button"
-                    onClick={handleSetSampleIcal}
-                    className="text-xs text-indigo-600 hover:underline font-medium"
-                  >
-                    サンプルURL入力
-                  </button>
+            <div className="flex justify-end pt-2">
+              <button
+                onClick={() => setSelectedEvent(null)}
+                className="px-4 py-2 bg-slate-800 text-white text-xs font-bold rounded-xl hover:bg-slate-900 transition-colors"
+              >
+                閉じる
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 掲示板トピック詳細モーダル */}
+      {selectedTopic && (
+        <TopicDetailModal
+          isOpen={!!selectedTopic}
+          topic={selectedTopic}
+          currentUser={user}
+          onClose={() => setSelectedTopic(null)}
+          onUpdateTopic={(updated) => {
+            setSelectedTopic(updated);
+            if (onUpdateTopic) onUpdateTopic(updated);
+          }}
+        />
+      )}
+
+      {/* 個人設定・カレンダー連携モーダル */}
+      {isSettingsOpen && (
+        <div
+          onClick={() => setIsSettingsOpen(false)}
+          className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-50 p-4 backdrop-blur-xs overflow-y-auto"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden my-8 max-h-[90vh] flex flex-col border border-slate-100"
+          >
+            <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2">
+                <Settings className="w-5 h-5 text-indigo-400" />
+                <h2 className="text-base font-bold">個人設定・カレンダー同期</h2>
+              </div>
+              <button
+                onClick={() => setIsSettingsOpen(false)}
+                className="p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded-full transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveSettings} className="p-6 overflow-y-auto space-y-6 flex-1">
+              {/* 基本情報設定 */}
+              <div className="space-y-4">
+                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5 pb-1 border-b border-slate-100">
+                  <UserIcon className="w-4 h-4 text-indigo-600" />
+                  基本プロフィール情報
+                </h3>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">氏名</label>
+                    <input
+                      type="text"
+                      required
+                      value={settingsForm.name}
+                      onChange={(e) => setSettingsForm({ ...settingsForm, name: e.target.value })}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">フリガナ</label>
+                    <input
+                      type="text"
+                      value={settingsForm.kanaName || ''}
+                      onChange={(e) => setSettingsForm({ ...settingsForm, kanaName: e.target.value })}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
+                    />
+                  </div>
                 </div>
-                <input 
-                  type="text" 
-                  value={icalUrlInput}
-                  onChange={(e) => setIcalUrlInput(e.target.value)}
-                  placeholder="https://calendar.google.com/calendar/ical/.../basic.ics"
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-                <p className="text-[11px] text-slate-500 mt-1.5 leading-normal">
-                  Googleカレンダー「カレンダーの設定」→「iCal形式の秘密のアドレス」や、Outlook/Appleカレンダーの公開iCal URLを設定してください。
-                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">所属拠点</label>
+                    <select
+                      value={settingsForm.office}
+                      onChange={(e) => setSettingsForm({ ...settingsForm, office: e.target.value })}
+                      className="w-full px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                    >
+                      <option value="名古屋">名古屋</option>
+                      {offices.map((off) => (
+                        <option key={off.id} value={off.name}>
+                          {off.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">所属部署</label>
+                    <select
+                      value={settingsForm.division}
+                      onChange={(e) => setSettingsForm({ ...settingsForm, division: e.target.value })}
+                      className="w-full px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-purple-900 focus:outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer"
+                    >
+                      <option value="総務">総務</option>
+                      {divisions.map((div) => (
+                        <option key={div.id} value={div.name}>
+                          {div.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">役職</label>
+                    <select
+                      value={settingsForm.position || ''}
+                      onChange={(e) => setSettingsForm({ ...settingsForm, position: e.target.value })}
+                      className="w-full px-2.5 py-2 bg-indigo-50 border border-indigo-200 rounded-lg text-xs font-bold text-indigo-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                    >
+                      <option value="課長補佐">課長補佐</option>
+                      {positions.map((pos) => (
+                        <option key={pos.id} value={pos.name}>
+                          {pos.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">メールアドレス</label>
+                    <input
+                      type="email"
+                      value={settingsForm.email || ''}
+                      onChange={(e) => setSettingsForm({ ...settingsForm, email: e.target.value })}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">携帯メール</label>
+                    <input
+                      type="email"
+                      value={settingsForm.mobileEmail || ''}
+                      onChange={(e) => setSettingsForm({ ...settingsForm, mobileEmail: e.target.value })}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">電話 (外線)</label>
+                    <input
+                      type="text"
+                      value={settingsForm.phoneOutside || ''}
+                      onChange={(e) => setSettingsForm({ ...settingsForm, phoneOutside: e.target.value })}
+                      className="w-full px-2 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">電話 (内線)</label>
+                    <input
+                      type="text"
+                      value={settingsForm.phoneExtension || ''}
+                      onChange={(e) => setSettingsForm({ ...settingsForm, phoneExtension: e.target.value })}
+                      className="w-full px-2 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">電話 (携帯)</label>
+                    <input
+                      type="text"
+                      value={settingsForm.mobilePhone || ''}
+                      onChange={(e) => setSettingsForm({ ...settingsForm, mobilePhone: e.target.value })}
+                      className="w-full px-2 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                </div>
               </div>
 
-              <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 mt-6">
-                <button 
+              {/* 外部カレンダー連携（iCal / Google Calendar） */}
+              <div className="space-y-3 pt-4 border-t border-slate-100">
+                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5 pb-1 border-b border-slate-100">
+                  <CalendarIcon className="w-4 h-4 text-amber-500" />
+                  外部カレンダー同期設定 (iCal / Google Calendar)
+                </h3>
+
+                <div className="p-3.5 bg-amber-50/60 rounded-xl border border-amber-200 space-y-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <h4 className="text-xs font-bold text-amber-900">iCal形式 外部連携URL</h4>
+                      <p className="text-[11px] text-amber-700 leading-relaxed mt-0.5">
+                        GoogleカレンダーやiPhone・Outlook等にこのURLを登録すると、社内スケジュールが自動同期されます。
+                      </p>
+                    </div>
+                    <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded shrink-0">
+                      同期有効
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      readOnly
+                      value={`https://teranago.co.jp/api/ical/user_${user.id}_calendar.ics`}
+                      className="flex-1 px-3 py-1.5 bg-white border border-amber-300 rounded-lg text-[11px] font-mono text-slate-700 select-all focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(`https://teranago.co.jp/api/ical/user_${user.id}_calendar.ics`);
+                        setCopiedICal(true);
+                        setTimeout(() => setCopiedICal(false), 2000);
+                      }}
+                      className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1 shrink-0"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                      {copiedICal ? 'コピー完了' : 'URLコピー'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* フッターアクション */}
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
+                <button
                   type="button"
-                  onClick={() => setIsEditing(false)}
-                  className="px-4 py-2 border border-slate-200 text-slate-600 text-sm font-semibold rounded-lg hover:bg-slate-50 transition-colors"
+                  onClick={() => setIsSettingsOpen(false)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
                 >
                   キャンセル
                 </button>
-                <button 
+                <button
                   type="submit"
-                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-lg transition-colors shadow-sm"
+                  className="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors shadow-sm"
                 >
-                  設定を保存
+                  設定内容を保存
                 </button>
               </div>
             </form>

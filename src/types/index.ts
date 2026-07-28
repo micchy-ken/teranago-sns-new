@@ -1,22 +1,30 @@
 export interface User {
   id: string;
+  loginId?: string;
+  password?: string;
   name: string;
-  department: string; // 表示用（例: 名古屋支店 営業）
-  office?: string;    // 所属拠点（例: 名古屋支店）
-  division?: string;  // 所属部署（例: 営業）
+  kanaName?: string;     // 名前（フリガナ）
+  department: string;    // 表示用（例: 名古屋 営業）
+  office?: string;       // 所属拠点（例: 名古屋）
+  division?: string;     // 所属部署（例: 総務）
+  position?: string;     // 役職（例: 課長補佐）
   avatarUrl: string;
   isAdmin?: boolean;
   role?: 'admin' | 'user';
-  email?: string;
-  phone?: string;
-  icalUrl?: string;   // 外部iCal(ICS) URL連携
+  email?: string;          // メールアドレス
+  mobileEmail?: string;    // 携帯メールアドレス
+  phone?: string;          // 旧互換用
+  phoneOutside?: string;   // 電話番号（外線）
+  phoneExtension?: string; // 電話番号（内線）
+  mobilePhone?: string;    // 電話番号（携帯）
+  icalUrl?: string;        // 外部iCal(ICS) URL連携
 }
 
 export type OfficeType = 'headquarter' | 'branch' | 'sales_office' | 'other';
 
 export interface OfficeMaster {
   id: string;
-  name: string; // 名古屋支店, 浜松営業所, 静岡営業所, 本社など
+  name: string; // 名古屋, 浜松, 静岡, 本社など
   type: OfficeType;
   code: string;
   location?: string;
@@ -26,6 +34,13 @@ export interface OfficeMaster {
 export interface DivisionMaster {
   id: string;
   name: string; // 管理, 営業, 設計, 工務, 保守, 保守営業, 総務など
+  code: string;
+  description?: string;
+}
+
+export interface PositionMaster {
+  id: string;
+  name: string; // 代表取締役, 部長, 課長, 課長補佐, 主任, 一般など
   code: string;
   description?: string;
 }
@@ -55,6 +70,7 @@ export interface CalendarEvent {
   location?: string;
   url?: string;
   attendees: User[];
+  attachments?: AttachmentFile[];
   memo?: string;
   isGoogleSynced: boolean;
   isIcal?: boolean; // iCal連携イベントフラグ
@@ -80,15 +96,47 @@ export interface WorkflowApplication {
 
 export type BoardCategory = 'all' | 'general' | 'hr' | 'it';
 
+export interface BoardComment {
+  id: string;
+  author: User;
+  content: string;
+  createdAt: string;
+}
+
+export interface BoardViewer {
+  user: User;
+  viewedAt: string;
+}
+
+export interface AttachmentFile {
+  id: string;
+  name: string;
+  size: string;
+  url?: string;
+  type?: string;
+}
+
 export interface BoardTopic {
   id: string;
-  category: BoardCategory;
+  category?: BoardCategory;
   title: string;
   content: string;
   author: User;
   createdAt: string; // ISO string
   views: number;
   commentsCount: number;
+  
+  // 拡張項目
+  office?: string;    // 公開範囲（拠点: 全社、本社、名古屋支店など）
+  division?: string;  // 公開範囲（部署: 全部署、営業、設計など）
+  tags: string[];     // タグ配列
+  attachments?: AttachmentFile[];
+  hasPeriod?: boolean;  // 公開期間設定（デフォルト: false）
+  startDate?: string;   // YYYY-MM-DD
+  endDate?: string;     // YYYY-MM-DD
+  isPinned?: boolean;   // ピン留め設定
+  comments?: BoardComment[];
+  viewers?: BoardViewer[];
 }
 
 export interface ChatMessage {
@@ -96,6 +144,11 @@ export interface ChatMessage {
   sender: User;
   content: string;
   createdAt: string; // ISO string
+  type?: 'text' | 'stamp' | 'image';
+  imageUrl?: string;
+  stampId?: string;
+  stampText?: string;
+  stampCategory?: string;
 }
 
 export interface ChatRoom {
@@ -107,14 +160,58 @@ export interface ChatRoom {
   lastUpdated: string;
 }
 
+export type RequirementType = 
+  | 'phone_called'       // 電話がありました
+  | 'has_message'        // 伝言があります
+  | 'call_again'         // 再度電話します（折り返し不要）
+  | 'please_call_back'   // 折り返し連絡下さい
+  | 'custom';            // 自由記入
+
+export interface MemoUserRecipientStatus {
+  userId: string;
+  userName: string;
+  avatarUrl?: string;
+  department?: string;
+  office?: string;
+  division?: string;
+  isViewed: boolean;
+  viewedAt?: string;    // 閲覧日時 (ISO string)
+  isHandled: boolean;
+  handledAt?: string;   // 対応日時 (ISO string)
+  handledByUserId?: string;
+  handledByUserName?: string;
+}
+
 export interface Memo {
   id: string;
-  fromName: string; // Name of the person who called
-  fromCompany?: string; // Company of the person who called
-  toUser: User;
-  content: string;
-  status: 'unread' | 'read';
-  createdAt: string; // ISO string
+  // 依頼者情報
+  fromName: string;            // 依頼者名
+  fromCompany?: string;        // 依頼者会社・組織名
+  fromPhone?: string;          // 依頼者連絡先（電話番号）
+  fromEmail?: string;          // 依頼者メールアドレス
+  
+  // 通知先
+  notificationEmail?: string;       // 通知先メールアドレス
+  notificationMobileEmail?: string; // 通知先携帯メールアドレス
+
+  // 宛先指定 (拠点、部署、個人の複数指定可能)
+  targetOffices?: string[];    // 指定拠点 (例: ["名古屋", "浜松"])
+  targetDivisions?: string[];  // 指定部署 (例: ["営業", "総務"])
+  toUsers: User[];             // 指定個人ユーザー配列
+  toUser?: User;               // 旧互換用
+
+  // 要件・本文
+  requirementType: RequirementType;
+  requirementText?: string;    // 要件テキスト
+  content: string;             // 本文内容
+
+  // 全体ステータス・作成情報
+  status: 'unread' | 'read' | 'handled'; // 全体ステータス
+  createdAt: string;           // 作成日時 ISO string
+  createdByUser?: User;        // 伝言受付作成者
+
+  // 各対象者の閲覧・対応状況
+  recipientStatuses: MemoUserRecipientStatus[];
 }
 
 export interface DailyReport {

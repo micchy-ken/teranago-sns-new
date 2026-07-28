@@ -1,4 +1,4 @@
-import { Search, Bell, Menu, Shield } from 'lucide-react';
+import { Search, Bell, Menu, LogOut } from 'lucide-react';
 import { User } from '../types';
 
 interface HeaderProps {
@@ -7,9 +7,10 @@ interface HeaderProps {
   currentUser: User;
   allUsers?: User[];
   onSwitchUser?: (user: User) => void;
+  onLogout?: () => void;
 }
 
-export function Header({ searchQuery, onSearchChange, currentUser, allUsers, onSwitchUser }: HeaderProps) {
+export function Header({ searchQuery, onSearchChange, currentUser, allUsers, onSwitchUser, onLogout }: HeaderProps) {
   return (
     <header className="sticky top-0 z-40 bg-white border-b border-slate-200 shrink-0 shadow-xs">
       <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between gap-4">
@@ -20,10 +21,10 @@ export function Header({ searchQuery, onSearchChange, currentUser, allUsers, onS
           </button>
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center shadow-xs">
-              <span className="text-white font-bold text-lg leading-none">K</span>
+              <span className="text-white font-bold text-lg leading-none">T</span>
             </div>
             <span className="text-xl font-bold tracking-tight text-slate-800 hidden sm:block">
-              Knowledge<span className="text-indigo-600">Sync</span>
+              TERANAGO<span className="text-indigo-600">SNS</span>
             </span>
           </div>
         </div>
@@ -45,14 +46,14 @@ export function Header({ searchQuery, onSearchChange, currentUser, allUsers, onS
         </div>
 
         {/* Right actions */}
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           <button className="relative p-2 text-slate-500 hover:bg-slate-100 rounded-full transition-colors">
             <Bell className="w-5 h-5" />
             <span className="absolute top-1.5 right-1.5 block w-2 h-2 rounded-full bg-red-500 ring-2 ring-white" />
           </button>
           
-          <div className="flex items-center gap-3 pl-4 border-l border-slate-200 hidden sm:flex">
-            <div className="text-right">
+          <div className="flex items-center gap-3 pl-3 border-l border-slate-200">
+            <div className="text-right hidden sm:block">
               <div className="text-sm font-semibold text-slate-800 flex items-center justify-end gap-1">
                 <span>{currentUser.name}</span>
                 {currentUser.isAdmin && (
@@ -66,6 +67,16 @@ export function Header({ searchQuery, onSearchChange, currentUser, allUsers, onS
               alt={currentUser.name} 
               className="w-9 h-9 rounded-full bg-indigo-100 border border-indigo-200 object-cover"
             />
+            {onLogout && (
+              <button
+                onClick={onLogout}
+                title="ログアウト"
+                className="p-2 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors flex items-center gap-1 text-xs font-semibold"
+              >
+                <LogOut className="w-4 h-4" />
+                <span className="hidden md:inline">ログアウト</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
