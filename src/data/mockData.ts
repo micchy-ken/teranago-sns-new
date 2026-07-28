@@ -1,32 +1,116 @@
-import { Post, User, CalendarEvent, WorkflowApplication, BoardTopic, ChatRoom, Memo, DailyReport } from '../types';
+import { Post, User, CalendarEvent, WorkflowApplication, BoardTopic, ChatRoom, Memo, DailyReport, OfficeMaster, DivisionMaster } from '../types';
+
+export const initialOffices: OfficeMaster[] = [
+  {
+    id: 'off-1',
+    name: '名古屋支店',
+    type: 'branch',
+    code: 'OFF-NGY',
+    location: '愛知県名古屋市中村区名駅1-1-4 中村ビル7F',
+    phone: '052-555-0192',
+  },
+  {
+    id: 'off-2',
+    name: '浜松営業所',
+    type: 'sales_office',
+    code: 'OFF-HAM',
+    location: '静岡県浜松市中央区板屋町111-2 浜松アクトタワー12F',
+    phone: '053-444-0183',
+  },
+  {
+    id: 'off-3',
+    name: '静岡営業所',
+    type: 'sales_office',
+    code: 'OFF-SHI',
+    location: '静岡県静岡市葵区黒金町59-6 静岡ビル4F',
+    phone: '054-222-0174',
+  },
+  {
+    id: 'off-4',
+    name: '本社',
+    type: 'headquarter',
+    code: 'OFF-HQ',
+    location: '東京都港区新橋1-2-3 本社ビル',
+    phone: '03-1234-5678',
+  },
+];
+
+export const initialDivisions: DivisionMaster[] = [
+  { id: 'div-1', name: '管理', code: 'DIV-MGT', description: '全社管理・人事・経営企画統括' },
+  { id: 'div-2', name: '営業', code: 'DIV-SLS', description: '新規開拓・既存顧客営業活動' },
+  { id: 'div-3', name: '設計', code: 'DIV-DSG', description: 'システム・建築・ソリューション設計' },
+  { id: 'div-4', name: '工務', code: 'DIV-ENG', description: '現場施工管理・工務調整' },
+  { id: 'div-5', name: '保守', code: 'DIV-MNT', description: '機器点検・定期メンテナンス・アフターサポート' },
+  { id: 'div-6', name: '保守営業', code: 'DIV-MNS', description: '保守サポート契約提案・ルート営業' },
+  { id: 'div-7', name: '総務', code: 'DIV-GEN', description: '拠点総務・庶務・労務手続き' },
+];
 
 export const currentUser: User = {
   id: 'u1',
   name: '健介',
-  department: '開発統括部',
+  office: '本社',
+  division: '設計',
+  department: '本社 設計',
   avatarUrl: 'https://i.pravatar.cc/150?u=u1',
+  isAdmin: true,
+  role: 'admin',
+  email: 'kensuke@teranago.co.jp',
+  phone: '090-1234-5678',
 };
 
-const approverUser: User = {
+export const approverUser: User = {
   id: 'u4',
   name: '田中 部長',
-  department: '開発統括部',
+  office: '本社',
+  division: '管理',
+  department: '本社 管理',
   avatarUrl: 'https://i.pravatar.cc/150?u=u4',
+  isAdmin: false,
+  role: 'user',
+  email: 'tanaka@teranago.co.jp',
+  phone: '03-1234-5678',
 };
 
-const user2: User = {
+export const user2: User = {
   id: 'u2',
   name: '佐藤 デザイン',
-  department: 'デザイン部',
+  office: '名古屋支店',
+  division: '総務',
+  department: '名古屋支店 総務',
   avatarUrl: 'https://i.pravatar.cc/150?u=u2',
+  isAdmin: false,
+  role: 'user',
+  email: 'sato@teranago.co.jp',
+  phone: '052-555-0192',
 };
 
-const user3: User = {
+export const user3: User = {
   id: 'u3',
   name: '高橋 営業',
-  department: '営業部',
+  office: '静岡営業所',
+  division: '営業',
+  department: '静岡営業所 営業',
   avatarUrl: 'https://i.pravatar.cc/150?u=u3',
+  isAdmin: false,
+  role: 'user',
+  email: 'takahashi@teranago.co.jp',
+  phone: '054-222-0174',
 };
+
+export const user5: User = {
+  id: 'u5',
+  name: '鈴木 保守',
+  office: '浜松営業所',
+  division: '保守営業',
+  department: '浜松営業所 保守営業',
+  avatarUrl: 'https://i.pravatar.cc/150?u=u5',
+  isAdmin: false,
+  role: 'user',
+  email: 'suzuki@teranago.co.jp',
+  phone: '053-444-0183',
+};
+
+export const allUsers: User[] = [currentUser, approverUser, user2, user3, user5];
 
 const today = new Date();
 today.setHours(0, 0, 0, 0);
@@ -70,6 +154,8 @@ export const initialEvents: CalendarEvent[] = [
     start: new Date(today.getTime() + 1000 * 60 * 60 * 10).toISOString(),
     end: new Date(today.getTime() + 1000 * 60 * 60 * 12).toISOString(),
     type: 'company',
+    office: '全社',
+    division: '全部署',
     location: '大会議室A / Zoom',
     attendees: [currentUser, approverUser, user2, user3],
     memo: 'Q3の業績報告とQ4の目標設定について',
@@ -81,6 +167,8 @@ export const initialEvents: CalendarEvent[] = [
     start: new Date(today.getTime() + 1000 * 60 * 60 * 14).toISOString(),
     end: new Date(today.getTime() + 1000 * 60 * 60 * 15).toISOString(),
     type: 'team',
+    office: '本社',
+    division: '設計',
     location: 'オンライン',
     url: 'https://meet.google.com/xxx-xxxx-xxx',
     attendees: [currentUser, user2],
@@ -93,6 +181,8 @@ export const initialEvents: CalendarEvent[] = [
     start: new Date(today.getTime() + 1000 * 60 * 60 * 16).toISOString(),
     end: new Date(today.getTime() + 1000 * 60 * 60 * 16.5).toISOString(),
     type: 'personal',
+    office: '本社',
+    division: '管理',
     location: 'ミーティングブース1',
     attendees: [currentUser, approverUser],
     isGoogleSynced: false,
@@ -103,6 +193,8 @@ export const initialEvents: CalendarEvent[] = [
     start: new Date(today.getTime() + 1000 * 60 * 60 * (24 * 5 + 9)).toISOString(),
     end: new Date(today.getTime() + 1000 * 60 * 60 * (24 * 7 + 18)).toISOString(),
     type: 'personal',
+    office: '本社',
+    division: '設計',
     location: '東京ビッグサイト',
     attendees: [currentUser],
     memo: 'ワークフローにて承認済みの出張。カンファレンス参加後、レポート提出予定。',

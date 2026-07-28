@@ -1,7 +1,7 @@
-import { Hash, Home, Bookmark, User, Calendar as CalendarIcon, FileText, MessageSquare, Phone, ClipboardList, Monitor } from 'lucide-react';
-import { Post } from '../types';
+import { Hash, Home, Bookmark, User, Calendar as CalendarIcon, FileText, MessageSquare, Phone, ClipboardList, Monitor, Shield } from 'lucide-react';
+import { Post, User as UserType } from '../types';
 
-export type AppTab = 'timeline' | 'calendar' | 'workflow' | 'board' | 'chat' | 'memo' | 'daily_report' | 'mypage';
+export type AppTab = 'timeline' | 'calendar' | 'workflow' | 'board' | 'chat' | 'memo' | 'daily_report' | 'mypage' | 'admin';
 
 interface SidebarProps {
   posts: Post[];
@@ -9,9 +9,10 @@ interface SidebarProps {
   onSelectTag: (tag: string | null) => void;
   activeTab: AppTab;
   onChangeTab: (tab: AppTab) => void;
+  currentUser?: UserType;
 }
 
-export function Sidebar({ posts, selectedTag, onSelectTag, activeTab, onChangeTab }: SidebarProps) {
+export function Sidebar({ posts, selectedTag, onSelectTag, activeTab, onChangeTab, currentUser }: SidebarProps) {
   // Extract and count tags
   const tagCounts = posts.reduce((acc, post) => {
     post.tags.forEach((tag) => {
@@ -116,6 +117,25 @@ export function Sidebar({ posts, selectedTag, onSelectTag, activeTab, onChangeTa
         >
           <User className="w-4 h-4" />
           マイページ
+        </button>
+
+        <button
+          onClick={() => onChangeTab('admin')}
+          className={`w-full flex items-center justify-between px-3 py-2 rounded-lg font-medium transition-colors ${
+            activeTab === 'admin'
+              ? 'bg-indigo-50 text-indigo-700'
+              : 'text-slate-600 hover:bg-slate-50'
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            <Shield className="w-4 h-4 text-indigo-600" />
+            管理者メニュー
+          </div>
+          {currentUser?.isAdmin && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-indigo-100 text-indigo-700">
+              管理者
+            </span>
+          )}
         </button>
       </nav>
 

@@ -1,8 +1,33 @@
 export interface User {
   id: string;
   name: string;
-  department: string;
+  department: string; // 表示用（例: 名古屋支店 営業）
+  office?: string;    // 所属拠点（例: 名古屋支店）
+  division?: string;  // 所属部署（例: 営業）
   avatarUrl: string;
+  isAdmin?: boolean;
+  role?: 'admin' | 'user';
+  email?: string;
+  phone?: string;
+  icalUrl?: string;   // 外部iCal(ICS) URL連携
+}
+
+export type OfficeType = 'headquarter' | 'branch' | 'sales_office' | 'other';
+
+export interface OfficeMaster {
+  id: string;
+  name: string; // 名古屋支店, 浜松営業所, 静岡営業所, 本社など
+  type: OfficeType;
+  code: string;
+  location?: string;
+  phone?: string;
+}
+
+export interface DivisionMaster {
+  id: string;
+  name: string; // 管理, 営業, 設計, 工務, 保守, 保守営業, 総務など
+  code: string;
+  description?: string;
 }
 
 export interface Post {
@@ -22,13 +47,17 @@ export interface CalendarEvent {
   id: string;
   title: string;
   start: string; // ISO string
-  end: string; // ISO string
+  end?: string; // ISO string (optional)
+  isAllDay?: boolean; // 終日フラグ
   type: EventType;
+  office?: string;    // 対象拠点 (例: 全社, 名古屋支店, 本社)
+  division?: string;  // 対象部署 (例: 全部署, 営業, 設計)
   location?: string;
   url?: string;
   attendees: User[];
   memo?: string;
   isGoogleSynced: boolean;
+  isIcal?: boolean; // iCal連携イベントフラグ
 }
 
 export type ApplicationType = 'business_trip' | 'inventory_issue' | 'purchase_order' | 'other';
