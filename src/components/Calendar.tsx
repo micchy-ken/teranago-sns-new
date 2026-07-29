@@ -88,7 +88,7 @@ export function Calendar({
       const fetched = await fetchIcalFeed(currentUser.icalUrl, currentUser);
       setIcalEvents(fetched);
     } catch (err) {
-      console.error('Failed to load iCal feed:', err);
+      console.warn('Failed to load iCal feed:', err);
       setIcalError('iCalフィードの取得に失敗しました');
     } finally {
       setIsIcalLoading(false);

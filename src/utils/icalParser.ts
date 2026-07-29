@@ -157,7 +157,7 @@ export async function fetchIcalFeed(url: string, user?: User): Promise<CalendarE
       return parseIcsText(text, user);
     }
   } catch (e) {
-    console.error('Failed to fetch via primary iCal proxy:', e);
+    console.warn('Failed to fetch via primary iCal proxy:', e);
   }
 
   try {

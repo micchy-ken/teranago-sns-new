@@ -91,7 +91,11 @@ export default function App() {
       setIsPostsLoading(true);
       setPostsError(null);
       try {
-        const response = await fetch('https://sns.teranago.synology.me/api/posts');
+        const response = await fetch('https://sns.teranago.synology.me/api/posts', {
+          headers: {
+            'Accept': 'application/json'
+          }
+        });
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -102,7 +106,7 @@ export default function App() {
           throw new Error('Received posts data is not an array');
         }
       } catch (err) {
-        console.error('Failed to load posts from API:', err);
+        console.warn('Failed to load posts from API:', err);
         setPostsError('タイムラインデータの同期に失敗しました。一時的なネットワークエラー、またはサーバーがオフラインの可能性があります。');
         setPosts(initialPosts); // fallback to initial posts
       } finally {
