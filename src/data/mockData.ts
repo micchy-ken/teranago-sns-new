@@ -1,4 +1,4 @@
-import { Post, User, CalendarEvent, WorkflowApplication, BoardTopic, ChatRoom, Memo, DailyReport, OfficeMaster, DivisionMaster, PositionMaster } from '../types';
+import { Post, User, CalendarEvent, WorkflowApplication, BoardTopic, ChatRoom, Memo, DailyReport, OfficeMaster, DivisionMaster, PositionMaster, ApprovalFlowRule, ItemMaster } from '../types';
 
 export const initialOffices: OfficeMaster[] = [
   {
@@ -73,6 +73,7 @@ export const currentUser: User = {
   phoneExtension: '16',
   mobilePhone: '080-3281-6140',
   phone: '080-3281-6140',
+  supervisorId: 'u4', // 上長：田中部長
 };
 
 export const approverUser: User = {
@@ -103,6 +104,7 @@ export const user2: User = {
   role: 'user',
   email: 'sato@teranago.co.jp',
   phone: '052-555-0192',
+  supervisorId: 'u1', // 上長：山道課長補佐
 };
 
 export const user3: User = {
@@ -118,6 +120,7 @@ export const user3: User = {
   role: 'user',
   email: 'takahashi@teranago.co.jp',
   phone: '054-222-0174',
+  supervisorId: 'u4', // 上長：田中部長
 };
 
 export const user5: User = {
@@ -133,6 +136,7 @@ export const user5: User = {
   role: 'user',
   email: 'suzuki@teranago.co.jp',
   phone: '053-444-0183',
+  supervisorId: 'u4', // 上長：田中部長
 };
 
 export const allUsers: User[] = [currentUser, approverUser, user2, user3, user5];
@@ -175,37 +179,37 @@ export const initialPosts: Post[] = [
 export const initialEvents: CalendarEvent[] = [
   {
     id: 'e1',
-    title: '全社キックオフミーティング',
+    title: '全社キックオフミーティング（来客）',
     start: new Date(today.getTime() + 1000 * 60 * 60 * 10).toISOString(),
     end: new Date(today.getTime() + 1000 * 60 * 60 * 12).toISOString(),
-    type: 'company',
+    type: 'visitor',
     office: '全社',
     division: '全部署',
     location: '大会議室A / Zoom',
     attendees: [currentUser, approverUser, user2, user3],
     memo: 'Q3の業績報告とQ4の目標設定について',
-    isGoogleSynced: true,
+    isGoogleSynced: false,
   },
   {
     id: 'e2',
-    title: 'デザインレビュー',
+    title: '名駅一丁目現場 工事確認',
     start: new Date(today.getTime() + 1000 * 60 * 60 * 14).toISOString(),
     end: new Date(today.getTime() + 1000 * 60 * 60 * 15).toISOString(),
-    type: 'team',
+    type: 'construction',
     office: '本社',
     division: '設計',
     location: 'オンライン',
     url: 'https://meet.google.com/xxx-xxxx-xxx',
     attendees: [currentUser, user2],
     memo: '進捗確認とブロッカーの共有',
-    isGoogleSynced: true,
+    isGoogleSynced: false,
   },
   {
     id: 'e3',
-    title: '1on1 面談',
+    title: '定期点検・1on1 面談',
     start: new Date(today.getTime() + 1000 * 60 * 60 * 16).toISOString(),
     end: new Date(today.getTime() + 1000 * 60 * 60 * 16.5).toISOString(),
-    type: 'personal',
+    type: 'inspection',
     office: '本社',
     division: '管理',
     location: 'ミーティングブース1',
@@ -217,13 +221,13 @@ export const initialEvents: CalendarEvent[] = [
     title: '【出張】開発者カンファレンス参加（承認済）',
     start: new Date(today.getTime() + 1000 * 60 * 60 * (24 * 5 + 9)).toISOString(),
     end: new Date(today.getTime() + 1000 * 60 * 60 * (24 * 7 + 18)).toISOString(),
-    type: 'personal',
+    type: 'business_trip',
     office: '本社',
     division: '設計',
     location: '東京ビッグサイト',
     attendees: [currentUser],
     memo: 'ワークフローにて承認済みの出張。カンファレンス参加後、レポート提出予定。',
-    isGoogleSynced: true,
+    isGoogleSynced: false,
   }
 ];
 
@@ -240,28 +244,66 @@ export const initialApplications: WorkflowApplication[] = [
     startDate: new Date(today.getTime() + 1000 * 60 * 60 * (24 * 5)).toISOString(),
     endDate: new Date(today.getTime() + 1000 * 60 * 60 * (24 * 7)).toISOString(),
     createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 3).toISOString(),
+    flowId: 'flow-default-1',
+    flowName: '標準2段階承認フロー',
+    currentStepIndex: 2,
+    totalSteps: 2,
+    stepsConfig: [
+      { stepNumber: 1, approverType: 'supervisor_1', stepName: '一次承認（直属上長）' },
+      { stepNumber: 2, approverType: 'supervisor_2', stepName: '二次承認（部長承認）' },
+    ],
+    history: [
+      { stepNumber: 1, approver: approverUser, status: 'approved', actionAt: new Date(Date.now() - 1000 * 60 * 60 * 48).toISOString() },
+      { stepNumber: 2, approver: user3, status: 'approved', actionAt: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString() }
+    ]
   },
   {
     id: 'a2',
     type: 'purchase_order',
-    title: '新規テスト端末（検証用スマホ）の購入',
-    description: 'モバイル対応の検証に必要となる最新のiOS/Android端末を購入します。',
+    title: '名駅一丁目ビル新築工事現場',
+    description: '現場施工に必要な配線用ケーブルおよび高所作業安全帯の手配。',
     applicant: currentUser,
     approver: approverUser,
     status: 'pending',
-    amount: 250000,
+    amount: 147000,
     createdAt: new Date(Date.now() - 1000 * 60 * 60 * 5).toISOString(),
+    purchaseItems: [
+      { itemName: '制御盤用ケーブル (100m)', quantity: 2, unitPrice: 36000, amount: 72000, note: 'A棟2F電気工事用' },
+      { itemName: '高所作業用安全帯フルハーネス', quantity: 5, unitPrice: 15000, amount: 75000, note: '新規入場者用' }
+    ],
+    flowId: 'flow-default-1',
+    flowName: '標準2段階承認フロー',
+    currentStepIndex: 1,
+    totalSteps: 2,
+    stepsConfig: [
+      { stepNumber: 1, approverType: 'supervisor_1', stepName: '一次承認（直属上長）' },
+      { stepNumber: 2, approverType: 'supervisor_2', stepName: '二次承認（部長承認）' },
+    ],
+    history: [],
   },
   {
     id: 'a3',
     type: 'inventory_issue',
-    title: '営業用パンフレット（最新版）出庫',
-    description: '来週の展示会で配布するためのパンフレット補充。',
+    title: '栄二丁目商業ビル改修現場',
+    description: '現場での緊急補給用資材。現場受取予定。',
     applicant: currentUser,
     approver: approverUser,
     status: 'pending',
-    quantity: 500,
+    amount: 19600,
     createdAt: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(),
+    purchaseItems: [
+      { itemName: 'M3戸車セット', quantity: 10, unitPrice: 1200, amount: 12000, note: '1Fエントランス修理用' },
+      { itemName: '両面テープ (強粘着 25mm)', quantity: 4, unitPrice: 1900, amount: 7600, note: 'モール固定用' }
+    ],
+    flowId: 'flow-default-1',
+    flowName: '標準2段階承認フロー',
+    currentStepIndex: 1,
+    totalSteps: 2,
+    stepsConfig: [
+      { stepNumber: 1, approverType: 'supervisor_1', stepName: '一次承認（直属上長）' },
+      { stepNumber: 2, approverType: 'supervisor_2', stepName: '二次承認（部長承認）' },
+    ],
+    history: [],
   },
   {
     id: 'a4',
@@ -273,6 +315,17 @@ export const initialApplications: WorkflowApplication[] = [
     status: 'rejected',
     amount: 40000,
     createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 10).toISOString(),
+    flowId: 'flow-default-1',
+    flowName: '標準2段階承認フロー',
+    currentStepIndex: 1,
+    totalSteps: 2,
+    stepsConfig: [
+      { stepNumber: 1, approverType: 'supervisor_1', stepName: '一次承認（直属上長）' },
+      { stepNumber: 2, approverType: 'supervisor_2', stepName: '二次承認（部長承認）' },
+    ],
+    history: [
+      { stepNumber: 1, approver: approverUser, status: 'rejected', actionAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 10).toISOString() }
+    ]
   }
 ];
 
@@ -555,3 +608,67 @@ export const initialReports: DailyReport[] = [
     createdAt: new Date(today.getTime() - 1000 * 60 * 60 * 24 + 1000 * 60 * 60 * 18).toISOString(),
   }
 ];
+
+export const initialApprovalFlows: ApprovalFlowRule[] = [
+  {
+    id: 'flow-standard-2step',
+    name: '標準2段階承認フロー (上長1次 → 上長2次)',
+    description: '一般申請用。申請者の直属上長（一次上長）が一次承認し、その上の上長（二次上長）が二次承認します。',
+    targetApplicationType: 'all',
+    isDefault: true,
+    steps: [
+      { stepNumber: 1, approverType: 'supervisor_1', stepName: '一次承認（直属上長）' },
+      { stepNumber: 2, approverType: 'supervisor_2', stepName: '二次承認（部門長・二次上長）' },
+    ],
+  },
+  {
+    id: 'flow-supervisor-1step',
+    name: '直属上長 単独承認フロー (1段階)',
+    description: '日常業務や軽微な申請用。申請者の直属上長（一次上長）のみの承認で完了します。',
+    targetApplicationType: 'all',
+    isDefault: false,
+    steps: [
+      { stepNumber: 1, approverType: 'supervisor_1', stepName: '一次承認（直属上長）' },
+    ],
+  },
+  {
+    id: 'flow-admin-direct',
+    name: '特定管理者(田中部長) 直接指定フロー',
+    description: '購入申請など高額決裁用。指定された管理者が直接承認します。',
+    targetApplicationType: 'purchase_order',
+    isDefault: false,
+    steps: [
+      { stepNumber: 1, approverType: 'specific_user', specificUserId: 'u4', stepName: '一次承認（田中部長）' },
+    ],
+  },
+];
+
+export const initialItemMasters: ItemMaster[] = [
+  { id: 'itm-1', code: '16010140', name: 'M3戸車セット', category: '補充', defaultUnitPrice: 2105 },
+  { id: 'itm-2', code: '16010130', name: 'M3ガイド', category: '補充', defaultUnitPrice: 472 },
+  { id: 'itm-3', code: '16010110', name: 'M31ケ用', category: '補充', defaultUnitPrice: 695 },
+  { id: 'itm-4', code: '16010080', name: 'H1戸車', category: '補充', defaultUnitPrice: 772 },
+  { id: 'itm-5', code: '16010070', name: 'H1硬質戸車', category: '補充', defaultUnitPrice: 1505 },
+  { id: 'itm-6', code: '16010210', name: '60φ硬質戸車（青）', category: '補充', defaultUnitPrice: 1510 },
+  { id: 'itm-7', code: '16010010', name: 'D3用戸車セット', category: '補充', defaultUnitPrice: 2105 },
+  { id: 'itm-8', code: '16010020', name: 'D3用1ヶ戸車', category: '補充', defaultUnitPrice: 695 },
+  { id: 'itm-9', code: '16010320', name: '円形戸車', category: '補充', defaultUnitPrice: 1510 },
+  { id: 'itm-10', code: '16010150', name: 'TFM戸車', category: '補充', defaultUnitPrice: 1250 },
+  { id: 'itm-11', code: '16010100', name: 'LTM戸車', category: '補充', defaultUnitPrice: 2155 },
+  { id: 'itm-12', code: '16000160', name: 'TAS戸車（R-35WN）', category: '補充', defaultUnitPrice: 0 },
+  { id: 'itm-13', code: '0502013E', name: '電気錠 EL-7SN2-L', category: '補充', defaultUnitPrice: 0 },
+  { id: 'itm-14', code: '04020040', name: 'VベルトA-300', category: '補充', defaultUnitPrice: 0 },
+  { id: 'itm-15', code: '04020020', name: 'VベルトA-190', category: '補充', defaultUnitPrice: 0 },
+  { id: 'itm-16', code: '04020010', name: 'VベルトA-150', category: '補充', defaultUnitPrice: 0 },
+  { id: 'itm-17', code: '00000000', name: 'ベルトハサミVベルト用', category: '補充', defaultUnitPrice: 0 },
+  { id: 'itm-18', code: '32131780', name: 'ＨＷ-300Ｒ', category: '補充', defaultUnitPrice: 7600 },
+  { id: 'itm-19', code: '32131760', name: 'HW-500T', category: '補充', defaultUnitPrice: 5800 },
+  { id: 'itm-20', code: '32131770', name: 'HW-500S', category: '補充', defaultUnitPrice: 2500 },
+  { id: 'itm-21', code: '3210107P', name: 'OA-72V（W）', category: '補充', defaultUnitPrice: 10600 },
+  { id: 'itm-22', code: '3210195S', name: 'OA-215V,S', category: '補充', defaultUnitPrice: 7800 },
+  { id: 'itm-23', code: '32100470', name: '補助光線スイッチ OS-10P', category: '補充', defaultUnitPrice: 4900 },
+  { id: 'itm-24', code: '32100500', name: '補助光ヘッド SH-5M', category: '補充', defaultUnitPrice: 2700 },
+];
+
+
+

@@ -23,9 +23,11 @@ import {
   allUsers as defaultAllUsers,
   initialOffices,
   initialDivisions,
-  initialPositions
+  initialPositions,
+  initialApprovalFlows,
+  initialItemMasters
 } from './data/mockData';
-import { Post, CalendarEvent, WorkflowApplication, User, OfficeMaster, DivisionMaster, PositionMaster, BoardTopic, ChatRoom } from './types';
+import { Post, CalendarEvent, WorkflowApplication, User, OfficeMaster, DivisionMaster, PositionMaster, BoardTopic, ChatRoom, ApprovalFlowRule, ApprovalStepConfig, ItemMaster, ApplicationStatus } from './types';
 
 export default function App() {
   const [usersList, setUsersList] = useState<User[]>(defaultAllUsers);
@@ -60,6 +62,25 @@ export default function App() {
   const [offices, setOffices] = useState<OfficeMaster[]>(initialOffices);
   const [divisions, setDivisions] = useState<DivisionMaster[]>(initialDivisions);
   const [positions, setPositions] = useState<PositionMaster[]>(initialPositions);
+  const [approvalFlows, setApprovalFlows] = useState<ApprovalFlowRule[]>(initialApprovalFlows);
+  const [itemMasters, setItemMasters] = useState<ItemMaster[]>(initialItemMasters);
+
+  // Item Master Handlers
+  const handleAddItemMaster = (item: Omit<ItemMaster, 'id'>) => {
+    const newItem: ItemMaster = {
+      ...item,
+      id: `itm_${Date.now()}`
+    };
+    setItemMasters([...itemMasters, newItem]);
+  };
+
+  const handleUpdateItemMaster = (updatedItem: ItemMaster) => {
+    setItemMasters(itemMasters.map(i => i.id === updatedItem.id ? updatedItem : i));
+  };
+
+  const handleDeleteItemMaster = (id: string) => {
+    setItemMasters(itemMasters.filter(i => i.id !== id));
+  };
   
   const [posts, setPosts] = useState<Post[]>(initialPosts);
   const [events, setEvents] = useState<CalendarEvent[]>(initialEvents);
@@ -227,15 +248,219 @@ export default function App() {
     setEvents(events.filter(e => e.id !== eventId));
   };
 
+  // 承認フロー マスター管理
+  const handleAddApprovalFlow = (flowData: Omit<ApprovalFlowRule, 'id'>) => {
+    const newFlow: ApprovalFlowRule = {
+      ...flowData,
+      id: `flow-${Date.now()}`,
+    };
+    setApprovalFlows([...approvalFlows, newFlow]);
+  };
+
+  const handleUpdateApprovalFlow = (updatedFlow: ApprovalFlowRule) => {
+    setApprovalFlows(approvalFlows.map(f => f.id === updatedFlow.id ? updatedFlow : f));
+  };
+
+  const handleDeleteApprovalFlow = (id: string) => {
+    setApprovalFlows(approvalFlows.filter(f => f.id !== id));
+  };
+
+  // 申請者から N 階層目の上長を辿るヘルパー関数 (level=1: 1次上長, level=2: 2次上長...)
+  const getSupervisorAtLevel = (applicant: User, targetLevel: number, users: User[]): User | null => {
+    let curr: User | undefined = applicant;
+    for (let i = 0; i < targetLevel; i++) {
+      if (!curr || !curr.supervisorId) {
+        // 指定された階層の上長が存在しない場合は最後に辿れた上長を保持
+        break;
+      }
+      const sup = users.find(u => u.id === curr.supervisorId);
+      if (!sup) break;
+      curr = sup;
+    }
+    return (curr && curr.id !== applicant.id) ? curr : null;
+  };
+
+  // ステップ設定に基づき具体的な承認者を動的解決する関数
+  const resolveApproverForStep = (applicant: User, stepConfig: ApprovalStepConfig, users: User[]): User => {
+    if (stepConfig.approverType === 'specific_user' && stepConfig.specificUserId) {
+      const found = users.find(u => u.id === stepConfig.specificUserId);
+      if (found) return found;
+    }
+
+    let targetLevel = stepConfig.supervisorLevel;
+    if (!targetLevel) {
+      if (stepConfig.approverType === 'supervisor_1') targetLevel = 1;
+      else if (stepConfig.approverType === 'supervisor_2') targetLevel = 2;
+      else targetLevel = stepConfig.stepNumber || 1;
+    }
+
+    const sup = getSupervisorAtLevel(applicant, targetLevel, users);
+    if (sup) return sup;
+
+    // 該当階層の上長未登録時のフォールバック (直近の上長、または管理者)
+    const fallbackSup = getSupervisorAtLevel(applicant, 1, users);
+    return fallbackSup || users.find(u => u.id === 'u4' || u.isAdmin) || users[0];
+  };
+
   // Handle new workflow application
-  const handleAddApplication = (appData: Omit<WorkflowApplication, 'id' | 'createdAt' | 'status'>) => {
+  const handleAddApplication = (appData: Omit<WorkflowApplication, 'id' | 'createdAt' | 'status'> & { status?: ApplicationStatus }) => {
+    // 送信データに承認フローが指定されていればそれを優先、なければ自動検索
+    let selectedFlow = approvalFlows.find(f => f.id === appData.flowId);
+    if (!selectedFlow) {
+      selectedFlow = approvalFlows.find(f => f.targetApplicationType === appData.type) 
+        || approvalFlows.find(f => f.isDefault) 
+        || approvalFlows[0];
+    }
+
+    const stepsConfig = appData.stepsConfig && appData.stepsConfig.length > 0 
+      ? appData.stepsConfig 
+      : (selectedFlow ? selectedFlow.steps : [
+          { stepNumber: 1, approverType: 'supervisor_1', stepName: '一次承認（直属上長）' }
+        ]);
+
+    const initialApprover = appData.approver || resolveApproverForStep(appData.applicant, stepsConfig[0], usersList);
+
     const newApp: WorkflowApplication = {
       ...appData,
       id: `a${Date.now()}`,
       createdAt: new Date().toISOString(),
-      status: 'pending'
+      status: appData.status || 'pending',
+      approver: initialApprover,
+      flowId: appData.flowId || selectedFlow?.id,
+      flowName: appData.flowName || selectedFlow?.name || '標準承認フロー',
+      currentStepIndex: 1,
+      totalSteps: stepsConfig.length,
+      stepsConfig: stepsConfig,
+      history: [],
     };
     setApplications([newApp, ...applications]);
+  };
+
+  // Handle workflow approval / rejection (Multi-step approval processing)
+  const handleWorkflowAction = (id: string, actionStatus: 'approved' | 'rejected', comment?: string) => {
+    setApplications(prevApps => prevApps.map(app => {
+      if (app.id !== id) return app;
+
+      if (actionStatus === 'rejected') {
+        return {
+          ...app,
+          status: 'rejected',
+          rejectReason: comment || '理由未記入',
+          history: [
+            ...(app.history || []),
+            {
+              stepNumber: app.currentStepIndex || 1,
+              approver: userState,
+              status: 'rejected',
+              actionAt: new Date().toISOString(),
+              comment: comment,
+            }
+          ]
+        };
+      }
+
+      // 承認アクション (actionStatus === 'approved')
+      const currentStep = app.currentStepIndex || 1;
+      const stepsConfig = (app.stepsConfig && app.stepsConfig.length > 0) ? app.stepsConfig : null;
+      // stepsConfig が存在する場合はその長さ、無ければ app.totalSteps
+      const totalSteps = stepsConfig ? stepsConfig.length : (app.totalSteps || 1);
+
+      // 次の承認ステップ（2次承認、3次承認...）が存在する場合
+      if (currentStep < totalSteps && stepsConfig) {
+        const nextStepConfig = stepsConfig[currentStep]; // 0-indexed で currentStep 番目 (e.g., currentStep=1 なら 2番目のステップ)
+        const nextApprover = resolveApproverForStep(app.applicant, nextStepConfig, usersList);
+
+        return {
+          ...app,
+          currentStepIndex: currentStep + 1,
+          totalSteps: totalSteps,
+          approver: nextApprover,
+          status: 'pending',
+          history: [
+            ...(app.history || []),
+            {
+              stepNumber: currentStep,
+              approver: userState,
+              status: 'approved',
+              actionAt: new Date().toISOString(),
+              comment: comment,
+            }
+          ]
+        };
+      }
+
+      // 最終ステップ（全段階完了）の承認
+      return {
+        ...app,
+        status: 'approved',
+        currentStepIndex: totalSteps,
+        totalSteps: totalSteps,
+        history: [
+          ...(app.history || []),
+          {
+            stepNumber: currentStep,
+            approver: userState,
+            status: 'approved',
+            actionAt: new Date().toISOString(),
+            comment: comment,
+          }
+        ]
+      };
+    }));
+  };
+
+  // 申請の更新（再申請、下書き保存、取り下げ等）
+  const handleUpdateApplication = (updatedApp: WorkflowApplication) => {
+    setApplications(prevApps => prevApps.map(app => {
+      if (app.id !== updatedApp.id) return app;
+
+      // updatedApp.status が明示的に 'draft' 等の場合はそれを維持、それ以外（再提出等）は 'pending'
+      const targetStatus = updatedApp.status ? updatedApp.status : 'pending';
+
+      let selectedFlow = approvalFlows.find(f => f.id === updatedApp.flowId);
+      if (!selectedFlow) {
+        selectedFlow = approvalFlows.find(f => f.targetApplicationType === updatedApp.type) 
+          || approvalFlows.find(f => f.isDefault) 
+          || approvalFlows[0];
+      }
+
+      const stepsConfig = updatedApp.stepsConfig && updatedApp.stepsConfig.length > 0 
+        ? updatedApp.stepsConfig 
+        : (selectedFlow ? selectedFlow.steps : [
+            { stepNumber: 1, approverType: 'supervisor_1', stepName: '一次承認（直属上長）' }
+          ]);
+
+      const initialApprover = updatedApp.approver || resolveApproverForStep(updatedApp.applicant, stepsConfig[0], usersList);
+
+      const isSubmittingFromDraftOrReject = (app.status === 'draft' || app.status === 'rejected') && targetStatus === 'pending';
+
+      return {
+        ...updatedApp,
+        status: targetStatus,
+        rejectReason: targetStatus === 'pending' ? undefined : updatedApp.rejectReason,
+        currentStepIndex: targetStatus === 'pending' ? 1 : updatedApp.currentStepIndex,
+        totalSteps: stepsConfig.length,
+        stepsConfig: stepsConfig,
+        approver: initialApprover,
+        flowId: updatedApp.flowId || selectedFlow?.id,
+        flowName: updatedApp.flowName || selectedFlow?.name || '標準承認フロー',
+        history: isSubmittingFromDraftOrReject ? [
+          ...(app.history || []),
+          {
+            stepNumber: 0,
+            approver: userState,
+            status: 'approved',
+            actionAt: new Date().toISOString(),
+            comment: app.status === 'draft' ? '下書きから申請提出' : '内容を修正して再申請提出'
+          }
+        ] : (updatedApp.history || app.history || [])
+      };
+    }));
+  };
+
+  // 申請の削除処理
+  const handleDeleteApplication = (applicationId: string) => {
+    setApplications(prevApps => prevApps.filter(app => app.id !== applicationId));
   };
 
   return (
@@ -295,6 +520,13 @@ export default function App() {
           <Workflow 
             applications={applications}
             onAddApplication={handleAddApplication}
+            onUpdateApplication={handleUpdateApplication}
+            onDeleteApplication={handleDeleteApplication}
+            allUsers={usersList}
+            currentUser={userState}
+            approvalFlows={approvalFlows}
+            onWorkflowAction={handleWorkflowAction}
+            itemMasters={itemMasters}
           />
         )}
         {activeTab === 'board' && (
@@ -340,6 +572,7 @@ export default function App() {
             offices={offices}
             divisions={divisions}
             positions={positions}
+            allUsers={usersList}
             onChangeTab={setActiveTab}
             onUpdateUser={handleUpdateUser}
             onUpdateMemo={(updatedMemos) => setMemos(updatedMemos)}
@@ -356,6 +589,8 @@ export default function App() {
             offices={offices}
             divisions={divisions}
             positions={positions}
+            approvalFlows={approvalFlows}
+            itemMasters={itemMasters}
             onAddOffice={handleAddOffice}
             onUpdateOffice={handleUpdateOffice}
             onDeleteOffice={handleDeleteOffice}
@@ -370,6 +605,12 @@ export default function App() {
             onDeleteUser={handleDeleteUser}
             onToggleUserAdmin={handleToggleUserAdmin}
             onSwitchUser={handleSwitchUser}
+            onAddApprovalFlow={handleAddApprovalFlow}
+            onUpdateApprovalFlow={handleUpdateApprovalFlow}
+            onDeleteApprovalFlow={handleDeleteApprovalFlow}
+            onAddItemMaster={handleAddItemMaster}
+            onUpdateItemMaster={handleUpdateItemMaster}
+            onDeleteItemMaster={handleDeleteItemMaster}
           />
         )}
       </main>

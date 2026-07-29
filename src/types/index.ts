@@ -18,6 +18,7 @@ export interface User {
   phoneExtension?: string; // 電話番号（内線）
   mobilePhone?: string;    // 電話番号（携帯）
   icalUrl?: string;        // 外部iCal(ICS) URL連携
+  supervisorId?: string;   // 上長（承認者）ユーザーID
 }
 
 export type OfficeType = 'headquarter' | 'branch' | 'sales_office' | 'other';
@@ -56,7 +57,7 @@ export interface Post {
   nasLink?: string;
 }
 
-export type EventType = 'company' | 'team' | 'personal';
+export type EventType = 'personal' | 'construction' | 'inspection' | 'replacement' | 'repair' | 'visitor' | 'business_trip';
 
 export interface CalendarEvent {
   id: string;
@@ -77,7 +78,52 @@ export interface CalendarEvent {
 }
 
 export type ApplicationType = 'business_trip' | 'inventory_issue' | 'purchase_order' | 'other';
-export type ApplicationStatus = 'pending' | 'approved' | 'rejected';
+export type ApplicationStatus = 'pending' | 'approved' | 'rejected' | 'draft';
+
+export type ApproverType = 'supervisor_1' | 'supervisor_2' | 'supervisor_n' | 'specific_user' | 'supervisor';
+
+export interface ApprovalStepConfig {
+  stepNumber: number; // 1, 2, 3, ... N段階
+  approverType: ApproverType; // 'supervisor_n' | 'supervisor_1' | 'supervisor_2' | 'specific_user' | 'supervisor'
+  supervisorLevel?: number; // N段階目の上長階層 (1: 直属上長, 2: 二次上長, 3: 三次上長...)
+  specificUserId?: string; // 個人指定の場合のユーザーID
+  stepName?: string; // 表示用ステップ名
+}
+
+export interface ApprovalFlowRule {
+  id: string;
+  name: string;
+  description?: string;
+  targetApplicationType?: ApplicationType | 'all';
+  steps: ApprovalStepConfig[];
+  isDefault?: boolean;
+}
+
+export interface ApprovalHistoryRecord {
+  stepNumber: number;
+  approver: User;
+  status: 'approved' | 'rejected';
+  actionAt: string; // ISO string
+  comment?: string;
+}
+
+export interface PurchaseOrderItem {
+  id?: string;
+  itemName: string;     // 品名
+  quantity: number;     // 数量
+  unitPrice: number;    // 想定単価
+  amount: number;       // 小計 (quantity * unitPrice)
+  note?: string;        // 備考
+}
+
+export interface ItemMaster {
+  id: string;
+  name: string;         // 品名
+  category?: string;    // 分類・カテゴリ
+  defaultUnitPrice?: number; // 標準単価
+  unit?: string;        // 単位（個、式、本など）
+  code?: string;        // 品名コード
+}
 
 export interface WorkflowApplication {
   id: string;
@@ -85,13 +131,28 @@ export interface WorkflowApplication {
   title: string;
   description: string;
   applicant: User;
-  approver: User;
+  approver: User; // 現在の承認者
   status: ApplicationStatus;
   amount?: number;
   quantity?: number;
   startDate?: string; // ISO string
   endDate?: string; // ISO string
   createdAt: string; // ISO string
+
+  // 発注申請用明細・関連情報
+  constructionDate?: string; // 工事予定日 (YYYY-MM-DD)
+  purchaseItems?: PurchaseOrderItem[];
+  purchaseOrderNumber?: string; // 発注No (承認ルート/管理で付与)
+  linkedInventoryIssueId?: string; // 移行作成された出庫依頼のID
+
+  // 承認フロー拡張
+  flowId?: string;
+  flowName?: string;
+  currentStepIndex?: number; // 1: 一次承認中, 2: 二次承認中
+  totalSteps?: number;      // 1 または 2
+  stepsConfig?: ApprovalStepConfig[];
+  history?: ApprovalHistoryRecord[];
+  rejectReason?: string;
 }
 
 export type BoardCategory = 'all' | 'general' | 'hr' | 'it';

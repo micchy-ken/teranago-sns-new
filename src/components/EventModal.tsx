@@ -208,7 +208,7 @@ export function EventModal({
         isAllDay,
         location,
         memo,
-        isGoogleSynced,
+        isGoogleSynced: false,
         attendees: selectedAttendees,
         attachments,
       });
@@ -223,7 +223,7 @@ export function EventModal({
         isAllDay,
         location,
         memo,
-        isGoogleSynced,
+        isGoogleSynced: false,
         attendees: selectedAttendees,
         attachments,
       });
@@ -294,9 +294,13 @@ export function EventModal({
                 onChange={e => setType(e.target.value as EventType)}
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-colors"
               >
-                <option value="company">全社/拠点</option>
-                <option value="team">部署</option>
                 <option value="personal">個人</option>
+                <option value="construction">工事</option>
+                <option value="inspection">点検</option>
+                <option value="replacement">取替</option>
+                <option value="repair">修理</option>
+                <option value="visitor">来客</option>
+                <option value="business_trip">出張</option>
               </select>
             </div>
 
@@ -500,14 +504,6 @@ export function EventModal({
           <div>
             <label className="block text-sm font-semibold text-slate-700 mb-1.5">内容</label>
             <textarea value={memo} onChange={e => setMemo(e.target.value)} className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-colors resize-none h-24 text-sm" placeholder="詳細な内容... (URLを入力すると自動的にリンクになります)"></textarea>
-          </div>
-
-          <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-lg border border-slate-200">
-            <input type="checkbox" id="sync" checked={isGoogleSynced} onChange={e => setIsGoogleSynced(e.target.checked)} className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer" />
-            <label htmlFor="sync" className="text-sm font-semibold text-slate-700 flex items-center gap-2 cursor-pointer select-none">
-              <RefreshCw className="w-4 h-4 text-blue-500" />
-              Googleカレンダーと連携する
-            </label>
           </div>
 
           <div className="flex items-center justify-between pt-6 border-t border-slate-100">

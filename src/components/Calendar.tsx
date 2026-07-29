@@ -20,17 +20,25 @@ interface CalendarProps {
 type ViewMode = 'month' | 'week' | 'day' | 'list';
 
 const typeStyles: Record<EventType, string> = {
-  company: 'bg-orange-100 text-orange-700 border-orange-200 hover:bg-orange-200',
-  team: 'bg-indigo-100 text-indigo-700 border-indigo-200 hover:bg-indigo-200',
-  personal: 'bg-emerald-100 text-emerald-700 border-emerald-200 hover:bg-emerald-200'
+  personal: 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100',
+  construction: 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100',
+  inspection: 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100',
+  replacement: 'bg-cyan-50 text-cyan-700 border-cyan-200 hover:bg-cyan-100',
+  repair: 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100',
+  visitor: 'bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100',
+  business_trip: 'bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100'
 };
 
 const icalStyle = 'bg-purple-100 text-purple-800 border-purple-300 hover:bg-purple-200';
 
 const typeLabels: Record<EventType, string> = {
-  company: '会社全体',
-  team: 'チーム',
-  personal: '個人'
+  personal: '個人',
+  construction: '工事',
+  inspection: '点検',
+  replacement: '取替',
+  repair: '修理',
+  visitor: '来客',
+  business_trip: '出張'
 };
 
 export function Calendar({
@@ -49,7 +57,7 @@ export function Calendar({
   // 拠点・部署のプルダウンフィルター状態
   const [selectedOffice, setSelectedOffice] = useState<string>('全社');
   const [selectedDivision, setSelectedDivision] = useState<string>('全部署');
-  const [showPersonal, setShowPersonal] = useState<boolean>(true);
+  const [selectedTypeFilter, setSelectedTypeFilter] = useState<string>('all');
   const [showIcal, setShowIcal] = useState<boolean>(true);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -97,13 +105,13 @@ export function Calendar({
   const filteredEvents = combinedEvents.filter(e => {
     if (e.isIcal) return showIcal;
 
-    if (e.type === 'personal') {
-      if (!showPersonal) return false;
+    if (selectedTypeFilter !== 'all' && e.type !== selectedTypeFilter) {
+      return false;
     }
 
     // 拠点フィルタ (selectedOffice)
     if (selectedOffice !== '全社' && selectedOffice !== '全拠点') {
-      const eOffice = e.office || (e.type === 'company' ? '全社' : undefined);
+      const eOffice = e.office;
       if (eOffice && eOffice !== '全社' && eOffice !== selectedOffice) {
         const attendeeOfficeMatch = e.attendees?.some(a => a.office === selectedOffice);
         if (!attendeeOfficeMatch) return false;
@@ -112,7 +120,7 @@ export function Calendar({
 
     // 部署フィルタ (selectedDivision)
     if (selectedDivision !== '全部署') {
-      const eDiv = e.division || (e.type === 'company' ? '全部署' : undefined);
+      const eDiv = e.division;
       if (eDiv && eDiv !== '全部署' && eDiv !== selectedDivision) {
         const attendeeDivMatch = e.attendees?.some(a => a.division === selectedDivision);
         if (!attendeeDivMatch) return false;
@@ -351,16 +359,20 @@ export function Calendar({
               </select>
             </div>
 
-            {/* 個人 */}
-            <label className="flex items-center gap-1.5 cursor-pointer select-none pl-2.5 border-l border-slate-200">
-              <input
-                type="checkbox"
-                checked={showPersonal}
-                onChange={e => setShowPersonal(e.target.checked)}
-                className="rounded border-slate-300 text-emerald-500 focus:ring-emerald-500 cursor-pointer"
-              />
-              <span className="font-medium text-slate-700 text-xs">個人</span>
-            </label>
+            {/* 区分プルダウン */}
+            <div className="flex items-center gap-1.5 pl-2.5 border-l border-slate-200">
+              <span className="font-semibold text-slate-600 text-xs shrink-0">区分:</span>
+              <select
+                value={selectedTypeFilter}
+                onChange={e => setSelectedTypeFilter(e.target.value)}
+                className="bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+              >
+                <option value="all">全区分</option>
+                {Object.keys(typeLabels).map(key => (
+                  <option key={key} value={key}>{typeLabels[key as EventType]}</option>
+                ))}
+              </select>
+            </div>
 
             {/* iCal */}
             <label className="flex items-center gap-1.5 cursor-pointer select-none pl-2 border-l border-slate-200">
@@ -766,7 +778,6 @@ export function Calendar({
                       </span>
                       <h3 className="font-bold text-slate-900 truncate text-base">{e.title}</h3>
                       {e.isIcal && <LinkIcon className="w-4 h-4 text-purple-600 ml-1" title="iCal連携カレンダー" />}
-                      {e.isGoogleSynced && <RefreshCw className="w-4 h-4 text-blue-500 ml-1" title="Googleカレンダー同期済み" />}
                     </div>
                     {e.memo && (
                       <div className="text-xs text-slate-700 my-2 bg-slate-50 p-2 rounded-lg border border-slate-100">
