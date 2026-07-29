@@ -148,6 +148,18 @@ export async function fetchIcalFeed(url: string, user?: User): Promise<CalendarE
     return getSampleIcalEvents(user);
   }
 
+  // Primary API proxy
+  try {
+    const proxyUrl = `https://sns.teranago.synology.me/api/ical-proxy?url=${encodeURIComponent(normalizedUrl)}`;
+    const response = await fetch(proxyUrl);
+    if (response.ok) {
+      const text = await response.text();
+      return parseIcsText(text, user);
+    }
+  } catch (e) {
+    console.error('Failed to fetch via primary iCal proxy:', e);
+  }
+
   try {
     // Attempt direct fetch
     const response = await fetch(normalizedUrl);

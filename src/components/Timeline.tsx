@@ -18,7 +18,9 @@ import {
   Building2,
   Briefcase,
   X,
-  MessageCircle
+  MessageCircle,
+  Loader2,
+  AlertTriangle
 } from 'lucide-react';
 import { formatRelativeTime } from '../utils';
 
@@ -34,6 +36,8 @@ interface TimelineProps {
   onToggleLike: (postId: string) => void;
   onSelectTag: (tag: string | null) => void;
   onChangeTab?: (tab: AppTab) => void;
+  isLoading?: boolean;
+  error?: string | null;
 }
 
 type TimelineFeedItem = 
@@ -53,6 +57,8 @@ export function Timeline({
   onToggleLike,
   onSelectTag,
   onChangeTab,
+  isLoading = false,
+  error = null,
 }: TimelineProps) {
   // 表示コンテンツ種別フィルター
   const [showPosts, setShowPosts] = useState<boolean>(true);
@@ -340,6 +346,23 @@ export function Timeline({
 
       {/* Feed Stream */}
       <div className="space-y-4">
+        {isLoading && (
+          <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center shadow-2xs">
+            <Loader2 className="w-8 h-8 animate-spin text-indigo-600 mx-auto mb-3" />
+            <p className="text-sm font-semibold text-slate-600">タイムラインのデータを取得しています...</p>
+          </div>
+        )}
+
+        {error && (
+          <div className="bg-amber-50 rounded-2xl border border-amber-200 p-4 shadow-2xs flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <h4 className="text-xs font-bold text-amber-800 font-mono">データ連携エラー</h4>
+              <p className="text-xs text-amber-700 leading-relaxed font-medium">{error}</p>
+            </div>
+          </div>
+        )}
+
         {combinedFeed.length > 0 ? (
           combinedFeed.map((item) => {
             if (item.type === 'post') {

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Header } from './components/Header';
 import { Sidebar, AppTab } from './components/Sidebar';
 import { Timeline } from './components/Timeline';
@@ -83,6 +83,38 @@ export default function App() {
   };
   
   const [posts, setPosts] = useState<Post[]>(initialPosts);
+  const [isPostsLoading, setIsPostsLoading] = useState(false);
+  const [postsError, setPostsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const loadPosts = async () => {
+      setIsPostsLoading(true);
+      setPostsError(null);
+      try {
+        const response = await fetch('https://sns.teranago.synology.me/api/posts');
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const data = await response.json();
+        if (Array.isArray(data)) {
+          setPosts(data);
+        } else {
+          throw new Error('Received posts data is not an array');
+        }
+      } catch (err) {
+        console.error('Failed to load posts from API:', err);
+        setPostsError('タイムラインデータの同期に失敗しました。一時的なネットワークエラー、またはサーバーがオフラインの可能性があります。');
+        setPosts(initialPosts); // fallback to initial posts
+      } finally {
+        setIsPostsLoading(false);
+      }
+    };
+
+    if (isAuthenticated) {
+      loadPosts();
+    }
+  }, [isAuthenticated]);
+
   const [events, setEvents] = useState<CalendarEvent[]>(initialEvents);
   const [applications, setApplications] = useState<WorkflowApplication[]>(initialApplications);
   const [topics, setTopics] = useState<BoardTopic[]>(initialTopics);
@@ -502,6 +534,8 @@ export default function App() {
             onToggleLike={handleToggleLike}
             onSelectTag={setSelectedTag}
             onChangeTab={setActiveTab}
+            isLoading={isPostsLoading}
+            error={postsError}
           />
         )}
         {activeTab === 'calendar' && (

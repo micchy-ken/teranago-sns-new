@@ -40,11 +40,30 @@ export const PostCard: React.FC<PostCardProps> = ({ post, onLike, onTagClick }) 
         </p>
         
         {post.nasLink && (
-          <div className="mt-3 p-3 bg-slate-50 border border-slate-200 rounded-lg flex items-start gap-2">
-            <span className="text-xs font-bold text-slate-500 bg-white border border-slate-200 px-1.5 py-0.5 rounded shadow-sm shrink-0">NAS</span>
-            <a href="#" className="text-sm text-indigo-600 hover:underline break-all" title="NASパスをコピーする">
-              {post.nasLink}
-            </a>
+          <div className="mt-3 p-3 bg-slate-50 border border-slate-200 rounded-lg flex items-center justify-between gap-2">
+            <div className="flex items-start gap-2 min-w-0">
+              <span className="text-xs font-bold text-slate-500 bg-white border border-slate-200 px-1.5 py-0.5 rounded shadow-sm shrink-0">NAS</span>
+              <a 
+                href={`https://sns.teranago.synology.me/api/nas-file?path=${encodeURIComponent(post.nasLink)}`} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-sm text-indigo-600 hover:underline break-all font-semibold" 
+                title="NASファイルを開く/ダウンロード"
+              >
+                {post.nasLink}
+              </a>
+            </div>
+            <button
+              onClick={(e) => {
+                e.preventDefault();
+                navigator.clipboard.writeText(post.nasLink || '');
+                // Simple feedback can be shown
+              }}
+              className="text-[11px] font-bold text-slate-500 hover:text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 px-2 py-1 rounded shrink-0 transition-colors"
+              title="NASパスをコピー"
+            >
+              パスをコピー
+            </button>
           </div>
         )}
       </div>
