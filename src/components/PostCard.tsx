@@ -16,14 +16,14 @@ export const PostCard: React.FC<PostCardProps> = ({ post, onLike, onTagClick }) 
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-center gap-3 w-full">
           <img
-            src={post.author.avatarUrl}
-            alt={post.author.name}
+            src={post.author?.avatarUrl || 'https://i.pravatar.cc/150'}
+            alt={post.author?.name || '匿名'}
             className="w-10 h-10 rounded-full object-cover border border-slate-100 bg-slate-100 shrink-0"
           />
           <div className="flex flex-col sm:flex-row sm:items-center justify-between w-full gap-1 sm:gap-4">
             <div className="flex items-center gap-2">
-              <span className="font-bold text-slate-800">{post.author.name}</span>
-              <span className="text-xs px-2 py-0.5 bg-slate-100 text-slate-500 rounded">{post.author.department}</span>
+              <span className="font-bold text-slate-800">{post.author?.name || '匿名'}</span>
+              <span className="text-xs px-2 py-0.5 bg-slate-100 text-slate-500 rounded">{post.author?.department || '未設定'}</span>
             </div>
             <span className="text-xs text-slate-400">{formatRelativeTime(post.createdAt)}</span>
           </div>

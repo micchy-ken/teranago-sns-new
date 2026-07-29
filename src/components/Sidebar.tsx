@@ -14,10 +14,12 @@ interface SidebarProps {
 
 export function Sidebar({ posts, selectedTag, onSelectTag, activeTab, onChangeTab, currentUser }: SidebarProps) {
   // Extract and count tags
-  const tagCounts = posts.reduce((acc, post) => {
-    post.tags.forEach((tag) => {
-      acc[tag] = (acc[tag] || 0) + 1;
-    });
+  const tagCounts = (posts || []).reduce((acc, post) => {
+    if (post && post.tags && Array.isArray(post.tags)) {
+      post.tags.forEach((tag) => {
+        acc[tag] = (acc[tag] || 0) + 1;
+      });
+    }
     return acc;
   }, {} as Record<string, number>);
 

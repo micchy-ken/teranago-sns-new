@@ -225,7 +225,7 @@ export function Chat({
       if (r.id === roomId) {
         return {
           ...r,
-          messages: [...r.messages, message],
+          messages: [...(r.messages || []), message],
           lastUpdated: new Date().toISOString()
         };
       }
@@ -315,7 +315,7 @@ export function Chat({
         return {
           ...r,
           participants: newParticipants,
-          messages: [...r.messages, systemMsg],
+          messages: [...(r.messages || []), systemMsg],
           lastUpdated: new Date().toISOString()
         };
       }
@@ -442,7 +442,7 @@ export function Chat({
         <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
           {filteredRooms.length > 0 ? (
             filteredRooms.map((room) => {
-              const lastMsg = room.messages[room.messages.length - 1];
+              const lastMsg = room.messages && room.messages.length > 0 ? room.messages[room.messages.length - 1] : undefined;
               const isActive = activeRoomId === room.id;
 
               return (
@@ -552,7 +552,7 @@ export function Chat({
           <div className="flex-1 flex overflow-hidden">
             {/* メッセージ本文エリア (LINEスタイルトーク画面) */}
             <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 bg-[#e2e8f0]/40">
-              {activeRoom.messages.map((msg, index) => {
+              {(activeRoom?.messages || []).map((msg, index) => {
                 const isMine = msg.sender.id === currentUser.id;
                 const isSystem = msg.id.startsWith('sys_') || msg.id.startsWith('m_init_');
 
@@ -566,7 +566,7 @@ export function Chat({
                   );
                 }
 
-                const prevMsg = activeRoom.messages[index - 1];
+                const prevMsg = index > 0 ? (activeRoom?.messages || [])[index - 1] : undefined;
                 const showSenderName = !isMine && (!prevMsg || prevMsg.sender.id !== msg.sender.id || prevMsg.id.startsWith('sys_'));
 
                 return (

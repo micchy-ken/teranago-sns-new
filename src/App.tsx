@@ -85,37 +85,41 @@ export default function App() {
   const [posts, setPosts] = useState<Post[]>(initialPosts);
   const [isPostsLoading, setIsPostsLoading] = useState(false);
   const [postsError, setPostsError] = useState<string | null>(null);
+  const [postsSource, setPostsSource] = useState<'api' | 'mock'>('mock');
+
+  const refetchPosts = async () => {
+    setIsPostsLoading(true);
+    setPostsError(null);
+    try {
+      const response = await fetch('https://sns.teranago.synology.me/api/posts', {
+        headers: {
+          'Accept': 'application/json'
+        }
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP status ${response.status}`);
+      }
+      const data = await response.json();
+      if (Array.isArray(data)) {
+        setPosts(data);
+        setPostsSource('api');
+        setPostsError(null);
+      } else {
+        throw new Error('Received posts data is not an array');
+      }
+    } catch (err: any) {
+      console.warn('Failed to load posts from API:', err);
+      setPostsError(err?.message || 'Failed to sync with API. Check connectivity.');
+      setPostsSource('mock');
+      setPosts(initialPosts); // fallback to initial posts
+    } finally {
+      setIsPostsLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const loadPosts = async () => {
-      setIsPostsLoading(true);
-      setPostsError(null);
-      try {
-        const response = await fetch('https://sns.teranago.synology.me/api/posts', {
-          headers: {
-            'Accept': 'application/json'
-          }
-        });
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const data = await response.json();
-        if (Array.isArray(data)) {
-          setPosts(data);
-        } else {
-          throw new Error('Received posts data is not an array');
-        }
-      } catch (err) {
-        console.warn('Failed to load posts from API:', err);
-        setPostsError('タイムラインデータの同期に失敗しました。一時的なネットワークエラー、またはサーバーがオフラインの可能性があります。');
-        setPosts(initialPosts); // fallback to initial posts
-      } finally {
-        setIsPostsLoading(false);
-      }
-    };
-
     if (isAuthenticated) {
-      loadPosts();
+      refetchPosts();
     }
   }, [isAuthenticated]);
 
@@ -540,6 +544,8 @@ export default function App() {
             onChangeTab={setActiveTab}
             isLoading={isPostsLoading}
             error={postsError}
+            postsSource={postsSource}
+            onRefetchPosts={refetchPosts}
           />
         )}
         {activeTab === 'calendar' && (
