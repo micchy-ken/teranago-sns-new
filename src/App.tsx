@@ -1365,27 +1365,54 @@ export default function App() {
   };
 
   const handleUpdateMemos = async (updatedMemos: any[]) => {
+    const existingIds = new Set(memos.map(m => m.id));
     setMemos(updatedMemos);
+
     try {
-      const lastMemo = updatedMemos[updatedMemos.length - 1];
-      if (lastMemo) {
-        await fetch('https://sns.teranago.synology.me/api/memos', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            id: lastMemo.id,
-            senderId: userState.id,
-            receiverId: lastMemo.toUserId || 'u1',
-            fromName: lastMemo.fromName,
-            fromCompany: lastMemo.fromCompany,
-            fromPhone: lastMemo.fromPhone,
-            content: lastMemo.content,
-            isRead: lastMemo.status === 'handled' ? 1 : 0,
-            createdAt: lastMemo.createdAt || new Date().toISOString()
-          })
-        });
-        await refetchMemos();
+      for (const memo of updatedMemos) {
+        if (!existingIds.has(memo.id)) {
+          // 新規メモ作成
+          await fetch('https://sns.teranago.synology.me/api/memos', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              id: memo.id,
+              senderId: userState.id,
+              receiverId: memo.toUserId || memo.toUser?.id || 'u1',
+              fromName: memo.fromName,
+              fromCompany: memo.fromCompany,
+              fromPhone: memo.fromPhone,
+              content: memo.content,
+              details: {
+                requirementType: memo.requirementType,
+                requirementText: memo.requirementText,
+                targetOffices: memo.targetOffices,
+                targetDivisions: memo.targetDivisions,
+                recipientStatuses: memo.recipientStatuses,
+              },
+              isRead: memo.status === 'handled' ? 1 : 0,
+              createdAt: memo.createdAt || new Date().toISOString()
+            })
+          });
+        } else {
+          // 既存メモの更新（既読・対応フラグ等）
+          await fetch(`https://sns.teranago.synology.me/api/memos/${memo.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              isRead: memo.status === 'handled' ? 1 : 0,
+              details: {
+                requirementType: memo.requirementType,
+                requirementText: memo.requirementText,
+                targetOffices: memo.targetOffices,
+                targetDivisions: memo.targetDivisions,
+                recipientStatuses: memo.recipientStatuses,
+              }
+            })
+          });
+        }
       }
+      await refetchMemos();
     } catch (err) {
       console.warn('Failed to sync memos via API:', err);
     }

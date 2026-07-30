@@ -302,6 +302,18 @@ export function Calendar({
       d1.getDate() === d2.getDate();
   };
 
+  const getLocalDateStr = (isoOrDateStr: string) => {
+    if (!isoOrDateStr) return '';
+    const d = new Date(isoOrDateStr);
+    if (isNaN(d.getTime())) {
+      return isoOrDateStr.split('T')[0];
+    }
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+
   const hoursList = Array.from({ length: 15 }, (_, i) => i + 8); // 8:00 to 22:00
 
   const getEventStyle = (e: CalendarEvent) => {
@@ -457,7 +469,7 @@ export function Calendar({
               {days.slice(0, 35).map((day, i) => {
                 const isToday = day === new Date().getDate() && month === new Date().getMonth() && year === new Date().getFullYear();
                 const cellDateStr = day ? `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}` : null;
-                const cellEvents = cellDateStr ? filteredEvents.filter(e => e.start.startsWith(cellDateStr)) : [];
+                const cellEvents = cellDateStr ? filteredEvents.filter(e => getLocalDateStr(e.start) === cellDateStr) : [];
                 const cellKey = `month-cell-${i}`;
                 const isDragOver = dragOverKey === cellKey;
                 
@@ -543,7 +555,7 @@ export function Calendar({
               <div className="py-2 px-2 text-center text-[11px] font-bold text-slate-500 border-r border-slate-200 flex items-center justify-center">終日</div>
               {weekDays.map((d, idx) => {
                 const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-                const allDayEvs = filteredEvents.filter(e => e.isAllDay && e.start.startsWith(dateStr));
+                const allDayEvs = filteredEvents.filter(e => e.isAllDay && getLocalDateStr(e.start) === dateStr);
                 const slotKey = `week-allday-${idx}`;
                 const isDragOver = dragOverKey === slotKey;
 
@@ -592,7 +604,7 @@ export function Calendar({
                       
                       const slotEvents = filteredEvents.filter(e => {
                         if (e.isAllDay) return false;
-                        if (!e.start.startsWith(dateStr)) return false;
+                        if (getLocalDateStr(e.start) !== dateStr) return false;
                         const eventHour = new Date(e.start).getHours();
                         return eventHour === h;
                       });
@@ -660,7 +672,7 @@ export function Calendar({
             {/* All-Day Events */}
             {(() => {
               const dStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
-              const dayAllDayEvents = filteredEvents.filter(e => e.isAllDay && e.start.startsWith(dStr));
+              const dayAllDayEvents = filteredEvents.filter(e => e.isAllDay && getLocalDateStr(e.start) === dStr);
               if (dayAllDayEvents.length === 0) return null;
               return (
                 <div className="mb-6 p-4 bg-slate-50 rounded-xl border border-slate-200">
@@ -701,7 +713,7 @@ export function Calendar({
 
                 const dayEvents = filteredEvents.filter(e => {
                   if (e.isAllDay) return false;
-                  if (!e.start.startsWith(dateStr)) return false;
+                  if (getLocalDateStr(e.start) !== dateStr) return false;
                   const eventHour = new Date(e.start).getHours();
                   return eventHour === h;
                 });

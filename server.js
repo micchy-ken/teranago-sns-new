@@ -661,6 +661,41 @@ app.put('/api/memos/:id/read', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+app.put('/api/memos/:id', async (req, res) => {
+  try {
+    const { isRead, details, status } = req.body;
+    const pool = await getPool();
+    const detailsStr = details ? (typeof details === 'object' ? JSON.stringify(details) : details) : null;
+    
+    let queryStr = `UPDATE dbo.Memos SET `;
+    const updates = [];
+    if (isRead !== undefined) updates.push(`isRead = @isRead`);
+    if (detailsStr !== null) updates.push(`details = @details`);
+    if (status !== undefined) updates.push(`status = @status`);
+    
+    if (updates.length === 0) {
+      return res.json({ message: '更新対象なし' });
+    }
+    queryStr += updates.join(', ') + ` WHERE id = @id`;
+
+    const reqObj = pool.request().input('id', sql.VarChar, String(req.params.id));
+    if (isRead !== undefined) reqObj.input('isRead', sql.Bit, isRead ? 1 : 0);
+    if (detailsStr !== null) reqObj.input('details', sql.NVarChar, detailsStr);
+    if (status !== undefined) reqObj.input('status', sql.NVarChar, String(status));
+
+    await reqObj.query(queryStr);
+    res.json({ message: '伝言メモ更新完了' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/memos/:id', async (req, res) => {
+  try {
+    const pool = await getPool();
+    await pool.request().input('id', sql.VarChar, String(req.params.id)).query`DELETE FROM dbo.Memos WHERE id = @id`;
+    res.json({ message: '伝言メモ削除完了' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ------------------------------------------
 // 9. Daily Reports (日報)
 // ------------------------------------------

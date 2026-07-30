@@ -148,7 +148,7 @@ export const initialPosts: Post[] = [
   {
     id: 'p1',
     author: currentUser,
-    content: '新しいプロジェクトのデザインモックが完成しました。フィードバックをお願いします！\n\nデザインファイルはNASの共有フォルダに保存しています。',
+    content: '[モック] 新しいプロジェクトのデザインモックが完成しました。フィードバックをお願いします！\n\nデザインファイルはNASの共有フォルダに保存しています。',
     tags: ['デザイン', '新プロジェクト'],
     createdAt: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(),
     likes: 5,
@@ -158,7 +158,7 @@ export const initialPosts: Post[] = [
   {
     id: 'p2',
     author: user3,
-    content: '来週の営業会議の資料、NASの営業部フォルダにアップロードしました。各自事前に目を通しておいてください。',
+    content: '[モック] 来週の営業会議の資料、NASの営業部フォルダにアップロードしました。各自事前に目を通しておいてください。',
     tags: ['営業会議', '資料'],
     createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(),
     likes: 2,
@@ -168,7 +168,7 @@ export const initialPosts: Post[] = [
   {
     id: 'p3',
     author: approverUser,
-    content: '今期の目標達成に向けたキックオフミーティングお疲れ様でした。議事録を展開します。',
+    content: '[モック] 今期の目標達成に向けたキックオフミーティングお疲れ様でした。議事録を展開します。',
     tags: ['全社', '議事録'],
     createdAt: new Date(Date.now() - 1000 * 60 * 60 * 48).toISOString(),
     likes: 12,
@@ -179,7 +179,7 @@ export const initialPosts: Post[] = [
 export const initialEvents: CalendarEvent[] = [
   {
     id: 'e1',
-    title: '全社キックオフミーティング（来客）',
+    title: '[モック] 全社キックオフミーティング（来客）',
     start: new Date(today.getTime() + 1000 * 60 * 60 * 10).toISOString(),
     end: new Date(today.getTime() + 1000 * 60 * 60 * 12).toISOString(),
     type: 'visitor',
@@ -192,7 +192,7 @@ export const initialEvents: CalendarEvent[] = [
   },
   {
     id: 'e2',
-    title: '名駅一丁目現場 工事確認',
+    title: '[モック] 名駅一丁目現場 工事確認',
     start: new Date(today.getTime() + 1000 * 60 * 60 * 14).toISOString(),
     end: new Date(today.getTime() + 1000 * 60 * 60 * 15).toISOString(),
     type: 'construction',
@@ -206,7 +206,7 @@ export const initialEvents: CalendarEvent[] = [
   },
   {
     id: 'e3',
-    title: '定期点検・1on1 面談',
+    title: '[モック] 定期点検・1on1 面談',
     start: new Date(today.getTime() + 1000 * 60 * 60 * 16).toISOString(),
     end: new Date(today.getTime() + 1000 * 60 * 60 * 16.5).toISOString(),
     type: 'inspection',
@@ -218,7 +218,7 @@ export const initialEvents: CalendarEvent[] = [
   },
   {
     id: 'e6',
-    title: '【出張】開発者カンファレンス参加（承認済）',
+    title: '[モック] 【出張】開発者カンファレンス参加（承認済）',
     start: new Date(today.getTime() + 1000 * 60 * 60 * (24 * 5 + 9)).toISOString(),
     end: new Date(today.getTime() + 1000 * 60 * 60 * (24 * 7 + 18)).toISOString(),
     type: 'business_trip',
@@ -235,7 +235,7 @@ export const initialApplications: WorkflowApplication[] = [
   {
     id: 'a1',
     type: 'business_trip',
-    title: '開発者カンファレンス参加に伴う出張申請',
+    title: '[モック] 開発者カンファレンス参加に伴う出張申請',
     description: '最新のWeb技術トレンド把握のため、年次カンファレンスに参加します。',
     applicant: currentUser,
     approver: approverUser,
@@ -260,7 +260,7 @@ export const initialApplications: WorkflowApplication[] = [
   {
     id: 'a2',
     type: 'purchase_order',
-    title: '名駅一丁目ビル新築工事現場',
+    title: '[モック] 名駅一丁目ビル新築工事現場',
     description: '現場施工に必要な配線用ケーブルおよび高所作業安全帯の手配。',
     applicant: currentUser,
     approver: approverUser,
@@ -284,7 +284,7 @@ export const initialApplications: WorkflowApplication[] = [
   {
     id: 'a3',
     type: 'inventory_issue',
-    title: '栄二丁目商業ビル改修現場',
+    title: '[モック] 栄二丁目商業ビル改修現場',
     description: '現場での緊急補給用資材。現場受取予定。',
     applicant: currentUser,
     approver: approverUser,
@@ -308,7 +308,7 @@ export const initialApplications: WorkflowApplication[] = [
   {
     id: 'a4',
     type: 'other',
-    title: 'リモートワーク環境整備補助の申請',
+    title: '[モック] リモートワーク環境整備補助の申請',
     description: '外部モニター購入費用の補助申請',
     applicant: currentUser,
     approver: approverUser,
@@ -333,7 +333,7 @@ export const initialTopics: BoardTopic[] = [
   {
     id: 't1',
     category: 'general',
-    title: '【重要】夏季休業および有給休暇推奨日のご案内',
+    title: '[モック] 【重要】夏季休業および有給休暇推奨日のご案内',
     content: '今年の夏季休業期間は8月13日(金)〜8月16日(月)となります。休業中の緊急連絡先やシステムの保守対応体制については添付のガイドラインファイルをご確認ください。\n\n各部署での業務調整をお願いいたします。',
     author: user3,
     createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 5).toISOString(),
@@ -508,7 +508,7 @@ export const initialChatRooms: ChatRoom[] = [
 export const initialMemos: Memo[] = [
   {
     id: 'memo1',
-    fromName: '山田 太郎',
+    fromName: '[モック] 山田 太郎',
     fromCompany: 'A株式会社',
     fromPhone: '090-1234-5678',
     fromEmail: 'yamada@a-corp.co.jp',
@@ -520,7 +520,7 @@ export const initialMemos: Memo[] = [
     toUser: currentUser,
     requirementType: 'please_call_back',
     requirementText: '折り返し連絡下さい',
-    content: '新システムの見積もり内容とスケジュールについて確認のご連絡でした。折り返しお電話をお願いします。',
+    content: '[モック] 新システムの見積もり内容とスケジュールについて確認のご連絡でした。折り返しお電話をお願いします。',
     status: 'unread',
     createdAt: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
     createdByUser: user3,

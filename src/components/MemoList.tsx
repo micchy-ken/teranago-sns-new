@@ -40,6 +40,10 @@ export function MemoList({
 }: MemoListProps) {
   const [memos, setMemos] = useState<Memo[]>(initialMemos);
   const [filter, setFilter] = useState<'all' | 'unread' | 'handled'>('unread');
+
+  React.useEffect(() => {
+    setMemos(initialMemos);
+  }, [initialMemos]);
   const [selectedOfficeFilter, setSelectedOfficeFilter] = useState<string>('all');
 
   // モーダル制御
