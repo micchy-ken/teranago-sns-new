@@ -1,15 +1,23 @@
 import React from 'react';
-import { Heart, MessageCircle, Share2, MoreHorizontal } from 'lucide-react';
-import { Post } from '../types';
+import { Heart, MessageCircle, Share2, MoreHorizontal, Trash2 } from 'lucide-react';
+import { Post, User } from '../types';
 import { formatRelativeTime } from '../utils';
 
 interface PostCardProps {
   post: Post;
   onLike: (postId: string) => void;
   onTagClick: (tag: string) => void;
+  onDelete?: (postId: string) => void;
+  currentUser?: User;
 }
 
-export const PostCard: React.FC<PostCardProps> = ({ post, onLike, onTagClick }) => {
+export const PostCard: React.FC<PostCardProps> = ({ 
+  post, 
+  onLike, 
+  onTagClick,
+  onDelete,
+  currentUser
+}) => {
   return (
     <article className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm hover:shadow-md transition-shadow">
       {/* Header */}
@@ -28,9 +36,23 @@ export const PostCard: React.FC<PostCardProps> = ({ post, onLike, onTagClick }) 
             <span className="text-xs text-slate-400">{formatRelativeTime(post.createdAt)}</span>
           </div>
         </div>
-        <button className="text-slate-400 hover:text-slate-600 p-1 rounded-full hover:bg-slate-50 transition-colors ml-2 shrink-0">
-          <MoreHorizontal className="w-5 h-5" />
-        </button>
+        <div className="flex items-center gap-1 shrink-0 ml-2">
+          {onDelete && currentUser && (currentUser.isAdmin || currentUser.id === post.author?.id) && (
+            <button
+              onClick={(e) => {
+                e.preventDefault();
+                onDelete(post.id);
+              }}
+              className="text-slate-400 hover:text-red-500 hover:bg-red-50 p-1.5 rounded-full transition-colors"
+              title="投稿を削除"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          )}
+          <button className="text-slate-400 hover:text-slate-600 p-1 rounded-full hover:bg-slate-50 transition-colors">
+            <MoreHorizontal className="w-5 h-5" />
+          </button>
+        </div>
       </div>
 
       {/* Content */}

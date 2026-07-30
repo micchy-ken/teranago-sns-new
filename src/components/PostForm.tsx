@@ -3,12 +3,13 @@ import { Send, Image as ImageIcon, Paperclip, Hash } from 'lucide-react';
 import { currentUser } from '../data/mockData';
 
 interface PostFormProps {
-  onPost: (content: string, tags: string[]) => void;
+  onPost: (content: string, tags: string[], nasLink?: string) => void;
 }
 
 export function PostForm({ onPost }: PostFormProps) {
   const [content, setContent] = useState('');
   const [tagsInput, setTagsInput] = useState('');
+  const [nasLinkInput, setNasLinkInput] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -21,11 +22,12 @@ export function PostForm({ onPost }: PostFormProps) {
       .map(t => t.trim())
       .filter(t => t.length > 0);
 
-    onPost(content, tags);
+    onPost(content, tags, nasLinkInput.trim() || undefined);
     
     // Reset form
     setContent('');
     setTagsInput('');
+    setNasLinkInput('');
     setIsExpanded(false);
   };
 
@@ -63,6 +65,17 @@ export function PostForm({ onPost }: PostFormProps) {
                 />
               </div>
 
+              <div className="flex items-center px-3 py-2 bg-slate-50 rounded-lg border border-slate-100">
+                <Paperclip className="w-4 h-4 text-slate-400 mr-2 shrink-0" />
+                <input
+                  type="text"
+                  value={nasLinkInput}
+                  onChange={(e) => setNasLinkInput(e.target.value)}
+                  placeholder="NASフォルダ/ファイルのパスを入力 (任意, 例: \\nas01\Shared\doc.pdf)"
+                  className="bg-transparent border-none focus:ring-0 text-xs w-full text-slate-600 placeholder-slate-400 focus:outline-none"
+                />
+              </div>
+
               <div className="flex items-center justify-between pt-2">
                 <div className="flex gap-1">
                   <button type="button" className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition-colors">
@@ -79,6 +92,7 @@ export function PostForm({ onPost }: PostFormProps) {
                       setIsExpanded(false);
                       setContent('');
                       setTagsInput('');
+                      setNasLinkInput('');
                     }}
                     className="px-4 py-2 text-sm font-medium text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
                   >

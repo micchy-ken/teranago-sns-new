@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { PostForm } from './PostForm';
 import { PostCard } from './PostCard';
-import { Post, CalendarEvent, BoardTopic, OfficeMaster, DivisionMaster } from '../types';
+import { Post, CalendarEvent, BoardTopic, OfficeMaster, DivisionMaster, User } from '../types';
 import { AppTab } from './Sidebar';
 import { 
   Calendar, 
@@ -32,7 +32,7 @@ interface TimelineProps {
   divisions?: DivisionMaster[];
   searchQuery: string;
   selectedTag: string | null;
-  onPost: (content: string, tags: string[]) => void;
+  onPost: (content: string, tags: string[], nasLink?: string) => void;
   onToggleLike: (postId: string) => void;
   onSelectTag: (tag: string | null) => void;
   onChangeTab?: (tab: AppTab) => void;
@@ -40,6 +40,8 @@ interface TimelineProps {
   error?: string | null;
   postsSource?: 'api' | 'mock';
   onRefetchPosts?: () => Promise<void>;
+  onDeletePost?: (postId: string) => void;
+  currentUser?: User;
 }
 
 type TimelineFeedItem = 
@@ -63,6 +65,8 @@ export function Timeline({
   error = null,
   postsSource = 'mock',
   onRefetchPosts,
+  onDeletePost,
+  currentUser,
 }: TimelineProps) {
   // 表示コンテンツ種別フィルター
   const [showPosts, setShowPosts] = useState<boolean>(true);
@@ -602,6 +606,8 @@ export function Timeline({
                   post={item.data}
                   onLike={onToggleLike}
                   onTagClick={onSelectTag}
+                  onDelete={onDeletePost}
+                  currentUser={currentUser}
                 />
               );
             }

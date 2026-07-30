@@ -29,6 +29,59 @@ import {
 } from './data/mockData';
 import { Post, CalendarEvent, WorkflowApplication, User, OfficeMaster, DivisionMaster, PositionMaster, BoardTopic, ChatRoom, ApprovalFlowRule, ApprovalStepConfig, ItemMaster, ApplicationStatus } from './types';
 
+// Helper to map and sanitize API user objects to match frontend types safely
+const mapUserFromApi = (apiUser: any): User => {
+  const isAdmin = apiUser.isAdmin === true || apiUser.role === 'admin';
+  return {
+    ...apiUser,
+    id: String(apiUser.id),
+    name: apiUser.name || '名前未設定',
+    avatarUrl: apiUser.avatarUrl || 'https://i.pravatar.cc/150',
+    department: apiUser.department || '未設定',
+    office: apiUser.office || undefined,
+    division: apiUser.division || undefined,
+    position: apiUser.position || undefined,
+    role: isAdmin ? 'admin' : 'user',
+    isAdmin: isAdmin,
+  };
+};
+
+// Helper to map and sanitize API posts to match frontend types safely
+const mapPostFromApi = (apiPost: any, allUsers: User[]): Post => {
+  let authorUser: User | undefined = undefined;
+
+  if (apiPost.author && typeof apiPost.author === 'object') {
+    authorUser = apiPost.author;
+  } else if (apiPost.authorId) {
+    authorUser = allUsers.find(u => u.id === apiPost.authorId);
+  }
+
+  if (!authorUser) {
+    authorUser = {
+      id: apiPost.authorId || (apiPost.author && apiPost.author.id) || 'unknown',
+      name: (apiPost.author && apiPost.author.name) || '匿名',
+      department: (apiPost.author && apiPost.author.department) || '未設定',
+      avatarUrl: (apiPost.author && apiPost.author.avatarUrl) || 'https://i.pravatar.cc/150',
+    };
+  }
+
+  return {
+    id: String(apiPost.id),
+    author: {
+      ...authorUser,
+      id: String(authorUser.id),
+      avatarUrl: authorUser.avatarUrl || 'https://i.pravatar.cc/150',
+      department: authorUser.department || '未設定',
+    },
+    content: apiPost.content || '',
+    tags: Array.isArray(apiPost.tags) ? apiPost.tags : [],
+    createdAt: apiPost.createdAt || new Date().toISOString(),
+    likes: typeof apiPost.likes === 'number' ? apiPost.likes : 0,
+    isLiked: !!apiPost.isLiked,
+    nasLink: apiPost.nasLink || undefined,
+  };
+};
+
 export default function App() {
   const [usersList, setUsersList] = useState<User[]>(defaultAllUsers);
 
@@ -87,7 +140,7 @@ export default function App() {
   const [postsError, setPostsError] = useState<string | null>(null);
   const [postsSource, setPostsSource] = useState<'api' | 'mock'>('mock');
 
-  const refetchPosts = async () => {
+  const refetchPosts = async (currentUsers = usersList) => {
     setIsPostsLoading(true);
     setPostsError(null);
     try {
@@ -101,7 +154,8 @@ export default function App() {
       }
       const data = await response.json();
       if (Array.isArray(data)) {
-        setPosts(data);
+        const mapped = data.map(p => mapPostFromApi(p, currentUsers));
+        setPosts(mapped);
         setPostsSource('api');
         setPostsError(null);
       } else {
@@ -117,10 +171,50 @@ export default function App() {
     }
   };
 
-  useEffect(() => {
-    if (isAuthenticated) {
-      refetchPosts();
+  const refetchUsers = async () => {
+    try {
+      const response = await fetch('https://sns.teranago.synology.me/api/users', {
+        headers: {
+          'Accept': 'application/json'
+        }
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP status ${response.status}`);
+      }
+      const data = await response.json();
+      if (Array.isArray(data)) {
+        const processedUsers = data.map((u: any) => mapUserFromApi(u));
+        setUsersList(processedUsers);
+
+        // Synchronize logged-in user with the latest data from the database
+        const savedUserId = localStorage.getItem('logged_in_user_id');
+        const targetId = savedUserId || userState?.id;
+        if (targetId) {
+          const found = processedUsers.find(u => u.id === String(targetId));
+          if (found) {
+            setUserState(found);
+          }
+        }
+        return processedUsers;
+      }
+    } catch (err) {
+      console.warn('Failed to load users from API:', err);
     }
+    return usersList;
+  };
+
+  const refetchAll = async () => {
+    const latestUsers = await refetchUsers();
+    await refetchPosts(latestUsers);
+  };
+
+  useEffect(() => {
+    // Always load latest users from API on mount
+    refetchUsers().then((latestUsers) => {
+      if (isAuthenticated) {
+        refetchPosts(latestUsers);
+      }
+    });
   }, [isAuthenticated]);
 
   const [events, setEvents] = useState<CalendarEvent[]>(initialEvents);
@@ -154,40 +248,221 @@ export default function App() {
   // Switch active user for testing permissions
   const handleSwitchUser = (user: User) => {
     setUserState(user);
+    localStorage.setItem('logged_in_user_id', user.id);
   };
 
   // User Management
-  const handleAddUser = (userData: Omit<User, 'id'>) => {
+  const handleAddUser = async (userData: Omit<User, 'id'>) => {
+    const tempId = `u-${Date.now()}`;
     const newUser: User = {
       ...userData,
-      id: `u-${Date.now()}`,
+      id: tempId,
     };
-    setUsersList([...usersList, newUser]);
-  };
+    // Optimistic UI update
+    setUsersList(prev => [...prev, newUser]);
 
-  const handleUpdateUser = (updatedUser: User) => {
-    setUsersList(usersList.map((u) => (u.id === updatedUser.id ? updatedUser : u)));
-    if (updatedUser.id === userState.id) {
-      setUserState(updatedUser);
+    try {
+      console.log('Attempting to create user via POST to /api/users...');
+      const response = await fetch('https://sns.teranago.synology.me/api/users', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify(newUser),
+      });
+
+      if (response.ok) {
+        console.log('User successfully created on server.');
+        await refetchUsers();
+      } else {
+        const errText = await response.text().catch(() => '');
+        console.error(`POST /api/users failed with status ${response.status}: ${errText}`);
+        alert(`ユーザー作成に失敗しました。\nAPIサーバーがエラーを返しました (Status ${response.status}): ${errText || 'Unknown error'}`);
+        // Rollback state since creation failed
+        await refetchUsers();
+      }
+    } catch (err: any) {
+      console.error('Failed to create user via API:', err);
+      alert(`API通信エラーが発生しました: ${err?.message || '接続に失敗しました'}`);
+      await refetchUsers();
     }
   };
 
-  const handleDeleteUser = (userId: string) => {
-    setUsersList(usersList.filter((u) => u.id !== userId));
+  const handleUpdateUser = async (updatedUser: User) => {
+    // Keep a copy of the old state for safe rollback
+    const oldUsersList = [...usersList];
+    const oldUserState = { ...userState };
+
+    // Optimistically update GUI state instantly
+    setUsersList(prev => prev.map((u) => (u.id === updatedUser.id ? updatedUser : u)));
+    if (updatedUser.id === userState.id) {
+      setUserState(updatedUser);
+    }
+
+    try {
+      const urlWithId = `https://sns.teranago.synology.me/api/users/${updatedUser.id}`;
+      console.log(`Attempting update: PUT to ${urlWithId}...`);
+      let response = await fetch(urlWithId, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify(updatedUser),
+      });
+
+      if (!response.ok) {
+        console.warn(`PUT /api/users/:id failed with status ${response.status}. Trying POST fallback...`);
+        // Fallback 1: POST /api/users/:id
+        response = await fetch(urlWithId, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          body: JSON.stringify(updatedUser),
+        });
+      }
+
+      if (!response.ok) {
+        console.warn(`POST /api/users/:id failed with status ${response.status}. Trying PUT to /api/users...`);
+        // Fallback 2: PUT /api/users
+        response = await fetch('https://sns.teranago.synology.me/api/users', {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          body: JSON.stringify(updatedUser),
+        });
+      }
+
+      if (!response.ok) {
+        console.warn(`PUT /api/users failed with status ${response.status}. Trying POST to /api/users...`);
+        // Fallback 3: POST /api/users (many simple APIs accept POST here to insert or update)
+        response = await fetch('https://sns.teranago.synology.me/api/users', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          body: JSON.stringify(updatedUser),
+        });
+      }
+
+      if (response.ok) {
+        console.log('User successfully updated in backend DB.');
+        await refetchUsers();
+      } else {
+        const errText = await response.text().catch(() => '');
+        console.error(`All fallback updates failed. Last status: ${response.status}: ${errText}`);
+        alert(`ユーザー情報の更新に失敗しました。\nAPIサーバーがエラーを返しました (Status ${response.status}): ${errText || 'Unknown error'}`);
+        // Rollback on failure to prevent stale UI mismatch
+        setUsersList(oldUsersList);
+        setUserState(oldUserState);
+      }
+    } catch (err: any) {
+      console.error('Failed to update user via API:', err);
+      alert(`API通信エラーが発生しました: ${err?.message || '接続に失敗しました'}`);
+      setUsersList(oldUsersList);
+      setUserState(oldUserState);
+    }
   };
 
-  const handleToggleUserAdmin = (userId: string) => {
-    setUsersList(usersList.map(u => {
+  const handleDeleteUser = async (userId: string) => {
+    if (!window.confirm('このユーザーを削除してもよろしいですか？')) return;
+
+    const oldUsersList = [...usersList];
+    setUsersList(prev => prev.filter((u) => u.id !== userId));
+
+    try {
+      console.log(`Attempting to delete user via DELETE on /api/users/${userId}...`);
+      let response = await fetch(`https://sns.teranago.synology.me/api/users/${userId}`, {
+        method: 'DELETE',
+        headers: {
+          'Accept': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        // Fallback POST to /api/users/:id/delete or custom DELETE path if needed
+        console.warn(`DELETE /api/users/:id failed with status ${response.status}`);
+      }
+
+      if (response.ok) {
+        console.log('User successfully deleted from server DB.');
+        await refetchUsers();
+      } else {
+        const errText = await response.text().catch(() => '');
+        alert(`ユーザー削除に失敗しました。\nAPIサーバーがエラーを返しました (Status ${response.status}): ${errText || 'Unknown error'}`);
+        setUsersList(oldUsersList);
+      }
+    } catch (err: any) {
+      console.error('Failed to delete user via API:', err);
+      alert(`API通信エラーが発生しました: ${err?.message || '接続に失敗しました'}`);
+      setUsersList(oldUsersList);
+    }
+  };
+
+  const handleToggleUserAdmin = async (userId: string) => {
+    let targetUser: User | undefined;
+    const oldUsersList = [...usersList];
+    const oldUserState = { ...userState };
+
+    setUsersList(prev => prev.map(u => {
       if (u.id === userId) {
         const updatedIsAdmin = !u.isAdmin;
         const updated = { ...u, isAdmin: updatedIsAdmin, role: (updatedIsAdmin ? 'admin' : 'user') as 'admin' | 'user' };
         if (u.id === userState.id) {
           setUserState(updated);
         }
+        targetUser = updated;
         return updated;
       }
       return u;
     }));
+
+    if (targetUser) {
+      try {
+        console.log(`Attempting to toggle admin status for user ${userId}...`);
+        const urlWithId = `https://sns.teranago.synology.me/api/users/${userId}`;
+        let response = await fetch(urlWithId, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          body: JSON.stringify(targetUser),
+        });
+
+        if (!response.ok) {
+          response = await fetch('https://sns.teranago.synology.me/api/users', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+            },
+            body: JSON.stringify(targetUser),
+          });
+        }
+
+        if (response.ok) {
+          console.log('User admin status successfully updated.');
+          await refetchUsers();
+        } else {
+          const errText = await response.text().catch(() => '');
+          alert(`管理者権限の変更に失敗しました。\nAPIサーバーがエラーを返しました (Status ${response.status}): ${errText || 'Unknown error'}`);
+          setUsersList(oldUsersList);
+          setUserState(oldUserState);
+        }
+      } catch (err: any) {
+        console.error('Failed to toggle admin status:', err);
+        alert(`API通信エラーが発生しました: ${err?.message || '接続に失敗しました'}`);
+        setUsersList(oldUsersList);
+        setUserState(oldUserState);
+      }
+    }
   };
 
   // Office Master Handlers
@@ -241,32 +516,116 @@ export default function App() {
     setPositions(positions.filter((p) => p.id !== positionId));
   };
 
-  // Handle new post creation
-  const handlePost = (content: string, tags: string[]) => {
+  // Handle new post creation with API
+  const handlePost = async (content: string, tags: string[], nasLink?: string) => {
+    // Optimistic local post for instant response
+    const tempId = `p-temp-${Date.now()}`;
     const newPost: Post = {
-      id: `p${Date.now()}`,
+      id: tempId,
       author: userState,
       content,
       tags,
       createdAt: new Date().toISOString(),
       likes: 0,
       isLiked: false,
+      nasLink,
     };
-    setPosts([newPost, ...posts]);
+    setPosts(prev => [newPost, ...prev]);
+
+    try {
+      const response = await fetch('https://sns.teranago.synology.me/api/posts', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({
+          authorId: userState.id,
+          content,
+          tags,
+          nasLink: nasLink || "",
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to create post: HTTP status ${response.status}`);
+      }
+
+      // Refetch posts to get the actual server-saved posts with correct IDs
+      await refetchAll();
+    } catch (err) {
+      console.error('Error creating post on API:', err);
+      // Fallback: keep the local post or trigger refetch
+      await refetchAll();
+    }
   };
 
-  // Handle like toggle
-  const handleToggleLike = (postId: string) => {
-    setPosts(posts.map(post => {
+  // Handle like toggle with API
+  const handleToggleLike = async (postId: string) => {
+    if (postId.startsWith('p-temp-')) return;
+
+    // Optimistically update local state
+    setPosts(prev => prev.map(post => {
       if (post.id === postId) {
         return {
           ...post,
           isLiked: !post.isLiked,
-          likes: post.isLiked ? post.likes - 1 : post.likes + 1,
+          likes: post.isLiked ? Math.max(0, post.likes - 1) : post.likes + 1,
         };
       }
       return post;
     }));
+
+    try {
+      const response = await fetch(`https://sns.teranago.synology.me/api/posts/${postId}/like`, {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+        }
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to like: HTTP status ${response.status}`);
+      }
+      
+      const updatedPostData = await response.json();
+      setPosts(prev => prev.map(post => {
+        if (post.id === postId) {
+          return mapPostFromApi(updatedPostData, usersList);
+        }
+        return post;
+      }));
+    } catch (err) {
+      console.error('Error liking post on API:', err);
+      await refetchAll();
+    }
+  };
+
+  // Handle delete post with API
+  const handleDeletePost = async (postId: string) => {
+    if (postId.startsWith('p-temp-')) return;
+
+    if (!window.confirm('この投稿を削除してもよろしいですか？')) return;
+
+    // Optimistically remove from state
+    setPosts(prev => prev.filter(post => post.id !== postId));
+
+    try {
+      const response = await fetch(`https://sns.teranago.synology.me/api/posts/${postId}`, {
+        method: 'DELETE',
+        headers: {
+          'Accept': 'application/json',
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to delete: HTTP status ${response.status}`);
+      }
+
+      await refetchAll();
+    } catch (err) {
+      console.error('Error deleting post on API:', err);
+      await refetchAll();
+    }
   };
 
   // Handle new event creation
@@ -545,7 +904,9 @@ export default function App() {
             isLoading={isPostsLoading}
             error={postsError}
             postsSource={postsSource}
-            onRefetchPosts={refetchPosts}
+            onRefetchPosts={refetchAll}
+            onDeletePost={handleDeletePost}
+            currentUser={userState}
           />
         )}
         {activeTab === 'calendar' && (
