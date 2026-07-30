@@ -453,10 +453,29 @@ function synologyProxyPlugin(): Plugin {
   };
 }
 
+function copy404Plugin(): Plugin {
+  return {
+    name: 'copy-404-html',
+    closeBundle() {
+      try {
+        const distDir = path.resolve(__dirname, 'dist');
+        const indexPath = path.join(distDir, 'index.html');
+        const notFoundPath = path.join(distDir, '404.html');
+        if (fs.existsSync(indexPath)) {
+          fs.copyFileSync(indexPath, notFoundPath);
+          console.log('[BUILD] Created dist/404.html for GitHub Pages SPA routing.');
+        }
+      } catch (e: any) {
+        console.warn('[BUILD] Failed to create dist/404.html:', e.message);
+      }
+    }
+  };
+}
+
 export default defineConfig(() => {
   return {
-    base: '/teranago-sns-new/',
-    plugins: [react(), tailwindcss(), synologyProxyPlugin()],
+    base: './',
+    plugins: [react(), tailwindcss(), synologyProxyPlugin(), copy404Plugin()],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
