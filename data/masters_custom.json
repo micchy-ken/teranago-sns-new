@@ -21,8 +21,8 @@
       "name": "名古屋営業所",
       "type": "office",
       "code": "OF01",
-      "location": "愛知県名古屋市中区",
-      "phone": "052-111-2222"
+      "location": "愛知県",
+      "phone": ""
     }
   ],
   "divisions": [
@@ -40,9 +40,9 @@
     },
     {
       "id": "div-3",
-      "name": "人事総務部",
+      "name": "総務課",
       "code": "HR",
-      "description": "採用・労務・施設管理"
+      "description": ""
     },
     {
       "id": "div-4",
@@ -185,5 +185,10 @@
         }
       ]
     }
-  ]
+  ],
+  "deletedIds": {
+    "offices": [
+      "off-test-1785397763015"
+    ]
+  }
 }

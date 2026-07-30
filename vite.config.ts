@@ -67,16 +67,22 @@ const defaultMasters = {
   ]
 };
 
-function getCustomMasters(): typeof defaultMasters {
+type CustomMastersStore = typeof defaultMasters & {
+  deletedIds?: Record<string, string[]>;
+};
+
+function getCustomMasters(): CustomMastersStore {
   try {
     if (fs.existsSync(MASTERS_FILE)) {
-      return JSON.parse(fs.readFileSync(MASTERS_FILE, 'utf-8'));
+      const store = JSON.parse(fs.readFileSync(MASTERS_FILE, 'utf-8'));
+      if (!store.deletedIds) store.deletedIds = {};
+      return store;
     }
   } catch (_) {}
-  return defaultMasters;
+  return { ...defaultMasters, deletedIds: {} };
 }
 
-function saveCustomMasters(data: typeof defaultMasters) {
+function saveCustomMasters(data: CustomMastersStore) {
   try {
     fs.writeFileSync(MASTERS_FILE, JSON.stringify(data, null, 2), 'utf-8');
   } catch (err: any) {
@@ -299,24 +305,47 @@ function synologyProxyPlugin(): Plugin {
 
         if (masterKey) {
           const store = getCustomMasters();
-          const items = store[masterKey] || [];
+          const items = (store[masterKey] || []) as any[];
+          const deletedSet = new Set((store.deletedIds && store.deletedIds[masterKey]) || []);
 
           if (method === 'GET') {
             try {
               const synRes = await fetch(`${SYNOLOGY_BASE}${apiPath}`);
               if (synRes.ok) {
                 const synData = await synRes.json();
-                if (Array.isArray(synData) && synData.length > 0) {
+                if (Array.isArray(synData)) {
+                  const localMap = new Map(items.map((i: any) => [String(i.id), i]));
+                  const mergedSynIds = new Set<string>();
+
+                  const merged = synData
+                    .filter((synItem: any) => !deletedSet.has(String(synItem.id)))
+                    .map((synItem: any) => {
+                      const idStr = String(synItem.id);
+                      mergedSynIds.add(idStr);
+                      if (localMap.has(idStr)) {
+                        return { ...synItem, ...localMap.get(idStr) };
+                      }
+                      return synItem;
+                    });
+
+                  items.forEach((localItem: any) => {
+                    const idStr = String(localItem.id);
+                    if (!mergedSynIds.has(idStr) && !deletedSet.has(idStr)) {
+                      merged.push(localItem);
+                    }
+                  });
+
                   res.statusCode = 200;
                   res.setHeader('Content-Type', 'application/json');
-                  return res.end(JSON.stringify(synData));
+                  return res.end(JSON.stringify(merged));
                 }
               }
             } catch (_) {}
 
+            const filteredLocal = items.filter((i: any) => !deletedSet.has(String(i.id)));
             res.statusCode = 200;
             res.setHeader('Content-Type', 'application/json');
-            return res.end(JSON.stringify(items));
+            return res.end(JSON.stringify(filteredLocal));
           }
 
           if (['POST', 'PUT'].includes(method)) {
@@ -324,6 +353,11 @@ function synologyProxyPlugin(): Plugin {
             if (bodyObj) {
               const itemId = bodyObj.id || `${masterKey.substring(0, 3)}-${Date.now()}`;
               bodyObj.id = itemId;
+
+              if (!store.deletedIds) store.deletedIds = {};
+              if (!store.deletedIds[masterKey]) store.deletedIds[masterKey] = [];
+              store.deletedIds[masterKey] = store.deletedIds[masterKey].filter(dId => String(dId) !== String(itemId));
+
               const idx = items.findIndex((i: any) => String(i.id) === String(itemId));
               if (idx >= 0) {
                 items[idx] = { ...items[idx], ...bodyObj };
@@ -332,6 +366,15 @@ function synologyProxyPlugin(): Plugin {
               }
               store[masterKey] = items as any;
               saveCustomMasters(store);
+
+              // Background proxy attempt to Synology
+              try {
+                fetch(`${SYNOLOGY_BASE}${apiPath}`, {
+                  method,
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(bodyObj)
+                }).catch(() => {});
+              } catch (_) {}
 
               res.statusCode = 200;
               res.setHeader('Content-Type', 'application/json');
@@ -343,8 +386,22 @@ function synologyProxyPlugin(): Plugin {
             const parts = cleanPath.split('/');
             const targetId = parts[parts.length - 1];
             if (targetId) {
+              if (!store.deletedIds) store.deletedIds = {};
+              if (!store.deletedIds[masterKey]) store.deletedIds[masterKey] = [];
+
+              if (!store.deletedIds[masterKey].includes(String(targetId))) {
+                store.deletedIds[masterKey].push(String(targetId));
+              }
+
               store[masterKey] = items.filter((i: any) => String(i.id) !== String(targetId)) as any;
               saveCustomMasters(store);
+
+              // Background proxy attempt to Synology
+              try {
+                fetch(`${SYNOLOGY_BASE}${apiPath}`, {
+                  method: 'DELETE'
+                }).catch(() => {});
+              } catch (_) {}
 
               res.statusCode = 200;
               res.setHeader('Content-Type', 'application/json');

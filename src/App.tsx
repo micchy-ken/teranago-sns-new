@@ -166,7 +166,7 @@ export default function App() {
       const offRes = await fetch('/api/masters/offices');
       if (offRes.ok) {
         const data = await offRes.json();
-        if (Array.isArray(data) && data.length > 0) setOffices(data);
+        if (Array.isArray(data)) setOffices(data);
       }
     } catch (e) { console.warn('Failed to fetch offices:', e); }
 
@@ -174,7 +174,7 @@ export default function App() {
       const divRes = await fetch('/api/masters/divisions');
       if (divRes.ok) {
         const data = await divRes.json();
-        if (Array.isArray(data) && data.length > 0) setDivisions(data);
+        if (Array.isArray(data)) setDivisions(data);
       }
     } catch (e) { console.warn('Failed to fetch divisions:', e); }
 
@@ -182,7 +182,7 @@ export default function App() {
       const posRes = await fetch('/api/masters/positions');
       if (posRes.ok) {
         const data = await posRes.json();
-        if (Array.isArray(data) && data.length > 0) setPositions(data);
+        if (Array.isArray(data)) setPositions(data);
       }
     } catch (e) { console.warn('Failed to fetch positions:', e); }
 
@@ -190,7 +190,7 @@ export default function App() {
       const itemRes = await fetch('/api/masters/item-masters');
       if (itemRes.ok) {
         const data = await itemRes.json();
-        if (Array.isArray(data) && data.length > 0) setItemMasters(data);
+        if (Array.isArray(data)) setItemMasters(data);
       }
     } catch (e) { console.warn('Failed to fetch item masters:', e); }
 
@@ -198,7 +198,7 @@ export default function App() {
       const flowRes = await fetch('/api/masters/approval-flows');
       if (flowRes.ok) {
         const data = await flowRes.json();
-        if (Array.isArray(data) && data.length > 0) setApprovalFlows(data);
+        if (Array.isArray(data)) setApprovalFlows(data);
       }
     } catch (e) { console.warn('Failed to fetch approval flows:', e); }
   };
