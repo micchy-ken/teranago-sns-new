@@ -20,7 +20,6 @@ import {
   ArrowUpRight
 } from 'lucide-react';
 import { initialOffices, initialDivisions, allUsers as defaultAllUsers, currentUser as defaultCurrentUser } from '../data/mockData';
-import { getApiUrl } from '../utils/api';
 
 interface MemoListProps {
   memos: Memo[];
@@ -309,7 +308,7 @@ export function MemoList({
       }
     };
 
-    fetch(getApiUrl('/api/memos'), {
+    fetch('/api/memos', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(apiPayload)
