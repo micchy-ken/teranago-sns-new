@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { 
   Shield, 
   Building2, 
@@ -99,6 +100,7 @@ export function AdminPanel({
   onDeleteItemMaster,
 }: AdminPanelProps) {
   const [activeSubTab, setActiveSubTab] = useState<'users' | 'offices' | 'divisions' | 'positions' | 'items' | 'approval_flows' | 'system'>('users');
+  const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedOfficeFilter, setSelectedOfficeFilter] = useState<string>('all');
 
@@ -342,12 +344,26 @@ export function AdminPanel({
 
   const handleDeleteUserClick = (user: User) => {
     if (user.id === currentUser.id) {
-      alert('自分自身のアカウントを削除することはできません。');
+      setConfirmModal({
+        isOpen: true,
+        title: '削除不可',
+        message: '自分自身のアカウントを削除することはできません。',
+        type: 'warning',
+        confirmText: 'OK'
+      });
       return;
     }
-    if (window.confirm(`メンバー「${user.name}」を削除してもよろしいですか？`)) {
-      onDeleteUser(user.id);
-    }
+    setConfirmModal({
+      isOpen: true,
+      title: 'メンバーの削除',
+      message: `メンバー「${user.name}」を削除してもよろしいですか？`,
+      type: 'danger',
+      confirmText: '削除する',
+      cancelText: 'キャンセル',
+      onConfirm: () => {
+        onDeleteUser(user.id);
+      }
+    });
   };
 
   // --- OFFICE MASTER HANDLERS ---
@@ -455,11 +471,19 @@ export function AdminPanel({
   };
 
   const handleDeleteItemClick = (item: ItemMaster) => {
-    if (window.confirm(`品名「${item.name}」をマスターから削除してもよろしいですか？`)) {
-      if (onDeleteItemMaster) {
-        onDeleteItemMaster(item.id);
+    setConfirmModal({
+      isOpen: true,
+      title: '品名マスターの削除',
+      message: `品名「${item.name}」をマスターから削除してもよろしいですか？`,
+      type: 'danger',
+      confirmText: '削除する',
+      cancelText: 'キャンセル',
+      onConfirm: () => {
+        if (onDeleteItemMaster) {
+          onDeleteItemMaster(item.id);
+        }
       }
-    }
+    });
   };
 
   // --- DIVISION MASTER HANDLERS ---
@@ -1029,9 +1053,17 @@ export function AdminPanel({
                         </button>
                         <button
                           onClick={() => {
-                            if (window.confirm(`拠点マスター「${off.name}」を削除してもよろしいですか？`)) {
-                              onDeleteOffice(off.id);
-                            }
+                            setConfirmModal({
+                              isOpen: true,
+                              title: '拠点マスターの削除',
+                              message: `拠点マスター「${off.name}」を削除してもよろしいですか？`,
+                              type: 'danger',
+                              confirmText: '削除する',
+                              cancelText: 'キャンセル',
+                              onConfirm: () => {
+                                onDeleteOffice(off.id);
+                              }
+                            });
                           }}
                           className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                           title="削除"
@@ -1119,9 +1151,17 @@ export function AdminPanel({
                         </button>
                         <button
                           onClick={() => {
-                            if (window.confirm(`部署マスター「${div.name}」を削除してもよろしいですか？`)) {
-                              onDeleteDivision(div.id);
-                            }
+                            setConfirmModal({
+                              isOpen: true,
+                              title: '部署マスターの削除',
+                              message: `部署マスター「${div.name}」を削除してもよろしいですか？`,
+                              type: 'danger',
+                              confirmText: '削除する',
+                              cancelText: 'キャンセル',
+                              onConfirm: () => {
+                                onDeleteDivision(div.id);
+                              }
+                            });
                           }}
                           className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
                           title="削除"
@@ -1199,9 +1239,17 @@ export function AdminPanel({
                         </button>
                         <button
                           onClick={() => {
-                            if (window.confirm(`役職マスター「${pos.name}」を削除してもよろしいですか？`)) {
-                              if (onDeletePosition) onDeletePosition(pos.id);
-                            }
+                            setConfirmModal({
+                              isOpen: true,
+                              title: '役職マスターの削除',
+                              message: `役職マスター「${pos.name}」を削除してもよろしいですか？`,
+                              type: 'danger',
+                              confirmText: '削除する',
+                              cancelText: 'キャンセル',
+                              onConfirm: () => {
+                                if (onDeletePosition) onDeletePosition(pos.id);
+                              }
+                            });
                           }}
                           className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
                           title="削除"
@@ -1305,9 +1353,17 @@ export function AdminPanel({
                         {onDeleteApprovalFlow && (
                           <button
                             onClick={() => {
-                              if (confirm(`承認フロー「${flow.name}」を削除しますか？`)) {
-                                onDeleteApprovalFlow(flow.id);
-                              }
+                              setConfirmModal({
+                                isOpen: true,
+                                title: '承認フローの削除',
+                                message: `承認フロー「${flow.name}」を削除しますか？`,
+                                type: 'danger',
+                                confirmText: '削除する',
+                                cancelText: 'キャンセル',
+                                onConfirm: () => {
+                                  onDeleteApprovalFlow(flow.id);
+                                }
+                              });
                             }}
                             className="px-2.5 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50 rounded-lg border border-rose-200 transition-colors flex items-center gap-1 cursor-pointer"
                           >
@@ -2332,6 +2388,11 @@ export function AdminPanel({
           </div>
         </div>
       )}
+
+      <ConfirmModal
+        {...confirmModal}
+        onClose={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 }

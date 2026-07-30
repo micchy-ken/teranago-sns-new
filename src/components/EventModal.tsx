@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, RefreshCw, Trash2, AlertCircle, Link as LinkIcon, Building2, Users, Paperclip, Plus, Check, UserCheck, Copy } from 'lucide-react';
 import { EventType, CalendarEvent, OfficeMaster, DivisionMaster, User, AttachmentFile } from '../types';
-import { initialOffices, initialDivisions, allUsers as defaultAllUsers } from '../data/mockData';
+import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 
 interface EventModalProps {
   isOpen: boolean;
@@ -34,9 +34,9 @@ export function EventModal({
   onDelete,
   editingEvent,
   defaultInitialDate,
-  offices = initialOffices,
-  divisions = initialDivisions,
-  allUsers = defaultAllUsers,
+  offices = [],
+  divisions = [],
+  allUsers = [],
 }: EventModalProps) {
   const [title, setTitle] = useState('');
   const [type, setType] = useState<EventType>('personal');
@@ -232,12 +232,22 @@ export function EventModal({
     onClose();
   };
 
+  const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
+
   const handleDelete = () => {
     if (editingEvent && onDelete) {
-      if (window.confirm('この予定を削除しますか？')) {
-        onDelete(editingEvent.id);
-        onClose();
-      }
+      setConfirmModal({
+        isOpen: true,
+        title: '予定の削除',
+        message: 'この予定を削除してもよろしいですか？',
+        type: 'danger',
+        confirmText: '削除する',
+        cancelText: 'キャンセル',
+        onConfirm: () => {
+          onDelete(editingEvent.id);
+          onClose();
+        }
+      });
     }
   };
 
@@ -541,6 +551,11 @@ export function EventModal({
           </div>
         </form>
       </div>
+
+      <ConfirmModal
+        {...confirmModal}
+        onClose={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 }

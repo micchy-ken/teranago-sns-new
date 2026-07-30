@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { WorkflowApplication, ApplicationType, ApplicationStatus, User as UserType, ApprovalFlowRule, ApprovalStepConfig, ItemMaster } from '../types';
 import { FileText, CheckCircle2, XCircle, Clock, Plus, ArrowRight, GitMerge, UserCheck, AlertTriangle, Edit3, MessageSquare, Send, X, ShoppingBag, Building2, Hash, ExternalLink, Package, Calendar, RotateCcw, Trash2 } from 'lucide-react';
 import { ApplicationModal } from './ApplicationModal';
+import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 
 interface WorkflowProps {
   applications: WorkflowApplication[];
@@ -51,6 +52,9 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
   // 編集・再申請モーダル用の状態
   const [editingApp, setEditingApp] = useState<WorkflowApplication | null>(null);
 
+  // カスタムダイアログ用の状態
+  const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
+
   // 出庫依頼移行モーダル用の状態
   const [transitioningApp, setTransitioningApp] = useState<WorkflowApplication | null>(null);
   const [transTitle, setTransTitle] = useState('');
@@ -66,7 +70,13 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
     const inputVal = poInputs[app.id] !== undefined ? poInputs[app.id] : (app.purchaseOrderNumber || '');
     const poNum = (inputVal || '').trim();
     if (!poNum) {
-      alert('発注Noを入力してください。');
+      setConfirmModal({
+        isOpen: true,
+        title: '入力エラー',
+        message: '発注Noを入力してください。',
+        type: 'warning',
+        confirmText: 'OK'
+      });
       return;
     }
     if (onUpdateApplication) {
@@ -74,14 +84,26 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
         ...app,
         purchaseOrderNumber: poNum
       });
-      alert(`発注No「${poNum}」を保存登録しました。現場確認URLが有効になりました。`);
+      setConfirmModal({
+        isOpen: true,
+        title: '保存完了',
+        message: `発注No「${poNum}」を保存登録しました。現場確認URLが有効になりました。`,
+        type: 'success',
+        confirmText: 'OK'
+      });
     }
   };
 
   // 補充依頼モーダルを開く処理
   const handleOpenTransitionModal = (app: WorkflowApplication) => {
     if (app.linkedInventoryIssueId) {
-      alert('既にこの発注申請からの補充依頼は作成されています。');
+      setConfirmModal({
+        isOpen: true,
+        title: '作成済み',
+        message: '既にこの発注申請からの補充依頼は作成されています。',
+        type: 'info',
+        confirmText: 'OK'
+      });
       return;
     }
 
@@ -190,7 +212,13 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
       });
     }
 
-    alert(`補充依頼「${transTitle}」を新規申請しました。承認ルートへ移行します。`);
+    setConfirmModal({
+      isOpen: true,
+      title: '申請完了',
+      message: `補充依頼「${transTitle}」を新規申請しました。承認ルートへ移行します。`,
+      type: 'success',
+      confirmText: 'OK'
+    });
     setTransitioningApp(null);
   };
 
@@ -730,12 +758,20 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
                     {app.applicant?.id === currentUser.id && app.status === 'pending' && onUpdateApplication && (
                       <button
                         onClick={() => {
-                          if (confirm('申請を取り下げて「下書き」に戻しますか？')) {
-                            onUpdateApplication({
-                              ...app,
-                              status: 'draft'
-                            });
-                          }
+                          setConfirmModal({
+                            isOpen: true,
+                            title: '申請の取り下げ',
+                            message: '申請を取り下げて「下書き」に戻しますか？',
+                            type: 'warning',
+                            confirmText: '取り下げる',
+                            cancelText: 'キャンセル',
+                            onConfirm: () => {
+                              onUpdateApplication({
+                                ...app,
+                                status: 'draft'
+                              });
+                            }
+                          });
                         }}
                         className="px-3.5 py-1.5 bg-slate-100 hover:bg-amber-50 hover:text-amber-800 text-slate-700 text-xs font-bold rounded-xl border border-slate-200 transition-all flex items-center gap-1.5 shadow-2xs cursor-pointer"
                         title="申請を取り下げて下書きにします"
@@ -758,9 +794,17 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
                         {onDeleteApplication && (
                           <button
                             onClick={() => {
-                              if (confirm('この下書き申請を完全に削除しますか？')) {
-                                onDeleteApplication(app.id);
-                              }
+                              setConfirmModal({
+                                isOpen: true,
+                                title: '下書き申請の削除',
+                                message: 'この下書き申請を完全に削除しますか？',
+                                type: 'danger',
+                                confirmText: '削除する',
+                                cancelText: 'キャンセル',
+                                onConfirm: () => {
+                                  onDeleteApplication(app.id);
+                                }
+                              });
                             }}
                             className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold rounded-xl transition-all flex items-center gap-1 cursor-pointer"
                             title="下書きを削除"
@@ -785,9 +829,17 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
                         {onDeleteApplication && (
                           <button
                             onClick={() => {
-                              if (confirm('この却下済み申請を削除しますか？')) {
-                                onDeleteApplication(app.id);
-                              }
+                              setConfirmModal({
+                                isOpen: true,
+                                title: '申請の削除',
+                                message: 'この却下済み申請を削除しますか？',
+                                type: 'danger',
+                                confirmText: '削除する',
+                                cancelText: 'キャンセル',
+                                onConfirm: () => {
+                                  onDeleteApplication(app.id);
+                                }
+                              });
                             }}
                             className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold rounded-xl transition-all flex items-center gap-1 cursor-pointer"
                             title="削除"
@@ -1073,6 +1125,11 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
           </div>
         </div>
       )}
+
+      <ConfirmModal
+        {...confirmModal}
+        onClose={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, MessageSquare, Eye, Pin, Paperclip, Calendar as CalendarIcon, Send, Trash2, Building2, Users, Tag, CheckCircle2, Edit3, Save, Plus } from 'lucide-react';
 import { BoardTopic, User, OfficeMaster, DivisionMaster, AttachmentFile } from '../types';
-import { initialOffices, initialDivisions } from '../data/mockData';
+import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 
 interface TopicDetailModalProps {
   topic: BoardTopic | null;
@@ -19,10 +19,11 @@ export function TopicDetailModal({
   onClose,
   currentUser,
   onUpdateTopic,
-  offices = initialOffices,
-  divisions = initialDivisions,
+  offices = [],
+  divisions = [],
 }: TopicDetailModalProps) {
   const [activeTab, setActiveTab] = useState<'content' | 'viewers'>('content');
+  const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
   const [commentText, setCommentText] = useState('');
 
   // 編集モード関連 (投稿者本人のみ使用)
@@ -513,7 +514,13 @@ export function TopicDetailModal({
                               href="#"
                               onClick={(e) => {
                                 e.preventDefault();
-                                alert(`ファイル「${att.name}」のダウンロード擬似動作`);
+                                setConfirmModal({
+                                  isOpen: true,
+                                  title: 'ファイルダウンロード',
+                                  message: `ファイル「${att.name}」のダウンロードを開始します。`,
+                                  type: 'info',
+                                  confirmText: 'OK'
+                                });
                               }}
                               className="px-2.5 py-1 text-[11px] font-bold text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors shrink-0"
                             >
@@ -634,6 +641,11 @@ export function TopicDetailModal({
           )}
         </div>
       </div>
+
+      <ConfirmModal
+        {...confirmModal}
+        onClose={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 }

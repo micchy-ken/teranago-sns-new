@@ -19,8 +19,6 @@ import {
   User as UserIcon,
   ArrowUpRight
 } from 'lucide-react';
-import { initialOffices, initialDivisions, allUsers as defaultAllUsers, currentUser as defaultCurrentUser } from '../data/mockData';
-
 interface MemoListProps {
   memos: Memo[];
   offices?: OfficeMaster[];
@@ -32,10 +30,10 @@ interface MemoListProps {
 
 export function MemoList({
   memos: initialMemos,
-  offices = initialOffices,
-  divisions = initialDivisions,
-  users = defaultAllUsers,
-  currentUser = defaultCurrentUser,
+  offices = [],
+  divisions = [],
+  users = [],
+  currentUser,
   onUpdateMemos,
 }: MemoListProps) {
   const [memos, setMemos] = useState<Memo[]>(initialMemos);
@@ -87,7 +85,7 @@ export function MemoList({
     // 自分の受領ステータスを既読(isViewed=true, viewedAt=now)にする
     const statuses = memo.recipientStatuses || [];
     const updatedStatuses = statuses.map((st) => {
-      if (st.userId === currentUser.id && !st.isViewed) {
+      if (currentUser && st.userId === currentUser.id && !st.isViewed) {
         updated = true;
         return {
           ...st,
@@ -99,13 +97,13 @@ export function MemoList({
     });
 
     // 宛先に含まれていなくてもログ用に追加・閲覧記録
-    const hasMyStatus = updatedStatuses.some((st) => st.userId === currentUser.id);
-    if (!hasMyStatus) {
+    const hasMyStatus = currentUser ? updatedStatuses.some((st) => st.userId === currentUser.id) : true;
+    if (currentUser && !hasMyStatus) {
       updatedStatuses.push({
         userId: currentUser.id,
         userName: currentUser.name,
-        avatarUrl: currentUser.avatarUrl,
-        department: currentUser.department,
+        avatarUrl: currentUser.avatarUrl || '',
+        department: currentUser.department || '',
         office: currentUser.office,
         division: currentUser.division,
         isViewed: true,
@@ -144,8 +142,8 @@ export function MemoList({
             viewedAt: st.viewedAt || nowIso,
             isHandled: nextHandled,
             handledAt: nextHandled ? nowIso : undefined,
-            handledByUserId: nextHandled ? currentUser.id : undefined,
-            handledByUserName: nextHandled ? currentUser.name : undefined,
+            handledByUserId: nextHandled ? (currentUser?.id || '') : undefined,
+            handledByUserName: nextHandled ? (currentUser?.name || '') : undefined,
           };
         }
         return st;

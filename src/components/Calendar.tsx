@@ -3,7 +3,6 @@ import { CalendarEvent, EventType, User, OfficeMaster, DivisionMaster } from '..
 import { ChevronLeft, ChevronRight, List as ListIcon, Calendar as CalendarIcon, Plus, MapPin, Video, AlignLeft, RefreshCw, Clock, Link as LinkIcon, Loader2, Building2, Users, Paperclip } from 'lucide-react';
 import { EventModal } from './EventModal';
 import { fetchIcalFeed } from '../utils/icalParser';
-import { initialOffices, initialDivisions } from '../data/mockData';
 import { renderWithClickableLinks } from '../utils/linkify';
 
 interface CalendarProps {
@@ -48,8 +47,8 @@ export function Calendar({
   onDeleteEvent,
   currentUser,
   allUsers,
-  offices = initialOffices,
-  divisions = initialDivisions,
+  offices = [],
+  divisions = [],
 }: CalendarProps) {
   const [view, setView] = useState<ViewMode>('month');
   const [currentDate, setCurrentDate] = useState(new Date());

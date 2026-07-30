@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, GitMerge, ArrowRight, CheckCircle2, UserCheck, ShieldCheck, AlertCircle, Plus, Trash2, Building2, ShoppingBag, Calculator, Calendar, Save, Send } from 'lucide-react';
 import { ApplicationType, WorkflowApplication, User, ApprovalFlowRule, ApprovalStepConfig, ItemMaster, PurchaseOrderItem, ApplicationStatus } from '../types';
+import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 
 interface ApplicationModalProps {
   isOpen: boolean;
@@ -91,6 +92,7 @@ export function ApplicationModal({
   itemMasters = [],
 }: ApplicationModalProps) {
   const [type, setType] = useState<ApplicationType>('business_trip');
+  const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState<number | ''>('');
@@ -302,8 +304,16 @@ export function ApplicationModal({
       stepsConfig: stepsConfig
     });
 
-    alert('申請を「下書き」として保存しました。');
-    onClose();
+    setConfirmModal({
+      isOpen: true,
+      title: '下書き保存',
+      message: '申請を「下書き」として保存しました。',
+      type: 'success',
+      confirmText: '閉じる',
+      onConfirm: () => {
+        onClose();
+      }
+    });
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -786,6 +796,11 @@ export function ApplicationModal({
           </div>
         </form>
       </div>
+
+      <ConfirmModal
+        {...confirmModal}
+        onClose={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 }

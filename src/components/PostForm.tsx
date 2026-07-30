@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { Send, Image as ImageIcon, Paperclip, Hash } from 'lucide-react';
-import { currentUser } from '../data/mockData';
+import { User } from '../types';
 
 interface PostFormProps {
   onPost: (content: string, tags: string[], nasLink?: string) => void;
+  currentUser?: User;
 }
 
-export function PostForm({ onPost }: PostFormProps) {
+export function PostForm({ onPost, currentUser }: PostFormProps) {
   const [content, setContent] = useState('');
   const [tagsInput, setTagsInput] = useState('');
   const [nasLinkInput, setNasLinkInput] = useState('');
@@ -35,8 +36,8 @@ export function PostForm({ onPost }: PostFormProps) {
     <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm ring-1 ring-slate-900/5 mb-6 transition-all duration-300">
       <div className="flex items-start gap-4">
         <img
-          src={currentUser.avatarUrl}
-          alt={currentUser.name}
+          src={currentUser?.avatarUrl || 'https://i.pravatar.cc/150'}
+          alt={currentUser?.name || 'ユーザー'}
           className="w-10 h-10 rounded-full border border-slate-100 object-cover shrink-0"
         />
         <form onSubmit={handleSubmit} className="flex-1">

@@ -3,7 +3,6 @@ import { BoardTopic, User, OfficeMaster, DivisionMaster } from '../types';
 import { MessageSquare, Eye, Plus, Search, Pin, Paperclip, Calendar as CalendarIcon, Building2, Users, Flame, Tag } from 'lucide-react';
 import { TopicCreateModal } from './TopicCreateModal';
 import { TopicDetailModal } from './TopicDetailModal';
-import { initialOffices, initialDivisions } from '../data/mockData';
 
 interface BoardProps {
   topics: BoardTopic[];
@@ -19,8 +18,8 @@ export function Board({
   onAddTopic,
   onUpdateTopic,
   currentUser,
-  offices = initialOffices,
-  divisions = initialDivisions,
+  offices = [],
+  divisions = [],
 }: BoardProps) {
   const [selectedTag, setSelectedTag] = useState<string>('ALL');
   const [selectedOffice, setSelectedOffice] = useState<string>('全社');

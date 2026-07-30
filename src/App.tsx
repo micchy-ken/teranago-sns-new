@@ -11,22 +11,6 @@ import { DailyReportView } from './components/DailyReport';
 import { MyPage } from './components/MyPage';
 import { AdminPanel } from './components/AdminPanel';
 import { LoginScreen } from './components/LoginScreen';
-import { 
-  initialPosts, 
-  initialEvents, 
-  initialApplications, 
-  initialTopics,
-  initialChatRooms,
-  initialMemos,
-  initialReports,
-  currentUser as defaultCurrentUser,
-  allUsers as defaultAllUsers,
-  initialOffices,
-  initialDivisions,
-  initialPositions,
-  initialApprovalFlows,
-  initialItemMasters
-} from './data/mockData';
 import { Post, CalendarEvent, WorkflowApplication, User, OfficeMaster, DivisionMaster, PositionMaster, BoardTopic, ChatRoom, ApprovalFlowRule, ApprovalStepConfig, ItemMaster, ApplicationStatus, DailyReport, Memo } from './types';
 
 // Helper to map and sanitize API user objects to match frontend types safely
@@ -88,8 +72,13 @@ const mapPostFromApi = (apiPost: any, allUsers: User[]): Post => {
   };
 };
 
+import { AlertCircle, RefreshCw } from 'lucide-react';
+import { ConfirmModal, ConfirmModalState } from './components/ConfirmModal';
+
 export default function App() {
-  const [usersList, setUsersList] = useState<User[]>(defaultAllUsers);
+  const [usersList, setUsersList] = useState<User[]>([]);
+  const [fetchErrors, setFetchErrors] = useState<Record<string, string>>({});
+  const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
 
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
     return localStorage.getItem('is_logged_in') === 'true';
@@ -98,10 +87,9 @@ export default function App() {
   const [userState, setUserState] = useState<User>(() => {
     const savedUserId = localStorage.getItem('logged_in_user_id');
     if (savedUserId) {
-      const found = defaultAllUsers.find(u => u.id === savedUserId);
-      if (found) return found;
+      return { id: savedUserId, name: 'ユーザー情報取得中...', role: 'user', department: '' };
     }
-    return defaultCurrentUser;
+    return { id: 'u1', name: 'ユーザー', role: 'user', department: '' };
   });
 
   const handleLogin = (user: User) => {
@@ -118,11 +106,11 @@ export default function App() {
   };
 
   const [activeTab, setActiveTab] = useState<AppTab>('mypage');
-  const [offices, setOffices] = useState<OfficeMaster[]>(initialOffices);
-  const [divisions, setDivisions] = useState<DivisionMaster[]>(initialDivisions);
-  const [positions, setPositions] = useState<PositionMaster[]>(initialPositions);
-  const [approvalFlows, setApprovalFlows] = useState<ApprovalFlowRule[]>(initialApprovalFlows);
-  const [itemMasters, setItemMasters] = useState<ItemMaster[]>(initialItemMasters);
+  const [offices, setOffices] = useState<OfficeMaster[]>([]);
+  const [divisions, setDivisions] = useState<DivisionMaster[]>([]);
+  const [positions, setPositions] = useState<PositionMaster[]>([]);
+  const [approvalFlows, setApprovalFlows] = useState<ApprovalFlowRule[]>([]);
+  const [itemMasters, setItemMasters] = useState<ItemMaster[]>([]);
 
   // Item Master Handlers
   const handleAddItemMaster = async (item: Omit<ItemMaster, 'id'>) => {
@@ -167,40 +155,50 @@ export default function App() {
       if (offRes.ok) {
         const data = await offRes.json();
         if (Array.isArray(data)) setOffices(data);
+      } else {
+        setFetchErrors(prev => ({ ...prev, offices: `拠点マスタ取得エラー (HTTP ${offRes.status})` }));
       }
-    } catch (e) { console.warn('Failed to fetch offices:', e); }
+    } catch (e: any) { setFetchErrors(prev => ({ ...prev, offices: '拠点マスタ接続エラー: ' + e.message })); }
 
     try {
       const divRes = await fetch('/api/masters/divisions');
       if (divRes.ok) {
         const data = await divRes.json();
         if (Array.isArray(data)) setDivisions(data);
+      } else {
+        setFetchErrors(prev => ({ ...prev, divisions: `部署マスタ取得エラー (HTTP ${divRes.status})` }));
       }
-    } catch (e) { console.warn('Failed to fetch divisions:', e); }
+    } catch (e: any) { setFetchErrors(prev => ({ ...prev, divisions: '部署マスタ接続エラー: ' + e.message })); }
 
     try {
       const posRes = await fetch('/api/masters/positions');
       if (posRes.ok) {
         const data = await posRes.json();
         if (Array.isArray(data)) setPositions(data);
+      } else {
+        setFetchErrors(prev => ({ ...prev, positions: `役職マスタ取得エラー (HTTP ${posRes.status})` }));
       }
-    } catch (e) { console.warn('Failed to fetch positions:', e); }
+    } catch (e: any) { setFetchErrors(prev => ({ ...prev, positions: '役職マスタ接続エラー: ' + e.message })); }
 
     try {
       const itemRes = await fetch('/api/masters/item-masters');
       if (itemRes.ok) {
         const data = await itemRes.json();
         if (Array.isArray(data)) setItemMasters(data);
+      } else {
+        setFetchErrors(prev => ({ ...prev, items: `品目マスタ取得エラー (HTTP ${itemRes.status})` }));
       }
-    } catch (e) { console.warn('Failed to fetch item masters:', e); }
+    } catch (e: any) { setFetchErrors(prev => ({ ...prev, items: '品目マスタ接続エラー: ' + e.message })); }
 
     try {
       const flowRes = await fetch('/api/masters/approval-flows');
       if (flowRes.ok) {
         const data = await flowRes.json();
         if (Array.isArray(data)) setApprovalFlows(data);
+      } else {
+        setFetchErrors(prev => ({ ...prev, flows: `承認フロー取得エラー (HTTP ${flowRes.status})` }));
       }
-    } catch (e) { console.warn('Failed to fetch approval flows:', e); }
+    } catch (e: any) { setFetchErrors(prev => ({ ...prev, flows: '承認フロー接続エラー: ' + e.message })); }
   };
   
   const [posts, setPosts] = useState<Post[]>([]);
@@ -230,6 +228,7 @@ export default function App() {
     } catch (err: any) {
       console.warn('Failed to load posts from API:', err);
       setPostsError(err?.message || 'Failed to sync with API. Check connectivity.');
+      setFetchErrors(prev => ({ ...prev, posts: `タイムライン取得エラー: ${err?.message || '接続エラー'}` }));
     } finally {
       setIsPostsLoading(false);
     }
@@ -261,8 +260,9 @@ export default function App() {
         }
         return processedUsers;
       }
-    } catch (err) {
+    } catch (err: any) {
       console.warn('Failed to load users from API:', err);
+      setFetchErrors(prev => ({ ...prev, users: `ユーザー一覧取得エラー: ${err?.message || '接続エラー'}` }));
     }
     return usersList;
   };
@@ -281,50 +281,52 @@ export default function App() {
       const response = await fetch('/api/events', {
         headers: { 'Accept': 'application/json' }
       });
-      if (response.ok) {
-        const data = await response.json();
-        if (Array.isArray(data)) {
-          const activeUsers = currentUsers.length > 0 ? currentUsers : defaultAllUsers;
-          const mapped = data.map((e: any) => {
-            let detailsObj: any = {};
-            if (e.description && typeof e.description === 'string' && e.description.startsWith('{')) {
-              try { detailsObj = JSON.parse(e.description); } catch (_) {}
-            }
-            
-            let rawAttendees = e.attendees || detailsObj.attendees || [];
-            if (typeof rawAttendees === 'string') {
-              try { rawAttendees = JSON.parse(rawAttendees); } catch (_) {}
-            }
-            
-            const mappedAttendees = Array.isArray(rawAttendees)
-              ? rawAttendees.map((att: any) => {
-                  if (typeof att === 'object' && att !== null && att.id) return att;
-                  const found = activeUsers.find(u => u.id === att || u.id === String(att));
-                  return found || { id: String(att), name: String(att), avatarUrl: '', office: '', division: '', department: '', role: 'user' };
-                })
-              : [];
-
-            return {
-              id: String(e.id),
-              title: e.title || '予定',
-              start: e.startAt || e.start || new Date().toISOString(),
-              end: e.endAt || e.end || e.startAt || e.start || new Date().toISOString(),
-              isAllDay: e.isAllDay === true || e.isAllDay === 1,
-              type: e.category || 'personal',
-              office: e.office || '全社',
-              division: e.division || '全部署',
-              location: e.location || '',
-              memo: e.memo || detailsObj.memo || '',
-              isGoogleSynced: false,
-              ...detailsObj,
-              attendees: mappedAttendees
-            };
-          });
-          setEvents(mapped);
-        }
+      if (!response.ok) {
+        throw new Error(`HTTP status ${response.status}`);
       }
-    } catch (err) {
-      console.warn('Failed to load events from API, keeping local state:', err);
+      const data = await response.json();
+      if (Array.isArray(data)) {
+        const activeUsers = currentUsers;
+        const mapped = data.map((e: any) => {
+          let detailsObj: any = {};
+          if (e.description && typeof e.description === 'string' && e.description.startsWith('{')) {
+            try { detailsObj = JSON.parse(e.description); } catch (_) {}
+          }
+          
+          let rawAttendees = e.attendees || detailsObj.attendees || [];
+          if (typeof rawAttendees === 'string') {
+            try { rawAttendees = JSON.parse(rawAttendees); } catch (_) {}
+          }
+          
+          const mappedAttendees = Array.isArray(rawAttendees)
+            ? rawAttendees.map((att: any) => {
+                if (typeof att === 'object' && att !== null && att.id) return att;
+                const found = activeUsers.find(u => u.id === att || u.id === String(att));
+                return found || { id: String(att), name: String(att), avatarUrl: '', office: '', division: '', department: '', role: 'user' };
+              })
+            : [];
+
+          return {
+            id: String(e.id),
+            title: e.title || '予定',
+            start: e.startAt || e.start || new Date().toISOString(),
+            end: e.endAt || e.end || e.startAt || e.start || new Date().toISOString(),
+            isAllDay: e.isAllDay === true || e.isAllDay === 1,
+            type: e.category || 'personal',
+            office: e.office || '全社',
+            division: e.division || '全部署',
+            location: e.location || '',
+            memo: e.memo || detailsObj.memo || '',
+            isGoogleSynced: false,
+            ...detailsObj,
+            attendees: mappedAttendees
+          };
+        });
+        setEvents(mapped);
+      }
+    } catch (err: any) {
+      console.warn('Failed to load events from API:', err);
+      setFetchErrors(prev => ({ ...prev, events: `カレンダー予定取得エラー: ${err?.message || '接続エラー'}` }));
     }
   };
 
@@ -333,52 +335,52 @@ export default function App() {
       const response = await fetch('/api/workflows', {
         headers: { 'Accept': 'application/json' }
       });
-      if (response.ok) {
-        const data = await response.json();
-        if (Array.isArray(data)) {
-          const mapped = data.map((app: any) => {
-            let detailsObj: any = {};
-            if (app.details && typeof app.details === 'string' && app.details.startsWith('{')) {
-              try { detailsObj = JSON.parse(app.details); } catch (_) {}
-            }
-            const applicantUser = currentUsers.find(u => u.id === app.applicantId) || app.applicant || defaultCurrentUser;
-            const approverUserObj = currentUsers.find(u => u.id === app.approverId) || app.approver;
-            
-            // Normalize status to valid frontend values
-            let rawStatus = app.status || detailsObj.status || 'pending';
-            if (rawStatus.includes('approved') || rawStatus.includes('承認済')) rawStatus = 'approved';
-            else if (rawStatus.includes('rejected') || rawStatus.includes('却下')) rawStatus = 'rejected';
-            else if (rawStatus.includes('draft') || rawStatus.includes('下書き')) rawStatus = 'draft';
-            else if (['pending', 'approved', 'rejected', 'draft'].includes(rawStatus)) { /* keep */ }
-            else rawStatus = 'pending';
-
-            // Normalize category / type
-            let rawType = app.category || app.type || detailsObj.type || 'other';
-            if (['business_trip', 'inventory_issue', 'purchase_order', 'other'].includes(rawType)) {
-              /* keep */
-            } else if (rawType === 'general') {
-              rawType = 'other';
-            } else {
-              rawType = 'other';
-            }
-
-            return {
-              id: String(app.id),
-              title: app.title || '無題の申請',
-              applicant: applicantUser,
-              approver: approverUserObj,
-              createdAt: app.createdAt || new Date().toISOString(),
-              ...detailsObj,
-              status: rawStatus,
-              category: rawType,
-              type: rawType,
-            };
-          });
-          setApplications(mapped);
-        }
+      if (!response.ok) {
+        throw new Error(`HTTP status ${response.status}`);
       }
-    } catch (err) {
-      console.warn('Failed to load workflows from API, keeping local state:', err);
+      const data = await response.json();
+      if (Array.isArray(data)) {
+        const mapped = data.map((app: any) => {
+          let detailsObj: any = {};
+          if (app.details && typeof app.details === 'string' && app.details.startsWith('{')) {
+            try { detailsObj = JSON.parse(app.details); } catch (_) {}
+          }
+          const applicantUser = currentUsers.find(u => u.id === app.applicantId) || app.applicant || userState;
+          const approverUserObj = currentUsers.find(u => u.id === app.approverId) || app.approver;
+          
+          let rawStatus = app.status || detailsObj.status || 'pending';
+          if (rawStatus.includes('approved') || rawStatus.includes('承認済')) rawStatus = 'approved';
+          else if (rawStatus.includes('rejected') || rawStatus.includes('却下')) rawStatus = 'rejected';
+          else if (rawStatus.includes('draft') || rawStatus.includes('下書き')) rawStatus = 'draft';
+          else if (['pending', 'approved', 'rejected', 'draft'].includes(rawStatus)) { /* keep */ }
+          else rawStatus = 'pending';
+
+          let rawType = app.category || app.type || detailsObj.type || 'other';
+          if (['business_trip', 'inventory_issue', 'purchase_order', 'other'].includes(rawType)) {
+            /* keep */
+          } else if (rawType === 'general') {
+            rawType = 'other';
+          } else {
+            rawType = 'other';
+          }
+
+          return {
+            id: String(app.id),
+            title: app.title || '無題の申請',
+            applicant: applicantUser,
+            approver: approverUserObj,
+            createdAt: app.createdAt || new Date().toISOString(),
+            ...detailsObj,
+            status: rawStatus,
+            category: rawType,
+            type: rawType,
+          };
+        });
+        setApplications(mapped);
+      }
+    } catch (err: any) {
+      console.warn('Failed to load workflows from API:', err);
+      setFetchErrors(prev => ({ ...prev, workflows: `ワークフロー取得エラー: ${err?.message || '接続エラー'}` }));
     }
   };
 
@@ -387,44 +389,45 @@ export default function App() {
       const response = await fetch('/api/bulletins', {
         headers: { 'Accept': 'application/json' }
       });
-      if (response.ok) {
-        const data = await response.json();
-        if (Array.isArray(data)) {
-          const mapped = data.map((t: any) => {
-            let detailsObj: any = {};
-            if (t.content && typeof t.content === 'string' && t.content.startsWith('{')) {
-              try { detailsObj = JSON.parse(t.content); } catch (_) {}
-            }
-            const authorUser = currentUsers.find(u => u.id === t.authorId) || t.author || defaultCurrentUser;
-            
-            const commentsList = Array.isArray(t.comments) ? t.comments : [];
-
-            return {
-              id: String(t.id),
-              category: t.category || 'general',
-              title: t.title,
-              content: t.content,
-              author: authorUser,
-              createdAt: t.createdAt,
-              views: t.views || 0,
-              likes: t.likes || 0,
-              office: t.office || '全社',
-              division: t.division || '全部署',
-              scope: t.scope || '全社',
-              tags: Array.isArray(t.tags) ? t.tags : (typeof t.tags === 'string' ? t.tags.split(',') : []),
-              isPinned: t.isPinned === true || t.isPinned === 1,
-              attachments: t.attachments ? (typeof t.attachments === 'string' && t.attachments.startsWith('[') ? JSON.parse(t.attachments) : t.attachments) : [],
-              comments: commentsList,
-              viewers: [],
-              commentsCount: commentsList.length || t.commentsCount || 0,
-              ...detailsObj
-            };
-          });
-          setTopics(mapped);
-        }
+      if (!response.ok) {
+        throw new Error(`HTTP status ${response.status}`);
       }
-    } catch (err) {
+      const data = await response.json();
+      if (Array.isArray(data)) {
+        const mapped = data.map((t: any) => {
+          let detailsObj: any = {};
+          if (t.content && typeof t.content === 'string' && t.content.startsWith('{')) {
+            try { detailsObj = JSON.parse(t.content); } catch (_) {}
+          }
+          const authorUser = currentUsers.find(u => u.id === t.authorId) || t.author || userState;
+          const commentsList = Array.isArray(t.comments) ? t.comments : [];
+
+          return {
+            id: String(t.id),
+            category: t.category || 'general',
+            title: t.title,
+            content: t.content,
+            author: authorUser,
+            createdAt: t.createdAt,
+            views: t.views || 0,
+            likes: t.likes || 0,
+            office: t.office || '全社',
+            division: t.division || '全部署',
+            scope: t.scope || '全社',
+            tags: Array.isArray(t.tags) ? t.tags : (typeof t.tags === 'string' ? t.tags.split(',') : []),
+            isPinned: t.isPinned === true || t.isPinned === 1,
+            attachments: t.attachments ? (typeof t.attachments === 'string' && t.attachments.startsWith('[') ? JSON.parse(t.attachments) : t.attachments) : [],
+            comments: commentsList,
+            viewers: [],
+            commentsCount: commentsList.length || t.commentsCount || 0,
+            ...detailsObj
+          };
+        });
+        setTopics(mapped);
+      }
+    } catch (err: any) {
       console.warn('Failed to load bulletins from API:', err);
+      setFetchErrors(prev => ({ ...prev, bulletins: `掲示板取得エラー: ${err?.message || '接続エラー'}` }));
     }
   };
 
@@ -433,22 +436,24 @@ export default function App() {
       const response = await fetch('/api/chats', {
         headers: { 'Accept': 'application/json' }
       });
-      if (response.ok) {
-        const data = await response.json();
-        if (Array.isArray(data)) {
-          const mapped = data.map((room: any) => ({
-            ...room,
-            id: String(room.id),
-            participants: Array.isArray(room.participants) && room.participants.length > 0 
-              ? room.participants 
-              : (currentUsers.length > 0 ? currentUsers.slice(0, 3) : defaultAllUsers.slice(0, 3)),
-            messages: Array.isArray(room.messages) ? room.messages : []
-          }));
-          setChatRooms(mapped);
-        }
+      if (!response.ok) {
+        throw new Error(`HTTP status ${response.status}`);
       }
-    } catch (err) {
-      console.warn('Failed to load chat rooms from API, keeping local state:', err);
+      const data = await response.json();
+      if (Array.isArray(data)) {
+        const mapped = data.map((room: any) => ({
+          ...room,
+          id: String(room.id),
+          participants: Array.isArray(room.participants) && room.participants.length > 0 
+            ? room.participants 
+            : currentUsers.slice(0, 3),
+          messages: Array.isArray(room.messages) ? room.messages : []
+        }));
+        setChatRooms(mapped);
+      }
+    } catch (err: any) {
+      console.warn('Failed to load chat rooms from API:', err);
+      setFetchErrors(prev => ({ ...prev, chats: `チャット取得エラー: ${err?.message || '接続エラー'}` }));
     }
   };
 
@@ -458,53 +463,55 @@ export default function App() {
         headers: { 'Accept': 'application/json' }
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        if (Array.isArray(data)) {
-          const mapped = data.map((m: any) => {
-            let detailsObj: any = {};
-            if (m.details && typeof m.details === 'object') {
-              detailsObj = m.details;
-            } else if (m.content && typeof m.content === 'string' && m.content.startsWith('{')) {
-              try { detailsObj = JSON.parse(m.content); } catch (_) {}
-            }
-            const activeUsers = currentUsers.length > 0 ? currentUsers : defaultAllUsers;
-            const targetUser = activeUsers.find(u => u.id === m.receiverId || u.id === m.toUserId) || activeUsers[0];
-            const defaultRecipientStatus = [{
-              userId: targetUser?.id || 'u1',
-              userName: targetUser?.name || '担当者',
-              avatarUrl: targetUser?.avatarUrl || '',
-              department: targetUser?.department || '',
-              office: targetUser?.office || '',
-              division: targetUser?.division || '',
-              isViewed: m.isRead ? true : false,
-              isHandled: m.isRead ? true : false
-            }];
-
-            return {
-              id: String(m.id),
-              fromName: m.fromName || '不詳',
-              fromCompany: m.fromCompany || '',
-              fromPhone: m.fromPhone || '',
-              content: m.content || '',
-              status: m.isRead ? 'handled' : 'unread',
-              createdAt: m.createdAt || new Date().toISOString(),
-              targetOffices: m.targetOffices || [],
-              targetDivisions: m.targetDivisions || [],
-              recipientStatuses: Array.isArray(m.recipientStatuses) ? m.recipientStatuses : defaultRecipientStatus,
-              toUsers: Array.isArray(m.toUsers) ? m.toUsers : [targetUser],
-              toUser: targetUser,
-              createdByUser: activeUsers.find(u => u.id === m.senderId) || activeUsers[0],
-              ...detailsObj,
-              ...m
-            };
-          });
-
-          setMemos(mapped);
-        }
+      if (!response.ok) {
+        throw new Error(`HTTP status ${response.status}`);
       }
-    } catch (err) {
+      const data = await response.json();
+      if (Array.isArray(data)) {
+        const mapped = data.map((m: any) => {
+          let detailsObj: any = {};
+          if (m.details && typeof m.details === 'object') {
+            detailsObj = m.details;
+          } else if (m.content && typeof m.content === 'string' && m.content.startsWith('{')) {
+            try { detailsObj = JSON.parse(m.content); } catch (_) {}
+          }
+          const activeUsers = currentUsers;
+          const targetUser = activeUsers.find(u => u.id === m.receiverId || u.id === m.toUserId) || activeUsers[0];
+          const defaultRecipientStatus = [{
+            userId: targetUser?.id || 'u1',
+            userName: targetUser?.name || '担当者',
+            avatarUrl: targetUser?.avatarUrl || '',
+            department: targetUser?.department || '',
+            office: targetUser?.office || '',
+            division: targetUser?.division || '',
+            isViewed: m.isRead ? true : false,
+            isHandled: m.isRead ? true : false
+          }];
+
+          return {
+            id: String(m.id),
+            fromName: m.fromName || '不詳',
+            fromCompany: m.fromCompany || '',
+            fromPhone: m.fromPhone || '',
+            content: m.content || '',
+            status: m.isRead ? 'handled' : 'unread',
+            createdAt: m.createdAt || new Date().toISOString(),
+            targetOffices: m.targetOffices || [],
+            targetDivisions: m.targetDivisions || [],
+            recipientStatuses: Array.isArray(m.recipientStatuses) ? m.recipientStatuses : defaultRecipientStatus,
+            toUsers: Array.isArray(m.toUsers) ? m.toUsers : (targetUser ? [targetUser] : []),
+            toUser: targetUser,
+            createdByUser: activeUsers.find(u => u.id === m.senderId),
+            ...detailsObj,
+            ...m
+          };
+        });
+
+        setMemos(mapped);
+      }
+    } catch (err: any) {
       console.warn('Failed to load memos from API:', err);
+      setFetchErrors(prev => ({ ...prev, memos: `伝言メモ取得エラー: ${err?.message || '接続エラー'}` }));
     }
   };
 
@@ -518,44 +525,46 @@ export default function App() {
           headers: { 'Accept': 'application/json' }
         });
       }
-      if (response.ok) {
-        const data = await response.json();
-        if (Array.isArray(data)) {
-          const mapped = data.map((r: any) => {
-            const authorUser = currentUsers.find(u => u.id === r.authorId) || r.author || defaultCurrentUser;
-            let parsedTasks = r.tasks || '';
-            let parsedResults = r.results || '';
-            let parsedIssues = r.issues || '';
-            let parsedTomorrow = r.tomorrowPlan || '';
-            if (r.content && (!r.tasks || !r.results)) {
-              if (r.content.startsWith('{')) {
-                try {
-                  const p = JSON.parse(r.content);
-                  parsedTasks = p.tasks || parsedTasks;
-                  parsedResults = p.results || parsedResults;
-                  parsedIssues = p.issues || parsedIssues;
-                  parsedTomorrow = p.tomorrowPlan || parsedTomorrow;
-                } catch (_) {}
-              } else {
-                parsedTasks = r.content;
-              }
-            }
-            return {
-              id: String(r.id),
-              author: authorUser,
-              date: r.date || r.reportDate || (r.createdAt ? String(r.createdAt).substring(0, 10) : ''),
-              tasks: parsedTasks,
-              results: parsedResults,
-              issues: parsedIssues,
-              tomorrowPlan: parsedTomorrow,
-              createdAt: r.createdAt || new Date().toISOString()
-            };
-          });
-          setReports(mapped);
-        }
+      if (!response.ok) {
+        throw new Error(`HTTP status ${response.status}`);
       }
-    } catch (err) {
-      console.warn('Failed to load reports from API, keeping local state:', err);
+      const data = await response.json();
+      if (Array.isArray(data)) {
+        const mapped = data.map((r: any) => {
+          const authorUser = currentUsers.find(u => u.id === r.authorId) || r.author || userState;
+          let parsedTasks = r.tasks || '';
+          let parsedResults = r.results || '';
+          let parsedIssues = r.issues || '';
+          let parsedTomorrow = r.tomorrowPlan || '';
+          if (r.content && (!r.tasks || !r.results)) {
+            if (r.content.startsWith('{')) {
+              try {
+                const p = JSON.parse(r.content);
+                parsedTasks = p.tasks || parsedTasks;
+                parsedResults = p.results || parsedResults;
+                parsedIssues = p.issues || parsedIssues;
+                parsedTomorrow = p.tomorrowPlan || parsedTomorrow;
+              } catch (_) {}
+            } else {
+              parsedTasks = r.content;
+            }
+          }
+          return {
+            id: String(r.id),
+            author: authorUser,
+            date: r.date || r.reportDate || (r.createdAt ? String(r.createdAt).substring(0, 10) : ''),
+            tasks: parsedTasks,
+            results: parsedResults,
+            issues: parsedIssues,
+            tomorrowPlan: parsedTomorrow,
+            createdAt: r.createdAt || new Date().toISOString()
+          };
+        });
+        setReports(mapped);
+      }
+    } catch (err: any) {
+      console.warn('Failed to load reports from API:', err);
+      setFetchErrors(prev => ({ ...prev, reports: `日報取得エラー: ${err?.message || '接続エラー'}` }));
     }
   };
 
@@ -766,28 +775,36 @@ export default function App() {
   };
 
   const handleDeleteUser = async (userId: string) => {
-    if (!window.confirm('このユーザーを削除してもよろしいですか？')) return;
+    setConfirmModal({
+      isOpen: true,
+      title: 'ユーザーの削除',
+      message: 'このユーザーを削除してもよろしいですか？',
+      type: 'danger',
+      confirmText: '削除する',
+      cancelText: 'キャンセル',
+      onConfirm: async () => {
+        setUsersList(prev => prev.filter((u) => u.id !== userId));
 
-    setUsersList(prev => prev.filter((u) => u.id !== userId));
+        try {
+          console.log(`Attempting to delete user via DELETE on /api/users/${userId}...`);
+          let response = await fetch(`/api/users/${userId}`, {
+            method: 'DELETE',
+            headers: {
+              'Accept': 'application/json',
+            },
+          });
 
-    try {
-      console.log(`Attempting to delete user via DELETE on /api/users/${userId}...`);
-      let response = await fetch(`/api/users/${userId}`, {
-        method: 'DELETE',
-        headers: {
-          'Accept': 'application/json',
-        },
-      });
-
-      if (response.ok) {
-        console.log('User successfully deleted from server DB.');
-        await refetchUsers();
-      } else {
-        console.warn(`DELETE /api/users/:id failed with status ${response.status}. Keeping locally.`);
+          if (response.ok) {
+            console.log('User successfully deleted from server DB.');
+            await refetchUsers();
+          } else {
+            console.warn(`DELETE /api/users/:id failed with status ${response.status}. Keeping locally.`);
+          }
+        } catch (err: any) {
+          console.warn('Failed to delete user via API, keeping locally:', err);
+        }
       }
-    } catch (err: any) {
-      console.warn('Failed to delete user via API, keeping locally:', err);
-    }
+    });
   };
 
   const handleToggleUserAdmin = async (userId: string) => {
@@ -1041,28 +1058,36 @@ export default function App() {
   const handleDeletePost = async (postId: string) => {
     if (postId.startsWith('p-temp-')) return;
 
-    if (!window.confirm('この投稿を削除してもよろしいですか？')) return;
+    setConfirmModal({
+      isOpen: true,
+      title: '投稿の削除',
+      message: 'この投稿を削除してもよろしいですか？',
+      type: 'danger',
+      confirmText: '削除する',
+      cancelText: 'キャンセル',
+      onConfirm: async () => {
+        // Optimistically remove from state
+        setPosts(prev => prev.filter(post => post.id !== postId));
 
-    // Optimistically remove from state
-    setPosts(prev => prev.filter(post => post.id !== postId));
+        try {
+          const response = await fetch(`/api/posts/${postId}`, {
+            method: 'DELETE',
+            headers: {
+              'Accept': 'application/json',
+            }
+          });
 
-    try {
-      const response = await fetch(`/api/posts/${postId}`, {
-        method: 'DELETE',
-        headers: {
-          'Accept': 'application/json',
+          if (!response.ok) {
+            throw new Error(`Failed to delete: HTTP status ${response.status}`);
+          }
+
+          await refetchAll();
+        } catch (err) {
+          console.error('Error deleting post on API:', err);
+          await refetchAll();
         }
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to delete: HTTP status ${response.status}`);
       }
-
-      await refetchAll();
-    } catch (err) {
-      console.error('Error deleting post on API:', err);
-      await refetchAll();
-    }
+    });
   };
 
   // Handle new event creation
@@ -1130,18 +1155,27 @@ export default function App() {
   // Handle event deletion
   const handleDeleteEvent = async (eventId: string) => {
     if (eventId.startsWith('e-temp-')) return;
-    if (!window.confirm('この予定を削除してもよろしいですか？')) return;
-    setEvents(events.filter(e => e.id !== eventId));
-    try {
-      const response = await fetch(`/api/events/${eventId}`, {
-        method: 'DELETE'
-      });
-      if (response.ok) {
-        await refetchEvents();
+    setConfirmModal({
+      isOpen: true,
+      title: '予定の削除',
+      message: 'この予定を削除してもよろしいですか？',
+      type: 'danger',
+      confirmText: '削除する',
+      cancelText: 'キャンセル',
+      onConfirm: async () => {
+        setEvents(events.filter(e => e.id !== eventId));
+        try {
+          const response = await fetch(`/api/events/${eventId}`, {
+            method: 'DELETE'
+          });
+          if (response.ok) {
+            await refetchEvents();
+          }
+        } catch (err) {
+          console.error('Failed to delete event via API:', err);
+        }
       }
-    } catch (err) {
-      console.error('Failed to delete event via API:', err);
-    }
+    });
   };
 
   // 承認フロー マスター管理
@@ -1487,17 +1521,26 @@ export default function App() {
   // 申請の削除処理
   const handleDeleteApplication = async (applicationId: string) => {
     if (applicationId.startsWith('a-temp-')) return;
-    if (!window.confirm('この申請を削除してもよろしいですか？')) return;
-    setApplications(prevApps => prevApps.filter(app => app.id !== applicationId));
+    setConfirmModal({
+      isOpen: true,
+      title: '申請の削除',
+      message: 'この申請を削除してもよろしいですか？',
+      type: 'danger',
+      confirmText: '削除する',
+      cancelText: 'キャンセル',
+      onConfirm: async () => {
+        setApplications(prevApps => prevApps.filter(app => app.id !== applicationId));
 
-    try {
-      await fetch(`/api/workflows/${applicationId}`, {
-        method: 'DELETE'
-      });
-      await refetchApplications();
-    } catch (err) {
-      console.error('Failed to delete workflow via API:', err);
-    }
+        try {
+          await fetch(`/api/workflows/${applicationId}`, {
+            method: 'DELETE'
+          });
+          await refetchApplications();
+        } catch (err) {
+          console.error('Failed to delete workflow via API:', err);
+        }
+      }
+    });
   };
 
   const handleUpdateRooms = async (updatedRooms: ChatRoom[]) => {
@@ -1661,6 +1704,34 @@ export default function App() {
         onLogout={handleLogout}
       />
 
+      {Object.keys(fetchErrors).length > 0 && (
+        <div className="bg-rose-50 border-b border-rose-200 py-3 px-4 text-rose-800 text-sm">
+          <div className="max-w-6xl mx-auto flex items-start justify-between gap-4">
+            <div className="flex items-start gap-2.5">
+              <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-semibold text-rose-900">データ同期エラー ({Object.keys(fetchErrors).length}件):</span>
+                <p className="text-xs text-rose-700 mt-0.5">
+                  データの取得に失敗しました。APIサーバーまたはデータベースの接続状態を確認してください。
+                </p>
+                <ul className="list-disc list-inside mt-1.5 text-xs text-rose-700 space-y-0.5">
+                  {Object.entries(fetchErrors).map(([key, msg]) => (
+                    <li key={key}><span className="font-medium text-rose-800">{key}:</span> {msg}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+            <button 
+              onClick={() => { setFetchErrors({}); refetchAll(); }}
+              className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-md text-xs font-medium transition shrink-0 flex items-center gap-1.5 shadow-sm"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              再試行
+            </button>
+          </div>
+        </div>
+      )}
+
       <main className="max-w-6xl mx-auto px-4 py-8 flex flex-col lg:flex-row gap-8">
         
         {/* Left Sidebar Column */}
@@ -1810,6 +1881,11 @@ export default function App() {
           />
         )}
       </main>
+
+      <ConfirmModal
+        {...confirmModal}
+        onClose={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 }
