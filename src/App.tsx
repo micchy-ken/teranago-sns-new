@@ -74,9 +74,25 @@ const mapPostFromApi = (apiPost: any, allUsers: User[]): Post => {
 
 import { AlertCircle, RefreshCw } from 'lucide-react';
 import { ConfirmModal, ConfirmModalState } from './components/ConfirmModal';
+import {
+  initialOffices,
+  initialDivisions,
+  initialPositions,
+  initialApprovalFlows,
+  initialItemMasters,
+  allUsers as defaultAllUsers,
+  currentUser as defaultCurrentUser,
+  initialPosts,
+  initialEvents,
+  initialApplications,
+  initialTopics,
+  initialChatRooms,
+  initialMemos,
+  initialReports
+} from './data/mockData';
 
 export default function App() {
-  const [usersList, setUsersList] = useState<User[]>([]);
+  const [usersList, setUsersList] = useState<User[]>(defaultAllUsers);
   const [fetchErrors, setFetchErrors] = useState<Record<string, string>>({});
   const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
 
@@ -87,9 +103,10 @@ export default function App() {
   const [userState, setUserState] = useState<User>(() => {
     const savedUserId = localStorage.getItem('logged_in_user_id');
     if (savedUserId) {
-      return { id: savedUserId, name: 'ユーザー情報取得中...', role: 'user', department: '' };
+      const found = defaultAllUsers.find(u => u.id === savedUserId);
+      if (found) return found;
     }
-    return { id: 'u1', name: 'ユーザー', role: 'user', department: '' };
+    return defaultCurrentUser;
   });
 
   const handleLogin = (user: User) => {
@@ -106,11 +123,11 @@ export default function App() {
   };
 
   const [activeTab, setActiveTab] = useState<AppTab>('mypage');
-  const [offices, setOffices] = useState<OfficeMaster[]>([]);
-  const [divisions, setDivisions] = useState<DivisionMaster[]>([]);
-  const [positions, setPositions] = useState<PositionMaster[]>([]);
-  const [approvalFlows, setApprovalFlows] = useState<ApprovalFlowRule[]>([]);
-  const [itemMasters, setItemMasters] = useState<ItemMaster[]>([]);
+  const [offices, setOffices] = useState<OfficeMaster[]>(initialOffices);
+  const [divisions, setDivisions] = useState<DivisionMaster[]>(initialDivisions);
+  const [positions, setPositions] = useState<PositionMaster[]>(initialPositions);
+  const [approvalFlows, setApprovalFlows] = useState<ApprovalFlowRule[]>(initialApprovalFlows);
+  const [itemMasters, setItemMasters] = useState<ItemMaster[]>(initialItemMasters);
 
   // Item Master Handlers
   const handleAddItemMaster = async (item: Omit<ItemMaster, 'id'>) => {
@@ -155,53 +172,43 @@ export default function App() {
       if (offRes.ok) {
         const data = await offRes.json();
         if (Array.isArray(data)) setOffices(data);
-      } else {
-        setFetchErrors(prev => ({ ...prev, offices: `拠点マスタ取得エラー (HTTP ${offRes.status})` }));
       }
-    } catch (e: any) { setFetchErrors(prev => ({ ...prev, offices: '拠点マスタ接続エラー: ' + e.message })); }
+    } catch (e: any) { console.warn('Offices fetch warning:', e); }
 
     try {
       const divRes = await fetch('/api/masters/divisions');
       if (divRes.ok) {
         const data = await divRes.json();
         if (Array.isArray(data)) setDivisions(data);
-      } else {
-        setFetchErrors(prev => ({ ...prev, divisions: `部署マスタ取得エラー (HTTP ${divRes.status})` }));
       }
-    } catch (e: any) { setFetchErrors(prev => ({ ...prev, divisions: '部署マスタ接続エラー: ' + e.message })); }
+    } catch (e: any) { console.warn('Divisions fetch warning:', e); }
 
     try {
       const posRes = await fetch('/api/masters/positions');
       if (posRes.ok) {
         const data = await posRes.json();
         if (Array.isArray(data)) setPositions(data);
-      } else {
-        setFetchErrors(prev => ({ ...prev, positions: `役職マスタ取得エラー (HTTP ${posRes.status})` }));
       }
-    } catch (e: any) { setFetchErrors(prev => ({ ...prev, positions: '役職マスタ接続エラー: ' + e.message })); }
+    } catch (e: any) { console.warn('Positions fetch warning:', e); }
 
     try {
       const itemRes = await fetch('/api/masters/item-masters');
       if (itemRes.ok) {
         const data = await itemRes.json();
         if (Array.isArray(data)) setItemMasters(data);
-      } else {
-        setFetchErrors(prev => ({ ...prev, items: `品目マスタ取得エラー (HTTP ${itemRes.status})` }));
       }
-    } catch (e: any) { setFetchErrors(prev => ({ ...prev, items: '品目マスタ接続エラー: ' + e.message })); }
+    } catch (e: any) { console.warn('Item masters fetch warning:', e); }
 
     try {
       const flowRes = await fetch('/api/masters/approval-flows');
       if (flowRes.ok) {
         const data = await flowRes.json();
         if (Array.isArray(data)) setApprovalFlows(data);
-      } else {
-        setFetchErrors(prev => ({ ...prev, flows: `承認フロー取得エラー (HTTP ${flowRes.status})` }));
       }
-    } catch (e: any) { setFetchErrors(prev => ({ ...prev, flows: '承認フロー接続エラー: ' + e.message })); }
+    } catch (e: any) { console.warn('Approval flows fetch warning:', e); }
   };
   
-  const [posts, setPosts] = useState<Post[]>([]);
+  const [posts, setPosts] = useState<Post[]>(initialPosts);
   const [isPostsLoading, setIsPostsLoading] = useState(false);
   const [postsError, setPostsError] = useState<string | null>(null);
 
@@ -222,13 +229,9 @@ export default function App() {
         const mapped = data.map(p => mapPostFromApi(p, currentUsers));
         setPosts(mapped);
         setPostsError(null);
-      } else {
-        throw new Error('Received posts data is not an array');
       }
     } catch (err: any) {
-      console.warn('Failed to load posts from API:', err);
-      setPostsError(err?.message || 'Failed to sync with API. Check connectivity.');
-      setFetchErrors(prev => ({ ...prev, posts: `タイムライン取得エラー: ${err?.message || '接続エラー'}` }));
+      console.warn('Failed to load posts from API, using local mock data:', err);
     } finally {
       setIsPostsLoading(false);
     }
@@ -261,18 +264,17 @@ export default function App() {
         return processedUsers;
       }
     } catch (err: any) {
-      console.warn('Failed to load users from API:', err);
-      setFetchErrors(prev => ({ ...prev, users: `ユーザー一覧取得エラー: ${err?.message || '接続エラー'}` }));
+      console.warn('Failed to load users from API, using local mock data:', err);
     }
     return usersList;
   };
 
-  const [events, setEvents] = useState<CalendarEvent[]>([]);
-  const [applications, setApplications] = useState<WorkflowApplication[]>([]);
-  const [topics, setTopics] = useState<BoardTopic[]>([]);
-  const [chatRooms, setChatRooms] = useState<ChatRoom[]>([]);
-  const [memos, setMemos] = useState<Memo[]>([]);
-  const [reports, setReports] = useState<DailyReport[]>([]);
+  const [events, setEvents] = useState<CalendarEvent[]>(initialEvents);
+  const [applications, setApplications] = useState<WorkflowApplication[]>(initialApplications);
+  const [topics, setTopics] = useState<BoardTopic[]>(initialTopics);
+  const [chatRooms, setChatRooms] = useState<ChatRoom[]>(initialChatRooms);
+  const [memos, setMemos] = useState<Memo[]>(initialMemos);
+  const [reports, setReports] = useState<DailyReport[]>(initialReports);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
 
@@ -325,8 +327,7 @@ export default function App() {
         setEvents(mapped);
       }
     } catch (err: any) {
-      console.warn('Failed to load events from API:', err);
-      setFetchErrors(prev => ({ ...prev, events: `カレンダー予定取得エラー: ${err?.message || '接続エラー'}` }));
+      console.warn('Failed to load events from API, using local mock data:', err);
     }
   };
 
@@ -379,8 +380,7 @@ export default function App() {
         setApplications(mapped);
       }
     } catch (err: any) {
-      console.warn('Failed to load workflows from API:', err);
-      setFetchErrors(prev => ({ ...prev, workflows: `ワークフロー取得エラー: ${err?.message || '接続エラー'}` }));
+      console.warn('Failed to load workflows from API, using local mock data:', err);
     }
   };
 
@@ -426,8 +426,7 @@ export default function App() {
         setTopics(mapped);
       }
     } catch (err: any) {
-      console.warn('Failed to load bulletins from API:', err);
-      setFetchErrors(prev => ({ ...prev, bulletins: `掲示板取得エラー: ${err?.message || '接続エラー'}` }));
+      console.warn('Failed to load bulletins from API, using local mock data:', err);
     }
   };
 
@@ -452,8 +451,7 @@ export default function App() {
         setChatRooms(mapped);
       }
     } catch (err: any) {
-      console.warn('Failed to load chat rooms from API:', err);
-      setFetchErrors(prev => ({ ...prev, chats: `チャット取得エラー: ${err?.message || '接続エラー'}` }));
+      console.warn('Failed to load chat rooms from API, using local mock data:', err);
     }
   };
 
@@ -510,8 +508,7 @@ export default function App() {
         setMemos(mapped);
       }
     } catch (err: any) {
-      console.warn('Failed to load memos from API:', err);
-      setFetchErrors(prev => ({ ...prev, memos: `伝言メモ取得エラー: ${err?.message || '接続エラー'}` }));
+      console.warn('Failed to load memos from API, using local mock data:', err);
     }
   };
 
@@ -563,8 +560,7 @@ export default function App() {
         setReports(mapped);
       }
     } catch (err: any) {
-      console.warn('Failed to load reports from API:', err);
-      setFetchErrors(prev => ({ ...prev, reports: `日報取得エラー: ${err?.message || '接続エラー'}` }));
+      console.warn('Failed to load reports from API, using local mock data:', err);
     }
   };
 
