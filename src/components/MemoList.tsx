@@ -277,23 +277,77 @@ export function MemoList({
       recipientStatuses,
     };
 
-    updateMemosState([newMemo, ...memos]);
+    const targetReceiver = (targetUsers[0] && targetUsers[0].id) || currentUser.id;
+    const recipientStatusesJsonStr = JSON.stringify(recipientStatuses);
 
-    // リセット
-    setFromName('');
-    setFromCompany('');
-    setFromPhone('');
-    setFromEmail('');
-    setNotificationEmail('');
-    setNotificationMobileEmail('');
-    setSelectedTargetOffices([]);
-    setSelectedTargetDivisions([]);
-    setSelectedToUserIds([]);
-    setRequirementType('phone_called');
-    setCustomRequirementText('');
-    setContent('');
-    setFormError(null);
-    setIsCreateOpen(false);
+    const apiPayload = {
+      id: newMemo.id,
+      senderId: currentUser.id,
+      receiverId: targetReceiver,
+      toUserId: targetReceiver,
+      toUserName: (targetUsers[0] && targetUsers[0].name) || '',
+      content: content.trim(),
+      fromName: fromName.trim(),
+      fromCompany: fromCompany.trim() || '',
+      fromPhone: fromPhone.trim() || '',
+      requirementType,
+      requirementText: reqText,
+      recipientStatusesJson: recipientStatusesJsonStr,
+      recipientStatuses: recipientStatusesJsonStr,
+      recipient_statuses_json: recipientStatusesJsonStr,
+      toUsersJson: JSON.stringify(targetUsers.map(u => u.id)),
+      details: {
+        fromEmail: fromEmail.trim() || undefined,
+        notificationEmail: notificationEmail.trim() || undefined,
+        notificationMobileEmail: notificationMobileEmail.trim() || undefined,
+        targetOffices: selectedTargetOffices,
+        targetDivisions: selectedTargetDivisions,
+        requirementType,
+        requirementText: reqText,
+        recipientStatuses
+      }
+    };
+
+    fetch('/api/memos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(apiPayload)
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          const errText = await res.text();
+          let msg = `HTTP ${res.status}`;
+          try {
+            const errJson = JSON.parse(errText);
+            if (errJson.error) msg = errJson.error;
+          } catch (_) {}
+          throw new Error(msg);
+        }
+        return res.json();
+      })
+      .then(() => {
+        updateMemosState([newMemo, ...memos]);
+
+        // リセット
+        setFromName('');
+        setFromCompany('');
+        setFromPhone('');
+        setFromEmail('');
+        setNotificationEmail('');
+        setNotificationMobileEmail('');
+        setSelectedTargetOffices([]);
+        setSelectedTargetDivisions([]);
+        setSelectedToUserIds([]);
+        setRequirementType('phone_called');
+        setCustomRequirementText('');
+        setContent('');
+        setFormError(null);
+        setIsCreateOpen(false);
+      })
+      .catch((err) => {
+        console.error('Failed to create memo via API:', err);
+        setFormError(`APIへの送信・保存に失敗しました: ${err.message}`);
+      });
   };
 
   // フィルタリング処理

@@ -66,7 +66,7 @@ export const PostCard: React.FC<PostCardProps> = ({
             <div className="flex items-start gap-2 min-w-0">
               <span className="text-xs font-bold text-slate-500 bg-white border border-slate-200 px-1.5 py-0.5 rounded shadow-sm shrink-0">NAS</span>
               <a 
-                href={`https://sns.teranago.synology.me/api/nas-file?path=${encodeURIComponent(post.nasLink)}`} 
+                href={`/api/nas-file?path=${encodeURIComponent(post.nasLink)}`} 
                 target="_blank" 
                 rel="noopener noreferrer"
                 className="text-sm text-indigo-600 hover:underline break-all font-semibold" 

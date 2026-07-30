@@ -150,7 +150,7 @@ export async function fetchIcalFeed(url: string, user?: User): Promise<CalendarE
 
   // Primary API proxy
   try {
-    const proxyUrl = `https://sns.teranago.synology.me/api/ical-proxy?url=${encodeURIComponent(normalizedUrl)}`;
+    const proxyUrl = `/api/ical-proxy?url=${encodeURIComponent(normalizedUrl)}`;
     const response = await fetch(proxyUrl);
     if (response.ok) {
       const text = await response.text();

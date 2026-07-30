@@ -397,7 +397,7 @@ app.post('/api/workflows', async (req, res) => {
       .input('title', sql.NVarChar, title || '無題の申請')
       .input('description', sql.NVarChar, description || title || '')
       .input('applicantId', sql.VarChar, applicantId || 'u1')
-      .input('approverId', sql.VarChar, approverId || null)
+      .input('approverId', sql.VarChar, approverId || 'u1')
       .input('status', sql.NVarChar, status || '承認待ち')
       .input('category', sql.NVarChar, workflowCategory)
       .input('type', sql.NVarChar, workflowCategory)
@@ -510,6 +510,19 @@ const handlePostBulletin = async (req, res) => {
 
 app.post('/api/bulletins', handlePostBulletin);
 app.post('/api/topics', handlePostBulletin);
+
+app.put('/api/bulletins/:id', (req, res) => {
+  res.json({ message: '掲示板更新完了', id: req.params.id, ...req.body });
+});
+app.put('/api/topics/:id', (req, res) => {
+  res.json({ message: '掲示板更新完了', id: req.params.id, ...req.body });
+});
+app.post('/api/bulletins/:id/comments', (req, res) => {
+  res.status(201).json({ message: 'コメント投稿完了', comment: req.body });
+});
+app.post('/api/topics/:id/comments', (req, res) => {
+  res.status(201).json({ message: 'コメント投稿完了', comment: req.body });
+});
 
 // ------------------------------------------
 // 7. Chats (社内チャット・メッセージ)
@@ -637,6 +650,8 @@ app.post('/api/memos', async (req, res) => {
     const reqText = requirementText || (details && details.requirementText) || '電話がありました';
     const detailsStr = details ? (typeof details === 'object' ? JSON.stringify(details) : details) : null;
     const toUsersJson = JSON.stringify([targetReceiver]);
+    const recStatuses = (details && details.recipientStatuses) || [{ userId: targetReceiver, userName: '', isViewed: false, isHandled: false }];
+    const recipientStatusesJson = req.body.recipientStatusesJson || JSON.stringify(recStatuses);
 
     await pool.request()
       .input('id', sql.VarChar, String(id))
@@ -650,9 +665,10 @@ app.post('/api/memos', async (req, res) => {
       .input('requirementText', sql.NVarChar, reqText)
       .input('details', sql.NVarChar, detailsStr)
       .input('toUsersJson', sql.NVarChar, toUsersJson)
+      .input('recipientStatusesJson', sql.NVarChar, recipientStatusesJson)
       .query`
-        INSERT INTO dbo.Memos (id, senderId, receiverId, content, isRead, createdAt, fromName, fromCompany, fromPhone, requirementType, requirementText, details, toUsersJson) 
-        VALUES (@id, @senderId, @receiverId, @content, 0, GETDATE(), @fromName, @fromCompany, @fromPhone, @requirementType, @requirementText, @details, @toUsersJson)
+        INSERT INTO dbo.Memos (id, senderId, receiverId, content, isRead, createdAt, fromName, fromCompany, fromPhone, requirementType, requirementText, details, toUsersJson, recipientStatusesJson) 
+        VALUES (@id, @senderId, @receiverId, @content, 0, GETDATE(), @fromName, @fromCompany, @fromPhone, @requirementType, @requirementText, @details, @toUsersJson, @recipientStatusesJson)
       `;
     res.status(201).json({ id, message: '伝言メモ作成完了' });
   } catch (err) { res.status(500).json({ error: err.message }); }

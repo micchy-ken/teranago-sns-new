@@ -1,0 +1,35 @@
+[
+  {
+    "id": "memo-proxy-1785390637925",
+    "senderId": "u1",
+    "sender": {
+      "id": "u1",
+      "name": "プロキシテスト太郎",
+      "department": "",
+      "avatarUrl": ""
+    },
+    "receiverId": "u1",
+    "toUserId": "u1",
+    "toUserName": "",
+    "content": "プロキシ経由作成テストメモ",
+    "isRead": false,
+    "fromName": "プロキシテスト太郎",
+    "fromCompany": "プロキシ社",
+    "fromPhone": "090-1111-2222",
+    "createdAt": "2026-07-30T05:50:37.931Z",
+    "requirementType": "phone_called",
+    "requirementText": "電話がありました",
+    "details": {
+      "requirementType": "phone_called",
+      "requirementText": "電話がありました",
+      "recipientStatuses": [
+        {
+          "userId": "u1",
+          "userName": "",
+          "isViewed": false,
+          "isHandled": false
+        }
+      ]
+    }
+  }
+]

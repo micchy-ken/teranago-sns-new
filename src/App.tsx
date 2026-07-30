@@ -144,7 +144,7 @@ export default function App() {
     setIsPostsLoading(true);
     setPostsError(null);
     try {
-      const response = await fetch('https://sns.teranago.synology.me/api/posts', {
+      const response = await fetch('/api/posts', {
         headers: {
           'Accept': 'application/json'
         }
@@ -173,7 +173,7 @@ export default function App() {
 
   const refetchUsers = async () => {
     try {
-      const response = await fetch('https://sns.teranago.synology.me/api/users', {
+      const response = await fetch('/api/users', {
         headers: {
           'Accept': 'application/json'
         }
@@ -214,7 +214,7 @@ export default function App() {
 
   const refetchEvents = async (currentUsers = usersList) => {
     try {
-      const response = await fetch('https://sns.teranago.synology.me/api/events', {
+      const response = await fetch('/api/events', {
         headers: { 'Accept': 'application/json' }
       });
       if (response.ok) {
@@ -266,7 +266,7 @@ export default function App() {
 
   const refetchApplications = async (currentUsers = usersList) => {
     try {
-      const response = await fetch('https://sns.teranago.synology.me/api/workflows', {
+      const response = await fetch('/api/workflows', {
         headers: { 'Accept': 'application/json' }
       });
       if (response.ok) {
@@ -301,7 +301,7 @@ export default function App() {
 
   const refetchTopics = async (currentUsers = usersList) => {
     try {
-      const response = await fetch('https://sns.teranago.synology.me/api/bulletins', {
+      const response = await fetch('/api/bulletins', {
         headers: { 'Accept': 'application/json' }
       });
       if (response.ok) {
@@ -309,10 +309,13 @@ export default function App() {
         if (Array.isArray(data)) {
           const mapped = data.map((t: any) => {
             let detailsObj: any = {};
-            if (t.content && t.content.startsWith('{')) {
+            if (t.content && typeof t.content === 'string' && t.content.startsWith('{')) {
               try { detailsObj = JSON.parse(t.content); } catch (_) {}
             }
             const authorUser = currentUsers.find(u => u.id === t.authorId) || t.author || defaultCurrentUser;
+            
+            const commentsList = Array.isArray(t.comments) ? t.comments : [];
+
             return {
               id: String(t.id),
               category: t.category || 'general',
@@ -328,9 +331,9 @@ export default function App() {
               tags: Array.isArray(t.tags) ? t.tags : (typeof t.tags === 'string' ? t.tags.split(',') : []),
               isPinned: t.isPinned === true || t.isPinned === 1,
               attachments: t.attachments ? (typeof t.attachments === 'string' && t.attachments.startsWith('[') ? JSON.parse(t.attachments) : t.attachments) : [],
-              comments: [],
+              comments: commentsList,
               viewers: [],
-              commentsCount: t.commentsCount || 0,
+              commentsCount: commentsList.length || t.commentsCount || 0,
               ...detailsObj
             };
           });
@@ -338,13 +341,13 @@ export default function App() {
         }
       }
     } catch (err) {
-      console.warn('Failed to load bulletins from API, keeping local state:', err);
+      console.warn('Failed to load bulletins from API:', err);
     }
   };
 
   const refetchChatRooms = async (currentUsers = usersList) => {
     try {
-      const response = await fetch('https://sns.teranago.synology.me/api/chats', {
+      const response = await fetch('/api/chats', {
         headers: { 'Accept': 'application/json' }
       });
       if (response.ok) {
@@ -368,9 +371,10 @@ export default function App() {
 
   const refetchMemos = async (currentUsers = usersList) => {
     try {
-      const response = await fetch('https://sns.teranago.synology.me/api/memos', {
+      const response = await fetch('/api/memos', {
         headers: { 'Accept': 'application/json' }
       });
+
       if (response.ok) {
         const data = await response.json();
         if (Array.isArray(data)) {
@@ -412,21 +416,22 @@ export default function App() {
               ...m
             };
           });
+
           setMemos(mapped);
         }
       }
     } catch (err) {
-      console.warn('Failed to load memos from API, keeping local state:', err);
+      console.warn('Failed to load memos from API:', err);
     }
   };
 
   const refetchReports = async (currentUsers = usersList) => {
     try {
-      let response = await fetch('https://sns.teranago.synology.me/api/daily-reports', {
+      let response = await fetch('/api/daily-reports', {
         headers: { 'Accept': 'application/json' }
       });
       if (!response.ok) {
-        response = await fetch('https://sns.teranago.synology.me/api/reports', {
+        response = await fetch('/api/reports', {
           headers: { 'Accept': 'application/json' }
         });
       }
@@ -506,7 +511,7 @@ export default function App() {
     setTopics([newTopic, ...topics]);
 
     try {
-      const response = await fetch('https://sns.teranago.synology.me/api/bulletins', {
+      const response = await fetch('/api/bulletins', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -533,9 +538,10 @@ export default function App() {
   };
 
   const handleUpdateTopic = async (updatedTopic: BoardTopic) => {
-    setTopics(topics.map(t => t.id === updatedTopic.id ? updatedTopic : t));
+    setTopics(prev => prev.map(t => t.id === updatedTopic.id ? updatedTopic : t));
+
     try {
-      const response = await fetch(`https://sns.teranago.synology.me/api/bulletins/${updatedTopic.id}`, {
+      const response = await fetch(`/api/bulletins/${updatedTopic.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -584,7 +590,7 @@ export default function App() {
 
     try {
       console.log('Attempting to create user via POST to /api/users...');
-      const response = await fetch('https://sns.teranago.synology.me/api/users', {
+      const response = await fetch('/api/users', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -613,7 +619,7 @@ export default function App() {
     }
 
     try {
-      const urlWithId = `https://sns.teranago.synology.me/api/users/${updatedUser.id}`;
+      const urlWithId = `/api/users/${updatedUser.id}`;
       console.log(`Attempting update: PUT to ${urlWithId}...`);
       let response = await fetch(urlWithId, {
         method: 'PUT',
@@ -640,7 +646,7 @@ export default function App() {
       if (!response.ok) {
         console.warn(`POST /api/users/:id failed with status ${response.status}. Trying PUT to /api/users...`);
         // Fallback 2: PUT /api/users
-        response = await fetch('https://sns.teranago.synology.me/api/users', {
+        response = await fetch('/api/users', {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
@@ -653,7 +659,7 @@ export default function App() {
       if (!response.ok) {
         console.warn(`PUT /api/users failed with status ${response.status}. Trying POST to /api/users...`);
         // Fallback 3: POST /api/users (many simple APIs accept POST here to insert or update)
-        response = await fetch('https://sns.teranago.synology.me/api/users', {
+        response = await fetch('/api/users', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -682,7 +688,7 @@ export default function App() {
 
     try {
       console.log(`Attempting to delete user via DELETE on /api/users/${userId}...`);
-      let response = await fetch(`https://sns.teranago.synology.me/api/users/${userId}`, {
+      let response = await fetch(`/api/users/${userId}`, {
         method: 'DELETE',
         headers: {
           'Accept': 'application/json',
@@ -719,7 +725,7 @@ export default function App() {
     if (targetUser) {
       try {
         console.log(`Attempting to toggle admin status for user ${userId}...`);
-        const urlWithId = `https://sns.teranago.synology.me/api/users/${userId}`;
+        const urlWithId = `/api/users/${userId}`;
         let response = await fetch(urlWithId, {
           method: 'PUT',
           headers: {
@@ -730,7 +736,7 @@ export default function App() {
         });
 
         if (!response.ok) {
-          response = await fetch('https://sns.teranago.synology.me/api/users', {
+          response = await fetch('/api/users', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -820,7 +826,7 @@ export default function App() {
     setPosts(prev => [newPost, ...prev]);
 
     try {
-      const response = await fetch('https://sns.teranago.synology.me/api/posts', {
+      const response = await fetch('/api/posts', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -864,7 +870,7 @@ export default function App() {
     }));
 
     try {
-      const response = await fetch(`https://sns.teranago.synology.me/api/posts/${postId}/like`, {
+      const response = await fetch(`/api/posts/${postId}/like`, {
         method: 'POST',
         headers: {
           'Accept': 'application/json',
@@ -897,7 +903,7 @@ export default function App() {
     setPosts(prev => prev.filter(post => post.id !== postId));
 
     try {
-      const response = await fetch(`https://sns.teranago.synology.me/api/posts/${postId}`, {
+      const response = await fetch(`/api/posts/${postId}`, {
         method: 'DELETE',
         headers: {
           'Accept': 'application/json',
@@ -925,7 +931,7 @@ export default function App() {
     setEvents([...events, newEvent]);
 
     try {
-      const response = await fetch('https://sns.teranago.synology.me/api/events', {
+      const response = await fetch('/api/events', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -953,7 +959,7 @@ export default function App() {
   const handleUpdateEvent = async (updatedEvent: CalendarEvent) => {
     setEvents(events.map(e => e.id === updatedEvent.id ? updatedEvent : e));
     try {
-      const response = await fetch(`https://sns.teranago.synology.me/api/events/${updatedEvent.id}`, {
+      const response = await fetch(`/api/events/${updatedEvent.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -983,7 +989,7 @@ export default function App() {
     if (!window.confirm('この予定を削除してもよろしいですか？')) return;
     setEvents(events.filter(e => e.id !== eventId));
     try {
-      const response = await fetch(`https://sns.teranago.synology.me/api/events/${eventId}`, {
+      const response = await fetch(`/api/events/${eventId}`, {
         method: 'DELETE'
       });
       if (response.ok) {
@@ -1083,7 +1089,7 @@ export default function App() {
     setApplications([newApp, ...applications]);
 
     try {
-      const response = await fetch('https://sns.teranago.synology.me/api/workflows', {
+      const response = await fetch('/api/workflows', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1194,7 +1200,7 @@ export default function App() {
 
     if (updatedAppObj && !id.startsWith('a-temp-')) {
       try {
-        await fetch(`https://sns.teranago.synology.me/api/workflows/${id}`, {
+        await fetch(`/api/workflows/${id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1280,7 +1286,7 @@ export default function App() {
 
     if (finalAppObj && !updatedApp.id.startsWith('a-temp-')) {
       try {
-        await fetch(`https://sns.teranago.synology.me/api/workflows/${updatedApp.id}`, {
+        await fetch(`/api/workflows/${updatedApp.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1321,7 +1327,7 @@ export default function App() {
     setApplications(prevApps => prevApps.filter(app => app.id !== applicationId));
 
     try {
-      await fetch(`https://sns.teranago.synology.me/api/workflows/${applicationId}`, {
+      await fetch(`/api/workflows/${applicationId}`, {
         method: 'DELETE'
       });
       await refetchApplications();
@@ -1336,7 +1342,7 @@ export default function App() {
       const lastRoom = updatedRooms[0];
       if (lastRoom && lastRoom.messages && lastRoom.messages.length > 0) {
         const lastMsg = lastRoom.messages[lastRoom.messages.length - 1];
-        let response = await fetch('https://sns.teranago.synology.me/api/chats', {
+        let response = await fetch('/api/chats', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1347,7 +1353,7 @@ export default function App() {
           })
         });
         if (!response.ok) {
-          await fetch('https://sns.teranago.synology.me/api/chats/message', {
+          await fetch('/api/chats/message', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1370,10 +1376,14 @@ export default function App() {
     setMemos(updatedMemos);
 
     try {
+      localStorage.setItem('local_memos_cache', JSON.stringify(updatedMemos));
+    } catch (_) {}
+
+    try {
       for (const memo of updatedMemos) {
         if (!existingIds.has(memo.id)) {
           // 新規メモ作成
-          await fetch('https://sns.teranago.synology.me/api/memos', {
+          await fetch('/api/memos', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1399,7 +1409,7 @@ export default function App() {
           });
         } else {
           // 既存メモの更新（既読・対応フラグ等）
-          await fetch(`https://sns.teranago.synology.me/api/memos/${memo.id}`, {
+          await fetch(`/api/memos/${memo.id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1415,7 +1425,6 @@ export default function App() {
           });
         }
       }
-      await refetchMemos();
     } catch (err) {
       console.warn('Failed to sync memos via API:', err);
     }
@@ -1442,7 +1451,7 @@ export default function App() {
     setReports([newReport, ...reports]);
 
     try {
-      let response = await fetch('https://sns.teranago.synology.me/api/daily-reports', {
+      let response = await fetch('/api/daily-reports', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1456,7 +1465,7 @@ export default function App() {
         })
       });
       if (!response.ok) {
-        response = await fetch('https://sns.teranago.synology.me/api/reports', {
+        response = await fetch('/api/reports', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

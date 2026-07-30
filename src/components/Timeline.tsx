@@ -90,11 +90,11 @@ export function Timeline({
     try {
       let url = '';
       if (endpoint === 'posts') {
-        url = 'https://sns.teranago.synology.me/api/posts';
+        url = '/api/posts';
       } else if (endpoint === 'ical') {
-        url = 'https://sns.teranago.synology.me/api/ical-proxy?url=https://calendar.google.com/calendar/ical/dummy/public/basic.ics';
+        url = '/api/ical-proxy?url=https://calendar.google.com/calendar/ical/dummy/public/basic.ics';
       } else if (endpoint === 'nas') {
-        url = 'https://sns.teranago.synology.me/api/nas-file?path=test_path_check';
+        url = '/api/nas-file?path=test_path_check';
       }
 
       const res = await fetch(url, { method: 'GET' });
