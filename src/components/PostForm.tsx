@@ -15,14 +15,14 @@ export function PostForm({ onPost }: PostFormProps) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!content.trim()) return;
+    if (!content || !content.trim()) return;
 
-    const tags = tagsInput
+    const tags = (tagsInput || '')
       .split(',')
-      .map(t => t.trim())
+      .map(t => (t || '').trim())
       .filter(t => t.length > 0);
 
-    onPost(content, tags, nasLinkInput.trim() || undefined);
+    onPost(content, tags, (nasLinkInput || '').trim() || undefined);
     
     // Reset form
     setContent('');
@@ -100,7 +100,7 @@ export function PostForm({ onPost }: PostFormProps) {
                   </button>
                   <button
                     type="submit"
-                    disabled={!content.trim()}
+                    disabled={!content || !content.trim()}
                     className="flex items-center gap-2 px-5 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     <Send className="w-4 h-4" />

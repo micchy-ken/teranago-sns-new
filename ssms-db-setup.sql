@@ -14,8 +14,19 @@ IF OBJECT_ID('dbo.Offices', 'U') IS NULL
 BEGIN
     CREATE TABLE dbo.Offices (
         id VARCHAR(50) PRIMARY KEY,
-        name NVARCHAR(100) NOT NULL
+        name NVARCHAR(100) NOT NULL,
+        type VARCHAR(50) NULL,
+        code VARCHAR(50) NULL,
+        location NVARCHAR(255) NULL,
+        phone NVARCHAR(50) NULL
     );
+END
+ELSE
+BEGIN
+    IF COL_LENGTH('dbo.Offices', 'type') IS NULL ALTER TABLE dbo.Offices ADD type VARCHAR(50) NULL;
+    IF COL_LENGTH('dbo.Offices', 'code') IS NULL ALTER TABLE dbo.Offices ADD code VARCHAR(50) NULL;
+    IF COL_LENGTH('dbo.Offices', 'location') IS NULL ALTER TABLE dbo.Offices ADD location NVARCHAR(255) NULL;
+    IF COL_LENGTH('dbo.Offices', 'phone') IS NULL ALTER TABLE dbo.Offices ADD phone NVARCHAR(50) NULL;
 END
 GO
 
@@ -23,8 +34,15 @@ IF OBJECT_ID('dbo.Divisions', 'U') IS NULL
 BEGIN
     CREATE TABLE dbo.Divisions (
         id VARCHAR(50) PRIMARY KEY,
-        name NVARCHAR(100) NOT NULL
+        name NVARCHAR(100) NOT NULL,
+        code VARCHAR(50) NULL,
+        description NVARCHAR(255) NULL
     );
+END
+ELSE
+BEGIN
+    IF COL_LENGTH('dbo.Divisions', 'code') IS NULL ALTER TABLE dbo.Divisions ADD code VARCHAR(50) NULL;
+    IF COL_LENGTH('dbo.Divisions', 'description') IS NULL ALTER TABLE dbo.Divisions ADD description NVARCHAR(255) NULL;
 END
 GO
 
@@ -32,8 +50,55 @@ IF OBJECT_ID('dbo.Positions', 'U') IS NULL
 BEGIN
     CREATE TABLE dbo.Positions (
         id VARCHAR(50) PRIMARY KEY,
-        name NVARCHAR(100) NOT NULL
+        name NVARCHAR(100) NOT NULL,
+        code VARCHAR(50) NULL,
+        description NVARCHAR(255) NULL
     );
+END
+ELSE
+BEGIN
+    IF COL_LENGTH('dbo.Positions', 'code') IS NULL ALTER TABLE dbo.Positions ADD code VARCHAR(50) NULL;
+    IF COL_LENGTH('dbo.Positions', 'description') IS NULL ALTER TABLE dbo.Positions ADD description NVARCHAR(255) NULL;
+END
+GO
+
+IF OBJECT_ID('dbo.ItemMasters', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.ItemMasters (
+        id VARCHAR(50) PRIMARY KEY,
+        name NVARCHAR(200) NOT NULL,
+        category NVARCHAR(100) NULL,
+        defaultUnitPrice INT DEFAULT 0,
+        unit NVARCHAR(50) NULL,
+        code VARCHAR(50) NULL
+    );
+END
+ELSE
+BEGIN
+    IF COL_LENGTH('dbo.ItemMasters', 'category') IS NULL ALTER TABLE dbo.ItemMasters ADD category NVARCHAR(100) NULL;
+    IF COL_LENGTH('dbo.ItemMasters', 'defaultUnitPrice') IS NULL ALTER TABLE dbo.ItemMasters ADD defaultUnitPrice INT DEFAULT 0;
+    IF COL_LENGTH('dbo.ItemMasters', 'unit') IS NULL ALTER TABLE dbo.ItemMasters ADD unit NVARCHAR(50) NULL;
+    IF COL_LENGTH('dbo.ItemMasters', 'code') IS NULL ALTER TABLE dbo.ItemMasters ADD code VARCHAR(50) NULL;
+END
+GO
+
+IF OBJECT_ID('dbo.ApprovalFlows', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.ApprovalFlows (
+        id VARCHAR(50) PRIMARY KEY,
+        name NVARCHAR(200) NOT NULL,
+        description NVARCHAR(MAX) NULL,
+        targetApplicationType VARCHAR(50) NULL,
+        stepsJson NVARCHAR(MAX) NULL,
+        isDefault BIT DEFAULT 0
+    );
+END
+ELSE
+BEGIN
+    IF COL_LENGTH('dbo.ApprovalFlows', 'description') IS NULL ALTER TABLE dbo.ApprovalFlows ADD description NVARCHAR(MAX) NULL;
+    IF COL_LENGTH('dbo.ApprovalFlows', 'targetApplicationType') IS NULL ALTER TABLE dbo.ApprovalFlows ADD targetApplicationType VARCHAR(50) NULL;
+    IF COL_LENGTH('dbo.ApprovalFlows', 'stepsJson') IS NULL ALTER TABLE dbo.ApprovalFlows ADD stepsJson NVARCHAR(MAX) NULL;
+    IF COL_LENGTH('dbo.ApprovalFlows', 'isDefault') IS NULL ALTER TABLE dbo.ApprovalFlows ADD isDefault BIT DEFAULT 0;
 END
 GO
 

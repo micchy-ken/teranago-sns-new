@@ -156,12 +156,12 @@ export function Chat({
   // メッセージ送信（テキスト）
   const handleSendMessage = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!messageText.trim() || !activeRoom) return;
+    if (!messageText || !messageText.trim() || !activeRoom) return;
 
     const newMessage: ChatMessage = {
       id: `m_${Date.now()}`,
       sender: currentUser,
-      content: messageText.trim(),
+      content: (messageText || '').trim(),
       createdAt: new Date().toISOString(),
       type: 'text'
     };
@@ -267,7 +267,7 @@ export function Chat({
 
     const newRoom: ChatRoom = {
       id: `c_${Date.now()}`,
-      name: newRoomType === 'group' ? (newRoomName.trim() || '新規グループトーク') : undefined,
+      name: newRoomType === 'group' ? ((newRoomName || '').trim() || '新規グループトーク') : undefined,
       type: newRoomType,
       participants: allParticipants,
       messages: [
@@ -363,7 +363,7 @@ export function Chat({
       return true;
     })
     .filter((r) => {
-      if (!searchQuery.trim()) return true;
+      if (!searchQuery || !searchQuery.trim()) return true;
       const q = searchQuery.toLowerCase();
       const rName = getRoomName(r).toLowerCase();
       const hasMember = r.participants.some((p) => p.name.toLowerCase().includes(q));
@@ -882,7 +882,7 @@ export function Chat({
 
               <button
                 type="submit"
-                disabled={!messageText.trim()}
+                disabled={!messageText || !messageText.trim()}
                 className="p-2.5 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 disabled:opacity-40 disabled:hover:bg-indigo-600 transition-colors shadow-sm shrink-0"
               >
                 <Send className="w-4 h-4" />
@@ -1048,7 +1048,7 @@ export function Chat({
                 </button>
                 <button
                   type="submit"
-                  disabled={selectedUserIds.length === 0 || (newRoomType === 'group' && !newRoomName.trim())}
+                  disabled={selectedUserIds.length === 0 || (newRoomType === 'group' && (!newRoomName || !newRoomName.trim()))}
                   className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-colors disabled:opacity-50"
                 >
                   トークルームを作成

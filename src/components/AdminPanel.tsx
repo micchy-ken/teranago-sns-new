@@ -284,31 +284,31 @@ export function AdminPanel({
 
   const handleSaveUser = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!userFormData.name.trim()) {
+    if (!userFormData.name || !userFormData.name.trim()) {
       setUserFormError('氏名を入力してください。');
       return;
     }
 
-    const deptString = `${userFormData.office} ${userFormData.division} ${userFormData.position}`.trim();
-    const finalLoginId = userFormData.loginId.trim() || `user_${Date.now().toString().slice(-4)}`;
+    const deptString = `${userFormData.office || ''} ${userFormData.division || ''} ${userFormData.position || ''}`.trim();
+    const finalLoginId = (userFormData.loginId || '').trim() || `user_${Date.now().toString().slice(-4)}`;
 
     if (editingUser) {
       onUpdateUser({
         ...editingUser,
-        name: userFormData.name.trim(),
-        kanaName: userFormData.kanaName.trim(),
+        name: (userFormData.name || '').trim(),
+        kanaName: (userFormData.kanaName || '').trim(),
         loginId: finalLoginId,
-        password: userFormData.password.trim() || 'test',
+        password: (userFormData.password || '').trim() || 'test',
         office: userFormData.office,
         division: userFormData.division,
         position: userFormData.position,
         department: deptString,
-        email: userFormData.email.trim(),
-        mobileEmail: userFormData.mobileEmail.trim(),
-        phoneOutside: userFormData.phoneOutside.trim(),
-        phoneExtension: userFormData.phoneExtension.trim(),
-        mobilePhone: userFormData.mobilePhone.trim(),
-        phone: userFormData.mobilePhone.trim() || userFormData.phoneOutside.trim() || editingUser.phone,
+        email: (userFormData.email || '').trim(),
+        mobileEmail: (userFormData.mobileEmail || '').trim(),
+        phoneOutside: (userFormData.phoneOutside || '').trim(),
+        phoneExtension: (userFormData.phoneExtension || '').trim(),
+        mobilePhone: (userFormData.mobilePhone || '').trim(),
+        phone: (userFormData.mobilePhone || '').trim() || (userFormData.phoneOutside || '').trim() || editingUser.phone,
         isAdmin: userFormData.isAdmin,
         role: userFormData.isAdmin ? 'admin' : 'user',
         supervisorId: userFormData.supervisorId || undefined,
@@ -316,21 +316,21 @@ export function AdminPanel({
     } else {
       const newId = `u-${Date.now()}`;
       onAddUser({
-        name: userFormData.name.trim(),
-        kanaName: userFormData.kanaName.trim(),
+        name: (userFormData.name || '').trim(),
+        kanaName: (userFormData.kanaName || '').trim(),
         loginId: finalLoginId,
-        password: userFormData.password.trim() || 'test',
+        password: (userFormData.password || '').trim() || 'test',
         office: userFormData.office,
         division: userFormData.division,
         position: userFormData.position,
         department: deptString,
         avatarUrl: `https://i.pravatar.cc/150?u=${newId}`,
-        email: userFormData.email.trim(),
-        mobileEmail: userFormData.mobileEmail.trim(),
-        phoneOutside: userFormData.phoneOutside.trim(),
-        phoneExtension: userFormData.phoneExtension.trim(),
-        mobilePhone: userFormData.mobilePhone.trim(),
-        phone: userFormData.mobilePhone.trim() || userFormData.phoneOutside.trim(),
+        email: (userFormData.email || '').trim(),
+        mobileEmail: (userFormData.mobileEmail || '').trim(),
+        phoneOutside: (userFormData.phoneOutside || '').trim(),
+        phoneExtension: (userFormData.phoneExtension || '').trim(),
+        mobilePhone: (userFormData.mobilePhone || '').trim(),
+        phone: (userFormData.mobilePhone || '').trim() || (userFormData.phoneOutside || '').trim(),
         isAdmin: userFormData.isAdmin,
         role: userFormData.isAdmin ? 'admin' : 'user',
         supervisorId: userFormData.supervisorId || undefined,
@@ -377,24 +377,24 @@ export function AdminPanel({
 
   const handleSaveOffice = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!officeFormData.name.trim()) return;
+    if (!officeFormData.name || !officeFormData.name.trim()) return;
 
     if (editingOffice) {
       onUpdateOffice({
         ...editingOffice,
-        name: officeFormData.name.trim(),
+        name: (officeFormData.name || '').trim(),
         type: officeFormData.type,
-        code: officeFormData.code.trim() || editingOffice.code,
-        location: officeFormData.location.trim(),
-        phone: officeFormData.phone.trim(),
+        code: (officeFormData.code || '').trim() || editingOffice.code,
+        location: (officeFormData.location || '').trim(),
+        phone: (officeFormData.phone || '').trim(),
       });
     } else {
       onAddOffice({
-        name: officeFormData.name.trim(),
+        name: (officeFormData.name || '').trim(),
         type: officeFormData.type,
-        code: officeFormData.code.trim() || `OFF-${Date.now().toString().slice(-3)}`,
-        location: officeFormData.location.trim(),
-        phone: officeFormData.phone.trim(),
+        code: (officeFormData.code || '').trim() || `OFF-${Date.now().toString().slice(-3)}`,
+        location: (officeFormData.location || '').trim(),
+        phone: (officeFormData.phone || '').trim(),
       });
     }
     setIsOfficeModalOpen(false);
@@ -427,27 +427,27 @@ export function AdminPanel({
 
   const handleSaveItem = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!itemFormData.name.trim()) return;
+    if (!itemFormData.name || !itemFormData.name.trim()) return;
 
     if (editingItem) {
       if (onUpdateItemMaster) {
         onUpdateItemMaster({
           ...editingItem,
-          name: itemFormData.name.trim(),
-          category: itemFormData.category.trim(),
+          name: (itemFormData.name || '').trim(),
+          category: (itemFormData.category || '').trim(),
           defaultUnitPrice: itemFormData.defaultUnitPrice !== '' ? Number(itemFormData.defaultUnitPrice) : undefined,
-          unit: itemFormData.unit.trim(),
-          code: itemFormData.code.trim(),
+          unit: (itemFormData.unit || '').trim(),
+          code: (itemFormData.code || '').trim(),
         });
       }
     } else {
       if (onAddItemMaster) {
         onAddItemMaster({
-          name: itemFormData.name.trim(),
-          category: itemFormData.category.trim(),
+          name: (itemFormData.name || '').trim(),
+          category: (itemFormData.category || '').trim(),
           defaultUnitPrice: itemFormData.defaultUnitPrice !== '' ? Number(itemFormData.defaultUnitPrice) : undefined,
-          unit: itemFormData.unit.trim(),
-          code: itemFormData.code.trim() || `ITM-${Date.now().toString().slice(-4)}`,
+          unit: (itemFormData.unit || '').trim(),
+          code: (itemFormData.code || '').trim() || `ITM-${Date.now().toString().slice(-4)}`,
         });
       }
     }
@@ -485,20 +485,20 @@ export function AdminPanel({
 
   const handleSaveDivision = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!divisionFormData.name.trim()) return;
+    if (!divisionFormData.name || !divisionFormData.name.trim()) return;
 
     if (editingDivision) {
       onUpdateDivision({
         ...editingDivision,
-        name: divisionFormData.name.trim(),
-        code: divisionFormData.code.trim() || editingDivision.code,
-        description: divisionFormData.description.trim(),
+        name: (divisionFormData.name || '').trim(),
+        code: (divisionFormData.code || '').trim() || editingDivision.code,
+        description: (divisionFormData.description || '').trim(),
       });
     } else {
       onAddDivision({
-        name: divisionFormData.name.trim(),
-        code: divisionFormData.code.trim() || `DIV-${Date.now().toString().slice(-3)}`,
-        description: divisionFormData.description.trim(),
+        name: (divisionFormData.name || '').trim(),
+        code: (divisionFormData.code || '').trim() || `DIV-${Date.now().toString().slice(-3)}`,
+        description: (divisionFormData.description || '').trim(),
       });
     }
     setIsDivisionModalOpen(false);
@@ -527,23 +527,23 @@ export function AdminPanel({
 
   const handleSavePosition = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!positionFormData.name.trim()) return;
+    if (!positionFormData.name || !positionFormData.name.trim()) return;
 
     if (editingPosition) {
       if (onUpdatePosition) {
         onUpdatePosition({
           ...editingPosition,
-          name: positionFormData.name.trim(),
-          code: positionFormData.code.trim() || editingPosition.code,
-          description: positionFormData.description.trim(),
+          name: (positionFormData.name || '').trim(),
+          code: (positionFormData.code || '').trim() || editingPosition.code,
+          description: (positionFormData.description || '').trim(),
         });
       }
     } else {
       if (onAddPosition) {
         onAddPosition({
-          name: positionFormData.name.trim(),
-          code: positionFormData.code.trim() || `POS-${Date.now().toString().slice(-3)}`,
-          description: positionFormData.description.trim(),
+          name: (positionFormData.name || '').trim(),
+          code: (positionFormData.code || '').trim() || `POS-${Date.now().toString().slice(-3)}`,
+          description: (positionFormData.description || '').trim(),
         });
       }
     }
@@ -639,14 +639,14 @@ export function AdminPanel({
 
   const handleSaveFlow = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!flowFormData.name.trim() || flowFormData.steps.length === 0) return;
+    if (!flowFormData.name || !flowFormData.name.trim() || flowFormData.steps.length === 0) return;
 
     if (editingFlow) {
       if (onUpdateApprovalFlow) {
         onUpdateApprovalFlow({
           ...editingFlow,
-          name: flowFormData.name.trim(),
-          description: flowFormData.description.trim(),
+          name: (flowFormData.name || '').trim(),
+          description: (flowFormData.description || '').trim(),
           targetApplicationType: flowFormData.targetApplicationType,
           isDefault: flowFormData.isDefault,
           steps: flowFormData.steps,
@@ -655,8 +655,8 @@ export function AdminPanel({
     } else {
       if (onAddApprovalFlow) {
         onAddApprovalFlow({
-          name: flowFormData.name.trim(),
-          description: flowFormData.description.trim(),
+          name: (flowFormData.name || '').trim(),
+          description: (flowFormData.description || '').trim(),
           targetApplicationType: flowFormData.targetApplicationType,
           isDefault: flowFormData.isDefault,
           steps: flowFormData.steps,

@@ -24,7 +24,7 @@ export function DailyReportView({ reports, onAddReport, currentUser }: DailyRepo
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!tasks.trim()) return;
+    if (!tasks || !tasks.trim()) return;
 
     if (onAddReport) {
       onAddReport({

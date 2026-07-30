@@ -155,7 +155,7 @@ export function EventModal({
     e.preventDefault();
     setError(null);
 
-    if (!title.trim() || !start) {
+    if (!title || !title.trim() || !start) {
       setError('タイトルと開始日時は必須です。');
       return;
     }
@@ -199,7 +199,7 @@ export function EventModal({
     if (currentEditingEvent) {
       onSave({
         ...currentEditingEvent,
-        title: title.trim(),
+        title: (title || '').trim(),
         type,
         office,
         division,
@@ -214,7 +214,7 @@ export function EventModal({
       });
     } else {
       onSave({
-        title: title.trim(),
+        title: (title || '').trim(),
         type,
         office,
         division,

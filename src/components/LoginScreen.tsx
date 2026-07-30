@@ -17,8 +17,8 @@ export function LoginScreen({ users, onLogin }: LoginScreenProps) {
     e.preventDefault();
     setError(null);
 
-    const trimmedId = loginId.trim();
-    const trimmedPw = password.trim();
+    const trimmedId = (loginId || '').trim();
+    const trimmedPw = (password || '').trim();
 
     if (!trimmedId || !trimmedPw) {
       setError('ユーザーIDとパスワードを入力してください。');

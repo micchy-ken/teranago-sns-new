@@ -136,7 +136,7 @@ function convertPropsToEvent(
  * Supports webcal:// protocol and CORS proxy fallback.
  */
 export async function fetchIcalFeed(url: string, user?: User): Promise<CalendarEvent[]> {
-  if (!url || !url.trim()) return [];
+  if (!url || typeof url !== 'string' || !url.trim()) return [];
 
   let normalizedUrl = url.trim();
   if (normalizedUrl.startsWith('webcal://')) {

@@ -12,6 +12,77 @@ if (!fs.existsSync(DATA_DIR)) {
 }
 const BULLETINS_FILE = path.join(DATA_DIR, 'bulletins_custom.json');
 const MEMOS_FILE = path.join(DATA_DIR, 'memos_custom.json');
+const MASTERS_FILE = path.join(DATA_DIR, 'masters_custom.json');
+
+const defaultMasters = {
+  offices: [
+    { id: 'off-1', name: '東京本社', type: 'headquarters', code: 'HQ01', location: '東京都千代田区', phone: '03-1234-5678' },
+    { id: 'off-2', name: '大阪支社', type: 'branch', code: 'BR01', location: '大阪府大阪市北区', phone: '06-8765-4321' },
+    { id: 'off-3', name: '名古屋営業所', type: 'office', code: 'OF01', location: '愛知県名古屋市中区', phone: '052-111-2222' }
+  ],
+  divisions: [
+    { id: 'div-1', name: '開発技術部', code: 'DEV', description: 'システム・アプリケーション開発' },
+    { id: 'div-2', name: '営業統括部', code: 'SALES', description: '顧客営業・マーケティング' },
+    { id: 'div-3', name: '人事総務部', code: 'HR', description: '採用・労務・施設管理' },
+    { id: 'div-4', name: '企画マーケティング部', code: 'MKT', description: '新規事業企画・広報' }
+  ],
+  positions: [
+    { id: 'pos-1', name: '一般社員', code: 'P1', description: '一般業務担当' },
+    { id: 'pos-2', name: '主任', code: 'P2', description: 'チームリーダー補助' },
+    { id: 'pos-3', name: '係長', code: 'P3', description: 'チームリーダー' },
+    { id: 'pos-4', name: '課長', code: 'P4', description: '課の責任者' },
+    { id: 'pos-5', name: '部長', code: 'P5', description: '部門の責任者' },
+    { id: 'pos-6', name: '代表取締役', code: 'P6', description: '最高経営責任者' }
+  ],
+  itemMasters: [
+    { id: 'itm_1', name: 'ノートPC Core i7/16GB', category: 'IT機器', defaultUnitPrice: 180000, unit: '台', code: 'PC-001' },
+    { id: 'itm_2', name: '27インチ 4Kモニター', category: 'IT機器', defaultUnitPrice: 45000, unit: '台', code: 'MON-001' },
+    { id: 'itm_3', name: 'オフィスチェア エルゴノミクス', category: 'オフィス用品', defaultUnitPrice: 35000, unit: '脚', code: 'CHR-001' },
+    { id: 'itm_4', name: 'コピー用紙 A4 (500枚x5冊)', category: '消耗品', defaultUnitPrice: 3200, unit: '箱', code: 'PPR-A4' }
+  ],
+  approvalFlows: [
+    {
+      id: 'flow-1',
+      name: '標準決裁フロー（直属上長＋部長）',
+      description: '一般の申請・経費・物品購入に適用される標準的な2段階承認フロー',
+      targetApplicationType: 'all',
+      isDefault: true,
+      steps: [
+        { stepOrder: 1, stepName: '1次承認', approverType: 'supervisor', supervisorLevel: 1, isRequired: true },
+        { stepOrder: 2, stepName: '最終承認', approverType: 'position', targetPosition: '部長', isRequired: true }
+      ]
+    },
+    {
+      id: 'flow-2',
+      name: '役員決裁フロー',
+      description: '高額品購入や重要な契約に関する役員承認が必要な特別フロー',
+      targetApplicationType: 'expense',
+      isDefault: false,
+      steps: [
+        { stepOrder: 1, stepName: '1次承認', approverType: 'supervisor', supervisorLevel: 1, isRequired: true },
+        { stepOrder: 2, stepName: '2次承認', approverType: 'position', targetPosition: '部長', isRequired: true },
+        { stepOrder: 3, stepName: '役員承認', approverType: 'position', targetPosition: '代表取締役', isRequired: true }
+      ]
+    }
+  ]
+};
+
+function getCustomMasters(): typeof defaultMasters {
+  try {
+    if (fs.existsSync(MASTERS_FILE)) {
+      return JSON.parse(fs.readFileSync(MASTERS_FILE, 'utf-8'));
+    }
+  } catch (_) {}
+  return defaultMasters;
+}
+
+function saveCustomMasters(data: typeof defaultMasters) {
+  try {
+    fs.writeFileSync(MASTERS_FILE, JSON.stringify(data, null, 2), 'utf-8');
+  } catch (err: any) {
+    console.error('Failed to save masters custom:', err.message);
+  }
+}
 
 function getCustomBulletins(): Record<string, any> {
   try {
@@ -83,8 +154,7 @@ function synologyProxyPlugin(): Plugin {
 
         console.log(`[PROXY API] ${method} ${apiPath}`);
 
-        // --- 1. BULLETINS ハンドリング (404 回避 & コメント・いいね保存) ---
-        // PUT /bulletins/:id
+        // --- 1. BULLETINS ハンドリング (404 回避 & コメント保存) ---
         if (apiPath.startsWith('/bulletins/') && method === 'PUT') {
           const topicId = apiPath.replace('/bulletins/', '').trim();
           if (topicId && typeof bodyData === 'object' && bodyData !== null) {
@@ -103,7 +173,6 @@ function synologyProxyPlugin(): Plugin {
           }
         }
 
-        // POST /bulletins/:id/comments
         if (apiPath.includes('/bulletins/') && apiPath.endsWith('/comments') && method === 'POST') {
           const parts = apiPath.split('/');
           const topicId = parts[2];
@@ -129,7 +198,6 @@ function synologyProxyPlugin(): Plugin {
           }
         }
 
-        // GET /bulletins - Synology から取得してカスタムデータ（コメント等）と合成
         if (apiPath === '/bulletins' && method === 'GET') {
           try {
             const synRes = await fetch(`${SYNOLOGY_BASE}/bulletins`);
@@ -149,7 +217,6 @@ function synologyProxyPlugin(): Plugin {
                 return b;
               });
 
-              // Synology 側にないがローカルで新規作成されたトピックを追加
               const synIds = new Set(synBulletins.map((b: any) => String(b.id)));
               Object.keys(customStore).forEach((id) => {
                 if (!synIds.has(id)) {
@@ -212,7 +279,82 @@ function synologyProxyPlugin(): Plugin {
           } catch (_) {}
         }
 
-        // --- 透過プロキシ処理（Pure Pass-Through to Synology API） ---
+        // --- 4. MASTERS (Offices, Divisions, Positions, ItemMasters, ApprovalFlows) ---
+        const masterRouteMap: Record<string, keyof typeof defaultMasters> = {
+          '/offices': 'offices',
+          '/masters/offices': 'offices',
+          '/divisions': 'divisions',
+          '/masters/divisions': 'divisions',
+          '/positions': 'positions',
+          '/masters/positions': 'positions',
+          '/item-masters': 'itemMasters',
+          '/masters/item-masters': 'itemMasters',
+          '/approval-flows': 'approvalFlows',
+          '/masters/approval-flows': 'approvalFlows',
+        };
+
+        const cleanPath = apiPath.split('?')[0].replace(/\/$/, '');
+        const matchedPrefix = Object.keys(masterRouteMap).find(k => cleanPath === k || cleanPath.startsWith(k + '/'));
+        const masterKey = matchedPrefix ? masterRouteMap[matchedPrefix] : null;
+
+        if (masterKey) {
+          const store = getCustomMasters();
+          const items = store[masterKey] || [];
+
+          if (method === 'GET') {
+            try {
+              const synRes = await fetch(`${SYNOLOGY_BASE}${apiPath}`);
+              if (synRes.ok) {
+                const synData = await synRes.json();
+                if (Array.isArray(synData) && synData.length > 0) {
+                  res.statusCode = 200;
+                  res.setHeader('Content-Type', 'application/json');
+                  return res.end(JSON.stringify(synData));
+                }
+              }
+            } catch (_) {}
+
+            res.statusCode = 200;
+            res.setHeader('Content-Type', 'application/json');
+            return res.end(JSON.stringify(items));
+          }
+
+          if (['POST', 'PUT'].includes(method)) {
+            let bodyObj = typeof bodyData === 'string' ? JSON.parse(bodyData) : bodyData;
+            if (bodyObj) {
+              const itemId = bodyObj.id || `${masterKey.substring(0, 3)}-${Date.now()}`;
+              bodyObj.id = itemId;
+              const idx = items.findIndex((i: any) => String(i.id) === String(itemId));
+              if (idx >= 0) {
+                items[idx] = { ...items[idx], ...bodyObj };
+              } else {
+                items.push(bodyObj);
+              }
+              store[masterKey] = items as any;
+              saveCustomMasters(store);
+
+              res.statusCode = 200;
+              res.setHeader('Content-Type', 'application/json');
+              return res.end(JSON.stringify({ success: true, item: bodyObj }));
+            }
+          }
+
+          if (method === 'DELETE') {
+            const parts = cleanPath.split('/');
+            const targetId = parts[parts.length - 1];
+            if (targetId) {
+              store[masterKey] = items.filter((i: any) => String(i.id) !== String(targetId)) as any;
+              saveCustomMasters(store);
+
+              res.statusCode = 200;
+              res.setHeader('Content-Type', 'application/json');
+              return res.end(JSON.stringify({ success: true, id: targetId }));
+            }
+          }
+        }
+
+        // --- 透過プロキシ処理（Pure Pass-Through to Synology API / SQL Server） ---
+        // ※ /users 等は完全に Synology API / SQL Server へ 100% 直通します
         try {
           const fetchOptions: RequestInit = {
             method,
@@ -229,7 +371,6 @@ function synologyProxyPlugin(): Plugin {
           const synRes = await fetch(`${SYNOLOGY_BASE}${apiPath}`, fetchOptions);
           const resText = await synRes.text();
 
-          // Synology から 500 や 404 が返った場合のフォールバック（メモ新規作成など）
           if (!synRes.ok && apiPath === '/memos' && method === 'POST') {
             console.warn('[PROXY FALLBACK] Memos POST failed on Synology, saving to custom memos store');
             const customMemos = getCustomMemos();

@@ -72,7 +72,7 @@ export function Board({
         }
 
         // 検索クエリ
-        if (searchQuery.trim()) {
+        if (searchQuery && searchQuery.trim()) {
           const query = searchQuery.toLowerCase();
           const matchTitle = t.title.toLowerCase().includes(query);
           const matchContent = t.content.toLowerCase().includes(query);

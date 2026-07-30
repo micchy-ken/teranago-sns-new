@@ -66,11 +66,11 @@ export function TopicCreateModal({
 
   // オートコンプリート用の候補抽出
   const filteredSuggestions = existingTags.filter(
-    t => t.toLowerCase().includes(tagInput.trim().toLowerCase()) && !tags.includes(t)
+    t => t.toLowerCase().includes((tagInput || '').trim().toLowerCase()) && !tags.includes(t)
   );
 
   const handleAddTag = (tagToAdd: string) => {
-    const trimmed = tagToAdd.trim().replace(/^#/, '');
+    const trimmed = (tagToAdd || '').trim().replace(/^#/, '');
     if (trimmed && !tags.includes(trimmed)) {
       setTags([...tags, trimmed]);
     }
@@ -81,7 +81,7 @@ export function TopicCreateModal({
   const handleKeyDownTagInput = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' || e.key === ',') {
       e.preventDefault();
-      if (tagInput.trim()) {
+      if (tagInput && tagInput.trim()) {
         handleAddTag(tagInput);
       }
     }
@@ -111,11 +111,11 @@ export function TopicCreateModal({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim()) {
+    if (!title || !title.trim()) {
       setError('タイトルを入力してください。');
       return;
     }
-    if (!content.trim()) {
+    if (!content || !content.trim()) {
       setError('本文を入力してください。');
       return;
     }
@@ -132,8 +132,8 @@ export function TopicCreateModal({
     }
 
     onSubmit({
-      title: title.trim(),
-      content: content.trim(),
+      title: (title || '').trim(),
+      content: (content || '').trim(),
       author: currentUser,
       office: selectedOffice,
       division: selectedDivision,
@@ -292,7 +292,7 @@ export function TopicCreateModal({
               />
 
               {/* 既存タグの補完候補ドロップダウン */}
-              {isSuggestOpen && tagInput.trim() !== '' && filteredSuggestions.length > 0 && (
+              {isSuggestOpen && (tagInput || '').trim() !== '' && filteredSuggestions.length > 0 && (
                 <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-40 overflow-y-auto py-1">
                   <div className="px-3 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                     既存の候補タグから選択

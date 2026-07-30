@@ -196,11 +196,11 @@ export function MemoList({
   // 新規伝言送信ハンドラ
   const handleCreateMemo = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!fromName.trim()) {
+    if (!fromName || !fromName.trim()) {
       setFormError('依頼者のお名前を入力してください。');
       return;
     }
-    if (!content.trim()) {
+    if (!content || !content.trim()) {
       setFormError('伝言の本文内容を入力してください。');
       return;
     }
@@ -258,19 +258,19 @@ export function MemoList({
 
     const newMemo: Memo = {
       id: `memo-${Date.now()}`,
-      fromName: fromName.trim(),
-      fromCompany: fromCompany.trim() || undefined,
-      fromPhone: fromPhone.trim() || undefined,
-      fromEmail: fromEmail.trim() || undefined,
-      notificationEmail: notificationEmail.trim() || undefined,
-      notificationMobileEmail: notificationMobileEmail.trim() || undefined,
+      fromName: (fromName || '').trim(),
+      fromCompany: (fromCompany || '').trim() || undefined,
+      fromPhone: (fromPhone || '').trim() || undefined,
+      fromEmail: (fromEmail || '').trim() || undefined,
+      notificationEmail: (notificationEmail || '').trim() || undefined,
+      notificationMobileEmail: (notificationMobileEmail || '').trim() || undefined,
       targetOffices: selectedTargetOffices,
       targetDivisions: selectedTargetDivisions,
       toUsers: targetUsers,
       toUser: targetUsers[0] || currentUser,
       requirementType,
       requirementText: reqText,
-      content: content.trim(),
+      content: (content || '').trim(),
       status: 'unread',
       createdAt: new Date().toISOString(),
       createdByUser: currentUser,
@@ -286,10 +286,10 @@ export function MemoList({
       receiverId: targetReceiver,
       toUserId: targetReceiver,
       toUserName: (targetUsers[0] && targetUsers[0].name) || '',
-      content: content.trim(),
-      fromName: fromName.trim(),
-      fromCompany: fromCompany.trim() || '',
-      fromPhone: fromPhone.trim() || '',
+      content: (content || '').trim(),
+      fromName: (fromName || '').trim(),
+      fromCompany: (fromCompany || '').trim() || '',
+      fromPhone: (fromPhone || '').trim() || '',
       requirementType,
       requirementText: reqText,
       recipientStatusesJson: recipientStatusesJsonStr,
@@ -297,9 +297,9 @@ export function MemoList({
       recipient_statuses_json: recipientStatusesJsonStr,
       toUsersJson: JSON.stringify(targetUsers.map(u => u.id)),
       details: {
-        fromEmail: fromEmail.trim() || undefined,
-        notificationEmail: notificationEmail.trim() || undefined,
-        notificationMobileEmail: notificationMobileEmail.trim() || undefined,
+        fromEmail: (fromEmail || '').trim() || undefined,
+        notificationEmail: (notificationEmail || '').trim() || undefined,
+        notificationMobileEmail: (notificationMobileEmail || '').trim() || undefined,
         targetOffices: selectedTargetOffices,
         targetDivisions: selectedTargetDivisions,
         requirementType,

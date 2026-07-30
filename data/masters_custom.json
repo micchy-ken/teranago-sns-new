@@ -1,0 +1,189 @@
+{
+  "offices": [
+    {
+      "id": "off-1",
+      "name": "東京本社",
+      "type": "headquarters",
+      "code": "HQ01",
+      "location": "東京都千代田区",
+      "phone": "03-1234-5678"
+    },
+    {
+      "id": "off-2",
+      "name": "大阪支社",
+      "type": "branch",
+      "code": "BR01",
+      "location": "大阪府大阪市北区",
+      "phone": "06-8765-4321"
+    },
+    {
+      "id": "off-3",
+      "name": "名古屋営業所",
+      "type": "office",
+      "code": "OF01",
+      "location": "愛知県名古屋市中区",
+      "phone": "052-111-2222"
+    }
+  ],
+  "divisions": [
+    {
+      "id": "div-1",
+      "name": "開発技術部",
+      "code": "DEV",
+      "description": "システム・アプリケーション開発"
+    },
+    {
+      "id": "div-2",
+      "name": "営業統括部",
+      "code": "SALES",
+      "description": "顧客営業・マーケティング"
+    },
+    {
+      "id": "div-3",
+      "name": "人事総務部",
+      "code": "HR",
+      "description": "採用・労務・施設管理"
+    },
+    {
+      "id": "div-4",
+      "name": "企画マーケティング部",
+      "code": "MKT",
+      "description": "新規事業企画・広報"
+    }
+  ],
+  "positions": [
+    {
+      "id": "pos-1",
+      "name": "一般社員",
+      "code": "P1",
+      "description": "一般業務担当"
+    },
+    {
+      "id": "pos-2",
+      "name": "主任",
+      "code": "P2",
+      "description": "チームリーダー補助"
+    },
+    {
+      "id": "pos-3",
+      "name": "係長",
+      "code": "P3",
+      "description": "チームリーダー"
+    },
+    {
+      "id": "pos-4",
+      "name": "課長",
+      "code": "P4",
+      "description": "課の責任者"
+    },
+    {
+      "id": "pos-5",
+      "name": "部長",
+      "code": "P5",
+      "description": "部門の責任者"
+    },
+    {
+      "id": "pos-6",
+      "name": "代表取締役",
+      "code": "P6",
+      "description": "最高経営責任者"
+    }
+  ],
+  "itemMasters": [
+    {
+      "id": "itm_1",
+      "name": "ノートPC Core i7/16GB",
+      "category": "IT機器",
+      "defaultUnitPrice": 180000,
+      "unit": "台",
+      "code": "PC-001"
+    },
+    {
+      "id": "itm_2",
+      "name": "27インチ 4Kモニター",
+      "category": "IT機器",
+      "defaultUnitPrice": 45000,
+      "unit": "台",
+      "code": "MON-001"
+    },
+    {
+      "id": "itm_3",
+      "name": "オフィスチェア エルゴノミクス",
+      "category": "オフィス用品",
+      "defaultUnitPrice": 35000,
+      "unit": "脚",
+      "code": "CHR-001"
+    },
+    {
+      "id": "itm_4",
+      "name": "コピー用紙 A4 (500枚x5冊)",
+      "category": "消耗品",
+      "defaultUnitPrice": 3200,
+      "unit": "箱",
+      "code": "PPR-A4"
+    },
+    {
+      "name": "テスト品名",
+      "category": "テストカテゴリ",
+      "defaultUnitPrice": 1000,
+      "unit": "個",
+      "code": "TST-01",
+      "id": "ite-1785396147281"
+    }
+  ],
+  "approvalFlows": [
+    {
+      "id": "flow-1",
+      "name": "標準決裁フロー（直属上長＋部長）",
+      "description": "一般の申請・経費・物品購入に適用される標準的な2段階承認フロー",
+      "targetApplicationType": "all",
+      "isDefault": true,
+      "steps": [
+        {
+          "stepOrder": 1,
+          "stepName": "1次承認",
+          "approverType": "supervisor",
+          "supervisorLevel": 1,
+          "isRequired": true
+        },
+        {
+          "stepOrder": 2,
+          "stepName": "最終承認",
+          "approverType": "position",
+          "targetPosition": "部長",
+          "isRequired": true
+        }
+      ]
+    },
+    {
+      "id": "flow-2",
+      "name": "役員決裁フロー",
+      "description": "高額品購入や重要な契約に関する役員承認が必要な特別フロー",
+      "targetApplicationType": "expense",
+      "isDefault": false,
+      "steps": [
+        {
+          "stepOrder": 1,
+          "stepName": "1次承認",
+          "approverType": "supervisor",
+          "supervisorLevel": 1,
+          "isRequired": true
+        },
+        {
+          "stepOrder": 2,
+          "stepName": "2次承認",
+          "approverType": "position",
+          "targetPosition": "部長",
+          "isRequired": true
+        },
+        {
+          "stepOrder": 3,
+          "stepName": "役員承認",
+          "approverType": "position",
+          "targetPosition": "代表取締役",
+          "isRequired": true
+        }
+      ]
+    }
+  ]
+}

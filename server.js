@@ -41,31 +41,300 @@ getPool().catch(() => {});
 app.get('/api/health', (req, res) => res.json({ status: 'ok', timestamp: new Date() }));
 
 // ------------------------------------------
-// 1. Masters (Offices, Divisions, Positions)
+// 1. Masters (Offices, Divisions, Positions, ItemMasters, ApprovalFlows)
 // ------------------------------------------
-app.get('/api/masters/offices', async (req, res) => {
+
+// --- Offices (拠点マスター) ---
+const getOfficesHandler = async (req, res) => {
   try {
     const pool = await getPool();
     const result = await pool.request().query`SELECT * FROM dbo.Offices`;
     res.json(result.recordset || []);
   } catch (err) { res.status(500).json({ error: err.message }); }
-});
+};
+app.get('/api/masters/offices', getOfficesHandler);
+app.get('/api/offices', getOfficesHandler);
 
-app.get('/api/masters/divisions', async (req, res) => {
+const saveOfficeHandler = async (req, res) => {
+  try {
+    const item = req.body;
+    const pool = await getPool();
+    const id = item.id || `off-${Date.now()}`;
+    const check = await pool.request().input('id', sql.VarChar, id).query`SELECT id FROM dbo.Offices WHERE id = @id`;
+
+    if (check.recordset.length > 0) {
+      await pool.request()
+        .input('id', sql.VarChar, id)
+        .input('name', sql.NVarChar, item.name || '')
+        .input('type', sql.VarChar, item.type || 'branch')
+        .input('code', sql.VarChar, item.code || '')
+        .input('location', sql.NVarChar, item.location || '')
+        .input('phone', sql.VarChar, item.phone || '')
+        .query`UPDATE dbo.Offices SET name = @name, type = @type, code = @code, location = @location, phone = @phone WHERE id = @id`;
+    } else {
+      await pool.request()
+        .input('id', sql.VarChar, id)
+        .input('name', sql.NVarChar, item.name || '')
+        .input('type', sql.VarChar, item.type || 'branch')
+        .input('code', sql.VarChar, item.code || '')
+        .input('location', sql.NVarChar, item.location || '')
+        .input('phone', sql.VarChar, item.phone || '')
+        .query`INSERT INTO dbo.Offices (id, name, type, code, location, phone) VALUES (@id, @name, @type, @code, @location, @phone)`;
+    }
+    res.json({ success: true, id, ...item });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+};
+app.post('/api/masters/offices', saveOfficeHandler);
+app.post('/api/offices', saveOfficeHandler);
+app.put('/api/masters/offices/:id', saveOfficeHandler);
+app.put('/api/offices/:id', saveOfficeHandler);
+
+const deleteOfficeHandler = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const pool = await getPool();
+    await pool.request().input('id', sql.VarChar, id).query`DELETE FROM dbo.Offices WHERE id = @id`;
+    res.json({ success: true, id });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+};
+app.delete('/api/masters/offices/:id', deleteOfficeHandler);
+app.delete('/api/offices/:id', deleteOfficeHandler);
+
+
+// --- Divisions (部署マスター) ---
+const getDivisionsHandler = async (req, res) => {
   try {
     const pool = await getPool();
     const result = await pool.request().query`SELECT * FROM dbo.Divisions`;
     res.json(result.recordset || []);
   } catch (err) { res.status(500).json({ error: err.message }); }
-});
+};
+app.get('/api/masters/divisions', getDivisionsHandler);
+app.get('/api/divisions', getDivisionsHandler);
 
-app.get('/api/masters/positions', async (req, res) => {
+const saveDivisionHandler = async (req, res) => {
+  try {
+    const item = req.body;
+    const pool = await getPool();
+    const id = item.id || `div-${Date.now()}`;
+    const check = await pool.request().input('id', sql.VarChar, id).query`SELECT id FROM dbo.Divisions WHERE id = @id`;
+
+    if (check.recordset.length > 0) {
+      await pool.request()
+        .input('id', sql.VarChar, id)
+        .input('name', sql.NVarChar, item.name || '')
+        .input('code', sql.VarChar, item.code || '')
+        .input('description', sql.NVarChar, item.description || '')
+        .query`UPDATE dbo.Divisions SET name = @name, code = @code, description = @description WHERE id = @id`;
+    } else {
+      await pool.request()
+        .input('id', sql.VarChar, id)
+        .input('name', sql.NVarChar, item.name || '')
+        .input('code', sql.VarChar, item.code || '')
+        .input('description', sql.NVarChar, item.description || '')
+        .query`INSERT INTO dbo.Divisions (id, name, code, description) VALUES (@id, @name, @code, @description)`;
+    }
+    res.json({ success: true, id, ...item });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+};
+app.post('/api/masters/divisions', saveDivisionHandler);
+app.post('/api/divisions', saveDivisionHandler);
+app.put('/api/masters/divisions/:id', saveDivisionHandler);
+app.put('/api/divisions/:id', saveDivisionHandler);
+
+const deleteDivisionHandler = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const pool = await getPool();
+    await pool.request().input('id', sql.VarChar, id).query`DELETE FROM dbo.Divisions WHERE id = @id`;
+    res.json({ success: true, id });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+};
+app.delete('/api/masters/divisions/:id', deleteDivisionHandler);
+app.delete('/api/divisions/:id', deleteDivisionHandler);
+
+
+// --- Positions (役職マスター) ---
+const getPositionsHandler = async (req, res) => {
   try {
     const pool = await getPool();
     const result = await pool.request().query`SELECT * FROM dbo.Positions`;
     res.json(result.recordset || []);
   } catch (err) { res.status(500).json({ error: err.message }); }
-});
+};
+app.get('/api/masters/positions', getPositionsHandler);
+app.get('/api/positions', getPositionsHandler);
+
+const savePositionHandler = async (req, res) => {
+  try {
+    const item = req.body;
+    const pool = await getPool();
+    const id = item.id || `pos-${Date.now()}`;
+    const check = await pool.request().input('id', sql.VarChar, id).query`SELECT id FROM dbo.Positions WHERE id = @id`;
+
+    if (check.recordset.length > 0) {
+      await pool.request()
+        .input('id', sql.VarChar, id)
+        .input('name', sql.NVarChar, item.name || '')
+        .input('code', sql.VarChar, item.code || '')
+        .input('description', sql.NVarChar, item.description || '')
+        .query`UPDATE dbo.Positions SET name = @name, code = @code, description = @description WHERE id = @id`;
+    } else {
+      await pool.request()
+        .input('id', sql.VarChar, id)
+        .input('name', sql.NVarChar, item.name || '')
+        .input('code', sql.VarChar, item.code || '')
+        .input('description', sql.NVarChar, item.description || '')
+        .query`INSERT INTO dbo.Positions (id, name, code, description) VALUES (@id, @name, @code, @description)`;
+    }
+    res.json({ success: true, id, ...item });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+};
+app.post('/api/masters/positions', savePositionHandler);
+app.post('/api/positions', savePositionHandler);
+app.put('/api/masters/positions/:id', savePositionHandler);
+app.put('/api/positions/:id', savePositionHandler);
+
+const deletePositionHandler = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const pool = await getPool();
+    await pool.request().input('id', sql.VarChar, id).query`DELETE FROM dbo.Positions WHERE id = @id`;
+    res.json({ success: true, id });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+};
+app.delete('/api/masters/positions/:id', deletePositionHandler);
+app.delete('/api/positions/:id', deletePositionHandler);
+
+
+// --- ItemMasters (品名マスター) ---
+const getItemMastersHandler = async (req, res) => {
+  try {
+    const pool = await getPool();
+    const result = await pool.request().query`SELECT * FROM dbo.ItemMasters`;
+    res.json(result.recordset || []);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+};
+app.get('/api/masters/item-masters', getItemMastersHandler);
+app.get('/api/item-masters', getItemMastersHandler);
+
+const saveItemMasterHandler = async (req, res) => {
+  try {
+    const item = req.body;
+    const pool = await getPool();
+    const id = item.id || `itm_${Date.now()}`;
+    const check = await pool.request().input('id', sql.VarChar, id).query`SELECT id FROM dbo.ItemMasters WHERE id = @id`;
+
+    if (check.recordset.length > 0) {
+      await pool.request()
+        .input('id', sql.VarChar, id)
+        .input('name', sql.NVarChar, item.name || '')
+        .input('category', sql.NVarChar, item.category || '')
+        .input('defaultUnitPrice', sql.Int, item.defaultUnitPrice || 0)
+        .input('unit', sql.NVarChar, item.unit || '')
+        .input('code', sql.VarChar, item.code || '')
+        .query`UPDATE dbo.ItemMasters SET name = @name, category = @category, defaultUnitPrice = @defaultUnitPrice, unit = @unit, code = @code WHERE id = @id`;
+    } else {
+      await pool.request()
+        .input('id', sql.VarChar, id)
+        .input('name', sql.NVarChar, item.name || '')
+        .input('category', sql.NVarChar, item.category || '')
+        .input('defaultUnitPrice', sql.Int, item.defaultUnitPrice || 0)
+        .input('unit', sql.NVarChar, item.unit || '')
+        .input('code', sql.VarChar, item.code || '')
+        .query`INSERT INTO dbo.ItemMasters (id, name, category, defaultUnitPrice, unit, code) VALUES (@id, @name, @category, @defaultUnitPrice, @unit, @code)`;
+    }
+    res.json({ success: true, id, ...item });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+};
+app.post('/api/masters/item-masters', saveItemMasterHandler);
+app.post('/api/item-masters', saveItemMasterHandler);
+app.put('/api/masters/item-masters/:id', saveItemMasterHandler);
+app.put('/api/item-masters/:id', saveItemMasterHandler);
+
+const deleteItemMasterHandler = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const pool = await getPool();
+    await pool.request().input('id', sql.VarChar, id).query`DELETE FROM dbo.ItemMasters WHERE id = @id`;
+    res.json({ success: true, id });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+};
+app.delete('/api/masters/item-masters/:id', deleteItemMasterHandler);
+app.delete('/api/item-masters/:id', deleteItemMasterHandler);
+
+
+// --- ApprovalFlows (承認フロー) ---
+const getApprovalFlowsHandler = async (req, res) => {
+  try {
+    const pool = await getPool();
+    const result = await pool.request().query`SELECT * FROM dbo.ApprovalFlows`;
+    const recordset = result.recordset || [];
+    const mapped = recordset.map(row => {
+      let steps = [];
+      if (row.stepsJson && typeof row.stepsJson === 'string' && row.stepsJson.startsWith('[')) {
+        try { steps = JSON.parse(row.stepsJson); } catch (_) {}
+      }
+      return {
+        id: row.id,
+        name: row.name,
+        description: row.description || '',
+        targetApplicationType: row.targetApplicationType || 'all',
+        isDefault: !!row.isDefault,
+        steps: steps.length > 0 ? steps : (row.steps || [])
+      };
+    });
+    res.json(mapped);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+};
+app.get('/api/masters/approval-flows', getApprovalFlowsHandler);
+app.get('/api/approval-flows', getApprovalFlowsHandler);
+
+const saveApprovalFlowHandler = async (req, res) => {
+  try {
+    const item = req.body;
+    const pool = await getPool();
+    const id = item.id || `flow-${Date.now()}`;
+    const stepsJson = JSON.stringify(item.steps || []);
+    const check = await pool.request().input('id', sql.VarChar, id).query`SELECT id FROM dbo.ApprovalFlows WHERE id = @id`;
+
+    if (check.recordset.length > 0) {
+      await pool.request()
+        .input('id', sql.VarChar, id)
+        .input('name', sql.NVarChar, item.name || '')
+        .input('description', sql.NVarChar, item.description || '')
+        .input('targetApplicationType', sql.VarChar, item.targetApplicationType || 'all')
+        .input('stepsJson', sql.NVarChar, stepsJson)
+        .input('isDefault', sql.Bit, item.isDefault ? 1 : 0)
+        .query`UPDATE dbo.ApprovalFlows SET name = @name, description = @description, targetApplicationType = @targetApplicationType, stepsJson = @stepsJson, isDefault = @isDefault WHERE id = @id`;
+    } else {
+      await pool.request()
+        .input('id', sql.VarChar, id)
+        .input('name', sql.NVarChar, item.name || '')
+        .input('description', sql.NVarChar, item.description || '')
+        .input('targetApplicationType', sql.VarChar, item.targetApplicationType || 'all')
+        .input('stepsJson', sql.NVarChar, stepsJson)
+        .input('isDefault', sql.Bit, item.isDefault ? 1 : 0)
+        .query`INSERT INTO dbo.ApprovalFlows (id, name, description, targetApplicationType, stepsJson, isDefault) VALUES (@id, @name, @description, @targetApplicationType, @stepsJson, @isDefault)`;
+    }
+    res.json({ success: true, id, ...item });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+};
+app.post('/api/masters/approval-flows', saveApprovalFlowHandler);
+app.post('/api/approval-flows', saveApprovalFlowHandler);
+app.put('/api/masters/approval-flows/:id', saveApprovalFlowHandler);
+app.put('/api/approval-flows/:id', saveApprovalFlowHandler);
+
+const deleteApprovalFlowHandler = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const pool = await getPool();
+    await pool.request().input('id', sql.VarChar, id).query`DELETE FROM dbo.ApprovalFlows WHERE id = @id`;
+    res.json({ success: true, id });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+};
+app.delete('/api/masters/approval-flows/:id', deleteApprovalFlowHandler);
+app.delete('/api/approval-flows/:id', deleteApprovalFlowHandler);
 
 // ------------------------------------------
 // 2. Users (ユーザー情報)
@@ -88,7 +357,10 @@ app.post('/api/users', async (req, res) => {
     if (check.recordset.length > 0) {
       await pool.request()
         .input('id', sql.VarChar, userId)
+        .input('loginId', sql.VarChar, u.loginId || u.id || userId)
+        .input('password', sql.VarChar, u.password || 'password')
         .input('name', sql.NVarChar, u.name || '')
+        .input('kanaName', sql.NVarChar, u.kanaName || '')
         .input('department', sql.NVarChar, u.department || '')
         .input('office', sql.NVarChar, u.office || '')
         .input('division', sql.NVarChar, u.division || '')
@@ -96,12 +368,35 @@ app.post('/api/users', async (req, res) => {
         .input('role', sql.VarChar, u.role || 'user')
         .input('isAdmin', sql.Bit, u.isAdmin ? 1 : 0)
         .input('avatarUrl', sql.NVarChar, u.avatarUrl || '')
+        .input('email', sql.NVarChar, u.email || '')
+        .input('mobileEmail', sql.NVarChar, u.mobileEmail || '')
+        .input('phone', sql.NVarChar, u.phone || '')
+        .input('phoneOutside', sql.NVarChar, u.phoneOutside || '')
+        .input('phoneExtension', sql.NVarChar, u.phoneExtension || '')
+        .input('mobilePhone', sql.NVarChar, u.mobilePhone || '')
+        .input('icalUrl', sql.NVarChar, u.icalUrl || '')
         .input('supervisorId', sql.VarChar, u.supervisorId || null)
         .query`
           UPDATE dbo.Users 
-          SET name = @name, department = @department, office = @office, 
-              division = @division, position = @position, role = @role, 
-              isAdmin = @isAdmin, avatarUrl = @avatarUrl, supervisorId = @supervisorId
+          SET loginId = @loginId,
+              password = @password,
+              name = @name, 
+              kanaName = @kanaName,
+              department = @department, 
+              office = @office, 
+              division = @division, 
+              position = @position, 
+              role = @role, 
+              isAdmin = @isAdmin, 
+              avatarUrl = @avatarUrl, 
+              email = @email,
+              mobileEmail = @mobileEmail,
+              phone = @phone,
+              phoneOutside = @phoneOutside,
+              phoneExtension = @phoneExtension,
+              mobilePhone = @mobilePhone,
+              icalUrl = @icalUrl,
+              supervisorId = @supervisorId
           WHERE id = @id
         `;
     } else {
@@ -110,6 +405,7 @@ app.post('/api/users', async (req, res) => {
         .input('loginId', sql.VarChar, u.loginId || u.id || userId)
         .input('password', sql.VarChar, u.password || 'password')
         .input('name', sql.NVarChar, u.name || '')
+        .input('kanaName', sql.NVarChar, u.kanaName || '')
         .input('department', sql.NVarChar, u.department || '')
         .input('office', sql.NVarChar, u.office || '')
         .input('division', sql.NVarChar, u.division || '')
@@ -117,10 +413,17 @@ app.post('/api/users', async (req, res) => {
         .input('role', sql.VarChar, u.role || 'user')
         .input('isAdmin', sql.Bit, u.isAdmin ? 1 : 0)
         .input('avatarUrl', sql.NVarChar, u.avatarUrl || '')
+        .input('email', sql.NVarChar, u.email || '')
+        .input('mobileEmail', sql.NVarChar, u.mobileEmail || '')
+        .input('phone', sql.NVarChar, u.phone || '')
+        .input('phoneOutside', sql.NVarChar, u.phoneOutside || '')
+        .input('phoneExtension', sql.NVarChar, u.phoneExtension || '')
+        .input('mobilePhone', sql.NVarChar, u.mobilePhone || '')
+        .input('icalUrl', sql.NVarChar, u.icalUrl || '')
         .input('supervisorId', sql.VarChar, u.supervisorId || null)
         .query`
-          INSERT INTO dbo.Users (id, loginId, password, name, department, office, division, position, role, isAdmin, avatarUrl, supervisorId)
-          VALUES (@id, @loginId, @password, @name, @department, @office, @division, @position, @role, @isAdmin, @avatarUrl, @supervisorId)
+          INSERT INTO dbo.Users (id, loginId, password, name, kanaName, department, office, division, position, role, isAdmin, avatarUrl, email, mobileEmail, phone, phoneOutside, phoneExtension, mobilePhone, icalUrl, supervisorId)
+          VALUES (@id, @loginId, @password, @name, @kanaName, @department, @office, @division, @position, @role, @isAdmin, @avatarUrl, @email, @mobileEmail, @phone, @phoneOutside, @phoneExtension, @mobilePhone, @icalUrl, @supervisorId)
         `;
     }
     res.json({ id: userId, message: 'ユーザー保存成功' });
@@ -130,6 +433,14 @@ app.post('/api/users', async (req, res) => {
 app.put('/api/users/:id', async (req, res) => {
   req.body.id = req.params.id;
   app._router.handle({ ...req, method: 'POST', url: '/api/users' }, res);
+});
+
+app.delete('/api/users/:id', async (req, res) => {
+  try {
+    const pool = await getPool();
+    await pool.request().input('id', sql.VarChar, String(req.params.id)).query`DELETE FROM dbo.Users WHERE id = @id`;
+    res.json({ message: 'ユーザー削除完了' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ------------------------------------------
@@ -511,12 +822,49 @@ const handlePostBulletin = async (req, res) => {
 app.post('/api/bulletins', handlePostBulletin);
 app.post('/api/topics', handlePostBulletin);
 
-app.put('/api/bulletins/:id', (req, res) => {
-  res.json({ message: '掲示板更新完了', id: req.params.id, ...req.body });
-});
-app.put('/api/topics/:id', (req, res) => {
-  res.json({ message: '掲示板更新完了', id: req.params.id, ...req.body });
-});
+const handlePutBulletin = async (req, res) => {
+  try {
+    const { title, content, category, isPinned, office, division, scope, tags, attachments } = req.body;
+    const pool = await getPool();
+    const id = req.params.id;
+    const tagStr = Array.isArray(tags) ? tags.join(',') : (tags || '');
+    const attachStr = attachments ? (typeof attachments === 'object' ? JSON.stringify(attachments) : attachments) : null;
+    const contentStr = typeof content === 'object' ? JSON.stringify(content) : (content || '');
+
+    await pool.request()
+      .input('id', sql.VarChar, String(id))
+      .input('title', sql.NVarChar, title || '')
+      .input('content', sql.NVarChar, contentStr)
+      .input('category', sql.NVarChar, category || '')
+      .input('isPinned', sql.Bit, isPinned ? 1 : 0)
+      .input('office', sql.NVarChar, office || '')
+      .input('division', sql.NVarChar, division || '')
+      .input('scope', sql.NVarChar, scope || '全社')
+      .input('tags', sql.NVarChar, tagStr)
+      .input('attachments', sql.NVarChar, attachStr)
+      .query`
+        UPDATE dbo.Bulletins 
+        SET title = @title, content = @content, category = @category, isPinned = @isPinned,
+            office = @office, division = @division, scope = @scope, tags = @tags, attachments = @attachments
+        WHERE id = @id
+      `;
+    res.json({ id, message: '掲示板更新完了' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+};
+
+const handleDeleteBulletin = async (req, res) => {
+  try {
+    const pool = await getPool();
+    await pool.request().input('id', sql.VarChar, String(req.params.id)).query`DELETE FROM dbo.Bulletins WHERE id = @id`;
+    res.json({ message: '掲示板削除完了' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+};
+
+app.put('/api/bulletins/:id', handlePutBulletin);
+app.put('/api/topics/:id', handlePutBulletin);
+app.delete('/api/bulletins/:id', handleDeleteBulletin);
+app.delete('/api/topics/:id', handleDeleteBulletin);
+
 app.post('/api/bulletins/:id/comments', (req, res) => {
   res.status(201).json({ message: 'コメント投稿完了', comment: req.body });
 });

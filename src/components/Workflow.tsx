@@ -15,18 +15,29 @@ interface WorkflowProps {
   itemMasters?: ItemMaster[];
 }
 
-const typeLabels: Record<ApplicationType, string> = {
+const typeLabels: Record<string, string> = {
   business_trip: '出張申請',
   inventory_issue: '補充申請',
   purchase_order: '発注申請',
   other: 'その他',
 };
 
-const statusConfig: Record<ApplicationStatus, { label: string, color: string, icon: React.ReactNode }> = {
+const statusConfig: Record<string, { label: string, color: string, icon: React.ReactNode }> = {
   draft: { label: '下書き', color: 'bg-slate-100 text-slate-700 border-slate-300', icon: <FileText className="w-3.5 h-3.5 text-slate-500" /> },
   pending: { label: '申請中', color: 'bg-amber-100 text-amber-800 border-amber-200', icon: <Clock className="w-3.5 h-3.5" /> },
   approved: { label: '承認済み', color: 'bg-emerald-100 text-emerald-800 border-emerald-200', icon: <CheckCircle2 className="w-3.5 h-3.5" /> },
   rejected: { label: '却下', color: 'bg-red-100 text-red-800 border-red-200', icon: <XCircle className="w-3.5 h-3.5" /> },
+};
+
+const getTypeLabel = (type?: string): string => {
+  if (type && typeLabels[type]) return typeLabels[type];
+  if (type === 'general') return '一般申請';
+  return 'その他';
+};
+
+const getStatusConfig = (status?: string) => {
+  if (status && statusConfig[status]) return statusConfig[status];
+  return statusConfig.pending;
 };
 
 export function Workflow({ applications, onAddApplication, onUpdateApplication, onDeleteApplication, allUsers, currentUser, approvalFlows, onWorkflowAction, itemMasters = [] }: WorkflowProps) {
@@ -53,7 +64,7 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
   // 発注No保存ハンドラー
   const handleSavePoNumber = (app: WorkflowApplication) => {
     const inputVal = poInputs[app.id] !== undefined ? poInputs[app.id] : (app.purchaseOrderNumber || '');
-    const poNum = inputVal.trim();
+    const poNum = (inputVal || '').trim();
     if (!poNum) {
       alert('発注Noを入力してください。');
       return;
@@ -268,7 +279,7 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
   };
 
   // 下書き件数
-  const draftCount = applications.filter((app) => app.applicant?.id === currentUser.id && app.status === 'draft').length;
+  const draftCount = applications.filter((app) => app.applicant?.id === currentUser?.id && app.status === 'draft').length;
 
   // 承認待ちの件数
   const pendingCount = applications.filter((app) => isUserCurrentApprover(app, currentUser)).length;
@@ -276,21 +287,24 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
   const filteredApps = applications
     .filter((app) => {
       if (filter === 'draft') {
-        return app.applicant?.id === currentUser.id && app.status === 'draft';
+        return app.applicant?.id === currentUser?.id && app.status === 'draft';
       } else if (filter === 'my_applications') {
-        return app.applicant?.id === currentUser.id && app.status !== 'draft';
+        return app.applicant?.id === currentUser?.id && app.status !== 'draft';
       } else {
         return isUserCurrentApprover(app, currentUser);
       }
     })
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('ja-JP', { style: 'currency', currency: 'JPY' }).format(amount);
+  const formatCurrency = (amount?: number) => {
+    return new Intl.NumberFormat('ja-JP', { style: 'currency', currency: 'JPY' }).format(amount || 0);
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('ja-JP', { year: 'numeric', month: 'short', day: 'numeric' });
+  const formatDate = (dateString?: string) => {
+    if (!dateString) return '';
+    const d = new Date(dateString);
+    if (isNaN(d.getTime())) return dateString;
+    return d.toLocaleDateString('ja-JP', { year: 'numeric', month: 'short', day: 'numeric' });
   };
 
   return (
@@ -356,11 +370,11 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
                   <div>
                     <div className="flex flex-wrap items-center gap-2 mb-2">
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider bg-slate-100 text-slate-600 border border-slate-200">
-                        {typeLabels[app.type]}
+                        {getTypeLabel(app.type)}
                       </span>
-                      <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${statusConfig[app.status].color}`}>
-                        {statusConfig[app.status].icon}
-                        {statusConfig[app.status].label}
+                      <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${getStatusConfig(app.status).color}`}>
+                        {getStatusConfig(app.status).icon}
+                        {getStatusConfig(app.status).label}
                       </span>
                       {app.type === 'purchase_order' && app.constructionDate && (
                         <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-50 text-indigo-800 border border-indigo-200">

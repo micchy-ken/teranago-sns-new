@@ -38,7 +38,6 @@ interface TimelineProps {
   onChangeTab?: (tab: AppTab) => void;
   isLoading?: boolean;
   error?: string | null;
-  postsSource?: 'api' | 'mock';
   onRefetchPosts?: () => Promise<void>;
   onDeletePost?: (postId: string) => void;
   currentUser?: User;
@@ -63,7 +62,6 @@ export function Timeline({
   onChangeTab,
   isLoading = false,
   error = null,
-  postsSource = 'mock',
   onRefetchPosts,
   onDeletePost,
   currentUser,
@@ -72,64 +70,6 @@ export function Timeline({
   const [showPosts, setShowPosts] = useState<boolean>(true);
   const [showEvents, setShowEvents] = useState<boolean>(true);
   const [showTopics, setShowTopics] = useState<boolean>(true);
-
-  // API接続デバッグ状態
-  const [showDebugPanel, setShowDebugPanel] = useState<boolean>(true);
-  const [apiTestResults, setApiTestResults] = useState<Record<string, { status: 'idle' | 'testing' | 'ok' | 'error'; code?: number; message?: string; details?: string }>>({
-    posts: { status: 'idle' },
-    ical: { status: 'idle' },
-    nas: { status: 'idle' }
-  });
-
-  const testApiEndpoint = async (endpoint: 'posts' | 'ical' | 'nas') => {
-    setApiTestResults(prev => ({
-      ...prev,
-      [endpoint]: { status: 'testing' }
-    }));
-    const start = Date.now();
-    try {
-      let url = '';
-      if (endpoint === 'posts') {
-        url = '/api/posts';
-      } else if (endpoint === 'ical') {
-        url = '/api/ical-proxy?url=https://calendar.google.com/calendar/ical/dummy/public/basic.ics';
-      } else if (endpoint === 'nas') {
-        url = '/api/nas-file?path=test_path_check';
-      }
-
-      const res = await fetch(url, { method: 'GET' });
-      const elapsed = Date.now() - start;
-      if (res.ok) {
-        setApiTestResults(prev => ({
-          ...prev,
-          [endpoint]: { 
-            status: 'ok', 
-            code: res.status, 
-            details: `接続成功 (${elapsed}ms) - 正常応答` 
-          }
-        }));
-      } else {
-        setApiTestResults(prev => ({
-          ...prev,
-          [endpoint]: { 
-            status: 'error', 
-            code: res.status, 
-            message: `エラー: ${res.status}`, 
-            details: `HTTP ${res.status} (${res.statusText})`
-          }
-        }));
-      }
-    } catch (err: any) {
-      setApiTestResults(prev => ({
-        ...prev,
-        [endpoint]: { 
-          status: 'error', 
-          message: '接続失敗', 
-          details: err?.message || 'ネットワークエラー、CORS制限、またはSSL/証明書の問題'
-        }
-      }));
-    }
-  };
 
   // 拠点・部門フィルター
   const [selectedOffice, setSelectedOffice] = useState<string>('all');
@@ -257,7 +197,7 @@ export function Timeline({
       }
 
       // --- D. キーワード検索フィルタ ---
-      if (searchQuery.trim()) {
+      if (searchQuery && searchQuery.trim()) {
         const query = searchQuery.toLowerCase();
         if (item.type === 'post') {
           const contentMatch = (item.data.content || '').toLowerCase().includes(query);
@@ -283,177 +223,9 @@ export function Timeline({
     });
   }, [posts, events, topics, showPosts, showEvents, showTopics, selectedOffice, selectedDivision, selectedTag, searchQuery, officeOptions]);
 
-  const renderTestResult = (res: typeof apiTestResults[string]) => {
-    if (res.status === 'idle') return <span className="text-slate-500 font-bold text-[11px]">未テスト</span>;
-    if (res.status === 'testing') return (
-      <span className="text-indigo-400 flex items-center gap-1 text-[11px] font-bold">
-        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-        テスト中...
-      </span>
-    );
-    if (res.status === 'ok') return (
-      <div className="text-right shrink-0">
-        <span className="text-emerald-400 font-bold text-[11px] block">🟢 SUCCESS ({res.code})</span>
-        <span className="text-[9px] text-slate-400 max-w-[180px] truncate block" title={res.details}>{res.details}</span>
-      </div>
-    );
-    return (
-      <div className="text-right shrink-0">
-        <span className="text-rose-400 font-bold text-[11px] block">🔴 FAIL ({res.message})</span>
-        <span className="text-[9px] text-slate-400 max-w-[180px] truncate block" title={res.details}>{res.details}</span>
-      </div>
-    );
-  };
-
   return (
     <div className="flex-1 space-y-6 min-w-0">
       <PostForm onPost={onPost} />
-
-      {/* 🔧 API・バックエンド接続デバッガー */}
-      <div className="bg-slate-900 text-slate-100 rounded-2xl border border-slate-800 p-5 shadow-lg space-y-4">
-        <div className="flex items-center justify-between gap-2 flex-wrap sm:flex-nowrap">
-          <div className="flex items-center gap-2">
-            <div className="p-1.5 bg-indigo-500/15 text-indigo-400 rounded-lg shrink-0">
-              <Sparkles className="w-4 h-4 animate-pulse" />
-            </div>
-            <div>
-              <h2 className="text-sm font-bold tracking-tight flex items-center gap-2 flex-wrap">
-                <span>API 接続診断・デバッグコンソール</span>
-                <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
-                  postsSource === 'api' 
-                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' 
-                    : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                }`}>
-                  {postsSource === 'api' ? '🟢 API 疎通中' : '🟡 モックフォールバック'}
-                </span>
-              </h2>
-              <p className="text-[11px] text-slate-400 font-semibold">Synology リバースプロキシ経由の HTTPS バックエンド接続ステータス</p>
-            </div>
-          </div>
-          <button
-            onClick={() => setShowDebugPanel(!showDebugPanel)}
-            className="text-xs font-bold text-indigo-400 hover:text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 px-3 py-1.5 rounded-xl transition-all cursor-pointer whitespace-nowrap"
-          >
-            {showDebugPanel ? '閉じる' : '開く'}
-          </button>
-        </div>
-
-        {showDebugPanel && (
-          <div className="space-y-4 pt-4 border-t border-slate-800 text-xs">
-            {/* タイムライン連携ステータス */}
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-3.5 bg-slate-950 p-3.5 rounded-xl border border-slate-800/80">
-              <div className="md:col-span-4 flex flex-col justify-center">
-                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Timeline Sync</span>
-                <span className="text-xs font-bold mt-1">
-                  {postsSource === 'api' ? (
-                    <span className="text-emerald-400">🟢 本番データ表示中 ({posts.length}件)</span>
-                  ) : (
-                    <span className="text-amber-400">🟡 モック表示中 ({posts.length}件)</span>
-                  )}
-                </span>
-              </div>
-              <div className="md:col-span-5 flex flex-col justify-center">
-                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Latest Sync Result</span>
-                <span className="text-xs font-mono text-slate-300 truncate mt-1">
-                  {error ? `❌ ${error}` : '✅ 正常 (同期完了)'}
-                </span>
-              </div>
-              <div className="md:col-span-3 flex items-center justify-end">
-                <button
-                  onClick={onRefetchPosts}
-                  disabled={isLoading}
-                  className="w-full md:w-auto bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-1.5 px-3 rounded-lg flex items-center justify-center gap-1.5 transition-all text-xs cursor-pointer disabled:opacity-50"
-                >
-                  <Loader2 className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-                  データ再取得
-                </button>
-              </div>
-            </div>
-
-            {/* エンドポイント別接続テストベンチ */}
-            <div className="space-y-2.5">
-              <h3 className="font-bold text-slate-300 flex items-center gap-1">
-                <span>⚡ 各種 API エンドポイント疎通テスト (Ping Bench)</span>
-              </h3>
-              
-              <div className="space-y-2 font-mono">
-                {/* Endpoint: /api/posts */}
-                <div className="p-3 bg-slate-950 rounded-xl border border-slate-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="px-1.5 py-0.5 bg-emerald-500/20 text-emerald-400 font-bold rounded text-[10px]">GET</span>
-                      <span className="font-semibold text-slate-200 text-xs">/api/posts (タイムライン)</span>
-                    </div>
-                    <div className="text-[10px] text-slate-400">/api/posts</div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    {renderTestResult(apiTestResults.posts)}
-                    <button
-                      onClick={() => testApiEndpoint('posts')}
-                      disabled={apiTestResults.posts.status === 'testing'}
-                      className="bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold px-2.5 py-1 rounded-md text-[11px] transition-all cursor-pointer border border-slate-700"
-                    >
-                      テスト
-                    </button>
-                  </div>
-                </div>
-
-                {/* Endpoint: /api/ical-proxy */}
-                <div className="p-3 bg-slate-950 rounded-xl border border-slate-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="px-1.5 py-0.5 bg-emerald-500/20 text-emerald-400 font-bold rounded text-[10px]">GET</span>
-                      <span className="font-semibold text-slate-200 text-xs">/api/ical-proxy (Google iCal)</span>
-                    </div>
-                    <div className="text-[10px] text-slate-400">/api/ical-proxy?url=...</div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    {renderTestResult(apiTestResults.ical)}
-                    <button
-                      onClick={() => testApiEndpoint('ical')}
-                      disabled={apiTestResults.ical.status === 'testing'}
-                      className="bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold px-2.5 py-1 rounded-md text-[11px] transition-all cursor-pointer border border-slate-700"
-                    >
-                      テスト
-                    </button>
-                  </div>
-                </div>
-
-                {/* Endpoint: /api/nas-file */}
-                <div className="p-3 bg-slate-950 rounded-xl border border-slate-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="px-1.5 py-0.5 bg-emerald-500/20 text-emerald-400 font-bold rounded text-[10px]">GET</span>
-                      <span className="font-semibold text-slate-200 text-xs">/api/nas-file (NASファイル参照)</span>
-                    </div>
-                    <div className="text-[10px] text-slate-400">/api/nas-file?path=...</div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    {renderTestResult(apiTestResults.nas)}
-                    <button
-                      onClick={() => testApiEndpoint('nas')}
-                      disabled={apiTestResults.nas.status === 'testing'}
-                      className="bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold px-2.5 py-1 rounded-md text-[11px] transition-all cursor-pointer border border-slate-700"
-                    >
-                      テスト
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* CORS / 証明書 トラブルシューティングヘルプ */}
-            <div className="bg-slate-950 p-4 rounded-xl border border-slate-800/60 text-[11px] leading-relaxed text-slate-400 space-y-1.5">
-              <span className="font-bold text-slate-300 block mb-0.5">💡 疎通テストで失敗（FAIL）する場合の対策:</span>
-              <ul className="list-disc pl-4 space-y-1 font-sans">
-                <li><strong>CORS設定の確認:</strong> NASのWebサーバー/API実装側で、<code className="text-indigo-400 bg-slate-900/60 px-1 py-0.5 rounded font-mono">Access-Control-Allow-Origin: *</code> またはプレビューサイトのドメイン（<code className="text-indigo-400 bg-slate-900/60 px-1 py-0.5 rounded font-mono">*.run.app</code>）を許可するヘッダーを出力するよう設定してください。</li>
-                <li><strong>SSL/HTTPS自己署名証明書:</strong> NASのHTTPS証明書が自己署名の場合、ブラウザが接続をブロックします。別タブで直接 <a href="/api/posts" target="_blank" rel="noopener noreferrer" className="text-indigo-400 underline hover:text-indigo-300">/api/posts</a> を開き、警告画面で「詳細設定」から「アクセスする」を選び、証明書を信頼した後に再度テストをお試しください。</li>
-                <li><strong>ネットワーク疎通:</strong> Synology DDNS またはルーターのポートフォワーディング経由で、インターネットからポート `443` が正常にNAS（リバースプロキシ）へ到達できるか確認してください。</li>
-              </ul>
-            </div>
-          </div>
-        )}
-      </div>
 
       {/* タイムライン表示・絞り込みフィルターコントロール */}
       <div className="bg-white rounded-2xl border border-slate-200/90 p-4 shadow-2xs space-y-3.5">

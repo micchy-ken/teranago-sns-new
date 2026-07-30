@@ -248,7 +248,7 @@ export function ApplicationModal({
     : [];
 
   const handleSaveDraft = () => {
-    const draftTitle = title.trim() || '(無題の下書き)';
+    const draftTitle = (title || '').trim() || '(無題の下書き)';
 
     let initialApprover: User | undefined;
     let stepsConfig: ApprovalStepConfig[] | undefined;

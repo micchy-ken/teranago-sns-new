@@ -85,12 +85,12 @@ export function TopicDetailModal({
   // 保存処理 (本人編集)
   const handleSaveEdit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editTitle.trim() || !editContent.trim()) return;
+    if (!editTitle || !editTitle.trim() || !editContent || !editContent.trim()) return;
 
     const updatedTopic: BoardTopic = {
       ...topic,
-      title: editTitle.trim(),
-      content: editContent.trim(),
+      title: (editTitle || '').trim(),
+      content: (editContent || '').trim(),
       office: editOffice,
       division: editDivision,
       isPinned: editIsPinned,
@@ -107,7 +107,7 @@ export function TopicDetailModal({
 
   // タグ追加
   const handleAddTag = (tagToAdd: string) => {
-    const trimmed = tagToAdd.trim().replace(/^#/, '');
+    const trimmed = (tagToAdd || '').trim().replace(/^#/, '');
     if (trimmed && !editTags.includes(trimmed)) {
       setEditTags([...editTags, trimmed]);
     }
@@ -135,12 +135,12 @@ export function TopicDetailModal({
   // コメント追加
   const handleAddComment = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!commentText.trim()) return;
+    if (!commentText || !commentText.trim()) return;
 
     const newComment = {
       id: `cm-${Date.now()}`,
       author: currentUser,
-      content: commentText.trim(),
+      content: (commentText || '').trim(),
       createdAt: new Date().toISOString(),
     };
 
@@ -336,7 +336,7 @@ export function TopicDetailModal({
                     onKeyDown={e => {
                       if (e.key === 'Enter') {
                         e.preventDefault();
-                        if (editTagInput.trim()) handleAddTag(editTagInput);
+                        if (editTagInput && editTagInput.trim()) handleAddTag(editTagInput);
                       }
                     }}
                     placeholder="タグ入力してEnter"
@@ -581,7 +581,7 @@ export function TopicDetailModal({
                       />
                       <button
                         type="submit"
-                        disabled={!commentText.trim()}
+                        disabled={!commentText || !commentText.trim()}
                         className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 shrink-0"
                       >
                         <Send className="w-3.5 h-3.5" />

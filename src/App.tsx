@@ -27,20 +27,26 @@ import {
   initialApprovalFlows,
   initialItemMasters
 } from './data/mockData';
-import { Post, CalendarEvent, WorkflowApplication, User, OfficeMaster, DivisionMaster, PositionMaster, BoardTopic, ChatRoom, ApprovalFlowRule, ApprovalStepConfig, ItemMaster, ApplicationStatus, DailyReport } from './types';
+import { Post, CalendarEvent, WorkflowApplication, User, OfficeMaster, DivisionMaster, PositionMaster, BoardTopic, ChatRoom, ApprovalFlowRule, ApprovalStepConfig, ItemMaster, ApplicationStatus, DailyReport, Memo } from './types';
 
 // Helper to map and sanitize API user objects to match frontend types safely
 const mapUserFromApi = (apiUser: any): User => {
   const isAdmin = apiUser.isAdmin === true || apiUser.role === 'admin';
+  const office = apiUser.office || undefined;
+  const division = apiUser.division || undefined;
+  const position = apiUser.position || undefined;
+  const deptFromParts = [office, division, position].filter(Boolean).join(' ');
+  const department = (apiUser.department && typeof apiUser.department === 'string' && apiUser.department.trim() !== '') ? apiUser.department : (deptFromParts || '未設定');
+
   return {
     ...apiUser,
     id: String(apiUser.id),
     name: apiUser.name || '名前未設定',
-    avatarUrl: apiUser.avatarUrl || 'https://i.pravatar.cc/150',
-    department: apiUser.department || '未設定',
-    office: apiUser.office || undefined,
-    division: apiUser.division || undefined,
-    position: apiUser.position || undefined,
+    avatarUrl: apiUser.avatarUrl || `https://i.pravatar.cc/150?u=${apiUser.id}`,
+    department,
+    office,
+    division,
+    position,
     role: isAdmin ? 'admin' : 'user',
     isAdmin: isAdmin,
   };
@@ -119,26 +125,87 @@ export default function App() {
   const [itemMasters, setItemMasters] = useState<ItemMaster[]>(initialItemMasters);
 
   // Item Master Handlers
-  const handleAddItemMaster = (item: Omit<ItemMaster, 'id'>) => {
+  const handleAddItemMaster = async (item: Omit<ItemMaster, 'id'>) => {
     const newItem: ItemMaster = {
       ...item,
       id: `itm_${Date.now()}`
     };
-    setItemMasters([...itemMasters, newItem]);
+    setItemMasters(prev => [...prev, newItem]);
+    try {
+      await fetch('/api/masters/item-masters', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newItem)
+      });
+      await refetchMasters();
+    } catch (e) { console.error('Failed to save item master:', e); }
   };
 
-  const handleUpdateItemMaster = (updatedItem: ItemMaster) => {
-    setItemMasters(itemMasters.map(i => i.id === updatedItem.id ? updatedItem : i));
+  const handleUpdateItemMaster = async (updatedItem: ItemMaster) => {
+    setItemMasters(prev => prev.map(i => i.id === updatedItem.id ? updatedItem : i));
+    try {
+      await fetch(`/api/masters/item-masters/${updatedItem.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedItem)
+      });
+      await refetchMasters();
+    } catch (e) { console.error('Failed to update item master:', e); }
   };
 
-  const handleDeleteItemMaster = (id: string) => {
-    setItemMasters(itemMasters.filter(i => i.id !== id));
+  const handleDeleteItemMaster = async (id: string) => {
+    setItemMasters(prev => prev.filter(i => i.id !== id));
+    try {
+      await fetch(`/api/masters/item-masters/${id}`, { method: 'DELETE' });
+      await refetchMasters();
+    } catch (e) { console.error('Failed to delete item master:', e); }
+  };
+
+  const refetchMasters = async () => {
+    try {
+      const offRes = await fetch('/api/masters/offices');
+      if (offRes.ok) {
+        const data = await offRes.json();
+        if (Array.isArray(data) && data.length > 0) setOffices(data);
+      }
+    } catch (e) { console.warn('Failed to fetch offices:', e); }
+
+    try {
+      const divRes = await fetch('/api/masters/divisions');
+      if (divRes.ok) {
+        const data = await divRes.json();
+        if (Array.isArray(data) && data.length > 0) setDivisions(data);
+      }
+    } catch (e) { console.warn('Failed to fetch divisions:', e); }
+
+    try {
+      const posRes = await fetch('/api/masters/positions');
+      if (posRes.ok) {
+        const data = await posRes.json();
+        if (Array.isArray(data) && data.length > 0) setPositions(data);
+      }
+    } catch (e) { console.warn('Failed to fetch positions:', e); }
+
+    try {
+      const itemRes = await fetch('/api/masters/item-masters');
+      if (itemRes.ok) {
+        const data = await itemRes.json();
+        if (Array.isArray(data) && data.length > 0) setItemMasters(data);
+      }
+    } catch (e) { console.warn('Failed to fetch item masters:', e); }
+
+    try {
+      const flowRes = await fetch('/api/masters/approval-flows');
+      if (flowRes.ok) {
+        const data = await flowRes.json();
+        if (Array.isArray(data) && data.length > 0) setApprovalFlows(data);
+      }
+    } catch (e) { console.warn('Failed to fetch approval flows:', e); }
   };
   
-  const [posts, setPosts] = useState<Post[]>(initialPosts);
+  const [posts, setPosts] = useState<Post[]>([]);
   const [isPostsLoading, setIsPostsLoading] = useState(false);
   const [postsError, setPostsError] = useState<string | null>(null);
-  const [postsSource, setPostsSource] = useState<'api' | 'mock'>('mock');
 
   const refetchPosts = async (currentUsers = usersList) => {
     setIsPostsLoading(true);
@@ -156,7 +223,6 @@ export default function App() {
       if (Array.isArray(data)) {
         const mapped = data.map(p => mapPostFromApi(p, currentUsers));
         setPosts(mapped);
-        setPostsSource('api');
         setPostsError(null);
       } else {
         throw new Error('Received posts data is not an array');
@@ -164,8 +230,6 @@ export default function App() {
     } catch (err: any) {
       console.warn('Failed to load posts from API:', err);
       setPostsError(err?.message || 'Failed to sync with API. Check connectivity.');
-      setPostsSource('mock');
-      setPosts(initialPosts); // fallback to initial posts
     } finally {
       setIsPostsLoading(false);
     }
@@ -203,12 +267,12 @@ export default function App() {
     return usersList;
   };
 
-  const [events, setEvents] = useState<CalendarEvent[]>(initialEvents);
-  const [applications, setApplications] = useState<WorkflowApplication[]>(initialApplications);
-  const [topics, setTopics] = useState<BoardTopic[]>(initialTopics);
-  const [chatRooms, setChatRooms] = useState<ChatRoom[]>(initialChatRooms);
-  const [memos, setMemos] = useState(initialMemos);
-  const [reports, setReports] = useState<DailyReport[]>(initialReports);
+  const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [applications, setApplications] = useState<WorkflowApplication[]>([]);
+  const [topics, setTopics] = useState<BoardTopic[]>([]);
+  const [chatRooms, setChatRooms] = useState<ChatRoom[]>([]);
+  const [memos, setMemos] = useState<Memo[]>([]);
+  const [reports, setReports] = useState<DailyReport[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
 
@@ -274,21 +338,40 @@ export default function App() {
         if (Array.isArray(data)) {
           const mapped = data.map((app: any) => {
             let detailsObj: any = {};
-            if (app.details && app.details.startsWith('{')) {
+            if (app.details && typeof app.details === 'string' && app.details.startsWith('{')) {
               try { detailsObj = JSON.parse(app.details); } catch (_) {}
             }
             const applicantUser = currentUsers.find(u => u.id === app.applicantId) || app.applicant || defaultCurrentUser;
             const approverUserObj = currentUsers.find(u => u.id === app.approverId) || app.approver;
+            
+            // Normalize status to valid frontend values
+            let rawStatus = app.status || detailsObj.status || 'pending';
+            if (rawStatus.includes('approved') || rawStatus.includes('承認済')) rawStatus = 'approved';
+            else if (rawStatus.includes('rejected') || rawStatus.includes('却下')) rawStatus = 'rejected';
+            else if (rawStatus.includes('draft') || rawStatus.includes('下書き')) rawStatus = 'draft';
+            else if (['pending', 'approved', 'rejected', 'draft'].includes(rawStatus)) { /* keep */ }
+            else rawStatus = 'pending';
+
+            // Normalize category / type
+            let rawType = app.category || app.type || detailsObj.type || 'other';
+            if (['business_trip', 'inventory_issue', 'purchase_order', 'other'].includes(rawType)) {
+              /* keep */
+            } else if (rawType === 'general') {
+              rawType = 'other';
+            } else {
+              rawType = 'other';
+            }
+
             return {
               id: String(app.id),
-              title: app.title,
+              title: app.title || '無題の申請',
               applicant: applicantUser,
               approver: approverUserObj,
-              status: app.status,
-              createdAt: app.createdAt,
-              category: app.category || app.type || 'other',
-              type: app.category || app.type || 'other',
-              ...detailsObj
+              createdAt: app.createdAt || new Date().toISOString(),
+              ...detailsObj,
+              status: rawStatus,
+              category: rawType,
+              type: rawType,
             };
           });
           setApplications(mapped);
@@ -479,6 +562,7 @@ export default function App() {
   const refetchAll = async () => {
     const latestUsers = await refetchUsers();
     await Promise.all([
+      refetchMasters(),
       refetchPosts(latestUsers),
       refetchEvents(latestUsers),
       refetchApplications(latestUsers),
@@ -759,54 +843,114 @@ export default function App() {
   };
 
   // Office Master Handlers
-  const handleAddOffice = (officeData: Omit<OfficeMaster, 'id'>) => {
+  const handleAddOffice = async (officeData: Omit<OfficeMaster, 'id'>) => {
     const newOffice: OfficeMaster = {
       ...officeData,
       id: `off-${Date.now()}`,
     };
-    setOffices([...offices, newOffice]);
+    setOffices(prev => [...prev, newOffice]);
+    try {
+      await fetch('/api/masters/offices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newOffice)
+      });
+      await refetchMasters();
+    } catch (e) { console.error('Failed to add office:', e); }
   };
 
-  const handleUpdateOffice = (updatedOffice: OfficeMaster) => {
-    setOffices(offices.map((o) => (o.id === updatedOffice.id ? updatedOffice : o)));
+  const handleUpdateOffice = async (updatedOffice: OfficeMaster) => {
+    setOffices(prev => prev.map((o) => (o.id === updatedOffice.id ? updatedOffice : o)));
+    try {
+      await fetch(`/api/masters/offices/${updatedOffice.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedOffice)
+      });
+      await refetchMasters();
+    } catch (e) { console.error('Failed to update office:', e); }
   };
 
-  const handleDeleteOffice = (officeId: string) => {
-    setOffices(offices.filter((o) => o.id !== officeId));
+  const handleDeleteOffice = async (officeId: string) => {
+    setOffices(prev => prev.filter((o) => o.id !== officeId));
+    try {
+      await fetch(`/api/masters/offices/${officeId}`, { method: 'DELETE' });
+      await refetchMasters();
+    } catch (e) { console.error('Failed to delete office:', e); }
   };
 
   // Division Master Handlers
-  const handleAddDivision = (divisionData: Omit<DivisionMaster, 'id'>) => {
+  const handleAddDivision = async (divisionData: Omit<DivisionMaster, 'id'>) => {
     const newDivision: DivisionMaster = {
       ...divisionData,
       id: `div-${Date.now()}`,
     };
-    setDivisions([...divisions, newDivision]);
+    setDivisions(prev => [...prev, newDivision]);
+    try {
+      await fetch('/api/masters/divisions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newDivision)
+      });
+      await refetchMasters();
+    } catch (e) { console.error('Failed to add division:', e); }
   };
 
-  const handleUpdateDivision = (updatedDivision: DivisionMaster) => {
-    setDivisions(divisions.map((d) => (d.id === updatedDivision.id ? updatedDivision : d)));
+  const handleUpdateDivision = async (updatedDivision: DivisionMaster) => {
+    setDivisions(prev => prev.map((d) => (d.id === updatedDivision.id ? updatedDivision : d)));
+    try {
+      await fetch(`/api/masters/divisions/${updatedDivision.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedDivision)
+      });
+      await refetchMasters();
+    } catch (e) { console.error('Failed to update division:', e); }
   };
 
-  const handleDeleteDivision = (divisionId: string) => {
-    setDivisions(divisions.filter((d) => d.id !== divisionId));
+  const handleDeleteDivision = async (divisionId: string) => {
+    setDivisions(prev => prev.filter((d) => d.id !== divisionId));
+    try {
+      await fetch(`/api/masters/divisions/${divisionId}`, { method: 'DELETE' });
+      await refetchMasters();
+    } catch (e) { console.error('Failed to delete division:', e); }
   };
 
   // Position Master Handlers
-  const handleAddPosition = (positionData: Omit<PositionMaster, 'id'>) => {
+  const handleAddPosition = async (positionData: Omit<PositionMaster, 'id'>) => {
     const newPosition: PositionMaster = {
       ...positionData,
       id: `pos-${Date.now()}`,
     };
-    setPositions([...positions, newPosition]);
+    setPositions(prev => [...prev, newPosition]);
+    try {
+      await fetch('/api/masters/positions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newPosition)
+      });
+      await refetchMasters();
+    } catch (e) { console.error('Failed to add position:', e); }
   };
 
-  const handleUpdatePosition = (updatedPosition: PositionMaster) => {
-    setPositions(positions.map((p) => (p.id === updatedPosition.id ? updatedPosition : p)));
+  const handleUpdatePosition = async (updatedPosition: PositionMaster) => {
+    setPositions(prev => prev.map((p) => (p.id === updatedPosition.id ? updatedPosition : p)));
+    try {
+      await fetch(`/api/masters/positions/${updatedPosition.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedPosition)
+      });
+      await refetchMasters();
+    } catch (e) { console.error('Failed to update position:', e); }
   };
 
-  const handleDeletePosition = (positionId: string) => {
-    setPositions(positions.filter((p) => p.id !== positionId));
+  const handleDeletePosition = async (positionId: string) => {
+    setPositions(prev => prev.filter((p) => p.id !== positionId));
+    try {
+      await fetch(`/api/masters/positions/${positionId}`, { method: 'DELETE' });
+      await refetchMasters();
+    } catch (e) { console.error('Failed to delete position:', e); }
   };
 
   // Handle new post creation with API
@@ -1001,20 +1145,40 @@ export default function App() {
   };
 
   // 承認フロー マスター管理
-  const handleAddApprovalFlow = (flowData: Omit<ApprovalFlowRule, 'id'>) => {
+  const handleAddApprovalFlow = async (flowData: Omit<ApprovalFlowRule, 'id'>) => {
     const newFlow: ApprovalFlowRule = {
       ...flowData,
       id: `flow-${Date.now()}`,
     };
-    setApprovalFlows([...approvalFlows, newFlow]);
+    setApprovalFlows(prev => [...prev, newFlow]);
+    try {
+      await fetch('/api/masters/approval-flows', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newFlow)
+      });
+      await refetchMasters();
+    } catch (e) { console.error('Failed to add approval flow:', e); }
   };
 
-  const handleUpdateApprovalFlow = (updatedFlow: ApprovalFlowRule) => {
-    setApprovalFlows(approvalFlows.map(f => f.id === updatedFlow.id ? updatedFlow : f));
+  const handleUpdateApprovalFlow = async (updatedFlow: ApprovalFlowRule) => {
+    setApprovalFlows(prev => prev.map(f => f.id === updatedFlow.id ? updatedFlow : f));
+    try {
+      await fetch(`/api/masters/approval-flows/${updatedFlow.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedFlow)
+      });
+      await refetchMasters();
+    } catch (e) { console.error('Failed to update approval flow:', e); }
   };
 
-  const handleDeleteApprovalFlow = (id: string) => {
-    setApprovalFlows(approvalFlows.filter(f => f.id !== id));
+  const handleDeleteApprovalFlow = async (id: string) => {
+    setApprovalFlows(prev => prev.filter(f => f.id !== id));
+    try {
+      await fetch(`/api/masters/approval-flows/${id}`, { method: 'DELETE' });
+      await refetchMasters();
+    } catch (e) { console.error('Failed to delete approval flow:', e); }
   };
 
   // 申請者から N 階層目の上長を辿るヘルパー関数 (level=1: 1次上長, level=2: 2次上長...)
@@ -1527,7 +1691,6 @@ export default function App() {
             onChangeTab={setActiveTab}
             isLoading={isPostsLoading}
             error={postsError}
-            postsSource={postsSource}
             onRefetchPosts={refetchAll}
             onDeletePost={handleDeletePost}
             currentUser={userState}
