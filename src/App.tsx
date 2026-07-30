@@ -1088,6 +1088,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: appData.title,
+          description: appData.description || appData.title || '',
           applicantId: appData.applicant.id,
           approverId: initialApprover.id,
           status: appData.status || 'pending',
@@ -1383,6 +1384,8 @@ export default function App() {
               fromCompany: memo.fromCompany,
               fromPhone: memo.fromPhone,
               content: memo.content,
+              requirementType: memo.requirementType || 'phone_called',
+              requirementText: memo.requirementText || '',
               details: {
                 requirementType: memo.requirementType,
                 requirementText: memo.requirementText,

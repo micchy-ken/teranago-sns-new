@@ -386,7 +386,7 @@ app.get('/api/workflows', async (req, res) => {
 
 app.post('/api/workflows', async (req, res) => {
   try {
-    const { title, applicantId, approverId, status, category, details } = req.body;
+    const { title, description, applicantId, approverId, status, category, details } = req.body;
     const pool = await getPool();
     const id = req.body.id || `w-${Date.now()}`;
     const detailsStr = typeof details === 'object' ? JSON.stringify(details) : (details || '');
@@ -394,7 +394,8 @@ app.post('/api/workflows', async (req, res) => {
 
     await pool.request()
       .input('id', sql.VarChar, String(id))
-      .input('title', sql.NVarChar, title)
+      .input('title', sql.NVarChar, title || '無題の申請')
+      .input('description', sql.NVarChar, description || title || '')
       .input('applicantId', sql.VarChar, applicantId || 'u1')
       .input('approverId', sql.VarChar, approverId || null)
       .input('status', sql.NVarChar, status || '承認待ち')
@@ -402,8 +403,8 @@ app.post('/api/workflows', async (req, res) => {
       .input('type', sql.NVarChar, workflowCategory)
       .input('details', sql.NVarChar, detailsStr)
       .query`
-        INSERT INTO dbo.Workflows (id, title, applicantId, approverId, status, createdAt, category, type, details) 
-        VALUES (@id, @title, @applicantId, @approverId, @status, GETDATE(), @category, @type, @details)
+        INSERT INTO dbo.Workflows (id, title, description, applicantId, approverId, status, createdAt, category, type, details) 
+        VALUES (@id, @title, @description, @applicantId, @approverId, @status, GETDATE(), @category, @type, @details)
       `;
     res.status(201).json({ id, message: '申請完了' });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -628,10 +629,12 @@ app.get('/api/memos', async (req, res) => {
 
 app.post('/api/memos', async (req, res) => {
   try {
-    const { senderId, receiverId, toUserId, content, fromName, fromCompany, fromPhone, details } = req.body;
+    const { senderId, receiverId, toUserId, content, fromName, fromCompany, fromPhone, requirementType, requirementText, details } = req.body;
     const pool = await getPool();
     const id = req.body.id || `memo-${Date.now()}`;
     const targetReceiver = receiverId || toUserId || 'u1';
+    const reqType = requirementType || (details && details.requirementType) || 'phone_called';
+    const reqText = requirementText || (details && details.requirementText) || '電話がありました';
     const detailsStr = details ? (typeof details === 'object' ? JSON.stringify(details) : details) : null;
     const toUsersJson = JSON.stringify([targetReceiver]);
 
@@ -643,11 +646,13 @@ app.post('/api/memos', async (req, res) => {
       .input('fromName', sql.NVarChar, fromName || '')
       .input('fromCompany', sql.NVarChar, fromCompany || '')
       .input('fromPhone', sql.NVarChar, fromPhone || '')
+      .input('requirementType', sql.NVarChar, reqType)
+      .input('requirementText', sql.NVarChar, reqText)
       .input('details', sql.NVarChar, detailsStr)
       .input('toUsersJson', sql.NVarChar, toUsersJson)
       .query`
-        INSERT INTO dbo.Memos (id, senderId, receiverId, content, isRead, createdAt, fromName, fromCompany, fromPhone, details, toUsersJson) 
-        VALUES (@id, @senderId, @receiverId, @content, 0, GETDATE(), @fromName, @fromCompany, @fromPhone, @details, @toUsersJson)
+        INSERT INTO dbo.Memos (id, senderId, receiverId, content, isRead, createdAt, fromName, fromCompany, fromPhone, requirementType, requirementText, details, toUsersJson) 
+        VALUES (@id, @senderId, @receiverId, @content, 0, GETDATE(), @fromName, @fromCompany, @fromPhone, @requirementType, @requirementText, @details, @toUsersJson)
       `;
     res.status(201).json({ id, message: '伝言メモ作成完了' });
   } catch (err) { res.status(500).json({ error: err.message }); }
