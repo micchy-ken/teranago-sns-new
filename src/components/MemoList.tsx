@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Memo, User, OfficeMaster, DivisionMaster, RequirementType, MemoUserRecipientStatus } from '../types';
+import { apiFetch } from '../config/api';
 import { 
   Phone, 
   Check, 
@@ -308,7 +309,7 @@ export function MemoList({
       }
     };
 
-    fetch('/api/memos', {
+    apiFetch('/api/memos', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(apiPayload)
