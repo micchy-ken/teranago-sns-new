@@ -190,6 +190,7 @@ export interface BoardTopic {
   // 拡張項目
   office?: string;    // 公開範囲（拠点: 全社、本社、名古屋支店など）
   division?: string;  // 公開範囲（部署: 全部署、営業、設計など）
+  scope?: string;     // 公開範囲のスコープ
   tags: string[];     // タグ配列
   attachments?: AttachmentFile[];
   hasPeriod?: boolean;  // 公開期間設定（デフォルト: false）

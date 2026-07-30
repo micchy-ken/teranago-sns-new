@@ -27,7 +27,7 @@ import {
   initialApprovalFlows,
   initialItemMasters
 } from './data/mockData';
-import { Post, CalendarEvent, WorkflowApplication, User, OfficeMaster, DivisionMaster, PositionMaster, BoardTopic, ChatRoom, ApprovalFlowRule, ApprovalStepConfig, ItemMaster, ApplicationStatus } from './types';
+import { Post, CalendarEvent, WorkflowApplication, User, OfficeMaster, DivisionMaster, PositionMaster, BoardTopic, ChatRoom, ApprovalFlowRule, ApprovalStepConfig, ItemMaster, ApplicationStatus, DailyReport } from './types';
 
 // Helper to map and sanitize API user objects to match frontend types safely
 const mapUserFromApi = (apiUser: any): User => {
@@ -203,42 +203,363 @@ export default function App() {
     return usersList;
   };
 
+  const [events, setEvents] = useState<CalendarEvent[]>(initialEvents);
+  const [applications, setApplications] = useState<WorkflowApplication[]>(initialApplications);
+  const [topics, setTopics] = useState<BoardTopic[]>(initialTopics);
+  const [chatRooms, setChatRooms] = useState<ChatRoom[]>(initialChatRooms);
+  const [memos, setMemos] = useState(initialMemos);
+  const [reports, setReports] = useState<DailyReport[]>(initialReports);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedTag, setSelectedTag] = useState<string | null>(null);
+
+  const refetchEvents = async (currentUsers = usersList) => {
+    try {
+      const response = await fetch('https://sns.teranago.synology.me/api/events', {
+        headers: { 'Accept': 'application/json' }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (Array.isArray(data)) {
+          const activeUsers = currentUsers.length > 0 ? currentUsers : defaultAllUsers;
+          const mapped = data.map((e: any) => {
+            let detailsObj: any = {};
+            if (e.description && typeof e.description === 'string' && e.description.startsWith('{')) {
+              try { detailsObj = JSON.parse(e.description); } catch (_) {}
+            }
+            
+            let rawAttendees = e.attendees || detailsObj.attendees || [];
+            if (typeof rawAttendees === 'string') {
+              try { rawAttendees = JSON.parse(rawAttendees); } catch (_) {}
+            }
+            
+            const mappedAttendees = Array.isArray(rawAttendees)
+              ? rawAttendees.map((att: any) => {
+                  if (typeof att === 'object' && att !== null && att.id) return att;
+                  const found = activeUsers.find(u => u.id === att || u.id === String(att));
+                  return found || { id: String(att), name: String(att), avatarUrl: '', office: '', division: '', department: '', role: 'user' };
+                })
+              : [];
+
+            return {
+              id: String(e.id),
+              title: e.title || '予定',
+              start: e.startAt || e.start || new Date().toISOString(),
+              end: e.endAt || e.end || e.startAt || e.start || new Date().toISOString(),
+              isAllDay: e.isAllDay === true || e.isAllDay === 1,
+              type: e.category || 'personal',
+              office: e.office || '全社',
+              division: e.division || '全部署',
+              location: e.location || '',
+              memo: e.memo || detailsObj.memo || '',
+              isGoogleSynced: false,
+              ...detailsObj,
+              attendees: mappedAttendees
+            };
+          });
+          setEvents(mapped);
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to load events from API, keeping local state:', err);
+    }
+  };
+
+  const refetchApplications = async (currentUsers = usersList) => {
+    try {
+      const response = await fetch('https://sns.teranago.synology.me/api/workflows', {
+        headers: { 'Accept': 'application/json' }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (Array.isArray(data)) {
+          const mapped = data.map((app: any) => {
+            let detailsObj: any = {};
+            if (app.details && app.details.startsWith('{')) {
+              try { detailsObj = JSON.parse(app.details); } catch (_) {}
+            }
+            const applicantUser = currentUsers.find(u => u.id === app.applicantId) || app.applicant || defaultCurrentUser;
+            const approverUserObj = currentUsers.find(u => u.id === app.approverId) || app.approver;
+            return {
+              id: String(app.id),
+              title: app.title,
+              applicant: applicantUser,
+              approver: approverUserObj,
+              status: app.status,
+              createdAt: app.createdAt,
+              category: app.category || app.type || 'other',
+              type: app.category || app.type || 'other',
+              ...detailsObj
+            };
+          });
+          setApplications(mapped);
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to load workflows from API, keeping local state:', err);
+    }
+  };
+
+  const refetchTopics = async (currentUsers = usersList) => {
+    try {
+      const response = await fetch('https://sns.teranago.synology.me/api/bulletins', {
+        headers: { 'Accept': 'application/json' }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (Array.isArray(data)) {
+          const mapped = data.map((t: any) => {
+            let detailsObj: any = {};
+            if (t.content && t.content.startsWith('{')) {
+              try { detailsObj = JSON.parse(t.content); } catch (_) {}
+            }
+            const authorUser = currentUsers.find(u => u.id === t.authorId) || t.author || defaultCurrentUser;
+            return {
+              id: String(t.id),
+              category: t.category || 'general',
+              title: t.title,
+              content: t.content,
+              author: authorUser,
+              createdAt: t.createdAt,
+              views: t.views || 0,
+              likes: t.likes || 0,
+              office: t.office || '全社',
+              division: t.division || '全部署',
+              scope: t.scope || '全社',
+              tags: Array.isArray(t.tags) ? t.tags : (typeof t.tags === 'string' ? t.tags.split(',') : []),
+              isPinned: t.isPinned === true || t.isPinned === 1,
+              attachments: t.attachments ? (typeof t.attachments === 'string' && t.attachments.startsWith('[') ? JSON.parse(t.attachments) : t.attachments) : [],
+              comments: [],
+              viewers: [],
+              commentsCount: t.commentsCount || 0,
+              ...detailsObj
+            };
+          });
+          setTopics(mapped);
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to load bulletins from API, keeping local state:', err);
+    }
+  };
+
+  const refetchChatRooms = async (currentUsers = usersList) => {
+    try {
+      const response = await fetch('https://sns.teranago.synology.me/api/chats', {
+        headers: { 'Accept': 'application/json' }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (Array.isArray(data)) {
+          const mapped = data.map((room: any) => ({
+            ...room,
+            id: String(room.id),
+            participants: Array.isArray(room.participants) && room.participants.length > 0 
+              ? room.participants 
+              : (currentUsers.length > 0 ? currentUsers.slice(0, 3) : defaultAllUsers.slice(0, 3)),
+            messages: Array.isArray(room.messages) ? room.messages : []
+          }));
+          setChatRooms(mapped);
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to load chat rooms from API, keeping local state:', err);
+    }
+  };
+
+  const refetchMemos = async (currentUsers = usersList) => {
+    try {
+      const response = await fetch('https://sns.teranago.synology.me/api/memos', {
+        headers: { 'Accept': 'application/json' }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (Array.isArray(data)) {
+          const mapped = data.map((m: any) => {
+            let detailsObj: any = {};
+            if (m.details && typeof m.details === 'object') {
+              detailsObj = m.details;
+            } else if (m.content && typeof m.content === 'string' && m.content.startsWith('{')) {
+              try { detailsObj = JSON.parse(m.content); } catch (_) {}
+            }
+            const activeUsers = currentUsers.length > 0 ? currentUsers : defaultAllUsers;
+            const targetUser = activeUsers.find(u => u.id === m.receiverId || u.id === m.toUserId) || activeUsers[0];
+            const defaultRecipientStatus = [{
+              userId: targetUser?.id || 'u1',
+              userName: targetUser?.name || '担当者',
+              avatarUrl: targetUser?.avatarUrl || '',
+              department: targetUser?.department || '',
+              office: targetUser?.office || '',
+              division: targetUser?.division || '',
+              isViewed: m.isRead ? true : false,
+              isHandled: m.isRead ? true : false
+            }];
+
+            return {
+              id: String(m.id),
+              fromName: m.fromName || '不詳',
+              fromCompany: m.fromCompany || '',
+              fromPhone: m.fromPhone || '',
+              content: m.content || '',
+              status: m.isRead ? 'handled' : 'unread',
+              createdAt: m.createdAt || new Date().toISOString(),
+              targetOffices: m.targetOffices || [],
+              targetDivisions: m.targetDivisions || [],
+              recipientStatuses: Array.isArray(m.recipientStatuses) ? m.recipientStatuses : defaultRecipientStatus,
+              toUsers: Array.isArray(m.toUsers) ? m.toUsers : [targetUser],
+              toUser: targetUser,
+              createdByUser: activeUsers.find(u => u.id === m.senderId) || activeUsers[0],
+              ...detailsObj,
+              ...m
+            };
+          });
+          setMemos(mapped);
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to load memos from API, keeping local state:', err);
+    }
+  };
+
+  const refetchReports = async (currentUsers = usersList) => {
+    try {
+      let response = await fetch('https://sns.teranago.synology.me/api/daily-reports', {
+        headers: { 'Accept': 'application/json' }
+      });
+      if (!response.ok) {
+        response = await fetch('https://sns.teranago.synology.me/api/reports', {
+          headers: { 'Accept': 'application/json' }
+        });
+      }
+      if (response.ok) {
+        const data = await response.json();
+        if (Array.isArray(data)) {
+          const mapped = data.map((r: any) => {
+            const authorUser = currentUsers.find(u => u.id === r.authorId) || r.author || defaultCurrentUser;
+            let parsedTasks = r.tasks || '';
+            let parsedResults = r.results || '';
+            let parsedIssues = r.issues || '';
+            let parsedTomorrow = r.tomorrowPlan || '';
+            if (r.content && (!r.tasks || !r.results)) {
+              if (r.content.startsWith('{')) {
+                try {
+                  const p = JSON.parse(r.content);
+                  parsedTasks = p.tasks || parsedTasks;
+                  parsedResults = p.results || parsedResults;
+                  parsedIssues = p.issues || parsedIssues;
+                  parsedTomorrow = p.tomorrowPlan || parsedTomorrow;
+                } catch (_) {}
+              } else {
+                parsedTasks = r.content;
+              }
+            }
+            return {
+              id: String(r.id),
+              author: authorUser,
+              date: r.date || r.reportDate || (r.createdAt ? String(r.createdAt).substring(0, 10) : ''),
+              tasks: parsedTasks,
+              results: parsedResults,
+              issues: parsedIssues,
+              tomorrowPlan: parsedTomorrow,
+              createdAt: r.createdAt || new Date().toISOString()
+            };
+          });
+          setReports(mapped);
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to load reports from API, keeping local state:', err);
+    }
+  };
+
   const refetchAll = async () => {
     const latestUsers = await refetchUsers();
-    await refetchPosts(latestUsers);
+    await Promise.all([
+      refetchPosts(latestUsers),
+      refetchEvents(latestUsers),
+      refetchApplications(latestUsers),
+      refetchTopics(latestUsers),
+      refetchChatRooms(latestUsers),
+      refetchMemos(latestUsers),
+      refetchReports(latestUsers),
+    ]);
   };
 
   useEffect(() => {
     // Always load latest users from API on mount
     refetchUsers().then((latestUsers) => {
       if (isAuthenticated) {
-        refetchPosts(latestUsers);
+        refetchAll();
       }
     });
   }, [isAuthenticated]);
 
-  const [events, setEvents] = useState<CalendarEvent[]>(initialEvents);
-  const [applications, setApplications] = useState<WorkflowApplication[]>(initialApplications);
-  const [topics, setTopics] = useState<BoardTopic[]>(initialTopics);
-  const [chatRooms, setChatRooms] = useState<ChatRoom[]>(initialChatRooms);
-  const [memos, setMemos] = useState(initialMemos);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedTag, setSelectedTag] = useState<string | null>(null);
-
   // Board Handlers
-  const handleAddTopic = (topicData: Omit<BoardTopic, 'id' | 'createdAt' | 'views' | 'commentsCount'>) => {
+  const handleAddTopic = async (topicData: Omit<BoardTopic, 'id' | 'createdAt' | 'views' | 'commentsCount'>) => {
+    const tempId = `t-temp-${Date.now()}`;
     const newTopic: BoardTopic = {
       ...topicData,
-      id: `t${Date.now()}`,
+      id: tempId,
       createdAt: new Date().toISOString(),
       views: 0,
       commentsCount: 0,
     };
     setTopics([newTopic, ...topics]);
+
+    try {
+      const response = await fetch('https://sns.teranago.synology.me/api/bulletins', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          category: topicData.category,
+          title: topicData.title,
+          content: topicData.content,
+          authorId: topicData.author.id,
+          office: topicData.office || '全社',
+          division: topicData.division || '全部署',
+          scope: topicData.scope || '全社',
+          tags: topicData.tags || [],
+          isPinned: topicData.isPinned ? 1 : 0,
+          attachments: topicData.attachments || [],
+          comments: topicData.comments || [],
+          viewers: topicData.viewers || [],
+        })
+      });
+      if (response.ok) {
+        await refetchTopics();
+      }
+    } catch (err) {
+      console.error('Failed to save bulletin via API, keeping locally:', err);
+    }
   };
 
-  const handleUpdateTopic = (updatedTopic: BoardTopic) => {
+  const handleUpdateTopic = async (updatedTopic: BoardTopic) => {
     setTopics(topics.map(t => t.id === updatedTopic.id ? updatedTopic : t));
+    try {
+      const response = await fetch(`https://sns.teranago.synology.me/api/bulletins/${updatedTopic.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          category: updatedTopic.category,
+          title: updatedTopic.title,
+          content: updatedTopic.content,
+          authorId: updatedTopic.author.id,
+          office: updatedTopic.office || '全社',
+          division: updatedTopic.division || '全部署',
+          scope: updatedTopic.scope || '全社',
+          tags: updatedTopic.tags || [],
+          isPinned: updatedTopic.isPinned ? 1 : 0,
+          attachments: updatedTopic.attachments || [],
+          comments: updatedTopic.comments || [],
+          viewers: updatedTopic.viewers || [],
+          views: updatedTopic.views,
+        })
+      });
+      if (response.ok) {
+        await refetchTopics();
+      }
+    } catch (err) {
+      console.error('Failed to update bulletin via API:', err);
+    }
   };
 
   if (!isAuthenticated) {
@@ -277,23 +598,14 @@ export default function App() {
         await refetchUsers();
       } else {
         const errText = await response.text().catch(() => '');
-        console.error(`POST /api/users failed with status ${response.status}: ${errText}`);
-        alert(`ユーザー作成に失敗しました。\nAPIサーバーがエラーを返しました (Status ${response.status}): ${errText || 'Unknown error'}`);
-        // Rollback state since creation failed
-        await refetchUsers();
+        console.warn(`POST /api/users failed with status ${response.status}: ${errText}. Keeping locally.`);
       }
     } catch (err: any) {
-      console.error('Failed to create user via API:', err);
-      alert(`API通信エラーが発生しました: ${err?.message || '接続に失敗しました'}`);
-      await refetchUsers();
+      console.warn('Failed to create user via API, keeping locally:', err);
     }
   };
 
   const handleUpdateUser = async (updatedUser: User) => {
-    // Keep a copy of the old state for safe rollback
-    const oldUsersList = [...usersList];
-    const oldUserState = { ...userState };
-
     // Optimistically update GUI state instantly
     setUsersList(prev => prev.map((u) => (u.id === updatedUser.id ? updatedUser : u)));
     if (updatedUser.id === userState.id) {
@@ -356,24 +668,16 @@ export default function App() {
         await refetchUsers();
       } else {
         const errText = await response.text().catch(() => '');
-        console.error(`All fallback updates failed. Last status: ${response.status}: ${errText}`);
-        alert(`ユーザー情報の更新に失敗しました。\nAPIサーバーがエラーを返しました (Status ${response.status}): ${errText || 'Unknown error'}`);
-        // Rollback on failure to prevent stale UI mismatch
-        setUsersList(oldUsersList);
-        setUserState(oldUserState);
+        console.warn(`All fallback updates failed. Last status: ${response.status}: ${errText}. Keeping locally.`);
       }
     } catch (err: any) {
-      console.error('Failed to update user via API:', err);
-      alert(`API通信エラーが発生しました: ${err?.message || '接続に失敗しました'}`);
-      setUsersList(oldUsersList);
-      setUserState(oldUserState);
+      console.warn('Failed to update user via API, keeping locally:', err);
     }
   };
 
   const handleDeleteUser = async (userId: string) => {
     if (!window.confirm('このユーザーを削除してもよろしいですか？')) return;
 
-    const oldUsersList = [...usersList];
     setUsersList(prev => prev.filter((u) => u.id !== userId));
 
     try {
@@ -385,30 +689,19 @@ export default function App() {
         },
       });
 
-      if (!response.ok) {
-        // Fallback POST to /api/users/:id/delete or custom DELETE path if needed
-        console.warn(`DELETE /api/users/:id failed with status ${response.status}`);
-      }
-
       if (response.ok) {
         console.log('User successfully deleted from server DB.');
         await refetchUsers();
       } else {
-        const errText = await response.text().catch(() => '');
-        alert(`ユーザー削除に失敗しました。\nAPIサーバーがエラーを返しました (Status ${response.status}): ${errText || 'Unknown error'}`);
-        setUsersList(oldUsersList);
+        console.warn(`DELETE /api/users/:id failed with status ${response.status}. Keeping locally.`);
       }
     } catch (err: any) {
-      console.error('Failed to delete user via API:', err);
-      alert(`API通信エラーが発生しました: ${err?.message || '接続に失敗しました'}`);
-      setUsersList(oldUsersList);
+      console.warn('Failed to delete user via API, keeping locally:', err);
     }
   };
 
   const handleToggleUserAdmin = async (userId: string) => {
     let targetUser: User | undefined;
-    const oldUsersList = [...usersList];
-    const oldUserState = { ...userState };
 
     setUsersList(prev => prev.map(u => {
       if (u.id === userId) {
@@ -451,16 +744,10 @@ export default function App() {
           console.log('User admin status successfully updated.');
           await refetchUsers();
         } else {
-          const errText = await response.text().catch(() => '');
-          alert(`管理者権限の変更に失敗しました。\nAPIサーバーがエラーを返しました (Status ${response.status}): ${errText || 'Unknown error'}`);
-          setUsersList(oldUsersList);
-          setUserState(oldUserState);
+          console.warn(`Admin toggle API failed with status ${response.status}. Keeping locally.`);
         }
       } catch (err: any) {
-        console.error('Failed to toggle admin status:', err);
-        alert(`API通信エラーが発生しました: ${err?.message || '接続に失敗しました'}`);
-        setUsersList(oldUsersList);
-        setUserState(oldUserState);
+        console.warn('Failed to toggle admin status via API, keeping locally:', err);
       }
     }
   };
@@ -629,22 +916,82 @@ export default function App() {
   };
 
   // Handle new event creation
-  const handleAddEvent = (eventData: Omit<CalendarEvent, 'id'>) => {
+  const handleAddEvent = async (eventData: Omit<CalendarEvent, 'id'>) => {
+    const tempId = `e-temp-${Date.now()}`;
     const newEvent: CalendarEvent = {
       ...eventData,
-      id: `e${Date.now()}`
+      id: tempId
     };
     setEvents([...events, newEvent]);
+
+    try {
+      const response = await fetch('https://sns.teranago.synology.me/api/events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: eventData.title,
+          startAt: eventData.start,
+          endAt: eventData.end,
+          isAllDay: eventData.isAllDay ? 1 : 0,
+          category: eventData.type,
+          office: eventData.office || '全社',
+          division: eventData.division || '全部署',
+          location: eventData.location || '',
+          attendees: eventData.attendees || [],
+          memo: eventData.memo || '',
+        })
+      });
+      if (response.ok) {
+        await refetchEvents();
+      }
+    } catch (err) {
+      console.error('Failed to add event via API, keeping locally:', err);
+    }
   };
 
   // Handle event update
-  const handleUpdateEvent = (updatedEvent: CalendarEvent) => {
+  const handleUpdateEvent = async (updatedEvent: CalendarEvent) => {
     setEvents(events.map(e => e.id === updatedEvent.id ? updatedEvent : e));
+    try {
+      const response = await fetch(`https://sns.teranago.synology.me/api/events/${updatedEvent.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: updatedEvent.title,
+          startAt: updatedEvent.start,
+          endAt: updatedEvent.end,
+          isAllDay: updatedEvent.isAllDay ? 1 : 0,
+          category: updatedEvent.type,
+          office: updatedEvent.office || '全社',
+          division: updatedEvent.division || '全部署',
+          location: updatedEvent.location || '',
+          attendees: updatedEvent.attendees || [],
+          memo: updatedEvent.memo || '',
+        })
+      });
+      if (response.ok) {
+        await refetchEvents();
+      }
+    } catch (err) {
+      console.error('Failed to update event via API:', err);
+    }
   };
 
   // Handle event deletion
-  const handleDeleteEvent = (eventId: string) => {
+  const handleDeleteEvent = async (eventId: string) => {
+    if (eventId.startsWith('e-temp-')) return;
+    if (!window.confirm('この予定を削除してもよろしいですか？')) return;
     setEvents(events.filter(e => e.id !== eventId));
+    try {
+      const response = await fetch(`https://sns.teranago.synology.me/api/events/${eventId}`, {
+        method: 'DELETE'
+      });
+      if (response.ok) {
+        await refetchEvents();
+      }
+    } catch (err) {
+      console.error('Failed to delete event via API:', err);
+    }
   };
 
   // 承認フロー マスター管理
@@ -702,7 +1049,7 @@ export default function App() {
   };
 
   // Handle new workflow application
-  const handleAddApplication = (appData: Omit<WorkflowApplication, 'id' | 'createdAt' | 'status'> & { status?: ApplicationStatus }) => {
+  const handleAddApplication = async (appData: Omit<WorkflowApplication, 'id' | 'createdAt' | 'status'> & { status?: ApplicationStatus }) => {
     // 送信データに承認フローが指定されていればそれを優先、なければ自動検索
     let selectedFlow = approvalFlows.find(f => f.id === appData.flowId);
     if (!selectedFlow) {
@@ -719,9 +1066,10 @@ export default function App() {
 
     const initialApprover = appData.approver || resolveApproverForStep(appData.applicant, stepsConfig[0], usersList);
 
+    const tempId = `a-temp-${Date.now()}`;
     const newApp: WorkflowApplication = {
       ...appData,
-      id: `a${Date.now()}`,
+      id: tempId,
       createdAt: new Date().toISOString(),
       status: appData.status || 'pending',
       approver: initialApprover,
@@ -733,15 +1081,52 @@ export default function App() {
       history: [],
     };
     setApplications([newApp, ...applications]);
+
+    try {
+      const response = await fetch('https://sns.teranago.synology.me/api/workflows', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: appData.title,
+          applicantId: appData.applicant.id,
+          approverId: initialApprover.id,
+          status: appData.status || 'pending',
+          category: appData.type || 'other',
+          details: JSON.stringify({
+            flowId: appData.flowId || selectedFlow?.id,
+            flowName: appData.flowName || selectedFlow?.name || '標準承認フロー',
+            currentStepIndex: 1,
+            totalSteps: stepsConfig.length,
+            stepsConfig: stepsConfig,
+            history: [],
+            reason: (appData as any).reason || '',
+            purchaseItems: (appData as any).purchaseItems || [],
+            leaveStart: (appData as any).leaveStart || '',
+            leaveEnd: (appData as any).leaveEnd || '',
+            expenseType: (appData as any).expenseType || '',
+            amount: (appData as any).amount || 0,
+            attachmentUrl: (appData as any).attachmentUrl || '',
+          })
+        })
+      });
+      if (response.ok) {
+        await refetchApplications();
+      }
+    } catch (err) {
+      console.error('Failed to submit workflow via API, keeping locally:', err);
+    }
   };
 
   // Handle workflow approval / rejection (Multi-step approval processing)
-  const handleWorkflowAction = (id: string, actionStatus: 'approved' | 'rejected', comment?: string) => {
+  const handleWorkflowAction = async (id: string, actionStatus: 'approved' | 'rejected', comment?: string) => {
+    let updatedAppObj: WorkflowApplication | undefined;
+
     setApplications(prevApps => prevApps.map(app => {
       if (app.id !== id) return app;
 
+      let resultApp: WorkflowApplication;
       if (actionStatus === 'rejected') {
-        return {
+        resultApp = {
           ...app,
           status: 'rejected',
           rejectReason: comment || '理由未記入',
@@ -756,64 +1141,99 @@ export default function App() {
             }
           ]
         };
-      }
+      } else {
+        // 承認アクション (actionStatus === 'approved')
+        const currentStep = app.currentStepIndex || 1;
+        const stepsConfig = (app.stepsConfig && app.stepsConfig.length > 0) ? app.stepsConfig : null;
+        const totalSteps = stepsConfig ? stepsConfig.length : (app.totalSteps || 1);
 
-      // 承認アクション (actionStatus === 'approved')
-      const currentStep = app.currentStepIndex || 1;
-      const stepsConfig = (app.stepsConfig && app.stepsConfig.length > 0) ? app.stepsConfig : null;
-      // stepsConfig が存在する場合はその長さ、無ければ app.totalSteps
-      const totalSteps = stepsConfig ? stepsConfig.length : (app.totalSteps || 1);
+        if (currentStep < totalSteps && stepsConfig) {
+          const nextStepConfig = stepsConfig[currentStep];
+          const nextApprover = resolveApproverForStep(app.applicant, nextStepConfig, usersList);
 
-      // 次の承認ステップ（2次承認、3次承認...）が存在する場合
-      if (currentStep < totalSteps && stepsConfig) {
-        const nextStepConfig = stepsConfig[currentStep]; // 0-indexed で currentStep 番目 (e.g., currentStep=1 なら 2番目のステップ)
-        const nextApprover = resolveApproverForStep(app.applicant, nextStepConfig, usersList);
-
-        return {
-          ...app,
-          currentStepIndex: currentStep + 1,
-          totalSteps: totalSteps,
-          approver: nextApprover,
-          status: 'pending',
-          history: [
-            ...(app.history || []),
-            {
-              stepNumber: currentStep,
-              approver: userState,
-              status: 'approved',
-              actionAt: new Date().toISOString(),
-              comment: comment,
-            }
-          ]
-        };
-      }
-
-      // 最終ステップ（全段階完了）の承認
-      return {
-        ...app,
-        status: 'approved',
-        currentStepIndex: totalSteps,
-        totalSteps: totalSteps,
-        history: [
-          ...(app.history || []),
-          {
-            stepNumber: currentStep,
-            approver: userState,
+          resultApp = {
+            ...app,
+            currentStepIndex: currentStep + 1,
+            totalSteps: totalSteps,
+            approver: nextApprover,
+            status: 'pending',
+            history: [
+              ...(app.history || []),
+              {
+                stepNumber: currentStep,
+                approver: userState,
+                status: 'approved',
+                actionAt: new Date().toISOString(),
+                comment: comment,
+              }
+            ]
+          };
+        } else {
+          resultApp = {
+            ...app,
             status: 'approved',
-            actionAt: new Date().toISOString(),
-            comment: comment,
-          }
-        ]
-      };
+            currentStepIndex: totalSteps,
+            totalSteps: totalSteps,
+            history: [
+              ...(app.history || []),
+              {
+                stepNumber: currentStep,
+                approver: userState,
+                status: 'approved',
+                actionAt: new Date().toISOString(),
+                comment: comment,
+              }
+            ]
+          };
+        }
+      }
+      updatedAppObj = resultApp;
+      return resultApp;
     }));
+
+    if (updatedAppObj && !id.startsWith('a-temp-')) {
+      try {
+        await fetch(`https://sns.teranago.synology.me/api/workflows/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: updatedAppObj.title,
+            applicantId: updatedAppObj.applicant.id,
+            approverId: updatedAppObj.approver?.id || userState.id,
+            status: updatedAppObj.status,
+            category: updatedAppObj.type || 'other',
+            details: JSON.stringify({
+              flowId: updatedAppObj.flowId,
+              flowName: updatedAppObj.flowName,
+              currentStepIndex: updatedAppObj.currentStepIndex,
+              totalSteps: updatedAppObj.totalSteps,
+              stepsConfig: updatedAppObj.stepsConfig,
+              history: updatedAppObj.history,
+              rejectReason: updatedAppObj.rejectReason,
+              reason: (updatedAppObj as any).reason || '',
+              purchaseItems: (updatedAppObj as any).purchaseItems || [],
+              leaveStart: (updatedAppObj as any).leaveStart || '',
+              leaveEnd: (updatedAppObj as any).leaveEnd || '',
+              expenseType: (updatedAppObj as any).expenseType || '',
+              amount: (updatedAppObj as any).amount || 0,
+              attachmentUrl: (updatedAppObj as any).attachmentUrl || '',
+            })
+          })
+        });
+        await refetchApplications();
+      } catch (err) {
+        console.error('Failed to sync workflow action with API:', err);
+      }
+    }
   };
 
   // 申請の更新（再申請、下書き保存、取り下げ等）
-  const handleUpdateApplication = (updatedApp: WorkflowApplication) => {
+  const handleUpdateApplication = async (updatedApp: WorkflowApplication) => {
+    let finalAppObj: WorkflowApplication | undefined;
+
     setApplications(prevApps => prevApps.map(app => {
       if (app.id !== updatedApp.id) return app;
 
-      // updatedApp.status が明示的に 'draft' 等の場合はそれを維持、それ以外（再提出等）は 'pending'
       const targetStatus = updatedApp.status ? updatedApp.status : 'pending';
 
       let selectedFlow = approvalFlows.find(f => f.id === updatedApp.flowId);
@@ -830,10 +1250,9 @@ export default function App() {
           ]);
 
       const initialApprover = updatedApp.approver || resolveApproverForStep(updatedApp.applicant, stepsConfig[0], usersList);
-
       const isSubmittingFromDraftOrReject = (app.status === 'draft' || app.status === 'rejected') && targetStatus === 'pending';
 
-      return {
+      const resultApp = {
         ...updatedApp,
         status: targetStatus,
         rejectReason: targetStatus === 'pending' ? undefined : updatedApp.rejectReason,
@@ -854,12 +1273,178 @@ export default function App() {
           }
         ] : (updatedApp.history || app.history || [])
       };
+      finalAppObj = resultApp;
+      return resultApp;
     }));
+
+    if (finalAppObj && !updatedApp.id.startsWith('a-temp-')) {
+      try {
+        await fetch(`https://sns.teranago.synology.me/api/workflows/${updatedApp.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: finalAppObj.title,
+            applicantId: finalAppObj.applicant.id,
+            approverId: finalAppObj.approver?.id || userState.id,
+            status: finalAppObj.status,
+            category: finalAppObj.type || 'other',
+            details: JSON.stringify({
+              flowId: finalAppObj.flowId,
+              flowName: finalAppObj.flowName,
+              currentStepIndex: finalAppObj.currentStepIndex,
+              totalSteps: finalAppObj.totalSteps,
+              stepsConfig: finalAppObj.stepsConfig,
+              history: finalAppObj.history,
+              rejectReason: finalAppObj.rejectReason,
+              reason: (finalAppObj as any).reason || '',
+              purchaseItems: (finalAppObj as any).purchaseItems || [],
+              leaveStart: (finalAppObj as any).leaveStart || '',
+              leaveEnd: (finalAppObj as any).leaveEnd || '',
+              expenseType: (finalAppObj as any).expenseType || '',
+              amount: (finalAppObj as any).amount || 0,
+              attachmentUrl: (finalAppObj as any).attachmentUrl || '',
+            })
+          })
+        });
+        await refetchApplications();
+      } catch (err) {
+        console.error('Failed to sync updated workflow via API:', err);
+      }
+    }
   };
 
   // 申請の削除処理
-  const handleDeleteApplication = (applicationId: string) => {
+  const handleDeleteApplication = async (applicationId: string) => {
+    if (applicationId.startsWith('a-temp-')) return;
+    if (!window.confirm('この申請を削除してもよろしいですか？')) return;
     setApplications(prevApps => prevApps.filter(app => app.id !== applicationId));
+
+    try {
+      await fetch(`https://sns.teranago.synology.me/api/workflows/${applicationId}`, {
+        method: 'DELETE'
+      });
+      await refetchApplications();
+    } catch (err) {
+      console.error('Failed to delete workflow via API:', err);
+    }
+  };
+
+  const handleUpdateRooms = async (updatedRooms: ChatRoom[]) => {
+    setChatRooms(updatedRooms);
+    try {
+      const lastRoom = updatedRooms[0];
+      if (lastRoom && lastRoom.messages && lastRoom.messages.length > 0) {
+        const lastMsg = lastRoom.messages[lastRoom.messages.length - 1];
+        let response = await fetch('https://sns.teranago.synology.me/api/chats', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            roomId: lastRoom.id,
+            senderId: lastMsg.sender.id,
+            message: lastMsg.content,
+            createdAt: lastMsg.createdAt
+          })
+        });
+        if (!response.ok) {
+          await fetch('https://sns.teranago.synology.me/api/chats/message', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              roomId: lastRoom.id,
+              senderId: lastMsg.sender.id,
+              content: lastMsg.content,
+              createdAt: lastMsg.createdAt
+            })
+          });
+        }
+        await refetchChatRooms();
+      }
+    } catch (err) {
+      console.warn('Failed to sync chat message via API:', err);
+    }
+  };
+
+  const handleUpdateMemos = async (updatedMemos: any[]) => {
+    setMemos(updatedMemos);
+    try {
+      const lastMemo = updatedMemos[updatedMemos.length - 1];
+      if (lastMemo) {
+        await fetch('https://sns.teranago.synology.me/api/memos', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: lastMemo.id,
+            senderId: userState.id,
+            receiverId: lastMemo.toUserId || 'u1',
+            fromName: lastMemo.fromName,
+            fromCompany: lastMemo.fromCompany,
+            fromPhone: lastMemo.fromPhone,
+            content: lastMemo.content,
+            isRead: lastMemo.status === 'handled' ? 1 : 0,
+            createdAt: lastMemo.createdAt || new Date().toISOString()
+          })
+        });
+        await refetchMemos();
+      }
+    } catch (err) {
+      console.warn('Failed to sync memos via API:', err);
+    }
+  };
+
+  const handleAddReport = async (reportData: {
+    date: string;
+    tasks: string;
+    results: string;
+    issues: string;
+    tomorrowPlan: string;
+  }) => {
+    const tempId = `r-temp-${Date.now()}`;
+    const newReport: DailyReport = {
+      id: tempId,
+      author: userState,
+      date: reportData.date,
+      tasks: reportData.tasks,
+      results: reportData.results,
+      issues: reportData.issues,
+      tomorrowPlan: reportData.tomorrowPlan,
+      createdAt: new Date().toISOString(),
+    };
+    setReports([newReport, ...reports]);
+
+    try {
+      let response = await fetch('https://sns.teranago.synology.me/api/daily-reports', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          authorId: userState.id,
+          reportDate: reportData.date,
+          content: reportData.tasks || '日報',
+          tasks: reportData.tasks,
+          results: reportData.results,
+          issues: reportData.issues,
+          tomorrowPlan: reportData.tomorrowPlan,
+        })
+      });
+      if (!response.ok) {
+        response = await fetch('https://sns.teranago.synology.me/api/reports', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            authorId: userState.id,
+            reportDate: reportData.date,
+            tasks: reportData.tasks,
+            results: reportData.results,
+            issues: reportData.issues,
+            tomorrowPlan: reportData.tomorrowPlan,
+          })
+        });
+      }
+      if (response.ok) {
+        await refetchReports();
+      }
+    } catch (err) {
+      console.error('Failed to save report via API, keeping locally:', err);
+    }
   };
 
   return (
@@ -951,7 +1536,7 @@ export default function App() {
             currentUser={userState}
             offices={offices}
             divisions={divisions}
-            onUpdateRooms={setChatRooms}
+            onUpdateRooms={handleUpdateRooms}
           />
         )}
         {activeTab === 'memo' && (
@@ -961,11 +1546,15 @@ export default function App() {
             divisions={divisions}
             users={usersList}
             currentUser={userState}
-            onUpdateMemos={setMemos}
+            onUpdateMemos={handleUpdateMemos}
           />
         )}
         {activeTab === 'daily_report' && (
-          <DailyReportView reports={initialReports} />
+          <DailyReportView 
+            reports={reports} 
+            onAddReport={handleAddReport}
+            currentUser={userState}
+          />
         )}
         {activeTab === 'mypage' && (
           <MyPage 
@@ -980,7 +1569,7 @@ export default function App() {
             allUsers={usersList}
             onChangeTab={setActiveTab}
             onUpdateUser={handleUpdateUser}
-            onUpdateMemo={(updatedMemos) => setMemos(updatedMemos)}
+            onUpdateMemo={handleUpdateMemos}
             onUpdateTopic={handleUpdateTopic}
             onUpdateApplication={(updatedApp) => {
               setApplications(applications.map(a => a.id === updatedApp.id ? updatedApp : a));

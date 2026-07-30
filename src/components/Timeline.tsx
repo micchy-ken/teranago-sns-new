@@ -384,7 +384,7 @@ export function Timeline({
                       <span className="px-1.5 py-0.5 bg-emerald-500/20 text-emerald-400 font-bold rounded text-[10px]">GET</span>
                       <span className="font-semibold text-slate-200 text-xs">/api/posts (タイムライン)</span>
                     </div>
-                    <div className="text-[10px] text-slate-400">https://sns.teranago.synology.me/api/posts</div>
+                    <div className="text-[10px] text-slate-400">/api/posts</div>
                   </div>
                   <div className="flex items-center gap-3">
                     {renderTestResult(apiTestResults.posts)}
@@ -405,7 +405,7 @@ export function Timeline({
                       <span className="px-1.5 py-0.5 bg-emerald-500/20 text-emerald-400 font-bold rounded text-[10px]">GET</span>
                       <span className="font-semibold text-slate-200 text-xs">/api/ical-proxy (Google iCal)</span>
                     </div>
-                    <div className="text-[10px] text-slate-400">https://sns.teranago.synology.me/api/ical-proxy?url=...</div>
+                    <div className="text-[10px] text-slate-400">/api/ical-proxy?url=...</div>
                   </div>
                   <div className="flex items-center gap-3">
                     {renderTestResult(apiTestResults.ical)}
@@ -426,7 +426,7 @@ export function Timeline({
                       <span className="px-1.5 py-0.5 bg-emerald-500/20 text-emerald-400 font-bold rounded text-[10px]">GET</span>
                       <span className="font-semibold text-slate-200 text-xs">/api/nas-file (NASファイル参照)</span>
                     </div>
-                    <div className="text-[10px] text-slate-400">https://sns.teranago.synology.me/api/nas-file?path=...</div>
+                    <div className="text-[10px] text-slate-400">/api/nas-file?path=...</div>
                   </div>
                   <div className="flex items-center gap-3">
                     {renderTestResult(apiTestResults.nas)}
@@ -447,7 +447,7 @@ export function Timeline({
               <span className="font-bold text-slate-300 block mb-0.5">💡 疎通テストで失敗（FAIL）する場合の対策:</span>
               <ul className="list-disc pl-4 space-y-1 font-sans">
                 <li><strong>CORS設定の確認:</strong> NASのWebサーバー/API実装側で、<code className="text-indigo-400 bg-slate-900/60 px-1 py-0.5 rounded font-mono">Access-Control-Allow-Origin: *</code> またはプレビューサイトのドメイン（<code className="text-indigo-400 bg-slate-900/60 px-1 py-0.5 rounded font-mono">*.run.app</code>）を許可するヘッダーを出力するよう設定してください。</li>
-                <li><strong>SSL/HTTPS自己署名証明書:</strong> NASのHTTPS証明書が自己署名の場合、ブラウザが接続をブロックします。別タブで直接 <a href="https://sns.teranago.synology.me/api/posts" target="_blank" rel="noopener noreferrer" className="text-indigo-400 underline hover:text-indigo-300">https://sns.teranago.synology.me/api/posts</a> を開き、警告画面で「詳細設定」から「アクセスする」を選び、証明書を信頼した後に再度テストをお試しください。</li>
+                <li><strong>SSL/HTTPS自己署名証明書:</strong> NASのHTTPS証明書が自己署名の場合、ブラウザが接続をブロックします。別タブで直接 <a href="/api/posts" target="_blank" rel="noopener noreferrer" className="text-indigo-400 underline hover:text-indigo-300">/api/posts</a> を開き、警告画面で「詳細設定」から「アクセスする」を選び、証明書を信頼した後に再度テストをお試しください。</li>
                 <li><strong>ネットワーク疎通:</strong> Synology DDNS またはルーターのポートフォワーディング経由で、インターネットからポート `443` が正常にNAS（リバースプロキシ）へ到達できるか確認してください。</li>
               </ul>
             </div>

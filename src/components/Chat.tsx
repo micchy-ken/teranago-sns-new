@@ -121,13 +121,16 @@ export function Chat({
 
   // トークルーム名・アイコン取得
   const getRoomName = (room: ChatRoom) => {
+    if (!room) return 'トークルーム';
     if (room.name) return room.name;
-    const others = room.participants.filter((p) => p.id !== currentUser.id);
+    const participants = room.participants || [];
+    const others = participants.filter((p) => p && p.id !== currentUser.id);
     if (others.length === 0) return '自分とのメモ';
-    return others.map((o) => o.name).join(', ');
+    return others.map((o) => o.name || 'メンバー').join(', ');
   };
 
   const getRoomIcon = (room: ChatRoom) => {
+    if (!room) return null;
     if (room.type === 'group') {
       return (
         <div className="w-10 h-10 rounded-full bg-indigo-100 border border-indigo-200 flex items-center justify-center text-indigo-600 shrink-0">
@@ -135,11 +138,12 @@ export function Chat({
         </div>
       );
     }
-    const other = room.participants.find((p) => p.id !== currentUser.id) || room.participants[0];
+    const participants = room.participants || [];
+    const other = participants.find((p) => p && p.id !== currentUser.id) || participants[0];
     return other?.avatarUrl ? (
       <img
         src={other.avatarUrl}
-        alt={other.name}
+        alt={other.name || ''}
         className="w-10 h-10 rounded-full border border-slate-200 object-cover shrink-0"
       />
     ) : (
@@ -250,8 +254,8 @@ export function Chat({
       const existingDm = rooms.find(
         (r) =>
           r.type === 'dm' &&
-          r.participants.some((p) => p.id === selectedUsers[0].id) &&
-          r.participants.some((p) => p.id === currentUser.id)
+          (r.participants || []).some((p) => p.id === selectedUsers[0].id) &&
+          (r.participants || []).some((p) => p.id === currentUser.id)
       );
       if (existingDm) {
         setActiveRoomId(existingDm.id);
@@ -293,8 +297,9 @@ export function Chat({
     if (!activeRoom || selectedUserIds.length === 0) return;
 
     const addedUsers = users.filter((u) => selectedUserIds.includes(u.id));
-    const existingIds = new Set(activeRoom.participants.map((p) => p.id));
-    const newParticipants = [...activeRoom.participants];
+    const activeParticipants = activeRoom.participants || [];
+    const existingIds = new Set(activeParticipants.map((p) => p.id));
+    const newParticipants = [...activeParticipants];
 
     addedUsers.forEach((u) => {
       if (!existingIds.has(u.id)) {

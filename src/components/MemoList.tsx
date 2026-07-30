@@ -81,7 +81,8 @@ export function MemoList({
     let updated = false;
 
     // 自分の受領ステータスを既読(isViewed=true, viewedAt=now)にする
-    const updatedStatuses = memo.recipientStatuses.map((st) => {
+    const statuses = memo.recipientStatuses || [];
+    const updatedStatuses = statuses.map((st) => {
       if (st.userId === currentUser.id && !st.isViewed) {
         updated = true;
         return {
@@ -129,7 +130,8 @@ export function MemoList({
     const nextMemos = memos.map((m) => {
       if (m.id !== memoId) return m;
 
-      const nextRecipientStatuses = m.recipientStatuses.map((st) => {
+      const statuses = m.recipientStatuses || [];
+      const nextRecipientStatuses = statuses.map((st) => {
         if (st.userId === targetUserId) {
           const nextHandled = !st.isHandled;
           return {
@@ -299,7 +301,7 @@ export function MemoList({
     // 拠点フィルター
     if (selectedOfficeFilter !== 'all') {
       const matchOffice = m.targetOffices?.includes(selectedOfficeFilter);
-      const matchUserOffice = m.recipientStatuses.some((st) => st.office === selectedOfficeFilter);
+      const matchUserOffice = (m.recipientStatuses || []).some((st) => st.office === selectedOfficeFilter);
       if (!matchOffice && !matchUserOffice) return false;
     }
 
