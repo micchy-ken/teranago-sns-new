@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { apiFetch } from './config/api';
 import { Header } from './components/Header';
 import { Sidebar, AppTab } from './components/Sidebar';
 import { Timeline } from './components/Timeline';
@@ -133,7 +132,7 @@ export default function App() {
     };
     setItemMasters(prev => [...prev, newItem]);
     try {
-      await apiFetch('/api/masters/item-masters', {
+      await fetch('/api/masters/item-masters', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newItem)
@@ -145,7 +144,7 @@ export default function App() {
   const handleUpdateItemMaster = async (updatedItem: ItemMaster) => {
     setItemMasters(prev => prev.map(i => i.id === updatedItem.id ? updatedItem : i));
     try {
-      await apiFetch(`/api/masters/item-masters/${updatedItem.id}`, {
+      await fetch(`/api/masters/item-masters/${updatedItem.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatedItem)
@@ -157,14 +156,14 @@ export default function App() {
   const handleDeleteItemMaster = async (id: string) => {
     setItemMasters(prev => prev.filter(i => i.id !== id));
     try {
-      await apiFetch(`/api/masters/item-masters/${id}`, { method: 'DELETE' });
+      await fetch(`/api/masters/item-masters/${id}`, { method: 'DELETE' });
       await refetchMasters();
     } catch (e) { console.error('Failed to delete item master:', e); }
   };
 
   const refetchMasters = async () => {
     try {
-      const offRes = await apiFetch('/api/masters/offices');
+      const offRes = await fetch('/api/masters/offices');
       if (offRes.ok) {
         const data = await offRes.json();
         if (Array.isArray(data)) setOffices(data);
@@ -172,7 +171,7 @@ export default function App() {
     } catch (e) { console.warn('Failed to fetch offices:', e); }
 
     try {
-      const divRes = await apiFetch('/api/masters/divisions');
+      const divRes = await fetch('/api/masters/divisions');
       if (divRes.ok) {
         const data = await divRes.json();
         if (Array.isArray(data)) setDivisions(data);
@@ -180,7 +179,7 @@ export default function App() {
     } catch (e) { console.warn('Failed to fetch divisions:', e); }
 
     try {
-      const posRes = await apiFetch('/api/masters/positions');
+      const posRes = await fetch('/api/masters/positions');
       if (posRes.ok) {
         const data = await posRes.json();
         if (Array.isArray(data)) setPositions(data);
@@ -188,7 +187,7 @@ export default function App() {
     } catch (e) { console.warn('Failed to fetch positions:', e); }
 
     try {
-      const itemRes = await apiFetch('/api/masters/item-masters');
+      const itemRes = await fetch('/api/masters/item-masters');
       if (itemRes.ok) {
         const data = await itemRes.json();
         if (Array.isArray(data)) setItemMasters(data);
@@ -196,7 +195,7 @@ export default function App() {
     } catch (e) { console.warn('Failed to fetch item masters:', e); }
 
     try {
-      const flowRes = await apiFetch('/api/masters/approval-flows');
+      const flowRes = await fetch('/api/masters/approval-flows');
       if (flowRes.ok) {
         const data = await flowRes.json();
         if (Array.isArray(data)) setApprovalFlows(data);
@@ -212,7 +211,7 @@ export default function App() {
     setIsPostsLoading(true);
     setPostsError(null);
     try {
-      const response = await apiFetch('/api/posts', {
+      const response = await fetch('/api/posts', {
         headers: {
           'Accept': 'application/json'
         }
@@ -238,7 +237,7 @@ export default function App() {
 
   const refetchUsers = async () => {
     try {
-      const response = await apiFetch('/api/users', {
+      const response = await fetch('/api/users', {
         headers: {
           'Accept': 'application/json'
         }
@@ -279,7 +278,7 @@ export default function App() {
 
   const refetchEvents = async (currentUsers = usersList) => {
     try {
-      const response = await apiFetch('/api/events', {
+      const response = await fetch('/api/events', {
         headers: { 'Accept': 'application/json' }
       });
       if (response.ok) {
@@ -331,7 +330,7 @@ export default function App() {
 
   const refetchApplications = async (currentUsers = usersList) => {
     try {
-      const response = await apiFetch('/api/workflows', {
+      const response = await fetch('/api/workflows', {
         headers: { 'Accept': 'application/json' }
       });
       if (response.ok) {
@@ -385,7 +384,7 @@ export default function App() {
 
   const refetchTopics = async (currentUsers = usersList) => {
     try {
-      const response = await apiFetch('/api/bulletins', {
+      const response = await fetch('/api/bulletins', {
         headers: { 'Accept': 'application/json' }
       });
       if (response.ok) {
@@ -431,7 +430,7 @@ export default function App() {
 
   const refetchChatRooms = async (currentUsers = usersList) => {
     try {
-      const response = await apiFetch('/api/chats', {
+      const response = await fetch('/api/chats', {
         headers: { 'Accept': 'application/json' }
       });
       if (response.ok) {
@@ -455,7 +454,7 @@ export default function App() {
 
   const refetchMemos = async (currentUsers = usersList) => {
     try {
-      const response = await apiFetch('/api/memos', {
+      const response = await fetch('/api/memos', {
         headers: { 'Accept': 'application/json' }
       });
 
@@ -511,11 +510,11 @@ export default function App() {
 
   const refetchReports = async (currentUsers = usersList) => {
     try {
-      let response = await apiFetch('/api/daily-reports', {
+      let response = await fetch('/api/daily-reports', {
         headers: { 'Accept': 'application/json' }
       });
       if (!response.ok) {
-        response = await apiFetch('/api/reports', {
+        response = await fetch('/api/reports', {
           headers: { 'Accept': 'application/json' }
         });
       }
@@ -596,7 +595,7 @@ export default function App() {
     setTopics([newTopic, ...topics]);
 
     try {
-      const response = await apiFetch('/api/bulletins', {
+      const response = await fetch('/api/bulletins', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -626,7 +625,7 @@ export default function App() {
     setTopics(prev => prev.map(t => t.id === updatedTopic.id ? updatedTopic : t));
 
     try {
-      const response = await apiFetch(`/api/bulletins/${updatedTopic.id}`, {
+      const response = await fetch(`/api/bulletins/${updatedTopic.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -675,7 +674,7 @@ export default function App() {
 
     try {
       console.log('Attempting to create user via POST to /api/users...');
-      const response = await apiFetch('/api/users', {
+      const response = await fetch('/api/users', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -706,7 +705,7 @@ export default function App() {
     try {
       const urlWithId = `/api/users/${updatedUser.id}`;
       console.log(`Attempting update: PUT to ${urlWithId}...`);
-      let response = await apiFetch(urlWithId, {
+      let response = await fetch(urlWithId, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -718,7 +717,7 @@ export default function App() {
       if (!response.ok) {
         console.warn(`PUT /api/users/:id failed with status ${response.status}. Trying POST fallback...`);
         // Fallback 1: POST /api/users/:id
-        response = await apiFetch(urlWithId, {
+        response = await fetch(urlWithId, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -731,7 +730,7 @@ export default function App() {
       if (!response.ok) {
         console.warn(`POST /api/users/:id failed with status ${response.status}. Trying PUT to /api/users...`);
         // Fallback 2: PUT /api/users
-        response = await apiFetch('/api/users', {
+        response = await fetch('/api/users', {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
@@ -744,7 +743,7 @@ export default function App() {
       if (!response.ok) {
         console.warn(`PUT /api/users failed with status ${response.status}. Trying POST to /api/users...`);
         // Fallback 3: POST /api/users (many simple APIs accept POST here to insert or update)
-        response = await apiFetch('/api/users', {
+        response = await fetch('/api/users', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -773,7 +772,7 @@ export default function App() {
 
     try {
       console.log(`Attempting to delete user via DELETE on /api/users/${userId}...`);
-      let response = await apiFetch(`/api/users/${userId}`, {
+      let response = await fetch(`/api/users/${userId}`, {
         method: 'DELETE',
         headers: {
           'Accept': 'application/json',
@@ -811,7 +810,7 @@ export default function App() {
       try {
         console.log(`Attempting to toggle admin status for user ${userId}...`);
         const urlWithId = `/api/users/${userId}`;
-        let response = await apiFetch(urlWithId, {
+        let response = await fetch(urlWithId, {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
@@ -821,7 +820,7 @@ export default function App() {
         });
 
         if (!response.ok) {
-          response = await apiFetch('/api/users', {
+          response = await fetch('/api/users', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -851,7 +850,7 @@ export default function App() {
     };
     setOffices(prev => [...prev, newOffice]);
     try {
-      await apiFetch('/api/masters/offices', {
+      await fetch('/api/masters/offices', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newOffice)
@@ -863,7 +862,7 @@ export default function App() {
   const handleUpdateOffice = async (updatedOffice: OfficeMaster) => {
     setOffices(prev => prev.map((o) => (o.id === updatedOffice.id ? updatedOffice : o)));
     try {
-      await apiFetch(`/api/masters/offices/${updatedOffice.id}`, {
+      await fetch(`/api/masters/offices/${updatedOffice.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatedOffice)
@@ -875,7 +874,7 @@ export default function App() {
   const handleDeleteOffice = async (officeId: string) => {
     setOffices(prev => prev.filter((o) => o.id !== officeId));
     try {
-      await apiFetch(`/api/masters/offices/${officeId}`, { method: 'DELETE' });
+      await fetch(`/api/masters/offices/${officeId}`, { method: 'DELETE' });
       await refetchMasters();
     } catch (e) { console.error('Failed to delete office:', e); }
   };
@@ -888,7 +887,7 @@ export default function App() {
     };
     setDivisions(prev => [...prev, newDivision]);
     try {
-      await apiFetch('/api/masters/divisions', {
+      await fetch('/api/masters/divisions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newDivision)
@@ -900,7 +899,7 @@ export default function App() {
   const handleUpdateDivision = async (updatedDivision: DivisionMaster) => {
     setDivisions(prev => prev.map((d) => (d.id === updatedDivision.id ? updatedDivision : d)));
     try {
-      await apiFetch(`/api/masters/divisions/${updatedDivision.id}`, {
+      await fetch(`/api/masters/divisions/${updatedDivision.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatedDivision)
@@ -912,7 +911,7 @@ export default function App() {
   const handleDeleteDivision = async (divisionId: string) => {
     setDivisions(prev => prev.filter((d) => d.id !== divisionId));
     try {
-      await apiFetch(`/api/masters/divisions/${divisionId}`, { method: 'DELETE' });
+      await fetch(`/api/masters/divisions/${divisionId}`, { method: 'DELETE' });
       await refetchMasters();
     } catch (e) { console.error('Failed to delete division:', e); }
   };
@@ -925,7 +924,7 @@ export default function App() {
     };
     setPositions(prev => [...prev, newPosition]);
     try {
-      await apiFetch('/api/masters/positions', {
+      await fetch('/api/masters/positions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newPosition)
@@ -937,7 +936,7 @@ export default function App() {
   const handleUpdatePosition = async (updatedPosition: PositionMaster) => {
     setPositions(prev => prev.map((p) => (p.id === updatedPosition.id ? updatedPosition : p)));
     try {
-      await apiFetch(`/api/masters/positions/${updatedPosition.id}`, {
+      await fetch(`/api/masters/positions/${updatedPosition.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatedPosition)
@@ -949,7 +948,7 @@ export default function App() {
   const handleDeletePosition = async (positionId: string) => {
     setPositions(prev => prev.filter((p) => p.id !== positionId));
     try {
-      await apiFetch(`/api/masters/positions/${positionId}`, { method: 'DELETE' });
+      await fetch(`/api/masters/positions/${positionId}`, { method: 'DELETE' });
       await refetchMasters();
     } catch (e) { console.error('Failed to delete position:', e); }
   };
@@ -971,7 +970,7 @@ export default function App() {
     setPosts(prev => [newPost, ...prev]);
 
     try {
-      const response = await apiFetch('/api/posts', {
+      const response = await fetch('/api/posts', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1015,7 +1014,7 @@ export default function App() {
     }));
 
     try {
-      const response = await apiFetch(`/api/posts/${postId}/like`, {
+      const response = await fetch(`/api/posts/${postId}/like`, {
         method: 'POST',
         headers: {
           'Accept': 'application/json',
@@ -1048,7 +1047,7 @@ export default function App() {
     setPosts(prev => prev.filter(post => post.id !== postId));
 
     try {
-      const response = await apiFetch(`/api/posts/${postId}`, {
+      const response = await fetch(`/api/posts/${postId}`, {
         method: 'DELETE',
         headers: {
           'Accept': 'application/json',
@@ -1076,7 +1075,7 @@ export default function App() {
     setEvents([...events, newEvent]);
 
     try {
-      const response = await apiFetch('/api/events', {
+      const response = await fetch('/api/events', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1104,7 +1103,7 @@ export default function App() {
   const handleUpdateEvent = async (updatedEvent: CalendarEvent) => {
     setEvents(events.map(e => e.id === updatedEvent.id ? updatedEvent : e));
     try {
-      const response = await apiFetch(`/api/events/${updatedEvent.id}`, {
+      const response = await fetch(`/api/events/${updatedEvent.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1134,7 +1133,7 @@ export default function App() {
     if (!window.confirm('この予定を削除してもよろしいですか？')) return;
     setEvents(events.filter(e => e.id !== eventId));
     try {
-      const response = await apiFetch(`/api/events/${eventId}`, {
+      const response = await fetch(`/api/events/${eventId}`, {
         method: 'DELETE'
       });
       if (response.ok) {
@@ -1153,7 +1152,7 @@ export default function App() {
     };
     setApprovalFlows(prev => [...prev, newFlow]);
     try {
-      await apiFetch('/api/masters/approval-flows', {
+      await fetch('/api/masters/approval-flows', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newFlow)
@@ -1165,7 +1164,7 @@ export default function App() {
   const handleUpdateApprovalFlow = async (updatedFlow: ApprovalFlowRule) => {
     setApprovalFlows(prev => prev.map(f => f.id === updatedFlow.id ? updatedFlow : f));
     try {
-      await apiFetch(`/api/masters/approval-flows/${updatedFlow.id}`, {
+      await fetch(`/api/masters/approval-flows/${updatedFlow.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatedFlow)
@@ -1177,7 +1176,7 @@ export default function App() {
   const handleDeleteApprovalFlow = async (id: string) => {
     setApprovalFlows(prev => prev.filter(f => f.id !== id));
     try {
-      await apiFetch(`/api/masters/approval-flows/${id}`, { method: 'DELETE' });
+      await fetch(`/api/masters/approval-flows/${id}`, { method: 'DELETE' });
       await refetchMasters();
     } catch (e) { console.error('Failed to delete approval flow:', e); }
   };
@@ -1254,7 +1253,7 @@ export default function App() {
     setApplications([newApp, ...applications]);
 
     try {
-      const response = await apiFetch('/api/workflows', {
+      const response = await fetch('/api/workflows', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1365,7 +1364,7 @@ export default function App() {
 
     if (updatedAppObj && !id.startsWith('a-temp-')) {
       try {
-        await apiFetch(`/api/workflows/${id}`, {
+        await fetch(`/api/workflows/${id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1451,7 +1450,7 @@ export default function App() {
 
     if (finalAppObj && !updatedApp.id.startsWith('a-temp-')) {
       try {
-        await apiFetch(`/api/workflows/${updatedApp.id}`, {
+        await fetch(`/api/workflows/${updatedApp.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1492,7 +1491,7 @@ export default function App() {
     setApplications(prevApps => prevApps.filter(app => app.id !== applicationId));
 
     try {
-      await apiFetch(`/api/workflows/${applicationId}`, {
+      await fetch(`/api/workflows/${applicationId}`, {
         method: 'DELETE'
       });
       await refetchApplications();
@@ -1507,7 +1506,7 @@ export default function App() {
       const lastRoom = updatedRooms[0];
       if (lastRoom && lastRoom.messages && lastRoom.messages.length > 0) {
         const lastMsg = lastRoom.messages[lastRoom.messages.length - 1];
-        let response = await apiFetch('/api/chats', {
+        let response = await fetch('/api/chats', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1518,7 +1517,7 @@ export default function App() {
           })
         });
         if (!response.ok) {
-          await apiFetch('/api/chats/message', {
+          await fetch('/api/chats/message', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1548,7 +1547,7 @@ export default function App() {
       for (const memo of updatedMemos) {
         if (!existingIds.has(memo.id)) {
           // 新規メモ作成
-          await apiFetch('/api/memos', {
+          await fetch('/api/memos', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1574,7 +1573,7 @@ export default function App() {
           });
         } else {
           // 既存メモの更新（既読・対応フラグ等）
-          await apiFetch(`/api/memos/${memo.id}`, {
+          await fetch(`/api/memos/${memo.id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1616,7 +1615,7 @@ export default function App() {
     setReports([newReport, ...reports]);
 
     try {
-      let response = await apiFetch('/api/daily-reports', {
+      let response = await fetch('/api/daily-reports', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1630,7 +1629,7 @@ export default function App() {
         })
       });
       if (!response.ok) {
-        response = await apiFetch('/api/reports', {
+        response = await fetch('/api/reports', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

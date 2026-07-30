@@ -1,5 +1,4 @@
 import { CalendarEvent, User } from '../types';
-import { getApiUrl, apiFetch } from '../config/api';
 
 /**
  * Parses raw iCalendar (.ics) text into CalendarEvent array
@@ -151,8 +150,8 @@ export async function fetchIcalFeed(url: string, user?: User): Promise<CalendarE
 
   // Primary API proxy
   try {
-    const proxyUrl = getApiUrl(`/ical-proxy?url=${encodeURIComponent(normalizedUrl)}`);
-    const response = await apiFetch(proxyUrl);
+    const proxyUrl = `/api/ical-proxy?url=${encodeURIComponent(normalizedUrl)}`;
+    const response = await fetch(proxyUrl);
     if (response.ok) {
       const text = await response.text();
       return parseIcsText(text, user);
