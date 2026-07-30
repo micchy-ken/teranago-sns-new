@@ -472,9 +472,9 @@ function copy404Plugin(): Plugin {
   };
 }
 
-export default defineConfig(() => {
+export default defineConfig(({ mode }) => {
   return {
-    base: './',
+    base: mode === 'production' ? '/teranago-sns-new/' : '/',
     plugins: [react(), tailwindcss(), synologyProxyPlugin(), copy404Plugin()],
     resolve: {
       alias: {
