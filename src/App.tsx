@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { API_BASE_URL } from './config/api';
 import { Header } from './components/Header';
 import { Sidebar, AppTab } from './components/Sidebar';
 import { Timeline } from './components/Timeline';
@@ -74,25 +75,9 @@ const mapPostFromApi = (apiPost: any, allUsers: User[]): Post => {
 
 import { AlertCircle, RefreshCw } from 'lucide-react';
 import { ConfirmModal, ConfirmModalState } from './components/ConfirmModal';
-import {
-  initialOffices,
-  initialDivisions,
-  initialPositions,
-  initialApprovalFlows,
-  initialItemMasters,
-  allUsers as defaultAllUsers,
-  currentUser as defaultCurrentUser,
-  initialPosts,
-  initialEvents,
-  initialApplications,
-  initialTopics,
-  initialChatRooms,
-  initialMemos,
-  initialReports
-} from './data/mockData';
 
 export default function App() {
-  const [usersList, setUsersList] = useState<User[]>(defaultAllUsers);
+  const [usersList, setUsersList] = useState<User[]>([]);
   const [fetchErrors, setFetchErrors] = useState<Record<string, string>>({});
   const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
 
@@ -103,10 +88,9 @@ export default function App() {
   const [userState, setUserState] = useState<User>(() => {
     const savedUserId = localStorage.getItem('logged_in_user_id');
     if (savedUserId) {
-      const found = defaultAllUsers.find(u => u.id === savedUserId);
-      if (found) return found;
+      return { id: savedUserId, name: 'ユーザー情報取得中...', role: 'user', department: '' };
     }
-    return defaultCurrentUser;
+    return { id: 'u1', name: 'ユーザー', role: 'user', department: '' };
   });
 
   const handleLogin = (user: User) => {
@@ -123,11 +107,11 @@ export default function App() {
   };
 
   const [activeTab, setActiveTab] = useState<AppTab>('mypage');
-  const [offices, setOffices] = useState<OfficeMaster[]>(initialOffices);
-  const [divisions, setDivisions] = useState<DivisionMaster[]>(initialDivisions);
-  const [positions, setPositions] = useState<PositionMaster[]>(initialPositions);
-  const [approvalFlows, setApprovalFlows] = useState<ApprovalFlowRule[]>(initialApprovalFlows);
-  const [itemMasters, setItemMasters] = useState<ItemMaster[]>(initialItemMasters);
+  const [offices, setOffices] = useState<OfficeMaster[]>([]);
+  const [divisions, setDivisions] = useState<DivisionMaster[]>([]);
+  const [positions, setPositions] = useState<PositionMaster[]>([]);
+  const [approvalFlows, setApprovalFlows] = useState<ApprovalFlowRule[]>([]);
+  const [itemMasters, setItemMasters] = useState<ItemMaster[]>([]);
 
   // Item Master Handlers
   const handleAddItemMaster = async (item: Omit<ItemMaster, 'id'>) => {
@@ -137,7 +121,7 @@ export default function App() {
     };
     setItemMasters(prev => [...prev, newItem]);
     try {
-      await fetch('/api/masters/item-masters', {
+      await fetch(`${API_BASE_URL}/masters/item-masters`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newItem)
@@ -149,7 +133,7 @@ export default function App() {
   const handleUpdateItemMaster = async (updatedItem: ItemMaster) => {
     setItemMasters(prev => prev.map(i => i.id === updatedItem.id ? updatedItem : i));
     try {
-      await fetch(`/api/masters/item-masters/${updatedItem.id}`, {
+      await fetch(`${API_BASE_URL}/masters/item-masters/${updatedItem.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatedItem)
@@ -161,54 +145,64 @@ export default function App() {
   const handleDeleteItemMaster = async (id: string) => {
     setItemMasters(prev => prev.filter(i => i.id !== id));
     try {
-      await fetch(`/api/masters/item-masters/${id}`, { method: 'DELETE' });
+      await fetch(`${API_BASE_URL}/masters/item-masters/${id}`, { method: 'DELETE' });
       await refetchMasters();
     } catch (e) { console.error('Failed to delete item master:', e); }
   };
 
   const refetchMasters = async () => {
     try {
-      const offRes = await fetch('/api/masters/offices');
+      const offRes = await fetch(`${API_BASE_URL}/masters/offices`);
       if (offRes.ok) {
         const data = await offRes.json();
         if (Array.isArray(data)) setOffices(data);
+      } else {
+        setFetchErrors(prev => ({ ...prev, offices: `拠点マスタ取得エラー (HTTP ${offRes.status})` }));
       }
-    } catch (e: any) { console.warn('Offices fetch warning:', e); }
+    } catch (e: any) { setFetchErrors(prev => ({ ...prev, offices: '拠点マスタ接続エラー: ' + e.message })); }
 
     try {
-      const divRes = await fetch('/api/masters/divisions');
+      const divRes = await fetch(`${API_BASE_URL}/masters/divisions`);
       if (divRes.ok) {
         const data = await divRes.json();
         if (Array.isArray(data)) setDivisions(data);
+      } else {
+        setFetchErrors(prev => ({ ...prev, divisions: `部署マスタ取得エラー (HTTP ${divRes.status})` }));
       }
-    } catch (e: any) { console.warn('Divisions fetch warning:', e); }
+    } catch (e: any) { setFetchErrors(prev => ({ ...prev, divisions: '部署マスタ接続エラー: ' + e.message })); }
 
     try {
-      const posRes = await fetch('/api/masters/positions');
+      const posRes = await fetch(`${API_BASE_URL}/masters/positions`);
       if (posRes.ok) {
         const data = await posRes.json();
         if (Array.isArray(data)) setPositions(data);
+      } else {
+        setFetchErrors(prev => ({ ...prev, positions: `役職マスタ取得エラー (HTTP ${posRes.status})` }));
       }
-    } catch (e: any) { console.warn('Positions fetch warning:', e); }
+    } catch (e: any) { setFetchErrors(prev => ({ ...prev, positions: '役職マスタ接続エラー: ' + e.message })); }
 
     try {
-      const itemRes = await fetch('/api/masters/item-masters');
+      const itemRes = await fetch(`${API_BASE_URL}/masters/item-masters`);
       if (itemRes.ok) {
         const data = await itemRes.json();
         if (Array.isArray(data)) setItemMasters(data);
+      } else {
+        setFetchErrors(prev => ({ ...prev, items: `品目マスタ取得エラー (HTTP ${itemRes.status})` }));
       }
-    } catch (e: any) { console.warn('Item masters fetch warning:', e); }
+    } catch (e: any) { setFetchErrors(prev => ({ ...prev, items: '品目マスタ接続エラー: ' + e.message })); }
 
     try {
-      const flowRes = await fetch('/api/masters/approval-flows');
+      const flowRes = await fetch(`${API_BASE_URL}/masters/approval-flows`);
       if (flowRes.ok) {
         const data = await flowRes.json();
         if (Array.isArray(data)) setApprovalFlows(data);
+      } else {
+        setFetchErrors(prev => ({ ...prev, flows: `承認フロー取得エラー (HTTP ${flowRes.status})` }));
       }
-    } catch (e: any) { console.warn('Approval flows fetch warning:', e); }
+    } catch (e: any) { setFetchErrors(prev => ({ ...prev, flows: '承認フロー接続エラー: ' + e.message })); }
   };
   
-  const [posts, setPosts] = useState<Post[]>(initialPosts);
+  const [posts, setPosts] = useState<Post[]>([]);
   const [isPostsLoading, setIsPostsLoading] = useState(false);
   const [postsError, setPostsError] = useState<string | null>(null);
 
@@ -216,7 +210,7 @@ export default function App() {
     setIsPostsLoading(true);
     setPostsError(null);
     try {
-      const response = await fetch('/api/posts', {
+      const response = await fetch(`${API_BASE_URL}/posts`, {
         headers: {
           'Accept': 'application/json'
         }
@@ -229,9 +223,13 @@ export default function App() {
         const mapped = data.map(p => mapPostFromApi(p, currentUsers));
         setPosts(mapped);
         setPostsError(null);
+      } else {
+        throw new Error('Received posts data is not an array');
       }
     } catch (err: any) {
-      console.warn('Failed to load posts from API, using local mock data:', err);
+      console.warn('Failed to load posts from API:', err);
+      setPostsError(err?.message || 'Failed to sync with API. Check connectivity.');
+      setFetchErrors(prev => ({ ...prev, posts: `タイムライン取得エラー: ${err?.message || '接続エラー'}` }));
     } finally {
       setIsPostsLoading(false);
     }
@@ -239,7 +237,7 @@ export default function App() {
 
   const refetchUsers = async () => {
     try {
-      const response = await fetch('/api/users', {
+      const response = await fetch(`${API_BASE_URL}/users`, {
         headers: {
           'Accept': 'application/json'
         }
@@ -264,23 +262,24 @@ export default function App() {
         return processedUsers;
       }
     } catch (err: any) {
-      console.warn('Failed to load users from API, using local mock data:', err);
+      console.warn('Failed to load users from API:', err);
+      setFetchErrors(prev => ({ ...prev, users: `ユーザー一覧取得エラー: ${err?.message || '接続エラー'}` }));
     }
     return usersList;
   };
 
-  const [events, setEvents] = useState<CalendarEvent[]>(initialEvents);
-  const [applications, setApplications] = useState<WorkflowApplication[]>(initialApplications);
-  const [topics, setTopics] = useState<BoardTopic[]>(initialTopics);
-  const [chatRooms, setChatRooms] = useState<ChatRoom[]>(initialChatRooms);
-  const [memos, setMemos] = useState<Memo[]>(initialMemos);
-  const [reports, setReports] = useState<DailyReport[]>(initialReports);
+  const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [applications, setApplications] = useState<WorkflowApplication[]>([]);
+  const [topics, setTopics] = useState<BoardTopic[]>([]);
+  const [chatRooms, setChatRooms] = useState<ChatRoom[]>([]);
+  const [memos, setMemos] = useState<Memo[]>([]);
+  const [reports, setReports] = useState<DailyReport[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
 
   const refetchEvents = async (currentUsers = usersList) => {
     try {
-      const response = await fetch('/api/events', {
+      const response = await fetch(`${API_BASE_URL}/events`, {
         headers: { 'Accept': 'application/json' }
       });
       if (!response.ok) {
@@ -327,13 +326,14 @@ export default function App() {
         setEvents(mapped);
       }
     } catch (err: any) {
-      console.warn('Failed to load events from API, using local mock data:', err);
+      console.warn('Failed to load events from API:', err);
+      setFetchErrors(prev => ({ ...prev, events: `カレンダー予定取得エラー: ${err?.message || '接続エラー'}` }));
     }
   };
 
   const refetchApplications = async (currentUsers = usersList) => {
     try {
-      const response = await fetch('/api/workflows', {
+      const response = await fetch(`${API_BASE_URL}/workflows`, {
         headers: { 'Accept': 'application/json' }
       });
       if (!response.ok) {
@@ -380,13 +380,14 @@ export default function App() {
         setApplications(mapped);
       }
     } catch (err: any) {
-      console.warn('Failed to load workflows from API, using local mock data:', err);
+      console.warn('Failed to load workflows from API:', err);
+      setFetchErrors(prev => ({ ...prev, workflows: `ワークフロー取得エラー: ${err?.message || '接続エラー'}` }));
     }
   };
 
   const refetchTopics = async (currentUsers = usersList) => {
     try {
-      const response = await fetch('/api/bulletins', {
+      const response = await fetch(`${API_BASE_URL}/bulletins`, {
         headers: { 'Accept': 'application/json' }
       });
       if (!response.ok) {
@@ -426,13 +427,14 @@ export default function App() {
         setTopics(mapped);
       }
     } catch (err: any) {
-      console.warn('Failed to load bulletins from API, using local mock data:', err);
+      console.warn('Failed to load bulletins from API:', err);
+      setFetchErrors(prev => ({ ...prev, bulletins: `掲示板取得エラー: ${err?.message || '接続エラー'}` }));
     }
   };
 
   const refetchChatRooms = async (currentUsers = usersList) => {
     try {
-      const response = await fetch('/api/chats', {
+      const response = await fetch(`${API_BASE_URL}/chats`, {
         headers: { 'Accept': 'application/json' }
       });
       if (!response.ok) {
@@ -451,13 +453,14 @@ export default function App() {
         setChatRooms(mapped);
       }
     } catch (err: any) {
-      console.warn('Failed to load chat rooms from API, using local mock data:', err);
+      console.warn('Failed to load chat rooms from API:', err);
+      setFetchErrors(prev => ({ ...prev, chats: `チャット取得エラー: ${err?.message || '接続エラー'}` }));
     }
   };
 
   const refetchMemos = async (currentUsers = usersList) => {
     try {
-      const response = await fetch('/api/memos', {
+      const response = await fetch(`${API_BASE_URL}/memos`, {
         headers: { 'Accept': 'application/json' }
       });
 
@@ -508,17 +511,18 @@ export default function App() {
         setMemos(mapped);
       }
     } catch (err: any) {
-      console.warn('Failed to load memos from API, using local mock data:', err);
+      console.warn('Failed to load memos from API:', err);
+      setFetchErrors(prev => ({ ...prev, memos: `伝言メモ取得エラー: ${err?.message || '接続エラー'}` }));
     }
   };
 
   const refetchReports = async (currentUsers = usersList) => {
     try {
-      let response = await fetch('/api/daily-reports', {
+      let response = await fetch(`${API_BASE_URL}/daily-reports`, {
         headers: { 'Accept': 'application/json' }
       });
       if (!response.ok) {
-        response = await fetch('/api/reports', {
+        response = await fetch(`${API_BASE_URL}/reports`, {
           headers: { 'Accept': 'application/json' }
         });
       }
@@ -560,7 +564,8 @@ export default function App() {
         setReports(mapped);
       }
     } catch (err: any) {
-      console.warn('Failed to load reports from API, using local mock data:', err);
+      console.warn('Failed to load reports from API:', err);
+      setFetchErrors(prev => ({ ...prev, reports: `日報取得エラー: ${err?.message || '接続エラー'}` }));
     }
   };
 
@@ -600,7 +605,7 @@ export default function App() {
     setTopics([newTopic, ...topics]);
 
     try {
-      const response = await fetch('/api/bulletins', {
+      const response = await fetch(`${API_BASE_URL}/bulletins`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -630,7 +635,7 @@ export default function App() {
     setTopics(prev => prev.map(t => t.id === updatedTopic.id ? updatedTopic : t));
 
     try {
-      const response = await fetch(`/api/bulletins/${updatedTopic.id}`, {
+      const response = await fetch(`${API_BASE_URL}/bulletins/${updatedTopic.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -679,7 +684,7 @@ export default function App() {
 
     try {
       console.log('Attempting to create user via POST to /api/users...');
-      const response = await fetch('/api/users', {
+      const response = await fetch(`${API_BASE_URL}/users`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -708,7 +713,7 @@ export default function App() {
     }
 
     try {
-      const urlWithId = `/api/users/${updatedUser.id}`;
+      const urlWithId = `${API_BASE_URL}/users/${updatedUser.id}`;
       console.log(`Attempting update: PUT to ${urlWithId}...`);
       let response = await fetch(urlWithId, {
         method: 'PUT',
@@ -735,7 +740,7 @@ export default function App() {
       if (!response.ok) {
         console.warn(`POST /api/users/:id failed with status ${response.status}. Trying PUT to /api/users...`);
         // Fallback 2: PUT /api/users
-        response = await fetch('/api/users', {
+        response = await fetch(`${API_BASE_URL}/users`, {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
@@ -748,7 +753,7 @@ export default function App() {
       if (!response.ok) {
         console.warn(`PUT /api/users failed with status ${response.status}. Trying POST to /api/users...`);
         // Fallback 3: POST /api/users (many simple APIs accept POST here to insert or update)
-        response = await fetch('/api/users', {
+        response = await fetch(`${API_BASE_URL}/users`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -783,7 +788,7 @@ export default function App() {
 
         try {
           console.log(`Attempting to delete user via DELETE on /api/users/${userId}...`);
-          let response = await fetch(`/api/users/${userId}`, {
+          let response = await fetch(`${API_BASE_URL}/users/${userId}`, {
             method: 'DELETE',
             headers: {
               'Accept': 'application/json',
@@ -822,7 +827,7 @@ export default function App() {
     if (targetUser) {
       try {
         console.log(`Attempting to toggle admin status for user ${userId}...`);
-        const urlWithId = `/api/users/${userId}`;
+        const urlWithId = `${API_BASE_URL}/users/${userId}`;
         let response = await fetch(urlWithId, {
           method: 'PUT',
           headers: {
@@ -833,7 +838,7 @@ export default function App() {
         });
 
         if (!response.ok) {
-          response = await fetch('/api/users', {
+          response = await fetch(`${API_BASE_URL}/users`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -863,7 +868,7 @@ export default function App() {
     };
     setOffices(prev => [...prev, newOffice]);
     try {
-      await fetch('/api/masters/offices', {
+      await fetch(`${API_BASE_URL}/masters/offices`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newOffice)
@@ -875,7 +880,7 @@ export default function App() {
   const handleUpdateOffice = async (updatedOffice: OfficeMaster) => {
     setOffices(prev => prev.map((o) => (o.id === updatedOffice.id ? updatedOffice : o)));
     try {
-      await fetch(`/api/masters/offices/${updatedOffice.id}`, {
+      await fetch(`${API_BASE_URL}/masters/offices/${updatedOffice.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatedOffice)
@@ -887,7 +892,7 @@ export default function App() {
   const handleDeleteOffice = async (officeId: string) => {
     setOffices(prev => prev.filter((o) => o.id !== officeId));
     try {
-      await fetch(`/api/masters/offices/${officeId}`, { method: 'DELETE' });
+      await fetch(`${API_BASE_URL}/masters/offices/${officeId}`, { method: 'DELETE' });
       await refetchMasters();
     } catch (e) { console.error('Failed to delete office:', e); }
   };
@@ -900,7 +905,7 @@ export default function App() {
     };
     setDivisions(prev => [...prev, newDivision]);
     try {
-      await fetch('/api/masters/divisions', {
+      await fetch(`${API_BASE_URL}/masters/divisions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newDivision)
@@ -912,7 +917,7 @@ export default function App() {
   const handleUpdateDivision = async (updatedDivision: DivisionMaster) => {
     setDivisions(prev => prev.map((d) => (d.id === updatedDivision.id ? updatedDivision : d)));
     try {
-      await fetch(`/api/masters/divisions/${updatedDivision.id}`, {
+      await fetch(`${API_BASE_URL}/masters/divisions/${updatedDivision.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatedDivision)
@@ -924,7 +929,7 @@ export default function App() {
   const handleDeleteDivision = async (divisionId: string) => {
     setDivisions(prev => prev.filter((d) => d.id !== divisionId));
     try {
-      await fetch(`/api/masters/divisions/${divisionId}`, { method: 'DELETE' });
+      await fetch(`${API_BASE_URL}/masters/divisions/${divisionId}`, { method: 'DELETE' });
       await refetchMasters();
     } catch (e) { console.error('Failed to delete division:', e); }
   };
@@ -937,7 +942,7 @@ export default function App() {
     };
     setPositions(prev => [...prev, newPosition]);
     try {
-      await fetch('/api/masters/positions', {
+      await fetch(`${API_BASE_URL}/masters/positions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newPosition)
@@ -949,7 +954,7 @@ export default function App() {
   const handleUpdatePosition = async (updatedPosition: PositionMaster) => {
     setPositions(prev => prev.map((p) => (p.id === updatedPosition.id ? updatedPosition : p)));
     try {
-      await fetch(`/api/masters/positions/${updatedPosition.id}`, {
+      await fetch(`${API_BASE_URL}/masters/positions/${updatedPosition.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatedPosition)
@@ -961,7 +966,7 @@ export default function App() {
   const handleDeletePosition = async (positionId: string) => {
     setPositions(prev => prev.filter((p) => p.id !== positionId));
     try {
-      await fetch(`/api/masters/positions/${positionId}`, { method: 'DELETE' });
+      await fetch(`${API_BASE_URL}/masters/positions/${positionId}`, { method: 'DELETE' });
       await refetchMasters();
     } catch (e) { console.error('Failed to delete position:', e); }
   };
@@ -983,7 +988,7 @@ export default function App() {
     setPosts(prev => [newPost, ...prev]);
 
     try {
-      const response = await fetch('/api/posts', {
+      const response = await fetch(`${API_BASE_URL}/posts`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1027,7 +1032,7 @@ export default function App() {
     }));
 
     try {
-      const response = await fetch(`/api/posts/${postId}/like`, {
+      const response = await fetch(`${API_BASE_URL}/posts/${postId}/like`, {
         method: 'POST',
         headers: {
           'Accept': 'application/json',
@@ -1066,7 +1071,7 @@ export default function App() {
         setPosts(prev => prev.filter(post => post.id !== postId));
 
         try {
-          const response = await fetch(`/api/posts/${postId}`, {
+          const response = await fetch(`${API_BASE_URL}/posts/${postId}`, {
             method: 'DELETE',
             headers: {
               'Accept': 'application/json',
@@ -1096,7 +1101,7 @@ export default function App() {
     setEvents([...events, newEvent]);
 
     try {
-      const response = await fetch('/api/events', {
+      const response = await fetch(`${API_BASE_URL}/events`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1124,7 +1129,7 @@ export default function App() {
   const handleUpdateEvent = async (updatedEvent: CalendarEvent) => {
     setEvents(events.map(e => e.id === updatedEvent.id ? updatedEvent : e));
     try {
-      const response = await fetch(`/api/events/${updatedEvent.id}`, {
+      const response = await fetch(`${API_BASE_URL}/events/${updatedEvent.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1161,7 +1166,7 @@ export default function App() {
       onConfirm: async () => {
         setEvents(events.filter(e => e.id !== eventId));
         try {
-          const response = await fetch(`/api/events/${eventId}`, {
+          const response = await fetch(`${API_BASE_URL}/events/${eventId}`, {
             method: 'DELETE'
           });
           if (response.ok) {
@@ -1182,7 +1187,7 @@ export default function App() {
     };
     setApprovalFlows(prev => [...prev, newFlow]);
     try {
-      await fetch('/api/masters/approval-flows', {
+      await fetch(`${API_BASE_URL}/masters/approval-flows`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newFlow)
@@ -1194,7 +1199,7 @@ export default function App() {
   const handleUpdateApprovalFlow = async (updatedFlow: ApprovalFlowRule) => {
     setApprovalFlows(prev => prev.map(f => f.id === updatedFlow.id ? updatedFlow : f));
     try {
-      await fetch(`/api/masters/approval-flows/${updatedFlow.id}`, {
+      await fetch(`${API_BASE_URL}/masters/approval-flows/${updatedFlow.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatedFlow)
@@ -1206,7 +1211,7 @@ export default function App() {
   const handleDeleteApprovalFlow = async (id: string) => {
     setApprovalFlows(prev => prev.filter(f => f.id !== id));
     try {
-      await fetch(`/api/masters/approval-flows/${id}`, { method: 'DELETE' });
+      await fetch(`${API_BASE_URL}/masters/approval-flows/${id}`, { method: 'DELETE' });
       await refetchMasters();
     } catch (e) { console.error('Failed to delete approval flow:', e); }
   };
@@ -1283,7 +1288,7 @@ export default function App() {
     setApplications([newApp, ...applications]);
 
     try {
-      const response = await fetch('/api/workflows', {
+      const response = await fetch(`${API_BASE_URL}/workflows`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1394,7 +1399,7 @@ export default function App() {
 
     if (updatedAppObj && !id.startsWith('a-temp-')) {
       try {
-        await fetch(`/api/workflows/${id}`, {
+        await fetch(`${API_BASE_URL}/workflows/${id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1480,7 +1485,7 @@ export default function App() {
 
     if (finalAppObj && !updatedApp.id.startsWith('a-temp-')) {
       try {
-        await fetch(`/api/workflows/${updatedApp.id}`, {
+        await fetch(`${API_BASE_URL}/workflows/${updatedApp.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1528,7 +1533,7 @@ export default function App() {
         setApplications(prevApps => prevApps.filter(app => app.id !== applicationId));
 
         try {
-          await fetch(`/api/workflows/${applicationId}`, {
+          await fetch(`${API_BASE_URL}/workflows/${applicationId}`, {
             method: 'DELETE'
           });
           await refetchApplications();
@@ -1545,7 +1550,7 @@ export default function App() {
       const lastRoom = updatedRooms[0];
       if (lastRoom && lastRoom.messages && lastRoom.messages.length > 0) {
         const lastMsg = lastRoom.messages[lastRoom.messages.length - 1];
-        let response = await fetch('/api/chats', {
+        let response = await fetch(`${API_BASE_URL}/chats`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1556,7 +1561,7 @@ export default function App() {
           })
         });
         if (!response.ok) {
-          await fetch('/api/chats/message', {
+          await fetch(`${API_BASE_URL}/chats/message`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1586,7 +1591,7 @@ export default function App() {
       for (const memo of updatedMemos) {
         if (!existingIds.has(memo.id)) {
           // 新規メモ作成
-          await fetch('/api/memos', {
+          await fetch(`${API_BASE_URL}/memos`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1612,7 +1617,7 @@ export default function App() {
           });
         } else {
           // 既存メモの更新（既読・対応フラグ等）
-          await fetch(`/api/memos/${memo.id}`, {
+          await fetch(`${API_BASE_URL}/memos/${memo.id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1654,7 +1659,7 @@ export default function App() {
     setReports([newReport, ...reports]);
 
     try {
-      let response = await fetch('/api/daily-reports', {
+      let response = await fetch(`${API_BASE_URL}/daily-reports`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1668,7 +1673,7 @@ export default function App() {
         })
       });
       if (!response.ok) {
-        response = await fetch('/api/reports', {
+        response = await fetch(`${API_BASE_URL}/reports`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
