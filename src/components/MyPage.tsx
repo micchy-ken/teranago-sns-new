@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { User, CalendarEvent, BoardTopic, Memo, WorkflowApplication, OfficeMaster, DivisionMaster, PositionMaster } from '../types';
 import { AppTab } from './Sidebar';
+import { getAvatarUrl, SILHOUETTE_SVG } from '../utils/avatar';
+import { API_BASE_URL } from '../config/api';
 import { 
   User as UserIcon, 
   Calendar as CalendarIcon, 
@@ -25,7 +27,10 @@ import {
   Settings,
   Copy,
   RefreshCw,
-  Edit2
+  Edit2,
+  Camera,
+  Upload,
+  Trash2
 } from 'lucide-react';
 import { TopicDetailModal } from './TopicDetailModal';
 
@@ -72,6 +77,53 @@ export function MyPage({
   const [selectedTopic, setSelectedTopic] = useState<BoardTopic | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
+  // アバターアップロード状態
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
+
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 2 * 1024 * 1024) {
+      setAvatarError('画像サイズは2MB以下にしてください。');
+      return;
+    }
+
+    setAvatarUploading(true);
+    setAvatarError(null);
+
+    const formData = new FormData();
+    formData.append('avatar', file);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/upload-avatar`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.avatarUrl) {
+          setSettingsForm(prev => ({ ...prev, avatarUrl: data.avatarUrl }));
+        }
+      } else {
+        const errData = await response.json().catch(() => ({}));
+        setAvatarError(errData.error || 'アップロードに失敗しました。');
+      }
+    } catch (error: any) {
+      setAvatarError('通信エラー: ' + error.message);
+    } finally {
+      setAvatarUploading(false);
+    }
+  };
+
+  const handleRemoveAvatar = () => {
+    setSettingsForm(prev => ({ ...prev, avatarUrl: '' }));
+    setAvatarError(null);
+  };
 
   // 設定フォーム状態
   const [settingsForm, setSettingsForm] = useState<User>(user);
@@ -833,6 +885,60 @@ export function MyPage({
                   <UserIcon className="w-4 h-4 text-indigo-600" />
                   基本プロフィール情報
                 </h3>
+
+                {/* 顔写真（アバター）アップロード */}
+                <div className="flex flex-col sm:flex-row items-center gap-4 p-4 bg-slate-50 rounded-xl border border-slate-200/80">
+                  <div className="relative shrink-0">
+                    <img
+                      src={getAvatarUrl(settingsForm.avatarUrl)}
+                      alt="アバタープレビュー"
+                      className="w-20 h-20 rounded-full border border-slate-200 shadow-xs object-cover bg-slate-100"
+                    />
+                    {avatarUploading && (
+                      <div className="absolute inset-0 bg-slate-900/60 rounded-full flex items-center justify-center">
+                        <RefreshCw className="w-5 h-5 text-white animate-spin" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="space-y-1.5 text-center sm:text-left flex-1">
+                    <span className="block text-xs font-bold text-slate-700">マイ顔写真 (アバター)</span>
+                    <span className="block text-[10px] text-slate-400">推奨サイズ: 正方形、2MB以下のJPG/PNG</span>
+                    
+                    <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 pt-1">
+                      <input
+                        type="file"
+                        ref={fileInputRef}
+                        onChange={handleAvatarChange}
+                        accept="image/*"
+                        className="hidden"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={avatarUploading}
+                        className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-xs shrink-0"
+                      >
+                        <Upload className="w-3.5 h-3.5" />
+                        写真をアップロード
+                      </button>
+                      
+                      {settingsForm.avatarUrl && settingsForm.avatarUrl !== SILHOUETTE_SVG && !settingsForm.avatarUrl.includes('data:image/svg+xml') && (
+                        <button
+                          type="button"
+                          onClick={handleRemoveAvatar}
+                          disabled={avatarUploading}
+                          className="px-3 py-1.5 bg-white border border-rose-200 hover:bg-rose-50 text-rose-600 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          削除してシルエットに戻す
+                        </button>
+                      )}
+                    </div>
+                    {avatarError && (
+                      <span className="block text-[10px] text-rose-500 font-semibold">{avatarError}</span>
+                    )}
+                  </div>
+                </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { API_BASE_URL } from './config/api';
+import { getAvatarUrl } from './utils/avatar';
 import { Header } from './components/Header';
 import { Sidebar, AppTab } from './components/Sidebar';
 import { Timeline } from './components/Timeline';
@@ -27,7 +28,7 @@ const mapUserFromApi = (apiUser: any): User => {
     ...apiUser,
     id: String(apiUser.id),
     name: apiUser.name || '名前未設定',
-    avatarUrl: apiUser.avatarUrl || `https://i.pravatar.cc/150?u=${apiUser.id}`,
+    avatarUrl: getAvatarUrl(apiUser.avatarUrl),
     department,
     office,
     division,
@@ -52,7 +53,7 @@ const mapPostFromApi = (apiPost: any, allUsers: User[]): Post => {
       id: apiPost.authorId || (apiPost.author && apiPost.author.id) || 'unknown',
       name: (apiPost.author && apiPost.author.name) || '匿名',
       department: (apiPost.author && apiPost.author.department) || '未設定',
-      avatarUrl: (apiPost.author && apiPost.author.avatarUrl) || 'https://i.pravatar.cc/150',
+      avatarUrl: '',
     };
   }
 
@@ -61,7 +62,7 @@ const mapPostFromApi = (apiPost: any, allUsers: User[]): Post => {
     author: {
       ...authorUser,
       id: String(authorUser.id),
-      avatarUrl: authorUser.avatarUrl || 'https://i.pravatar.cc/150',
+      avatarUrl: getAvatarUrl(authorUser.avatarUrl),
       department: authorUser.department || '未設定',
     },
     content: apiPost.content || '',
@@ -151,13 +152,32 @@ export default function App() {
   };
 
   const refetchMasters = async () => {
+    const parseError = async (res: Response, label: string) => {
+      let msg = `${label}取得エラー (HTTP ${res.status})`;
+      try {
+        const clone = res.clone();
+        const errData = await clone.json();
+        if (errData && errData.error) {
+          return `${msg}: ${errData.error}${errData.details ? ' (' + errData.details + ')' : ''}`;
+        }
+      } catch (_) {}
+      try {
+        const errText = await res.text();
+        if (errText) {
+          return `${msg}: ${errText.slice(0, 150)}`;
+        }
+      } catch (_) {}
+      return msg;
+    };
+
     try {
       const offRes = await fetch(`${API_BASE_URL}/masters/offices`);
       if (offRes.ok) {
         const data = await offRes.json();
         if (Array.isArray(data)) setOffices(data);
       } else {
-        setFetchErrors(prev => ({ ...prev, offices: `拠点マスタ取得エラー (HTTP ${offRes.status})` }));
+        const errMsg = await parseError(offRes, '拠点マスタ');
+        setFetchErrors(prev => ({ ...prev, offices: errMsg }));
       }
     } catch (e: any) { setFetchErrors(prev => ({ ...prev, offices: '拠点マスタ接続エラー: ' + e.message })); }
 
@@ -167,7 +187,8 @@ export default function App() {
         const data = await divRes.json();
         if (Array.isArray(data)) setDivisions(data);
       } else {
-        setFetchErrors(prev => ({ ...prev, divisions: `部署マスタ取得エラー (HTTP ${divRes.status})` }));
+        const errMsg = await parseError(divRes, '部署マスタ');
+        setFetchErrors(prev => ({ ...prev, divisions: errMsg }));
       }
     } catch (e: any) { setFetchErrors(prev => ({ ...prev, divisions: '部署マスタ接続エラー: ' + e.message })); }
 
@@ -177,7 +198,8 @@ export default function App() {
         const data = await posRes.json();
         if (Array.isArray(data)) setPositions(data);
       } else {
-        setFetchErrors(prev => ({ ...prev, positions: `役職マスタ取得エラー (HTTP ${posRes.status})` }));
+        const errMsg = await parseError(posRes, '役職マスタ');
+        setFetchErrors(prev => ({ ...prev, positions: errMsg }));
       }
     } catch (e: any) { setFetchErrors(prev => ({ ...prev, positions: '役職マスタ接続エラー: ' + e.message })); }
 
@@ -187,7 +209,8 @@ export default function App() {
         const data = await itemRes.json();
         if (Array.isArray(data)) setItemMasters(data);
       } else {
-        setFetchErrors(prev => ({ ...prev, items: `品目マスタ取得エラー (HTTP ${itemRes.status})` }));
+        const errMsg = await parseError(itemRes, '品目マスタ');
+        setFetchErrors(prev => ({ ...prev, items: errMsg }));
       }
     } catch (e: any) { setFetchErrors(prev => ({ ...prev, items: '品目マスタ接続エラー: ' + e.message })); }
 
@@ -197,7 +220,8 @@ export default function App() {
         const data = await flowRes.json();
         if (Array.isArray(data)) setApprovalFlows(data);
       } else {
-        setFetchErrors(prev => ({ ...prev, flows: `承認フロー取得エラー (HTTP ${flowRes.status})` }));
+        const errMsg = await parseError(flowRes, '承認フロー');
+        setFetchErrors(prev => ({ ...prev, flows: errMsg }));
       }
     } catch (e: any) { setFetchErrors(prev => ({ ...prev, flows: '承認フロー接続エラー: ' + e.message })); }
   };

@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
+import { getAvatarUrl, SILHOUETTE_SVG } from '../utils/avatar';
+import { API_BASE_URL } from '../config/api';
 import { 
   Shield, 
   Building2, 
@@ -29,7 +31,9 @@ import {
   FileCheck,
   CheckSquare,
   ShoppingBag,
-  Package
+  Package,
+  Upload,
+  RefreshCw
 } from 'lucide-react';
 import { User, OfficeMaster, DivisionMaster, PositionMaster, OfficeType, ApprovalFlowRule, ApprovalStepConfig, ApplicationType, ApproverType, ItemMaster } from '../types';
 
@@ -142,6 +146,53 @@ export function AdminPanel({
 
   // Modal State for Member (User) Add / Edit
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
+
+  // アバターアップロード状態
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
+
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 2 * 1024 * 1024) {
+      setAvatarError('画像サイズは2MB以下にしてください。');
+      return;
+    }
+
+    setAvatarUploading(true);
+    setAvatarError(null);
+
+    const formData = new FormData();
+    formData.append('avatar', file);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/upload-avatar`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.avatarUrl) {
+          setUserFormData(prev => ({ ...prev, avatarUrl: data.avatarUrl }));
+        }
+      } else {
+        const errData = await response.json().catch(() => ({}));
+        setAvatarError(errData.error || 'アップロードに失敗しました。');
+      }
+    } catch (error: any) {
+      setAvatarError('通信エラー: ' + error.message);
+    } finally {
+      setAvatarUploading(false);
+    }
+  };
+
+  const handleRemoveAvatar = () => {
+    setUserFormData(prev => ({ ...prev, avatarUrl: '' }));
+    setAvatarError(null);
+  };
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [userFormData, setUserFormData] = useState({
     name: '',
@@ -151,6 +202,7 @@ export function AdminPanel({
     office: offices[0]?.name || '名古屋',
     division: divisions[0]?.name || '総務',
     position: positions[0]?.name || '課長補佐',
+    avatarUrl: '',
     email: '',
     mobileEmail: '',
     phoneOutside: '',
@@ -250,6 +302,7 @@ export function AdminPanel({
       office: offices[0]?.name || '名古屋',
       division: divisions[0]?.name || '総務',
       position: positions[0]?.name || '課長補佐',
+      avatarUrl: '',
       email: '',
       mobileEmail: '',
       phoneOutside: '',
@@ -272,6 +325,7 @@ export function AdminPanel({
       office: user.office || offices[0]?.name || '名古屋',
       division: user.division || divisions[0]?.name || '総務',
       position: user.position || positions[0]?.name || '課長補佐',
+      avatarUrl: user.avatarUrl || '',
       email: user.email || '',
       mobileEmail: user.mobileEmail || '',
       phoneOutside: user.phoneOutside || '',
@@ -305,6 +359,7 @@ export function AdminPanel({
         division: userFormData.division,
         position: userFormData.position,
         department: deptString,
+        avatarUrl: userFormData.avatarUrl,
         email: (userFormData.email || '').trim(),
         mobileEmail: (userFormData.mobileEmail || '').trim(),
         phoneOutside: (userFormData.phoneOutside || '').trim(),
@@ -316,7 +371,6 @@ export function AdminPanel({
         supervisorId: userFormData.supervisorId || undefined,
       });
     } else {
-      const newId = `u-${Date.now()}`;
       onAddUser({
         name: (userFormData.name || '').trim(),
         kanaName: (userFormData.kanaName || '').trim(),
@@ -326,7 +380,7 @@ export function AdminPanel({
         division: userFormData.division,
         position: userFormData.position,
         department: deptString,
-        avatarUrl: `https://i.pravatar.cc/150?u=${newId}`,
+        avatarUrl: userFormData.avatarUrl || '',
         email: (userFormData.email || '').trim(),
         mobileEmail: (userFormData.mobileEmail || '').trim(),
         phoneOutside: (userFormData.phoneOutside || '').trim(),
@@ -1592,6 +1646,60 @@ export function AdminPanel({
                   <span>{userFormError}</span>
                 </div>
               )}
+
+              {/* アバター（顔写真）アップロード */}
+              <div className="flex flex-col sm:flex-row items-center gap-4 p-4 bg-slate-50 rounded-xl border border-slate-200/80">
+                <div className="relative shrink-0">
+                  <img
+                    src={getAvatarUrl(userFormData.avatarUrl)}
+                    alt="アバタープレビュー"
+                    className="w-20 h-20 rounded-full border border-slate-200 shadow-xs object-cover bg-slate-100"
+                  />
+                  {avatarUploading && (
+                    <div className="absolute inset-0 bg-slate-900/60 rounded-full flex items-center justify-center">
+                      <RefreshCw className="w-5 h-5 text-white animate-spin" />
+                    </div>
+                  )}
+                </div>
+                <div className="space-y-1.5 text-center sm:text-left flex-1">
+                  <span className="block text-xs font-bold text-slate-700">メンバーの顔写真</span>
+                  <span className="block text-[10px] text-slate-400">推奨サイズ: 正方形、2MB以下のJPG/PNG</span>
+                  
+                  <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 pt-1">
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      onChange={handleAvatarChange}
+                      accept="image/*"
+                      className="hidden"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={avatarUploading}
+                      className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-xs shrink-0"
+                    >
+                      <Upload className="w-3.5 h-3.5" />
+                      写真をアップロード
+                    </button>
+                    
+                    {userFormData.avatarUrl && userFormData.avatarUrl !== SILHOUETTE_SVG && !userFormData.avatarUrl.includes('data:image/svg+xml') && (
+                      <button
+                        type="button"
+                        onClick={handleRemoveAvatar}
+                        disabled={avatarUploading}
+                        className="px-3 py-1.5 bg-white border border-rose-200 hover:bg-rose-50 text-rose-600 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        削除してシルエットに戻す
+                      </button>
+                    )}
+                  </div>
+                  {avatarError && (
+                    <span className="block text-[10px] text-rose-500 font-semibold">{avatarError}</span>
+                  )}
+                </div>
+              </div>
 
               {/* Name & Kana */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
