@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ChatRoom, ChatMessage, User, OfficeMaster, DivisionMaster } from '../types';
+import { getAvatarUrl } from '../utils/avatar';
+import { markChatRoomAsRead } from '../utils/notifications';
 import { 
   Search, 
   Send, 
@@ -29,6 +31,7 @@ interface ChatProps {
   offices?: OfficeMaster[];
   divisions?: DivisionMaster[];
   onUpdateRooms?: (rooms: ChatRoom[]) => void;
+  initialRoomId?: string;
 }
 
 // スタンプの定義
@@ -81,9 +84,27 @@ export function Chat({
   currentUser,
   offices = [],
   divisions = [],
-  onUpdateRooms
+  onUpdateRooms,
+  initialRoomId
 }: ChatProps) {
   const [activeRoomId, setActiveRoomId] = useState<string>(rooms[0]?.id || '');
+
+  const processedInitialRoomIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (initialRoomId && processedInitialRoomIdRef.current !== initialRoomId) {
+      if (rooms.some(r => r.id === initialRoomId)) {
+        processedInitialRoomIdRef.current = initialRoomId;
+        setActiveRoomId(initialRoomId);
+      }
+    }
+  }, [initialRoomId, rooms]);
+
+  useEffect(() => {
+    if (activeRoomId && currentUser?.id) {
+      markChatRoomAsRead(currentUser.id, activeRoomId);
+    }
+  }, [activeRoomId, currentUser?.id]);
   const [messageText, setMessageText] = useState('');
   const [roomFilter, setRoomFilter] = useState<'all' | 'group' | 'dm'>('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -142,7 +163,7 @@ export function Chat({
     const other = participants.find((p) => p && p.id !== currentUser.id) || participants[0];
     return other?.avatarUrl ? (
       <img
-        src={other.avatarUrl}
+        src={getAvatarUrl(other.avatarUrl)}
         alt={other.name || ''}
         className="w-10 h-10 rounded-full border border-slate-200 object-cover shrink-0"
       />
@@ -581,7 +602,7 @@ export function Chat({
                       <div className="w-8 h-8 shrink-0">
                         {showSenderName ? (
                           <img
-                            src={msg.sender.avatarUrl}
+                            src={getAvatarUrl(msg.sender.avatarUrl)}
                             alt={msg.sender.name}
                             className="w-8 h-8 rounded-full border border-slate-200 object-cover shadow-2xs"
                           />
@@ -680,7 +701,7 @@ export function Chat({
                     {activeRoom.participants.map((member) => (
                       <div key={member.id} className="flex items-center gap-2.5 p-1.5 rounded-lg hover:bg-slate-50">
                         <img
-                          src={member.avatarUrl}
+                          src={getAvatarUrl(member.avatarUrl)}
                           alt={member.name}
                           className="w-8 h-8 rounded-full border border-slate-200 object-cover shrink-0"
                         />
@@ -1025,7 +1046,7 @@ export function Chat({
                           }}
                           className="w-4 h-4 text-indigo-600 rounded-md border-slate-300 focus:ring-indigo-500"
                         />
-                        <img src={u.avatarUrl} alt={u.name} className="w-7 h-7 rounded-full object-cover shrink-0" />
+                        <img src={getAvatarUrl(u.avatarUrl)} alt={u.name} className="w-7 h-7 rounded-full object-cover shrink-0" />
                         <div className="min-w-0 flex-1">
                           <p className="text-xs font-bold text-slate-800">{u.name}</p>
                           <p className="text-[10px] text-slate-500 truncate">
@@ -1107,7 +1128,7 @@ export function Chat({
                           }}
                           className="w-4 h-4 text-indigo-600 rounded-md border-slate-300 focus:ring-indigo-500"
                         />
-                        <img src={u.avatarUrl} alt={u.name} className="w-7 h-7 rounded-full object-cover shrink-0" />
+                        <img src={getAvatarUrl(u.avatarUrl)} alt={u.name} className="w-7 h-7 rounded-full object-cover shrink-0" />
                         <div className="min-w-0 flex-1">
                           <p className="text-xs font-bold text-slate-800">{u.name}</p>
                           <p className="text-[10px] text-slate-500 truncate">

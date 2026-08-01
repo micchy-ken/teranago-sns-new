@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { PostForm } from './PostForm';
 import { PostCard } from './PostCard';
 import { Post, CalendarEvent, BoardTopic, OfficeMaster, DivisionMaster, User } from '../types';
+import { getAvatarUrl } from '../utils/avatar';
 import { AppTab } from './Sidebar';
 import { 
   Calendar, 
@@ -443,7 +444,7 @@ export function Timeline({
                           {event.attendees.slice(0, 5).map((att) => (
                             <img
                               key={att.id}
-                              src={att.avatarUrl}
+                              src={getAvatarUrl(att.avatarUrl)}
                               alt={att.name}
                               title={att.name}
                               className="w-5 h-5 rounded-full border border-white object-cover"
@@ -490,7 +491,7 @@ export function Timeline({
 
                   <div className="flex items-center gap-3 mb-3">
                     <img
-                      src={topic.author.avatarUrl}
+                      src={getAvatarUrl(topic.author.avatarUrl)}
                       alt={topic.author.name}
                       className="w-10 h-10 rounded-full object-cover border border-slate-100 bg-slate-100 shrink-0"
                     />

@@ -1,8 +1,23 @@
-import React, { useState, useRef } from 'react';
-import { User, CalendarEvent, BoardTopic, Memo, WorkflowApplication, OfficeMaster, DivisionMaster, PositionMaster } from '../types';
+import React, { useState, useRef, useEffect } from 'react';
+import { User, CalendarEvent, BoardTopic, Memo, WorkflowApplication, ChatRoom, OfficeMaster, DivisionMaster, PositionMaster } from '../types';
 import { AppTab } from './Sidebar';
 import { getAvatarUrl, SILHOUETTE_SVG } from '../utils/avatar';
 import { API_BASE_URL } from '../config/api';
+import {
+  getReadEventIds,
+  markEventAsRead as markEventAsReadUtil,
+  getReadTopicIds,
+  markTopicAsRead as markTopicAsReadUtil,
+  getReadChatTimestamps,
+  markChatRoomAsRead as markChatRoomAsReadUtil,
+  getReadMemoIds,
+  markMemoAsRead as markMemoAsReadUtil,
+  isEventUnread,
+  isTopicUnread,
+  isMemoUnread,
+  isWorkflowPending,
+  isChatUnread,
+} from '../utils/notifications';
 import { 
   User as UserIcon, 
   Calendar as CalendarIcon, 
@@ -40,11 +55,20 @@ interface MyPageProps {
   topics: BoardTopic[];
   memos: Memo[];
   applications: WorkflowApplication[];
+  chatRooms?: ChatRoom[];
   offices?: OfficeMaster[];
   divisions?: DivisionMaster[];
   positions?: PositionMaster[];
   allUsers?: User[];
   onChangeTab: (tab: AppTab) => void;
+  onNavigateToContent?: (target: {
+    tab: AppTab;
+    topicId?: string;
+    chatRoomId?: string;
+    memoId?: string;
+    applicationId?: string;
+    eventId?: string;
+  }) => void;
   onUpdateUser?: (updatedUser: User) => void;
   onUpdateMemo?: (updatedMemos: Memo[]) => void;
   onUpdateTopic?: (updatedTopic: BoardTopic) => void;
@@ -57,21 +81,35 @@ export function MyPage({
   topics,
   memos,
   applications,
+  chatRooms = [],
   offices = [],
   divisions = [],
   positions = [],
   allUsers = [],
   onChangeTab,
+  onNavigateToContent,
   onUpdateUser,
   onUpdateMemo,
   onUpdateTopic,
   onUpdateApplication,
 }: MyPageProps) {
-  // ローカル既読状態管理（スケジュールイベント用）
-  const [readEventIds, setReadEventIds] = useState<string[]>(() => {
-    const saved = localStorage.getItem(`read_events_${user.id}`);
-    return saved ? JSON.parse(saved) : ['e1'];
-  });
+  // ローカル既読状態管理
+  const [readEventIds, setReadEventIds] = useState<string[]>(() => getReadEventIds(user?.id));
+  const [readTopicIds, setReadTopicIds] = useState<string[]>(() => getReadTopicIds(user?.id));
+  const [readChatTimestamps, setReadChatTimestamps] = useState<Record<string, string>>(() => getReadChatTimestamps(user?.id));
+  const [readMemoIds, setReadMemoIds] = useState<string[]>(() => getReadMemoIds(user?.id));
+
+  useEffect(() => {
+    const handleSync = () => {
+      setReadEventIds(getReadEventIds(user?.id));
+      setReadTopicIds(getReadTopicIds(user?.id));
+      setReadChatTimestamps(getReadChatTimestamps(user?.id));
+      setReadMemoIds(getReadMemoIds(user?.id));
+    };
+    handleSync();
+    window.addEventListener('notifications_updated', handleSync);
+    return () => window.removeEventListener('notifications_updated', handleSync);
+  }, [user?.id]);
 
   // モーダル管理
   const [selectedTopic, setSelectedTopic] = useState<BoardTopic | null>(null);
@@ -144,76 +182,110 @@ export function MyPage({
 
   // イベント既読化
   const markEventAsRead = (eventId: string) => {
-    if (!readEventIds.includes(eventId)) {
-      const next = [...readEventIds, eventId];
-      setReadEventIds(next);
-      localStorage.setItem(`read_events_${user.id}`, JSON.stringify(next));
-    }
+    markEventAsReadUtil(user.id, eventId);
   };
 
   // メモの対応ステータストグル
   const handleToggleMemoStatus = (memoId: string) => {
     if (onUpdateMemo) {
-      const updated = memos.map((m) =>
-        m.id === memoId ? { ...m, status: (m.status === 'unread' ? 'read' : 'unread') as 'read' | 'unread' } : m
-      );
+      const updated = memos.map((m) => {
+        if (m.id === memoId) {
+          const currentlyUnread = isMemoUnread(m, user);
+          const nextStatus = currentlyUnread ? ('read' as const) : ('unread' as const);
+
+          const newRecipientStatuses =
+            m.recipientStatuses && m.recipientStatuses.length > 0
+              ? m.recipientStatuses.map((st) =>
+                  st.userId === user.id
+                    ? { ...st, isViewed: currentlyUnread, viewedAt: new Date().toISOString() }
+                    : st
+                )
+              : [
+                  {
+                    userId: user.id,
+                    userName: user.name || '',
+                    isViewed: currentlyUnread,
+                    viewedAt: new Date().toISOString(),
+                    isHandled: !currentlyUnread,
+                    status: nextStatus,
+                  },
+                ];
+
+          return {
+            ...m,
+            status: nextStatus,
+            recipientStatuses: newRecipientStatuses,
+          };
+        }
+        return m;
+      });
       onUpdateMemo(updated);
     }
   };
 
   // 1. 直近スケジュール（自分が参加 または 全社・自拠点宛て）
-  const myEvents = events.filter((e) => {
-    const isAttendee = e.attendees ? e.attendees.some((a) => a?.id === user?.id || a?.name === user?.name) : false;
-    const isTargetOffice = e.office === '全社' || e.office === user?.office;
-    return isAttendee || isTargetOffice;
-  }).sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
+  const myEvents = events
+    .filter((e) => {
+      const isAttendee = e.attendees ? e.attendees.some((a) => a?.id === user?.id || a?.name === user?.name) : false;
+      const isTargetOffice = e.office === '全社' || e.office === user?.office;
+      return isAttendee || isTargetOffice;
+    })
+    .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
 
-  const unreadEvents = myEvents.filter((e) => !readEventIds.includes(e.id));
+  const unreadEvents = myEvents.filter((e) => isEventUnread(e, user, readEventIds));
 
   // 2. 対象の掲示板トピック（全社・自拠点・自部署宛て）
-  const myTopics = topics.filter((t) => {
-    const matchOffice = !t.office || t.office === '全社' || t.office === user?.office;
-    const matchDivision = !t.division || t.division === '全部署' || t.division === user?.division;
-    return matchOffice && matchDivision;
-  }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const myTopics = topics
+    .filter((t) => {
+      const matchOffice = !t.office || t.office === '全社' || t.office === user?.office;
+      const matchDivision = !t.division || t.division === '全部署' || t.division === user?.division;
+      return matchOffice && matchDivision;
+    })
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-  // トピック既読判定（viewersの中に自分が含まれているか）
-  const isTopicRead = (topic: BoardTopic) => {
-    if (!topic.viewers) return false;
-    return topic.viewers.some((v) => v?.user?.id === user?.id || v?.user?.name === user?.name);
-  };
-
-  const unreadTopics = myTopics.filter((t) => !isTopicRead(t));
+  const unreadTopics = myTopics.filter((t) => isTopicUnread(t, user, readTopicIds));
 
   // 3. 自分宛ての伝言メモ
-  const myMemos = memos.filter((m) => {
-    if (m.recipientStatuses && m.recipientStatuses.length > 0) {
-      return m.recipientStatuses.some((st) => st.userId === user?.id);
-    }
-    if (m.toUsers && m.toUsers.length > 0) {
-      return m.toUsers.some((u) => u?.id === user?.id || u?.name === user?.name);
-    }
-    if (m.toUser) {
-      return m.toUser.id === user?.id || m.toUser.name === user?.name || (m.toUser.loginId && m.toUser.loginId === user?.loginId);
-    }
-    return true;
-  }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const myMemos = memos
+    .filter((m) => {
+      if (m.recipientStatuses && m.recipientStatuses.length > 0) {
+        return m.recipientStatuses.some((st) => st.userId === user?.id);
+      }
+      if (m.toUsers && m.toUsers.length > 0) {
+        return m.toUsers.some((u) => u?.id === user?.id || u?.name === user?.name);
+      }
+      if (m.toUser) {
+        return m.toUser.id === user?.id || m.toUser.name === user?.name || (m.toUser.loginId && m.toUser.loginId === user?.loginId);
+      }
+      return true;
+    })
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-  const unreadMemos = myMemos.filter((m) => m.status === 'unread');
+  const unreadMemos = myMemos.filter((m) => isMemoUnread(m, user, readMemoIds));
 
   // 4. 自分に関係するワークフロー（自分が申請者 または 承認者）
-  const myApplications = applications.filter(
-    (a) =>
-      a.applicant?.id === user?.id ||
-      a.applicant?.name === user?.name ||
-      a.approver?.id === user?.id ||
-      a.approver?.name === user?.name
-  ).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const myApplications = applications
+    .filter(
+      (a) =>
+        a.applicant?.id === user?.id ||
+        a.applicant?.name === user?.name ||
+        a.approver?.id === user?.id ||
+        a.approver?.name === user?.name
+    )
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-  // 自分が承認者で承認待ち (pending) または 自分が申請者で最近ステータスが変わったもの
-  const pendingApprovals = myApplications.filter(
-    (a) => (a.approver?.id === user?.id || a.approver?.name === user?.name) && a.status === 'pending'
-  );
+  const pendingApprovals = myApplications.filter((a) => isWorkflowPending(a, user));
+
+  // 5. 参加しているチャットルーム
+  const myChatRooms = (chatRooms || [])
+    .filter((room) => room.participants?.some((p) => p?.id === user?.id || p?.name === user?.name))
+    .sort((a, b) => {
+      const aTime = a.messages && a.messages.length > 0 ? a.messages[a.messages.length - 1].createdAt || a.lastUpdated : a.lastUpdated;
+      const bTime = b.messages && b.messages.length > 0 ? b.messages[b.messages.length - 1].createdAt || b.lastUpdated : b.lastUpdated;
+      return new Date(bTime || 0).getTime() - new Date(aTime || 0).getTime();
+    });
+
+  const unreadChatRooms = myChatRooms.filter((room) => isChatUnread(room, user, readChatTimestamps));
 
   // ワークフロー承認・却下アクションハンドラー
   const handleWorkflowAction = (appId: string, status: 'approved' | 'rejected') => {
@@ -234,7 +306,7 @@ export function MyPage({
         <div className="flex items-center gap-4 z-10">
           <div className="relative">
             <img
-              src={user.avatarUrl}
+              src={getAvatarUrl(user.avatarUrl)}
               alt={user.name}
               className="w-16 h-16 sm:w-20 sm:h-20 rounded-full border-2 border-indigo-500/20 shadow-sm object-cover bg-slate-100"
             />
@@ -277,7 +349,7 @@ export function MyPage({
             <div className="text-xs font-extrabold text-slate-700">
               未読通知合計:{' '}
               <span className="text-rose-600 text-sm font-black">
-                {unreadEvents.length + unreadTopics.length + unreadMemos.length + pendingApprovals.length} 件
+                {unreadEvents.length + unreadTopics.length + unreadMemos.length + pendingApprovals.length + unreadChatRooms.length} 件
               </span>
             </div>
           </div>
@@ -292,8 +364,8 @@ export function MyPage({
         </div>
       </div>
 
-      {/* 4つの未読通知サマリーカード */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+      {/* 5つの未読通知サマリーカード */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
         {/* スケジュール */}
         <div
           onClick={() => {
@@ -413,6 +485,36 @@ export function MyPage({
           <div className="text-xs font-bold text-slate-500">ワークフロー</div>
           <div className="text-lg font-black text-slate-900 mt-0.5">{myApplications.length} 件</div>
         </div>
+
+        {/* チャット */}
+        <div
+          onClick={() => {
+            const el = document.getElementById('my-chats-section');
+            if (el) el.scrollIntoView({ behavior: 'smooth' });
+          }}
+          className={`p-4 rounded-xl border shadow-xs transition-all cursor-pointer hover:shadow-md ${
+            unreadChatRooms.length > 0
+              ? 'bg-blue-50/60 border-blue-200 text-blue-900'
+              : 'bg-white border-slate-200 text-slate-800'
+          }`}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <div className="p-2 bg-blue-100 text-blue-700 rounded-lg">
+              <MessageSquare className="w-5 h-5" />
+            </div>
+            {unreadChatRooms.length > 0 ? (
+              <span className="px-2 py-0.5 bg-blue-600 text-white font-extrabold text-[10px] rounded-full shadow-2xs">
+                未読 {unreadChatRooms.length}
+              </span>
+            ) : (
+              <span className="px-2 py-0.5 bg-slate-100 text-slate-500 font-bold text-[10px] rounded-full">
+                既読
+              </span>
+            )}
+          </div>
+          <div className="text-xs font-bold text-slate-500">チャットルーム</div>
+          <div className="text-lg font-black text-slate-900 mt-0.5">{myChatRooms.length} 件</div>
+        </div>
       </div>
 
       {/* メイングリッド (2列レイアウト) */}
@@ -452,7 +554,11 @@ export function MyPage({
                   <div
                     key={evt.id}
                     onClick={() => {
-                      setSelectedEvent(evt);
+                      if (onNavigateToContent) {
+                        onNavigateToContent({ tab: 'calendar', eventId: evt.id });
+                      } else {
+                        setSelectedEvent(evt);
+                      }
                       markEventAsRead(evt.id);
                     }}
                     className={`p-3.5 rounded-xl border transition-all cursor-pointer flex items-start gap-3 relative ${
@@ -547,13 +653,18 @@ export function MyPage({
           <div className="p-4 flex-1 space-y-3">
             {myTopics.length > 0 ? (
               myTopics.slice(0, 5).map((topic) => {
-                const unread = !isTopicRead(topic);
+                const unread = isTopicUnread(topic, user, readTopicIds);
 
                 return (
                   <div
                     key={topic.id}
                     onClick={() => {
-                      setSelectedTopic(topic);
+                      markTopicAsReadUtil(user?.id, topic.id);
+                      if (onNavigateToContent) {
+                        onNavigateToContent({ tab: 'board', topicId: topic.id });
+                      } else {
+                        setSelectedTopic(topic);
+                      }
                       // トピック既読化処理
                       if (onUpdateTopic && unread) {
                         const newViewers = [...(topic.viewers || []), { user, viewedAt: new Date().toISOString() }];
@@ -633,12 +744,18 @@ export function MyPage({
           <div className="p-4 flex-1 space-y-3">
             {myMemos.length > 0 ? (
               myMemos.map((memo) => {
-                const isUnread = memo.status === 'unread';
+                const isUnread = isMemoUnread(memo, user, readMemoIds);
 
                 return (
                   <div
                     key={memo.id}
-                    className={`p-3.5 rounded-xl border transition-all flex flex-col gap-2 ${
+                    onClick={() => {
+                      markMemoAsReadUtil(user?.id, memo.id);
+                      if (onNavigateToContent) {
+                        onNavigateToContent({ tab: 'memo', memoId: memo.id });
+                      }
+                    }}
+                    className={`p-3.5 rounded-xl border transition-all flex flex-col gap-2 cursor-pointer hover:border-rose-400 ${
                       isUnread
                         ? 'bg-rose-50/40 border-rose-300 shadow-xs'
                         : 'bg-white border-slate-200 opacity-80'
@@ -661,7 +778,10 @@ export function MyPage({
                       </div>
 
                       <button
-                        onClick={() => handleToggleMemoStatus(memo.id)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleToggleMemoStatus(memo.id);
+                        }}
                         className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-colors border ${
                           isUnread
                             ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700'
@@ -722,7 +842,14 @@ export function MyPage({
                 return (
                   <div
                     key={app.id}
-                    className={`p-3.5 rounded-xl border transition-all flex flex-col gap-2 ${
+                    onClick={() => {
+                      if (onNavigateToContent) {
+                        onNavigateToContent({ tab: 'workflow', applicationId: app.id });
+                      } else {
+                        onChangeTab('workflow');
+                      }
+                    }}
+                    className={`p-3.5 rounded-xl border transition-all flex flex-col gap-2 cursor-pointer hover:border-purple-400 ${
                       isMyApproval
                         ? 'bg-purple-50/50 border-purple-300 shadow-xs'
                         : 'bg-white border-slate-200'
@@ -750,7 +877,7 @@ export function MyPage({
                       </div>
 
                       {isMyApproval && (
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                           <button
                             onClick={() => handleWorkflowAction(app.id, 'approved')}
                             className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold rounded shadow-2xs flex items-center gap-0.5"
@@ -780,6 +907,87 @@ export function MyPage({
             ) : (
               <div className="p-8 text-center text-slate-400 text-xs">
                 関係するワークフローはありません
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* 5. 参加チャットルーム */}
+        <section id="my-chats-section" className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col lg:col-span-2">
+          <div className="p-4 border-b border-slate-100 bg-slate-50/80 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 bg-blue-600 text-white rounded-lg shadow-2xs">
+                <MessageSquare className="w-4 h-4" />
+              </div>
+              <h2 className="text-sm font-extrabold text-slate-900">参加チャットルーム（新着・未読）</h2>
+              {unreadChatRooms.length > 0 && (
+                <span className="px-2 py-0.5 bg-blue-600 text-white text-[10px] font-black rounded-full">
+                  未読 {unreadChatRooms.length}
+                </span>
+              )}
+            </div>
+
+            <button
+              onClick={() => onChangeTab('chat')}
+              className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 hover:underline cursor-pointer"
+            >
+              チャット画面へ
+              <ArrowUpRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          <div className="p-4 flex-1 grid grid-cols-1 md:grid-cols-2 gap-3">
+            {myChatRooms.length > 0 ? (
+              myChatRooms.slice(0, 6).map((room) => {
+                const isUnread = isChatUnread(room, user, readChatTimestamps);
+                const lastMsg = room.messages && room.messages.length > 0 ? room.messages[room.messages.length - 1] : null;
+
+                return (
+                  <div
+                    key={room.id}
+                    onClick={() => {
+                      markChatRoomAsReadUtil(user?.id, room.id);
+                      if (onNavigateToContent) {
+                        onNavigateToContent({ tab: 'chat', chatRoomId: room.id });
+                      } else {
+                        onChangeTab('chat');
+                      }
+                    }}
+                    className={`p-3.5 rounded-xl border transition-all cursor-pointer flex flex-col gap-2 ${
+                      isUnread
+                        ? 'bg-blue-50/50 border-blue-300 shadow-xs hover:border-blue-400'
+                        : 'bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50/50'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-extrabold text-slate-900 line-clamp-1">
+                        {room.name || (lastMsg ? lastMsg.sender?.name : 'チャットルーム')}
+                      </span>
+                      {isUnread && (
+                        <span className="px-2 py-0.5 bg-blue-600 text-white text-[9px] font-black rounded-full shrink-0">
+                          NEW 未読
+                        </span>
+                      )}
+                    </div>
+
+                    {lastMsg ? (
+                      <p className="text-xs text-slate-600 line-clamp-2 bg-slate-50/80 p-2 rounded-lg border border-slate-100">
+                        <span className="font-semibold text-slate-800">{lastMsg.sender?.name}: </span>
+                        {lastMsg.content}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-slate-400 italic">メッセージはありません</p>
+                    )}
+
+                    <div className="text-[10px] text-slate-400 text-right">
+                      {lastMsg?.createdAt ? new Date(lastMsg.createdAt).toLocaleString('ja-JP') : ''}
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="p-8 text-center text-slate-400 text-xs col-span-full">
+                参加しているチャットルームはありません
               </div>
             )}
           </div>

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { DailyReport, User } from '../types';
 import { FileText, Plus, Calendar, X, Save } from 'lucide-react';
+import { getAvatarUrl } from '../utils/avatar';
 
 interface DailyReportProps {
   reports: DailyReport[];
@@ -74,7 +75,7 @@ export function DailyReportView({ reports, onAddReport, currentUser }: DailyRepo
               <div key={report.id} className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
                 <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
                   <div className="flex items-center gap-3">
-                    <img src={report.author?.avatarUrl || 'https://i.pravatar.cc/150'} alt={report.author?.name} className="w-8 h-8 rounded-full border border-slate-200" />
+                    <img src={getAvatarUrl(report.author?.avatarUrl)} alt={report.author?.name} className="w-8 h-8 rounded-full border border-slate-200" />
                     <div>
                       <div className="text-sm font-bold text-slate-900">{report.author?.name || '匿名'}</div>
                       <div className="text-xs text-slate-500">{report.author?.department || '未設定'}</div>

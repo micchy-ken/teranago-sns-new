@@ -10,9 +10,9 @@
 -- ------------------------------------------
 -- 1. Master Tables
 -- ------------------------------------------
-IF OBJECT_ID('dbo.Offices', 'U') IS NULL
+IF OBJECT_ID('dbo.OfficeMaster', 'U') IS NULL
 BEGIN
-    CREATE TABLE dbo.Offices (
+    CREATE TABLE dbo.OfficeMaster (
         id VARCHAR(50) PRIMARY KEY,
         name NVARCHAR(100) NOT NULL,
         type VARCHAR(50) NULL,
@@ -23,16 +23,16 @@ BEGIN
 END
 ELSE
 BEGIN
-    IF COL_LENGTH('dbo.Offices', 'type') IS NULL ALTER TABLE dbo.Offices ADD type VARCHAR(50) NULL;
-    IF COL_LENGTH('dbo.Offices', 'code') IS NULL ALTER TABLE dbo.Offices ADD code VARCHAR(50) NULL;
-    IF COL_LENGTH('dbo.Offices', 'location') IS NULL ALTER TABLE dbo.Offices ADD location NVARCHAR(255) NULL;
-    IF COL_LENGTH('dbo.Offices', 'phone') IS NULL ALTER TABLE dbo.Offices ADD phone NVARCHAR(50) NULL;
+    IF COL_LENGTH('dbo.OfficeMaster', 'type') IS NULL ALTER TABLE dbo.OfficeMaster ADD type VARCHAR(50) NULL;
+    IF COL_LENGTH('dbo.OfficeMaster', 'code') IS NULL ALTER TABLE dbo.OfficeMaster ADD code VARCHAR(50) NULL;
+    IF COL_LENGTH('dbo.OfficeMaster', 'location') IS NULL ALTER TABLE dbo.OfficeMaster ADD location NVARCHAR(255) NULL;
+    IF COL_LENGTH('dbo.OfficeMaster', 'phone') IS NULL ALTER TABLE dbo.OfficeMaster ADD phone NVARCHAR(50) NULL;
 END
 GO
 
-IF OBJECT_ID('dbo.Divisions', 'U') IS NULL
+IF OBJECT_ID('dbo.DivisionMaster', 'U') IS NULL
 BEGIN
-    CREATE TABLE dbo.Divisions (
+    CREATE TABLE dbo.DivisionMaster (
         id VARCHAR(50) PRIMARY KEY,
         name NVARCHAR(100) NOT NULL,
         code VARCHAR(50) NULL,
@@ -41,14 +41,14 @@ BEGIN
 END
 ELSE
 BEGIN
-    IF COL_LENGTH('dbo.Divisions', 'code') IS NULL ALTER TABLE dbo.Divisions ADD code VARCHAR(50) NULL;
-    IF COL_LENGTH('dbo.Divisions', 'description') IS NULL ALTER TABLE dbo.Divisions ADD description NVARCHAR(255) NULL;
+    IF COL_LENGTH('dbo.DivisionMaster', 'code') IS NULL ALTER TABLE dbo.DivisionMaster ADD code VARCHAR(50) NULL;
+    IF COL_LENGTH('dbo.DivisionMaster', 'description') IS NULL ALTER TABLE dbo.DivisionMaster ADD description NVARCHAR(255) NULL;
 END
 GO
 
-IF OBJECT_ID('dbo.Positions', 'U') IS NULL
+IF OBJECT_ID('dbo.PositionMaster', 'U') IS NULL
 BEGIN
-    CREATE TABLE dbo.Positions (
+    CREATE TABLE dbo.PositionMaster (
         id VARCHAR(50) PRIMARY KEY,
         name NVARCHAR(100) NOT NULL,
         code VARCHAR(50) NULL,
@@ -57,10 +57,34 @@ BEGIN
 END
 ELSE
 BEGIN
-    IF COL_LENGTH('dbo.Positions', 'code') IS NULL ALTER TABLE dbo.Positions ADD code VARCHAR(50) NULL;
-    IF COL_LENGTH('dbo.Positions', 'description') IS NULL ALTER TABLE dbo.Positions ADD description NVARCHAR(255) NULL;
+    IF COL_LENGTH('dbo.PositionMaster', 'code') IS NULL ALTER TABLE dbo.PositionMaster ADD code VARCHAR(50) NULL;
+    IF COL_LENGTH('dbo.PositionMaster', 'description') IS NULL ALTER TABLE dbo.PositionMaster ADD description NVARCHAR(255) NULL;
 END
 GO
+
+-- ------------------------------------------
+-- 1b. Synonyms for Backend API Compatibility
+-- ------------------------------------------
+-- Create synonyms so that requests from the backend API to dbo.Offices, dbo.Divisions, dbo.Positions
+-- are transparently mapped to dbo.OfficeMaster, dbo.DivisionMaster, dbo.PositionMaster in SQL Server.
+IF NOT EXISTS (SELECT * FROM sys.synonyms WHERE name = 'Offices' AND schema_id = SCHEMA_ID('dbo'))
+BEGIN
+    CREATE SYNONYM dbo.Offices FOR dbo.OfficeMaster;
+END
+GO
+
+IF NOT EXISTS (SELECT * FROM sys.synonyms WHERE name = 'Divisions' AND schema_id = SCHEMA_ID('dbo'))
+BEGIN
+    CREATE SYNONYM dbo.Divisions FOR dbo.DivisionMaster;
+END
+GO
+
+IF NOT EXISTS (SELECT * FROM sys.synonyms WHERE name = 'Positions' AND schema_id = SCHEMA_ID('dbo'))
+BEGIN
+    CREATE SYNONYM dbo.Positions FOR dbo.PositionMaster;
+END
+GO
+
 
 IF OBJECT_ID('dbo.ItemMasters', 'U') IS NULL
 BEGIN
@@ -219,7 +243,8 @@ BEGIN
         createdAt DATETIME DEFAULT GETDATE(),
         category NVARCHAR(50) NULL,
         type NVARCHAR(50) NULL,
-        details NVARCHAR(MAX) NULL
+        details NVARCHAR(MAX) NULL,
+        description NVARCHAR(MAX) NULL
     );
 END
 ELSE
@@ -232,6 +257,16 @@ BEGIN
     IF COL_LENGTH('dbo.Workflows', 'type') IS NULL ALTER TABLE dbo.Workflows ADD type NVARCHAR(50) NULL;
     IF COL_LENGTH('dbo.Workflows', 'details') IS NULL ALTER TABLE dbo.Workflows ADD details NVARCHAR(MAX) NULL;
     
+    -- Ensure description is added and is nullable (to fix any NOT NULL constraint issue)
+    IF COL_LENGTH('dbo.Workflows', 'description') IS NULL
+    BEGIN
+        ALTER TABLE dbo.Workflows ADD description NVARCHAR(MAX) NULL;
+    END
+    ELSE
+    BEGIN
+        ALTER TABLE dbo.Workflows ALTER COLUMN description NVARCHAR(MAX) NULL;
+    END
+
     -- Relax constraint on type if it exists in legacy schema
     IF COL_LENGTH('dbo.Workflows', 'type') IS NOT NULL
     BEGIN
@@ -363,7 +398,9 @@ BEGIN
         fromCompany NVARCHAR(100) NULL,
         fromPhone NVARCHAR(50) NULL,
         details NVARCHAR(MAX) NULL,
-        toUsersJson NVARCHAR(MAX) NULL
+        toUsersJson NVARCHAR(MAX) NULL,
+        requirementType NVARCHAR(50) NULL,
+        recipientStatusesJson NVARCHAR(MAX) NULL
     );
 END
 ELSE
@@ -376,6 +413,26 @@ BEGIN
     IF COL_LENGTH('dbo.Memos', 'fromPhone') IS NULL ALTER TABLE dbo.Memos ADD fromPhone NVARCHAR(50) NULL;
     IF COL_LENGTH('dbo.Memos', 'details') IS NULL ALTER TABLE dbo.Memos ADD details NVARCHAR(MAX) NULL;
     IF COL_LENGTH('dbo.Memos', 'toUsersJson') IS NULL ALTER TABLE dbo.Memos ADD toUsersJson NVARCHAR(MAX) NULL;
+
+    -- Ensure requirementType is added and is nullable (to fix any NOT NULL constraint issue)
+    IF COL_LENGTH('dbo.Memos', 'requirementType') IS NULL
+    BEGIN
+        ALTER TABLE dbo.Memos ADD requirementType NVARCHAR(50) NULL;
+    END
+    ELSE
+    BEGIN
+        ALTER TABLE dbo.Memos ALTER COLUMN requirementType NVARCHAR(50) NULL;
+    END
+
+    -- Ensure recipientStatusesJson is added and is nullable (to fix any NOT NULL constraint issue)
+    IF COL_LENGTH('dbo.Memos', 'recipientStatusesJson') IS NULL
+    BEGIN
+        ALTER TABLE dbo.Memos ADD recipientStatusesJson NVARCHAR(MAX) NULL;
+    END
+    ELSE
+    BEGIN
+        ALTER TABLE dbo.Memos ALTER COLUMN recipientStatusesJson NVARCHAR(MAX) NULL;
+    END
 
     -- Relax constraints if exist in legacy schema
     IF COL_LENGTH('dbo.Memos', 'toUsersJson') IS NOT NULL
@@ -418,25 +475,25 @@ GO
 -- ==========================================
 
 -- Offices Seed
-IF NOT EXISTS (SELECT 1 FROM dbo.Offices WHERE id = 'off-1') INSERT INTO dbo.Offices (id, name) VALUES ('off-1', N'東京本社');
-IF NOT EXISTS (SELECT 1 FROM dbo.Offices WHERE id = 'off-2') INSERT INTO dbo.Offices (id, name) VALUES ('off-2', N'大阪支社');
-IF NOT EXISTS (SELECT 1 FROM dbo.Offices WHERE id = 'off-3') INSERT INTO dbo.Offices (id, name) VALUES ('off-3', N'名古屋営業所');
+IF NOT EXISTS (SELECT 1 FROM dbo.OfficeMaster WHERE id = 'off-1') INSERT INTO dbo.OfficeMaster (id, name) VALUES ('off-1', N'東京本社');
+IF NOT EXISTS (SELECT 1 FROM dbo.OfficeMaster WHERE id = 'off-2') INSERT INTO dbo.OfficeMaster (id, name) VALUES ('off-2', N'大阪支社');
+IF NOT EXISTS (SELECT 1 FROM dbo.OfficeMaster WHERE id = 'off-3') INSERT INTO dbo.OfficeMaster (id, name) VALUES ('off-3', N'名古屋営業所');
 GO
 
 -- Divisions Seed
-IF NOT EXISTS (SELECT 1 FROM dbo.Divisions WHERE id = 'div-1') INSERT INTO dbo.Divisions (id, name) VALUES ('div-1', N'開発技術部');
-IF NOT EXISTS (SELECT 1 FROM dbo.Divisions WHERE id = 'div-2') INSERT INTO dbo.Divisions (id, name) VALUES ('div-2', N'営業統括部');
-IF NOT EXISTS (SELECT 1 FROM dbo.Divisions WHERE id = 'div-3') INSERT INTO dbo.Divisions (id, name) VALUES ('div-3', N'人事総務部');
-IF NOT EXISTS (SELECT 1 FROM dbo.Divisions WHERE id = 'div-4') INSERT INTO dbo.Divisions (id, name) VALUES ('div-4', N'企画マーケティング部');
+IF NOT EXISTS (SELECT 1 FROM dbo.DivisionMaster WHERE id = 'div-1') INSERT INTO dbo.DivisionMaster (id, name) VALUES ('div-1', N'開発技術部');
+IF NOT EXISTS (SELECT 1 FROM dbo.DivisionMaster WHERE id = 'div-2') INSERT INTO dbo.DivisionMaster (id, name) VALUES ('div-2', N'営業統括部');
+IF NOT EXISTS (SELECT 1 FROM dbo.DivisionMaster WHERE id = 'div-3') INSERT INTO dbo.DivisionMaster (id, name) VALUES ('div-3', N'人事総務部');
+IF NOT EXISTS (SELECT 1 FROM dbo.DivisionMaster WHERE id = 'div-4') INSERT INTO dbo.DivisionMaster (id, name) VALUES ('div-4', N'企画マーケティング部');
 GO
 
 -- Positions Seed
-IF NOT EXISTS (SELECT 1 FROM dbo.Positions WHERE id = 'pos-1') INSERT INTO dbo.Positions (id, name) VALUES ('pos-1', N'一般社員');
-IF NOT EXISTS (SELECT 1 FROM dbo.Positions WHERE id = 'pos-2') INSERT INTO dbo.Positions (id, name) VALUES ('pos-2', N'主任');
-IF NOT EXISTS (SELECT 1 FROM dbo.Positions WHERE id = 'pos-3') INSERT INTO dbo.Positions (id, name) VALUES ('pos-3', N'係長');
-IF NOT EXISTS (SELECT 1 FROM dbo.Positions WHERE id = 'pos-4') INSERT INTO dbo.Positions (id, name) VALUES ('pos-4', N'課長');
-IF NOT EXISTS (SELECT 1 FROM dbo.Positions WHERE id = 'pos-5') INSERT INTO dbo.Positions (id, name) VALUES ('pos-5', N'部長');
-IF NOT EXISTS (SELECT 1 FROM dbo.Positions WHERE id = 'pos-6') INSERT INTO dbo.Positions (id, name) VALUES ('pos-6', N'代表取締役');
+IF NOT EXISTS (SELECT 1 FROM dbo.PositionMaster WHERE id = 'pos-1') INSERT INTO dbo.PositionMaster (id, name) VALUES ('pos-1', N'一般社員');
+IF NOT EXISTS (SELECT 1 FROM dbo.PositionMaster WHERE id = 'pos-2') INSERT INTO dbo.PositionMaster (id, name) VALUES ('pos-2', N'主任');
+IF NOT EXISTS (SELECT 1 FROM dbo.PositionMaster WHERE id = 'pos-3') INSERT INTO dbo.PositionMaster (id, name) VALUES ('pos-3', N'係長');
+IF NOT EXISTS (SELECT 1 FROM dbo.PositionMaster WHERE id = 'pos-4') INSERT INTO dbo.PositionMaster (id, name) VALUES ('pos-4', N'課長');
+IF NOT EXISTS (SELECT 1 FROM dbo.PositionMaster WHERE id = 'pos-5') INSERT INTO dbo.PositionMaster (id, name) VALUES ('pos-5', N'部長');
+IF NOT EXISTS (SELECT 1 FROM dbo.PositionMaster WHERE id = 'pos-6') INSERT INTO dbo.PositionMaster (id, name) VALUES ('pos-6', N'代表取締役');
 GO
 
 -- Users Seed
@@ -475,9 +532,9 @@ GO
 -- Workflows Seed
 IF NOT EXISTS (SELECT 1 FROM dbo.Workflows WHERE id = 'w-1')
 BEGIN
-    INSERT INTO dbo.Workflows (id, title, applicantId, approverId, status, createdAt, category, type, details) VALUES 
-    ('w-1', N'MacBook Pro 14インチ購入申請', 'u1', 'u3', 'pending', DATEADD(DAY, -1, GETDATE()), 'purchase', 'purchase', N'{"reason":"開発用PCのスペック不足に伴う買い替え","purchaseItems":[{"name":"MacBook Pro 14 (M3 Max / 32GB / 1TB)","price":428000,"quantity":1}],"currentStepIndex":1,"totalSteps":2,"stepsConfig":[{"stepNumber":1,"approverType":"supervisor_1","stepName":"一次承認"},{"stepNumber":2,"approverType":"specific_user","specificUserId":"u4","stepName":"最終決裁"}]}'),
-    ('w-2', N'有給休暇申請（5日間）', 'u2', 'u4', 'approved', DATEADD(DAY, -5, GETDATE()), 'leave', 'leave', N'{"reason":"私用のため帰省","leaveStart":"2026-08-10","leaveEnd":"2026-08-14","currentStepIndex":1,"totalSteps":1,"stepsConfig":[{"stepNumber":1,"approverType":"supervisor_1","stepName":"決裁"}]}');
+    INSERT INTO dbo.Workflows (id, title, applicantId, approverId, status, createdAt, category, type, details, description) VALUES 
+    ('w-1', N'MacBook Pro 14インチ購入申請', 'u1', 'u3', 'pending', DATEADD(DAY, -1, GETDATE()), 'purchase', 'purchase', N'{"reason":"開発用PCのスペック不足に伴う買い替え","purchaseItems":[{"name":"MacBook Pro 14 (M3 Max / 32GB / 1TB)","price":428000,"quantity":1}],"currentStepIndex":1,"totalSteps":2,"stepsConfig":[{"stepNumber":1,"approverType":"supervisor_1","stepName":"一次承認"},{"stepNumber":2,"approverType":"specific_user","specificUserId":"u4","stepName":"最終決裁"}]}', N'MacBook Pro 14インチ購入申請'),
+    ('w-2', N'有給休暇申請（5日間）', 'u2', 'u4', 'approved', DATEADD(DAY, -5, GETDATE()), 'leave', 'leave', N'{"reason":"私用のため帰省","leaveStart":"2026-08-10","leaveEnd":"2026-08-14","currentStepIndex":1,"totalSteps":1,"stepsConfig":[{"stepNumber":1,"approverType":"supervisor_1","stepName":"決裁"}]}', N'有給休暇申請（5日間）');
 END
 GO
 
@@ -517,9 +574,9 @@ GO
 -- Memos Seed
 IF NOT EXISTS (SELECT 1 FROM dbo.Memos WHERE id = 'memo-1')
 BEGIN
-    INSERT INTO dbo.Memos (id, senderId, receiverId, content, isRead, createdAt, fromName, fromCompany, fromPhone, toUsersJson) VALUES 
-    ('memo-1', 'u1', 'u3', N'先ほどお電話をいただきました。お見積りの件で確認したい点があるとのこと。折り返しのご連絡（できれば本日中）をお願いしたいそうです。', 0, DATEADD(HOUR, -1, GETDATE()), N'高橋 代理', N'株式会社テクノソリューションズ', '03-1234-5678', N'["u3"]'),
-    ('memo-2', 'u5', 'u5', N'光回線の開通工事について、日程調整のため折り返しのご連絡を求めておられます。', 1, DATEADD(HOUR, -24, GETDATE()), N'窓口 担当者', N'NTT東日本 営業窓口', '0120-116-116', N'["u5"]');
+    INSERT INTO dbo.Memos (id, senderId, receiverId, content, isRead, createdAt, fromName, fromCompany, fromPhone, toUsersJson, requirementType, recipientStatusesJson) VALUES 
+    ('memo-1', 'u1', 'u3', N'先ほどお電話をいただきました。お見積りの件で確認したい点があるとのこと。折り返しのご連絡（できれば本日中）をお願いしたいそうです。', 0, DATEADD(HOUR, -1, GETDATE()), N'高橋 代理', N'株式会社テクノソリューションズ', '03-1234-5678', N'["u3"]', N'please_call_back', N'{"u3":{"isRead":false,"readAt":null}}'),
+    ('memo-2', 'u5', 'u5', N'光回線の開通工事について、日程調整のため折り返しのご連絡を求めておられます。', 1, DATEADD(HOUR, -24, GETDATE()), N'窓口 担当者', N'NTT東日本 営業窓口', '0120-116-116', N'["u5"]', N'has_message', N'{"u5":{"isRead":true,"readAt":"2026-07-30T10:00:00Z"}}');
 END
 GO
 

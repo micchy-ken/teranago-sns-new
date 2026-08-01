@@ -242,6 +242,7 @@ export interface MemoUserRecipientStatus {
   handledAt?: string;   // 対応日時 (ISO string)
   handledByUserId?: string;
   handledByUserName?: string;
+  status?: string;
 }
 
 export interface Memo {

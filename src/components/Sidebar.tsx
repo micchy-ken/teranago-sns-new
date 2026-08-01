@@ -10,9 +10,10 @@ interface SidebarProps {
   activeTab: AppTab;
   onChangeTab: (tab: AppTab) => void;
   currentUser?: UserType;
+  className?: string;
 }
 
-export function Sidebar({ posts, selectedTag, onSelectTag, activeTab, onChangeTab, currentUser }: SidebarProps) {
+export function Sidebar({ posts, selectedTag, onSelectTag, activeTab, onChangeTab, currentUser, className }: SidebarProps) {
   // Extract and count tags
   const tagCounts = (posts || []).reduce((acc, post) => {
     if (post && post.tags && Array.isArray(post.tags)) {
@@ -28,8 +29,10 @@ export function Sidebar({ posts, selectedTag, onSelectTag, activeTab, onChangeTa
     .sort((a, b) => b[1] - a[1])
     .slice(0, 10); // Show top 10
 
+  const containerClassName = className || "bg-white rounded-xl border border-slate-200 p-6 flex flex-col gap-8 shrink-0 shadow-sm ring-1 ring-slate-900/5 sticky top-24";
+
   return (
-    <div className="bg-white rounded-xl border border-slate-200 p-6 flex flex-col gap-8 shrink-0 shadow-sm ring-1 ring-slate-900/5 sticky top-24">
+    <div className={containerClassName}>
       <nav className="space-y-1">
         <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">メニュー</div>
         <button

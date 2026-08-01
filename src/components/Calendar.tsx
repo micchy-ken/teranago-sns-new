@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { CalendarEvent, EventType, User, OfficeMaster, DivisionMaster } from '../types';
+import { getAvatarUrl } from '../utils/avatar';
 import { ChevronLeft, ChevronRight, List as ListIcon, Calendar as CalendarIcon, Plus, MapPin, Video, AlignLeft, RefreshCw, Clock, Link as LinkIcon, Loader2, Building2, Users, Paperclip } from 'lucide-react';
 import { EventModal } from './EventModal';
 import { fetchIcalFeed } from '../utils/icalParser';
@@ -14,6 +15,7 @@ interface CalendarProps {
   allUsers?: User[];
   offices?: OfficeMaster[];
   divisions?: DivisionMaster[];
+  initialEventId?: string;
 }
 
 type ViewMode = 'month' | 'week' | 'day' | 'list';
@@ -49,6 +51,7 @@ export function Calendar({
   allUsers,
   offices = [],
   divisions = [],
+  initialEventId,
 }: CalendarProps) {
   const [view, setView] = useState<ViewMode>('month');
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -99,6 +102,22 @@ export function Calendar({
   }, [loadIcalEvents]);
 
   const combinedEvents = [...events, ...icalEvents];
+
+  const processedInitialEventIdRef = React.useRef<string | null>(null);
+
+  useEffect(() => {
+    if (initialEventId && processedInitialEventIdRef.current !== initialEventId) {
+      const targetEv = combinedEvents.find(e => e.id === initialEventId);
+      if (targetEv) {
+        processedInitialEventIdRef.current = initialEventId;
+        setEditingEvent(targetEv);
+        setIsModalOpen(true);
+        if (targetEv.start) {
+          setCurrentDate(new Date(targetEv.start));
+        }
+      }
+    }
+  }, [initialEventId, combinedEvents]);
   
   // イベントのフィルタリング処理
   const filteredEvents = combinedEvents.filter(e => {
@@ -802,7 +821,7 @@ export function Calendar({
                           <Users className="w-4 h-4 text-slate-400" />
                           <div className="flex -space-x-1.5">
                             {e.attendees.map(u => (
-                              <img key={u.id} src={u.avatarUrl} alt={u.name} title={u.name} className="w-4 h-4 rounded-full border border-white object-cover" />
+                              <img key={u.id} src={getAvatarUrl(u.avatarUrl)} alt={u.name} title={u.name} className="w-4 h-4 rounded-full border border-white object-cover" />
                             ))}
                           </div>
                           <span>({e.attendees.length}名)</span>

@@ -279,7 +279,7 @@ export function AdminPanel({
                       : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
                   }`}
                 >
-                  <img src={user.avatarUrl} alt={user.name} className="w-5 h-5 rounded-full object-cover" />
+                  <img src={getAvatarUrl(user.avatarUrl)} alt={user.name} className="w-5 h-5 rounded-full object-cover" />
                   <span>{user.name}</span>
                   {user.isAdmin && <span className="bg-indigo-500/80 text-white px-1.5 py-0.2 rounded text-[10px]">管理者</span>}
                 </button>
@@ -779,7 +779,7 @@ export function AdminPanel({
         {/* User switcher & status */}
         <div className="flex items-center gap-3 bg-slate-50 p-2.5 rounded-xl border border-slate-200 shrink-0">
           <img
-            src={currentUser.avatarUrl}
+            src={getAvatarUrl(currentUser.avatarUrl)}
             alt={currentUser.name}
             className="w-8 h-8 rounded-full object-cover border border-indigo-300"
           />
@@ -960,7 +960,7 @@ export function AdminPanel({
                 <div key={user.id} className="p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-slate-50/80 transition-colors">
                   <div className="flex items-center gap-4">
                     <img
-                      src={user.avatarUrl}
+                      src={getAvatarUrl(user.avatarUrl)}
                       alt={user.name}
                       className="w-12 h-12 rounded-full object-cover border-2 border-indigo-100 ring-2 ring-slate-100"
                     />

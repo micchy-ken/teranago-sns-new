@@ -74,13 +74,37 @@ const mapPostFromApi = (apiPost: any, allUsers: User[]): Post => {
   };
 };
 
-import { AlertCircle, RefreshCw } from 'lucide-react';
+import { AlertCircle, RefreshCw, X } from 'lucide-react';
 import { ConfirmModal, ConfirmModalState } from './components/ConfirmModal';
 
 export default function App() {
   const [usersList, setUsersList] = useState<User[]>([]);
   const [fetchErrors, setFetchErrors] = useState<Record<string, string>>({});
   const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  // コンテンツディープリンク用のターゲットID状態
+  const [targetTopicId, setTargetTopicId] = useState<string | undefined>(undefined);
+  const [targetChatRoomId, setTargetChatRoomId] = useState<string | undefined>(undefined);
+  const [targetMemoId, setTargetMemoId] = useState<string | undefined>(undefined);
+  const [targetApplicationId, setTargetApplicationId] = useState<string | undefined>(undefined);
+  const [targetEventId, setTargetEventId] = useState<string | undefined>(undefined);
+
+  const handleNavigateToContent = (target: {
+    tab: AppTab;
+    topicId?: string;
+    chatRoomId?: string;
+    memoId?: string;
+    applicationId?: string;
+    eventId?: string;
+  }) => {
+    setActiveTab(target.tab);
+    setTargetTopicId(target.topicId);
+    setTargetChatRoomId(target.chatRoomId);
+    setTargetMemoId(target.memoId);
+    setTargetApplicationId(target.applicationId);
+    setTargetEventId(target.eventId);
+  };
 
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
     return localStorage.getItem('is_logged_in') === 'true';
@@ -427,6 +451,15 @@ export default function App() {
           const authorUser = currentUsers.find(u => u.id === t.authorId) || t.author || userState;
           const commentsList = Array.isArray(t.comments) ? t.comments : [];
 
+          let parsedViewers = [];
+          if (Array.isArray(t.viewers)) {
+            parsedViewers = t.viewers;
+          } else if (typeof t.viewers === 'string' && t.viewers.startsWith('[')) {
+            try { parsedViewers = JSON.parse(t.viewers); } catch (_) {}
+          } else if (detailsObj.viewers && Array.isArray(detailsObj.viewers)) {
+            parsedViewers = detailsObj.viewers;
+          }
+
           return {
             id: String(t.id),
             category: t.category || 'general',
@@ -443,7 +476,7 @@ export default function App() {
             isPinned: t.isPinned === true || t.isPinned === 1,
             attachments: t.attachments ? (typeof t.attachments === 'string' && t.attachments.startsWith('[') ? JSON.parse(t.attachments) : t.attachments) : [],
             comments: commentsList,
-            viewers: [],
+            viewers: parsedViewers,
             commentsCount: commentsList.length || t.commentsCount || 0,
             ...detailsObj
           };
@@ -513,13 +546,14 @@ export default function App() {
             isHandled: m.isRead ? true : false
           }];
 
+          const isRead = m.isRead === 1 || m.isRead === true || m.status === 'read' || m.status === 'handled';
+
           return {
             id: String(m.id),
             fromName: m.fromName || '不詳',
             fromCompany: m.fromCompany || '',
             fromPhone: m.fromPhone || '',
             content: m.content || '',
-            status: m.isRead ? 'handled' : 'unread',
             createdAt: m.createdAt || new Date().toISOString(),
             targetOffices: m.targetOffices || [],
             targetDivisions: m.targetDivisions || [],
@@ -528,7 +562,8 @@ export default function App() {
             toUser: targetUser,
             createdByUser: activeUsers.find(u => u.id === m.senderId),
             ...detailsObj,
-            ...m
+            ...m,
+            status: m.status ? m.status : (isRead ? 'handled' : 'unread'),
           };
         });
 
@@ -657,6 +692,7 @@ export default function App() {
 
   const handleUpdateTopic = async (updatedTopic: BoardTopic) => {
     setTopics(prev => prev.map(t => t.id === updatedTopic.id ? updatedTopic : t));
+    window.dispatchEvent(new CustomEvent('notifications_updated'));
 
     try {
       const response = await fetch(`${API_BASE_URL}/bulletins/${updatedTopic.id}`, {
@@ -683,6 +719,21 @@ export default function App() {
       }
     } catch (err) {
       console.error('Failed to update bulletin via API:', err);
+    }
+  };
+
+  const handleDeleteTopic = async (topicId: string) => {
+    setTopics(prev => prev.filter(t => t.id !== topicId));
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/bulletins/${topicId}`, {
+        method: 'DELETE'
+      });
+      if (response.ok) {
+        await refetchTopics();
+      }
+    } catch (err) {
+      console.error('Failed to delete bulletin via API:', err);
     }
   };
 
@@ -884,115 +935,230 @@ export default function App() {
     }
   };
 
+  // Helpers for Master error handling & rollback
+  const getMasterErrorMessage = async (response: Response): Promise<string> => {
+    try {
+      const data = await response.json();
+      return data.error || data.message || `HTTP ${response.status}`;
+    } catch (_) {
+      try {
+        const text = await response.text();
+        return text || `HTTP ${response.status}`;
+      } catch (_) {
+        return `HTTP ${response.status}`;
+      }
+    }
+  };
+
+  const showMasterErrorModal = (title: string, errorMsg: string) => {
+    let suggestion = '管理者様は SSMS (SQL Server Management Studio) から `ssms-db-setup.sql` を実行して、データベースのテーブルスキーマ（カラムの追加等）を最新に更新してください。';
+    
+    const lowerMsg = errorMsg.toLowerCase();
+    if (lowerMsg.includes('phone') || lowerMsg.includes('location') || lowerMsg.includes('type') || lowerMsg.includes('code')) {
+      suggestion = 'SQL Server の `dbo.Offices` テーブルに `phone` などの新カラムが不足しているようです。`ssms-db-setup.sql` をお使いのデータベース（SSMS 等）に対して実行し、テーブルスキーマを最新の構成にアップデートしてください。';
+    } else if (lowerMsg.includes('description') || lowerMsg.includes('code')) {
+      suggestion = 'SQL Server の `dbo.Divisions` または `dbo.Positions` テーブルに `description` や `code` などの新カラムが不足しているようです。`ssms-db-setup.sql` をお使いのデータベースに対して実行し、テーブルスキーマをアップデートしてください。';
+    }
+    
+    setConfirmModal({
+      isOpen: true,
+      title: `${title}に失敗しました`,
+      message: `データベースの同期中にエラーが発生したため、変更をロールバックしました。\n\n【詳細なエラー】\n${errorMsg}\n\n【推奨される解決策】\n${suggestion}`,
+      type: 'danger',
+      confirmText: '閉じる',
+    });
+  };
+
   // Office Master Handlers
   const handleAddOffice = async (officeData: Omit<OfficeMaster, 'id'>) => {
+    const originalOffices = [...offices];
     const newOffice: OfficeMaster = {
       ...officeData,
       id: `off-${Date.now()}`,
     };
     setOffices(prev => [...prev, newOffice]);
     try {
-      await fetch(`${API_BASE_URL}/masters/offices`, {
+      const response = await fetch(`${API_BASE_URL}/masters/offices`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newOffice)
       });
+      if (!response.ok) {
+        const errMsg = await getMasterErrorMessage(response);
+        throw new Error(errMsg);
+      }
       await refetchMasters();
-    } catch (e) { console.error('Failed to add office:', e); }
+    } catch (e: any) {
+      console.error('Failed to add office:', e);
+      setOffices(originalOffices);
+      showMasterErrorModal('拠点マスターの追加', e.message || 'ネットワークエラーが発生しました。');
+    }
   };
 
   const handleUpdateOffice = async (updatedOffice: OfficeMaster) => {
+    const originalOffices = [...offices];
     setOffices(prev => prev.map((o) => (o.id === updatedOffice.id ? updatedOffice : o)));
     try {
-      await fetch(`${API_BASE_URL}/masters/offices/${updatedOffice.id}`, {
+      const response = await fetch(`${API_BASE_URL}/masters/offices/${updatedOffice.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatedOffice)
       });
+      if (!response.ok) {
+        const errMsg = await getMasterErrorMessage(response);
+        throw new Error(errMsg);
+      }
       await refetchMasters();
-    } catch (e) { console.error('Failed to update office:', e); }
+    } catch (e: any) {
+      console.error('Failed to update office:', e);
+      setOffices(originalOffices);
+      showMasterErrorModal('拠点マスターの更新', e.message || 'ネットワークエラーが発生しました。');
+    }
   };
 
   const handleDeleteOffice = async (officeId: string) => {
+    const originalOffices = [...offices];
     setOffices(prev => prev.filter((o) => o.id !== officeId));
     try {
-      await fetch(`${API_BASE_URL}/masters/offices/${officeId}`, { method: 'DELETE' });
+      const response = await fetch(`${API_BASE_URL}/masters/offices/${officeId}`, { method: 'DELETE' });
+      if (!response.ok) {
+        const errMsg = await getMasterErrorMessage(response);
+        throw new Error(errMsg);
+      }
       await refetchMasters();
-    } catch (e) { console.error('Failed to delete office:', e); }
+    } catch (e: any) {
+      console.error('Failed to delete office:', e);
+      setOffices(originalOffices);
+      showMasterErrorModal('拠点マスターの削除', e.message || 'ネットワークエラーが発生しました。');
+    }
   };
 
   // Division Master Handlers
   const handleAddDivision = async (divisionData: Omit<DivisionMaster, 'id'>) => {
+    const originalDivisions = [...divisions];
     const newDivision: DivisionMaster = {
       ...divisionData,
       id: `div-${Date.now()}`,
     };
     setDivisions(prev => [...prev, newDivision]);
     try {
-      await fetch(`${API_BASE_URL}/masters/divisions`, {
+      const response = await fetch(`${API_BASE_URL}/masters/divisions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newDivision)
       });
+      if (!response.ok) {
+        const errMsg = await getMasterErrorMessage(response);
+        throw new Error(errMsg);
+      }
       await refetchMasters();
-    } catch (e) { console.error('Failed to add division:', e); }
+    } catch (e: any) {
+      console.error('Failed to add division:', e);
+      setDivisions(originalDivisions);
+      showMasterErrorModal('部署マスターの追加', e.message || 'ネットワークエラーが発生しました。');
+    }
   };
 
   const handleUpdateDivision = async (updatedDivision: DivisionMaster) => {
+    const originalDivisions = [...divisions];
     setDivisions(prev => prev.map((d) => (d.id === updatedDivision.id ? updatedDivision : d)));
     try {
-      await fetch(`${API_BASE_URL}/masters/divisions/${updatedDivision.id}`, {
+      const response = await fetch(`${API_BASE_URL}/masters/divisions/${updatedDivision.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatedDivision)
       });
+      if (!response.ok) {
+        const errMsg = await getMasterErrorMessage(response);
+        throw new Error(errMsg);
+      }
       await refetchMasters();
-    } catch (e) { console.error('Failed to update division:', e); }
+    } catch (e: any) {
+      console.error('Failed to update division:', e);
+      setDivisions(originalDivisions);
+      showMasterErrorModal('部署マスターの更新', e.message || 'ネットワークエラーが発生しました。');
+    }
   };
 
   const handleDeleteDivision = async (divisionId: string) => {
+    const originalDivisions = [...divisions];
     setDivisions(prev => prev.filter((d) => d.id !== divisionId));
     try {
-      await fetch(`${API_BASE_URL}/masters/divisions/${divisionId}`, { method: 'DELETE' });
+      const response = await fetch(`${API_BASE_URL}/masters/divisions/${divisionId}`, { method: 'DELETE' });
+      if (!response.ok) {
+        const errMsg = await getMasterErrorMessage(response);
+        throw new Error(errMsg);
+      }
       await refetchMasters();
-    } catch (e) { console.error('Failed to delete division:', e); }
+    } catch (e: any) {
+      console.error('Failed to delete division:', e);
+      setDivisions(originalDivisions);
+      showMasterErrorModal('部署マスターの削除', e.message || 'ネットワークエラーが発生しました。');
+    }
   };
 
   // Position Master Handlers
   const handleAddPosition = async (positionData: Omit<PositionMaster, 'id'>) => {
+    const originalPositions = [...positions];
     const newPosition: PositionMaster = {
       ...positionData,
       id: `pos-${Date.now()}`,
     };
     setPositions(prev => [...prev, newPosition]);
     try {
-      await fetch(`${API_BASE_URL}/masters/positions`, {
+      const response = await fetch(`${API_BASE_URL}/masters/positions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newPosition)
       });
+      if (!response.ok) {
+        const errMsg = await getMasterErrorMessage(response);
+        throw new Error(errMsg);
+      }
       await refetchMasters();
-    } catch (e) { console.error('Failed to add position:', e); }
+    } catch (e: any) {
+      console.error('Failed to add position:', e);
+      setPositions(originalPositions);
+      showMasterErrorModal('役職マスターの追加', e.message || 'ネットワークエラーが発生しました。');
+    }
   };
 
   const handleUpdatePosition = async (updatedPosition: PositionMaster) => {
+    const originalPositions = [...positions];
     setPositions(prev => prev.map((p) => (p.id === updatedPosition.id ? updatedPosition : p)));
     try {
-      await fetch(`${API_BASE_URL}/masters/positions/${updatedPosition.id}`, {
+      const response = await fetch(`${API_BASE_URL}/masters/positions/${updatedPosition.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatedPosition)
       });
+      if (!response.ok) {
+        const errMsg = await getMasterErrorMessage(response);
+        throw new Error(errMsg);
+      }
       await refetchMasters();
-    } catch (e) { console.error('Failed to update position:', e); }
+    } catch (e: any) {
+      console.error('Failed to update position:', e);
+      setPositions(originalPositions);
+      showMasterErrorModal('役職マスターの更新', e.message || 'ネットワークエラーが発生しました。');
+    }
   };
 
   const handleDeletePosition = async (positionId: string) => {
+    const originalPositions = [...positions];
     setPositions(prev => prev.filter((p) => p.id !== positionId));
     try {
-      await fetch(`${API_BASE_URL}/masters/positions/${positionId}`, { method: 'DELETE' });
+      const response = await fetch(`${API_BASE_URL}/masters/positions/${positionId}`, { method: 'DELETE' });
+      if (!response.ok) {
+        const errMsg = await getMasterErrorMessage(response);
+        throw new Error(errMsg);
+      }
       await refetchMasters();
-    } catch (e) { console.error('Failed to delete position:', e); }
+    } catch (e: any) {
+      console.error('Failed to delete position:', e);
+      setPositions(originalPositions);
+      showMasterErrorModal('役職マスターの削除', e.message || 'ネットワークエラーが発生しました。');
+    }
   };
 
   // Handle new post creation with API
@@ -1606,6 +1772,7 @@ export default function App() {
   const handleUpdateMemos = async (updatedMemos: any[]) => {
     const existingIds = new Set(memos.map(m => m.id));
     setMemos(updatedMemos);
+    window.dispatchEvent(new CustomEvent('notifications_updated'));
 
     try {
       localStorage.setItem('local_memos_cache', JSON.stringify(updatedMemos));
@@ -1635,7 +1802,7 @@ export default function App() {
                 targetDivisions: memo.targetDivisions,
                 recipientStatuses: memo.recipientStatuses,
               },
-              isRead: memo.status === 'handled' ? 1 : 0,
+              isRead: (memo.status === 'handled' || memo.status === 'read') ? 1 : 0,
               createdAt: memo.createdAt || new Date().toISOString()
             })
           });
@@ -1645,7 +1812,7 @@ export default function App() {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              isRead: memo.status === 'handled' ? 1 : 0,
+              isRead: (memo.status === 'handled' || memo.status === 'read') ? 1 : 0,
               details: {
                 requirementType: memo.requirementType,
                 requirementText: memo.requirementText,
@@ -1727,7 +1894,71 @@ export default function App() {
         allUsers={usersList}
         onSwitchUser={handleSwitchUser}
         onLogout={handleLogout}
+        memos={memos}
+        applications={applications}
+        topics={topics}
+        events={events}
+        chatRooms={chatRooms}
+        onSelectTab={setActiveTab}
+        onNavigateToContent={handleNavigateToContent}
+        onUpdateMemos={handleUpdateMemos}
+        onUpdateTopic={handleUpdateTopic}
+        onToggleMobileMenu={() => setIsMobileMenuOpen(prev => !prev)}
       />
+
+      {/* Mobile Navigation Drawer */}
+      {isMobileMenuOpen && (
+        <div className="fixed inset-0 z-50 lg:hidden">
+          {/* Dark Backdrop */}
+          <div
+            className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs transition-opacity"
+            onClick={() => setIsMobileMenuOpen(false)}
+          />
+          {/* Drawer Content */}
+          <div className="fixed inset-y-0 left-0 w-72 max-w-[85vw] bg-white z-50 p-4 overflow-y-auto shadow-2xl flex flex-col gap-4 animate-in slide-in-from-left duration-200">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+              <div
+                onClick={() => {
+                  setActiveTab('mypage');
+                  setIsMobileMenuOpen(false);
+                }}
+                className="flex items-center gap-2 cursor-pointer select-none hover:opacity-90 transition-opacity"
+                title="マイページへ"
+              >
+                <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center shadow-xs">
+                  <span className="text-white font-bold text-lg leading-none">T</span>
+                </div>
+                <span className="text-lg font-bold tracking-tight text-slate-800">
+                  TERANAGO<span className="text-indigo-600">SNS</span>
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                title="閉じる"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <Sidebar
+              posts={posts}
+              selectedTag={selectedTag}
+              onSelectTag={(tag) => {
+                setSelectedTag(tag);
+                setIsMobileMenuOpen(false);
+              }}
+              activeTab={activeTab}
+              onChangeTab={(tab) => {
+                setActiveTab(tab);
+                setIsMobileMenuOpen(false);
+              }}
+              currentUser={userState}
+              className="bg-white flex flex-col gap-6"
+            />
+          </div>
+        </div>
+      )}
 
       {Object.keys(fetchErrors).length > 0 && (
         <div className="bg-rose-50 border-b border-rose-200 py-3 px-4 text-rose-800 text-sm">
@@ -1802,6 +2033,7 @@ export default function App() {
             allUsers={usersList}
             offices={offices}
             divisions={divisions}
+            initialEventId={targetEventId}
           />
         )}
         {activeTab === 'workflow' && (
@@ -1815,6 +2047,7 @@ export default function App() {
             approvalFlows={approvalFlows}
             onWorkflowAction={handleWorkflowAction}
             itemMasters={itemMasters}
+            initialAppId={targetApplicationId}
           />
         )}
         {activeTab === 'board' && (
@@ -1822,9 +2055,11 @@ export default function App() {
             topics={topics}
             onAddTopic={handleAddTopic}
             onUpdateTopic={handleUpdateTopic}
+            onDeleteTopic={handleDeleteTopic}
             currentUser={userState}
             offices={offices}
             divisions={divisions}
+            initialTopicId={targetTopicId}
           />
         )}
         {activeTab === 'chat' && (
@@ -1835,6 +2070,7 @@ export default function App() {
             offices={offices}
             divisions={divisions}
             onUpdateRooms={handleUpdateRooms}
+            initialRoomId={targetChatRoomId}
           />
         )}
         {activeTab === 'memo' && (
@@ -1845,6 +2081,7 @@ export default function App() {
             users={usersList}
             currentUser={userState}
             onUpdateMemos={handleUpdateMemos}
+            initialMemoId={targetMemoId}
           />
         )}
         {activeTab === 'daily_report' && (
@@ -1861,11 +2098,13 @@ export default function App() {
             topics={topics}
             memos={memos}
             applications={applications}
+            chatRooms={chatRooms}
             offices={offices}
             divisions={divisions}
             positions={positions}
             allUsers={usersList}
             onChangeTab={setActiveTab}
+            onNavigateToContent={handleNavigateToContent}
             onUpdateUser={handleUpdateUser}
             onUpdateMemo={handleUpdateMemos}
             onUpdateTopic={handleUpdateTopic}

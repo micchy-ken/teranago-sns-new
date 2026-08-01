@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { Memo, User, OfficeMaster, DivisionMaster, RequirementType, MemoUserRecipientStatus } from '../types';
+import { getAvatarUrl } from '../utils/avatar';
 import { API_BASE_URL } from '../config/api';
+import { markMemoAsRead } from '../utils/notifications';
 import { 
   Phone, 
   Check, 
@@ -27,6 +29,7 @@ interface MemoListProps {
   users?: User[];
   currentUser?: User;
   onUpdateMemos?: (memos: Memo[]) => void;
+  initialMemoId?: string;
 }
 
 export function MemoList({
@@ -36,6 +39,7 @@ export function MemoList({
   users = [],
   currentUser,
   onUpdateMemos,
+  initialMemoId,
 }: MemoListProps) {
   const [memos, setMemos] = useState<Memo[]>(initialMemos);
   const [filter, setFilter] = useState<'all' | 'unread' | 'handled'>('unread');
@@ -48,6 +52,21 @@ export function MemoList({
   // モーダル制御
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [detailMemo, setDetailMemo] = useState<Memo | null>(null);
+
+  const processedInitialMemoIdRef = React.useRef<string | null>(null);
+
+  React.useEffect(() => {
+    if (initialMemoId && processedInitialMemoIdRef.current !== initialMemoId) {
+      const target = initialMemos.find(m => m.id === initialMemoId);
+      if (target) {
+        processedInitialMemoIdRef.current = initialMemoId;
+        setDetailMemo(target);
+        if (currentUser?.id) {
+          markMemoAsRead(currentUser.id, target.id);
+        }
+      }
+    }
+  }, [initialMemoId, initialMemos, currentUser?.id]);
 
   // 新規伝言フォーム状態
   const [fromName, setFromName] = useState('');
@@ -716,7 +735,7 @@ export function MemoList({
                           }`}
                         >
                           <img
-                            src={u.avatarUrl}
+                            src={getAvatarUrl(u.avatarUrl)}
                             alt={u.name}
                             className="w-4 h-4 rounded-full object-cover"
                           />
@@ -987,7 +1006,7 @@ export function MemoList({
                     >
                       <div className="flex items-center gap-3">
                         <img
-                          src={st.avatarUrl || 'https://i.pravatar.cc/150'}
+                          src={getAvatarUrl(st.avatarUrl)}
                           alt={st.userName}
                           className="w-8 h-8 rounded-full object-cover border border-slate-200 shrink-0"
                         />

@@ -3,6 +3,7 @@ import { WorkflowApplication, ApplicationType, ApplicationStatus, User as UserTy
 import { FileText, CheckCircle2, XCircle, Clock, Plus, ArrowRight, GitMerge, UserCheck, AlertTriangle, Edit3, MessageSquare, Send, X, ShoppingBag, Building2, Hash, ExternalLink, Package, Calendar, RotateCcw, Trash2 } from 'lucide-react';
 import { ApplicationModal } from './ApplicationModal';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
+import { getAvatarUrl } from '../utils/avatar';
 
 interface WorkflowProps {
   applications: WorkflowApplication[];
@@ -14,6 +15,7 @@ interface WorkflowProps {
   approvalFlows?: ApprovalFlowRule[];
   onWorkflowAction?: (id: string, status: 'approved' | 'rejected', comment?: string) => void;
   itemMasters?: ItemMaster[];
+  initialAppId?: string;
 }
 
 const typeLabels: Record<string, string> = {
@@ -41,9 +43,35 @@ const getStatusConfig = (status?: string) => {
   return statusConfig.pending;
 };
 
-export function Workflow({ applications, onAddApplication, onUpdateApplication, onDeleteApplication, allUsers, currentUser, approvalFlows, onWorkflowAction, itemMasters = [] }: WorkflowProps) {
+export function Workflow({ applications, onAddApplication, onUpdateApplication, onDeleteApplication, allUsers, currentUser, approvalFlows, onWorkflowAction, itemMasters = [], initialAppId }: WorkflowProps) {
   const [filter, setFilter] = useState<'my_applications' | 'pending_approval' | 'draft'>('my_applications');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [highlightedAppId, setHighlightedAppId] = useState<string | null>(null);
+
+  const processedInitialAppIdRef = React.useRef<string | null>(null);
+
+  React.useEffect(() => {
+    if (initialAppId && processedInitialAppIdRef.current !== initialAppId) {
+      const targetApp = applications.find(a => a.id === initialAppId);
+      if (targetApp) {
+        processedInitialAppIdRef.current = initialAppId;
+        if (targetApp.status === 'draft' && targetApp.applicant?.id === currentUser?.id) {
+          setFilter('draft');
+        } else if (targetApp.approver?.id === currentUser?.id) {
+          setFilter('pending_approval');
+        } else {
+          setFilter('my_applications');
+        }
+        setHighlightedAppId(initialAppId);
+        setTimeout(() => {
+          const el = document.getElementById(`workflow-card-${initialAppId}`);
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        }, 150);
+      }
+    }
+  }, [initialAppId, applications, currentUser]);
 
   // 却下ダイアログ用の状態
   const [rejectingAppId, setRejectingAppId] = useState<string | null>(null);
@@ -392,8 +420,18 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
       <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-50/30">
         <div className="max-w-4xl mx-auto space-y-4">
           {filteredApps.length > 0 ? (
-            filteredApps.map(app => (
-              <div key={app.id} className="bg-white border border-slate-200 rounded-xl p-5 hover:border-indigo-200 transition-colors shadow-sm group">
+            filteredApps.map(app => {
+              const isHighlighted = highlightedAppId === app.id;
+              return (
+                <div
+                  key={app.id}
+                  id={`workflow-card-${app.id}`}
+                  className={`bg-white border rounded-xl p-5 transition-all shadow-sm group ${
+                    isHighlighted
+                      ? 'border-indigo-500 ring-2 ring-indigo-500/30 bg-indigo-50/20'
+                      : 'border-slate-200 hover:border-indigo-200'
+                  }`}
+                >
                 <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-4">
                   <div>
                     <div className="flex flex-wrap items-center gap-2 mb-2">
@@ -424,7 +462,7 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
                       <>
                         <span className="text-xs text-slate-500 font-medium">承認者</span>
                         <div className="flex items-center gap-2">
-                          <img src={app.approver?.avatarUrl || 'https://i.pravatar.cc/150'} alt={app.approver?.name} className="w-6 h-6 rounded-full border border-slate-200 object-cover" />
+                          <img src={getAvatarUrl(app.approver?.avatarUrl)} alt={app.approver?.name} className="w-6 h-6 rounded-full border border-slate-200 object-cover" />
                           <span className="text-sm font-semibold text-slate-800">{app.approver?.name || '未設定'}</span>
                         </div>
                       </>
@@ -432,7 +470,7 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
                       <>
                         <span className="text-xs text-slate-500 font-medium">申請者</span>
                         <div className="flex items-center gap-2">
-                          <img src={app.applicant?.avatarUrl || 'https://i.pravatar.cc/150'} alt={app.applicant?.name} className="w-6 h-6 rounded-full border border-slate-200 object-cover" />
+                          <img src={getAvatarUrl(app.applicant?.avatarUrl)} alt={app.applicant?.name} className="w-6 h-6 rounded-full border border-slate-200 object-cover" />
                           <span className="text-sm font-semibold text-slate-800">{app.applicant?.name || '未設定'}</span>
                         </div>
                       </>
@@ -876,7 +914,8 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
                   </div>
                 </div>
               </div>
-            ))
+            );
+          })
           ) : (
             <div className="text-center py-16 bg-white rounded-xl border border-slate-200">
               <FileText className="w-12 h-12 text-slate-300 mx-auto mb-4" />

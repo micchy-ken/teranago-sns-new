@@ -1,25 +1,32 @@
 import React, { useState, useMemo } from 'react';
 import { BoardTopic, User, OfficeMaster, DivisionMaster } from '../types';
-import { MessageSquare, Eye, Plus, Search, Pin, Paperclip, Calendar as CalendarIcon, Building2, Users, Flame, Tag } from 'lucide-react';
+import { getAvatarUrl } from '../utils/avatar';
+import { markTopicAsRead } from '../utils/notifications';
+import { MessageSquare, Eye, Plus, Search, Pin, Paperclip, Calendar as CalendarIcon, Building2, Users, Flame, Tag, Trash2 } from 'lucide-react';
 import { TopicCreateModal } from './TopicCreateModal';
 import { TopicDetailModal } from './TopicDetailModal';
+import { ConfirmModal } from './ConfirmModal';
 
 interface BoardProps {
   topics: BoardTopic[];
   onAddTopic?: (topicData: Omit<BoardTopic, 'id' | 'createdAt' | 'views' | 'commentsCount'>) => void;
   onUpdateTopic?: (topic: BoardTopic) => void;
+  onDeleteTopic?: (topicId: string) => void;
   currentUser: User;
   offices?: OfficeMaster[];
   divisions?: DivisionMaster[];
+  initialTopicId?: string;
 }
 
 export function Board({
   topics,
   onAddTopic,
   onUpdateTopic,
+  onDeleteTopic,
   currentUser,
   offices = [],
   divisions = [],
+  initialTopicId,
 }: BoardProps) {
   const [selectedTag, setSelectedTag] = useState<string>('ALL');
   const [selectedOffice, setSelectedOffice] = useState<string>('全社');
@@ -30,6 +37,38 @@ export function Board({
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [selectedTopic, setSelectedTopic] = useState<BoardTopic | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [topicToDelete, setTopicToDelete] = useState<string | null>(null);
+
+  const handleOpenDetail = (topic: BoardTopic) => {
+    markTopicAsRead(currentUser?.id, topic.id);
+    const alreadyViewed = topic.viewers?.some(v => v?.user?.id === currentUser?.id);
+    if (!alreadyViewed && onUpdateTopic) {
+      const newViewers = [...(topic.viewers || []), { user: currentUser, viewedAt: new Date().toISOString() }];
+      onUpdateTopic({ ...topic, viewers: newViewers, views: (topic.views || 0) + 1 });
+    }
+    setSelectedTopic(topic);
+    setIsDetailModalOpen(true);
+  };
+
+  const processedInitialTopicIdRef = React.useRef<string | null>(null);
+
+  React.useEffect(() => {
+    if (initialTopicId && processedInitialTopicIdRef.current !== initialTopicId) {
+      const target = topics.find(t => t.id === initialTopicId);
+      if (target) {
+        processedInitialTopicIdRef.current = initialTopicId;
+        handleOpenDetail(target);
+      }
+    }
+  }, [initialTopicId, topics]);
+
+  // 作成者および管理者のみ削除可能
+  const canDeleteTopic = (topic: BoardTopic) => {
+    if (!currentUser) return false;
+    const isAdmin = currentUser.isAdmin || currentUser.role === 'admin';
+    const isAuthor = currentUser.id === topic.author?.id;
+    return isAdmin || isAuthor;
+  };
 
   // 全トピックのタグを集計して「人気のタグ」を算出（使用頻度の高い順）
   const popularTags = useMemo(() => {
@@ -90,11 +129,6 @@ export function Board({
         return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
       });
   }, [topics, selectedTag, selectedOffice, selectedDivision, searchQuery]);
-
-  const handleOpenDetail = (topic: BoardTopic) => {
-    setSelectedTopic(topic);
-    setIsDetailModalOpen(true);
-  };
 
   const handleCreateSubmit = (topicData: Omit<BoardTopic, 'id' | 'createdAt' | 'views' | 'commentsCount'>) => {
     if (onAddTopic) {
@@ -236,7 +270,7 @@ export function Board({
                   <div className="flex items-start gap-4">
                     {/* User Avatar */}
                     <img
-                      src={topic.author.avatarUrl}
+                      src={getAvatarUrl(topic.author.avatarUrl)}
                       alt={topic.author.name}
                       className="w-10 h-10 rounded-full border border-slate-200 object-cover shrink-0 hidden sm:block"
                     />
@@ -262,9 +296,24 @@ export function Board({
                           </span>
                         )}
 
-                        <span className="text-xs text-slate-400 ml-auto">
-                          {new Date(topic.createdAt).toLocaleDateString('ja-JP')}
-                        </span>
+                        <div className="flex items-center gap-2 ml-auto">
+                          <span className="text-xs text-slate-400">
+                            {new Date(topic.createdAt).toLocaleDateString('ja-JP')}
+                          </span>
+                          {onDeleteTopic && canDeleteTopic(topic) && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setTopicToDelete(topic.id);
+                              }}
+                              className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                              title="トピックを削除"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
                       </div>
 
                       {/* Title */}
@@ -299,7 +348,7 @@ export function Board({
                       <div className="flex flex-wrap items-center justify-between gap-3 text-xs font-semibold text-slate-500 pt-2 border-t border-slate-100">
                         <div className="flex items-center gap-2">
                           <img
-                            src={topic.author.avatarUrl}
+                            src={getAvatarUrl(topic.author.avatarUrl)}
                             alt={topic.author.name}
                             className="w-5 h-5 rounded-full sm:hidden border border-slate-200"
                           />
@@ -361,6 +410,27 @@ export function Board({
         onClose={() => setIsDetailModalOpen(false)}
         currentUser={currentUser}
         onUpdateTopic={handleUpdateTopicInternal}
+        onDeleteTopic={(topicId) => {
+          setIsDetailModalOpen(false);
+          setTopicToDelete(topicId);
+        }}
+      />
+
+      {/* 削除確認モーダル */}
+      <ConfirmModal
+        isOpen={!!topicToDelete}
+        title="トピックの削除"
+        message="このトピックを削除してもよろしいですか？この操作は取り消せません。"
+        type="danger"
+        confirmText="削除する"
+        cancelText="キャンセル"
+        onConfirm={() => {
+          if (topicToDelete && onDeleteTopic) {
+            onDeleteTopic(topicToDelete);
+          }
+          setTopicToDelete(null);
+        }}
+        onClose={() => setTopicToDelete(null)}
       />
     </div>
   );

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { X, MessageSquare, Eye, Pin, Paperclip, Calendar as CalendarIcon, Send, Trash2, Building2, Users, Tag, CheckCircle2, Edit3, Save, Plus } from 'lucide-react';
 import { BoardTopic, User, OfficeMaster, DivisionMaster, AttachmentFile } from '../types';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
+import { getAvatarUrl } from '../utils/avatar';
 
 interface TopicDetailModalProps {
   topic: BoardTopic | null;
@@ -9,6 +10,7 @@ interface TopicDetailModalProps {
   onClose: () => void;
   currentUser: User;
   onUpdateTopic: (updatedTopic: BoardTopic) => void;
+  onDeleteTopic?: (topicId: string) => void;
   offices?: OfficeMaster[];
   divisions?: DivisionMaster[];
 }
@@ -19,6 +21,7 @@ export function TopicDetailModal({
   onClose,
   currentUser,
   onUpdateTopic,
+  onDeleteTopic,
   offices = [],
   divisions = [],
 }: TopicDetailModalProps) {
@@ -82,6 +85,9 @@ export function TopicDetailModal({
     topic.author.id === currentUser.id || 
     (topic.author.loginId && currentUser.loginId && topic.author.loginId === currentUser.loginId) ||
     topic.author.name === currentUser.name;
+
+  const isAdmin = !!(currentUser && (currentUser.isAdmin || currentUser.role === 'admin'));
+  const canDeleteTopic = isAuthor || isAdmin;
 
   // 保存処理 (本人編集)
   const handleSaveEdit = (e: React.FormEvent) => {
@@ -200,6 +206,25 @@ export function TopicDetailModal({
                 編集する
               </button>
             )}
+            {canDeleteTopic && onDeleteTopic && !isEditing && (
+              <button
+                onClick={() => {
+                  setConfirmModal({
+                    isOpen: true,
+                    title: 'トピックの削除',
+                    message: 'このトピックを削除してもよろしいですか？この操作は取り消せません。',
+                    type: 'danger',
+                    confirmText: '削除する',
+                    cancelText: 'キャンセル',
+                    onConfirm: () => onDeleteTopic(topic.id)
+                  });
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 font-bold text-xs rounded-xl border border-red-200 transition-colors"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                削除する
+              </button>
+            )}
             <button
               onClick={onClose}
               className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-200/60 rounded-lg transition-colors"
@@ -214,7 +239,7 @@ export function TopicDetailModal({
           <div className="px-6 py-3 bg-white border-b border-slate-100 flex flex-wrap items-center justify-between gap-3 shrink-0">
             <div className="flex items-center gap-3">
               <img
-                src={topic.author.avatarUrl}
+                src={getAvatarUrl(topic.author.avatarUrl)}
                 alt={topic.author.name}
                 className="w-9 h-9 rounded-full border border-slate-200 object-cover"
               />
@@ -547,7 +572,7 @@ export function TopicDetailModal({
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-2">
                                 <img
-                                  src={c.author.avatarUrl}
+                                  src={getAvatarUrl(c.author.avatarUrl)}
                                   alt={c.author.name}
                                   className="w-6 h-6 rounded-full border border-slate-200"
                                 />
@@ -556,7 +581,7 @@ export function TopicDetailModal({
                                   {new Date(c.createdAt).toLocaleString('ja-JP')}
                                 </span>
                               </div>
-                              {c.author.id === currentUser.id && (
+                              {(c.author.id === currentUser.id || isAdmin) && (
                                 <button
                                   type="button"
                                   onClick={() => handleDeleteComment(c.id)}
@@ -618,7 +643,7 @@ export function TopicDetailModal({
                       >
                         <div className="flex items-center gap-2.5">
                           <img
-                            src={v.user.avatarUrl}
+                            src={getAvatarUrl(v.user.avatarUrl)}
                             alt={v.user.name}
                             className="w-8 h-8 rounded-full border border-slate-200 object-cover"
                           />

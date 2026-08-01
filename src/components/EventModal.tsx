@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, RefreshCw, Trash2, AlertCircle, Link as LinkIcon, Building2, Users, Paperclip, Plus, Check, UserCheck, Copy } from 'lucide-react';
 import { EventType, CalendarEvent, OfficeMaster, DivisionMaster, User, AttachmentFile } from '../types';
+import { getAvatarUrl } from '../utils/avatar';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 
 interface EventModalProps {
@@ -51,6 +52,7 @@ export function EventModal({
   const [selectedAttendees, setSelectedAttendees] = useState<User[]>([]);
   const [attachments, setAttachments] = useState<AttachmentFile[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -231,8 +233,6 @@ export function EventModal({
 
     onClose();
   };
-
-  const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
 
   const handleDelete = () => {
     if (editingEvent && onDelete) {
@@ -437,7 +437,7 @@ export function EventModal({
                     }`}
                   >
                     <img
-                      src={user.avatarUrl}
+                      src={getAvatarUrl(user.avatarUrl)}
                       alt={user.name}
                       className="w-4 h-4 rounded-full object-cover shrink-0"
                     />

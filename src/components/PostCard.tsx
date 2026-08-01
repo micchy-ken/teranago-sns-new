@@ -3,6 +3,7 @@ import { Heart, MessageCircle, Share2, MoreHorizontal, Trash2 } from 'lucide-rea
 import { Post, User } from '../types';
 import { formatRelativeTime } from '../utils';
 import { API_BASE_URL } from '../config/api';
+import { getAvatarUrl } from '../utils/avatar';
 
 interface PostCardProps {
   post: Post;
@@ -25,7 +26,7 @@ export const PostCard: React.FC<PostCardProps> = ({
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-center gap-3 w-full">
           <img
-            src={post.author?.avatarUrl || 'https://i.pravatar.cc/150'}
+            src={getAvatarUrl(post.author?.avatarUrl)}
             alt={post.author?.name || '匿名'}
             className="w-10 h-10 rounded-full object-cover border border-slate-100 bg-slate-100 shrink-0"
           />
@@ -38,7 +39,7 @@ export const PostCard: React.FC<PostCardProps> = ({
           </div>
         </div>
         <div className="flex items-center gap-1 shrink-0 ml-2">
-          {onDelete && currentUser && (currentUser.isAdmin || currentUser.id === post.author?.id) && (
+          {onDelete && currentUser && (currentUser.isAdmin || currentUser.role === 'admin' || currentUser.id === post.author?.id) && (
             <button
               onClick={(e) => {
                 e.preventDefault();

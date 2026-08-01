@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Send, Image as ImageIcon, Paperclip, Hash } from 'lucide-react';
 import { User } from '../types';
+import { getAvatarUrl } from '../utils/avatar';
 
 interface PostFormProps {
   onPost: (content: string, tags: string[], nasLink?: string) => void;
@@ -36,7 +37,7 @@ export function PostForm({ onPost, currentUser }: PostFormProps) {
     <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm ring-1 ring-slate-900/5 mb-6 transition-all duration-300">
       <div className="flex items-start gap-4">
         <img
-          src={currentUser?.avatarUrl || 'https://i.pravatar.cc/150'}
+          src={getAvatarUrl(currentUser?.avatarUrl)}
           alt={currentUser?.name || 'ユーザー'}
           className="w-10 h-10 rounded-full border border-slate-100 object-cover shrink-0"
         />
