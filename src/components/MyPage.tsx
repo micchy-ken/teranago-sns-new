@@ -320,8 +320,6 @@ export function MyPage({
 
   return (
     <div className="flex-1 overflow-y-auto bg-slate-50/50 rounded-xl border border-slate-200 h-[calc(100vh-8rem)] p-4 sm:p-6 space-y-6">
-
-
       {/* 5つの未読通知サマリーカード */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
         {/* スケジュール */}

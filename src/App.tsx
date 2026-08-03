@@ -14,6 +14,7 @@ import { MyPage } from './components/MyPage';
 import { AdminPanel } from './components/AdminPanel';
 import { LoginScreen } from './components/LoginScreen';
 import { Post, CalendarEvent, WorkflowApplication, User, OfficeMaster, DivisionMaster, PositionMaster, BoardTopic, ChatRoom, ApprovalFlowRule, ApprovalStepConfig, ItemMaster, ApplicationStatus, DailyReport, Memo } from './types';
+import { syncUserReadStatusesFromServer } from './utils/notifications';
 
 // Helper to map and sanitize API user objects to match frontend types safely
 const mapUserFromApi = (apiUser: any): User => {
@@ -117,6 +118,12 @@ export default function App() {
     }
     return { id: 'u1', name: 'ユーザー', role: 'user', department: '' };
   });
+
+  useEffect(() => {
+    if (userState?.id && isAuthenticated) {
+      syncUserReadStatusesFromServer(userState.id);
+    }
+  }, [userState?.id, isAuthenticated]);
 
   const handleLogin = (user: User) => {
     setUserState(user);
