@@ -4,7 +4,7 @@ import { API_BASE_URL } from '../config/api';
  * デフォルトの顔シルエット（SVGデータURL）
  * 薄いグレーの背景に、白に近いグレーの人影を表現したシンプルで洗練されたシルエットです。
  */
-export const SILHOUETTE_SVG = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23cbd5e1' style='background-color:%23f1f5f9'><path d='M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z'/></svg>";
+export const SILHOUETTE_SVG = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0iI2NiZDVlMSIgc3R5bGU9ImJhY2tncm91bmQtY29sb3I6I2YxZjVmOSI+PHBhdGggZD0iTTEyIDEyYzIuMjEgMCA0LTEuNzkgNC00cy0xLjc5LTQtNC00LTQgMS43OS00IDQgMS43OSA0IDQgNHptMCAyYy0yLjY3IDAtOCAxLjM0LTggNHYyaDE2di0yYzAtMi42Ni01LjMzLTQtOC00eiIvPjwvc3ZnPg==";
 
 /**
  * ユーザーのアバターURLを解決するヘルパー関数
@@ -18,6 +18,11 @@ export const getAvatarUrl = (url?: string): string => {
 
   // Windowsパスなどのバックスラッシュをスラッシュに置換
   let sanitizedUrl = url.replace(/\\/g, '/');
+
+  // もしdataスキーム（Base64の埋め込み画像やSILHOUETTE_SVGなど）であればそのまま返す
+  if (sanitizedUrl.startsWith('data:')) {
+    return sanitizedUrl;
+  }
 
   // /uploads/ または uploads/ の位置を特定して、動的に現在の API_BASE_URL と紐付ける
   // これにより、データベースに保存されているドメイン(例: 192.168.24.50)と、
@@ -54,3 +59,35 @@ export const getAvatarUrl = (url?: string): string => {
   const prefix = sanitizedUrl.startsWith('/') ? sanitizedUrl : `/${sanitizedUrl}`;
   return `${baseUrl}${prefix}`;
 };
+
+/**
+ * データベース保存用にアバターURLをサニタイズ（クレンジング）します。
+ * シルエット画像（data:スキーム）やサンプル画像の場合は、無駄なデータを保存しないよう、空文字にします。
+ * アップロード画像（/uploads/...）の絶対URLが渡された場合は、ドメインに依存しないように相対パスに変換して保存します。
+ */
+export const sanitizeAvatarUrlForSave = (url?: string): string => {
+  if (!url || typeof url !== 'string' || url.trim() === '') {
+    return '';
+  }
+
+  let sanitized = url.replace(/\\/g, '/');
+
+  // dataスキーム（シルエットなど）やサンプルプレビューは空文字にする
+  if (sanitized.startsWith('data:') || sanitized.includes('pravatar.cc') || sanitized === 'avatar') {
+    return '';
+  }
+
+  // もし現在の環境や他ドメインの絶対URLであれば、/uploads/ 以降の相対パスに変換する
+  const uploadIndex = sanitized.indexOf('/uploads/');
+  if (uploadIndex !== -1) {
+    return sanitized.substring(uploadIndex); // "/uploads/avatar-xxx.png"
+  }
+
+  const uploadIndexNoSlash = sanitized.indexOf('uploads/');
+  if (uploadIndexNoSlash !== -1) {
+    return '/' + sanitized.substring(uploadIndexNoSlash);
+  }
+
+  return url;
+};
+

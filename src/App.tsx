@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { API_BASE_URL } from './config/api';
-import { getAvatarUrl } from './utils/avatar';
+import { getAvatarUrl, sanitizeAvatarUrlForSave } from './utils/avatar';
 import { Header } from './components/Header';
 import { Sidebar, AppTab } from './components/Sidebar';
 import { Timeline } from './components/Timeline';
@@ -14,7 +14,10 @@ import { MyPage } from './components/MyPage';
 import { AdminPanel } from './components/AdminPanel';
 import { LoginScreen } from './components/LoginScreen';
 import { Post, CalendarEvent, WorkflowApplication, User, OfficeMaster, DivisionMaster, PositionMaster, BoardTopic, ChatRoom, ApprovalFlowRule, ApprovalStepConfig, ItemMaster, ApplicationStatus, DailyReport, Memo } from './types';
-import { syncUserReadStatusesFromServer } from './utils/notifications';
+import { syncUserReadStatusesFromServer, isMemoUnread } from './utils/notifications';
+import { TopicDetailModal } from './components/TopicDetailModal';
+import { GlobalEventDetailModal } from './components/GlobalEventDetailModal';
+import { GlobalMemoDetailModal } from './components/GlobalMemoDetailModal';
 
 // Helper to map and sanitize API user objects to match frontend types safely
 const mapUserFromApi = (apiUser: any): User => {
@@ -91,6 +94,11 @@ export default function App() {
   const [targetApplicationId, setTargetApplicationId] = useState<string | undefined>(undefined);
   const [targetEventId, setTargetEventId] = useState<string | undefined>(undefined);
 
+  // グローバル詳細ポップアップ表示用の状態
+  const [globalSelectedEvent, setGlobalSelectedEvent] = useState<CalendarEvent | null>(null);
+  const [globalSelectedTopic, setGlobalSelectedTopic] = useState<BoardTopic | null>(null);
+  const [globalSelectedMemo, setGlobalSelectedMemo] = useState<Memo | null>(null);
+
   const handleNavigateToContent = (target: {
     tab: AppTab;
     topicId?: string;
@@ -99,6 +107,32 @@ export default function App() {
     applicationId?: string;
     eventId?: string;
   }) => {
+    // スケジュール（eventId）
+    if (target.eventId) {
+      const found = events.find(e => e.id === target.eventId);
+      if (found) {
+        setGlobalSelectedEvent(found);
+        return; // 画面遷移せずにポップアップ
+      }
+    }
+    // 掲示板（topicId）
+    if (target.topicId) {
+      const found = topics.find(t => t.id === target.topicId);
+      if (found) {
+        setGlobalSelectedTopic(found);
+        return; // 画面遷移せずにポップアップ
+      }
+    }
+    // 伝言メモ（memoId）
+    if (target.memoId) {
+      const found = memos.find(m => m.id === target.memoId);
+      if (found) {
+        setGlobalSelectedMemo(found);
+        return; // 画面遷移せずにポップアップ
+      }
+    }
+
+    // チャット、ワークフローなど遷移しないと表示できないものは通常遷移
     setActiveTab(target.tab);
     setTargetTopicId(target.topicId);
     setTargetChatRoomId(target.chatRoomId);
@@ -767,6 +801,7 @@ export default function App() {
     const tempId = `u-${Date.now()}`;
     const newUser: User = {
       ...userData,
+      avatarUrl: sanitizeAvatarUrlForSave(userData.avatarUrl),
       id: tempId,
     };
     // Optimistic UI update
@@ -796,14 +831,19 @@ export default function App() {
   };
 
   const handleUpdateUser = async (updatedUser: User) => {
+    const sanitizedUser = {
+      ...updatedUser,
+      avatarUrl: sanitizeAvatarUrlForSave(updatedUser.avatarUrl),
+    };
+
     // Optimistically update GUI state instantly
-    setUsersList(prev => prev.map((u) => (u.id === updatedUser.id ? updatedUser : u)));
-    if (updatedUser.id === userState.id) {
-      setUserState(updatedUser);
+    setUsersList(prev => prev.map((u) => (u.id === sanitizedUser.id ? sanitizedUser : u)));
+    if (sanitizedUser.id === userState.id) {
+      setUserState(sanitizedUser);
     }
 
     try {
-      const urlWithId = `${API_BASE_URL}/users/${updatedUser.id}`;
+      const urlWithId = `${API_BASE_URL}/users/${sanitizedUser.id}`;
       console.log(`Attempting update: PUT to ${urlWithId}...`);
       let response = await fetch(urlWithId, {
         method: 'PUT',
@@ -811,7 +851,7 @@ export default function App() {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
         },
-        body: JSON.stringify(updatedUser),
+        body: JSON.stringify(sanitizedUser),
       });
 
       if (!response.ok) {
@@ -823,7 +863,7 @@ export default function App() {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
           },
-          body: JSON.stringify(updatedUser),
+          body: JSON.stringify(sanitizedUser),
         });
       }
 
@@ -836,7 +876,7 @@ export default function App() {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
           },
-          body: JSON.stringify(updatedUser),
+          body: JSON.stringify(sanitizedUser),
         });
       }
 
@@ -849,7 +889,7 @@ export default function App() {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
           },
-          body: JSON.stringify(updatedUser),
+          body: JSON.stringify(sanitizedUser),
         });
       }
 
@@ -2208,6 +2248,85 @@ export default function App() {
         {...confirmModal}
         onClose={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
       />
+
+      {/* グローバル詳細ポップアップ */}
+      {globalSelectedEvent && (
+        <GlobalEventDetailModal
+          isOpen={!!globalSelectedEvent}
+          event={globalSelectedEvent}
+          onClose={() => setGlobalSelectedEvent(null)}
+          onEditInCalendar={(eventId) => {
+            // カレンダータブへ遷移して指定イベントを展開
+            setActiveTab('calendar');
+            setTargetEventId(eventId);
+          }}
+        />
+      )}
+
+      {globalSelectedTopic && (
+        <TopicDetailModal
+          isOpen={!!globalSelectedTopic}
+          topic={globalSelectedTopic}
+          currentUser={userState}
+          onClose={() => setGlobalSelectedTopic(null)}
+          onUpdateTopic={(updated) => {
+            setGlobalSelectedTopic(updated);
+            handleUpdateTopic(updated);
+          }}
+          offices={offices}
+          divisions={divisions}
+        />
+      )}
+
+      {globalSelectedMemo && (
+        <GlobalMemoDetailModal
+          isOpen={!!globalSelectedMemo}
+          memo={globalSelectedMemo}
+          currentUser={userState}
+          onClose={() => setGlobalSelectedMemo(null)}
+          onToggleStatus={(memoId) => {
+            // メモの未読/対応トグル処理
+            const updated = memos.map((m) => {
+              if (m.id === memoId) {
+                const currentlyUnread = isMemoUnread(m, userState);
+                const nextStatus = currentlyUnread ? ('read' as const) : ('unread' as const);
+
+                const newRecipientStatuses =
+                  m.recipientStatuses && m.recipientStatuses.length > 0
+                    ? m.recipientStatuses.map((st) =>
+                        st.userId === userState.id
+                          ? { ...st, isViewed: currentlyUnread, viewedAt: new Date().toISOString() }
+                          : st
+                      )
+                    : [
+                        {
+                          userId: userState.id,
+                          userName: userState.name || '',
+                          isViewed: currentlyUnread,
+                          viewedAt: new Date().toISOString(),
+                          isHandled: !currentlyUnread,
+                          status: nextStatus,
+                        },
+                      ];
+
+                return {
+                  ...m,
+                  status: nextStatus,
+                  recipientStatuses: newRecipientStatuses,
+                };
+              }
+              return m;
+            });
+            handleUpdateMemos(updated);
+            
+            // ポップアップ側の状態も更新
+            const updatedMemo = updated.find(m => m.id === memoId);
+            if (updatedMemo) {
+              setGlobalSelectedMemo(updatedMemo);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }
