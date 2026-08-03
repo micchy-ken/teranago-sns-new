@@ -12,8 +12,14 @@ export interface NotificationItem {
 }
 
 // -------------------------------------------------------------
-// イベント・トピック・チャット・メモの既読 LocalStorage & サーバーAPI同期
+// イベント・トピック・チャット・メモの既読 インメモリキャッシュ管理（LocalStorageは一切使用しない）
 // -------------------------------------------------------------
+
+// 指定ユーザーごとのインメモリ既読状態キャッシュ
+const memoryReadEventIds: Record<string, string[]> = {};
+const memoryReadTopicIds: Record<string, string[]> = {};
+const memoryReadMemoIds: Record<string, string[]> = {};
+const memoryReadChatTimestamps: Record<string, Record<string, string>> = {};
 
 /** サーバーへ既読状態を送信（非同期） */
 async function saveReadStatusToServer(userId: string, targetType: 'event' | 'topic' | 'memo' | 'chat', targetId: string) {
@@ -29,7 +35,7 @@ async function saveReadStatusToServer(userId: string, targetType: 'event' | 'top
   }
 }
 
-/** サーバーから既読状態を取得して LocalStorage と同期 */
+/** サーバーから既読状態を取得してインメモリキャッシュを同期 */
 export async function syncUserReadStatusesFromServer(userId: string) {
   if (!userId) return;
   try {
@@ -38,35 +44,18 @@ export async function syncUserReadStatusesFromServer(userId: string) {
     const records: Array<{ targetType: string; targetId: string; readAt: string }> = await res.json();
     if (!Array.isArray(records)) return;
 
-    const eventIds = records.filter((r) => r.targetType === 'event').map((r) => r.targetId);
-    const topicIds = records.filter((r) => r.targetType === 'topic').map((r) => r.targetId);
-    const memoIds = records.filter((r) => r.targetType === 'memo').map((r) => r.targetId);
+    // サーバーから取得したデータだけでインメモリキャッシュを完全に上書き
+    memoryReadEventIds[userId] = records.filter((r) => r.targetType === 'event').map((r) => r.targetId);
+    memoryReadTopicIds[userId] = records.filter((r) => r.targetType === 'topic').map((r) => r.targetId);
+    memoryReadMemoIds[userId] = records.filter((r) => r.targetType === 'memo').map((r) => r.targetId);
+    
     const chatTimestamps: Record<string, string> = {};
     records.filter((r) => r.targetType === 'chat').forEach((r) => {
       chatTimestamps[r.targetId] = r.readAt;
     });
+    memoryReadChatTimestamps[userId] = chatTimestamps;
 
-    if (eventIds.length > 0) {
-      const current = getReadEventIds(userId);
-      const merged = Array.from(new Set([...current, ...eventIds]));
-      localStorage.setItem(`read_events_${userId}`, JSON.stringify(merged));
-    }
-    if (topicIds.length > 0) {
-      const current = getReadTopicIds(userId);
-      const merged = Array.from(new Set([...current, ...topicIds]));
-      localStorage.setItem(`read_topics_${userId}`, JSON.stringify(merged));
-    }
-    if (memoIds.length > 0) {
-      const current = getReadMemoIds(userId);
-      const merged = Array.from(new Set([...current, ...memoIds]));
-      localStorage.setItem(`read_memos_${userId}`, JSON.stringify(merged));
-    }
-    if (Object.keys(chatTimestamps).length > 0) {
-      const current = getReadChatTimestamps(userId);
-      const merged = { ...current, ...chatTimestamps };
-      localStorage.setItem(`read_chats_${userId}`, JSON.stringify(merged));
-    }
-
+    // カスタムイベントを発火してReact側に更新を通知
     window.dispatchEvent(new CustomEvent('notifications_updated'));
   } catch (err) {
     console.error('Failed to fetch read statuses from server:', err);
@@ -76,58 +65,46 @@ export async function syncUserReadStatusesFromServer(userId: string) {
 /** 1. イベント既読 */
 export function getReadEventIds(userId?: string): string[] {
   if (!userId) return [];
-  try {
-    const saved = localStorage.getItem(`read_events_${userId}`);
-    return saved ? JSON.parse(saved) : [];
-  } catch (_) {
-    return [];
-  }
+  return memoryReadEventIds[userId] || [];
 }
 
 export function markEventAsRead(userId?: string, eventId?: string) {
   if (!userId || !eventId) return;
-  const current = getReadEventIds(userId);
-  if (!current.includes(eventId)) {
-    const next = [...current, eventId];
-    try {
-      localStorage.setItem(`read_events_${userId}`, JSON.stringify(next));
-      window.dispatchEvent(new CustomEvent('notifications_updated'));
-    } catch (_) {}
+  if (!memoryReadEventIds[userId]) {
+    memoryReadEventIds[userId] = [];
+  }
+  if (!memoryReadEventIds[userId].includes(eventId)) {
+    memoryReadEventIds[userId].push(eventId);
+    window.dispatchEvent(new CustomEvent('notifications_updated'));
   }
   saveReadStatusToServer(userId, 'event', eventId);
 }
 
 export function markAllEventsAsRead(userId?: string, eventIds?: string[]) {
   if (!userId || !eventIds || !eventIds.length) return;
-  const current = getReadEventIds(userId);
-  const nextSet = new Set([...current, ...eventIds]);
-  try {
-    localStorage.setItem(`read_events_${userId}`, JSON.stringify(Array.from(nextSet)));
-    window.dispatchEvent(new CustomEvent('notifications_updated'));
-  } catch (_) {}
+  if (!memoryReadEventIds[userId]) {
+    memoryReadEventIds[userId] = [];
+  }
+  const nextSet = new Set([...memoryReadEventIds[userId], ...eventIds]);
+  memoryReadEventIds[userId] = Array.from(nextSet);
+  window.dispatchEvent(new CustomEvent('notifications_updated'));
   eventIds.forEach((id) => saveReadStatusToServer(userId, 'event', id));
 }
 
 /** 2. 掲示板トピック既読 */
 export function getReadTopicIds(userId?: string): string[] {
   if (!userId) return [];
-  try {
-    const saved = localStorage.getItem(`read_topics_${userId}`);
-    return saved ? JSON.parse(saved) : [];
-  } catch (_) {
-    return [];
-  }
+  return memoryReadTopicIds[userId] || [];
 }
 
 export function markTopicAsRead(userId?: string, topicId?: string) {
   if (!userId || !topicId) return;
-  const current = getReadTopicIds(userId);
-  if (!current.includes(topicId)) {
-    const next = [...current, topicId];
-    try {
-      localStorage.setItem(`read_topics_${userId}`, JSON.stringify(next));
-      window.dispatchEvent(new CustomEvent('notifications_updated'));
-    } catch (_) {}
+  if (!memoryReadTopicIds[userId]) {
+    memoryReadTopicIds[userId] = [];
+  }
+  if (!memoryReadTopicIds[userId].includes(topicId)) {
+    memoryReadTopicIds[userId].push(topicId);
+    window.dispatchEvent(new CustomEvent('notifications_updated'));
   }
   saveReadStatusToServer(userId, 'topic', topicId);
 }
@@ -135,45 +112,33 @@ export function markTopicAsRead(userId?: string, topicId?: string) {
 /** 3. チャットルーム既読 (閲覧タイムスタンプ管理) */
 export function getReadChatTimestamps(userId?: string): Record<string, string> {
   if (!userId) return {};
-  try {
-    const saved = localStorage.getItem(`read_chats_${userId}`);
-    return saved ? JSON.parse(saved) : {};
-  } catch (_) {
-    return {};
-  }
+  return memoryReadChatTimestamps[userId] || {};
 }
 
 export function markChatRoomAsRead(userId?: string, roomId?: string) {
   if (!userId || !roomId) return;
-  const current = getReadChatTimestamps(userId);
-  const next = { ...current, [roomId]: new Date().toISOString() };
-  try {
-    localStorage.setItem(`read_chats_${userId}`, JSON.stringify(next));
-    window.dispatchEvent(new CustomEvent('notifications_updated'));
-  } catch (_) {}
+  if (!memoryReadChatTimestamps[userId]) {
+    memoryReadChatTimestamps[userId] = {};
+  }
+  memoryReadChatTimestamps[userId][roomId] = new Date().toISOString();
+  window.dispatchEvent(new CustomEvent('notifications_updated'));
   saveReadStatusToServer(userId, 'chat', roomId);
 }
 
 /** 4. 伝言メモ既読 */
 export function getReadMemoIds(userId?: string): string[] {
   if (!userId) return [];
-  try {
-    const saved = localStorage.getItem(`read_memos_${userId}`);
-    return saved ? JSON.parse(saved) : [];
-  } catch (_) {
-    return [];
-  }
+  return memoryReadMemoIds[userId] || [];
 }
 
 export function markMemoAsRead(userId?: string, memoId?: string) {
   if (!userId || !memoId) return;
-  const current = getReadMemoIds(userId);
-  if (!current.includes(memoId)) {
-    const next = [...current, memoId];
-    try {
-      localStorage.setItem(`read_memos_${userId}`, JSON.stringify(next));
-      window.dispatchEvent(new CustomEvent('notifications_updated'));
-    } catch (_) {}
+  if (!memoryReadMemoIds[userId]) {
+    memoryReadMemoIds[userId] = [];
+  }
+  if (!memoryReadMemoIds[userId].includes(memoId)) {
+    memoryReadMemoIds[userId].push(memoId);
+    window.dispatchEvent(new CustomEvent('notifications_updated'));
   }
   saveReadStatusToServer(userId, 'memo', memoId);
 }
