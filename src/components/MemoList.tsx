@@ -370,9 +370,12 @@ export function MemoList({
 
   // フィルタリング処理
   const filteredMemos = memos.filter((m) => {
+    const myStatus = m.recipientStatuses?.find((st) => st.userId === currentUser.id);
+    const isHandledForMe = myStatus ? myStatus.isHandled : (m.status === 'handled');
+
     // ステータスフィルター
-    if (filter === 'unread' && m.status === 'handled') return false;
-    if (filter === 'handled' && m.status !== 'handled') return false;
+    if (filter === 'unread' && isHandledForMe) return false;
+    if (filter === 'handled' && !isHandledForMe) return false;
 
     // 拠点フィルター
     if (selectedOfficeFilter !== 'all') {
@@ -453,7 +456,7 @@ export function MemoList({
             filteredMemos.map((memo) => {
               const reqBadge = getRequirementLabel(memo);
               const myStatus = memo.recipientStatuses.find((st) => st.userId === currentUser.id);
-              const isHandled = memo.status === 'handled' || (myStatus && myStatus.isHandled);
+              const isHandled = myStatus ? myStatus.isHandled : (memo.status === 'handled');
               const viewedCount = memo.recipientStatuses.filter((s) => s.isViewed).length;
               const handledCount = memo.recipientStatuses.filter((s) => s.isHandled).length;
               const totalRecipients = memo.recipientStatuses.length;

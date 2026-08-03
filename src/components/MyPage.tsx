@@ -12,6 +12,7 @@ import {
   markChatRoomAsRead as markChatRoomAsReadUtil,
   getReadMemoIds,
   markMemoAsRead as markMemoAsReadUtil,
+  markMemoAsUnread as markMemoAsUnreadUtil,
   isEventUnread,
   isTopicUnread,
   isMemoUnread,
@@ -211,31 +212,60 @@ export function MyPage({
     if (onUpdateMemo) {
       const updated = memos.map((m) => {
         if (m.id === memoId) {
-          const currentlyUnread = isMemoUnread(m, user);
-          const nextStatus = currentlyUnread ? ('read' as const) : ('unread' as const);
+          const currentlyUnread = isMemoUnread(m, user, []);
+          const nowIso = new Date().toISOString();
 
-          const newRecipientStatuses =
-            m.recipientStatuses && m.recipientStatuses.length > 0
-              ? m.recipientStatuses.map((st) =>
-                  st.userId === user.id
-                    ? { ...st, isViewed: currentlyUnread, viewedAt: new Date().toISOString() }
-                    : st
-                )
-              : [
-                  {
-                    userId: user.id,
-                    userName: user.name || '',
-                    isViewed: currentlyUnread,
-                    viewedAt: new Date().toISOString(),
-                    isHandled: !currentlyUnread,
-                    status: nextStatus,
-                  },
-                ];
+          // キャッシュの同期
+          if (currentlyUnread) {
+            markMemoAsReadUtil(user.id, memoId);
+          } else {
+            markMemoAsUnreadUtil(user.id, memoId);
+          }
+
+          const statuses = m.recipientStatuses || [];
+          const nextRecipientStatuses = statuses.length > 0
+            ? statuses.map((st) => {
+                if (st.userId === user.id) {
+                  const nextHandled = currentlyUnread; // 未読なら対応完了(true)、対応完了なら未対応(false)
+                  return {
+                    ...st,
+                    isViewed: nextHandled ? true : false,
+                    viewedAt: nextHandled ? (st.viewedAt || nowIso) : undefined,
+                    isHandled: nextHandled,
+                    handledAt: nextHandled ? nowIso : undefined,
+                    handledByUserId: nextHandled ? user.id : undefined,
+                    handledByUserName: nextHandled ? user.name : undefined,
+                    status: nextHandled ? ('handled' as const) : ('unread' as const),
+                  };
+                }
+                return st;
+              })
+            : [
+                {
+                  userId: user.id,
+                  userName: user.name || '',
+                  avatarUrl: user.avatarUrl || '',
+                  department: user.department || '',
+                  office: user.office || '',
+                  division: user.division || '',
+                  isViewed: currentlyUnread,
+                  viewedAt: currentlyUnread ? nowIso : undefined,
+                  isHandled: currentlyUnread,
+                  handledAt: currentlyUnread ? nowIso : undefined,
+                  handledByUserId: currentlyUnread ? user.id : undefined,
+                  handledByUserName: currentlyUnread ? user.name : undefined,
+                  status: currentlyUnread ? ('handled' as const) : ('unread' as const),
+                }
+              ];
+
+          // 全員が対応完了しているかチェック
+          const allHandled = nextRecipientStatuses.length > 0 && nextRecipientStatuses.every((s) => s.isHandled);
+          const nextOverallStatus = allHandled ? ('handled' as const) : ('unread' as const);
 
           return {
             ...m,
-            status: nextStatus,
-            recipientStatuses: newRecipientStatuses,
+            status: nextOverallStatus,
+            recipientStatuses: nextRecipientStatuses,
           };
         }
         return m;
@@ -738,9 +768,9 @@ export function MyPage({
                           e.stopPropagation();
                           handleToggleMemoStatus(memo.id);
                         }}
-                        className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-colors border ${
+                        className={`relative z-10 cursor-pointer px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all border ${
                           isUnread
-                            ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700'
+                            ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700 hover:shadow-xs'
                             : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
                         }`}
                       >

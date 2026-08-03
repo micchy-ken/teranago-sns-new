@@ -14,7 +14,7 @@ import { MyPage } from './components/MyPage';
 import { AdminPanel } from './components/AdminPanel';
 import { LoginScreen } from './components/LoginScreen';
 import { Post, CalendarEvent, WorkflowApplication, User, OfficeMaster, DivisionMaster, PositionMaster, BoardTopic, ChatRoom, ApprovalFlowRule, ApprovalStepConfig, ItemMaster, ApplicationStatus, DailyReport, Memo } from './types';
-import { syncUserReadStatusesFromServer, isMemoUnread } from './utils/notifications';
+import { syncUserReadStatusesFromServer, isMemoUnread, markMemoAsRead, markMemoAsUnread } from './utils/notifications';
 import { TopicDetailModal } from './components/TopicDetailModal';
 import { GlobalEventDetailModal } from './components/GlobalEventDetailModal';
 import { GlobalMemoDetailModal } from './components/GlobalMemoDetailModal';
@@ -575,13 +575,23 @@ export default function App() {
       if (Array.isArray(data)) {
         const mapped = data.map((m: any) => {
           let detailsObj: any = {};
-          if (m.details && typeof m.details === 'object') {
-            detailsObj = m.details;
-          } else if (m.content && typeof m.content === 'string' && m.content.startsWith('{')) {
-            try { detailsObj = JSON.parse(m.content); } catch (_) {}
+          if (m.details) {
+            if (typeof m.details === 'object') {
+              detailsObj = m.details;
+            } else if (typeof m.details === 'string') {
+              try { detailsObj = JSON.parse(m.details); } catch (_) {}
+            }
+          }
+          if (m.content && typeof m.content === 'string' && m.content.startsWith('{')) {
+            try { detailsObj = { ...detailsObj, ...JSON.parse(m.content) }; } catch (_) {}
           }
           const activeUsers = currentUsers;
           const targetUser = activeUsers.find(u => u.id === m.receiverId || u.id === m.toUserId) || activeUsers[0];
+
+          // Determine overall status
+          const isHandledStatus = m.status === 'handled' || (detailsObj && detailsObj.status === 'handled');
+          const isReadStatus = isHandledStatus || m.status === 'read' || (detailsObj && detailsObj.status === 'read') || m.isRead === 1 || m.isRead === true;
+
           const defaultRecipientStatus = [{
             userId: targetUser?.id || 'u1',
             userName: targetUser?.name || '担当者',
@@ -589,28 +599,80 @@ export default function App() {
             department: targetUser?.department || '',
             office: targetUser?.office || '',
             division: targetUser?.division || '',
-            isViewed: m.isRead ? true : false,
-            isHandled: m.isRead ? true : false
+            isViewed: isReadStatus,
+            isHandled: isHandledStatus
           }];
 
-          const isRead = m.isRead === 1 || m.isRead === true || m.status === 'read' || m.status === 'handled';
+          // Parse recipientStatusesJson / recipient_statuses_json / recipientStatuses
+          let parsedRecipientStatuses: any[] | null = null;
+          const repJson = m.recipientStatusesJson || m.recipient_statuses_json || m.recipientStatuses || (detailsObj && (detailsObj.recipientStatuses || detailsObj.recipientStatusesJson || detailsObj.recipient_statuses_json));
+          if (repJson) {
+            try {
+              const parsed = typeof repJson === 'string' ? JSON.parse(repJson) : repJson;
+              if (Array.isArray(parsed)) {
+                parsedRecipientStatuses = parsed;
+              } else if (parsed && typeof parsed === 'object') {
+                // DB stores as { "u3": { "isRead": false, "readAt": null } }
+                parsedRecipientStatuses = Object.entries(parsed).map(([uid, val]: [string, any]) => {
+                  const uObj = activeUsers.find(u => u.id === uid);
+                  return {
+                    userId: uid,
+                    userName: uObj?.name || '担当者',
+                    avatarUrl: uObj?.avatarUrl || '',
+                    department: uObj?.department || '',
+                    office: uObj?.office || '',
+                    division: uObj?.division || '',
+                    isViewed: val.isRead || val.isViewed || false,
+                    viewedAt: val.readAt || val.viewedAt || undefined,
+                    isHandled: val.isHandled !== undefined ? val.isHandled : (val.isRead || false),
+                    handledAt: val.handledAt || undefined,
+                  };
+                });
+              }
+            } catch (_) {}
+          }
+
+          const mergedRecipientStatuses = (parsedRecipientStatuses && parsedRecipientStatuses.length > 0)
+            ? parsedRecipientStatuses
+            : defaultRecipientStatus;
+
+          const mergedTargetOffices = (Array.isArray(m.targetOffices) && m.targetOffices.length > 0)
+            ? m.targetOffices
+            : (detailsObj && Array.isArray(detailsObj.targetOffices) ? detailsObj.targetOffices : []);
+
+          const mergedTargetDivisions = (Array.isArray(m.targetDivisions) && m.targetDivisions.length > 0)
+            ? m.targetDivisions
+            : (detailsObj && Array.isArray(detailsObj.targetDivisions) ? detailsObj.targetDivisions : []);
+
+          let parsedToUsers: any[] | null = null;
+          const toUsersJsonStr = m.toUsersJson || m.to_users_json;
+          if (toUsersJsonStr) {
+            try {
+              const parsed = typeof toUsersJsonStr === 'string' ? JSON.parse(toUsersJsonStr) : toUsersJsonStr;
+              if (Array.isArray(parsed)) {
+                parsedToUsers = parsed.map((uid: string) => activeUsers.find(u => u.id === uid)).filter(Boolean);
+              }
+            } catch (_) {}
+          }
+
+          const mergedToUsers = parsedToUsers || (Array.isArray(m.toUsers) ? m.toUsers : (detailsObj && Array.isArray(detailsObj.toUsers) ? detailsObj.toUsers : (targetUser ? [targetUser] : [])));
 
           return {
             id: String(m.id),
-            fromName: m.fromName || '不詳',
-            fromCompany: m.fromCompany || '',
-            fromPhone: m.fromPhone || '',
-            content: m.content || '',
-            createdAt: m.createdAt || new Date().toISOString(),
-            targetOffices: m.targetOffices || [],
-            targetDivisions: m.targetDivisions || [],
-            recipientStatuses: Array.isArray(m.recipientStatuses) ? m.recipientStatuses : defaultRecipientStatus,
-            toUsers: Array.isArray(m.toUsers) ? m.toUsers : (targetUser ? [targetUser] : []),
-            toUser: targetUser,
-            createdByUser: activeUsers.find(u => u.id === m.senderId),
+            fromName: m.fromName || (detailsObj && detailsObj.fromName) || '不詳',
+            fromCompany: m.fromCompany || (detailsObj && detailsObj.fromCompany) || '',
+            fromPhone: m.fromPhone || (detailsObj && detailsObj.fromPhone) || '',
+            content: m.content || (detailsObj && detailsObj.content) || '',
+            createdAt: m.createdAt || (detailsObj && detailsObj.createdAt) || new Date().toISOString(),
             ...detailsObj,
             ...m,
-            status: m.status ? m.status : (isRead ? 'handled' : 'unread'),
+            targetOffices: mergedTargetOffices,
+            targetDivisions: mergedTargetDivisions,
+            recipientStatuses: mergedRecipientStatuses,
+            toUsers: mergedToUsers,
+            toUser: targetUser,
+            createdByUser: activeUsers.find(u => u.id === (m.senderId || (detailsObj && detailsObj.senderId))),
+            status: m.status ? m.status : ((detailsObj && detailsObj.status) ? detailsObj.status : (isHandledStatus ? 'handled' : (isReadStatus ? 'read' : 'unread'))),
           };
         });
 
@@ -1865,6 +1927,7 @@ export default function App() {
       for (const memo of updatedMemos) {
         if (!existingIds.has(memo.id)) {
           // 新規メモ作成
+          const recipientStatusesJsonStr = JSON.stringify(memo.recipientStatuses);
           await fetch(`${API_BASE_URL}/memos`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1878,6 +1941,9 @@ export default function App() {
               content: memo.content,
               requirementType: memo.requirementType || 'phone_called',
               requirementText: memo.requirementText || '',
+              recipientStatusesJson: recipientStatusesJsonStr,
+              recipient_statuses_json: recipientStatusesJsonStr,
+              recipientStatuses: recipientStatusesJsonStr,
               details: {
                 requirementType: memo.requirementType,
                 requirementText: memo.requirementText,
@@ -1892,12 +1958,16 @@ export default function App() {
           });
         } else {
           // 既存メモの更新（既読・対応フラグ等）
+          const recipientStatusesJsonStr = JSON.stringify(memo.recipientStatuses);
           await fetch(`${API_BASE_URL}/memos/${memo.id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               isRead: (memo.status === 'handled' || memo.status === 'read') ? 1 : 0,
               status: memo.status,
+              recipientStatusesJson: recipientStatusesJsonStr,
+              recipient_statuses_json: recipientStatusesJsonStr,
+              recipientStatuses: recipientStatusesJsonStr,
               details: {
                 requirementType: memo.requirementType,
                 requirementText: memo.requirementText,
@@ -1912,11 +1982,7 @@ export default function App() {
       await refetchMemos();
     } catch (err) {
       console.warn('Failed to sync memos via API:', err);
-      setMemos(updatedMemos);
     } finally {
-      try {
-        localStorage.setItem('local_memos_cache', JSON.stringify(updatedMemos));
-      } catch (_) {}
       window.dispatchEvent(new CustomEvent('notifications_updated'));
     }
   };
@@ -2288,31 +2354,60 @@ export default function App() {
             // メモの未読/対応トグル処理
             const updated = memos.map((m) => {
               if (m.id === memoId) {
-                const currentlyUnread = isMemoUnread(m, userState);
-                const nextStatus = currentlyUnread ? ('read' as const) : ('unread' as const);
+                const currentlyUnread = isMemoUnread(m, userState, []);
+                const nowIso = new Date().toISOString();
 
-                const newRecipientStatuses =
-                  m.recipientStatuses && m.recipientStatuses.length > 0
-                    ? m.recipientStatuses.map((st) =>
-                        st.userId === userState.id
-                          ? { ...st, isViewed: currentlyUnread, viewedAt: new Date().toISOString() }
-                          : st
-                      )
-                    : [
-                        {
-                          userId: userState.id,
-                          userName: userState.name || '',
-                          isViewed: currentlyUnread,
-                          viewedAt: new Date().toISOString(),
-                          isHandled: !currentlyUnread,
-                          status: nextStatus,
-                        },
-                      ];
+                // キャッシュ同期
+                if (currentlyUnread) {
+                  markMemoAsRead(userState.id, memoId);
+                } else {
+                  markMemoAsUnread(userState.id, memoId);
+                }
+
+                const statuses = m.recipientStatuses || [];
+                const nextRecipientStatuses = statuses.length > 0
+                  ? statuses.map((st) => {
+                      if (st.userId === userState.id) {
+                        const nextHandled = currentlyUnread; // 未読なら対応完了(true)、対応完了なら未対応(false)
+                        return {
+                          ...st,
+                          isViewed: nextHandled ? true : false,
+                          viewedAt: nextHandled ? (st.viewedAt || nowIso) : undefined,
+                          isHandled: nextHandled,
+                          handledAt: nextHandled ? nowIso : undefined,
+                          handledByUserId: nextHandled ? userState.id : undefined,
+                          handledByUserName: nextHandled ? userState.name : undefined,
+                          status: nextHandled ? ('handled' as const) : ('unread' as const),
+                        };
+                      }
+                      return st;
+                    })
+                  : [
+                      {
+                        userId: userState.id,
+                        userName: userState.name || '',
+                        avatarUrl: userState.avatarUrl || '',
+                        department: userState.department || '',
+                        office: userState.office || '',
+                        division: userState.division || '',
+                        isViewed: currentlyUnread,
+                        viewedAt: currentlyUnread ? nowIso : undefined,
+                        isHandled: currentlyUnread,
+                        handledAt: currentlyUnread ? nowIso : undefined,
+                        handledByUserId: currentlyUnread ? userState.id : undefined,
+                        handledByUserName: currentlyUnread ? userState.name : undefined,
+                        status: currentlyUnread ? ('handled' as const) : ('unread' as const),
+                      }
+                    ];
+
+                // 全員が対応完了しているかチェック
+                const allHandled = nextRecipientStatuses.length > 0 && nextRecipientStatuses.every((s) => s.isHandled);
+                const nextOverallStatus = allHandled ? ('handled' as const) : ('unread' as const);
 
                 return {
                   ...m,
-                  status: nextStatus,
-                  recipientStatuses: newRecipientStatuses,
+                  status: nextOverallStatus,
+                  recipientStatuses: nextRecipientStatuses,
                 };
               }
               return m;

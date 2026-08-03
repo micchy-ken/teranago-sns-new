@@ -37,7 +37,7 @@ export function GlobalMemoDetailModal({
 }: GlobalMemoDetailModalProps) {
   if (!isOpen || !memo) return null;
 
-  const isUnread = isMemoUnread(memo, currentUser);
+  const isUnread = isMemoUnread(memo, currentUser, []);
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
@@ -61,7 +61,7 @@ export function GlobalMemoDetailModal({
           </div>
           <button
             onClick={onClose}
-            className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-200/50 transition-colors"
+            className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-200/50 cursor-pointer relative z-10 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -145,7 +145,7 @@ export function GlobalMemoDetailModal({
         <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-3">
           <button
             onClick={() => onToggleStatus(memo.id)}
-            className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl border transition-all ${
+            className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl border cursor-pointer relative z-10 transition-all ${
               isUnread
                 ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700 shadow-sm shadow-emerald-600/10'
                 : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
@@ -166,7 +166,7 @@ export function GlobalMemoDetailModal({
           
           <button
             onClick={onClose}
-            className="px-5 py-2 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs rounded-xl shadow-xs transition-colors"
+            className="px-5 py-2 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs rounded-xl shadow-xs cursor-pointer relative z-10 transition-colors"
           >
             閉じる
           </button>

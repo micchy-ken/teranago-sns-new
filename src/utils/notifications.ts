@@ -146,6 +146,23 @@ export function markMemoAsRead(userId?: string, memoId?: string) {
   saveReadStatusToServer(userId, 'memo', memoId);
 }
 
+export function markMemoAsUnread(userId?: string, memoId?: string) {
+  if (!userId || !memoId) return;
+  if (memoryReadMemoIds[userId]) {
+    memoryReadMemoIds[userId] = memoryReadMemoIds[userId].filter((id) => id !== memoId);
+    window.dispatchEvent(new CustomEvent('notifications_updated'));
+  }
+  try {
+    fetch(`${API_BASE_URL}/read-statuses`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, targetType: 'memo', targetId: memoId, isRead: false }),
+    });
+  } catch (err) {
+    console.error('Failed to sync unread status to server:', err);
+  }
+}
+
 // -------------------------------------------------------------
 // 個別コンテンツの未読/未確認判定関数 (統一ルール)
 // -------------------------------------------------------------
@@ -194,20 +211,18 @@ export function isTopicUnread(t: BoardTopic, user: User, readTopicIds: string[] 
 export function isMemoUnread(m: Memo, user: User, readMemoIds: string[] = getReadMemoIds(user?.id)): boolean {
   if (!user || !m) return false;
 
-  // 全体ステータスが対応済み(handled) または 既読(read) または isRead フラグが立っていれば未読ではない
-  if (m.status === 'handled' || m.status === 'read' || (m as any).isRead === 1 || (m as any).isRead === true) return false;
+  // 全体ステータスが対応済み(handled)なら未対応ではない
+  if (m.status === 'handled') return false;
 
   // recipientStatuses が存在する場合
   if (m.recipientStatuses && m.recipientStatuses.length > 0) {
     const userStatus = m.recipientStatuses.find((st) => st.userId === user.id);
     if (userStatus) {
-      if (userStatus.isViewed || userStatus.isHandled || userStatus.status === 'read' || userStatus.status === 'handled') {
+      if (userStatus.isHandled || userStatus.status === 'handled') {
         return false;
       }
     }
   }
-
-  if (readMemoIds.includes(m.id)) return false;
 
   // 自分宛て判定
   const isToUser =
@@ -218,7 +233,7 @@ export function isMemoUnread(m: Memo, user: User, readMemoIds: string[] = getRea
 
   if (!isToUser) return false;
 
-  return m.status === 'unread';
+  return true;
 }
 
 /** 4. ワークフロー承認依頼の未承認判定 */
