@@ -1,4 +1,5 @@
 import { User, Memo, WorkflowApplication, BoardTopic, CalendarEvent, ChatRoom } from '../types';
+import { API_BASE_URL } from '../config/api';
 
 export interface NotificationItem {
   id: string;
@@ -18,7 +19,7 @@ export interface NotificationItem {
 async function saveReadStatusToServer(userId: string, targetType: 'event' | 'topic' | 'memo' | 'chat', targetId: string) {
   if (!userId || !targetType || !targetId) return;
   try {
-    await fetch('/api/user-read-statuses', {
+    await fetch(`${API_BASE_URL}/user-read-statuses`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ userId, targetType, targetId }),
@@ -32,7 +33,7 @@ async function saveReadStatusToServer(userId: string, targetType: 'event' | 'top
 export async function syncUserReadStatusesFromServer(userId: string) {
   if (!userId) return;
   try {
-    const res = await fetch(`/api/user-read-statuses?userId=${encodeURIComponent(userId)}`);
+    const res = await fetch(`${API_BASE_URL}/user-read-statuses?userId=${encodeURIComponent(userId)}`);
     if (!res.ok) return;
     const records: Array<{ targetType: string; targetId: string; readAt: string }> = await res.json();
     if (!Array.isArray(records)) return;
