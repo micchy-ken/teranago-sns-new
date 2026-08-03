@@ -40,6 +40,8 @@ interface HeaderProps {
   }) => void;
   onUpdateMemos?: (memos: Memo[]) => void;
   onUpdateTopic?: (topic: BoardTopic) => void;
+  onUpdateEvent?: (event: CalendarEvent) => void;
+  onUpdateRooms?: (rooms: ChatRoom[]) => void;
   onToggleMobileMenu?: () => void;
 }
 
@@ -78,6 +80,8 @@ export function Header({
   onNavigateToContent,
   onUpdateMemos,
   onUpdateTopic,
+  onUpdateEvent,
+  onUpdateRooms,
   onToggleMobileMenu,
 }: HeaderProps) {
   const [isOpen, setIsOpen] = useState(false);
@@ -194,9 +198,23 @@ export function Header({
     } else if (item.type === 'chat' && item.originalData) {
       const room = item.originalData as ChatRoom;
       markChatRoomAsRead(currentUser?.id, room.id);
+      if (onUpdateRooms) {
+        const updatedReadStatus = { ...(room.readStatus || {}), [currentUser.id]: new Date().toISOString() };
+        onUpdateRooms(chatRooms.map(r => r.id === room.id ? { ...r, readStatus: updatedReadStatus } : r));
+      }
     } else if (item.type === 'event' && item.originalData) {
       const evt = item.originalData as CalendarEvent;
       markEventAsRead(currentUser?.id, evt.id);
+      if (onUpdateEvent) {
+        const currentViewers = (evt as any).viewers || [];
+        const alreadyViewed = currentViewers.some((v: any) => v?.userId === currentUser.id || v?.user?.id === currentUser.id);
+        if (!alreadyViewed) {
+          onUpdateEvent({
+            ...evt,
+            viewers: [...currentViewers, { userId: currentUser.id, viewedAt: new Date().toISOString() }]
+          } as any);
+        }
+      }
     }
 
     if (onNavigateToContent) {

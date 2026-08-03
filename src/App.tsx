@@ -691,9 +691,6 @@ export default function App() {
   };
 
   const handleUpdateTopic = async (updatedTopic: BoardTopic) => {
-    setTopics(prev => prev.map(t => t.id === updatedTopic.id ? updatedTopic : t));
-    window.dispatchEvent(new CustomEvent('notifications_updated'));
-
     try {
       const response = await fetch(`${API_BASE_URL}/bulletins/${updatedTopic.id}`, {
         method: 'PUT',
@@ -716,9 +713,14 @@ export default function App() {
       });
       if (response.ok) {
         await refetchTopics();
+      } else {
+        setTopics(prev => prev.map(t => t.id === updatedTopic.id ? updatedTopic : t));
       }
     } catch (err) {
       console.error('Failed to update bulletin via API:', err);
+      setTopics(prev => prev.map(t => t.id === updatedTopic.id ? updatedTopic : t));
+    } finally {
+      window.dispatchEvent(new CustomEvent('notifications_updated'));
     }
   };
 
@@ -1317,7 +1319,6 @@ export default function App() {
 
   // Handle event update
   const handleUpdateEvent = async (updatedEvent: CalendarEvent) => {
-    setEvents(events.map(e => e.id === updatedEvent.id ? updatedEvent : e));
     try {
       const response = await fetch(`${API_BASE_URL}/events/${updatedEvent.id}`, {
         method: 'PUT',
@@ -1333,13 +1334,23 @@ export default function App() {
           location: updatedEvent.location || '',
           attendees: updatedEvent.attendees || [],
           memo: updatedEvent.memo || '',
+          viewers: (updatedEvent as any).viewers || [],
+          details: JSON.stringify({
+            viewers: (updatedEvent as any).viewers || [],
+            memo: updatedEvent.memo || '',
+          })
         })
       });
       if (response.ok) {
         await refetchEvents();
+      } else {
+        setEvents(prev => prev.map(e => e.id === updatedEvent.id ? updatedEvent : e));
       }
     } catch (err) {
       console.error('Failed to update event via API:', err);
+      setEvents(prev => prev.map(e => e.id === updatedEvent.id ? updatedEvent : e));
+    } finally {
+      window.dispatchEvent(new CustomEvent('notifications_updated'));
     }
   };
 
@@ -1515,112 +1526,115 @@ export default function App() {
 
   // Handle workflow approval / rejection (Multi-step approval processing)
   const handleWorkflowAction = async (id: string, actionStatus: 'approved' | 'rejected', comment?: string) => {
-    let updatedAppObj: WorkflowApplication | undefined;
+    const targetApp = applications.find(a => a.id === id);
+    if (!targetApp) return;
 
-    setApplications(prevApps => prevApps.map(app => {
-      if (app.id !== id) return app;
+    let resultApp: WorkflowApplication;
+    if (actionStatus === 'rejected') {
+      resultApp = {
+        ...targetApp,
+        status: 'rejected',
+        rejectReason: comment || '理由未記入',
+        history: [
+          ...(targetApp.history || []),
+          {
+            stepNumber: targetApp.currentStepIndex || 1,
+            approver: userState,
+            status: 'rejected',
+            actionAt: new Date().toISOString(),
+            comment: comment,
+          }
+        ]
+      };
+    } else {
+      // 承認アクション (actionStatus === 'approved')
+      const currentStep = targetApp.currentStepIndex || 1;
+      const stepsConfig = (targetApp.stepsConfig && targetApp.stepsConfig.length > 0) ? targetApp.stepsConfig : null;
+      const totalSteps = stepsConfig ? stepsConfig.length : (targetApp.totalSteps || 1);
 
-      let resultApp: WorkflowApplication;
-      if (actionStatus === 'rejected') {
+      if (currentStep < totalSteps && stepsConfig) {
+        const nextStepConfig = stepsConfig[currentStep];
+        const nextApprover = resolveApproverForStep(targetApp.applicant, nextStepConfig, usersList);
+
         resultApp = {
-          ...app,
-          status: 'rejected',
-          rejectReason: comment || '理由未記入',
+          ...targetApp,
+          currentStepIndex: currentStep + 1,
+          totalSteps: totalSteps,
+          approver: nextApprover,
+          status: 'pending',
           history: [
-            ...(app.history || []),
+            ...(targetApp.history || []),
             {
-              stepNumber: app.currentStepIndex || 1,
+              stepNumber: currentStep,
               approver: userState,
-              status: 'rejected',
+              status: 'approved',
               actionAt: new Date().toISOString(),
               comment: comment,
             }
           ]
         };
       } else {
-        // 承認アクション (actionStatus === 'approved')
-        const currentStep = app.currentStepIndex || 1;
-        const stepsConfig = (app.stepsConfig && app.stepsConfig.length > 0) ? app.stepsConfig : null;
-        const totalSteps = stepsConfig ? stepsConfig.length : (app.totalSteps || 1);
-
-        if (currentStep < totalSteps && stepsConfig) {
-          const nextStepConfig = stepsConfig[currentStep];
-          const nextApprover = resolveApproverForStep(app.applicant, nextStepConfig, usersList);
-
-          resultApp = {
-            ...app,
-            currentStepIndex: currentStep + 1,
-            totalSteps: totalSteps,
-            approver: nextApprover,
-            status: 'pending',
-            history: [
-              ...(app.history || []),
-              {
-                stepNumber: currentStep,
-                approver: userState,
-                status: 'approved',
-                actionAt: new Date().toISOString(),
-                comment: comment,
-              }
-            ]
-          };
-        } else {
-          resultApp = {
-            ...app,
-            status: 'approved',
-            currentStepIndex: totalSteps,
-            totalSteps: totalSteps,
-            history: [
-              ...(app.history || []),
-              {
-                stepNumber: currentStep,
-                approver: userState,
-                status: 'approved',
-                actionAt: new Date().toISOString(),
-                comment: comment,
-              }
-            ]
-          };
-        }
+        resultApp = {
+          ...targetApp,
+          status: 'approved',
+          currentStepIndex: totalSteps,
+          totalSteps: totalSteps,
+          history: [
+            ...(targetApp.history || []),
+            {
+              stepNumber: currentStep,
+              approver: userState,
+              status: 'approved',
+              actionAt: new Date().toISOString(),
+              comment: comment,
+            }
+          ]
+        };
       }
-      updatedAppObj = resultApp;
-      return resultApp;
-    }));
+    }
 
-    if (updatedAppObj && !id.startsWith('a-temp-')) {
+    if (!id.startsWith('a-temp-')) {
       try {
-        await fetch(`${API_BASE_URL}/workflows/${id}`, {
+        const response = await fetch(`${API_BASE_URL}/workflows/${id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            title: updatedAppObj.title,
-            applicantId: updatedAppObj.applicant.id,
-            approverId: updatedAppObj.approver?.id || userState.id,
-            status: updatedAppObj.status,
-            category: updatedAppObj.type || 'other',
+            title: resultApp.title,
+            applicantId: resultApp.applicant.id,
+            approverId: resultApp.approver?.id || userState.id,
+            status: resultApp.status,
+            category: resultApp.type || 'other',
             details: JSON.stringify({
-              flowId: updatedAppObj.flowId,
-              flowName: updatedAppObj.flowName,
-              currentStepIndex: updatedAppObj.currentStepIndex,
-              totalSteps: updatedAppObj.totalSteps,
-              stepsConfig: updatedAppObj.stepsConfig,
-              history: updatedAppObj.history,
-              rejectReason: updatedAppObj.rejectReason,
-              reason: (updatedAppObj as any).reason || '',
-              purchaseItems: (updatedAppObj as any).purchaseItems || [],
-              leaveStart: (updatedAppObj as any).leaveStart || '',
-              leaveEnd: (updatedAppObj as any).leaveEnd || '',
-              expenseType: (updatedAppObj as any).expenseType || '',
-              amount: (updatedAppObj as any).amount || 0,
-              attachmentUrl: (updatedAppObj as any).attachmentUrl || '',
+              flowId: resultApp.flowId,
+              flowName: resultApp.flowName,
+              currentStepIndex: resultApp.currentStepIndex,
+              totalSteps: resultApp.totalSteps,
+              stepsConfig: resultApp.stepsConfig,
+              history: resultApp.history,
+              rejectReason: resultApp.rejectReason,
+              reason: (resultApp as any).reason || '',
+              purchaseItems: (resultApp as any).purchaseItems || [],
+              leaveStart: (resultApp as any).leaveStart || '',
+              leaveEnd: (resultApp as any).leaveEnd || '',
+              expenseType: (resultApp as any).expenseType || '',
+              amount: (resultApp as any).amount || 0,
+              attachmentUrl: (resultApp as any).attachmentUrl || '',
             })
           })
         });
-        await refetchApplications();
+        if (response.ok) {
+          await refetchApplications();
+        } else {
+          setApplications(prev => prev.map(a => a.id === id ? resultApp : a));
+        }
       } catch (err) {
         console.error('Failed to sync workflow action with API:', err);
+        setApplications(prev => prev.map(a => a.id === id ? resultApp : a));
       }
+    } else {
+      setApplications(prev => prev.map(a => a.id === id ? resultApp : a));
     }
+    window.dispatchEvent(new CustomEvent('notifications_updated'));
   };
 
   // 申請の更新（再申請、下書き保存、取り下げ等）
@@ -1769,14 +1783,30 @@ export default function App() {
     }
   };
 
+  const handleUpdateChatRooms = async (updatedRooms: ChatRoom[]) => {
+    try {
+      for (const room of updatedRooms) {
+        await fetch(`${API_BASE_URL}/chats/${room.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            readStatus: room.readStatus || {},
+            messages: room.messages || [],
+            participants: room.participants || []
+          })
+        });
+      }
+      await refetchChatRooms();
+    } catch (err) {
+      console.warn('Failed to update chat room read status via API:', err);
+      setChatRooms(updatedRooms);
+    } finally {
+      window.dispatchEvent(new CustomEvent('notifications_updated'));
+    }
+  };
+
   const handleUpdateMemos = async (updatedMemos: any[]) => {
     const existingIds = new Set(memos.map(m => m.id));
-    setMemos(updatedMemos);
-    window.dispatchEvent(new CustomEvent('notifications_updated'));
-
-    try {
-      localStorage.setItem('local_memos_cache', JSON.stringify(updatedMemos));
-    } catch (_) {}
 
     try {
       for (const memo of updatedMemos) {
@@ -1803,6 +1833,7 @@ export default function App() {
                 recipientStatuses: memo.recipientStatuses,
               },
               isRead: (memo.status === 'handled' || memo.status === 'read') ? 1 : 0,
+              status: memo.status,
               createdAt: memo.createdAt || new Date().toISOString()
             })
           });
@@ -1813,6 +1844,7 @@ export default function App() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               isRead: (memo.status === 'handled' || memo.status === 'read') ? 1 : 0,
+              status: memo.status,
               details: {
                 requirementType: memo.requirementType,
                 requirementText: memo.requirementText,
@@ -1824,8 +1856,15 @@ export default function App() {
           });
         }
       }
+      await refetchMemos();
     } catch (err) {
       console.warn('Failed to sync memos via API:', err);
+      setMemos(updatedMemos);
+    } finally {
+      try {
+        localStorage.setItem('local_memos_cache', JSON.stringify(updatedMemos));
+      } catch (_) {}
+      window.dispatchEvent(new CustomEvent('notifications_updated'));
     }
   };
 
@@ -1903,6 +1942,8 @@ export default function App() {
         onNavigateToContent={handleNavigateToContent}
         onUpdateMemos={handleUpdateMemos}
         onUpdateTopic={handleUpdateTopic}
+        onUpdateEvent={handleUpdateEvent}
+        onUpdateRooms={handleUpdateChatRooms}
         onToggleMobileMenu={() => setIsMobileMenuOpen(prev => !prev)}
       />
 

@@ -121,6 +121,15 @@ export function markMemoAsRead(userId?: string, memoId?: string) {
 /** 1. イベントの未確認判定 */
 export function isEventUnread(e: CalendarEvent, user: User, readEventIds: string[] = getReadEventIds(user?.id)): boolean {
   if (!user || !e) return false;
+
+  // Server-side viewers check
+  if ((e as any).viewers && Array.isArray((e as any).viewers)) {
+    const isViewedOnServer = (e as any).viewers.some((v: any) => 
+      v?.userId === user.id || v?.user?.id === user.id || v?.id === user.id || v === user.id || (v?.user?.name && v?.user?.name === user.name)
+    );
+    if (isViewedOnServer) return false;
+  }
+
   if (readEventIds.includes(e.id)) return false;
 
   const isAttendee = e.attendees ? e.attendees.some((a) => a?.id === user.id || a?.name === user.name) : false;
@@ -131,23 +140,30 @@ export function isEventUnread(e: CalendarEvent, user: User, readEventIds: string
 /** 2. 掲示板トピックの未読判定 */
 export function isTopicUnread(t: BoardTopic, user: User, readTopicIds: string[] = getReadTopicIds(user?.id)): boolean {
   if (!user || !t) return false;
+
+  // Server-side viewers check
+  if (t.viewers && Array.isArray(t.viewers)) {
+    const isViewedOnServer = t.viewers.some((v: any) => 
+      v?.user?.id === user.id || v?.userId === user.id || v?.id === user.id || v === user.id || (v?.user?.name && v?.user?.name === user.name)
+    );
+    if (isViewedOnServer) return false;
+  }
+
   if (readTopicIds.includes(t.id)) return false;
 
   const matchOffice = !t.office || t.office === '全社' || t.office === user.office;
   const matchDivision = !t.division || t.division === '全部署' || t.division === user.division;
   if (!matchOffice || !matchDivision) return false;
 
-  const isViewed = t.viewers?.some((v) => v?.user?.id === user.id || v?.user?.name === user.name);
-  return !isViewed;
+  return true;
 }
 
 /** 3. 伝言メモの未完了・未読判定 */
 export function isMemoUnread(m: Memo, user: User, readMemoIds: string[] = getReadMemoIds(user?.id)): boolean {
   if (!user || !m) return false;
-  if (readMemoIds.includes(m.id)) return false;
 
-  // 全体ステータスが対応済み(handled) または 既読(read) なら未読ではない
-  if (m.status === 'handled' || m.status === 'read') return false;
+  // 全体ステータスが対応済み(handled) または 既読(read) または isRead フラグが立っていれば未読ではない
+  if (m.status === 'handled' || m.status === 'read' || (m as any).isRead === 1 || (m as any).isRead === true) return false;
 
   // recipientStatuses が存在する場合
   if (m.recipientStatuses && m.recipientStatuses.length > 0) {
@@ -158,6 +174,8 @@ export function isMemoUnread(m: Memo, user: User, readMemoIds: string[] = getRea
       }
     }
   }
+
+  if (readMemoIds.includes(m.id)) return false;
 
   // 自分宛て判定
   const isToUser =
@@ -187,7 +205,11 @@ export function isChatUnread(room: ChatRoom, user: User, readChatTimestamps: Rec
   const lastMsg = room.messages[room.messages.length - 1];
   if (lastMsg.sender?.id === user.id) return false;
 
-  const lastReadTime = readChatTimestamps[room.id];
+  // Check server-side readStatus on room
+  const serverReadTime = (room as any).readStatus?.[user.id] || (room as any).lastReadTimestamps?.[user.id];
+  const localReadTime = readChatTimestamps[room.id];
+
+  const lastReadTime = serverReadTime || localReadTime;
   if (!lastReadTime) return true;
 
   const msgTime = new Date(lastMsg.createdAt || room.lastUpdated || 0).getTime();

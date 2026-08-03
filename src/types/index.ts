@@ -220,6 +220,7 @@ export interface ChatRoom {
   participants: User[];
   messages: ChatMessage[];
   lastUpdated: string;
+  readStatus?: Record<string, string>;
 }
 
 export type RequirementType = 
