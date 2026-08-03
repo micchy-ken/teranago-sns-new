@@ -25,10 +25,10 @@ const memoryReadChatTimestamps: Record<string, Record<string, string>> = {};
 async function saveReadStatusToServer(userId: string, targetType: 'event' | 'topic' | 'memo' | 'chat', targetId: string) {
   if (!userId || !targetType || !targetId) return;
   try {
-    await fetch(`${API_BASE_URL}/user-read-statuses`, {
+    await fetch(`${API_BASE_URL}/read-statuses`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId, targetType, targetId }),
+      body: JSON.stringify({ userId, targetType, targetId, isRead: true }),
     });
   } catch (err) {
     console.error('Failed to sync read status to server:', err);
@@ -39,20 +39,23 @@ async function saveReadStatusToServer(userId: string, targetType: 'event' | 'top
 export async function syncUserReadStatusesFromServer(userId: string) {
   if (!userId) return;
   try {
-    const res = await fetch(`${API_BASE_URL}/user-read-statuses?userId=${encodeURIComponent(userId)}`);
+    const res = await fetch(`${API_BASE_URL}/read-statuses/${encodeURIComponent(userId)}`);
     if (!res.ok) return;
-    const records: Array<{ targetType: string; targetId: string; readAt: string }> = await res.json();
-    if (!Array.isArray(records)) return;
+    const data: { event?: string[]; topic?: string[]; memo?: string[]; chat?: string[] } = await res.json();
+    if (!data) return;
 
     // サーバーから取得したデータだけでインメモリキャッシュを完全に上書き
-    memoryReadEventIds[userId] = records.filter((r) => r.targetType === 'event').map((r) => r.targetId);
-    memoryReadTopicIds[userId] = records.filter((r) => r.targetType === 'topic').map((r) => r.targetId);
-    memoryReadMemoIds[userId] = records.filter((r) => r.targetType === 'memo').map((r) => r.targetId);
+    memoryReadEventIds[userId] = data.event || [];
+    memoryReadTopicIds[userId] = data.topic || [];
+    memoryReadMemoIds[userId] = data.memo || [];
     
     const chatTimestamps: Record<string, string> = {};
-    records.filter((r) => r.targetType === 'chat').forEach((r) => {
-      chatTimestamps[r.targetId] = r.readAt;
-    });
+    if (Array.isArray(data.chat)) {
+      data.chat.forEach((roomId) => {
+        // 十分に未来の時刻をセットして、そのルームのメッセージを既読扱いにする
+        chatTimestamps[roomId] = new Date(Date.now() + 86400000 * 365).toISOString(); // 1年後
+      });
+    }
     memoryReadChatTimestamps[userId] = chatTimestamps;
 
     // カスタムイベントを発火してReact側に更新を通知

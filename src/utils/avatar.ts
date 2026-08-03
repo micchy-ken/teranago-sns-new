@@ -12,16 +12,45 @@ export const SILHOUETTE_SVG = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3
  * また、アップロードされた相対パス（/uploads/...）の場合は適切な絶対URLに変換します。
  */
 export const getAvatarUrl = (url?: string): string => {
-  if (!url || typeof url !== 'string' || url.trim() === '' || url.includes('pravatar.cc')) {
+  if (!url || typeof url !== 'string' || url.trim() === '' || url.includes('pravatar.cc') || url === 'avatar') {
     return SILHOUETTE_SVG;
   }
 
-  // アップロードされた相対パスを絶対URLにする
-  if (url.startsWith('/uploads/') || url.startsWith('uploads/')) {
-    const relativePath = url.startsWith('/') ? url : `/${url}`;
+  // Windowsパスなどのバックスラッシュをスラッシュに置換
+  let sanitizedUrl = url.replace(/\\/g, '/');
+
+  // /uploads/ または uploads/ の位置を特定して、動的に現在の API_BASE_URL と紐付ける
+  // これにより、データベースに保存されているドメイン(例: 192.168.24.50)と、
+  // 現在アクセスしている環境(例: https://sns.teranago.synology.me)が異なっていても、
+  // 正しいホスト名でアバター画像を表示できるようになります。
+  const uploadIndex = sanitizedUrl.indexOf('/uploads/');
+  const uploadIndexNoSlash = sanitizedUrl.indexOf('uploads/');
+  
+  let relativePath = '';
+  if (uploadIndex !== -1) {
+    relativePath = sanitizedUrl.substring(uploadIndex); // 例: "/uploads/avatar-xxx.png"
+  } else if (uploadIndexNoSlash !== -1) {
+    relativePath = '/' + sanitizedUrl.substring(uploadIndexNoSlash); // 例: "/uploads/avatar-xxx.png"
+  } else if (sanitizedUrl.startsWith('avatar-') || sanitizedUrl.includes('avatar-')) {
+    // ファイル名のみ、または末尾のみにアバターファイル名が含まれる場合
+    const match = sanitizedUrl.match(/avatar-[^/]+$/);
+    if (match) {
+      relativePath = `/uploads/${match[0]}`;
+    }
+  }
+
+  if (relativePath) {
     const baseUrl = API_BASE_URL.replace(/\/api$/, '');
     return `${baseUrl}${relativePath}`;
   }
 
-  return url;
+  // http から始まる絶対URLの場合はそのまま返す
+  if (sanitizedUrl.startsWith('http://') || sanitizedUrl.startsWith('https://')) {
+    return sanitizedUrl;
+  }
+
+  // それ以外の相対パスはベースドメインを付与してフォールバック
+  const baseUrl = API_BASE_URL.replace(/\/api$/, '');
+  const prefix = sanitizedUrl.startsWith('/') ? sanitizedUrl : `/${sanitizedUrl}`;
+  return `${baseUrl}${prefix}`;
 };
