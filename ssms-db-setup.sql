@@ -470,6 +470,21 @@ BEGIN
 END
 GO
 
+-- ------------------------------------------
+-- 10b. UserReadStatuses Table (Centralized Read Management)
+-- ------------------------------------------
+IF OBJECT_ID('dbo.UserReadStatuses', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.UserReadStatuses (
+        userId VARCHAR(50) NOT NULL,
+        targetType VARCHAR(50) NOT NULL, -- 'event', 'topic', 'memo', 'chat'
+        targetId VARCHAR(50) NOT NULL,
+        readAt DATETIME DEFAULT GETDATE(),
+        CONSTRAINT PK_UserReadStatuses PRIMARY KEY (userId, targetType, targetId)
+    );
+END
+GO
+
 -- ==========================================
 -- 11. Seed Data Registration
 -- ==========================================
