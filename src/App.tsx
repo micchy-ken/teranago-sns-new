@@ -132,6 +132,12 @@ export default function App() {
   };
 
   const [activeTab, setActiveTab] = useState<AppTab>('mypage');
+  const [autoOpenSettings, setAutoOpenSettings] = useState(false);
+
+  const handleOpenPersonalSettings = () => {
+    setActiveTab('mypage');
+    setAutoOpenSettings(true);
+  };
   const [offices, setOffices] = useState<OfficeMaster[]>([]);
   const [divisions, setDivisions] = useState<DivisionMaster[]>([]);
   const [positions, setPositions] = useState<PositionMaster[]>([]);
@@ -1939,6 +1945,7 @@ export default function App() {
         events={events}
         chatRooms={chatRooms}
         onSelectTab={setActiveTab}
+        onOpenSettings={handleOpenPersonalSettings}
         onNavigateToContent={handleNavigateToContent}
         onUpdateMemos={handleUpdateMemos}
         onUpdateTopic={handleUpdateTopic}
@@ -2152,6 +2159,9 @@ export default function App() {
             onUpdateApplication={(updatedApp) => {
               setApplications(applications.map(a => a.id === updatedApp.id ? updatedApp : a));
             }}
+            onLogout={handleLogout}
+            autoOpenSettings={autoOpenSettings}
+            onCloseSettings={() => setAutoOpenSettings(false)}
           />
         )}
         {activeTab === 'admin' && (

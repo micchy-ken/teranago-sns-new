@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Search, Bell, Menu, LogOut, Phone, FileText, Monitor, Calendar as CalendarIcon, MessageSquare, CheckCheck, ChevronRight, X } from 'lucide-react';
+import { Search, Bell, Menu, Phone, FileText, Monitor, Calendar as CalendarIcon, MessageSquare, CheckCheck, ChevronRight, X } from 'lucide-react';
 import { User, Memo, WorkflowApplication, BoardTopic, CalendarEvent, ChatRoom } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
 import { AppTab } from './Sidebar';
@@ -30,6 +30,7 @@ interface HeaderProps {
   events?: CalendarEvent[];
   chatRooms?: ChatRoom[];
   onSelectTab?: (tab: AppTab) => void;
+  onOpenSettings?: () => void;
   onNavigateToContent?: (target: {
     tab: AppTab;
     topicId?: string;
@@ -77,6 +78,7 @@ export function Header({
   events = [],
   chatRooms = [],
   onSelectTab,
+  onOpenSettings,
   onNavigateToContent,
   onUpdateMemos,
   onUpdateTopic,
@@ -545,32 +547,35 @@ export function Header({
           </div>
 
           <div className="flex items-center gap-3 pl-3 border-l border-slate-200">
-            <div className="text-right hidden sm:block">
-              <div className="text-sm font-semibold text-slate-800 flex items-center justify-end gap-1">
-                <span>{currentUser.name}</span>
-                {currentUser.isAdmin && (
-                  <span className="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.2 rounded font-bold">
-                    管理者
-                  </span>
-                )}
+            <button
+              type="button"
+              onClick={() => {
+                if (onOpenSettings) {
+                  onOpenSettings();
+                } else if (onSelectTab) {
+                  onSelectTab('mypage');
+                }
+              }}
+              className="flex items-center gap-2.5 group text-left focus:outline-none rounded-xl p-1 hover:bg-slate-100/80 transition-colors cursor-pointer"
+              title="個人設定を開く"
+            >
+              <div className="text-right hidden sm:block">
+                <div className="text-sm font-semibold text-slate-800 group-hover:text-indigo-600 transition-colors flex items-center justify-end gap-1">
+                  <span>{currentUser.name}</span>
+                  {currentUser.isAdmin && (
+                    <span className="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.2 rounded font-bold">
+                      管理者
+                    </span>
+                  )}
+                </div>
+                <div className="text-xs text-slate-500">{currentUser.department}</div>
               </div>
-              <div className="text-xs text-slate-500">{currentUser.department}</div>
-            </div>
-            <img
-              src={getAvatarUrl(currentUser.avatarUrl)}
-              alt={currentUser.name}
-              className="w-9 h-9 rounded-full bg-indigo-100 border border-indigo-200 object-cover"
-            />
-            {onLogout && (
-              <button
-                onClick={onLogout}
-                title="ログアウト"
-                className="p-2 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors flex items-center gap-1 text-xs font-semibold"
-              >
-                <LogOut className="w-4 h-4" />
-                <span className="hidden md:inline">ログアウト</span>
-              </button>
-            )}
+              <img
+                src={getAvatarUrl(currentUser.avatarUrl)}
+                alt={currentUser.name}
+                className="w-9 h-9 rounded-full bg-indigo-100 border border-indigo-200 object-cover group-hover:border-indigo-500 group-hover:ring-2 group-hover:ring-indigo-500/20 transition-all"
+              />
+            </button>
           </div>
         </div>
       </div>

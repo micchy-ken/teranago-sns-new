@@ -45,7 +45,8 @@ import {
   Edit2,
   Camera,
   Upload,
-  Trash2
+  Trash2,
+  LogOut
 } from 'lucide-react';
 import { TopicDetailModal } from './TopicDetailModal';
 
@@ -73,6 +74,9 @@ interface MyPageProps {
   onUpdateMemo?: (updatedMemos: Memo[]) => void;
   onUpdateTopic?: (updatedTopic: BoardTopic) => void;
   onUpdateApplication?: (updatedApp: WorkflowApplication) => void;
+  onLogout?: () => void;
+  autoOpenSettings?: boolean;
+  onCloseSettings?: () => void;
 }
 
 export function MyPage({
@@ -92,6 +96,9 @@ export function MyPage({
   onUpdateMemo,
   onUpdateTopic,
   onUpdateApplication,
+  onLogout,
+  autoOpenSettings,
+  onCloseSettings,
 }: MyPageProps) {
   // ローカル既読状態管理
   const [readEventIds, setReadEventIds] = useState<string[]>(() => getReadEventIds(user?.id));
@@ -115,6 +122,20 @@ export function MyPage({
   const [selectedTopic, setSelectedTopic] = useState<BoardTopic | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
+  useEffect(() => {
+    if (autoOpenSettings) {
+      setSettingsForm(user);
+      setIsSettingsOpen(true);
+    }
+  }, [autoOpenSettings, user]);
+
+  const handleCloseSettings = () => {
+    setIsSettingsOpen(false);
+    if (onCloseSettings) {
+      onCloseSettings();
+    }
+  };
 
   // アバターアップロード状態
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -177,7 +198,7 @@ export function MyPage({
     if (onUpdateUser) {
       onUpdateUser(settingsForm);
     }
-    setIsSettingsOpen(false);
+    handleCloseSettings();
   };
 
   // イベント既読化
@@ -299,70 +320,7 @@ export function MyPage({
 
   return (
     <div className="flex-1 overflow-y-auto bg-slate-50/50 rounded-xl border border-slate-200 h-[calc(100vh-8rem)] p-4 sm:p-6 space-y-6">
-      {/* ユーザーヘッダー（拠点・iCal同期などのごちゃついた表示は削除し洗練） */}
-      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-5 sm:p-6 flex flex-col sm:flex-row items-center justify-between gap-4 relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-64 h-full bg-gradient-to-l from-indigo-50/50 to-transparent pointer-events-none" />
 
-        <div className="flex items-center gap-4 z-10">
-          <div className="relative">
-            <img
-              src={getAvatarUrl(user.avatarUrl)}
-              alt={user.name}
-              className="w-16 h-16 sm:w-20 sm:h-20 rounded-full border-2 border-indigo-500/20 shadow-sm object-cover bg-slate-100"
-            />
-            <span className="absolute bottom-0 right-0 w-4 h-4 bg-emerald-500 border-2 border-white rounded-full" title="オンライン" />
-          </div>
-
-          <div className="space-y-1">
-            <div className="flex items-center gap-2.5 flex-wrap">
-              <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">{user.name}</h1>
-              {user.kanaName && (
-                <span className="text-xs font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
-                  {user.kanaName}
-                </span>
-              )}
-            </div>
-
-            <div className="flex items-center gap-2 flex-wrap text-xs">
-              <span className="font-mono font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
-                ID: {user.loginId || 'yamamichi'}
-              </span>
-              <span className="font-bold text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded border border-indigo-100 flex items-center gap-1">
-                <Briefcase className="w-3 h-3 text-indigo-500" />
-                {user.office || '名古屋'} {user.division || '総務'} {user.position || '課長補佐'}
-              </span>
-              {user.supervisorId && (
-                <span className="font-bold text-emerald-800 bg-emerald-50 px-2.5 py-0.5 rounded border border-emerald-100 flex items-center gap-1">
-                  <span>上長:</span>
-                  <span className="font-extrabold text-emerald-900">
-                    {allUsers.find((u) => u.id === user.supervisorId)?.name || '（未登録）'}
-                  </span>
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3 shrink-0 z-10 w-full sm:w-auto justify-end">
-          <div className="text-right hidden sm:block">
-            <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">マイダッシュボード</div>
-            <div className="text-xs font-extrabold text-slate-700">
-              未読通知合計:{' '}
-              <span className="text-rose-600 text-sm font-black">
-                {unreadEvents.length + unreadTopics.length + unreadMemos.length + pendingApprovals.length + unreadChatRooms.length} 件
-              </span>
-            </div>
-          </div>
-
-          <button
-            onClick={handleOpenSettings}
-            className="px-3.5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl flex items-center gap-2 transition-all shadow-sm hover:shadow shrink-0 cursor-pointer"
-          >
-            <Settings className="w-4 h-4 text-indigo-300" />
-            <span>個人設定・連携</span>
-          </button>
-        </div>
-      </div>
 
       {/* 5つの未読通知サマリーカード */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
@@ -1066,7 +1024,7 @@ export function MyPage({
       {/* 個人設定・カレンダー連携モーダル */}
       {isSettingsOpen && (
         <div
-          onClick={() => setIsSettingsOpen(false)}
+          onClick={handleCloseSettings}
           className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-50 p-4 backdrop-blur-xs overflow-y-auto"
         >
           <div
@@ -1079,8 +1037,8 @@ export function MyPage({
                 <h2 className="text-base font-bold">個人設定・カレンダー同期</h2>
               </div>
               <button
-                onClick={() => setIsSettingsOpen(false)}
-                className="p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded-full transition-colors"
+                onClick={handleCloseSettings}
+                className="p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded-full transition-colors cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1124,7 +1082,7 @@ export function MyPage({
                         type="button"
                         onClick={() => fileInputRef.current?.click()}
                         disabled={avatarUploading}
-                        className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-xs shrink-0"
+                        className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-xs shrink-0 cursor-pointer"
                       >
                         <Upload className="w-3.5 h-3.5" />
                         写真をアップロード
@@ -1135,7 +1093,7 @@ export function MyPage({
                           type="button"
                           onClick={handleRemoveAvatar}
                           disabled={avatarUploading}
-                          className="px-3 py-1.5 bg-white border border-rose-200 hover:bg-rose-50 text-rose-600 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors"
+                          className="px-3 py-1.5 bg-white border border-rose-200 hover:bg-rose-50 text-rose-600 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                           削除してシルエットに戻す
@@ -1331,7 +1289,7 @@ export function MyPage({
                         setCopiedICal(true);
                         setTimeout(() => setCopiedICal(false), 2000);
                       }}
-                      className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1 shrink-0"
+                      className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1 shrink-0 cursor-pointer"
                     >
                       <Copy className="w-3.5 h-3.5" />
                       {copiedICal ? 'コピー完了' : 'URLコピー'}
@@ -1340,21 +1298,39 @@ export function MyPage({
                 </div>
               </div>
 
+
+
               {/* フッターアクション */}
-              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setIsSettingsOpen(false)}
-                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-                >
-                  キャンセル
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors shadow-sm"
-                >
-                  設定内容を保存
-                </button>
+              <div className="flex items-center justify-between gap-3 pt-4 border-t border-slate-100">
+                {onLogout ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleCloseSettings();
+                      onLogout();
+                    }}
+                    className="px-3.5 py-2 text-xs font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    <span>ログアウト</span>
+                  </button>
+                ) : <div />}
+
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={handleCloseSettings}
+                    className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                  >
+                    キャンセル
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors shadow-sm cursor-pointer"
+                  >
+                    設定内容を保存
+                  </button>
+                </div>
               </div>
             </form>
           </div>
