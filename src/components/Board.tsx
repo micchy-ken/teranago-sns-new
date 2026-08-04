@@ -2,10 +2,11 @@ import React, { useState, useMemo } from 'react';
 import { BoardTopic, User, OfficeMaster, DivisionMaster } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
 import { markTopicAsRead } from '../utils/notifications';
-import { MessageSquare, Eye, Plus, Search, Pin, Paperclip, Calendar as CalendarIcon, Building2, Users, Flame, Tag, Trash2 } from 'lucide-react';
+import { MessageSquare, Eye, Plus, Search, Pin, Paperclip, Calendar as CalendarIcon, Building2, Users, Flame, Tag, Trash2, Server } from 'lucide-react';
 import { TopicCreateModal } from './TopicCreateModal';
 import { TopicDetailModal } from './TopicDetailModal';
 import { ConfirmModal } from './ConfirmModal';
+import { APIDiagnosticModal } from './APIDiagnosticModal';
 
 interface BoardProps {
   topics: BoardTopic[];
@@ -34,6 +35,7 @@ export function Board({
   const [searchQuery, setSearchQuery] = useState('');
 
   // モーダル管理
+  const [isDiagnosticOpen, setIsDiagnosticOpen] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [selectedTopic, setSelectedTopic] = useState<BoardTopic | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
@@ -239,6 +241,15 @@ export function Board({
             </div>
 
             <button
+              onClick={() => setIsDiagnosticOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-700 text-xs font-bold rounded-xl transition-all whitespace-nowrap shrink-0 cursor-pointer"
+              title="API接続診断ツールを開く"
+            >
+              <Server className="w-3.5 h-3.5 text-slate-500" />
+              API診断
+            </button>
+
+            <button
               onClick={() => setIsCreateModalOpen(true)}
               className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition-all shadow-md active:scale-[0.99] whitespace-nowrap shrink-0"
             >
@@ -431,6 +442,12 @@ export function Board({
           setTopicToDelete(null);
         }}
         onClose={() => setTopicToDelete(null)}
+      />
+
+      {/* API 接続診断モーダル */}
+      <APIDiagnosticModal
+        isOpen={isDiagnosticOpen}
+        onClose={() => setIsDiagnosticOpen(false)}
       />
     </div>
   );

@@ -314,6 +314,51 @@ END
 GO
 
 -- ------------------------------------------
+-- 6b. BoardComments Table
+-- ------------------------------------------
+IF OBJECT_ID('dbo.BoardComments', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.BoardComments (
+        id VARCHAR(50) PRIMARY KEY,
+        topicId VARCHAR(50) NULL,
+        bulletinId VARCHAR(50) NULL,
+        authorId VARCHAR(50) NOT NULL,
+        content NVARCHAR(MAX) NOT NULL,
+        createdAt DATETIME DEFAULT GETDATE()
+    );
+END
+ELSE
+BEGIN
+    IF COL_LENGTH('dbo.BoardComments', 'topicId') IS NULL ALTER TABLE dbo.BoardComments ADD topicId VARCHAR(50) NULL;
+    IF COL_LENGTH('dbo.BoardComments', 'bulletinId') IS NULL ALTER TABLE dbo.BoardComments ADD bulletinId VARCHAR(50) NULL;
+    IF COL_LENGTH('dbo.BoardComments', 'authorId') IS NULL ALTER TABLE dbo.BoardComments ADD authorId VARCHAR(50) NULL;
+    IF COL_LENGTH('dbo.BoardComments', 'content') IS NULL ALTER TABLE dbo.BoardComments ADD content NVARCHAR(MAX) NULL;
+    IF COL_LENGTH('dbo.BoardComments', 'createdAt') IS NULL ALTER TABLE dbo.BoardComments ADD createdAt DATETIME DEFAULT GETDATE();
+END
+GO
+
+-- ------------------------------------------
+-- 6c. BoardViewers Table
+-- ------------------------------------------
+IF OBJECT_ID('dbo.BoardViewers', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.BoardViewers (
+        topicId VARCHAR(50) NULL,
+        bulletinId VARCHAR(50) NULL,
+        userId VARCHAR(50) NOT NULL,
+        viewedAt DATETIME DEFAULT GETDATE()
+    );
+END
+ELSE
+BEGIN
+    IF COL_LENGTH('dbo.BoardViewers', 'topicId') IS NULL ALTER TABLE dbo.BoardViewers ADD topicId VARCHAR(50) NULL;
+    IF COL_LENGTH('dbo.BoardViewers', 'bulletinId') IS NULL ALTER TABLE dbo.BoardViewers ADD bulletinId VARCHAR(50) NULL;
+    IF COL_LENGTH('dbo.BoardViewers', 'userId') IS NULL ALTER TABLE dbo.BoardViewers ADD userId VARCHAR(50) NULL;
+    IF COL_LENGTH('dbo.BoardViewers', 'viewedAt') IS NULL ALTER TABLE dbo.BoardViewers ADD viewedAt DATETIME DEFAULT GETDATE();
+END
+GO
+
+-- ------------------------------------------
 -- 7. ChatRooms Table
 -- ------------------------------------------
 IF OBJECT_ID('dbo.ChatRooms', 'U') IS NULL
