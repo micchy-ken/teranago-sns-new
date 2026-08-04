@@ -31,7 +31,7 @@ async function saveReadStatusToServer(userId: string, targetType: 'event' | 'top
       body: JSON.stringify({ userId, targetType, targetId, isRead: true }),
     });
   } catch (err) {
-    console.error('Failed to sync read status to server:', err);
+    console.warn('Failed to sync read status to server:', err);
   }
 }
 
@@ -61,7 +61,7 @@ export async function syncUserReadStatusesFromServer(userId: string) {
     // カスタムイベントを発火してReact側に更新を通知
     window.dispatchEvent(new CustomEvent('notifications_updated'));
   } catch (err) {
-    console.error('Failed to fetch read statuses from server:', err);
+    console.warn('Failed to fetch read statuses from server:', err);
   }
 }
 

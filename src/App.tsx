@@ -845,7 +845,7 @@ export default function App() {
         setTopics(prev => prev.map(t => t.id === updatedTopic.id ? updatedTopic : t));
       }
     } catch (err) {
-      console.error('Failed to update bulletin via API:', err);
+      console.warn('Failed to update bulletin via API:', err);
       setTopics(prev => prev.map(t => t.id === updatedTopic.id ? updatedTopic : t));
     } finally {
       window.dispatchEvent(new CustomEvent('notifications_updated'));
