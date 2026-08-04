@@ -33,7 +33,13 @@ import {
   ShoppingBag,
   Package,
   Upload,
-  RefreshCw
+  RefreshCw,
+  Database,
+  Play,
+  Activity,
+  Server,
+  Copy,
+  Check
 } from 'lucide-react';
 import { User, OfficeMaster, DivisionMaster, PositionMaster, OfficeType, ApprovalFlowRule, ApprovalStepConfig, ApplicationType, ApproverType, ItemMaster } from '../types';
 
@@ -107,6 +113,14 @@ export function AdminPanel({
   const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedOfficeFilter, setSelectedOfficeFilter] = useState<string>('all');
+
+  // システム情報・診断ツール拡張用状態
+  const [diagnosticLoading, setDiagnosticLoading] = useState(false);
+  const [diagnosticLogs, setDiagnosticLogs] = useState<string[]>([]);
+  const [diagnosticStatus, setDiagnosticStatus] = useState<'idle' | 'success' | 'warning' | 'error'>('idle');
+  const [copySuccess, setCopySuccess] = useState<Record<string, boolean>>({});
+  const [systemActiveSection, setSystemActiveSection] = useState<'diagnostics' | 'database' | 'server_code'>('diagnostics');
+  const [selectedSystemTable, setSelectedSystemTable] = useState('dbo.Users');
 
   // Modal State for Item Master (品名マスタ)
   const [isItemModalOpen, setIsItemModalOpen] = useState(false);
@@ -419,6 +433,773 @@ export function AdminPanel({
       }
     });
   };
+
+  // --- SYSTEM DIAGNOSTIC & DATABASE INFO HELPERS ---
+  const DB_SCHEMAS_ALL = [
+    {
+      tableName: 'dbo.Users',
+      description: 'メンバー（ユーザー）の基本情報・ログイン情報・各種連絡先を保持するテーブルです。',
+      columns: [
+        { name: 'id', type: 'VARCHAR(50)', constraint: 'PRIMARY KEY', desc: 'ユーザーの一意識別子 (UUID等)' },
+        { name: 'loginId', type: 'VARCHAR(50)', constraint: 'UNIQUE / NULL許可', desc: 'ログインID' },
+        { name: 'password', type: 'VARCHAR(100)', constraint: 'NULL許可', desc: 'パスワード' },
+        { name: 'name', type: 'NVARCHAR(100)', constraint: 'NOT NULL', desc: '氏名（漢字）' },
+        { name: 'department', type: 'NVARCHAR(100)', constraint: 'NULL許可', desc: '所属部署' },
+        { name: 'office', type: 'NVARCHAR(100)', constraint: 'NULL許可', desc: '所属拠点 (OfficeMaster.name と紐付け)' },
+        { name: 'division', type: 'NVARCHAR(100)', constraint: 'NULL許可', desc: '所属部門 (DivisionMaster.name と紐付け)' },
+        { name: 'position', type: 'NVARCHAR(100)', constraint: 'NULL許可', desc: '役職 (PositionMaster.name と紐付け)' },
+        { name: 'role', type: "VARCHAR(50) DEFAULT 'user'", constraint: 'NOT NULL', desc: "システム権限 ('admin' または 'user')" },
+        { name: 'isAdmin', type: 'BIT DEFAULT 0', constraint: 'NOT NULL', desc: '管理者フラグ (1:管理者, 0:一般ユーザー)' },
+        { name: 'avatarUrl', type: 'NVARCHAR(500)', constraint: 'NULL許可', desc: 'アバター画像URLまたはアバターパス' },
+        { name: 'email', type: 'NVARCHAR(255)', constraint: 'NULL許可', desc: 'PCメールアドレス' },
+        { name: 'mobileEmail', type: 'NVARCHAR(255)', constraint: 'NULL許可', desc: '携帯メールアドレス' },
+        { name: 'phone', type: 'NVARCHAR(50)', constraint: 'NULL許可', desc: '直通電話番号' },
+        { name: 'phoneOutside', type: 'NVARCHAR(50)', constraint: 'NULL許可', desc: '外線番号' },
+        { name: 'phoneExtension', type: 'NVARCHAR(50)', constraint: 'NULL許可', desc: '内線番号' },
+        { name: 'mobilePhone', type: 'NVARCHAR(50)', constraint: 'NULL許可', desc: '携帯電話番号' },
+        { name: 'icalUrl', type: 'NVARCHAR(500)', constraint: 'NULL許可', desc: 'iCal連携用外部スケジュールURL' },
+        { name: 'supervisorId', type: 'VARCHAR(50)', constraint: 'NULL許可', desc: '直属の上長(承認者)のID (Users.id と紐付け)' }
+      ]
+    },
+    {
+      tableName: 'dbo.Posts',
+      description: 'タイムライン（社内SNS）の投稿データを格納するテーブルです。',
+      columns: [
+        { name: 'id', type: 'VARCHAR(50)', constraint: 'PRIMARY KEY', desc: '投稿の一意識別子' },
+        { name: 'authorId', type: 'VARCHAR(50)', constraint: 'NOT NULL', desc: '投稿者ID (Users.id と紐付け)' },
+        { name: 'content', type: 'NVARCHAR(MAX)', constraint: 'NOT NULL', desc: '投稿本文' },
+        { name: 'createdAt', type: 'DATETIME', constraint: 'DEFAULT GETDATE()', desc: '投稿日時' },
+        { name: 'likes', type: 'INT DEFAULT 0', constraint: 'NOT NULL', desc: 'いいねの総数' },
+        { name: 'isLiked', type: 'BIT DEFAULT 0', constraint: 'NOT NULL', desc: 'ダミー/デフォルトいいね状態' },
+        { name: 'nasLink', type: 'NVARCHAR(500)', constraint: 'NULL許可', desc: 'ファイルサーバー (NAS) 共有リンクパス' },
+        { name: 'tags', type: 'NVARCHAR(500)', constraint: 'NULL許可', desc: 'カンマ区切りのタグリスト' }
+      ]
+    },
+    {
+      tableName: 'dbo.PostTags',
+      description: 'タイムライン投稿に関連付けられたタグを高速検索・管理するための中間テーブルです。',
+      columns: [
+        { name: 'postId', type: 'VARCHAR(50)', constraint: 'NOT NULL', desc: '投稿ID (Posts.id と紐付け)' },
+        { name: 'tag', type: 'NVARCHAR(100)', constraint: 'NOT NULL', desc: 'タグ文字列' }
+      ]
+    },
+    {
+      tableName: 'dbo.Events',
+      description: 'カレンダーの予定・会議室や社用車の施設予約・行事を管理するテーブルです。',
+      columns: [
+        { name: 'id', type: 'VARCHAR(50)', constraint: 'PRIMARY KEY', desc: 'イベントの一意識別子' },
+        { name: 'title', type: 'NVARCHAR(255)', constraint: 'NOT NULL', desc: '予定・行事名 / 施設予約名' },
+        { name: 'startAt', type: 'DATETIME', constraint: 'NOT NULL', desc: '開始日時' },
+        { name: 'endAt', type: 'DATETIME', constraint: 'NOT NULL', desc: '終了日時' },
+        { name: 'isAllDay', type: 'BIT DEFAULT 0', constraint: 'NOT NULL', desc: '終日フラグ' },
+        { name: 'category', type: 'NVARCHAR(50)', constraint: 'NULL許可', desc: '予定カテゴリー (例: 社内行事, 施設予約, 往訪など)' },
+        { name: 'description', type: 'NVARCHAR(MAX)', constraint: 'NULL許可', desc: '予定・予約の詳細説明' },
+        { name: 'location', type: 'NVARCHAR(255)', constraint: 'NULL許可', desc: '会議室・場所・予約施設情報' },
+        { name: 'office', type: 'NVARCHAR(100)', constraint: 'NULL許可', desc: '対象拠点 (特定の拠点に絞る場合)' },
+        { name: 'division', type: 'NVARCHAR(100)', constraint: 'NULL許可', desc: '対象部署' }
+      ]
+    },
+    {
+      tableName: 'dbo.Workflows',
+      description: '電子決裁（申請・承認フロー）の申請データと進捗状態を管理するテーブルです。',
+      columns: [
+        { name: 'id', type: 'VARCHAR(50)', constraint: 'PRIMARY KEY', desc: '申請の一意識別子' },
+        { name: 'title', type: 'NVARCHAR(255)', constraint: 'NOT NULL', desc: '申請タイトル' },
+        { name: 'description', type: 'NVARCHAR(MAX)', constraint: 'NULL許可', desc: '申請内容・理由' },
+        { name: 'applicantId', type: 'VARCHAR(50)', constraint: 'NOT NULL', desc: '申請者ID (Users.id と紐付け)' },
+        { name: 'approverId', type: 'VARCHAR(50)', constraint: 'NULL許可', desc: '現在の判定者 / 承認者ID (Users.id)' },
+        { name: 'status', type: "VARCHAR(50) DEFAULT 'pending'", constraint: 'NOT NULL', desc: "進捗ステータス ('pending', 'approved', 'rejected' 等)" },
+        { name: 'createdAt', type: 'DATETIME', constraint: 'DEFAULT GETDATE()', desc: '申請日時' },
+        { name: 'category', type: 'NVARCHAR(50)', constraint: 'NULL許可', desc: '電子決裁カテゴリ' },
+        { name: 'type', type: 'NVARCHAR(100)', constraint: 'NULL許可', desc: '申請書類タイプ (例: 経費精算, 休暇申請など)' },
+        { name: 'details', type: 'NVARCHAR(MAX)', constraint: 'NULL許可', desc: 'JSON形式の各種申請固有データ (フォーム項目値等)' }
+      ]
+    },
+    {
+      tableName: 'dbo.Bulletins',
+      description: '掲示板（重要お知らせや情報共有トピック）の親データを格納するテーブルです。',
+      columns: [
+        { name: 'id', type: 'VARCHAR(50)', constraint: 'PRIMARY KEY', desc: 'トピックの一意識別子' },
+        { name: 'title', type: 'NVARCHAR(255)', constraint: 'NOT NULL', desc: 'トピックタイトル' },
+        { name: 'content', type: 'NVARCHAR(MAX)', constraint: 'NOT NULL', desc: '本文 (マークダウンまたはテキスト)' },
+        { name: 'category', type: 'NVARCHAR(50)', constraint: 'NULL許可', desc: 'カテゴリー' },
+        { name: 'authorId', type: 'VARCHAR(50)', constraint: 'NOT NULL', desc: '作成者ID (Users.id)' },
+        { name: 'isPinned', type: 'BIT DEFAULT 0', constraint: 'NOT NULL', desc: 'ピン留め（最上部固定）フラグ' },
+        { name: 'office', type: 'NVARCHAR(100)', constraint: 'NULL許可', desc: '公開先拠点制限' },
+        { name: 'division', type: 'NVARCHAR(100)', constraint: 'NULL許可', desc: '公開先部署制限' },
+        { name: 'scope', type: "NVARCHAR(50) DEFAULT N'全社'", constraint: 'NOT NULL', desc: '公開範囲定義' },
+        { name: 'tags', type: 'NVARCHAR(500)', constraint: 'NULL許可', desc: 'カンマ区切りのタグ' },
+        { name: 'attachments', type: 'NVARCHAR(MAX)', constraint: 'NULL許可', desc: '添付ファイルデータのJSON配列文字列' },
+        { name: 'createdAt', type: 'DATETIME', constraint: 'DEFAULT GETDATE()', desc: '作成日時' },
+        { name: 'views', type: 'INT DEFAULT 0', constraint: 'NOT NULL', desc: '総閲覧数' },
+        { name: 'likes', type: 'INT DEFAULT 0', constraint: 'NOT NULL', desc: '総いいね数' }
+      ]
+    },
+    {
+      tableName: 'dbo.BoardComments',
+      description: '掲示板トピックに紐づくコメントデータを格納するテーブルです。古い制約バグ防止のため NULL許可を推奨します。',
+      columns: [
+        { name: 'id', type: 'VARCHAR(50)', constraint: 'PRIMARY KEY', desc: 'コメントID' },
+        { name: 'bulletinId', type: 'VARCHAR(50)', constraint: 'NULL許可', desc: 'トピックID (Bulletins.id 紐付け)' },
+        { name: 'topicId', type: 'VARCHAR(50)', constraint: 'NULL許可', desc: 'トピックID（互換用）' },
+        { name: 'authorId', type: 'VARCHAR(50)', constraint: 'NULL許可', desc: '投稿者ID' },
+        { name: 'author_id', type: 'VARCHAR(50)', constraint: 'NULL許可', desc: '投稿者ID（古い構成への互換用）' },
+        { name: 'content', type: 'NVARCHAR(MAX)', constraint: 'NOT NULL', desc: 'コメント内容' },
+        { name: 'createdAt', type: 'DATETIME', constraint: 'DEFAULT GETDATE()', desc: '投稿日時' }
+      ]
+    },
+    {
+      tableName: 'dbo.BoardViewers',
+      description: '掲示板トピックを誰がいつ閲覧したか、既読/未読数を追跡するためのテーブルです。',
+      columns: [
+        { name: 'bulletinId', type: 'VARCHAR(50)', constraint: 'NULL許可', desc: 'トピックID' },
+        { name: 'topicId', type: 'VARCHAR(50)', constraint: 'NULL許可', desc: 'トピックID（互換用）' },
+        { name: 'userId', type: 'VARCHAR(50)', constraint: 'NOT NULL', desc: '閲覧したユーザーID' },
+        { name: 'viewedAt', type: 'DATETIME', constraint: 'DEFAULT GETDATE()', desc: '初回閲覧日時' }
+      ]
+    },
+    {
+      tableName: 'dbo.ChatRooms',
+      description: '社内チャットのグループまたは1対1ダイレクトチャットの部屋を管理するテーブルです。',
+      columns: [
+        { name: 'id', type: 'VARCHAR(50)', constraint: 'PRIMARY KEY', desc: 'チャットルームID' },
+        { name: 'name', type: 'NVARCHAR(100)', constraint: 'NOT NULL', desc: 'チャットルーム名 (グループ名等)' },
+        { name: 'type', type: "VARCHAR(50) DEFAULT 'group'", constraint: 'NOT NULL', desc: "ルームタイプ ('group' or 'direct')" },
+        { name: 'avatarUrl', type: 'NVARCHAR(500)', constraint: 'NULL許可', desc: 'グループアイコン画像URL' },
+        { name: 'lastMessage', type: 'NVARCHAR(MAX)', constraint: 'NULL許可', desc: '最新のメッセージの抜粋' },
+        { name: 'updatedAt', type: 'DATETIME', constraint: 'DEFAULT GETDATE()', desc: '最終更新日時' },
+        { name: 'last_updated', type: 'DATETIME', constraint: 'NULL許可', desc: '最終更新日時（互換用）' }
+      ]
+    },
+    {
+      tableName: 'dbo.ChatMessages',
+      description: '各チャットルーム内で送受信されたメッセージ本文を格納するテーブルです。',
+      columns: [
+        { name: 'id', type: 'VARCHAR(50)', constraint: 'PRIMARY KEY', desc: 'メッセージID' },
+        { name: 'senderId', type: 'VARCHAR(50)', constraint: 'NOT NULL', desc: '送信者ユーザーID' },
+        { name: 'roomId', type: 'VARCHAR(50)', constraint: 'NOT NULL', desc: '所属チャットルームID' },
+        { name: 'message', type: 'NVARCHAR(MAX)', constraint: 'NULL許可', desc: 'メッセージ本文' },
+        { name: 'content', type: 'NVARCHAR(MAX)', constraint: 'NULL許可', desc: 'メッセージ本文（互換用）' },
+        { name: 'createdAt', type: 'DATETIME', constraint: 'DEFAULT GETDATE()', desc: '送信日時' }
+      ]
+    },
+    {
+      tableName: 'dbo.Memos',
+      description: '不在時の電話や伝言メモ、および回覧・連絡事項を保持・管理するテーブルです。',
+      columns: [
+        { name: 'id', type: 'VARCHAR(50)', constraint: 'PRIMARY KEY', desc: '伝言メモID' },
+        { name: 'senderId', type: 'VARCHAR(50)', constraint: 'NOT NULL', desc: '作成・送信者ID (Users.id)' },
+        { name: 'receiverId', type: 'VARCHAR(50)', constraint: 'NULL許可', desc: '主たる受信者ID (単一宛先互換用)' },
+        { name: 'content', type: 'NVARCHAR(MAX)', constraint: 'NULL許可', desc: 'メモ用自由記述内容' },
+        { name: 'isRead', type: 'BIT DEFAULT 0', constraint: 'NOT NULL', desc: '既読フラグ' },
+        { name: 'createdAt', type: 'DATETIME', constraint: 'DEFAULT GETDATE()', desc: '作成日時' },
+        { name: 'fromName', type: 'NVARCHAR(100)', constraint: 'NULL許可', desc: '相手先担当者名' },
+        { name: 'fromCompany', type: 'NVARCHAR(150)', constraint: 'NULL許可', desc: '相手先企業名・社名' },
+        { name: 'fromPhone', type: 'NVARCHAR(50)', constraint: 'NULL許可', desc: '相手先連絡先電話番号' },
+        { name: 'requirementType', type: 'NVARCHAR(100)', constraint: 'NULL許可', desc: '要件分類（折返し希望, 伝言のみ等）' },
+        { name: 'requirementText', type: 'NVARCHAR(255)', constraint: 'NULL許可', desc: '要件分類（テキスト）' },
+        { name: 'details', type: 'NVARCHAR(MAX)', constraint: 'NULL許可', desc: 'その他伝言詳細' },
+        { name: 'toUsersJson', type: 'NVARCHAR(MAX)', constraint: 'NULL許可', desc: '複数宛先を格納するJSON配列 (ユーザーIDのリスト)' },
+        { name: 'recipientStatusesJson', type: 'NVARCHAR(MAX)', constraint: 'NULL許可', desc: '宛先ごとの既読・確認状況を追跡するJSONデータ' }
+      ]
+    },
+    {
+      tableName: 'dbo.DailyReports',
+      description: '日々の業務報告、課題、および翌日の予定などを記録する日報テーブルです。',
+      columns: [
+        { name: 'id', type: 'VARCHAR(50)', constraint: 'PRIMARY KEY', desc: '日報の一意識別子' },
+        { name: 'authorId', type: 'VARCHAR(50)', constraint: 'NOT NULL', desc: '作成したユーザーID' },
+        { name: 'reportDate', type: 'VARCHAR(10)', constraint: 'NOT NULL', desc: '日報対象日 (YYYY-MM-DD)' },
+        { name: 'content', type: 'NVARCHAR(MAX)', constraint: 'NULL許可', desc: '業務の要約・フリーテキスト' },
+        { name: 'createdAt', type: 'DATETIME', constraint: 'DEFAULT GETDATE()', desc: '日報登録日時' },
+        { name: 'tasks', type: 'NVARCHAR(MAX)', constraint: 'NULL許可', desc: '本日の実施タスク / JSONまたはテキスト' },
+        { name: 'results', type: 'NVARCHAR(MAX)', constraint: 'NULL許可', desc: '本日の成果・結果' },
+        { name: 'issues', type: 'NVARCHAR(MAX)', constraint: 'NULL許可', desc: '課題・反省点・特記事項' },
+        { name: 'tomorrowPlan', type: 'NVARCHAR(MAX)', constraint: 'NULL許可', desc: '明日の予定・計画' }
+      ]
+    },
+    {
+      tableName: 'dbo.OfficeMaster',
+      description: '全社の「拠点（支店、営業所、本社）」の情報を集中管理するマスタテーブルです。',
+      columns: [
+        { name: 'id', type: 'VARCHAR(50)', constraint: 'PRIMARY KEY', desc: '拠点ID' },
+        { name: 'name', type: 'NVARCHAR(100)', constraint: 'NOT NULL', desc: '拠点名称' },
+        { name: 'type', type: 'VARCHAR(50)', constraint: 'NULL許可', desc: '拠点種別 (例: branch, office)' },
+        { name: 'code', type: 'VARCHAR(50)', constraint: 'NULL許可', desc: '拠点コード' },
+        { name: 'location', type: 'NVARCHAR(255)', constraint: 'NULL許可', desc: '拠点所在地・住所' },
+        { name: 'phone', type: 'NVARCHAR(50)', constraint: 'NULL許可', desc: '代表電話番号' }
+      ]
+    },
+    {
+      tableName: 'dbo.DivisionMaster',
+      description: '各拠点に存在する「所属部門・部署」を管理するマスタテーブルです。',
+      columns: [
+        { name: 'id', type: 'VARCHAR(50)', constraint: 'PRIMARY KEY', desc: '部署ID' },
+        { name: 'name', type: 'NVARCHAR(100)', constraint: 'NOT NULL', desc: '部署・課名称' },
+        { name: 'code', type: 'VARCHAR(50)', constraint: 'NULL許可', desc: '部署コード' },
+        { name: 'description', type: 'NVARCHAR(255)', constraint: 'NULL許可', desc: '部署に関するメモ・説明' }
+      ]
+    },
+    {
+      tableName: 'dbo.PositionMaster',
+      description: '役職マスタです。メンバー登録時に設定する役職（社長、部長、課長、一般等）を保持します。',
+      columns: [
+        { name: 'id', type: 'VARCHAR(50)', constraint: 'PRIMARY KEY', desc: '役職ID' },
+        { name: 'name', type: 'NVARCHAR(100)', constraint: 'NOT NULL', desc: '役職名' },
+        { name: 'code', type: 'VARCHAR(50)', constraint: 'NULL許可', desc: '役職順序 / コード' },
+        { name: 'description', type: 'NVARCHAR(255)', constraint: 'NULL許可', desc: '役職権限などの補足説明' }
+      ]
+    },
+    {
+      tableName: 'dbo.ItemMasters',
+      description: '電子決裁などの申請書面で選択・精算する「物品・備品名」を管理する品名マスタです。',
+      columns: [
+        { name: 'id', type: 'VARCHAR(50)', constraint: 'PRIMARY KEY', desc: '品名ID' },
+        { name: 'name', type: 'NVARCHAR(200)', constraint: 'NOT NULL', desc: '品名・科目名称' },
+        { name: 'category', type: 'NVARCHAR(100)', constraint: 'NULL許可', desc: '品名カテゴリ' },
+        { name: 'defaultUnitPrice', type: 'INT', constraint: 'DEFAULT 0', desc: '標準単価' },
+        { name: 'unit', type: 'NVARCHAR(50)', constraint: 'NULL許可', desc: '単位 (個, 箱, 枚 等)' },
+        { name: 'code', type: 'VARCHAR(50)', constraint: 'NULL許可', desc: '品名コード' }
+      ]
+    },
+    {
+      tableName: 'dbo.ApprovalFlows',
+      description: '電子決裁に適用する「承認ステップ定義・順序」を保存するマスターテーブルです。',
+      columns: [
+        { name: 'id', type: 'VARCHAR(50)', constraint: 'PRIMARY KEY', desc: '承認フロー定義ID' },
+        { name: 'name', type: 'NVARCHAR(100)', constraint: 'NOT NULL', desc: 'フロー定義名' },
+        { name: 'description', type: 'NVARCHAR(255)', constraint: 'NULL許可', desc: 'フローの説明' },
+        { name: 'targetApplicationType', type: 'NVARCHAR(100)', constraint: 'NULL許可', desc: '適用する申請タイプ' },
+        { name: 'stepsJson', type: 'NVARCHAR(MAX)', constraint: 'NULL許可', desc: '各承認ステップの構成（JSON配列文字列）' },
+        { name: 'isDefault', type: 'BIT DEFAULT 0', constraint: 'NOT NULL', desc: '標準適用フローかどうか' }
+      ]
+    },
+    {
+      tableName: 'dbo.UserReadStatuses',
+      description: '社内SNSや掲示板などのコンテンツの「ユーザー別・記事別の個別既読状態」を高速判定するためのテーブルです。',
+      columns: [
+        { name: 'userId', type: 'VARCHAR(50)', constraint: 'NOT NULL', desc: 'ユーザーID (Users.id)' },
+        { name: 'targetType', type: 'VARCHAR(50)', constraint: 'NOT NULL', desc: "対象タイプ ('post', 'bulletin', 'workflow' 等)" },
+        { name: 'targetId', type: 'VARCHAR(50)', constraint: 'NOT NULL', desc: '対象コンテンツID' },
+        { name: 'readAt', type: 'DATETIME', constraint: 'DEFAULT GETDATE()', desc: '既読になった日時' }
+      ]
+    }
+  ];
+
+  const runDiagnostic = async () => {
+    setDiagnosticLoading(true);
+    setDiagnosticStatus('idle');
+    setDiagnosticLogs([]);
+
+    const addLog = (msg: string) => {
+      setDiagnosticLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`]);
+    };
+
+    addLog('===== 統合 API & データベース診断を開始します =====');
+    addLog(`検証先 API ベースURL: ${API_BASE_URL}`);
+
+    if (!API_BASE_URL) {
+      addLog('❌ エラー: APIベースURLが空です。.envの設定を確認してください。');
+      setDiagnosticStatus('error');
+      setDiagnosticLoading(false);
+      return;
+    }
+
+    const testEndpoints = [
+      { name: 'メンバー管理 (GET /users)', path: '/users' },
+      { name: 'タイムラインSNS (GET /posts)', path: '/posts' },
+      { name: 'スケジュール・予定 (GET /events)', path: '/events' },
+      { name: '電子決裁 (GET /workflows)', path: '/workflows' },
+      { name: '掲示板トピック (GET /bulletins)', path: '/bulletins' },
+      { name: '社内チャット (GET /chats)', path: '/chats' },
+      { name: '伝言メモ (GET /memos)', path: '/memos' },
+      { name: '日報 (GET /daily-reports)', path: '/daily-reports' },
+      { name: 'マスター (拠点) (GET /masters/offices)', path: '/masters/offices' },
+      { name: 'マスター (部署) (GET /masters/divisions)', path: '/masters/divisions' },
+      { name: 'マスター (役職) (GET /masters/positions)', path: '/masters/positions' },
+    ];
+
+    let hasError = false;
+    let hasWarning = false;
+
+    for (let i = 0; i < testEndpoints.length; i++) {
+      const ep = testEndpoints[i];
+      try {
+        addLog(`${i + 1}. 【${ep.name}】 の通信テストを送信中...`);
+        const start = Date.now();
+        const res = await fetch(`${API_BASE_URL}${ep.path}`, {
+          method: 'GET',
+          headers: { 'Accept': 'application/json' }
+        });
+        const duration = Date.now() - start;
+
+        addLog(`   ▶ 受信ステータス: ${res.status} (${duration}ms)`);
+
+        if (res.status === 200) {
+          const data = await res.json();
+          addLog(`   ✅ 接続成功！ ${Array.isArray(data) ? `${data.length}件のデータを取得しました。` : '正常なレスポンスを受信しました。'}`);
+        } else if (res.status === 404) {
+          addLog(`   ⚠️ 未実装またはエンドポイントが異なります (404)`);
+          hasWarning = true;
+        } else {
+          const text = await res.text();
+          addLog(`   ❌ エラー応答: ${text.slice(0, 150)}`);
+          hasError = true;
+        }
+      } catch (err: any) {
+        addLog(`   ❌ 通信に失敗しました: ${err.message}`);
+        hasError = true;
+      }
+    }
+
+    addLog('\n===== 総合アドバイス & 診断結果 =====');
+    if (hasError) {
+      addLog('❌ 診断結果: 重大な接続エラーが検出されました。');
+      addLog('【対策】APIサーバー(Express)が起動しているか、CORSポリシーに * もしくは適切なオリジンが許可されているか、ネットワークルート設定をご確認ください。');
+      setDiagnosticStatus('error');
+    } else if (hasWarning) {
+      addLog('⚠️ 診断結果: 一部のAPIが未実装、またはエンドポイント名が異なっています。');
+      addLog('【対策】必要に応じて server.js 側にルートを追加するか、フロントエンドの接続パスを調整してください。');
+      setDiagnosticStatus('warning');
+    } else {
+      addLog('✅ 診断結果: すべての主要APIエンドポイントが正常に応答を返しています！');
+      setDiagnosticStatus('success');
+    }
+    
+    addLog('===== 診断完了 =====');
+    setDiagnosticLoading(false);
+  };
+
+  const handleCopyText = (text: string, key: string) => {
+    navigator.clipboard.writeText(text);
+    setCopySuccess(prev => ({ ...prev, [key]: true }));
+    setTimeout(() => {
+      setCopySuccess(prev => ({ ...prev, [key]: false }));
+    }, 2000);
+  };
+
+  const RECOMMEND_SERVER_JS = `/**
+ * =======================================================
+ * KnowledgeSync Express Backend for SQL Server (MSSQL)
+ * =======================================================
+ * Windows Server や Synology NAS などのローカル環境向け
+ * 完全版 Express サーバーの参考コードです。
+ * 
+ * 【修正済みの主要な不具合】
+ * 1. 掲示板閲覧（BoardViewers）の閲覧数/閲覧者登録が弾かれる不具合を解消
+ * 2. 掲示板コメントインサート時に、古い \`author_id\` [NOT NULL] カラムが混在して
+ *    インサートが失敗する不具合を、両方のカラムに値を書き込むことで完全に解消
+ * 
+ * 必要な npm パッケージ:
+ * npm install express cors mssql dotenv multer
+ */
+
+const express = require('express');
+const cors = require('cors');
+const multer = require('multer');
+const path = require('path');
+const sql = require('mssql');
+require('dotenv').config();
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+// 静的ファイルの提供 (アップロードされたアバター画像等)
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Multer設定 (アバター顔写真のアップロード用)
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, 'uploads/'),
+  filename: (req, file, cb) => cb(null, Date.now() + '-' + file.originalname)
+});
+const upload = multer({ storage });
+
+// SQL Server 接続設定
+const dbConfig = {
+  user: process.env.DB_USER || 'sa',
+  password: process.env.DB_PASSWORD || 'YourStrongPassword',
+  server: process.env.DB_SERVER || 'localhost',
+  database: process.env.DB_NAME || 'KnowledgeSync',
+  options: {
+    encrypt: false,
+    trustServerCertificate: true,
+    enableArithAbort: true
+  },
+  port: parseInt(process.env.DB_PORT) || 1433
+};
+
+const poolPromise = new sql.ConnectionPool(dbConfig)
+  .connect()
+  .then(pool => {
+    console.log('✅ Connected to SQL Server (MSSQL)');
+    return pool;
+  })
+  .catch(err => {
+    console.error('❌ Database Connection Failed!', err);
+    process.exit(1);
+  });
+
+// ------------------------------------------
+// 1. アバター画像アップロード API
+// ------------------------------------------
+app.post('/api/upload-avatar', upload.single('avatar'), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'ファイルがアップロードされていません。' });
+  }
+  const avatarUrl = \`/uploads/\${req.file.filename}\`;
+  res.json({ avatarUrl });
+});
+
+// ------------------------------------------
+// 2. メンバー (Users) 管理 API
+// ------------------------------------------
+app.get('/api/users', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().query('SELECT * FROM dbo.Users ORDER BY name ASC');
+    res.json(result.recordset);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/users', async (req, res) => {
+  try {
+    const u = req.body;
+    const pool = await poolPromise;
+    await pool.request()
+      .input('id', sql.VarChar, u.id)
+      .input('loginId', sql.VarChar, u.loginId)
+      .input('password', sql.VarChar, u.password)
+      .input('name', sql.NVarChar, u.name)
+      .input('department', sql.NVarChar, u.department)
+      .input('avatarUrl', sql.NVarChar, u.avatarUrl)
+      .input('office', sql.NVarChar, u.office)
+      .input('division', sql.NVarChar, u.division)
+      .input('position', sql.NVarChar, u.position)
+      .input('role', sql.VarChar, u.role)
+      .input('isAdmin', sql.Bit, u.isAdmin ? 1 : 0)
+      .input('supervisorId', sql.VarChar, u.supervisorId || null)
+      .query(\`
+        INSERT INTO dbo.Users (id, loginId, password, name, department, avatarUrl, office, division, position, role, isAdmin, supervisorId)
+        VALUES (@id, @loginId, @password, @name, @department, @avatarUrl, @office, @division, @position, @role, @isAdmin, @supervisorId)
+      \`);
+    res.status(201).json(u);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/users/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const u = req.body;
+    const pool = await poolPromise;
+    await pool.request()
+      .input('id', sql.VarChar, id)
+      .input('loginId', sql.VarChar, u.loginId)
+      .input('password', sql.VarChar, u.password)
+      .input('name', sql.NVarChar, u.name)
+      .input('department', sql.NVarChar, u.department)
+      .input('avatarUrl', sql.NVarChar, u.avatarUrl)
+      .input('office', sql.NVarChar, u.office)
+      .input('division', sql.NVarChar, u.division)
+      .input('position', sql.NVarChar, u.position)
+      .input('role', sql.VarChar, u.role)
+      .input('isAdmin', sql.Bit, u.isAdmin ? 1 : 0)
+      .input('supervisorId', sql.VarChar, u.supervisorId || null)
+      .query(\`
+        UPDATE dbo.Users 
+        SET loginId = @loginId, password = @password, name = @name, department = @department, 
+            avatarUrl = @avatarUrl, office = @office, division = @division, position = @position, 
+            role = @role, isAdmin = @isAdmin, supervisorId = @supervisorId
+        WHERE id = @id
+      \`);
+    res.json(u);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/users/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const pool = await poolPromise;
+    await pool.request().input('id', sql.VarChar, id).query('DELETE FROM dbo.Users WHERE id = @id');
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ------------------------------------------
+// 3. 掲示板 (Bulletins / Board) API
+// ------------------------------------------
+app.get('/api/bulletins', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().query(\`
+      SELECT b.*, u.name as authorName, u.department as authorDept, u.avatarUrl as authorAvatar
+      FROM dbo.Bulletins b
+      LEFT JOIN dbo.Users u ON b.authorId = u.id
+      ORDER BY b.isPinned DESC, b.createdAt DESC
+    \`);
+    
+    const bulletins = result.recordset.map(row => ({
+      id: row.id,
+      title: row.title,
+      content: row.content,
+      authorId: row.authorId,
+      createdAt: row.createdAt,
+      category: row.category,
+      isPinned: row.isPinned === true || row.isPinned === 1,
+      views: row.views || 0,
+      likes: row.likes || 0,
+      office: row.office,
+      division: row.division,
+      scope: row.scope,
+      tags: row.tags ? row.tags.split(',') : [],
+      attachments: row.attachments ? JSON.parse(row.attachments) : [],
+      author: {
+        id: row.authorId,
+        name: row.authorName || '匿名',
+        department: row.authorDept || '未設定',
+        avatarUrl: row.authorAvatar || ''
+      }
+    }));
+    res.json(bulletins);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/bulletins', async (req, res) => {
+  try {
+    const b = req.body;
+    const pool = await poolPromise;
+    const tagsStr = Array.isArray(b.tags) ? b.tags.join(',') : '';
+    const attachmentsStr = b.attachments ? JSON.stringify(b.attachments) : '[]';
+    
+    await pool.request()
+      .input('id', sql.VarChar, b.id)
+      .input('title', sql.NVarChar, b.title)
+      .input('content', sql.NVarChar, b.content)
+      .input('authorId', sql.VarChar, b.authorId)
+      .input('createdAt', sql.DateTime, new Date())
+      .input('category', sql.NVarChar, b.category || '')
+      .input('isPinned', sql.Bit, b.isPinned ? 1 : 0)
+      .input('views', sql.Int, 0)
+      .input('likes', sql.Int, 0)
+      .input('office', sql.NVarChar, b.office || null)
+      .input('division', sql.NVarChar, b.division || null)
+      .input('scope', sql.NVarChar, b.scope || '全社')
+      .input('tags', sql.NVarChar, tagsStr)
+      .input('attachments', sql.NVarChar, attachmentsStr)
+      .query(\`
+        INSERT INTO dbo.Bulletins (id, title, content, authorId, createdAt, category, isPinned, views, likes, office, division, scope, tags, attachments)
+        VALUES (@id, @title, @content, @authorId, @createdAt, @category, @isPinned, @views, @likes, @office, @division, @scope, @tags, @attachments)
+      \`);
+    res.status(201).json(b);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/bulletins/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const b = req.body;
+    const pool = await poolPromise;
+    const tagsStr = Array.isArray(b.tags) ? b.tags.join(',') : '';
+    const attachmentsStr = b.attachments ? JSON.stringify(b.attachments) : '[]';
+
+    await pool.request()
+      .input('id', sql.VarChar, id)
+      .input('title', sql.NVarChar, b.title)
+      .input('content', sql.NVarChar, b.content)
+      .input('category', sql.NVarChar, b.category || '')
+      .input('isPinned', sql.Bit, b.isPinned ? 1 : 0)
+      .input('views', sql.Int, b.views || 0)
+      .input('likes', sql.Int, b.likes || 0)
+      .input('office', sql.NVarChar, b.office || null)
+      .input('division', sql.NVarChar, b.division || null)
+      .input('scope', sql.NVarChar, b.scope || '全社')
+      .input('tags', sql.NVarChar, tagsStr)
+      .input('attachments', sql.NVarChar, attachmentsStr)
+      .query(\`
+        UPDATE dbo.Bulletins 
+        SET title = @title, content = @content, category = @category, isPinned = @isPinned, 
+            views = @views, likes = @likes, office = @office, division = @division, 
+            scope = @scope, tags = @tags, attachments = @attachments
+        WHERE id = @id
+      \`);
+    res.json(b);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/bulletins/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const pool = await poolPromise;
+    const transaction = new sql.Transaction(pool);
+    await transaction.begin();
+    try {
+      await transaction.request().input('id', sql.VarChar, id).query('DELETE FROM dbo.BoardComments WHERE bulletinId = @id OR topicId = @id');
+      await transaction.request().input('id', sql.VarChar, id).query('DELETE FROM dbo.BoardViewers WHERE bulletinId = @id OR topicId = @id');
+      await transaction.request().input('id', sql.VarChar, id).query('DELETE FROM dbo.Bulletins WHERE id = @id');
+      await transaction.commit();
+      res.json({ success: true });
+    } catch (txErr) {
+      await transaction.rollback();
+      throw txErr;
+    }
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ------------------------------------------
+// 3b. コメント (BoardComments) API
+// ------------------------------------------
+app.get('/api/bulletins/:id/comments', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const pool = await poolPromise;
+    const result = await pool.request()
+      .input('bulletinId', sql.VarChar, id)
+      .query(\`
+        SELECT c.*, u.name as authorName, u.department as authorDept, u.avatarUrl as authorAvatar
+        FROM dbo.BoardComments c
+        LEFT JOIN dbo.Users u ON c.authorId = u.id
+        WHERE c.bulletinId = @bulletinId OR c.topicId = @bulletinId
+        ORDER BY c.createdAt ASC
+      \`);
+      
+    const comments = result.recordset.map(row => ({
+      id: row.id,
+      topicId: row.bulletinId || row.topicId,
+      bulletinId: row.bulletinId || row.topicId,
+      authorId: row.authorId,
+      content: row.content,
+      createdAt: row.createdAt,
+      author: {
+        id: row.authorId,
+        name: row.authorName || '匿名',
+        department: row.authorDept || '未設定',
+        avatarUrl: row.authorAvatar || ''
+      }
+    }));
+    res.json(comments);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// コメント投稿 (インサートバグ対策)
+app.post('/api/bulletins/:id/comments', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { authorId, content } = req.body;
+    const commentId = 'comment_' + Date.now();
+    const pool = await poolPromise;
+    
+    await pool.request()
+      .input('id', sql.VarChar, commentId)
+      .input('bulletinId', sql.VarChar, id)
+      .input('authorId', sql.VarChar, authorId)
+      .input('content', sql.NVarChar, content)
+      .input('createdAt', sql.DateTime, new Date())
+      .query(\`
+        INSERT INTO dbo.BoardComments (id, bulletinId, topicId, authorId, author_id, content, createdAt)
+        VALUES (@id, @bulletinId, @bulletinId, @authorId, @authorId, @content, @createdAt)
+      \`);
+      
+    res.status(201).json({
+      id: commentId,
+      bulletinId: id,
+      topicId: id,
+      authorId,
+      content,
+      createdAt: new Date()
+    });
+  } catch (err) {
+    console.error('❌ Comment Insert Failed:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ------------------------------------------
+// 3c. 閲覧者 (BoardViewers) 登録 API
+// ------------------------------------------
+app.get('/api/bulletins/:id/viewers', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const pool = await poolPromise;
+    const result = await pool.request()
+      .input('bulletinId', sql.VarChar, id)
+      .query(\`
+        SELECT v.*, u.name as userName, u.department as userDept, u.avatarUrl as userAvatar
+        FROM dbo.BoardViewers v
+        INNER JOIN dbo.Users u ON v.userId = u.id
+        WHERE v.bulletinId = @bulletinId OR v.topicId = @bulletinId
+      \`);
+    res.json(result.recordset);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// 閲覧者追加登録 (正常稼働・弾かれないように修正)
+app.post('/api/bulletins/:id/viewers', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { userId } = req.body;
+    const pool = await poolPromise;
+    
+    const checkResult = await pool.request()
+      .input('bulletinId', sql.VarChar, id)
+      .input('userId', sql.VarChar, userId)
+      .query(\`
+        SELECT 1 FROM dbo.BoardViewers 
+        WHERE (bulletinId = @bulletinId OR topicId = @bulletinId) AND userId = @userId
+      \`);
+      
+    if (checkResult.recordset.length === 0) {
+      await pool.request()
+        .input('bulletinId', sql.VarChar, id)
+        .input('userId', sql.VarChar, userId)
+        .input('viewedAt', sql.DateTime, new Date())
+        .query(\`
+          INSERT INTO dbo.BoardViewers (bulletinId, topicId, userId, viewedAt)
+          VALUES (@bulletinId, @bulletinId, @userId, @viewedAt)
+        \`);
+        
+      await pool.request()
+        .input('bulletinId', sql.VarChar, id)
+        .query('UPDATE dbo.Bulletins SET views = views + 1 WHERE id = @bulletinId');
+    }
+    
+    res.json({ success: true });
+  } catch (err) {
+    console.error('❌ View Registration Failed:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ------------------------------------------
+// 4. マスタ同期 API
+// ------------------------------------------
+app.get('/api/masters/offices', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().query('SELECT * FROM dbo.OfficeMaster');
+    res.json(result.recordset);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/masters/divisions', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().query('SELECT * FROM dbo.DivisionMaster');
+    res.json(result.recordset);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/masters/positions', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().query('SELECT * FROM dbo.PositionMaster');
+    res.json(result.recordset);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(\`🚀 Server running on port \${PORT}\`);
+});`;
 
   // --- OFFICE MASTER HANDLERS ---
   const handleOpenAddOfficeModal = () => {
@@ -1582,36 +2363,421 @@ export function AdminPanel({
 
       {/* SUB TAB 4: SYSTEM SETTINGS */}
       {activeSubTab === 'system' && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-6">
-          <div>
-            <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
-              <Settings className="w-5 h-5 text-indigo-600" />
-              システム設定 & 組織データ状態
-            </h3>
-            <p className="text-xs text-slate-500 mt-0.5">
-              KnowledgeSyncの組織マスター管理およびメンバー構成状況です。
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
-              <div className="text-xs font-bold text-slate-700">全社マスターデータ構成</div>
-              <div className="text-xs text-slate-600 space-y-1">
-                <div className="flex justify-between"><span>ステータス:</span> <span className="font-bold text-emerald-600">正常稼働中 (Normal)</span></div>
-                <div className="flex justify-between"><span>拠点マスター登録数:</span> <span className="font-bold">{offices.length} 件</span></div>
-                <div className="flex justify-between"><span>部署マスター登録数:</span> <span className="font-bold">{divisions.length} 件</span></div>
-                <div className="flex justify-between"><span>全登録メンバー数:</span> <span className="font-bold">{allUsers.length} 名</span></div>
+        <div className="space-y-6">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+              <div>
+                <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
+                  <Settings className="w-5 h-5 text-indigo-600" />
+                  システム情報 & 開発・運用統合センター
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  KnowledgeSyncの開発・運用に必要なDB構成、サーバーコード、およびAPI接続状況を管理・共有します。
+                </p>
+              </div>
+              <div className="flex items-center gap-2 text-xs bg-indigo-50 text-indigo-700 font-semibold px-3 py-1.5 rounded-lg border border-indigo-100">
+                <Activity className="w-4 h-4 text-indigo-500 animate-pulse" />
+                現在稼働環境: 本番 / 同期運用
               </div>
             </div>
 
-            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
-              <div className="text-xs font-bold text-slate-700">セキュリティ & 権限設定</div>
-              <div className="text-xs text-slate-600 space-y-1">
-                <div className="flex justify-between"><span>アクセス制御:</span> <span className="font-bold text-indigo-600">RBAC (健介 操作可能)</span></div>
-                <div className="flex justify-between"><span>主要拠点:</span> <span className="font-bold">名古屋支店, 浜松営業所, 静岡営業所, 本社</span></div>
-                <div className="flex justify-between"><span>最終更新:</span> <span className="font-bold">{new Date().toLocaleDateString('ja-JP')}</span></div>
-              </div>
+            {/* Sub-section Navigation */}
+            <div className="flex flex-wrap gap-1 mt-6 p-1 bg-slate-50 rounded-xl border border-slate-200/60 max-w-2xl">
+              <button
+                onClick={() => setSystemActiveSection('diagnostics')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                  systemActiveSection === 'diagnostics'
+                    ? 'bg-white text-indigo-600 shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Activity className="w-4 h-4" />
+                API接続 & データベース診断
+              </button>
+              <button
+                onClick={() => setSystemActiveSection('database')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                  systemActiveSection === 'database'
+                    ? 'bg-white text-indigo-600 shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Database className="w-4 h-4" />
+                期待されるDB構成 & SQL
+              </button>
+              <button
+                onClick={() => setSystemActiveSection('server_code')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                  systemActiveSection === 'server_code'
+                    ? 'bg-white text-indigo-600 shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Server className="w-4 h-4" />
+                推奨 server.js コード
+              </button>
             </div>
+
+            {/* SECTION 1: API DIAGNOSTICS */}
+            {systemActiveSection === 'diagnostics' && (
+              <div className="mt-6 space-y-4">
+                <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                    <div>
+                      <div className="text-xs font-bold text-slate-700">API 接続先設定</div>
+                      <div className="text-xs font-mono text-indigo-600 mt-1">{API_BASE_URL || '未設定 (開発環境モード)'}</div>
+                    </div>
+                    <button
+                      onClick={runDiagnostic}
+                      disabled={diagnosticLoading}
+                      className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white text-xs font-bold px-4 py-2 rounded-lg shadow transition-all whitespace-nowrap"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${diagnosticLoading ? 'animate-spin' : ''}`} />
+                      {diagnosticLoading ? '診断実行中...' : '接続テストを実行する'}
+                    </button>
+                  </div>
+                </div>
+
+                {diagnosticLogs.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <div className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                        <Activity className="w-3.5 h-3.5 text-indigo-500" />
+                        診断ログ出力
+                      </div>
+                      <button
+                        onClick={() => handleCopyText(diagnosticLogs.join('\n'), 'logs')}
+                        className="text-[10px] text-slate-500 hover:text-slate-800 flex items-center gap-1 border border-slate-200 bg-white px-2 py-1 rounded"
+                      >
+                        {copySuccess['logs'] ? (
+                          <>
+                            <Check className="w-3 h-3 text-emerald-500" />
+                            コピーしました
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3 h-3" />
+                            ログをコピー
+                          </>
+                        )}
+                      </button>
+                    </div>
+                    <div className="bg-slate-950 rounded-xl p-4 font-mono text-[11px] leading-relaxed text-slate-300 max-h-72 overflow-y-auto border border-slate-800 shadow-inner">
+                      {diagnosticLogs.map((log, index) => (
+                        <div key={index} className={log.includes('❌') ? 'text-rose-400' : log.includes('✅') ? 'text-emerald-400' : log.includes('💡') ? 'text-amber-300' : 'text-slate-300'}>
+                          {log}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                    <div className="text-xs font-bold text-slate-700">システム統計概要</div>
+                    <div className="text-xs text-slate-600 space-y-1">
+                      <div className="flex justify-between"><span>拠点マスター登録数:</span> <span className="font-bold">{offices.length} 件</span></div>
+                      <div className="flex justify-between"><span>部署マスター登録数:</span> <span className="font-bold">{divisions.length} 件</span></div>
+                      <div className="flex justify-between"><span>役職マスター登録数:</span> <span className="font-bold">{positions.length} 件</span></div>
+                      <div className="flex justify-between"><span>全登録メンバー数:</span> <span className="font-bold">{allUsers.length} 名</span></div>
+                    </div>
+                  </div>
+
+                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                    <div className="text-xs font-bold text-slate-700 font-mono">CORS / Synology 連携設定</div>
+                    <div className="text-xs text-slate-600 space-y-1">
+                      <p className="text-[11px] text-slate-500 leading-normal">
+                        Synology NAS 等のリバースプロキシ (Nginx / Portal) 経由で運用する場合、ヘッダーに <code className="font-mono bg-slate-200 px-1 py-0.5 rounded text-indigo-600">Access-Control-Allow-Origin: *</code> または指定オリジンを設定してCORSを解除してください。
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* SECTION 2: DATABASE SCHEMA & DDL SQL */}
+            {systemActiveSection === 'database' && (
+              <div className="mt-6 space-y-6">
+                <div>
+                  <h4 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <Database className="w-3.5 h-3.5 text-indigo-500" />
+                    期待される SQL Server データベーステーブル構成（全機能網羅）
+                  </h4>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    社内SNS、カレンダー、電子決裁、掲示板、チャット、伝言メモ、日報等の機能拡張に対応した、SQL Server上での推奨テーブル構成です。
+                  </p>
+                </div>
+
+                <div className="space-y-4">
+                  {/* Table selector Dropdown */}
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 bg-indigo-50/50 p-4 rounded-xl border border-indigo-100">
+                    <label className="text-xs font-bold text-indigo-900 shrink-0">
+                      詳細を確認するテーブルを選択:
+                    </label>
+                    <select
+                      value={selectedSystemTable}
+                      onChange={(e) => setSelectedSystemTable(e.target.value)}
+                      className="w-full sm:w-72 px-3 py-2 bg-white border border-indigo-200 rounded-lg text-xs font-bold text-indigo-950 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-sm"
+                    >
+                      {DB_SCHEMAS_ALL.map((schema) => (
+                        <option key={schema.tableName} value={schema.tableName}>
+                          {schema.tableName} ({schema.description.slice(0, 15)}...)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Render Selected Table Schema */}
+                  {(() => {
+                    const currentSchema = DB_SCHEMAS_ALL.find(s => s.tableName === selectedSystemTable);
+                    if (!currentSchema) return null;
+
+                    return (
+                      <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-xs bg-white">
+                        <div className="bg-slate-50 border-b border-slate-200 px-5 py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <span className="text-xs font-extrabold text-slate-800 flex items-center gap-2 font-mono">
+                            <span className="w-2 h-2 rounded-full bg-indigo-600"></span>
+                            {currentSchema.tableName}
+                          </span>
+                          <span className="text-xs text-slate-500 font-medium">
+                            {currentSchema.description}
+                          </span>
+                        </div>
+                        <div className="p-4 overflow-x-auto">
+                          <table className="w-full text-left text-xs border-collapse">
+                            <thead>
+                              <tr className="border-b border-slate-200 text-slate-500 font-bold bg-slate-50/50">
+                                <th className="py-2.5 px-3">列名</th>
+                                <th className="py-2.5 px-3">データ型 (SQL Server)</th>
+                                <th className="py-2.5 px-3">制約</th>
+                                <th className="py-2.5 px-3">日本語説明 / 紐付け・運用ヒント</th>
+                              </tr>
+                            </thead>
+                            <tbody className="text-slate-700 divide-y divide-slate-100">
+                              {currentSchema.columns.map((col, idx) => (
+                                <tr key={idx} className="hover:bg-slate-50/40 transition-colors">
+                                  <td className="py-3 px-3 font-mono text-indigo-600 font-bold">{col.name}</td>
+                                  <td className="py-3 px-3 font-mono text-slate-600">{col.type}</td>
+                                  <td className="py-3 px-3">
+                                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                      col.constraint.includes('PRIMARY KEY')
+                                        ? 'bg-rose-50 text-rose-700 border border-rose-100'
+                                        : col.constraint.includes('NOT NULL')
+                                        ? 'bg-amber-50 text-amber-700 border border-amber-100'
+                                        : 'bg-slate-100 text-slate-600'
+                                    }`}>
+                                      {col.constraint}
+                                    </span>
+                                  </td>
+                                  <td className="py-3 px-3 text-slate-600 leading-normal font-medium">{col.desc}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                {/* SQL Server Batch Setup copyable section */}
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center">
+                    <div className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                      <Database className="w-3.5 h-3.5 text-indigo-500" />
+                      全テーブル一括構成 & アップデート SQL (`ssms-db-setup.sql` 基準)
+                    </div>
+                    <button
+                      onClick={() => handleCopyText(`-- ==========================================
+-- SQL Server setup & migration script for SSMS
+-- Fully non-destructive & idempotent:
+-- ==========================================
+
+-- 1. Master Tables
+IF OBJECT_ID('dbo.OfficeMaster', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.OfficeMaster (
+        id VARCHAR(50) PRIMARY KEY,
+        name NVARCHAR(100) NOT NULL,
+        type VARCHAR(50) NULL,
+        code VARCHAR(50) NULL,
+        location NVARCHAR(255) NULL,
+        phone NVARCHAR(50) NULL
+    );
+END;
+
+-- 2. Users Table
+IF OBJECT_ID('dbo.Users', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.Users (
+        id VARCHAR(50) PRIMARY KEY,
+        loginId VARCHAR(50) NULL,
+        password VARCHAR(100) NULL,
+        name NVARCHAR(100) NOT NULL,
+        department NVARCHAR(100) NULL,
+        avatarUrl NVARCHAR(500) NULL,
+        office NVARCHAR(100) NULL,
+        division NVARCHAR(100) NULL,
+        position NVARCHAR(100) NULL,
+        role VARCHAR(50) DEFAULT 'user',
+        isAdmin BIT DEFAULT 0,
+        supervisorId VARCHAR(50) NULL
+    );
+END;
+
+-- 3. Bulletins Table
+IF OBJECT_ID('dbo.Bulletins', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.Bulletins (
+        id VARCHAR(50) PRIMARY KEY,
+        title NVARCHAR(255) NOT NULL,
+        content NVARCHAR(MAX) NOT NULL,
+        authorId VARCHAR(50) NOT NULL,
+        createdAt DATETIME DEFAULT GETDATE(),
+        category NVARCHAR(50) NULL,
+        isPinned BIT DEFAULT 0,
+        views INT DEFAULT 0,
+        likes INT DEFAULT 0,
+        office NVARCHAR(100) NULL,
+        division NVARCHAR(100) NULL,
+        scope NVARCHAR(50) DEFAULT N'全社',
+        tags NVARCHAR(500) NULL,
+        attachments NVARCHAR(MAX) NULL
+    );
+END;
+
+-- 4. BoardComments Table (古い制約の緩和と完全作成)
+IF OBJECT_ID('dbo.BoardComments', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.BoardComments (
+        id VARCHAR(50) PRIMARY KEY,
+        bulletinId VARCHAR(50) NULL,
+        topicId VARCHAR(50) NULL,
+        authorId VARCHAR(50) NULL,
+        author_id VARCHAR(50) NULL,
+        content NVARCHAR(MAX) NOT NULL,
+        createdAt DATETIME DEFAULT GETDATE()
+    );
+END
+ELSE
+BEGIN
+    IF COL_LENGTH('dbo.BoardComments', 'bulletinId') IS NULL ALTER TABLE dbo.BoardComments ADD bulletinId VARCHAR(50) NULL;
+    IF COL_LENGTH('dbo.BoardComments', 'topicId') IS NULL ALTER TABLE dbo.BoardComments ADD topicId VARCHAR(50) NULL;
+    IF COL_LENGTH('dbo.BoardComments', 'authorId') IS NULL ALTER TABLE dbo.BoardComments ADD authorId VARCHAR(50) NULL;
+    IF COL_LENGTH('dbo.BoardComments', 'author_id') IS NULL ALTER TABLE dbo.BoardComments ADD author_id VARCHAR(50) NULL;
+    
+    -- NOT NULLを解除するALTER文
+    ALTER TABLE dbo.BoardComments ALTER COLUMN authorId VARCHAR(50) NULL;
+    ALTER TABLE dbo.BoardComments ALTER COLUMN author_id VARCHAR(50) NULL;
+END;
+
+-- 5. BoardViewers Table (複合キーのバグ回避・NULL許容)
+IF OBJECT_ID('dbo.BoardViewers', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.BoardViewers (
+        bulletinId VARCHAR(50) NULL,
+        topicId VARCHAR(50) NULL,
+        userId VARCHAR(50) NOT NULL,
+        viewedAt DATETIME DEFAULT GETDATE()
+    );
+END;
+`, 'setup_sql')}
+                      className="text-[10px] text-indigo-600 hover:text-indigo-800 flex items-center gap-1 border border-indigo-200 bg-indigo-50 px-2 py-1 rounded"
+                    >
+                      {copySuccess['setup_sql'] ? (
+                        <>
+                          <Check className="w-3 h-3 text-emerald-500" />
+                          コピーしました！
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3 h-3" />
+                          セットアップSQLをコピー
+                        </>
+                      )}
+                    </button>
+                  </div>
+                  <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 font-mono text-[11px] leading-relaxed text-slate-300 max-h-56 overflow-y-auto">
+                    <pre className="text-slate-300">
+{`-- ==========================================
+-- SQL Server setup & migration script (Board Fixes)
+-- ==========================================
+-- (1) BoardCommentsテーブルへの互換カラムの追加
+IF COL_LENGTH('dbo.BoardComments', 'author_id') IS NULL 
+    ALTER TABLE dbo.BoardComments ADD author_id VARCHAR(50) NULL;
+
+-- (2) 制約の緩和 (NOT NULLの解除)
+ALTER TABLE dbo.BoardComments ALTER COLUMN authorId VARCHAR(50) NULL;
+ALTER TABLE dbo.BoardComments ALTER COLUMN author_id VARCHAR(50) NULL;
+
+-- (3) BoardViewersテーブルの構成
+IF OBJECT_ID('dbo.BoardViewers', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.BoardViewers (
+        bulletinId VARCHAR(50) NULL,
+        topicId VARCHAR(50) NULL,
+        userId VARCHAR(50) NOT NULL,
+        viewedAt DATETIME DEFAULT GETDATE()
+    );
+END;`}
+                    </pre>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* SECTION 3: RECOMMENDED SERVER.JS CODE */}
+            {systemActiveSection === 'server_code' && (
+              <div className="mt-6 space-y-4">
+                <div className="flex justify-between items-center pb-2">
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-800">
+                      推奨される `server.js` (Express + SQL Server) の全量
+                    </h4>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      不具合・制約バグを完全に解消した、Windows Server & Synology 用 Express バックエンドコードです。
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => handleCopyText(RECOMMEND_SERVER_JS, 'server_js')}
+                    className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg shadow shadow-indigo-100 transition-all"
+                  >
+                    {copySuccess['server_js'] ? (
+                      <>
+                        <Check className="w-3.5 h-3.5" />
+                        コピーしました！
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5" />
+                        server.js コードをコピー
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                <div className="relative">
+                  <div className="bg-slate-950 rounded-xl p-4 font-mono text-[11px] leading-relaxed text-slate-300 max-h-[480px] overflow-y-auto border border-slate-800 shadow-inner">
+                    <pre className="text-slate-300 whitespace-pre">
+                      {RECOMMEND_SERVER_JS}
+                    </pre>
+                  </div>
+                </div>
+
+                <div className="p-4 bg-amber-50 rounded-xl border border-amber-200/80">
+                  <div className="text-xs font-bold text-amber-800 flex items-center gap-1.5">
+                    <AlertTriangle className="w-4 h-4 text-amber-600" />
+                    【注意】Synology NAS等での環境構築のステップ
+                  </div>
+                  <ol className="list-decimal text-[11px] text-amber-700 mt-2 ml-4 space-y-1.5 leading-normal">
+                    <li>NAS内の任意のフォルダ（例: <code className="bg-amber-100 px-1 py-0.5 rounded text-amber-800">/volume1/web/api</code>）に、この推奨コードを <code className="font-bold font-mono">server.js</code> として保存します。</li>
+                    <li>同フォルダ内に <code className="font-bold font-mono">package.json</code> を作成し、<code className="font-mono bg-amber-100 px-1 py-0.5 rounded text-amber-800">{"{\"dependencies\": {\"express\": \"^4.18.2\", \"cors\": \"^2.8.5\", \"mssql\": \"^10.0.1\", \"dotenv\": \"^16.3.1\", \"multer\": \"^1.4.5-lts.1\"}}"}</code> と記述します。</li>
+                    <li>ターミナル（SSH）で同フォルダに入り、<code className="font-mono bg-amber-100 px-1 py-0.5 rounded text-amber-800">npm install</code> を実行して依存関係をダウンロードします。</li>
+                    <li>同フォルダ内に <code className="font-mono font-bold">.env</code> を作成し、接続設定（DB_USER, DB_PASSWORD, DB_SERVER 等）を保存し、<code className="font-mono bg-amber-100 px-1 py-0.5 rounded text-amber-800">node server.js</code> で起動します。</li>
+                  </ol>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
