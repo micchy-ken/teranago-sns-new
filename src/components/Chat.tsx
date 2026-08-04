@@ -21,8 +21,10 @@ import {
   Camera,
   Upload,
   Maximize2,
-  Filter
+  Filter,
+  Trash2
 } from 'lucide-react';
+import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 
 interface ChatProps {
   rooms: ChatRoom[];
@@ -31,6 +33,7 @@ interface ChatProps {
   offices?: OfficeMaster[];
   divisions?: DivisionMaster[];
   onUpdateRooms?: (rooms: ChatRoom[]) => void;
+  onDeleteRoom?: (roomId: string) => void;
   initialRoomId?: string;
 }
 
@@ -85,9 +88,35 @@ export function Chat({
   offices = [],
   divisions = [],
   onUpdateRooms,
+  onDeleteRoom,
   initialRoomId
 }: ChatProps) {
   const [activeRoomId, setActiveRoomId] = useState<string>(rooms[0]?.id || '');
+  const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
+
+  const handleDeleteRoomClick = (roomId: string) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'チャットルームの削除',
+      message: 'このチャットルームを削除してもよろしいですか？この操作は取り消せません。',
+      type: 'danger',
+      confirmText: '削除する',
+      cancelText: 'キャンセル',
+      onConfirm: () => {
+        if (onDeleteRoom) {
+          onDeleteRoom(roomId);
+        }
+        if (activeRoomId === roomId) {
+          const remainingRooms = rooms.filter(r => r.id !== roomId);
+          if (remainingRooms.length > 0) {
+            setActiveRoomId(remainingRooms[0].id);
+          } else {
+            setActiveRoomId('');
+          }
+        }
+      }
+    });
+  };
 
   const processedInitialRoomIdRef = useRef<string | null>(null);
 
@@ -472,46 +501,57 @@ export function Chat({
               const isActive = activeRoomId === room.id;
 
               return (
-                <button
-                  key={room.id}
-                  onClick={() => setActiveRoomId(room.id)}
-                  className={`w-full flex items-center gap-3 p-3 text-left transition-colors relative ${
-                    isActive ? 'bg-indigo-50/70 border-l-4 border-indigo-600' : 'hover:bg-slate-100/70'
-                  }`}
-                >
-                  {getRoomIcon(room)}
+                <div key={room.id} className="relative group">
+                  <button
+                    onClick={() => setActiveRoomId(room.id)}
+                    className={`w-full flex items-center gap-3 p-3 text-left transition-colors relative ${
+                      isActive ? 'bg-indigo-50/70 border-l-4 border-indigo-600' : 'hover:bg-slate-100/70'
+                    }`}
+                  >
+                    {getRoomIcon(room)}
 
-                  <div className="flex-1 min-w-0">
-                    <div className="flex justify-between items-baseline mb-0.5">
-                      <h4 className={`text-xs font-bold truncate ${isActive ? 'text-indigo-950' : 'text-slate-900'}`}>
-                        {getRoomName(room)}
-                      </h4>
-                      {lastMsg && (
-                        <span className="text-[10px] font-medium text-slate-400 shrink-0 ml-1">
-                          {new Date(lastMsg.createdAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}
-                        </span>
-                      )}
-                    </div>
+                    <div className="flex-1 min-w-0 pr-6">
+                      <div className="flex justify-between items-baseline mb-0.5">
+                        <h4 className={`text-xs font-bold truncate ${isActive ? 'text-indigo-950' : 'text-slate-900'}`}>
+                          {getRoomName(room)}
+                        </h4>
+                        {lastMsg && (
+                          <span className="text-[10px] font-medium text-slate-400 shrink-0 ml-1">
+                            {new Date(lastMsg.createdAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        )}
+                      </div>
 
-                    <p className="text-xs text-slate-500 truncate">
-                      {lastMsg ? (
-                        lastMsg.type === 'stamp' ? (
-                          <span className="text-emerald-600 font-semibold flex items-center gap-1">
-                            😊 [スタンプ] {lastMsg.stampText}
-                          </span>
-                        ) : lastMsg.type === 'image' ? (
-                          <span className="text-blue-600 font-semibold flex items-center gap-1">
-                            📷 [写真] {lastMsg.content !== '写真を送信しました' ? lastMsg.content : ''}
-                          </span>
+                      <p className="text-xs text-slate-500 truncate">
+                        {lastMsg ? (
+                          lastMsg.type === 'stamp' ? (
+                            <span className="text-emerald-600 font-semibold flex items-center gap-1">
+                              😊 [スタンプ] {lastMsg.stampText}
+                            </span>
+                          ) : lastMsg.type === 'image' ? (
+                            <span className="text-blue-600 font-semibold flex items-center gap-1">
+                              📷 [写真] {lastMsg.content !== '写真を送信しました' ? lastMsg.content : ''}
+                            </span>
+                          ) : (
+                            `${lastMsg.sender.id === currentUser.id ? '自分: ' : ''}${lastMsg.content}`
+                          )
                         ) : (
-                          `${lastMsg.sender.id === currentUser.id ? '自分: ' : ''}${lastMsg.content}`
-                        )
-                      ) : (
-                        'メッセージはありません'
-                      )}
-                    </p>
-                  </div>
-                </button>
+                          'メッセージはありません'
+                        )}
+                      </p>
+                    </div>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteRoomClick(room.id);
+                    }}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md opacity-0 group-hover:opacity-100 transition-opacity"
+                    title="チャットルームを削除"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               );
             })
           ) : (
@@ -571,6 +611,13 @@ export function Chat({
                 title="ルーム詳細"
               >
                 <Info className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => handleDeleteRoomClick(activeRoom.id)}
+                className="p-2 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                title="トークルームを削除"
+              >
+                <Trash2 className="w-4 h-4" />
               </button>
             </div>
           </div>
@@ -1178,6 +1225,11 @@ export function Chat({
           </div>
         </div>
       )}
+      {/* ----------------- 確認ダイアログ ----------------- */}
+      <ConfirmModal
+        {...confirmModal}
+        onClose={() => setConfirmModal((prev) => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 }

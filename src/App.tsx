@@ -496,8 +496,11 @@ export default function App() {
             try { detailsObj = JSON.parse(t.content); } catch (_) {}
           }
           const authorUser = currentUsers.find(u => u.id === t.authorId) || t.author || userState;
+          
+          // APIから取得したコメントをそのまま使用
           const commentsList = Array.isArray(t.comments) ? t.comments : [];
 
+          // APIから取得した閲覧者をそのまま使用
           let parsedViewers = [];
           if (Array.isArray(t.viewers)) {
             parsedViewers = t.viewers;
@@ -546,14 +549,22 @@ export default function App() {
       }
       const data = await response.json();
       if (Array.isArray(data)) {
-        const mapped = data.map((room: any) => ({
-          ...room,
-          id: String(room.id),
-          participants: Array.isArray(room.participants) && room.participants.length > 0 
-            ? room.participants 
-            : currentUsers.slice(0, 3),
-          messages: Array.isArray(room.messages) ? room.messages : []
-        }));
+        let deletedIds: string[] = [];
+        try {
+          const stored = localStorage.getItem('deleted_chat_room_ids');
+          if (stored) deletedIds = JSON.parse(stored);
+        } catch (_) {}
+
+        const mapped = data
+          .filter((room: any) => !deletedIds.includes(String(room.id)))
+          .map((room: any) => ({
+            ...room,
+            id: String(room.id),
+            participants: Array.isArray(room.participants) && room.participants.length > 0 
+              ? room.participants 
+              : currentUsers.slice(0, 3),
+            messages: Array.isArray(room.messages) ? room.messages : []
+          }));
         setChatRooms(mapped);
       }
     } catch (err: any) {
@@ -573,8 +584,16 @@ export default function App() {
       }
       const data = await response.json();
       if (Array.isArray(data)) {
-        const mapped = data.map((m: any) => {
-          let detailsObj: any = {};
+        let deletedMemoIds: string[] = [];
+        try {
+          const stored = localStorage.getItem('deleted_memo_ids');
+          if (stored) deletedMemoIds = JSON.parse(stored);
+        } catch (_) {}
+
+        const mapped = data
+          .filter((m: any) => !deletedMemoIds.includes(String(m.id)))
+          .map((m: any) => {
+            let detailsObj: any = {};
           if (m.details) {
             if (typeof m.details === 'object') {
               detailsObj = m.details;
@@ -1863,6 +1882,50 @@ export default function App() {
     });
   };
 
+  const handleDeleteChatRoom = async (roomId: string) => {
+    try {
+      let deletedIds: string[] = [];
+      const stored = localStorage.getItem('deleted_chat_room_ids');
+      if (stored) deletedIds = JSON.parse(stored);
+      if (!deletedIds.includes(roomId)) {
+        deletedIds.push(roomId);
+        localStorage.setItem('deleted_chat_room_ids', JSON.stringify(deletedIds));
+      }
+    } catch (_) {}
+
+    setChatRooms(prevRooms => prevRooms.filter(room => room.id !== roomId));
+    try {
+      await fetch(`${API_BASE_URL}/chats/${roomId}`, {
+        method: 'DELETE'
+      });
+      await refetchChatRooms();
+    } catch (err) {
+      console.error('Failed to delete chat room via API:', err);
+    }
+  };
+
+  const handleDeleteMemo = async (memoId: string) => {
+    try {
+      let deletedIds: string[] = [];
+      const stored = localStorage.getItem('deleted_memo_ids');
+      if (stored) deletedIds = JSON.parse(stored);
+      if (!deletedIds.includes(memoId)) {
+        deletedIds.push(memoId);
+        localStorage.setItem('deleted_memo_ids', JSON.stringify(deletedIds));
+      }
+    } catch (_) {}
+
+    setMemos(prevMemos => prevMemos.filter(memo => memo.id !== memoId));
+    try {
+      await fetch(`${API_BASE_URL}/memos/${memoId}`, {
+        method: 'DELETE'
+      });
+      await refetchMemos();
+    } catch (err) {
+      console.error('Failed to delete memo via API:', err);
+    }
+  };
+
   const handleUpdateRooms = async (updatedRooms: ChatRoom[]) => {
     setChatRooms(updatedRooms);
     try {
@@ -2231,6 +2294,7 @@ export default function App() {
             offices={offices}
             divisions={divisions}
             onUpdateRooms={handleUpdateRooms}
+            onDeleteRoom={handleDeleteChatRoom}
             initialRoomId={targetChatRoomId}
           />
         )}
@@ -2242,6 +2306,7 @@ export default function App() {
             users={usersList}
             currentUser={userState}
             onUpdateMemos={handleUpdateMemos}
+            onDeleteMemo={handleDeleteMemo}
             initialMemoId={targetMemoId}
           />
         )}

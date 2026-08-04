@@ -20,8 +20,11 @@ import {
   Filter,
   FileText,
   User as UserIcon,
-  ArrowUpRight
+  ArrowUpRight,
+  Trash2
 } from 'lucide-react';
+import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
+
 interface MemoListProps {
   memos: Memo[];
   offices?: OfficeMaster[];
@@ -29,6 +32,7 @@ interface MemoListProps {
   users?: User[];
   currentUser?: User;
   onUpdateMemos?: (memos: Memo[]) => void;
+  onDeleteMemo?: (memoId: string) => void;
   initialMemoId?: string;
 }
 
@@ -39,10 +43,32 @@ export function MemoList({
   users = [],
   currentUser,
   onUpdateMemos,
+  onDeleteMemo,
   initialMemoId,
 }: MemoListProps) {
   const [memos, setMemos] = useState<Memo[]>(initialMemos);
   const [filter, setFilter] = useState<'all' | 'unread' | 'handled'>('unread');
+  const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
+
+  const handleDeleteMemoClick = (memoId: string) => {
+    setConfirmModal({
+      isOpen: true,
+      title: '伝言メモの削除',
+      message: 'この伝言メモを削除してもよろしいですか？この操作は取り消せません。',
+      type: 'danger',
+      confirmText: '削除する',
+      cancelText: 'キャンセル',
+      onConfirm: () => {
+        if (onDeleteMemo) {
+          onDeleteMemo(memoId);
+        }
+        setMemos(prev => prev.filter(m => m.id !== memoId));
+        if (detailMemo && detailMemo.id === memoId) {
+          setDetailMemo(null);
+        }
+      }
+    });
+  };
 
   React.useEffect(() => {
     setMemos(initialMemos);
@@ -523,6 +549,15 @@ export function MemoList({
                         >
                           <Eye className="w-3.5 h-3.5 text-indigo-600" />
                           詳細・ログ
+                        </button>
+
+                        <button
+                          onClick={() => handleDeleteMemoClick(memo.id)}
+                          className="px-3 py-1.5 text-xs font-bold bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
+                          title="削除する"
+                        >
+                          <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                          削除
                         </button>
                       </div>
                     </div>
@@ -1067,7 +1102,16 @@ export function MemoList({
               </div>
 
               {/* フッター */}
-              <div className="flex items-center justify-end pt-4 border-t border-slate-100">
+              <div className="flex items-center justify-between pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => handleDeleteMemoClick(detailMemo.id)}
+                  className="px-4 py-2 text-xs font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-xl transition-colors cursor-pointer flex items-center gap-1.5"
+                >
+                  <Trash2 className="w-4 h-4 text-rose-500" />
+                  この伝言メモを削除
+                </button>
+
                 <button
                   type="button"
                   onClick={() => setDetailMemo(null)}
@@ -1080,6 +1124,11 @@ export function MemoList({
           </div>
         </div>
       )}
+      {/* ----------------- 確認ダイアログ ----------------- */}
+      <ConfirmModal
+        {...confirmModal}
+        onClose={() => setConfirmModal((prev) => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 }

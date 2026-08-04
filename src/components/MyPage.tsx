@@ -351,35 +351,36 @@ export function MyPage({
   return (
     <div className="flex-1 overflow-y-auto bg-slate-50/50 rounded-xl border border-slate-200 h-[calc(100vh-8rem)] p-4 sm:p-6 space-y-6">
       {/* 5つの未読通知サマリーカード */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
         {/* スケジュール */}
         <div
           onClick={() => {
             const el = document.getElementById('my-events-section');
             if (el) el.scrollIntoView({ behavior: 'smooth' });
           }}
-          className={`p-4 rounded-xl border shadow-xs transition-all cursor-pointer hover:shadow-md ${
+          className={`flex items-center gap-3 p-3.5 rounded-xl border shadow-sm transition-all cursor-pointer hover:shadow-md ${
             unreadEvents.length > 0
               ? 'bg-amber-50/60 border-amber-200 text-amber-900'
               : 'bg-white border-slate-200 text-slate-800'
           }`}
         >
-          <div className="flex items-center justify-between mb-2">
-            <div className="p-2 bg-amber-100 text-amber-700 rounded-lg">
-              <CalendarIcon className="w-5 h-5" />
-            </div>
-            {unreadEvents.length > 0 ? (
-              <span className="px-2 py-0.5 bg-rose-500 text-white font-extrabold text-[10px] rounded-full animate-pulse shadow-2xs">
-                未確認 {unreadEvents.length}
-              </span>
-            ) : (
-              <span className="px-2 py-0.5 bg-slate-100 text-slate-500 font-bold text-[10px] rounded-full">
-                確認済
-              </span>
-            )}
+          <div className="p-2 bg-amber-100 text-amber-700 rounded-lg shrink-0">
+            <CalendarIcon className="w-5 h-5" />
           </div>
-          <div className="text-xs font-bold text-slate-500">参加スケジュール</div>
-          <div className="text-lg font-black text-slate-900 mt-0.5">{myEvents.length} 件</div>
+          <div className="flex-1 min-w-0">
+            <div className="text-xs font-bold text-slate-600">スケジュール</div>
+            <div className="mt-1">
+              {unreadEvents.length > 0 ? (
+                <span className="inline-flex items-center px-2.5 py-0.5 bg-rose-500 text-white font-extrabold text-[11px] rounded-full animate-pulse shadow-xs">
+                  未確認 {unreadEvents.length}
+                </span>
+              ) : (
+                <span className="inline-flex items-center px-2.5 py-0.5 bg-slate-100 text-slate-500 font-bold text-[11px] rounded-full">
+                  確認済
+                </span>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* 掲示板 */}
@@ -388,28 +389,29 @@ export function MyPage({
             const el = document.getElementById('my-topics-section');
             if (el) el.scrollIntoView({ behavior: 'smooth' });
           }}
-          className={`p-4 rounded-xl border shadow-xs transition-all cursor-pointer hover:shadow-md ${
+          className={`flex items-center gap-3 p-3.5 rounded-xl border shadow-sm transition-all cursor-pointer hover:shadow-md ${
             unreadTopics.length > 0
               ? 'bg-indigo-50/60 border-indigo-200 text-indigo-900'
               : 'bg-white border-slate-200 text-slate-800'
           }`}
         >
-          <div className="flex items-center justify-between mb-2">
-            <div className="p-2 bg-indigo-100 text-indigo-700 rounded-lg">
-              <Monitor className="w-5 h-5" />
-            </div>
-            {unreadTopics.length > 0 ? (
-              <span className="px-2 py-0.5 bg-indigo-600 text-white font-extrabold text-[10px] rounded-full shadow-2xs">
-                未読 {unreadTopics.length}
-              </span>
-            ) : (
-              <span className="px-2 py-0.5 bg-slate-100 text-slate-500 font-bold text-[10px] rounded-full">
-                既読
-              </span>
-            )}
+          <div className="p-2 bg-indigo-100 text-indigo-700 rounded-lg shrink-0">
+            <Monitor className="w-5 h-5" />
           </div>
-          <div className="text-xs font-bold text-slate-500">対象掲示板</div>
-          <div className="text-lg font-black text-slate-900 mt-0.5">{myTopics.length} 件</div>
+          <div className="flex-1 min-w-0">
+            <div className="text-xs font-bold text-slate-600">掲示板</div>
+            <div className="mt-1">
+              {unreadTopics.length > 0 ? (
+                <span className="inline-flex items-center px-2.5 py-0.5 bg-indigo-600 text-white font-extrabold text-[11px] rounded-full shadow-xs">
+                  未読 {unreadTopics.length}
+                </span>
+              ) : (
+                <span className="inline-flex items-center px-2.5 py-0.5 bg-slate-100 text-slate-500 font-bold text-[11px] rounded-full">
+                  既読
+                </span>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* 伝言メモ */}
@@ -418,28 +420,29 @@ export function MyPage({
             const el = document.getElementById('my-memos-section');
             if (el) el.scrollIntoView({ behavior: 'smooth' });
           }}
-          className={`p-4 rounded-xl border shadow-xs transition-all cursor-pointer hover:shadow-md ${
+          className={`flex items-center gap-3 p-3.5 rounded-xl border shadow-sm transition-all cursor-pointer hover:shadow-md ${
             unreadMemos.length > 0
               ? 'bg-rose-50/60 border-rose-200 text-rose-900'
               : 'bg-white border-slate-200 text-slate-800'
           }`}
         >
-          <div className="flex items-center justify-between mb-2">
-            <div className="p-2 bg-rose-100 text-rose-700 rounded-lg">
-              <Phone className="w-5 h-5" />
-            </div>
-            {unreadMemos.length > 0 ? (
-              <span className="px-2 py-0.5 bg-rose-600 text-white font-extrabold text-[10px] rounded-full shadow-2xs">
-                未対応 {unreadMemos.length}
-              </span>
-            ) : (
-              <span className="px-2 py-0.5 bg-slate-100 text-slate-500 font-bold text-[10px] rounded-full">
-                対応済
-              </span>
-            )}
+          <div className="p-2 bg-rose-100 text-rose-700 rounded-lg shrink-0">
+            <Phone className="w-5 h-5" />
           </div>
-          <div className="text-xs font-bold text-slate-500">自分宛て伝言メモ</div>
-          <div className="text-lg font-black text-slate-900 mt-0.5">{myMemos.length} 件</div>
+          <div className="flex-1 min-w-0">
+            <div className="text-xs font-bold text-slate-600">伝言メモ</div>
+            <div className="mt-1">
+              {unreadMemos.length > 0 ? (
+                <span className="inline-flex items-center px-2.5 py-0.5 bg-rose-600 text-white font-extrabold text-[11px] rounded-full shadow-xs">
+                  未対応 {unreadMemos.length}
+                </span>
+              ) : (
+                <span className="inline-flex items-center px-2.5 py-0.5 bg-slate-100 text-slate-500 font-bold text-[11px] rounded-full">
+                  対応済
+                </span>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* ワークフロー */}
@@ -448,28 +451,29 @@ export function MyPage({
             const el = document.getElementById('my-workflow-section');
             if (el) el.scrollIntoView({ behavior: 'smooth' });
           }}
-          className={`p-4 rounded-xl border shadow-xs transition-all cursor-pointer hover:shadow-md ${
+          className={`flex items-center gap-3 p-3.5 rounded-xl border shadow-sm transition-all cursor-pointer hover:shadow-md ${
             pendingApprovals.length > 0
               ? 'bg-purple-50/60 border-purple-200 text-purple-900'
               : 'bg-white border-slate-200 text-slate-800'
           }`}
         >
-          <div className="flex items-center justify-between mb-2">
-            <div className="p-2 bg-purple-100 text-purple-700 rounded-lg">
-              <FileText className="w-5 h-5" />
-            </div>
-            {pendingApprovals.length > 0 ? (
-              <span className="px-2 py-0.5 bg-purple-600 text-white font-extrabold text-[10px] rounded-full shadow-2xs">
-                要承認 {pendingApprovals.length}
-              </span>
-            ) : (
-              <span className="px-2 py-0.5 bg-slate-100 text-slate-500 font-bold text-[10px] rounded-full">
-                処理済
-              </span>
-            )}
+          <div className="p-2 bg-purple-100 text-purple-700 rounded-lg shrink-0">
+            <FileText className="w-5 h-5" />
           </div>
-          <div className="text-xs font-bold text-slate-500">ワークフロー</div>
-          <div className="text-lg font-black text-slate-900 mt-0.5">{myApplications.length} 件</div>
+          <div className="flex-1 min-w-0">
+            <div className="text-xs font-bold text-slate-600">ワークフロー</div>
+            <div className="mt-1">
+              {pendingApprovals.length > 0 ? (
+                <span className="inline-flex items-center px-2.5 py-0.5 bg-purple-600 text-white font-extrabold text-[11px] rounded-full shadow-xs">
+                  要承認 {pendingApprovals.length}
+                </span>
+              ) : (
+                <span className="inline-flex items-center px-2.5 py-0.5 bg-slate-100 text-slate-500 font-bold text-[11px] rounded-full">
+                  処理済
+                </span>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* チャット */}
@@ -478,28 +482,29 @@ export function MyPage({
             const el = document.getElementById('my-chats-section');
             if (el) el.scrollIntoView({ behavior: 'smooth' });
           }}
-          className={`p-4 rounded-xl border shadow-xs transition-all cursor-pointer hover:shadow-md ${
+          className={`flex items-center gap-3 p-3.5 rounded-xl border shadow-sm transition-all cursor-pointer hover:shadow-md ${
             unreadChatRooms.length > 0
               ? 'bg-blue-50/60 border-blue-200 text-blue-900'
               : 'bg-white border-slate-200 text-slate-800'
           }`}
         >
-          <div className="flex items-center justify-between mb-2">
-            <div className="p-2 bg-blue-100 text-blue-700 rounded-lg">
-              <MessageSquare className="w-5 h-5" />
-            </div>
-            {unreadChatRooms.length > 0 ? (
-              <span className="px-2 py-0.5 bg-blue-600 text-white font-extrabold text-[10px] rounded-full shadow-2xs">
-                未読 {unreadChatRooms.length}
-              </span>
-            ) : (
-              <span className="px-2 py-0.5 bg-slate-100 text-slate-500 font-bold text-[10px] rounded-full">
-                既読
-              </span>
-            )}
+          <div className="p-2 bg-blue-100 text-blue-700 rounded-lg shrink-0">
+            <MessageSquare className="w-5 h-5" />
           </div>
-          <div className="text-xs font-bold text-slate-500">チャットルーム</div>
-          <div className="text-lg font-black text-slate-900 mt-0.5">{myChatRooms.length} 件</div>
+          <div className="flex-1 min-w-0">
+            <div className="text-xs font-bold text-slate-600">チャットルーム</div>
+            <div className="mt-1">
+              {unreadChatRooms.length > 0 ? (
+                <span className="inline-flex items-center px-2.5 py-0.5 bg-blue-600 text-white font-extrabold text-[11px] rounded-full shadow-xs">
+                  未読 {unreadChatRooms.length}
+                </span>
+              ) : (
+                <span className="inline-flex items-center px-2.5 py-0.5 bg-slate-100 text-slate-500 font-bold text-[11px] rounded-full">
+                  既読
+                </span>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 

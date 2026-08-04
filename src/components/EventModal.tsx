@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { X, RefreshCw, Trash2, AlertCircle, Link as LinkIcon, Building2, Users, Paperclip, Plus, Check, UserCheck, Copy } from 'lucide-react';
 import { EventType, CalendarEvent, OfficeMaster, DivisionMaster, User, AttachmentFile } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
-import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 
 interface EventModalProps {
   isOpen: boolean;
@@ -52,7 +51,6 @@ export function EventModal({
   const [selectedAttendees, setSelectedAttendees] = useState<User[]>([]);
   const [attachments, setAttachments] = useState<AttachmentFile[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -236,18 +234,8 @@ export function EventModal({
 
   const handleDelete = () => {
     if (editingEvent && onDelete) {
-      setConfirmModal({
-        isOpen: true,
-        title: '予定の削除',
-        message: 'この予定を削除してもよろしいですか？',
-        type: 'danger',
-        confirmText: '削除する',
-        cancelText: 'キャンセル',
-        onConfirm: () => {
-          onDelete(editingEvent.id);
-          onClose();
-        }
-      });
+      onDelete(editingEvent.id);
+      onClose();
     }
   };
 
@@ -551,11 +539,6 @@ export function EventModal({
           </div>
         </form>
       </div>
-
-      <ConfirmModal
-        {...confirmModal}
-        onClose={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
-      />
     </div>
   );
 }
