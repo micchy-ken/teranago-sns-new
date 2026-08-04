@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
+import { RECOMMEND_SERVER_JS } from './RecommendServerCode';
 import { getAvatarUrl, SILHOUETTE_SVG } from '../utils/avatar';
 import { API_BASE_URL } from '../config/api';
 import { 
@@ -121,6 +122,7 @@ export function AdminPanel({
   const [copySuccess, setCopySuccess] = useState<Record<string, boolean>>({});
   const [systemActiveSection, setSystemActiveSection] = useState<'diagnostics' | 'database' | 'server_code'>('diagnostics');
   const [selectedSystemTable, setSelectedSystemTable] = useState('dbo.Users');
+  const [isServerCodeUpdated, setIsServerCodeUpdated] = useState(true);
 
   // Modal State for Item Master (品名マスタ)
   const [isItemModalOpen, setIsItemModalOpen] = useState(false);
@@ -537,23 +539,25 @@ export function AdminPanel({
     },
     {
       tableName: 'dbo.BoardComments',
+      isUpdated: true,
       description: '掲示板トピックに紐づくコメントデータを格納するテーブルです。古い制約バグ防止のため NULL許可を推奨します。',
       columns: [
         { name: 'id', type: 'VARCHAR(50)', constraint: 'PRIMARY KEY', desc: 'コメントID' },
-        { name: 'bulletinId', type: 'VARCHAR(50)', constraint: 'NULL許可', desc: 'トピックID (Bulletins.id 紐付け)' },
-        { name: 'topicId', type: 'VARCHAR(50)', constraint: 'NULL許可', desc: 'トピックID（互換用）' },
+        { name: 'bulletinId', type: 'VARCHAR(50)', constraint: 'NULL許可', desc: 'トピックID (Bulletins.id 紐付け)', isUpdated: true },
+        { name: 'topicId', type: 'VARCHAR(50)', constraint: 'NULL許可', desc: 'トピックID（互換用）', isUpdated: true },
         { name: 'authorId', type: 'VARCHAR(50)', constraint: 'NULL許可', desc: '投稿者ID' },
-        { name: 'author_id', type: 'VARCHAR(50)', constraint: 'NULL許可', desc: '投稿者ID（古い構成への互換用）' },
+        { name: 'author_id', type: 'VARCHAR(50)', constraint: 'NULL許可', desc: '投稿者ID（古い構成への互換用）', isUpdated: true },
         { name: 'content', type: 'NVARCHAR(MAX)', constraint: 'NOT NULL', desc: 'コメント内容' },
         { name: 'createdAt', type: 'DATETIME', constraint: 'DEFAULT GETDATE()', desc: '投稿日時' }
       ]
     },
     {
       tableName: 'dbo.BoardViewers',
+      isUpdated: true,
       description: '掲示板トピックを誰がいつ閲覧したか、既読/未読数を追跡するためのテーブルです。',
       columns: [
-        { name: 'bulletinId', type: 'VARCHAR(50)', constraint: 'NULL許可', desc: 'トピックID' },
-        { name: 'topicId', type: 'VARCHAR(50)', constraint: 'NULL許可', desc: 'トピックID（互換用）' },
+        { name: 'bulletinId', type: 'VARCHAR(50)', constraint: 'NULL許可', desc: 'トピックID', isUpdated: true },
+        { name: 'topicId', type: 'VARCHAR(50)', constraint: 'NULL許可', desc: 'トピックID（互換用）', isUpdated: true },
         { name: 'userId', type: 'VARCHAR(50)', constraint: 'NOT NULL', desc: '閲覧したユーザーID' },
         { name: 'viewedAt', type: 'DATETIME', constraint: 'DEFAULT GETDATE()', desc: '初回閲覧日時' }
       ]
@@ -599,89 +603,96 @@ export function AdminPanel({
         { name: 'requirementType', type: 'NVARCHAR(100)', constraint: 'NULL許可', desc: '要件分類（折返し希望, 伝言のみ等）' },
         { name: 'requirementText', type: 'NVARCHAR(255)', constraint: 'NULL許可', desc: '要件分類（テキスト）' },
         { name: 'details', type: 'NVARCHAR(MAX)', constraint: 'NULL許可', desc: 'その他伝言詳細' },
-        { name: 'toUsersJson', type: 'NVARCHAR(MAX)', constraint: 'NULL許可', desc: '複数宛先を格納するJSON配列 (ユーザーIDのリスト)' },
-        { name: 'recipientStatusesJson', type: 'NVARCHAR(MAX)', constraint: 'NULL許可', desc: '宛先ごとの既読・確認状況を追跡するJSONデータ' }
+        { name: 'toUsersJson', type: 'NVARCHAR(MAX)', constraint: 'NULL許可', desc: '複数宛先を格納するJSON配列 (ユーザーID의 リスト)', isNew: true },
+        { name: 'recipientStatusesJson', type: 'NVARCHAR(MAX)', constraint: 'NULL許可', desc: '宛先ごとの既読・確認状況を追跡するJSONデータ', isNew: true }
       ]
     },
     {
       tableName: 'dbo.DailyReports',
+      isNew: true,
       description: '日々の業務報告、課題、および翌日の予定などを記録する日報テーブルです。',
       columns: [
-        { name: 'id', type: 'VARCHAR(50)', constraint: 'PRIMARY KEY', desc: '日報の一意識別子' },
-        { name: 'authorId', type: 'VARCHAR(50)', constraint: 'NOT NULL', desc: '作成したユーザーID' },
-        { name: 'reportDate', type: 'VARCHAR(10)', constraint: 'NOT NULL', desc: '日報対象日 (YYYY-MM-DD)' },
-        { name: 'content', type: 'NVARCHAR(MAX)', constraint: 'NULL許可', desc: '業務の要約・フリーテキスト' },
-        { name: 'createdAt', type: 'DATETIME', constraint: 'DEFAULT GETDATE()', desc: '日報登録日時' },
-        { name: 'tasks', type: 'NVARCHAR(MAX)', constraint: 'NULL許可', desc: '本日の実施タスク / JSONまたはテキスト' },
-        { name: 'results', type: 'NVARCHAR(MAX)', constraint: 'NULL許可', desc: '本日の成果・結果' },
-        { name: 'issues', type: 'NVARCHAR(MAX)', constraint: 'NULL許可', desc: '課題・反省点・特記事項' },
-        { name: 'tomorrowPlan', type: 'NVARCHAR(MAX)', constraint: 'NULL許可', desc: '明日の予定・計画' }
+        { name: 'id', type: 'VARCHAR(50)', constraint: 'PRIMARY KEY', desc: '日報の一意識別子', isNew: true },
+        { name: 'authorId', type: 'VARCHAR(50)', constraint: 'NOT NULL', desc: '作成したユーザーID', isNew: true },
+        { name: 'reportDate', type: 'VARCHAR(10)', constraint: 'NOT NULL', desc: '日報対象日 (YYYY-MM-DD)', isNew: true },
+        { name: 'content', type: 'NVARCHAR(MAX)', constraint: 'NULL許可', desc: '業務の要約・フリーテキスト', isNew: true },
+        { name: 'createdAt', type: 'DATETIME', constraint: 'DEFAULT GETDATE()', desc: '日報登録日時', isNew: true },
+        { name: 'tasks', type: 'NVARCHAR(MAX)', constraint: 'NULL許可', desc: '本日の実施タスク / JSONまたはテキスト', isNew: true },
+        { name: 'results', type: 'NVARCHAR(MAX)', constraint: 'NULL許可', desc: '本日の成果・結果', isNew: true },
+        { name: 'issues', type: 'NVARCHAR(MAX)', constraint: 'NULL許可', desc: '課題・反省点・特記事項', isNew: true },
+        { name: 'tomorrowPlan', type: 'NVARCHAR(MAX)', constraint: 'NULL許可', desc: '明日の予定・計画', isNew: true }
       ]
     },
     {
       tableName: 'dbo.OfficeMaster',
+      isNew: true,
       description: '全社の「拠点（支店、営業所、本社）」の情報を集中管理するマスタテーブルです。',
       columns: [
-        { name: 'id', type: 'VARCHAR(50)', constraint: 'PRIMARY KEY', desc: '拠点ID' },
-        { name: 'name', type: 'NVARCHAR(100)', constraint: 'NOT NULL', desc: '拠点名称' },
-        { name: 'type', type: 'VARCHAR(50)', constraint: 'NULL許可', desc: '拠点種別 (例: branch, office)' },
-        { name: 'code', type: 'VARCHAR(50)', constraint: 'NULL許可', desc: '拠点コード' },
-        { name: 'location', type: 'NVARCHAR(255)', constraint: 'NULL許可', desc: '拠点所在地・住所' },
-        { name: 'phone', type: 'NVARCHAR(50)', constraint: 'NULL許可', desc: '代表電話番号' }
+        { name: 'id', type: 'VARCHAR(50)', constraint: 'PRIMARY KEY', desc: '拠点ID', isNew: true },
+        { name: 'name', type: 'NVARCHAR(100)', constraint: 'NOT NULL', desc: '拠点名称', isNew: true },
+        { name: 'type', type: 'VARCHAR(50)', constraint: 'NULL許可', desc: '拠点種別 (例: branch, office)', isNew: true },
+        { name: 'code', type: 'VARCHAR(50)', constraint: 'NULL許可', desc: '拠点コード', isNew: true },
+        { name: 'location', type: 'NVARCHAR(255)', constraint: 'NULL許可', desc: '拠点所在地・住所', isNew: true },
+        { name: 'phone', type: 'NVARCHAR(50)', constraint: 'NULL許可', desc: '代表電話番号', isNew: true }
       ]
     },
     {
       tableName: 'dbo.DivisionMaster',
+      isNew: true,
       description: '各拠点に存在する「所属部門・部署」を管理するマスタテーブルです。',
       columns: [
-        { name: 'id', type: 'VARCHAR(50)', constraint: 'PRIMARY KEY', desc: '部署ID' },
-        { name: 'name', type: 'NVARCHAR(100)', constraint: 'NOT NULL', desc: '部署・課名称' },
-        { name: 'code', type: 'VARCHAR(50)', constraint: 'NULL許可', desc: '部署コード' },
-        { name: 'description', type: 'NVARCHAR(255)', constraint: 'NULL許可', desc: '部署に関するメモ・説明' }
+        { name: 'id', type: 'VARCHAR(50)', constraint: 'PRIMARY KEY', desc: '部署ID', isNew: true },
+        { name: 'name', type: 'NVARCHAR(100)', constraint: 'NOT NULL', desc: '部署・課名称', isNew: true },
+        { name: 'code', type: 'VARCHAR(50)', constraint: 'NULL許可', desc: '部署コード', isNew: true },
+        { name: 'description', type: 'NVARCHAR(255)', constraint: 'NULL許可', desc: '部署に関するメモ・説明', isNew: true }
       ]
     },
     {
       tableName: 'dbo.PositionMaster',
+      isNew: true,
       description: '役職マスタです。メンバー登録時に設定する役職（社長、部長、課長、一般等）を保持します。',
       columns: [
-        { name: 'id', type: 'VARCHAR(50)', constraint: 'PRIMARY KEY', desc: '役職ID' },
-        { name: 'name', type: 'NVARCHAR(100)', constraint: 'NOT NULL', desc: '役職名' },
-        { name: 'code', type: 'VARCHAR(50)', constraint: 'NULL許可', desc: '役職順序 / コード' },
-        { name: 'description', type: 'NVARCHAR(255)', constraint: 'NULL許可', desc: '役職権限などの補足説明' }
+        { name: 'id', type: 'VARCHAR(50)', constraint: 'PRIMARY KEY', desc: '役職ID', isNew: true },
+        { name: 'name', type: 'NVARCHAR(100)', constraint: 'NOT NULL', desc: '役職名', isNew: true },
+        { name: 'code', type: 'VARCHAR(50)', constraint: 'NULL許可', desc: '役職順序 / コード', isNew: true },
+        { name: 'description', type: 'NVARCHAR(255)', constraint: 'NULL許可', desc: '役職権限などの補足説明', isNew: true }
       ]
     },
     {
       tableName: 'dbo.ItemMasters',
+      isNew: true,
       description: '電子決裁などの申請書面で選択・精算する「物品・備品名」を管理する品名マスタです。',
       columns: [
-        { name: 'id', type: 'VARCHAR(50)', constraint: 'PRIMARY KEY', desc: '品名ID' },
-        { name: 'name', type: 'NVARCHAR(200)', constraint: 'NOT NULL', desc: '品名・科目名称' },
-        { name: 'category', type: 'NVARCHAR(100)', constraint: 'NULL許可', desc: '品名カテゴリ' },
-        { name: 'defaultUnitPrice', type: 'INT', constraint: 'DEFAULT 0', desc: '標準単価' },
-        { name: 'unit', type: 'NVARCHAR(50)', constraint: 'NULL許可', desc: '単位 (個, 箱, 枚 等)' },
-        { name: 'code', type: 'VARCHAR(50)', constraint: 'NULL許可', desc: '品名コード' }
+        { name: 'id', type: 'VARCHAR(50)', constraint: 'PRIMARY KEY', desc: '品名ID', isNew: true },
+        { name: 'name', type: 'NVARCHAR(200)', constraint: 'NOT NULL', desc: '品名・科目名称', isNew: true },
+        { name: 'category', type: 'NVARCHAR(100)', constraint: 'NULL許可', desc: '品名カテゴリ', isNew: true },
+        { name: 'defaultUnitPrice', type: 'INT', constraint: 'DEFAULT 0', desc: '標準単価', isNew: true },
+        { name: 'unit', type: 'NVARCHAR(50)', constraint: 'NULL許可', desc: '単位 (個, 箱, 枚 等)', isNew: true },
+        { name: 'code', type: 'VARCHAR(50)', constraint: 'NULL許可', desc: '品名コード', isNew: true }
       ]
     },
     {
       tableName: 'dbo.ApprovalFlows',
+      isNew: true,
       description: '電子決裁に適用する「承認ステップ定義・順序」を保存するマスターテーブルです。',
       columns: [
-        { name: 'id', type: 'VARCHAR(50)', constraint: 'PRIMARY KEY', desc: '承認フロー定義ID' },
-        { name: 'name', type: 'NVARCHAR(100)', constraint: 'NOT NULL', desc: 'フロー定義名' },
-        { name: 'description', type: 'NVARCHAR(255)', constraint: 'NULL許可', desc: 'フローの説明' },
-        { name: 'targetApplicationType', type: 'NVARCHAR(100)', constraint: 'NULL許可', desc: '適用する申請タイプ' },
-        { name: 'stepsJson', type: 'NVARCHAR(MAX)', constraint: 'NULL許可', desc: '各承認ステップの構成（JSON配列文字列）' },
-        { name: 'isDefault', type: 'BIT DEFAULT 0', constraint: 'NOT NULL', desc: '標準適用フローかどうか' }
+        { name: 'id', type: 'VARCHAR(50)', constraint: 'PRIMARY KEY', desc: '承認フロー定義ID', isNew: true },
+        { name: 'name', type: 'NVARCHAR(100)', constraint: 'NOT NULL', desc: 'フロー定義名', isNew: true },
+        { name: 'description', type: 'NVARCHAR(255)', constraint: 'NULL許可', desc: 'フローの説明', isNew: true },
+        { name: 'targetApplicationType', type: 'NVARCHAR(100)', constraint: 'NULL許可', desc: '適用する申請タイプ', isNew: true },
+        { name: 'stepsJson', type: 'NVARCHAR(MAX)', constraint: 'NULL許可', desc: '各承認ステップの構成（JSON配列文字列）', isNew: true },
+        { name: 'isDefault', type: 'BIT DEFAULT 0', constraint: 'NOT NULL', desc: '標準適用フローかどうか', isNew: true }
       ]
     },
     {
       tableName: 'dbo.UserReadStatuses',
+      isNew: true,
       description: '社内SNSや掲示板などのコンテンツの「ユーザー別・記事別の個別既読状態」を高速判定するためのテーブルです。',
       columns: [
-        { name: 'userId', type: 'VARCHAR(50)', constraint: 'NOT NULL', desc: 'ユーザーID (Users.id)' },
-        { name: 'targetType', type: 'VARCHAR(50)', constraint: 'NOT NULL', desc: "対象タイプ ('post', 'bulletin', 'workflow' 等)" },
-        { name: 'targetId', type: 'VARCHAR(50)', constraint: 'NOT NULL', desc: '対象コンテンツID' },
-        { name: 'readAt', type: 'DATETIME', constraint: 'DEFAULT GETDATE()', desc: '既読になった日時' }
+        { name: 'userId', type: 'VARCHAR(50)', constraint: 'NOT NULL', desc: 'ユーザーID (Users.id)', isNew: true },
+        { name: 'targetType', type: 'VARCHAR(50)', constraint: 'NOT NULL', desc: "対象タイプ ('post', 'bulletin', 'workflow' 等)", isNew: true },
+        { name: 'targetId', type: 'VARCHAR(50)', constraint: 'NOT NULL', desc: '対象コンテンツID', isNew: true },
+        { name: 'readAt', type: 'DATETIME', constraint: 'DEFAULT GETDATE()', desc: '既読になった日時', isNew: true }
       ]
     }
   ];
@@ -777,429 +788,6 @@ export function AdminPanel({
       setCopySuccess(prev => ({ ...prev, [key]: false }));
     }, 2000);
   };
-
-  const RECOMMEND_SERVER_JS = `/**
- * =======================================================
- * KnowledgeSync Express Backend for SQL Server (MSSQL)
- * =======================================================
- * Windows Server や Synology NAS などのローカル環境向け
- * 完全版 Express サーバーの参考コードです。
- * 
- * 【修正済みの主要な不具合】
- * 1. 掲示板閲覧（BoardViewers）の閲覧数/閲覧者登録が弾かれる不具合を解消
- * 2. 掲示板コメントインサート時に、古い \`author_id\` [NOT NULL] カラムが混在して
- *    インサートが失敗する不具合を、両方のカラムに値を書き込むことで完全に解消
- * 
- * 必要な npm パッケージ:
- * npm install express cors mssql dotenv multer
- */
-
-const express = require('express');
-const cors = require('cors');
-const multer = require('multer');
-const path = require('path');
-const sql = require('mssql');
-require('dotenv').config();
-
-const app = express();
-app.use(cors());
-app.use(express.json());
-
-// 静的ファイルの提供 (アップロードされたアバター画像等)
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-
-// Multer設定 (アバター顔写真のアップロード用)
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, 'uploads/'),
-  filename: (req, file, cb) => cb(null, Date.now() + '-' + file.originalname)
-});
-const upload = multer({ storage });
-
-// SQL Server 接続設定
-const dbConfig = {
-  user: process.env.DB_USER || 'sa',
-  password: process.env.DB_PASSWORD || 'YourStrongPassword',
-  server: process.env.DB_SERVER || 'localhost',
-  database: process.env.DB_NAME || 'KnowledgeSync',
-  options: {
-    encrypt: false,
-    trustServerCertificate: true,
-    enableArithAbort: true
-  },
-  port: parseInt(process.env.DB_PORT) || 1433
-};
-
-const poolPromise = new sql.ConnectionPool(dbConfig)
-  .connect()
-  .then(pool => {
-    console.log('✅ Connected to SQL Server (MSSQL)');
-    return pool;
-  })
-  .catch(err => {
-    console.error('❌ Database Connection Failed!', err);
-    process.exit(1);
-  });
-
-// ------------------------------------------
-// 1. アバター画像アップロード API
-// ------------------------------------------
-app.post('/api/upload-avatar', upload.single('avatar'), (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ error: 'ファイルがアップロードされていません。' });
-  }
-  const avatarUrl = \`/uploads/\${req.file.filename}\`;
-  res.json({ avatarUrl });
-});
-
-// ------------------------------------------
-// 2. メンバー (Users) 管理 API
-// ------------------------------------------
-app.get('/api/users', async (req, res) => {
-  try {
-    const pool = await poolPromise;
-    const result = await pool.request().query('SELECT * FROM dbo.Users ORDER BY name ASC');
-    res.json(result.recordset);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.post('/api/users', async (req, res) => {
-  try {
-    const u = req.body;
-    const pool = await poolPromise;
-    await pool.request()
-      .input('id', sql.VarChar, u.id)
-      .input('loginId', sql.VarChar, u.loginId)
-      .input('password', sql.VarChar, u.password)
-      .input('name', sql.NVarChar, u.name)
-      .input('department', sql.NVarChar, u.department)
-      .input('avatarUrl', sql.NVarChar, u.avatarUrl)
-      .input('office', sql.NVarChar, u.office)
-      .input('division', sql.NVarChar, u.division)
-      .input('position', sql.NVarChar, u.position)
-      .input('role', sql.VarChar, u.role)
-      .input('isAdmin', sql.Bit, u.isAdmin ? 1 : 0)
-      .input('supervisorId', sql.VarChar, u.supervisorId || null)
-      .query(\`
-        INSERT INTO dbo.Users (id, loginId, password, name, department, avatarUrl, office, division, position, role, isAdmin, supervisorId)
-        VALUES (@id, @loginId, @password, @name, @department, @avatarUrl, @office, @division, @position, @role, @isAdmin, @supervisorId)
-      \`);
-    res.status(201).json(u);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.put('/api/users/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const u = req.body;
-    const pool = await poolPromise;
-    await pool.request()
-      .input('id', sql.VarChar, id)
-      .input('loginId', sql.VarChar, u.loginId)
-      .input('password', sql.VarChar, u.password)
-      .input('name', sql.NVarChar, u.name)
-      .input('department', sql.NVarChar, u.department)
-      .input('avatarUrl', sql.NVarChar, u.avatarUrl)
-      .input('office', sql.NVarChar, u.office)
-      .input('division', sql.NVarChar, u.division)
-      .input('position', sql.NVarChar, u.position)
-      .input('role', sql.VarChar, u.role)
-      .input('isAdmin', sql.Bit, u.isAdmin ? 1 : 0)
-      .input('supervisorId', sql.VarChar, u.supervisorId || null)
-      .query(\`
-        UPDATE dbo.Users 
-        SET loginId = @loginId, password = @password, name = @name, department = @department, 
-            avatarUrl = @avatarUrl, office = @office, division = @division, position = @position, 
-            role = @role, isAdmin = @isAdmin, supervisorId = @supervisorId
-        WHERE id = @id
-      \`);
-    res.json(u);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.delete('/api/users/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const pool = await poolPromise;
-    await pool.request().input('id', sql.VarChar, id).query('DELETE FROM dbo.Users WHERE id = @id');
-    res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// ------------------------------------------
-// 3. 掲示板 (Bulletins / Board) API
-// ------------------------------------------
-app.get('/api/bulletins', async (req, res) => {
-  try {
-    const pool = await poolPromise;
-    const result = await pool.request().query(\`
-      SELECT b.*, u.name as authorName, u.department as authorDept, u.avatarUrl as authorAvatar
-      FROM dbo.Bulletins b
-      LEFT JOIN dbo.Users u ON b.authorId = u.id
-      ORDER BY b.isPinned DESC, b.createdAt DESC
-    \`);
-    
-    const bulletins = result.recordset.map(row => ({
-      id: row.id,
-      title: row.title,
-      content: row.content,
-      authorId: row.authorId,
-      createdAt: row.createdAt,
-      category: row.category,
-      isPinned: row.isPinned === true || row.isPinned === 1,
-      views: row.views || 0,
-      likes: row.likes || 0,
-      office: row.office,
-      division: row.division,
-      scope: row.scope,
-      tags: row.tags ? row.tags.split(',') : [],
-      attachments: row.attachments ? JSON.parse(row.attachments) : [],
-      author: {
-        id: row.authorId,
-        name: row.authorName || '匿名',
-        department: row.authorDept || '未設定',
-        avatarUrl: row.authorAvatar || ''
-      }
-    }));
-    res.json(bulletins);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.post('/api/bulletins', async (req, res) => {
-  try {
-    const b = req.body;
-    const pool = await poolPromise;
-    const tagsStr = Array.isArray(b.tags) ? b.tags.join(',') : '';
-    const attachmentsStr = b.attachments ? JSON.stringify(b.attachments) : '[]';
-    
-    await pool.request()
-      .input('id', sql.VarChar, b.id)
-      .input('title', sql.NVarChar, b.title)
-      .input('content', sql.NVarChar, b.content)
-      .input('authorId', sql.VarChar, b.authorId)
-      .input('createdAt', sql.DateTime, new Date())
-      .input('category', sql.NVarChar, b.category || '')
-      .input('isPinned', sql.Bit, b.isPinned ? 1 : 0)
-      .input('views', sql.Int, 0)
-      .input('likes', sql.Int, 0)
-      .input('office', sql.NVarChar, b.office || null)
-      .input('division', sql.NVarChar, b.division || null)
-      .input('scope', sql.NVarChar, b.scope || '全社')
-      .input('tags', sql.NVarChar, tagsStr)
-      .input('attachments', sql.NVarChar, attachmentsStr)
-      .query(\`
-        INSERT INTO dbo.Bulletins (id, title, content, authorId, createdAt, category, isPinned, views, likes, office, division, scope, tags, attachments)
-        VALUES (@id, @title, @content, @authorId, @createdAt, @category, @isPinned, @views, @likes, @office, @division, @scope, @tags, @attachments)
-      \`);
-    res.status(201).json(b);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.put('/api/bulletins/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const b = req.body;
-    const pool = await poolPromise;
-    const tagsStr = Array.isArray(b.tags) ? b.tags.join(',') : '';
-    const attachmentsStr = b.attachments ? JSON.stringify(b.attachments) : '[]';
-
-    await pool.request()
-      .input('id', sql.VarChar, id)
-      .input('title', sql.NVarChar, b.title)
-      .input('content', sql.NVarChar, b.content)
-      .input('category', sql.NVarChar, b.category || '')
-      .input('isPinned', sql.Bit, b.isPinned ? 1 : 0)
-      .input('views', sql.Int, b.views || 0)
-      .input('likes', sql.Int, b.likes || 0)
-      .input('office', sql.NVarChar, b.office || null)
-      .input('division', sql.NVarChar, b.division || null)
-      .input('scope', sql.NVarChar, b.scope || '全社')
-      .input('tags', sql.NVarChar, tagsStr)
-      .input('attachments', sql.NVarChar, attachmentsStr)
-      .query(\`
-        UPDATE dbo.Bulletins 
-        SET title = @title, content = @content, category = @category, isPinned = @isPinned, 
-            views = @views, likes = @likes, office = @office, division = @division, 
-            scope = @scope, tags = @tags, attachments = @attachments
-        WHERE id = @id
-      \`);
-    res.json(b);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.delete('/api/bulletins/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const pool = await poolPromise;
-    const transaction = new sql.Transaction(pool);
-    await transaction.begin();
-    try {
-      await transaction.request().input('id', sql.VarChar, id).query('DELETE FROM dbo.BoardComments WHERE bulletinId = @id OR topicId = @id');
-      await transaction.request().input('id', sql.VarChar, id).query('DELETE FROM dbo.BoardViewers WHERE bulletinId = @id OR topicId = @id');
-      await transaction.request().input('id', sql.VarChar, id).query('DELETE FROM dbo.Bulletins WHERE id = @id');
-      await transaction.commit();
-      res.json({ success: true });
-    } catch (txErr) {
-      await transaction.rollback();
-      throw txErr;
-    }
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// ------------------------------------------
-// 3b. コメント (BoardComments) API
-// ------------------------------------------
-app.get('/api/bulletins/:id/comments', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const pool = await poolPromise;
-    const result = await pool.request()
-      .input('bulletinId', sql.VarChar, id)
-      .query(\`
-        SELECT c.*, u.name as authorName, u.department as authorDept, u.avatarUrl as authorAvatar
-        FROM dbo.BoardComments c
-        LEFT JOIN dbo.Users u ON c.authorId = u.id
-        WHERE c.bulletinId = @bulletinId OR c.topicId = @bulletinId
-        ORDER BY c.createdAt ASC
-      \`);
-      
-    const comments = result.recordset.map(row => ({
-      id: row.id,
-      topicId: row.bulletinId || row.topicId,
-      bulletinId: row.bulletinId || row.topicId,
-      authorId: row.authorId,
-      content: row.content,
-      createdAt: row.createdAt,
-      author: {
-        id: row.authorId,
-        name: row.authorName || '匿名',
-        department: row.authorDept || '未設定',
-        avatarUrl: row.authorAvatar || ''
-      }
-    }));
-    res.json(comments);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// コメント投稿 (インサートバグ対策)
-app.post('/api/bulletins/:id/comments', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { authorId, content } = req.body;
-    const commentId = 'comment_' + Date.now();
-    const pool = await poolPromise;
-    
-    await pool.request()
-      .input('id', sql.VarChar, commentId)
-      .input('bulletinId', sql.VarChar, id)
-      .input('authorId', sql.VarChar, authorId)
-      .input('content', sql.NVarChar, content)
-      .input('createdAt', sql.DateTime, new Date())
-      .query(\`
-        INSERT INTO dbo.BoardComments (id, bulletinId, topicId, authorId, author_id, content, createdAt)
-        VALUES (@id, @bulletinId, @bulletinId, @authorId, @authorId, @content, @createdAt)
-      \`);
-      
-    res.status(201).json({
-      id: commentId,
-      bulletinId: id,
-      topicId: id,
-      authorId,
-      content,
-      createdAt: new Date()
-    });
-  } catch (err) {
-    console.error('❌ Comment Insert Failed:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ------------------------------------------
-// 3c. 閲覧者 (BoardViewers) 登録 API
-// ------------------------------------------
-app.get('/api/bulletins/:id/viewers', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const pool = await poolPromise;
-    const result = await pool.request()
-      .input('bulletinId', sql.VarChar, id)
-      .query(\`
-        SELECT v.*, u.name as userName, u.department as userDept, u.avatarUrl as userAvatar
-        FROM dbo.BoardViewers v
-        INNER JOIN dbo.Users u ON v.userId = u.id
-        WHERE v.bulletinId = @bulletinId OR v.topicId = @bulletinId
-      \`);
-    res.json(result.recordset);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// 閲覧者追加登録 (正常稼働・弾かれないように修正)
-app.post('/api/bulletins/:id/viewers', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { userId } = req.body;
-    const pool = await poolPromise;
-    
-    const checkResult = await pool.request()
-      .input('bulletinId', sql.VarChar, id)
-      .input('userId', sql.VarChar, userId)
-      .query(\`
-        SELECT 1 FROM dbo.BoardViewers 
-        WHERE (bulletinId = @bulletinId OR topicId = @bulletinId) AND userId = @userId
-      \`);
-      
-    if (checkResult.recordset.length === 0) {
-      await pool.request()
-        .input('bulletinId', sql.VarChar, id)
-        .input('userId', sql.VarChar, userId)
-        .input('viewedAt', sql.DateTime, new Date())
-        .query(\`
-          INSERT INTO dbo.BoardViewers (bulletinId, topicId, userId, viewedAt)
-          VALUES (@bulletinId, @bulletinId, @userId, @viewedAt)
-        \`);
-        
-      await pool.request()
-        .input('bulletinId', sql.VarChar, id)
-        .query('UPDATE dbo.Bulletins SET views = views + 1 WHERE id = @bulletinId');
-    }
-    
-    res.json({ success: true });
-  } catch (err) {
-    console.error('❌ View Registration Failed:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ------------------------------------------
-// 4. マスタ同期 API
-// ------------------------------------------
-app.get('/api/masters/offices', async (req, res) => {
-  try {
-    const pool = await poolPromise;
-    const result = await pool.request().query('SELECT * FROM dbo.OfficeMaster');
-    res.json(result.recordset);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.get('/api/masters/divisions', async (req, res) => {
-  try {
-    const pool = await poolPromise;
-    const result = await pool.request().query('SELECT * FROM dbo.DivisionMaster');
-    res.json(result.recordset);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.get('/api/masters/positions', async (req, res) => {
-  try {
-    const pool = await poolPromise;
-    const result = await pool.request().query('SELECT * FROM dbo.PositionMaster');
-    res.json(result.recordset);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(\`🚀 Server running on port \${PORT}\`);
-});`;
 
   // --- OFFICE MASTER HANDLERS ---
   const handleOpenAddOfficeModal = () => {
@@ -2407,14 +1995,20 @@ app.listen(PORT, '0.0.0.0', () => {
               </button>
               <button
                 onClick={() => setSystemActiveSection('server_code')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                className={`relative flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
                   systemActiveSection === 'server_code'
                     ? 'bg-white text-indigo-600 shadow-sm'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
                 <Server className="w-4 h-4" />
-                推奨 server.js コード
+                <span>推奨 server.js コード</span>
+                {isServerCodeUpdated && (
+                  <span className="absolute -top-1 -right-1 flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
+                  </span>
+                )}
               </button>
             </div>
 
@@ -2510,21 +2104,31 @@ app.listen(PORT, '0.0.0.0', () => {
 
                 <div className="space-y-4">
                   {/* Table selector Dropdown */}
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 bg-indigo-50/50 p-4 rounded-xl border border-indigo-100">
-                    <label className="text-xs font-bold text-indigo-900 shrink-0">
-                      詳細を確認するテーブルを選択:
-                    </label>
-                    <select
-                      value={selectedSystemTable}
-                      onChange={(e) => setSelectedSystemTable(e.target.value)}
-                      className="w-full sm:w-72 px-3 py-2 bg-white border border-indigo-200 rounded-lg text-xs font-bold text-indigo-950 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-sm"
-                    >
-                      {DB_SCHEMAS_ALL.map((schema) => (
-                        <option key={schema.tableName} value={schema.tableName}>
-                          {schema.tableName} ({schema.description.slice(0, 15)}...)
-                        </option>
-                      ))}
-                    </select>
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-indigo-50/50 p-4 rounded-xl border border-indigo-100">
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-3 w-full sm:w-auto">
+                      <label className="text-xs font-bold text-indigo-900 shrink-0">
+                        詳細を確認するテーブルを選択:
+                      </label>
+                      <select
+                        value={selectedSystemTable}
+                        onChange={(e) => setSelectedSystemTable(e.target.value)}
+                        className="w-full sm:w-80 px-3 py-2 bg-white border border-indigo-200 rounded-lg text-xs font-bold text-indigo-950 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-sm"
+                      >
+                        {DB_SCHEMAS_ALL.map((schema) => {
+                          const prefix = schema.isNew ? '🆕 [新規] ' : schema.isUpdated ? '✨ [更新] ' : '';
+                          return (
+                            <option key={schema.tableName} value={schema.tableName}>
+                              {prefix}{schema.tableName} ({schema.description.slice(0, 15)}...)
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </div>
+
+                    <div className="flex items-center gap-3 text-[10px] text-slate-500 font-bold shrink-0 self-end sm:self-auto">
+                      <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-emerald-400"></span>新規テーブル/カラム</span>
+                      <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-amber-400"></span>更新テーブル/カラム</span>
+                    </div>
                   </div>
 
                   {/* Render Selected Table Schema */}
@@ -2533,11 +2137,35 @@ app.listen(PORT, '0.0.0.0', () => {
                     if (!currentSchema) return null;
 
                     return (
-                      <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-xs bg-white">
-                        <div className="bg-slate-50 border-b border-slate-200 px-5 py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                          <span className="text-xs font-extrabold text-slate-800 flex items-center gap-2 font-mono">
-                            <span className="w-2 h-2 rounded-full bg-indigo-600"></span>
+                      <div className={`border rounded-2xl overflow-hidden shadow-xs bg-white transition-all ${
+                        currentSchema.isNew 
+                          ? 'border-emerald-300 ring-2 ring-emerald-100' 
+                          : currentSchema.isUpdated 
+                          ? 'border-amber-300 ring-2 ring-amber-100' 
+                          : 'border-slate-200'
+                      }`}>
+                        <div className={`border-b px-5 py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 ${
+                          currentSchema.isNew 
+                            ? 'bg-emerald-50/50 border-emerald-150' 
+                            : currentSchema.isUpdated 
+                            ? 'bg-amber-50/50 border-amber-150' 
+                            : 'bg-slate-50 border-slate-200'
+                        }`}>
+                          <span className="text-xs font-extrabold text-slate-800 flex items-center flex-wrap gap-2 font-mono">
+                            <span className={`w-2 h-2 rounded-full ${
+                              currentSchema.isNew 
+                                ? 'bg-emerald-500 animate-pulse' 
+                                : currentSchema.isUpdated 
+                                ? 'bg-amber-500 animate-pulse' 
+                                : 'bg-indigo-600'
+                            }`}></span>
                             {currentSchema.tableName}
+                            {currentSchema.isNew && (
+                              <span className="px-1.5 py-0.5 text-[9px] font-extrabold bg-emerald-500 text-white rounded shadow-xs animate-bounce">🆕 NEW (新設)</span>
+                            )}
+                            {currentSchema.isUpdated && (
+                              <span className="px-1.5 py-0.5 text-[9px] font-extrabold bg-amber-500 text-white rounded shadow-xs">✨ UPDATED (更新)</span>
+                            )}
                           </span>
                           <span className="text-xs text-slate-500 font-medium">
                             {currentSchema.description}
@@ -2554,24 +2182,44 @@ app.listen(PORT, '0.0.0.0', () => {
                               </tr>
                             </thead>
                             <tbody className="text-slate-700 divide-y divide-slate-100">
-                              {currentSchema.columns.map((col, idx) => (
-                                <tr key={idx} className="hover:bg-slate-50/40 transition-colors">
-                                  <td className="py-3 px-3 font-mono text-indigo-600 font-bold">{col.name}</td>
-                                  <td className="py-3 px-3 font-mono text-slate-600">{col.type}</td>
-                                  <td className="py-3 px-3">
-                                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                      col.constraint.includes('PRIMARY KEY')
-                                        ? 'bg-rose-50 text-rose-700 border border-rose-100'
-                                        : col.constraint.includes('NOT NULL')
-                                        ? 'bg-amber-50 text-amber-700 border border-amber-100'
-                                        : 'bg-slate-100 text-slate-600'
-                                    }`}>
-                                      {col.constraint}
-                                    </span>
-                                  </td>
-                                  <td className="py-3 px-3 text-slate-600 leading-normal font-medium">{col.desc}</td>
-                                </tr>
-                              ))}
+                              {currentSchema.columns.map((col: any, idx) => {
+                                const isColNew = col.isNew;
+                                const isColUpdated = col.isUpdated;
+                                const rowClass = isColNew 
+                                  ? 'bg-emerald-50/60 hover:bg-emerald-100/40 border-l-4 border-l-emerald-500' 
+                                  : isColUpdated 
+                                  ? 'bg-amber-50/60 hover:bg-amber-100/40 border-l-4 border-l-amber-500' 
+                                  : 'hover:bg-slate-50/40';
+
+                                return (
+                                  <tr key={idx} className={`${rowClass} transition-colors`}>
+                                    <td className="py-3 px-3 font-mono text-indigo-600 font-bold">
+                                      <div className="flex items-center gap-1.5">
+                                        <span>{col.name}</span>
+                                        {isColNew && (
+                                          <span className="px-1 py-0.2 text-[8px] font-extrabold bg-emerald-100 border border-emerald-300 text-emerald-800 rounded font-sans scale-90 origin-left">新設</span>
+                                        )}
+                                        {isColUpdated && (
+                                          <span className="px-1 py-0.2 text-[8px] font-extrabold bg-amber-100 border border-amber-300 text-amber-800 rounded font-sans scale-90 origin-left">更新</span>
+                                        )}
+                                      </div>
+                                    </td>
+                                    <td className="py-3 px-3 font-mono text-slate-600">{col.type}</td>
+                                    <td className="py-3 px-3">
+                                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                        col.constraint.includes('PRIMARY KEY')
+                                          ? 'bg-rose-50 text-rose-700 border border-rose-100'
+                                          : col.constraint.includes('NOT NULL')
+                                          ? 'bg-amber-50 text-amber-700 border border-amber-100'
+                                          : 'bg-slate-100 text-slate-600'
+                                      }`}>
+                                        {col.constraint}
+                                      </span>
+                                    </td>
+                                    <td className="py-3 px-3 text-slate-600 leading-normal font-medium">{col.desc}</td>
+                                  </tr>
+                                );
+                              })}
                             </tbody>
                           </table>
                         </div>
@@ -2729,6 +2377,25 @@ END;`}
             {/* SECTION 3: RECOMMENDED SERVER.JS CODE */}
             {systemActiveSection === 'server_code' && (
               <div className="mt-6 space-y-4">
+                {isServerCodeUpdated && (
+                  <div className="p-4 bg-rose-50 border border-rose-200 shadow-xs rounded-2xl flex items-start gap-3 animate-pulse">
+                    <div className="p-2 bg-rose-100 rounded-xl text-rose-600 shrink-0">
+                      <Server className="w-5 h-5" />
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-xs font-bold text-rose-900 flex items-center gap-1.5 flex-wrap">
+                        <span>【更新通知】最新機能に対応した server.js のアップデート推奨</span>
+                        <span className="px-1.5 py-0.5 text-[8px] bg-rose-600 text-white font-extrabold rounded">UPDATE</span>
+                      </div>
+                      <p className="text-[11px] text-rose-700 leading-normal">
+                        日報の取得・登録、マスタ統合（拠点・部署・役職・品名マスタ等）、および複数宛先対応の伝言メモに関する最新APIエンドポイントを追加した
+                        <code className="bg-rose-100 px-1 py-0.5 rounded font-bold">server.js</code> の最新コードが利用可能です。
+                        以下のコードをコピーして、Synology NASまたはサーバーに上書き保存し、Node.js サーバーを再起動してください。
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex justify-between items-center pb-2">
                   <div>
                     <h4 className="text-xs font-bold text-slate-800">
@@ -2757,10 +2424,14 @@ END;`}
                 </div>
 
                 <div className="relative">
-                  <div className="bg-slate-950 rounded-xl p-4 font-mono text-[11px] leading-relaxed text-slate-300 max-h-[480px] overflow-y-auto border border-slate-800 shadow-inner">
-                    <pre className="text-slate-300 whitespace-pre">
-                      {RECOMMEND_SERVER_JS}
-                    </pre>
+                  <div className={`rounded-xl overflow-hidden transition-all duration-300 ${
+                    isServerCodeUpdated ? 'ring-2 ring-rose-500 ring-offset-2' : ''
+                  }`}>
+                    <div className="bg-slate-950 rounded-xl p-4 font-mono text-[11px] leading-relaxed text-slate-300 max-h-[480px] overflow-y-auto border border-slate-800 shadow-inner">
+                      <pre className="text-slate-300 whitespace-pre">
+                        {RECOMMEND_SERVER_JS}
+                      </pre>
+                    </div>
                   </div>
                 </div>
 

@@ -1,0 +1,1677 @@
+export const RECOMMEND_SERVER_JS = `const express = require('express');
+const cors = require('cors');
+const sql = require('mssql');
+const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
+require('dotenv').config();
+
+const app = express();
+app.use(cors({ origin: '*' }));
+app.use(express.json());
+
+// =========================================================
+// アバター画像アップロード用・静的配信ディレクトリの設定
+// =========================================================
+const uploadDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+// 画像ファイルをブラウザに配信する静的配信設定 (http://[サーバーのIP]:[PORT]/uploads/xxx.png でアクセス可能にします)
+app.use('/uploads', express.static(uploadDir));
+
+// multer ストレージ（保存ファイル命名規則）の設定
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, uploadDir);
+  },
+  filename: function (req, file, cb) {
+    // 重複を避けるためタイムスタンプを付与
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const ext = path.extname(file.originalname);
+    cb(null, 'avatar-' + uniqueSuffix + ext);
+  }
+});
+
+const upload = multer({
+  storage: storage,
+  limits: { fileSize: 2 * 1024 * 1024 }, // 2MB制限
+  fileFilter: function (req, file, cb) {
+    if (!file.mimetype.startsWith('image/')) {
+      return cb(new Error('画像ファイルのみアップロード可能です。'), false);
+    }
+    cb(null, true);
+  }
+});
+
+// =========================================================
+// SQL Server Connection Configuration
+// =========================================================
+const dbConfig = {
+  user: process.env.DB_USER || 'sa',
+  password: process.env.DB_PASSWORD || 'TE!rana%go2361',
+  server: process.env.DB_HOST || '192.168.24.50',
+  port: parseInt(process.env.DB_PORT || '1433'),
+  database: process.env.DB_NAME || 'CompanySNSDB',
+  options: {
+    encrypt: process.env.DB_ENCRYPT === 'true',
+    trustServerCertificate: true
+  },
+  pool: { max: 10, min: 0, idleTimeoutMillis: 30000 }
+};
+
+let globalPool = null;
+async function getPool() {
+  if (globalPool && globalPool.connected) return globalPool;
+  try {
+    globalPool = await sql.connect(dbConfig);
+    console.log('✅ Connected to MS SQL Server successfully.');
+    return globalPool;
+  } catch (err) {
+    globalPool = null;
+    console.error('❌ Database connection error:', err.message);
+    throw err;
+  }
+}
+getPool().catch(() => {});
+
+/**
+ * 文字列を安全に JSON パースするヘルパー関数
+ */
+function safeParseJSON(jsonString, fallbackValue = []) {
+  if (!jsonString || typeof jsonString !== 'string' || jsonString.trim() === '') {
+    return fallbackValue;
+  }
+  try {
+    const parsed = JSON.parse(jsonString);
+    return parsed !== null ? parsed : fallbackValue;
+  } catch (e) {
+    console.error('JSON parse error. Value:', jsonString, 'Error:', e.message);
+    return fallbackValue;
+  }
+}
+
+// --- API Endpoints ---
+
+app.get('/api/health', (req, res) => res.json({ status: 'ok', timestamp: new Date() }));
+
+// =========================================================
+// アバター画像アップロードAPI
+// =========================================================
+app.post('/api/upload-avatar', upload.single('avatar'), (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'ファイルがアップロードされていません。' });
+    }
+    // フロント側に返却するファイルの相対URLパス
+    const avatarUrl = \`/uploads/\${req.file.filename}\`;
+    res.json({ avatarUrl });
+  } catch (error) {
+    console.error('アバターアップロードエラー:', error);
+    res.status(500).json({ error: 'サーバーエラーが発生しました。' });
+  }
+});
+
+// ------------------------------------------
+// 1. Masters (Offices, Divisions, Positions, ItemMasters, ApprovalFlows)
+// ------------------------------------------
+
+// --- Offices (拠点マスター) ---
+const getOfficesHandler = async (req, res) => {
+  try {
+    const pool = await getPool();
+    const result = await pool.request().query\`SELECT * FROM dbo.OfficeMaster\`;
+    res.json(result.recordset || []);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+};
+app.get('/api/masters/offices', getOfficesHandler);
+app.get('/api/offices', getOfficesHandler);
+
+const saveOfficeHandler = async (req, res) => {
+  try {
+    const item = req.body;
+    const pool = await getPool();
+    const id = item.id || \`off-\${Date.now()}\`;
+    const check = await pool.request().input('id', sql.VarChar, id).query\`SELECT id FROM dbo.Offices WHERE id = @id\`;
+
+    if (check.recordset.length > 0) {
+      await pool.request()
+        .input('id', sql.VarChar, id)
+        .input('name', sql.NVarChar, item.name || '')
+        .input('type', sql.VarChar, item.type || 'branch')
+        .input('code', sql.VarChar, item.code || '')
+        .input('location', sql.NVarChar, item.location || '')
+        .input('phone', sql.VarChar, item.phone || '')
+        .query\`UPDATE dbo.Offices SET name = @name, type = @type, code = @code, location = @location, phone = @phone WHERE id = @id\`;
+    } else {
+      await pool.request()
+        .input('id', sql.VarChar, id)
+        .input('name', sql.NVarChar, item.name || '')
+        .input('type', sql.VarChar, item.type || 'branch')
+        .input('code', sql.VarChar, item.code || '')
+        .input('location', sql.NVarChar, item.location || '')
+        .input('phone', sql.VarChar, item.phone || '')
+        .query\`INSERT INTO dbo.Offices (id, name, type, code, location, phone) VALUES (@id, @name, @type, @code, @location, @phone)\`;
+    }
+    res.json({ success: true, id, ...item });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+};
+app.post('/api/masters/offices', saveOfficeHandler);
+app.post('/api/offices', saveOfficeHandler);
+app.put('/api/masters/offices/:id', saveOfficeHandler);
+app.put('/api/offices/:id', saveOfficeHandler);
+
+const deleteOfficeHandler = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const pool = await getPool();
+    await pool.request().input('id', sql.VarChar, id).query\`DELETE FROM dbo.Offices WHERE id = @id\`;
+    res.json({ success: true, id });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+};
+app.delete('/api/masters/offices/:id', deleteOfficeHandler);
+app.delete('/api/offices/:id', deleteOfficeHandler);
+
+
+// --- Divisions (部署マスター) ---
+const getDivisionsHandler = async (req, res) => {
+  try {
+    const pool = await getPool();
+    const result = await pool.request().query\`SELECT * FROM dbo.DivisionMaster\`;
+    res.json(result.recordset || []);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+};
+app.get('/api/masters/divisions', getDivisionsHandler);
+app.get('/api/divisions', getDivisionsHandler);
+
+const saveDivisionHandler = async (req, res) => {
+  try {
+    const item = req.body;
+    const pool = await getPool();
+    const id = item.id || \`div-\${Date.now()}\`;
+    const check = await pool.request().input('id', sql.VarChar, id).query\`SELECT id FROM dbo.Divisions WHERE id = @id\`;
+
+    if (check.recordset.length > 0) {
+      await pool.request()
+        .input('id', sql.VarChar, id)
+        .input('name', sql.NVarChar, item.name || '')
+        .input('code', sql.VarChar, item.code || '')
+        .input('description', sql.NVarChar, item.description || '')
+        .query\`UPDATE dbo.Divisions SET name = @name, code = @code, description = @description WHERE id = @id\`;
+    } else {
+      await pool.request()
+        .input('id', sql.VarChar, id)
+        .input('name', sql.NVarChar, item.name || '')
+        .input('code', sql.VarChar, item.code || '')
+        .input('description', sql.NVarChar, item.description || '')
+        .query\`INSERT INTO dbo.Divisions (id, name, code, description) VALUES (@id, @name, @code, @description)\`;
+    }
+    res.json({ success: true, id, ...item });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+};
+app.post('/api/masters/divisions', saveDivisionHandler);
+app.post('/api/divisions', saveDivisionHandler);
+app.put('/api/masters/divisions/:id', saveDivisionHandler);
+app.put('/api/divisions/:id', saveDivisionHandler);
+
+const deleteDivisionHandler = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const pool = await getPool();
+    await pool.request().input('id', sql.VarChar, id).query\`DELETE FROM dbo.Divisions WHERE id = @id\`;
+    res.json({ success: true, id });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+};
+app.delete('/api/masters/divisions/:id', deleteDivisionHandler);
+app.delete('/api/divisions/:id', deleteDivisionHandler);
+
+
+// --- Positions (役職マスター) ---
+const getPositionsHandler = async (req, res) => {
+  try {
+    const pool = await getPool();
+    const result = await pool.request().query\`SELECT * FROM dbo.PositionMaster\`;
+    res.json(result.recordset || []);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+};
+app.get('/api/masters/positions', getPositionsHandler);
+app.get('/api/positions', getPositionsHandler);
+
+const savePositionHandler = async (req, res) => {
+  try {
+    const item = req.body;
+    const pool = await getPool();
+    const id = item.id || \`pos-\${Date.now()}\`;
+    const check = await pool.request().input('id', sql.VarChar, id).query\`SELECT id FROM dbo.Positions WHERE id = @id\`;
+
+    if (check.recordset.length > 0) {
+      await pool.request()
+        .input('id', sql.VarChar, id)
+        .input('name', sql.NVarChar, item.name || '')
+        .input('code', sql.VarChar, item.code || '')
+        .input('description', sql.NVarChar, item.description || '')
+        .query\`UPDATE dbo.Positions SET name = @name, code = @code, description = @description WHERE id = @id\`;
+    } else {
+      await pool.request()
+        .input('id', sql.VarChar, id)
+        .input('name', sql.NVarChar, item.name || '')
+        .input('code', sql.VarChar, item.code || '')
+        .input('description', sql.NVarChar, item.description || '')
+        .query\`INSERT INTO dbo.Positions (id, name, code, description) VALUES (@id, @name, @code, @description)\`;
+    }
+    res.json({ success: true, id, ...item });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+};
+app.post('/api/masters/positions', savePositionHandler);
+app.post('/api/positions', savePositionHandler);
+app.put('/api/masters/positions/:id', savePositionHandler);
+app.put('/api/positions/:id', savePositionHandler);
+
+const deletePositionHandler = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const pool = await getPool();
+    await pool.request().input('id', sql.VarChar, id).query\`DELETE FROM dbo.Positions WHERE id = @id\`;
+    res.json({ success: true, id });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+};
+app.delete('/api/masters/positions/:id', deletePositionHandler);
+app.delete('/api/positions/:id', deletePositionHandler);
+
+
+// --- ItemMasters (品名マスター) ---
+const getItemMastersHandler = async (req, res) => {
+  try {
+    const pool = await getPool();
+    const result = await pool.request().query\`SELECT * FROM dbo.ItemMasters\`;
+    res.json(result.recordset || []);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+};
+app.get('/api/masters/item-masters', getItemMastersHandler);
+app.get('/api/item-masters', getItemMastersHandler);
+
+const saveItemMasterHandler = async (req, res) => {
+  try {
+    const item = req.body;
+    const pool = await getPool();
+    const id = item.id || \`itm_\${Date.now()}\`;
+    const check = await pool.request().input('id', sql.VarChar, id).query\`SELECT id FROM dbo.ItemMasters WHERE id = @id\`;
+
+    if (check.recordset.length > 0) {
+      await pool.request()
+        .input('id', sql.VarChar, id)
+        .input('name', sql.NVarChar, item.name || '')
+        .input('category', sql.NVarChar, item.category || '')
+        .input('defaultUnitPrice', sql.Int, item.defaultUnitPrice || 0)
+        .input('unit', sql.NVarChar, item.unit || '')
+        .input('code', sql.VarChar, item.code || '')
+        .query\`UPDATE dbo.ItemMasters SET name = @name, category = @category, defaultUnitPrice = @defaultUnitPrice, unit = @unit, code = @code WHERE id = @id\`;
+    } else {
+      await pool.request()
+        .input('id', sql.VarChar, id)
+        .input('name', sql.NVarChar, item.name || '')
+        .input('category', sql.NVarChar, item.category || '')
+        .input('defaultUnitPrice', sql.Int, item.defaultUnitPrice || 0)
+        .input('unit', sql.NVarChar, item.unit || '')
+        .input('code', sql.VarChar, item.code || '')
+        .query\`INSERT INTO dbo.ItemMasters (id, name, category, defaultUnitPrice, unit, code) VALUES (@id, @name, @category, @defaultUnitPrice, @unit, @code)\`;
+    }
+    res.json({ success: true, id, ...item });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+};
+app.post('/api/masters/item-masters', saveItemMasterHandler);
+app.post('/api/item-masters', saveItemMasterHandler);
+app.put('/api/masters/item-masters/:id', saveItemMasterHandler);
+app.put('/api/item-masters/:id', saveItemMasterHandler);
+
+const deleteItemMasterHandler = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const pool = await getPool();
+    await pool.request().input('id', sql.VarChar, id).query\`DELETE FROM dbo.ItemMasters WHERE id = @id\`;
+    res.json({ success: true, id });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+};
+app.delete('/api/masters/item-masters/:id', deleteItemMasterHandler);
+app.delete('/api/item-masters/:id', deleteItemMasterHandler);
+
+
+// --- ApprovalFlows (承認フロー) ---
+const getApprovalFlowsHandler = async (req, res) => {
+  try {
+    const pool = await getPool();
+    const result = await pool.request().query('SELECT * FROM dbo.ApprovalFlows');
+    const recordset = result.recordset || [];
+    
+    const formattedFlows = recordset.map(row => {
+      let steps = [];
+      if (row.stepsJson) {
+        steps = safeParseJSON(row.stepsJson, []);
+      }
+      return {
+        id: row.id,
+        name: row.name,
+        description: row.description || '',
+        targetApplicationType: row.targetApplicationType || 'all',
+        steps: steps,
+        isDefault: row.isDefault === 1 || row.isDefault === true || !!row.isDefault
+      };
+    });
+    res.json(formattedFlows);
+  } catch (error) {
+    console.error('Failed to fetch approval flows:', error);
+    res.status(500).json({ 
+      error: '承認フローの取得に失敗しました。', 
+      details: error.message 
+    });
+  }
+};
+app.get('/api/masters/approval-flows', getApprovalFlowsHandler);
+app.get('/api/approval-flows', getApprovalFlowsHandler);
+
+
+// ------------------------------------------
+// 2. Users (ユーザー情報)
+// ------------------------------------------
+app.get('/api/users', async (req, res) => {
+  try {
+    const pool = await getPool();
+    const result = await pool.request().query\`SELECT * FROM dbo.Users\`;
+    res.json(result.recordset || []);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/users', async (req, res) => {
+  try {
+    const u = req.body;
+    const pool = await getPool();
+    const userId = u.id || \`u-\${Date.now()}\`;
+    const check = await pool.request().input('id', sql.VarChar, userId).query\`SELECT id FROM dbo.Users WHERE id = @id\`;
+    
+    if (check.recordset.length > 0) {
+      await pool.request()
+        .input('id', sql.VarChar, userId)
+        .input('loginId', sql.VarChar, u.loginId || u.id || userId)
+        .input('password', sql.VarChar, u.password || 'password')
+        .input('name', sql.NVarChar, u.name || '')
+        .input('kanaName', sql.NVarChar, u.kanaName || '')
+        .input('department', sql.NVarChar, u.department || '')
+        .input('office', sql.NVarChar, u.office || '')
+        .input('division', sql.NVarChar, u.division || '')
+        .input('position', sql.NVarChar, u.position || '')
+        .input('role', sql.VarChar, u.role || 'user')
+        .input('isAdmin', sql.Bit, u.isAdmin ? 1 : 0)
+        .input('avatarUrl', sql.NVarChar, u.avatarUrl || '')
+        .input('email', sql.NVarChar, u.email || '')
+        .input('mobileEmail', sql.NVarChar, u.mobileEmail || '')
+        .input('phone', sql.NVarChar, u.phone || '')
+        .input('phoneOutside', sql.NVarChar, u.phoneOutside || '')
+        .input('phoneExtension', sql.NVarChar, u.phoneExtension || '')
+        .input('mobilePhone', sql.NVarChar, u.mobilePhone || '')
+        .input('icalUrl', sql.NVarChar, u.icalUrl || '')
+        .input('supervisorId', sql.VarChar, u.supervisorId || null)
+        .query\`
+          UPDATE dbo.Users 
+          SET loginId = @loginId,
+              password = @password,
+              name = @name, 
+              kanaName = @kanaName,
+              department = @department, 
+              office = @office, 
+              division = @division, 
+              position = @position, 
+              role = @role, 
+              isAdmin = @isAdmin, 
+              avatarUrl = @avatarUrl, 
+              email = @email,
+              mobileEmail = @mobileEmail,
+              phone = @phone,
+              phoneOutside = @phoneOutside,
+              phoneExtension = @phoneExtension,
+              mobilePhone = @mobilePhone,
+              icalUrl = @icalUrl,
+              supervisorId = @supervisorId
+          WHERE id = @id
+        \`;
+    } else {
+      await pool.request()
+        .input('id', sql.VarChar, userId)
+        .input('loginId', sql.VarChar, u.loginId || u.id || userId)
+        .input('password', sql.VarChar, u.password || 'password')
+        .input('name', sql.NVarChar, u.name || '')
+        .input('kanaName', sql.NVarChar, u.kanaName || '')
+        .input('department', sql.NVarChar, u.department || '')
+        .input('office', sql.NVarChar, u.office || '')
+        .input('division', sql.NVarChar, u.division || '')
+        .input('position', sql.NVarChar, u.position || '')
+        .input('role', sql.VarChar, u.role || 'user')
+        .input('isAdmin', sql.Bit, u.isAdmin ? 1 : 0)
+        .input('avatarUrl', sql.NVarChar, u.avatarUrl || '')
+        .input('email', sql.NVarChar, u.email || '')
+        .input('mobileEmail', sql.NVarChar, u.mobileEmail || '')
+        .input('phone', sql.NVarChar, u.phone || '')
+        .input('phoneOutside', sql.NVarChar, u.phoneOutside || '')
+        .input('phoneExtension', sql.NVarChar, u.phoneExtension || '')
+        .input('mobilePhone', sql.NVarChar, u.mobilePhone || '')
+        .input('icalUrl', sql.NVarChar, u.icalUrl || '')
+        .input('supervisorId', sql.VarChar, u.supervisorId || null)
+        .query\`
+          INSERT INTO dbo.Users (id, loginId, password, name, kanaName, department, office, division, position, role, isAdmin, avatarUrl, email, mobileEmail, phone, phoneOutside, phoneExtension, mobilePhone, icalUrl, supervisorId)
+          VALUES (@id, @loginId, @password, @name, @kanaName, @department, @office, @division, @position, @role, @isAdmin, @avatarUrl, @email, @mobileEmail, @phone, @phoneOutside, @phoneExtension, @mobilePhone, @icalUrl, @supervisorId)
+        \`;
+    }
+    res.json({ id: userId, message: 'ユーザー保存成功' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/users/:id', async (req, res) => {
+  req.body.id = req.params.id;
+  app._router.handle({ ...req, method: 'POST', url: '/api/users' }, res);
+});
+
+app.delete('/api/users/:id', async (req, res) => {
+  try {
+    const pool = await getPool();
+    await pool.request().input('id', sql.VarChar, String(req.params.id)).query\`DELETE FROM dbo.Users WHERE id = @id\`;
+    res.json({ message: 'ユーザー削除完了' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ------------------------------------------
+// 3. Timeline / Posts (タイムライン投稿)
+// ------------------------------------------
+app.get('/api/posts', async (req, res) => {
+  try {
+    const pool = await getPool();
+    const result = await pool.request().query\`
+      SELECT p.*, 
+             u.name AS authorName, u.department AS authorDepartment, u.avatarUrl AS authorAvatarUrl, u.office AS authorOffice, u.division AS authorDivision
+      FROM dbo.Posts p
+      LEFT JOIN dbo.Users u ON p.authorId = u.id
+      ORDER BY p.createdAt DESC
+    \`;
+    
+    let tagsMap = {};
+    try {
+      const tagsResult = await pool.request().query\`SELECT postId, tag FROM dbo.PostTags\`;
+      (tagsResult.recordset || []).forEach(row => {
+        if (!tagsMap[row.postId]) tagsMap[row.postId] = [];
+        tagsMap[row.postId].push(row.tag);
+      });
+    } catch (_) {}
+
+    const posts = (result.recordset || []).map(row => {
+      let tags = tagsMap[row.id] || [];
+      if (tags.length === 0 && row.tags) {
+        tags = typeof row.tags === 'string' ? row.tags.split(',').map(t => t.trim()) : row.tags;
+      }
+      return {
+        id: String(row.id),
+        author: {
+          id: row.authorId,
+          name: row.authorName || '不明',
+          department: row.authorDepartment || '',
+          avatarUrl: row.authorAvatarUrl || '',
+          office: row.authorOffice || '',
+          division: row.authorDivision || ''
+        },
+        authorId: row.authorId,
+        content: row.content,
+        tags: tags,
+        createdAt: row.createdAt,
+        likes: row.likes || 0,
+        isLiked: row.isLiked ? true : false,
+        nasLink: row.nasLink || null
+      };
+    });
+    res.json(posts);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/posts', async (req, res) => {
+  try {
+    const { authorId, content, tags, nasLink } = req.body;
+    const pool = await getPool();
+    const id = req.body.id || \`p-\${Date.now()}\`;
+    const tagStr = Array.isArray(tags) ? tags.join(',') : (tags || '');
+
+    await pool.request()
+      .input('id', sql.VarChar, String(id))
+      .input('authorId', sql.VarChar, authorId || 'u1')
+      .input('content', sql.NVarChar, content || '')
+      .input('tags', sql.NVarChar, tagStr)
+      .input('nasLink', sql.NVarChar, nasLink || null)
+      .query\`
+        INSERT INTO dbo.Posts (id, authorId, content, createdAt, likes, isLiked, nasLink, tags) 
+        VALUES (@id, @authorId, @content, GETDATE(), 0, 0, @nasLink, @tags)
+      \`;
+
+    if (Array.isArray(tags)) {
+      for (const t of tags) {
+        if (t) {
+          try {
+            await pool.request()
+              .input('postId', sql.VarChar, String(id))
+              .input('tag', sql.NVarChar, t)
+              .query\`INSERT INTO dbo.PostTags (postId, tag) VALUES (@postId, @tag)\`;
+          } catch (_) {}
+        }
+      }
+    }
+    res.status(201).json({ id, message: '投稿完了' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/posts/:id/like', async (req, res) => {
+  try {
+    const pool = await getPool();
+    await pool.request().input('id', sql.VarChar, String(req.params.id)).query\`UPDATE dbo.Posts SET likes = likes + 1, isLiked = 1 WHERE id = @id\`;
+    res.json({ message: 'いいね完了' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/posts/:id', async (req, res) => {
+  try {
+    const pool = await getPool();
+    await pool.request().input('id', sql.VarChar, String(req.params.id)).query\`DELETE FROM dbo.Posts WHERE id = @id\`;
+    try {
+      await pool.request().input('postId', sql.VarChar, String(req.params.id)).query\`DELETE FROM dbo.PostTags WHERE postId = @postId\`;
+    } catch (_) {}
+    res.json({ message: '削除完了' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ------------------------------------------
+// 4. Calendar / Events (カレンダー行事)
+// ------------------------------------------
+app.get('/api/events', async (req, res) => {
+  try {
+    const pool = await getPool();
+    const result = await pool.request().query\`SELECT * FROM dbo.Events ORDER BY startAt ASC\`;
+    const events = (result.recordset || []).map(row => ({
+      id: String(row.id),
+      title: row.title,
+      startAt: row.startAt,
+      endAt: row.endAt,
+      isAllDay: row.isAllDay ? true : false,
+      category: row.category || 'general',
+      description: row.description || '',
+      location: row.location || '',
+      office: row.office || '',
+      division: row.division || ''
+    }));
+    res.json(events);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/events', async (req, res) => {
+  try {
+    const { title, startAt, endAt, isAllDay, category, description, location, office, division, attendees, memo } = req.body;
+    const pool = await getPool();
+    const id = req.body.id || \`e-\${Date.now()}\`;
+    
+    let descValue = description;
+    if (typeof descValue === 'object') {
+      descValue = JSON.stringify(descValue);
+    } else if (!descValue && (attendees || memo)) {
+      descValue = JSON.stringify({ attendees: attendees || [], memo: memo || '' });
+    }
+
+    const parseDate = (val, fallback) => {
+      if (!val) return fallback;
+      const d = new Date(val);
+      return isNaN(d.getTime()) ? fallback : d;
+    };
+
+    const validStart = parseDate(startAt, new Date());
+    const validEnd = parseDate(endAt, validStart);
+
+    await pool.request()
+      .input('id', sql.VarChar, String(id))
+      .input('title', sql.NVarChar, title || '予定')
+      .input('startAt', sql.DateTime2, validStart)
+      .input('endAt', sql.DateTime2, validEnd)
+      .input('isAllDay', sql.Bit, isAllDay ? 1 : 0)
+      .input('category', sql.NVarChar, category || 'general')
+      .input('description', sql.NVarChar, descValue || '')
+      .input('location', sql.NVarChar, location || '')
+      .input('office', sql.NVarChar, office || '')
+      .input('division', sql.NVarChar, division || '')
+      .query\`
+        INSERT INTO dbo.Events (id, title, startAt, endAt, isAllDay, category, description, location, office, division) 
+        VALUES (@id, @title, @startAt, @endAt, @isAllDay, @category, @description, @location, @office, @division)
+      \`;
+    res.status(201).json({ id, message: '予定登録完了' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/events/:id', async (req, res) => {
+  try {
+    const { title, startAt, endAt, isAllDay, category, description, location, office, division, attendees, memo } = req.body;
+    const pool = await getPool();
+    const id = req.params.id;
+
+    let descValue = description;
+    if (typeof descValue === 'object') {
+      descValue = JSON.stringify(descValue);
+    } else if (!descValue && (attendees || memo)) {
+      descValue = JSON.stringify({ attendees: attendees || [], memo: memo || '' });
+    }
+
+    const parseDate = (val, fallback) => {
+      if (!val) return fallback;
+      const d = new Date(val);
+      return isNaN(d.getTime()) ? fallback : d;
+    };
+
+    const validStart = parseDate(startAt, new Date());
+    const validEnd = parseDate(endAt, validStart);
+
+    await pool.request()
+      .input('id', sql.VarChar, String(id))
+      .input('title', sql.NVarChar, title || '予定')
+      .input('startAt', sql.DateTime2, validStart)
+      .input('endAt', sql.DateTime2, validEnd)
+      .input('isAllDay', sql.Bit, isAllDay ? 1 : 0)
+      .input('category', sql.NVarChar, category || 'general')
+      .input('description', sql.NVarChar, descValue || '')
+      .input('location', sql.NVarChar, location || '')
+      .input('office', sql.NVarChar, office || '')
+      .input('division', sql.NVarChar, division || '')
+      .query\`
+        UPDATE dbo.Events 
+        SET title = @title, startAt = @startAt, endAt = @endAt, isAllDay = @isAllDay, 
+            category = @category, description = @description, location = @location, 
+            office = @office, division = @division
+        WHERE id = @id
+      \`;
+    res.json({ message: '予定更新完了' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/events/:id', async (req, res) => {
+  try {
+    const pool = await getPool();
+    await pool.request().input('id', sql.VarChar, String(req.params.id)).query\`DELETE FROM dbo.Events WHERE id = @id\`;
+    res.json({ message: '削除完了' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ------------------------------------------
+// 5. Workflows (電子決裁・申請)
+// ------------------------------------------
+app.get('/api/workflows', async (req, res) => {
+  try {
+    const pool = await getPool();
+    const result = await pool.request().query\`
+      SELECT w.*, u.name AS applicantName, u.department AS applicantDepartment, u.avatarUrl AS applicantAvatarUrl
+      FROM dbo.Workflows w
+      LEFT JOIN dbo.Users u ON w.applicantId = u.id
+      ORDER BY w.createdAt DESC
+    \`;
+    const list = (result.recordset || []).map(row => ({
+      id: String(row.id),
+      title: row.title,
+      applicantId: row.applicantId,
+      applicant: {
+        id: row.applicantId,
+        name: row.applicantName || '不明',
+        department: row.applicantDepartment || '',
+        avatarUrl: row.applicantAvatarUrl || ''
+      },
+      approverId: row.approverId,
+      status: row.status,
+      createdAt: row.createdAt,
+      category: row.category,
+      details: row.details
+    }));
+    res.json(list);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/workflows', async (req, res) => {
+  try {
+    const { title, description, applicantId, approverId, status, category, details } = req.body;
+    const pool = await getPool();
+    const id = req.body.id || \`w-\${Date.now()}\`;
+    const detailsStr = typeof details === 'object' ? JSON.stringify(details) : (details || '');
+    const workflowCategory = category || 'general';
+
+    await pool.request()
+      .input('id', sql.VarChar, String(id))
+      .input('title', sql.NVarChar, title || '無題の申請')
+      .input('description', sql.NVarChar, description || title || '')
+      .input('applicantId', sql.VarChar, applicantId || 'u1')
+      .input('approverId', sql.VarChar, approverId || 'u1')
+      .input('status', sql.NVarChar, status || '承認待ち')
+      .input('category', sql.NVarChar, workflowCategory)
+      .input('type', sql.NVarChar, workflowCategory)
+      .input('details', sql.NVarChar, detailsStr)
+      .query\`
+        INSERT INTO dbo.Workflows (id, title, description, applicantId, approverId, status, createdAt, category, type, details) 
+        VALUES (@id, @title, @description, @applicantId, @approverId, @status, GETDATE(), @category, @type, @details)
+      \`;
+    res.status(201).json({ id, message: '申請完了' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/workflows/:id', async (req, res) => {
+  try {
+    const { status, approverId, details } = req.body;
+    const pool = await getPool();
+    const detailsStr = details ? (typeof details === 'object' ? JSON.stringify(details) : details) : null;
+
+    let queryStr = \`UPDATE dbo.Workflows SET status = @status\`;
+    if (approverId) queryStr += \`, approverId = @approverId\`;
+    if (detailsStr) queryStr += \`, details = @details\`;
+    queryStr += \` WHERE id = @id\`;
+
+    const reqObj = pool.request()
+      .input('id', sql.VarChar, String(req.params.id))
+      .input('status', sql.NVarChar, status);
+    if (approverId) reqObj.input('approverId', sql.VarChar, approverId);
+    if (detailsStr) reqObj.input('details', sql.NVarChar, detailsStr);
+
+    await reqObj.query(queryStr);
+    res.json({ message: '更新完了' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+
+// ==========================================
+// 6. Bulletins / Board (社内掲示板) - 既存DB連動 (安全・完全・閲覧同期対応版)
+// ==========================================
+
+/**
+ * 掲示板トピックの一覧取得 (リアルタイムでDBからコメント・閲覧者をマージ)
+ */
+const handleGetBulletins = async (req, res) => {
+  try {
+    const pool = await getPool();
+    
+    // ① トピック(Bulletins)本体の取得
+    const result = await pool.request().query(
+      \`SELECT b.*, u.name AS authorName, u.department AS authorDepartment, u.avatarUrl AS authorAvatarUrl
+       FROM dbo.Bulletins b
+       LEFT JOIN dbo.Users u ON b.authorId = u.id
+       ORDER BY b.isPinned DESC, b.createdAt DESC\`
+    );
+    const bulletins = result.recordset || [];
+
+    // ② コメント(BoardComments)の取得
+    const commentsResult = await pool.request().query(
+      \`SELECT c.*, u.name AS authorName, u.department AS authorDepartment, u.avatarUrl AS authorAvatarUrl
+       FROM dbo.BoardComments c
+       LEFT JOIN dbo.Users u ON c.authorId = u.id
+       ORDER BY c.createdAt ASC\`
+    );
+    const allComments = commentsResult.recordset || [];
+
+    // ③ 閲覧者(BoardViewers)の取得
+    const viewersResult = await pool.request().query(
+      \`SELECT v.*, u.name AS userName, u.department AS userDepartment, u.avatarUrl AS userAvatarUrl
+       FROM dbo.BoardViewers v
+       LEFT JOIN dbo.Users u ON v.userId = u.id\`
+    );
+    const allViewers = viewersResult.recordset || [];
+
+    // ④ 各トピックにコメントと閲覧者をマージ
+    const formattedBulletins = bulletins.map(row => {
+      let tags = [];
+      if (row.tags) {
+        tags = typeof row.tags === 'string' ? row.tags.split(',').map(t => t.trim()) : row.tags;
+      }
+
+      const topicComments = allComments
+        .filter(c => 
+          String(c.topicId) === String(row.id) || 
+          String(c.topic_id) === String(row.id) || 
+          String(c.bulletinId) === String(row.id)
+        )
+        .map(c => ({
+          id: String(c.id),
+          content: c.content,
+          createdAt: c.createdAt || c.created_at || new Date(),
+          author: {
+            id: c.authorId || c.author_id,
+            name: c.authorName || '不明',
+            department: c.authorDepartment || '',
+            avatarUrl: c.authorAvatarUrl || ''
+          }
+        }));
+
+      const topicViewers = allViewers
+        .filter(v => 
+          String(v.topicId) === String(row.id) || 
+          String(v.topic_id) === String(row.id) || 
+          String(v.bulletinId) === String(row.id)
+        )
+        .map(v => ({
+          viewedAt: v.viewedAt || v.viewed_at || new Date(),
+          user: {
+            id: v.userId || v.user_id,
+            name: v.userName || '不明',
+            department: v.userDepartment || '',
+            avatarUrl: v.userAvatarUrl || ''
+          }
+        }));
+
+      return {
+        id: String(row.id),
+        category: row.category,
+        title: row.title,
+        content: row.content,
+        authorId: row.authorId,
+        author: {
+          id: row.authorId,
+          name: row.authorName || '不明',
+          department: row.authorDepartment || '',
+          avatarUrl: row.authorAvatarUrl || ''
+        },
+        createdAt: row.createdAt,
+        views: topicViewers.length || row.views || 0,
+        likes: row.likes || 0,
+        office: row.office || '',
+        division: row.division || '',
+        scope: row.scope || '全社',
+        tags: tags,
+        isPinned: row.isPinned ? true : false,
+        attachments: row.attachments ? (typeof row.attachments === 'string' && row.attachments.startsWith('[') ? JSON.parse(row.attachments) : row.attachments) : [],
+        comments: topicComments,
+        viewers: topicViewers,
+        commentsCount: topicComments.length
+      };
+    });
+
+    res.json(formattedBulletins);
+  } catch (err) { 
+    res.status(500).json({ error: err.message }); 
+  }
+};
+
+/**
+ * 掲示板トピックの新規作成
+ */
+const handlePostBulletin = async (req, res) => {
+  try {
+    const { title, content, category, authorId, isPinned, office, division, scope, tags, attachments } = req.body;
+    const pool = await getPool();
+    const id = req.body.id || \`b-\${Date.now()}\`;
+    const tagStr = Array.isArray(tags) ? tags.join(',') : (tags || '');
+    const attachStr = attachments ? (typeof attachments === 'object' ? JSON.stringify(attachments) : attachments) : null;
+    const contentStr = typeof content === 'object' ? JSON.stringify(content) : (content || '');
+
+    await pool.request()
+      .input('id', sql.VarChar, String(id))
+      .input('title', sql.NVarChar, title || '')
+      .input('content', sql.NVarChar, contentStr)
+      .input('category', sql.NVarChar, category || '')
+      .input('authorId', sql.VarChar, authorId || 'u1')
+      .input('isPinned', sql.Bit, isPinned ? 1 : 0)
+      .input('office', sql.NVarChar, office || '')
+      .input('division', sql.NVarChar, division || '')
+      .input('scope', sql.NVarChar, scope || '全社')
+      .input('tags', sql.NVarChar, tagStr)
+      .input('attachments', sql.NVarChar, attachStr)
+      .query(
+        \`INSERT INTO dbo.Bulletins (id, title, content, category, authorId, isPinned, office, division, scope, tags, attachments, createdAt, views, likes)
+         VALUES (@id, @title, @content, @category, @authorId, @isPinned, @office, @division, @scope, @tags, @attachments, GETDATE(), 0, 0)\`
+      );
+
+    res.status(201).json({ id, message: '掲示板トピック作成完了' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+/**
+ * 掲示板トピックの更新（コメント・閲覧者の同期を含む）
+ */
+const handlePutBulletin = async (req, res) => {
+  try {
+    const { title, content, category, isPinned, office, division, scope, tags, attachments, comments, viewers } = req.body;
+    const pool = await getPool();
+    const id = req.params.id;
+    const tagStr = Array.isArray(tags) ? tags.join(',') : (tags || '');
+    const attachStr = attachments ? (typeof attachments === 'object' ? JSON.stringify(attachments) : attachments) : null;
+    const contentStr = typeof content === 'object' ? JSON.stringify(content) : (content || '');
+
+    // ① トピック(Bulletins)本体のアップデート
+    await pool.request()
+      .input('id', sql.VarChar, String(id))
+      .input('title', sql.NVarChar, title || '')
+      .input('content', sql.NVarChar, contentStr)
+      .input('category', sql.NVarChar, category || '')
+      .input('isPinned', sql.Bit, isPinned ? 1 : 0)
+      .input('office', sql.NVarChar, office || '')
+      .input('division', sql.NVarChar, division || '')
+      .input('scope', sql.NVarChar, scope || '全社')
+      .input('tags', sql.NVarChar, tagStr)
+      .input('attachments', sql.NVarChar, attachStr)
+      .query(
+        \`UPDATE dbo.Bulletins 
+         SET title = @title, content = @content, category = @category, isPinned = @isPinned,
+             office = @office, division = @division, scope = @scope, tags = @tags, attachments = @attachments
+         WHERE id = @id\`
+      );
+
+    // ② コメント (dbo.BoardComments) の同期（削除・追加・更新）
+    if (Array.isArray(comments)) {
+      const existingCommentsResult = await pool.request()
+        .input('topicId', sql.VarChar, String(id))
+        .query(\`SELECT id FROM dbo.BoardComments WHERE topicId = @topicId OR bulletinId = @topicId OR topic_id = @topicId\`);
+      const existingCommentIds = (existingCommentsResult.recordset || []).map(r => String(r.id));
+      const incomingCommentIds = comments.map(c => String(c.id));
+
+      // 送信されてこなかった既存のコメントを削除
+      const toDeleteCommentIds = existingCommentIds.filter(cid => !incomingCommentIds.includes(cid));
+      for (const cid of toDeleteCommentIds) {
+        await pool.request().input('cid', sql.VarChar, cid).query(\`DELETE FROM dbo.BoardComments WHERE id = @cid\`);
+      }
+
+      // コメントの新規追加・内容の更新
+      for (const comment of comments) {
+        const cid = String(comment.id);
+        const authorId = comment.author?.id || comment.authorId;
+        const commentContent = comment.content;
+        const commentCreatedAt = comment.createdAt ? new Date(comment.createdAt) : new Date();
+
+        if (existingCommentIds.includes(cid)) {
+          // 既存の更新
+          await pool.request()
+            .input('id', sql.VarChar, cid)
+            .input('content', sql.NVarChar, commentContent)
+            .query(\`UPDATE dbo.BoardComments SET content = @content WHERE id = @id\`);
+        } else {
+          let inserted = false;
+
+          // 多重カラム複合インサート
+          try {
+            await pool.request()
+              .input('id', sql.VarChar, cid)
+              .input('topicId', sql.VarChar, String(id))
+              .input('topic_id', sql.VarChar, String(id))
+              .input('authorId', sql.VarChar, String(authorId))
+              .input('author_id', sql.VarChar, String(authorId))
+              .input('content', sql.NVarChar, commentContent)
+              .input('createdAt', sql.DateTime, commentCreatedAt)
+              .input('created_at', sql.DateTime, commentCreatedAt)
+              .query(\`
+                INSERT INTO dbo.BoardComments (id, topicId, topic_id, authorId, author_id, content, createdAt, created_at)
+                VALUES (@id, @topicId, @topic_id, @authorId, @author_id, @content, @createdAt, @created_at)
+              \`);
+            inserted = true;
+          } catch (err) {}
+
+          if (!inserted) {
+            try {
+              await pool.request()
+                .input('id', sql.VarChar, cid)
+                .input('topic_id', sql.VarChar, String(id))
+                .input('author_id', sql.VarChar, String(authorId))
+                .input('content', sql.NVarChar, commentContent)
+                .input('created_at', sql.DateTime, commentCreatedAt)
+                .query(\`
+                  INSERT INTO dbo.BoardComments (id, topic_id, author_id, content, created_at)
+                  VALUES (@id, @topic_id, @author_id, @content, @created_at)
+                \`);
+              inserted = true;
+            } catch (err) {}
+          }
+
+          if (!inserted) {
+            try {
+              await pool.request()
+                .input('id', sql.VarChar, cid)
+                .input('topicId', sql.VarChar, String(id))
+                .input('authorId', sql.VarChar, String(authorId))
+                .input('content', sql.NVarChar, commentContent)
+                .input('createdAt', sql.DateTime, commentCreatedAt)
+                .query(\`
+                  INSERT INTO dbo.BoardComments (id, topicId, authorId, content, createdAt)
+                  VALUES (@id, @topicId, @authorId, @content, @createdAt)
+                \`);
+              inserted = true;
+            } catch (err) {}
+          }
+        }
+      }
+    }
+
+    // ③ 閲覧者 (dbo.BoardViewers) の同期
+    if (Array.isArray(viewers)) {
+      let existingUserIds = [];
+      try {
+        const existingViewersResult = await pool.request()
+          .input('topicId', sql.VarChar, String(id))
+          .query(\`SELECT userId, user_id FROM dbo.BoardViewers WHERE topicId = @topicId OR bulletinId = @topicId OR topic_id = @topicId\`);
+        existingUserIds = (existingViewersResult.recordset || []).map(r => String(r.userId || r.user_id));
+      } catch (err) {
+        try {
+          const existingViewersResult = await pool.request()
+            .input('topicId', sql.VarChar, String(id))
+            .query(\`SELECT user_id FROM dbo.BoardViewers WHERE topic_id = @topicId\`);
+          existingUserIds = (existingViewersResult.recordset || []).map(r => String(r.user_id));
+        } catch (_) {}
+      }
+
+      for (const viewer of viewers) {
+        const uid = String(viewer.user?.id || viewer.userId);
+        const viewedAt = viewer.viewedAt ? new Date(viewer.viewedAt) : new Date();
+
+        if (!existingUserIds.includes(uid)) {
+          let viewerInserted = false;
+
+          // 複合インサート (スネークケースとキャメルケースの両方に同時に値をセット)
+          try {
+            await pool.request()
+              .input('topic_id', sql.VarChar, String(id))
+              .input('topicId', sql.VarChar, String(id))
+              .input('bulletinId', sql.VarChar, String(id))
+              .input('user_id', sql.VarChar, uid)
+              .input('userId', sql.VarChar, uid)
+              .input('viewed_at', sql.DateTime, viewedAt)
+              .input('viewedAt', sql.DateTime, viewedAt)
+              .query(\`
+                INSERT INTO dbo.BoardViewers (topic_id, topicId, bulletinId, user_id, userId, viewed_at, viewedAt)
+                VALUES (@topic_id, @topicId, @bulletinId, @user_id, @userId, @viewed_at, @viewedAt)
+              \`);
+            viewerInserted = true;
+          } catch (err) {}
+
+          // フォールバック1: スネークケース
+          if (!viewerInserted) {
+            try {
+              await pool.request()
+                .input('topic_id', sql.VarChar, String(id))
+                .input('user_id', sql.VarChar, uid)
+                .input('viewed_at', sql.DateTime, viewedAt)
+                .query(\`
+                  INSERT INTO dbo.BoardViewers (topic_id, user_id, viewed_at)
+                  VALUES (@topic_id, @user_id, @viewed_at)
+                \`);
+              viewerInserted = true;
+            } catch (err) {}
+          }
+
+          // フォールバック2: キャメルケース
+          if (!viewerInserted) {
+            try {
+              await pool.request()
+                .input('topicId', sql.VarChar, String(id))
+                .input('userId', sql.VarChar, uid)
+                .input('viewedAt', sql.DateTime, viewedAt)
+                .query(\`
+                  INSERT INTO dbo.BoardViewers (topicId, userId, viewedAt)
+                  VALUES (@topicId, @userId, @viewedAt)
+                \`);
+              viewerInserted = true;
+            } catch (err) {}
+          }
+        }
+      }
+    }
+
+    res.json({ id, message: '掲示板更新完了' });
+  } catch (err) { 
+    res.status(500).json({ error: err.message }); 
+  }
+};
+
+/**
+ * コメントの個別投稿 API
+ */
+const handleAddComment = async (req, res) => {
+  try {
+    const { id: commentId, author, authorId, content, createdAt } = req.body;
+    const topicId = req.params.id;
+    const pool = await getPool();
+
+    const cid = commentId || \`cm-\${Date.now()}\`;
+    const aid = authorId || author?.id || 'u1';
+    const commentContent = content || '';
+    const dateVal = createdAt ? new Date(createdAt) : new Date();
+
+    let inserted = false;
+
+    try {
+      await pool.request()
+        .input('id', sql.VarChar, cid)
+        .input('topicId', sql.VarChar, String(topicId))
+        .input('topic_id', sql.VarChar, String(topicId))
+        .input('authorId', sql.VarChar, String(aid))
+        .input('author_id', sql.VarChar, String(aid))
+        .input('content', sql.NVarChar, commentContent)
+        .input('createdAt', sql.DateTime, dateVal)
+        .input('created_at', sql.DateTime, dateVal)
+        .query(\`
+          INSERT INTO dbo.BoardComments (id, topicId, topic_id, authorId, author_id, content, createdAt, created_at)
+          VALUES (@id, @topicId, @topic_id, @authorId, @author_id, @content, @createdAt, @created_at)
+        \`);
+      inserted = true;
+    } catch (err) {}
+
+    if (!inserted) {
+      try {
+        await pool.request()
+          .input('id', sql.VarChar, cid)
+          .input('topic_id', sql.VarChar, String(topicId))
+          .input('author_id', sql.VarChar, String(aid))
+          .input('content', sql.NVarChar, commentContent)
+          .input('created_at', sql.DateTime, dateVal)
+          .query(\`
+            INSERT INTO dbo.BoardComments (id, topic_id, author_id, content, created_at)
+            VALUES (@id, @topic_id, @author_id, @content, @created_at)
+          \`);
+        inserted = true;
+      } catch (err) {}
+    }
+
+    if (!inserted) {
+      try {
+        await pool.request()
+          .input('id', sql.VarChar, cid)
+          .input('topicId', sql.VarChar, String(topicId))
+          .input('authorId', sql.VarChar, String(aid))
+          .input('content', sql.NVarChar, commentContent)
+          .input('createdAt', sql.DateTime, dateVal)
+          .query(\`
+            INSERT INTO dbo.BoardComments (id, topicId, authorId, content, createdAt)
+            VALUES (@id, @topicId, @authorId, @content, @createdAt)
+          \`);
+        inserted = true;
+      } catch (err) {}
+    }
+
+    if (!inserted) {
+      return res.status(500).json({ 
+        error: 'BoardComments テーブルへのデータの追加に失敗しました。' 
+      });
+    }
+
+    res.status(201).json({ success: true, message: 'コメント投稿完了' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+/**
+ * 閲覧者（足跡）の個別追加 API (BoardViewers テーブルへの安全多重インサート)
+ */
+const handleAddViewer = async (req, res) => {
+  try {
+    const { userId, user_id, viewedAt, viewed_at } = req.body;
+    const topicId = req.params.id;
+    const pool = await getPool();
+
+    const uid = userId || user_id || 'u1';
+    const dateVal = viewedAt || viewed_at ? new Date(viewedAt || viewed_at) : new Date();
+
+    let inserted = false;
+
+    // 【100%安全な多重カラムマッピングインサート】
+    try {
+      await pool.request()
+        .input('topic_id', sql.VarChar, String(topicId))
+        .input('topicId', sql.VarChar, String(topicId))
+        .input('bulletinId', sql.VarChar, String(topicId))
+        .input('user_id', sql.VarChar, String(uid))
+        .input('userId', sql.VarChar, String(uid))
+        .input('viewed_at', sql.DateTime, dateVal)
+        .input('viewedAt', sql.DateTime, dateVal)
+        .query(\`
+          IF NOT EXISTS (
+            SELECT 1 FROM dbo.BoardViewers 
+            WHERE (topic_id = @topic_id AND user_id = @user_id) 
+               OR (topicId = @topicId AND userId = @userId)
+          )
+          BEGIN
+            INSERT INTO dbo.BoardViewers (topic_id, topicId, bulletinId, user_id, userId, viewed_at, viewedAt)
+            VALUES (@topic_id, @topicId, @bulletinId, @user_id, @userId, @viewed_at, @viewedAt)
+          END
+        \`);
+      inserted = true;
+    } catch (err) {
+      console.error('BoardViewers insert main error:', err.message);
+    }
+
+    // フォールバック1: スネークケース優先
+    if (!inserted) {
+      try {
+        await pool.request()
+          .input('topic_id', sql.VarChar, String(topicId))
+          .input('user_id', sql.VarChar, String(uid))
+          .input('viewed_at', sql.DateTime, dateVal)
+          .query(\`
+            IF NOT EXISTS (SELECT 1 FROM dbo.BoardViewers WHERE topic_id = @topic_id AND user_id = @user_id)
+            BEGIN
+              INSERT INTO dbo.BoardViewers (topic_id, user_id, viewed_at)
+              VALUES (@topic_id, @user_id, @viewed_at)
+            END
+          \`);
+        inserted = true;
+      } catch (err) {}
+    }
+
+    // フォールバック2: キャメルケース優先
+    if (!inserted) {
+      try {
+        await pool.request()
+          .input('topicId', sql.VarChar, String(topicId))
+          .input('userId', sql.VarChar, String(uid))
+          .input('viewedAt', sql.DateTime, dateVal)
+          .query(\`
+            IF NOT EXISTS (SELECT 1 FROM dbo.BoardViewers WHERE topicId = @topicId AND userId = @userId)
+            BEGIN
+              INSERT INTO dbo.BoardViewers (topicId, userId, viewedAt)
+              VALUES (@topicId, @userId, @viewedAt)
+            END
+          \`);
+        inserted = true;
+      } catch (err) {}
+    }
+
+    res.status(200).json({ success: true, message: '閲覧情報記録完了' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+/**
+ * 掲示板トピックの削除 API
+ */
+const handleDeleteBulletin = async (req, res) => {
+  try {
+    const id = req.params.id;
+    const pool = await getPool();
+    
+    await pool.request()
+      .input('id', sql.VarChar, String(id))
+      .query(\`DELETE FROM dbo.Bulletins WHERE id = @id\`);
+      
+    await pool.request()
+      .input('topicId', sql.VarChar, String(id))
+      .query(\`DELETE FROM dbo.BoardComments WHERE topicId = @topicId OR bulletinId = @topicId OR topic_id = @topicId\`);
+      
+    await pool.request()
+      .input('topicId', sql.VarChar, String(id))
+      .query(\`DELETE FROM dbo.BoardViewers WHERE topicId = @topicId OR bulletinId = @topicId OR topic_id = @topicId\`);
+
+    res.json({ success: true, message: '削除完了' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+
+// ------------------------------------------
+// 7. Chats (社内チャット・メッセージ)
+// ------------------------------------------
+app.get('/api/chats', async (req, res) => {
+  try {
+    const pool = await getPool();
+    const roomsResult = await pool.request().query\`SELECT * FROM dbo.ChatRooms ORDER BY updatedAt DESC\`;
+    const msgsResult = await pool.request().query\`
+      SELECT m.*, u.name AS senderName, u.avatarUrl AS senderAvatar, u.department AS senderDepartment
+      FROM dbo.ChatMessages m
+      LEFT JOIN dbo.Users u ON m.senderId = u.id
+      ORDER BY m.createdAt ASC
+    \`;
+
+    const rooms = (roomsResult.recordset || []).map(r => ({
+      id: String(r.id),
+      name: r.name,
+      type: r.type,
+      avatarUrl: r.avatarUrl || null,
+      lastMessage: r.lastMessage || '',
+      updatedAt: r.updatedAt,
+      messages: (msgsResult.recordset || [])
+        .filter(m => String(m.roomId) === String(r.id))
+        .map(m => ({
+          id: String(m.id),
+          roomId: String(m.roomId),
+          sender: {
+            id: m.senderId,
+            name: m.senderName || '不明',
+            avatarUrl: m.senderAvatar || '',
+            department: m.senderDepartment || ''
+          },
+          content: m.message,
+          createdAt: m.createdAt
+        }))
+    }));
+    res.json(rooms);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/chats/rooms', async (req, res) => {
+  app._router.handle({ ...req, method: 'GET', url: '/api/chats' }, res);
+});
+
+const handlePostChatMessage = async (req, res) => {
+  try {
+    const { senderId, roomId, message, content } = req.body;
+    const msgContent = message || content || '';
+    const pool = await getPool();
+    const id = req.body.id || \`c-\${Date.now()}\`;
+    const targetRoomId = roomId || 'r1';
+
+    await pool.request()
+      .input('id', sql.VarChar, String(id))
+      .input('senderId', sql.VarChar, senderId || 'u1')
+      .input('roomId', sql.VarChar, String(targetRoomId))
+      .input('message', sql.NVarChar, msgContent)
+      .input('content', sql.NVarChar, msgContent)
+      .query\`
+        INSERT INTO dbo.ChatMessages (id, senderId, roomId, message, content, createdAt) 
+        VALUES (@id, @senderId, @roomId, @message, @content, GETDATE())
+      \`;
+
+    await pool.request()
+      .input('roomId', sql.VarChar, String(targetRoomId))
+      .input('lastMessage', sql.NVarChar, msgContent)
+      .query\`
+        UPDATE dbo.ChatRooms SET lastMessage = @lastMessage, updatedAt = GETDATE(), last_updated = GETDATE() WHERE id = @roomId
+      \`;
+
+    res.status(201).json({ id, message: 'メッセージ送信完了' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+};
+
+app.post('/api/chats', handlePostChatMessage);
+app.post('/api/chats/message', handlePostChatMessage);
+
+// チャットルーム削除用のエンドポイント
+app.delete('/api/chats/:roomId', async (req, res) => {
+  const { roomId } = req.params;
+  try {
+    const pool = await getPool(); 
+    
+    // 1. チャットメッセージの削除
+    await pool.request()
+      .input('roomId', sql.VarChar, roomId)
+      .query('DELETE FROM dbo.ChatMessages WHERE roomId = @roomId');
+
+    // 2. チャットルームの削除
+    await pool.request()
+      .input('roomId', sql.VarChar, roomId)
+      .query('DELETE FROM dbo.ChatRooms WHERE id = @roomId');
+
+    // 3. 既読ステータスの削除
+    await pool.request()
+      .input('roomId', sql.VarChar, roomId)
+      .query("DELETE FROM dbo.UserReadStatuses WHERE targetType = 'chat' AND targetId = @roomId");
+
+    res.status(200).json({ success: true, message: 'チャットルームとメッセージを削除しました。' });
+  } catch (err) {
+    console.error('Failed to delete chat room:', err);
+    res.status(500).json({ success: false, error: 'サーバーエラーが発生しました。' });
+  }
+});
+
+
+// ------------------------------------------
+// 8. Memos (伝言メモ)
+// ------------------------------------------
+app.get('/api/memos', async (req, res) => {
+  try {
+    const pool = await getPool();
+    const result = await pool.request().query\`
+      SELECT m.*, 
+             uSender.name AS senderName, uSender.department AS senderDepartment, uSender.avatarUrl AS senderAvatarUrl,
+             uReceiver.name AS receiverName
+      FROM dbo.Memos m
+      LEFT JOIN dbo.Users uSender ON m.senderId = uSender.id
+      LEFT JOIN dbo.Users uReceiver ON m.receiverId = uReceiver.id
+      ORDER BY m.createdAt DESC
+    \`;
+    const memos = (result.recordset || []).map(row => ({
+      id: String(row.id),
+      senderId: row.senderId,
+      sender: {
+        id: row.senderId,
+        name: row.senderName || row.fromName || '不詳',
+        department: row.senderDepartment || '',
+        avatarUrl: row.senderAvatarUrl || ''
+      },
+      receiverId: row.receiverId,
+      toUserId: row.receiverId,
+      toUserName: row.receiverName || '',
+      content: row.content,
+      isRead: row.isRead ? true : false,
+      fromName: row.fromName || '',
+      fromCompany: row.fromCompany || '',
+      fromPhone: row.fromPhone || '',
+      createdAt: row.createdAt,
+      details: row.details ? (typeof row.details === 'string' ? JSON.parse(row.details) : row.details) : null
+    }));
+    res.json(memos);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/memos', async (req, res) => {
+  try {
+    const { senderId, receiverId, toUserId, content, fromName, fromCompany, fromPhone, requirementType, requirementText, details } = req.body;
+    const pool = await getPool();
+    const id = req.body.id || \`memo-\${Date.now()}\`;
+    const targetReceiver = receiverId || toUserId || 'u1';
+    const reqType = requirementType || (details && details.requirementType) || 'phone_called';
+    const reqText = requirementText || (details && details.requirementText) || '電話がありました';
+    const detailsStr = details ? (typeof details === 'object' ? JSON.stringify(details) : details) : null;
+    const toUsersJson = JSON.stringify([targetReceiver]);
+    const recStatuses = (details && details.recipientStatuses) || [{ userId: targetReceiver, userName: '', isViewed: false, isHandled: false }];
+    const recipientStatusesJson = req.body.recipientStatusesJson || JSON.stringify(recStatuses);
+
+    await pool.request()
+      .input('id', sql.VarChar, String(id))
+      .input('senderId', sql.VarChar, senderId || 'u1')
+      .input('receiverId', sql.VarChar, targetReceiver)
+      .input('content', sql.NVarChar, content || '')
+      .input('fromName', sql.NVarChar, fromName || '')
+      .input('fromCompany', sql.NVarChar, fromCompany || '')
+      .input('fromPhone', sql.NVarChar, fromPhone || '')
+      .input('requirementType', sql.NVarChar, reqType)
+      .input('requirementText', sql.NVarChar, reqText)
+      .input('details', sql.NVarChar, detailsStr)
+      .input('toUsersJson', sql.NVarChar, toUsersJson)
+      .input('recipientStatusesJson', sql.NVarChar, recipientStatusesJson)
+      .query\`
+        INSERT INTO dbo.Memos (id, senderId, receiverId, content, isRead, createdAt, fromName, fromCompany, fromPhone, requirementType, requirementText, details, toUsersJson, recipientStatusesJson) 
+        VALUES (@id, @senderId, @receiverId, @content, 0, GETDATE(), @fromName, @fromCompany, @fromPhone, @requirementType, @requirementText, @details, @toUsersJson, @recipientStatusesJson)
+      \`;
+    res.status(201).json({ id, message: '伝言メモ作成完了' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/memos/:id/read', async (req, res) => {
+  try {
+    const pool = await getPool();
+    await pool.request().input('id', sql.VarChar, String(req.params.id)).query\`UPDATE dbo.Memos SET isRead = 1 WHERE id = @id\`;
+    res.json({ message: '既読状態更新完了' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/memos/:id', async (req, res) => {
+  try {
+    const { isRead, details, status } = req.body;
+    const pool = await getPool();
+    const detailsStr = details ? (typeof details === 'object' ? JSON.stringify(details) : details) : null;
+    
+    let queryStr = \`UPDATE dbo.Memos SET \`;
+    const updates = [];
+    if (isRead !== undefined) updates.push(\`isRead = @isRead\`);
+    if (detailsStr !== null) updates.push(\`details = @details\`);
+    if (status !== undefined) updates.push(\`status = @status\`);
+    
+    if (updates.length === 0) {
+      return res.json({ message: '更新対象なし' });
+    }
+    queryStr += updates.join(', ') + \` WHERE id = @id\`;
+
+    const reqObj = pool.request().input('id', sql.VarChar, String(req.params.id));
+    if (isRead !== undefined) reqObj.input('isRead', sql.Bit, isRead ? 1 : 0);
+    if (detailsStr !== null) reqObj.input('details', sql.NVarChar, detailsStr);
+    if (status !== undefined) reqObj.input('status', sql.NVarChar, String(status));
+
+    await reqObj.query(queryStr);
+    res.json({ message: '伝言メモ更新完了' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/memos/:id', async (req, res) => {
+  try {
+    const pool = await getPool();
+    await pool.request().input('id', sql.VarChar, String(req.params.id)).query\`DELETE FROM dbo.Memos WHERE id = @id\`;
+    res.json({ message: '伝言メモ削除完了' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ユーザーの既読ID一覧を取得するAPI
+app.get('/api/read-statuses/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const pool = await getPool();
+    const result = await pool.request()
+      .input('userId', sql.VarChar, userId)
+      .query(\`SELECT targetType, targetId FROM dbo.UserReadStatuses WHERE userId = @userId\`);
+    
+    const readMap = { event: [], topic: [], memo: [], chat: [] };
+    (result.recordset || []).forEach(row => {
+      if (readMap[row.targetType]) {
+        readMap[row.targetType].push(row.targetId);
+      }
+    });
+    res.json(readMap);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 既読登録（または削除）API
+app.post('/api/read-statuses', async (req, res) => {
+  try {
+    const { userId, targetType, targetId, isRead } = req.body;
+    const pool = await getPool();
+
+    if (isRead) {
+      await pool.request()
+        .input('userId', sql.VarChar, userId)
+        .input('targetType', sql.VarChar, targetType)
+        .input('targetId', sql.VarChar, targetId)
+        .query(\`
+          IF NOT EXISTS (SELECT 1 FROM dbo.UserReadStatuses WHERE userId = @userId AND targetType = @targetType AND targetId = @targetId)
+          BEGIN
+            INSERT INTO dbo.UserReadStatuses (userId, targetType, targetId, readAt)
+            VALUES (@userId, @targetType, @targetId, GETDATE())
+          END
+        \`);
+    } else {
+      await pool.request()
+        .input('userId', sql.VarChar, userId)
+        .input('targetType', sql.VarChar, targetType)
+        .input('targetId', sql.VarChar, targetId)
+        .query(\`
+          DELETE FROM dbo.UserReadStatuses 
+          WHERE userId = @userId AND targetType = @targetType AND targetId = @targetId
+        \`);
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// ------------------------------------------
+// 9. Daily Reports (日報)
+// ------------------------------------------
+const handleGetDailyReports = async (req, res) => {
+  try {
+    const pool = await getPool();
+    const result = await pool.request().query\`
+      SELECT r.*, u.name AS authorName, u.department AS authorDepartment, u.avatarUrl AS authorAvatarUrl
+      FROM dbo.DailyReports r
+      LEFT JOIN dbo.Users u ON r.authorId = u.id
+      ORDER BY r.createdAt DESC
+    \`;
+    const reports = (result.recordset || []).map(row => ({
+      id: String(row.id),
+      authorId: row.authorId,
+      author: {
+        id: row.authorId,
+        name: row.authorName || '不明',
+        department: row.authorDepartment || '',
+        avatarUrl: row.authorAvatarUrl || ''
+      },
+      reportDate: row.reportDate,
+      date: row.reportDate,
+      content: row.content || '',
+      tasks: row.tasks || row.content || '',
+      results: row.results || '',
+      issues: row.issues || '',
+      tomorrowPlan: row.tomorrowPlan || '',
+      createdAt: row.createdAt
+    }));
+    res.json(reports);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+};
+
+app.get('/api/daily-reports', handleGetDailyReports);
+app.get('/api/reports', handleGetDailyReports);
+
+const handlePostDailyReport = async (req, res) => {
+  try {
+    const { authorId, reportDate, content, tasks, results, issues, tomorrowPlan } = req.body;
+    const pool = await getPool();
+    const id = req.body.id || \`r-\${Date.now()}\`;
+    const formattedDate = reportDate ? new Date(reportDate) : new Date();
+
+    await pool.request()
+      .input('id', sql.VarChar, String(id))
+      .input('authorId', sql.VarChar, authorId || 'u1')
+      .input('reportDate', sql.Date, formattedDate)
+      .input('content', content || tasks || '')
+      .input('tasks', sql.NVarChar, tasks || '')
+      .input('results', sql.NVarChar, results || '')
+      .input('issues', sql.NVarChar, issues || '')
+      .input('tomorrowPlan', sql.NVarChar, tomorrowPlan || '')
+      .query\`
+        INSERT INTO dbo.DailyReports (id, authorId, reportDate, content, createdAt, tasks, results, issues, tomorrowPlan) 
+        VALUES (@id, @authorId, @reportDate, @content, GETDATE(), @tasks, @results, @issues, @tomorrowPlan)
+      \`;
+    res.status(201).json({ id, message: '日報作成完了' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+};
+
+app.post('/api/daily-reports', handlePostDailyReport);
+app.post('/api/reports', handlePostDailyReport);
+
+
+// ==========================================
+// 掲示板用 API ルーティング登録一覧
+// ==========================================
+app.get('/api/bulletins', handleGetBulletins);
+app.get('/api/board', handleGetBulletins);
+
+app.post('/api/bulletins', handlePostBulletin);
+app.post('/api/board', handlePostBulletin);
+
+app.put('/api/bulletins/:id', handlePutBulletin);
+app.put('/api/board/:id', handlePutBulletin);
+
+app.post('/api/bulletins/:id/comments', handleAddComment);
+app.post('/api/board/:id/comments', handleAddComment);
+
+app.post('/api/bulletins/:id/viewers', handleAddViewer);
+app.post('/api/topics/:id/viewers', handleAddViewer);
+
+app.delete('/api/bulletins/:id', handleDeleteBulletin);
+app.delete('/api/board/:id', handleDeleteBulletin);
+
+
+// =========================================================
+// サーバー起動 (すべての設定が終わった最後に実行)
+// =========================================================
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, () => console.log(\`🚀 Company SNS API server listening on port \${PORT}\`));`;
