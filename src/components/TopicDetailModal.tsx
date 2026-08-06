@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, MessageSquare, Eye, Pin, Paperclip, Calendar as CalendarIcon, Send, Trash2, Building2, Users, Tag, CheckCircle2, Edit3, Save, Plus } from 'lucide-react';
+import { X, MessageSquare, Eye, Pin, Paperclip, Calendar as CalendarIcon, Send, Trash2, Building2, Users, Tag, CheckCircle2, Edit3, Save, Plus, Loader2, Eye as EyeIcon, Download } from 'lucide-react';
 import { BoardTopic, User, OfficeMaster, DivisionMaster, AttachmentFile } from '../types';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { getAvatarUrl } from '../utils/avatar';
+import { uploadMultipleFiles } from '../utils/fileUpload';
+import { FilePreviewModal } from './FilePreviewModal';
 
 interface TopicDetailModalProps {
   topic: BoardTopic | null;
@@ -29,6 +31,15 @@ export function TopicDetailModal({
   const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
   const [commentText, setCommentText] = useState('');
 
+  // コメント添付ファイル関連
+  const [commentAttachments, setCommentAttachments] = useState<AttachmentFile[]>([]);
+  const [isCommentUploading, setIsCommentUploading] = useState(false);
+  const commentFileInputRef = useRef<HTMLInputElement>(null);
+
+  // プレビュー関連
+  const [previewFile, setPreviewFile] = useState<AttachmentFile | null>(null);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+
   // 編集モード関連 (投稿者本人のみ使用)
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState('');
@@ -42,6 +53,7 @@ export function TopicDetailModal({
   const [editTags, setEditTags] = useState<string[]>([]);
   const [editTagInput, setEditTagInput] = useState('');
   const [editAttachments, setEditAttachments] = useState<AttachmentFile[]>([]);
+  const [isEditingUploading, setIsEditingUploading] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -62,6 +74,9 @@ export function TopicDetailModal({
       setEditEndDate(topic.endDate || '');
       setEditTags(topic.tags || []);
       setEditAttachments(topic.attachments || []);
+      setCommentAttachments([]);
+      setIsCommentUploading(false);
+      setIsEditingUploading(false);
 
       const isAlreadyViewer = topic.viewers?.some(v => v.user.id === currentUser.id);
       if (!isAlreadyViewer) {
@@ -125,17 +140,39 @@ export function TopicDetailModal({
     setEditTags(editTags.filter(t => t !== tagToRemove));
   };
 
-  // 添付ファイル変更
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // 添付ファイル変更 (非同期アップロード)
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      const filesArray = Array.from(e.target.files) as File[];
-      const newAttachments: AttachmentFile[] = filesArray.map((file, idx) => ({
-        id: `file-edit-${Date.now()}-${idx}`,
-        name: file.name,
-        size: `${(file.size / 1024 / 1024).toFixed(1)} MB`,
-        type: file.type,
-      }));
-      setEditAttachments([...editAttachments, ...newAttachments]);
+      setIsEditingUploading(true);
+      try {
+        const uploaded = await uploadMultipleFiles(e.target.files);
+        setEditAttachments([...editAttachments, ...uploaded]);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setIsEditingUploading(false);
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
+      }
+    }
+  };
+
+  // コメント添付ファイル選択 (非同期アップロード)
+  const handleCommentFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      setIsCommentUploading(true);
+      try {
+        const uploaded = await uploadMultipleFiles(e.target.files);
+        setCommentAttachments([...commentAttachments, ...uploaded]);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setIsCommentUploading(false);
+        if (commentFileInputRef.current) {
+          commentFileInputRef.current.value = '';
+        }
+      }
     }
   };
 
@@ -149,6 +186,7 @@ export function TopicDetailModal({
       author: currentUser,
       content: (commentText || '').trim(),
       createdAt: new Date().toISOString(),
+      attachments: commentAttachments, // 添付ファイルを追加
     };
 
     const updatedComments = [...(topic.comments || []), newComment];
@@ -160,6 +198,7 @@ export function TopicDetailModal({
 
     onUpdateTopic(updatedTopic);
     setCommentText('');
+    setCommentAttachments([]); // リセット
   };
 
   // コメント削除
@@ -429,8 +468,9 @@ export function TopicDetailModal({
                   </label>
                   <button
                     type="button"
+                    disabled={isEditingUploading}
                     onClick={() => fileInputRef.current?.click()}
-                    className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1"
+                    className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 disabled:opacity-50"
                   >
                     <Plus className="w-3.5 h-3.5" />
                     追加
@@ -443,14 +483,23 @@ export function TopicDetailModal({
                   multiple
                   className="hidden"
                 />
+
+                {isEditingUploading && (
+                  <div className="flex items-center gap-2 p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-500 mb-1.5">
+                    <Loader2 className="w-4 h-4 text-indigo-500 animate-spin" />
+                    <span>ファイルをアップロード中...</span>
+                  </div>
+                )}
+
                 <div className="space-y-1.5">
                   {editAttachments.map(att => (
                     <div key={att.id} className="flex items-center justify-between p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs">
                       <span className="font-semibold text-slate-700 truncate">{att.name}</span>
                       <button
                         type="button"
+                        disabled={isEditingUploading}
                         onClick={() => setEditAttachments(editAttachments.filter(a => a.id !== att.id))}
-                        className="text-slate-400 hover:text-red-600 p-0.5"
+                        className="text-slate-400 hover:text-red-600 p-0.5 disabled:opacity-50"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -462,17 +511,23 @@ export function TopicDetailModal({
               <div className="flex justify-end gap-3 pt-3 border-t border-slate-200">
                 <button
                   type="button"
+                  disabled={isEditingUploading}
                   onClick={() => setIsEditing(false)}
-                  className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl"
+                  className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl disabled:opacity-50"
                 >
                   キャンセル
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-xs flex items-center gap-1.5"
+                  disabled={isEditingUploading}
+                  className="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-xs flex items-center gap-1.5 disabled:opacity-50"
                 >
-                  <Save className="w-3.5 h-3.5" />
-                  更新内容を保存
+                  {isEditingUploading ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Save className="w-3.5 h-3.5" />
+                  )}
+                  {isEditingUploading ? 'ファイル処理中...' : '更新内容を保存'}
                 </button>
               </div>
             </form>
@@ -535,22 +590,39 @@ export function TopicDetailModal({
                                 <div className="text-[10px] text-slate-400">{att.size}</div>
                               </div>
                             </div>
-                            <a
-                              href="#"
-                              onClick={(e) => {
-                                e.preventDefault();
-                                setConfirmModal({
-                                  isOpen: true,
-                                  title: 'ファイルダウンロード',
-                                  message: `ファイル「${att.name}」のダウンロードを開始します。`,
-                                  type: 'info',
-                                  confirmText: 'OK'
-                                });
-                              }}
-                              className="px-2.5 py-1 text-[11px] font-bold text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors shrink-0"
-                            >
-                              ダウンロード
-                            </a>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {(att.type?.startsWith('image/') || /\.pdf$/i.test(att.name) || /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(att.name)) && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setPreviewFile(att);
+                                    setIsPreviewOpen(true);
+                                  }}
+                                  className="px-2.5 py-1 text-[11px] font-bold text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                                >
+                                  プレビュー
+                                </button>
+                              )}
+                              <a
+                                href={att.url || '#'}
+                                download={att.name}
+                                onClick={(e) => {
+                                  if (!att.url) {
+                                    e.preventDefault();
+                                    setConfirmModal({
+                                      isOpen: true,
+                                      title: 'ファイルダウンロード',
+                                      message: `ファイル「${att.name}」のダウンロードを開始します。`,
+                                      type: 'info',
+                                      confirmText: 'OK'
+                                    });
+                                  }
+                                }}
+                                className="px-2.5 py-1 text-[11px] font-bold text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors shrink-0"
+                              >
+                                ダウンロード
+                              </a>
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -593,6 +665,54 @@ export function TopicDetailModal({
                               )}
                             </div>
                             <p className="text-slate-700 whitespace-pre-wrap pl-8">{c.content}</p>
+
+                            {/* コメント添付ファイル一覧 */}
+                            {c.attachments && c.attachments.length > 0 && (
+                              <div className="pl-8 pt-2 flex flex-wrap gap-2">
+                                {c.attachments.map(att => (
+                                  <div
+                                    key={att.id}
+                                    className="inline-flex items-center gap-1.5 px-2 py-1 bg-white border border-slate-200 rounded-lg text-[10px]"
+                                  >
+                                    <Paperclip className="w-3 h-3 text-slate-400 shrink-0" />
+                                    <span className="font-semibold text-slate-600 truncate max-w-[150px]">{att.name}</span>
+                                    <div className="flex gap-1 border-l border-slate-200 pl-1.5 ml-1.5 shrink-0 font-bold">
+                                      {(att.type?.startsWith('image/') || /\.pdf$/i.test(att.name) || /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(att.name)) && (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setPreviewFile(att);
+                                            setIsPreviewOpen(true);
+                                          }}
+                                          className="text-emerald-600 hover:text-emerald-800"
+                                        >
+                                          プレビュー
+                                        </button>
+                                      )}
+                                      <a
+                                        href={att.url || '#'}
+                                        download={att.name}
+                                        onClick={(e) => {
+                                          if (!att.url) {
+                                            e.preventDefault();
+                                            setConfirmModal({
+                                              isOpen: true,
+                                              title: 'ファイルダウンロード',
+                                              message: `ファイル「${att.name}」のダウンロードを開始します。`,
+                                              type: 'info',
+                                              confirmText: 'OK'
+                                            });
+                                          }
+                                        }}
+                                        className="text-indigo-600 hover:text-indigo-800"
+                                      >
+                                        DL
+                                      </a>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         ))
                       ) : (
@@ -602,18 +722,63 @@ export function TopicDetailModal({
                       )}
                     </div>
 
+                    {/* Comment Attachments Preview */}
+                    {commentAttachments.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 p-2 bg-slate-50 border border-slate-200 rounded-xl">
+                        {commentAttachments.map(att => (
+                          <div
+                            key={att.id}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-semibold"
+                          >
+                            <Paperclip className="w-3.5 h-3.5 text-slate-400" />
+                            <span className="text-slate-700 truncate max-w-[150px]">{att.name}</span>
+                            <button
+                              type="button"
+                              onClick={() => setCommentAttachments(commentAttachments.filter(a => a.id !== att.id))}
+                              className="text-slate-400 hover:text-red-500 font-bold ml-1 transition-colors"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {isCommentUploading && (
+                      <div className="flex items-center gap-1.5 text-xs text-slate-500 font-semibold p-1">
+                        <Loader2 className="w-3.5 h-3.5 text-indigo-500 animate-spin" />
+                        <span>ファイルアップロード中...</span>
+                      </div>
+                    )}
+
                     {/* Comment Input */}
-                    <form onSubmit={handleAddComment} className="flex gap-2 pt-2">
+                    <form onSubmit={handleAddComment} className="flex gap-2 pt-2 items-center">
+                      <button
+                        type="button"
+                        disabled={isCommentUploading}
+                        onClick={() => commentFileInputRef.current?.click()}
+                        className="p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl border border-slate-200 transition-colors shrink-0 disabled:opacity-50"
+                        title="ファイルを添付"
+                      >
+                        <Paperclip className="w-4 h-4" />
+                      </button>
+                      <input
+                        type="file"
+                        ref={commentFileInputRef}
+                        onChange={handleCommentFileChange}
+                        multiple
+                        className="hidden"
+                      />
                       <input
                         type="text"
                         placeholder="コメントを入力..."
                         value={commentText}
                         onChange={e => setCommentText(e.target.value)}
-                        className="flex-1 px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
+                        className="flex-1 px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
                       />
                       <button
                         type="submit"
-                        disabled={!commentText || !commentText.trim()}
+                        disabled={((!commentText || !commentText.trim()) && commentAttachments.length === 0) || isCommentUploading}
                         className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 shrink-0"
                       >
                         <Send className="w-3.5 h-3.5" />
@@ -670,6 +835,12 @@ export function TopicDetailModal({
       <ConfirmModal
         {...confirmModal}
         onClose={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+      />
+
+      <FilePreviewModal
+        isOpen={isPreviewOpen}
+        onClose={() => setIsPreviewOpen(false)}
+        file={previewFile}
       />
     </div>
   );

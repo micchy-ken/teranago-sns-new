@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ChatRoom, ChatMessage, User, OfficeMaster, DivisionMaster } from '../types';
+import { ChatRoom, ChatMessage, User, OfficeMaster, DivisionMaster, AttachmentFile } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
 import { markChatRoomAsRead } from '../utils/notifications';
 import { 
@@ -22,9 +22,15 @@ import {
   Upload,
   Maximize2,
   Filter,
-  Trash2
+  Trash2,
+  Paperclip,
+  Loader2,
+  Download,
+  Eye
 } from 'lucide-react';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
+import { uploadMultipleFiles } from '../utils/fileUpload';
+import { FilePreviewModal } from './FilePreviewModal';
 
 interface ChatProps {
   rooms: ChatRoom[];
@@ -147,6 +153,18 @@ export function Chat({
   const [activeStampCategory, setActiveStampCategory] = useState('greeting');
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
 
+  // 添付ファイル関連ステート
+  const [chatAttachments, setChatAttachments] = useState<AttachmentFile[]>([]);
+  const [isChatUploading, setIsChatUploading] = useState(false);
+  const [previewFile, setPreviewFile] = useState<AttachmentFile | null>(null);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const chatFileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setChatAttachments([]);
+    setIsChatUploading(false);
+  }, [activeRoomId]);
+
   // 新規ルーム作成フォーム状態
   const [newRoomType, setNewRoomType] = useState<'group' | 'dm'>('group');
   const [newRoomName, setNewRoomName] = useState('');
@@ -203,21 +221,42 @@ export function Chat({
     );
   };
 
-  // メッセージ送信（テキスト）
+  // メッセージ送信（テキスト・ファイル）
   const handleSendMessage = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!messageText || !messageText.trim() || !activeRoom) return;
+    const isTextEmpty = !messageText || !messageText.trim();
+    if (isTextEmpty && chatAttachments.length === 0) return;
 
     const newMessage: ChatMessage = {
       id: `m_${Date.now()}`,
       sender: currentUser,
-      content: (messageText || '').trim(),
+      content: isTextEmpty ? 'ファイルを送信しました' : (messageText || '').trim(),
       createdAt: new Date().toISOString(),
-      type: 'text'
+      type: chatAttachments.length > 0 ? 'file' : 'text',
+      attachments: chatAttachments
     };
 
     updateRoomMessages(activeRoom.id, newMessage);
     setMessageText('');
+    setChatAttachments([]);
+  };
+
+  // チャット用添付ファイル非同期アップロード
+  const handleChatFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      setIsChatUploading(true);
+      try {
+        const uploaded = await uploadMultipleFiles(e.target.files);
+        setChatAttachments([...chatAttachments, ...uploaded]);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setIsChatUploading(false);
+        if (chatFileInputRef.current) {
+          chatFileInputRef.current.value = '';
+        }
+      }
+    }
   };
 
   // スタンプ送信
@@ -700,14 +739,69 @@ export function Chat({
                           </div>
                         ) : (
                           // LINE風フキダシ
-                          <div
-                            className={`px-4 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap break-words shadow-2xs relative ${
-                              isMine
-                                ? 'bg-[#dcf8c6] text-slate-900 rounded-tr-xs border border-emerald-200/80 font-medium'
-                                : 'bg-white text-slate-800 rounded-tl-xs border border-slate-200'
-                            }`}
-                          >
-                            {msg.content}
+                          <div className="flex flex-col gap-1.5 items-stretch">
+                            <div
+                              className={`px-4 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap break-words shadow-2xs relative ${
+                                isMine
+                                  ? 'bg-[#dcf8c6] text-slate-900 rounded-tr-xs border border-emerald-200/80 font-medium'
+                                  : 'bg-white text-slate-800 rounded-tl-xs border border-slate-200'
+                              }`}
+                            >
+                              {msg.content}
+                            </div>
+                            
+                            {/* チャット添付ファイルリスト */}
+                            {msg.attachments && msg.attachments.length > 0 && (
+                              <div className={`flex flex-col gap-1.5 ${isMine ? 'items-end' : 'items-start'}`}>
+                                {msg.attachments.map(att => (
+                                  <div
+                                    key={att.id}
+                                    className="flex items-center justify-between gap-3 p-2 bg-white/95 border border-slate-200 rounded-xl text-xs shadow-2xs max-w-xs"
+                                  >
+                                    <div className="flex items-center gap-1.5 min-w-0 pr-1">
+                                      <Paperclip className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                      <div className="min-w-0">
+                                        <div className="font-bold text-slate-800 truncate" title={att.name}>{att.name}</div>
+                                        <div className="text-[9px] text-slate-400">{att.size}</div>
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-1 shrink-0 border-l border-slate-100 pl-1.5 font-bold">
+                                      {(att.type?.startsWith('image/') || /\.pdf$/i.test(att.name) || /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(att.name)) && (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setPreviewFile(att);
+                                            setIsPreviewOpen(true);
+                                          }}
+                                          className="text-emerald-600 hover:text-emerald-800 text-[10px]"
+                                        >
+                                          プレビュー
+                                        </button>
+                                      )}
+                                      <a
+                                        href={att.url || '#'}
+                                        download={att.name}
+                                        onClick={(e) => {
+                                          if (!att.url) {
+                                            e.preventDefault();
+                                            setConfirmModal({
+                                              isOpen: true,
+                                              title: 'ファイルダウンロード',
+                                              message: `ファイル「${att.name}」のダウンロードを開始します。`,
+                                              type: 'info',
+                                              confirmText: 'OK'
+                                            });
+                                          }
+                                        }}
+                                        className="text-indigo-600 hover:text-indigo-800 text-[10px] pl-1.5"
+                                      >
+                                        DL
+                                      </a>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         )}
 
@@ -910,8 +1004,54 @@ export function Chat({
               </div>
             )}
 
+            {/* 選択中の添付ファイルプレビュー */}
+            {chatAttachments.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 p-2 bg-slate-50 border border-slate-200 rounded-xl mb-2">
+                {chatAttachments.map(att => (
+                  <div
+                    key={att.id}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-semibold"
+                  >
+                    <Paperclip className="w-3.5 h-3.5 text-slate-400" />
+                    <span className="text-slate-700 truncate max-w-[150px]">{att.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => setChatAttachments(chatAttachments.filter(a => a.id !== att.id))}
+                      className="text-slate-400 hover:text-red-500 font-bold ml-1 transition-colors"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {isChatUploading && (
+              <div className="flex items-center gap-1.5 text-xs text-slate-500 font-semibold p-1 mb-2">
+                <Loader2 className="w-3.5 h-3.5 text-indigo-500 animate-spin" />
+                <span>ファイルアップロード中...</span>
+              </div>
+            )}
+
             {/* メッセージ入力フォーム */}
             <form onSubmit={handleSendMessage} className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={isChatUploading}
+                onClick={() => chatFileInputRef.current?.click()}
+                className="p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-full border border-slate-200 transition-colors shrink-0 disabled:opacity-50"
+                title="ファイルを添付"
+              >
+                <Paperclip className="w-4 h-4" />
+              </button>
+              <input
+                type="file"
+                ref={chatFileInputRef}
+                onChange={handleChatFileChange}
+                multiple
+                className="hidden"
+              />
+
               <button
                 type="button"
                 onClick={() => {
@@ -945,15 +1085,19 @@ export function Chat({
                 value={messageText}
                 onChange={(e) => setMessageText(e.target.value)}
                 placeholder="メッセージを入力..."
-                className="flex-1 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-full focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-xs sm:text-sm"
+                className="flex-1 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-full focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-xs sm:text-sm font-semibold text-slate-800"
               />
 
               <button
                 type="submit"
-                disabled={!messageText || !messageText.trim()}
-                className="p-2.5 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 disabled:opacity-40 disabled:hover:bg-indigo-600 transition-colors shadow-sm shrink-0"
+                disabled={((!messageText || !messageText.trim()) && chatAttachments.length === 0) || isChatUploading}
+                className="p-2.5 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 disabled:opacity-40 disabled:hover:bg-indigo-600 transition-colors shadow-sm shrink-0 flex items-center justify-center"
               >
-                <Send className="w-4 h-4" />
+                {isChatUploading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Send className="w-4 h-4" />
+                )}
               </button>
             </form>
           </div>
@@ -1229,6 +1373,12 @@ export function Chat({
       <ConfirmModal
         {...confirmModal}
         onClose={() => setConfirmModal((prev) => ({ ...prev, isOpen: false }))}
+      />
+
+      <FilePreviewModal
+        isOpen={isPreviewOpen}
+        onClose={() => setIsPreviewOpen(false)}
+        file={previewFile}
       />
     </div>
   );

@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { WorkflowApplication, ApplicationType, ApplicationStatus, User as UserType, ApprovalFlowRule, ApprovalStepConfig, ItemMaster } from '../types';
-import { FileText, CheckCircle2, XCircle, Clock, Plus, ArrowRight, GitMerge, UserCheck, AlertTriangle, Edit3, MessageSquare, Send, X, ShoppingBag, Building2, Hash, ExternalLink, Package, Calendar, RotateCcw, Trash2 } from 'lucide-react';
+import { WorkflowApplication, ApplicationType, ApplicationStatus, User as UserType, ApprovalFlowRule, ApprovalStepConfig, ItemMaster, AttachmentFile } from '../types';
+import { FileText, CheckCircle2, XCircle, Clock, Plus, ArrowRight, GitMerge, UserCheck, AlertTriangle, Edit3, MessageSquare, Send, X, ShoppingBag, Building2, Hash, ExternalLink, Package, Calendar, RotateCcw, Trash2, Paperclip } from 'lucide-react';
 import { ApplicationModal } from './ApplicationModal';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
+import { FilePreviewModal } from './FilePreviewModal';
 import { getAvatarUrl } from '../utils/avatar';
 
 interface WorkflowProps {
@@ -79,6 +80,10 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
 
   // 編集・再申請モーダル用の状態
   const [editingApp, setEditingApp] = useState<WorkflowApplication | null>(null);
+
+  // ファイルプレビュー用ステート
+  const [previewFile, setPreviewFile] = useState<AttachmentFile | null>(null);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
   // カスタムダイアログ用の状態
   const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
@@ -481,6 +486,55 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
                 <p className="text-sm text-slate-600 line-clamp-2 mb-3 leading-relaxed">
                   {app.description}
                 </p>
+
+                {/* 添付ファイルリスト */}
+                {app.attachments && app.attachments.length > 0 && (
+                  <div className="mb-4 flex flex-wrap gap-2">
+                    {app.attachments.map(att => (
+                      <div
+                        key={att.id}
+                        className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 hover:bg-slate-100/90 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 transition-all shadow-2xs"
+                      >
+                        <Paperclip className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <span className="truncate max-w-[150px]" title={att.name}>{att.name}</span>
+                        <span className="text-[10px] text-slate-400">({att.size})</span>
+                        <div className="flex items-center gap-1.5 border-l border-slate-200 pl-1.5 ml-1 font-bold shrink-0">
+                          {(att.type?.startsWith('image/') || /\.pdf$/i.test(att.name) || /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(att.name)) && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPreviewFile(att);
+                                setIsPreviewOpen(true);
+                              }}
+                              className="text-emerald-600 hover:text-emerald-800 text-[10px] cursor-pointer"
+                            >
+                              プレビュー
+                            </button>
+                          )}
+                          <a
+                            href={att.url || '#'}
+                            download={att.name}
+                            onClick={(e) => {
+                              if (!att.url) {
+                                e.preventDefault();
+                                setConfirmModal({
+                                  isOpen: true,
+                                  title: 'ファイルダウンロード',
+                                  message: `ファイル「${att.name}」のダウンロードを開始します。`,
+                                  type: 'info',
+                                  confirmText: 'OK'
+                                });
+                              }
+                            }}
+                            className="text-indigo-600 hover:text-indigo-800 text-[10px] cursor-pointer"
+                          >
+                            DL
+                          </a>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
 
                 {/* 発注申請・補充申請明細テーブル */}
                 {(app.type === 'purchase_order' || app.type === 'inventory_issue') && app.purchaseItems && app.purchaseItems.length > 0 && (
@@ -1168,6 +1222,12 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
       <ConfirmModal
         {...confirmModal}
         onClose={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+      />
+
+      <FilePreviewModal
+        isOpen={isPreviewOpen}
+        onClose={() => setIsPreviewOpen(false)}
+        file={previewFile}
       />
     </div>
   );

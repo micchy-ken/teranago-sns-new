@@ -1,24 +1,58 @@
-export const RECOMMEND_SERVER_JS = `const express = require('express');
-const cors = require('cors');
-const sql = require('mssql');
-const path = require('path');
-const fs = require('fs');
-const multer = require('multer');
-require('dotenv').config();
+export const RECOMMEND_SERVER_JS = `/**
+ * =====================================================================
+ * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
+ * 最終更新日時 (最終アップデート): 2026年8月5日 18:00 (接続性＆耐障害性・自動パス解決強化)
+ * 
+ * 【重要：開発サーバーの再起動ループ対策について】
+ * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
+ * ファイルがアップロードされると「プロジェクト内のファイル変更」と検知され、
+ * サーバーが自動的に再起動して接続切断（ループ）を引き起こす原因になります。
+ * 
+ * 解決策1：nodemon を使用している場合、nodemon.json でアップロード先ディレクトリを監視対象から除外します。
+ * {
+ *   "ignore": ["uploads/*", "public/uploads/*"]
+ * }
+ * 
+ * 解決策2：本番運用時、または安定動作のため、本コードは uploads ディレクトリを
+ * カレントディレクトリに作成するようにしていますが、必要に応じてプロジェクト外の
+ * 永続的な共有ディレクトリや、クラウドストレージ（AWS S3 や Azure Blob）に保存する
+ * ようカスタマイズしてください。
+ * =====================================================================
+ */
+import express from 'express';
+import cors from 'cors';
+import sql from 'mssql';
+import path from 'path';
+import fs from 'fs';
+import multer from 'multer';
+import dotenv from 'dotenv';
+dotenv.config();
 
 const app = express();
 app.use(cors({ origin: '*' }));
 app.use(express.json());
 
 // =========================================================
-// アバター画像アップロード用・静的配信ディレクトリの設定
+// リバースプロキシ自動パス解決ミドルウェア (Synology NAS / Nginx 等の 404 対策)
 // =========================================================
-const uploadDir = path.join(__dirname, 'uploads');
+app.use((req, res, next) => {
+  // もし '/api/xxx' ではなく '/xxx' で届いた場合、内部的に '/api/xxx' へリライトして、
+  // すべての '/api/...' ルートが正しくマッチするようにします
+  if (!req.url.startsWith('/api') && req.url !== '/health' && !req.url.startsWith('/uploads')) {
+    req.url = '/api' + req.url;
+  }
+  next();
+});
+
+// =========================================================
+// アバター画像・添付ファイルアップロード用・静的配信ディレクトリの設定
+// =========================================================
+const uploadDir = path.join(process.cwd(), 'uploads');
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 
-// 画像ファイルをブラウザに配信する静的配信設定 (http://[サーバーのIP]:[PORT]/uploads/xxx.png でアクセス可能にします)
+// 画像・添付ファイルをブラウザに配信する静的配信設定 (http://[サーバーのIP]:[PORT]/uploads/xxx.png でアクセス可能にします)
 app.use('/uploads', express.static(uploadDir));
 
 // multer ストレージ（保存ファイル命名規則）の設定
@@ -94,7 +128,7 @@ function safeParseJSON(jsonString, fallbackValue = []) {
 
 // --- API Endpoints ---
 
-app.get('/api/health', (req, res) => res.json({ status: 'ok', timestamp: new Date() }));
+app.get('/api/health', (req, res) => res.json({ status: 'ok', timestamp: new Date(), lastUpdated: '2026-08-05 18:00 (接続性・耐障害性・自動パス解決強化アップデート完了)' }));
 
 // =========================================================
 // アバター画像アップロードAPI
@@ -109,6 +143,45 @@ app.post('/api/upload-avatar', upload.single('avatar'), (req, res) => {
     res.json({ avatarUrl });
   } catch (error) {
     console.error('アバターアップロードエラー:', error);
+    res.status(500).json({ error: 'サーバーエラーが発生しました。' });
+  }
+});
+
+// =========================================================
+// 添付ファイルアップロードAPI（領収書、図面、見積書、現場写真、PDFなど）
+// =========================================================
+const fileStorage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, uploadDir);
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const ext = path.extname(file.originalname);
+    const baseName = path.basename(file.originalname, ext).replace(/[^a-zA-Z0-9_\\u3040-\\u309f\\u30a0-\\u30ff\\u4e00-\\u9faf]/g, '');
+    cb(null, 'file-' + uniqueSuffix + '-' + baseName + ext);
+  }
+});
+
+const uploadFile = multer({
+  storage: fileStorage,
+  limits: { fileSize: 10 * 1024 * 1024 } // 10MB制限
+});
+
+app.post('/api/upload', uploadFile.single('file'), (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'ファイルがアップロードされていません。' });
+    }
+    const fileUrl = \`/uploads/\${req.file.filename}\`;
+    res.json({
+      url: fileUrl,
+      fileUrl: fileUrl,
+      path: fileUrl,
+      name: req.file.originalname,
+      size: (req.file.size / 1024 / 1024).toFixed(2) + ' MB'
+    });
+  } catch (error) {
+    console.error('ファイルアップロードエラー:', error);
     res.status(500).json({ error: 'サーバーエラーが発生しました。' });
   }
 });
@@ -599,7 +672,8 @@ app.get('/api/events', async (req, res) => {
       description: row.description || '',
       location: row.location || '',
       office: row.office || '',
-      division: row.division || ''
+      division: row.division || '',
+      attachments: safeParseJSON(row.attachments, [])
     }));
     res.json(events);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -607,7 +681,7 @@ app.get('/api/events', async (req, res) => {
 
 app.post('/api/events', async (req, res) => {
   try {
-    const { title, startAt, endAt, isAllDay, category, description, location, office, division, attendees, memo } = req.body;
+    const { title, startAt, endAt, isAllDay, category, description, location, office, division, attendees, memo, attachments } = req.body;
     const pool = await getPool();
     const id = req.body.id || \`e-\${Date.now()}\`;
     
@@ -627,6 +701,8 @@ app.post('/api/events', async (req, res) => {
     const validStart = parseDate(startAt, new Date());
     const validEnd = parseDate(endAt, validStart);
 
+    const attachStr = attachments ? (typeof attachments === 'object' ? JSON.stringify(attachments) : attachments) : null;
+
     await pool.request()
       .input('id', sql.VarChar, String(id))
       .input('title', sql.NVarChar, title || '予定')
@@ -638,9 +714,10 @@ app.post('/api/events', async (req, res) => {
       .input('location', sql.NVarChar, location || '')
       .input('office', sql.NVarChar, office || '')
       .input('division', sql.NVarChar, division || '')
+      .input('attachments', sql.NVarChar, attachStr)
       .query\`
-        INSERT INTO dbo.Events (id, title, startAt, endAt, isAllDay, category, description, location, office, division) 
-        VALUES (@id, @title, @startAt, @endAt, @isAllDay, @category, @description, @location, @office, @division)
+        INSERT INTO dbo.Events (id, title, startAt, endAt, isAllDay, category, description, location, office, division, attachments) 
+        VALUES (@id, @title, @startAt, @endAt, @isAllDay, @category, @description, @location, @office, @division, @attachments)
       \`;
     res.status(201).json({ id, message: '予定登録完了' });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -648,7 +725,7 @@ app.post('/api/events', async (req, res) => {
 
 app.put('/api/events/:id', async (req, res) => {
   try {
-    const { title, startAt, endAt, isAllDay, category, description, location, office, division, attendees, memo } = req.body;
+    const { title, startAt, endAt, isAllDay, category, description, location, office, division, attendees, memo, attachments } = req.body;
     const pool = await getPool();
     const id = req.params.id;
 
@@ -668,6 +745,8 @@ app.put('/api/events/:id', async (req, res) => {
     const validStart = parseDate(startAt, new Date());
     const validEnd = parseDate(endAt, validStart);
 
+    const attachStr = attachments ? (typeof attachments === 'object' ? JSON.stringify(attachments) : attachments) : null;
+
     await pool.request()
       .input('id', sql.VarChar, String(id))
       .input('title', sql.NVarChar, title || '予定')
@@ -679,11 +758,12 @@ app.put('/api/events/:id', async (req, res) => {
       .input('location', sql.NVarChar, location || '')
       .input('office', sql.NVarChar, office || '')
       .input('division', sql.NVarChar, division || '')
+      .input('attachments', sql.NVarChar, attachStr)
       .query\`
         UPDATE dbo.Events 
         SET title = @title, startAt = @startAt, endAt = @endAt, isAllDay = @isAllDay, 
             category = @category, description = @description, location = @location, 
-            office = @office, division = @division
+            office = @office, division = @division, attachments = @attachments
         WHERE id = @id
       \`;
     res.json({ message: '予定更新完了' });
@@ -724,7 +804,8 @@ app.get('/api/workflows', async (req, res) => {
       status: row.status,
       createdAt: row.createdAt,
       category: row.category,
-      details: row.details
+      details: row.details,
+      attachments: safeParseJSON(row.attachments, [])
     }));
     res.json(list);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -732,11 +813,12 @@ app.get('/api/workflows', async (req, res) => {
 
 app.post('/api/workflows', async (req, res) => {
   try {
-    const { title, description, applicantId, approverId, status, category, details } = req.body;
+    const { title, description, applicantId, approverId, status, category, details, attachments } = req.body;
     const pool = await getPool();
     const id = req.body.id || \`w-\${Date.now()}\`;
     const detailsStr = typeof details === 'object' ? JSON.stringify(details) : (details || '');
     const workflowCategory = category || 'general';
+    const attachStr = attachments ? (typeof attachments === 'object' ? JSON.stringify(attachments) : attachments) : null;
 
     await pool.request()
       .input('id', sql.VarChar, String(id))
@@ -748,9 +830,10 @@ app.post('/api/workflows', async (req, res) => {
       .input('category', sql.NVarChar, workflowCategory)
       .input('type', sql.NVarChar, workflowCategory)
       .input('details', sql.NVarChar, detailsStr)
+      .input('attachments', sql.NVarChar, attachStr)
       .query\`
-        INSERT INTO dbo.Workflows (id, title, description, applicantId, approverId, status, createdAt, category, type, details) 
-        VALUES (@id, @title, @description, @applicantId, @approverId, @status, GETDATE(), @category, @type, @details)
+        INSERT INTO dbo.Workflows (id, title, description, applicantId, approverId, status, createdAt, category, type, details, attachments) 
+        VALUES (@id, @title, @description, @applicantId, @approverId, @status, GETDATE(), @category, @type, @details, @attachments)
       \`;
     res.status(201).json({ id, message: '申請完了' });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -758,13 +841,15 @@ app.post('/api/workflows', async (req, res) => {
 
 app.put('/api/workflows/:id', async (req, res) => {
   try {
-    const { status, approverId, details } = req.body;
+    const { status, approverId, details, attachments } = req.body;
     const pool = await getPool();
     const detailsStr = details ? (typeof details === 'object' ? JSON.stringify(details) : details) : null;
+    const attachStr = attachments ? (typeof attachments === 'object' ? JSON.stringify(attachments) : attachments) : null;
 
     let queryStr = \`UPDATE dbo.Workflows SET status = @status\`;
     if (approverId) queryStr += \`, approverId = @approverId\`;
     if (detailsStr) queryStr += \`, details = @details\`;
+    if (attachStr !== null) queryStr += \`, attachments = @attachments\`;
     queryStr += \` WHERE id = @id\`;
 
     const reqObj = pool.request()
@@ -772,6 +857,7 @@ app.put('/api/workflows/:id', async (req, res) => {
       .input('status', sql.NVarChar, status);
     if (approverId) reqObj.input('approverId', sql.VarChar, approverId);
     if (detailsStr) reqObj.input('details', sql.NVarChar, detailsStr);
+    if (attachStr !== null) reqObj.input('attachments', sql.NVarChar, attachStr);
 
     await reqObj.query(queryStr);
     res.json({ message: '更新完了' });
@@ -838,7 +924,8 @@ const handleGetBulletins = async (req, res) => {
             name: c.authorName || '不明',
             department: c.authorDepartment || '',
             avatarUrl: c.authorAvatarUrl || ''
-          }
+          },
+          attachments: safeParseJSON(c.attachments || c.attachmentsJson, [])
         }));
 
       const topicViewers = allViewers
@@ -976,13 +1063,16 @@ const handlePutBulletin = async (req, res) => {
         const authorId = comment.author?.id || comment.authorId;
         const commentContent = comment.content;
         const commentCreatedAt = comment.createdAt ? new Date(comment.createdAt) : new Date();
+        const commentAttachments = comment.attachments;
+        const attachStr = commentAttachments ? (typeof commentAttachments === 'object' ? JSON.stringify(commentAttachments) : commentAttachments) : null;
 
         if (existingCommentIds.includes(cid)) {
           // 既存の更新
           await pool.request()
             .input('id', sql.VarChar, cid)
             .input('content', sql.NVarChar, commentContent)
-            .query(\`UPDATE dbo.BoardComments SET content = @content WHERE id = @id\`);
+            .input('attachments', sql.NVarChar, attachStr)
+            .query(\`UPDATE dbo.BoardComments SET content = @content, attachments = @attachments WHERE id = @id\`);
         } else {
           let inserted = false;
 
@@ -997,9 +1087,10 @@ const handlePutBulletin = async (req, res) => {
               .input('content', sql.NVarChar, commentContent)
               .input('createdAt', sql.DateTime, commentCreatedAt)
               .input('created_at', sql.DateTime, commentCreatedAt)
+              .input('attachments', sql.NVarChar, attachStr)
               .query(\`
-                INSERT INTO dbo.BoardComments (id, topicId, topic_id, authorId, author_id, content, createdAt, created_at)
-                VALUES (@id, @topicId, @topic_id, @authorId, @author_id, @content, @createdAt, @created_at)
+                INSERT INTO dbo.BoardComments (id, topicId, topic_id, authorId, author_id, content, createdAt, created_at, attachments)
+                VALUES (@id, @topicId, @topic_id, @authorId, @author_id, @content, @createdAt, @created_at, @attachments)
               \`);
             inserted = true;
           } catch (err) {}
@@ -1012,9 +1103,10 @@ const handlePutBulletin = async (req, res) => {
                 .input('author_id', sql.VarChar, String(authorId))
                 .input('content', sql.NVarChar, commentContent)
                 .input('created_at', sql.DateTime, commentCreatedAt)
+                .input('attachments', sql.NVarChar, attachStr)
                 .query(\`
-                  INSERT INTO dbo.BoardComments (id, topic_id, author_id, content, created_at)
-                  VALUES (@id, @topic_id, @author_id, @content, @created_at)
+                  INSERT INTO dbo.BoardComments (id, topic_id, author_id, content, created_at, attachments)
+                  VALUES (@id, @topic_id, @author_id, @content, @created_at, @attachments)
                 \`);
               inserted = true;
             } catch (err) {}
@@ -1028,9 +1120,10 @@ const handlePutBulletin = async (req, res) => {
                 .input('authorId', sql.VarChar, String(authorId))
                 .input('content', sql.NVarChar, commentContent)
                 .input('createdAt', sql.DateTime, commentCreatedAt)
+                .input('attachments', sql.NVarChar, attachStr)
                 .query(\`
-                  INSERT INTO dbo.BoardComments (id, topicId, authorId, content, createdAt)
-                  VALUES (@id, @topicId, @authorId, @content, @createdAt)
+                  INSERT INTO dbo.BoardComments (id, topicId, authorId, content, createdAt, attachments)
+                  VALUES (@id, @topicId, @authorId, @content, @createdAt, @attachments)
                 \`);
               inserted = true;
             } catch (err) {}
@@ -1124,7 +1217,7 @@ const handlePutBulletin = async (req, res) => {
  */
 const handleAddComment = async (req, res) => {
   try {
-    const { id: commentId, author, authorId, content, createdAt } = req.body;
+    const { id: commentId, author, authorId, content, createdAt, attachments } = req.body;
     const topicId = req.params.id;
     const pool = await getPool();
 
@@ -1132,6 +1225,7 @@ const handleAddComment = async (req, res) => {
     const aid = authorId || author?.id || 'u1';
     const commentContent = content || '';
     const dateVal = createdAt ? new Date(createdAt) : new Date();
+    const attachStr = attachments ? (typeof attachments === 'object' ? JSON.stringify(attachments) : attachments) : null;
 
     let inserted = false;
 
@@ -1145,9 +1239,10 @@ const handleAddComment = async (req, res) => {
         .input('content', sql.NVarChar, commentContent)
         .input('createdAt', sql.DateTime, dateVal)
         .input('created_at', sql.DateTime, dateVal)
+        .input('attachments', sql.NVarChar, attachStr)
         .query(\`
-          INSERT INTO dbo.BoardComments (id, topicId, topic_id, authorId, author_id, content, createdAt, created_at)
-          VALUES (@id, @topicId, @topic_id, @authorId, @author_id, @content, @createdAt, @created_at)
+          INSERT INTO dbo.BoardComments (id, topicId, topic_id, authorId, author_id, content, createdAt, created_at, attachments)
+          VALUES (@id, @topicId, @topic_id, @authorId, @author_id, @content, @createdAt, @created_at, @attachments)
         \`);
       inserted = true;
     } catch (err) {}
@@ -1160,9 +1255,10 @@ const handleAddComment = async (req, res) => {
           .input('author_id', sql.VarChar, String(aid))
           .input('content', sql.NVarChar, commentContent)
           .input('created_at', sql.DateTime, dateVal)
+          .input('attachments', sql.NVarChar, attachStr)
           .query(\`
-            INSERT INTO dbo.BoardComments (id, topic_id, author_id, content, created_at)
-            VALUES (@id, @topic_id, @author_id, @content, @created_at)
+            INSERT INTO dbo.BoardComments (id, topic_id, author_id, content, created_at, attachments)
+            VALUES (@id, @topic_id, @author_id, @content, @created_at, @attachments)
           \`);
         inserted = true;
       } catch (err) {}
@@ -1176,9 +1272,10 @@ const handleAddComment = async (req, res) => {
           .input('authorId', sql.VarChar, String(aid))
           .input('content', sql.NVarChar, commentContent)
           .input('createdAt', sql.DateTime, dateVal)
+          .input('attachments', sql.NVarChar, attachStr)
           .query(\`
-            INSERT INTO dbo.BoardComments (id, topicId, authorId, content, createdAt)
-            VALUES (@id, @topicId, @authorId, @content, @createdAt)
+            INSERT INTO dbo.BoardComments (id, topicId, authorId, content, createdAt, attachments)
+            VALUES (@id, @topicId, @authorId, @content, @createdAt, @attachments)
           \`);
         inserted = true;
       } catch (err) {}
@@ -1338,7 +1435,8 @@ app.get('/api/chats', async (req, res) => {
             department: m.senderDepartment || ''
           },
           content: m.message,
-          createdAt: m.createdAt
+          createdAt: m.createdAt,
+          attachments: safeParseJSON(m.attachments || m.attachmentsJson, [])
         }))
     }));
     res.json(rooms);
@@ -1351,11 +1449,12 @@ app.get('/api/chats/rooms', async (req, res) => {
 
 const handlePostChatMessage = async (req, res) => {
   try {
-    const { senderId, roomId, message, content } = req.body;
+    const { senderId, roomId, message, content, attachments } = req.body;
     const msgContent = message || content || '';
     const pool = await getPool();
     const id = req.body.id || \`c-\${Date.now()}\`;
     const targetRoomId = roomId || 'r1';
+    const attachStr = attachments ? (typeof attachments === 'object' ? JSON.stringify(attachments) : attachments) : null;
 
     await pool.request()
       .input('id', sql.VarChar, String(id))
@@ -1363,9 +1462,10 @@ const handlePostChatMessage = async (req, res) => {
       .input('roomId', sql.VarChar, String(targetRoomId))
       .input('message', sql.NVarChar, msgContent)
       .input('content', sql.NVarChar, msgContent)
+      .input('attachments', sql.NVarChar, attachStr)
       .query\`
-        INSERT INTO dbo.ChatMessages (id, senderId, roomId, message, content, createdAt) 
-        VALUES (@id, @senderId, @roomId, @message, @content, GETDATE())
+        INSERT INTO dbo.ChatMessages (id, senderId, roomId, message, content, createdAt, attachments) 
+        VALUES (@id, @senderId, @roomId, @message, @content, GETDATE(), @attachments)
       \`;
 
     await pool.request()
@@ -1674,4 +1774,4 @@ app.delete('/api/board/:id', handleDeleteBulletin);
 // サーバー起動 (すべての設定が終わった最後に実行)
 // =========================================================
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(\`🚀 Company SNS API server listening on port \${PORT}\`));`;
+app.listen(PORT, () => console.log(\`🚀 Company SNS API server listening on port \${PORT} [最終更新: 2026年8月5日 18:00 (自動パス解決＆耐障害性強化版)]\`));`;

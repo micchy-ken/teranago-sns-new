@@ -807,7 +807,7 @@ export function Calendar({
                         {e.isIcal ? 'iCal連携' : typeLabels[e.type]}
                       </span>
                       <h3 className="font-bold text-slate-900 truncate text-base">{e.title}</h3>
-                      {e.isIcal && <LinkIcon className="w-4 h-4 text-purple-600 ml-1" title="iCal連携カレンダー" />}
+                      {e.isIcal && <span title="iCal連携カレンダー"><LinkIcon className="w-4 h-4 text-purple-600 ml-1" /></span>}
                     </div>
                     {e.memo && (
                       <div className="text-xs text-slate-700 my-2 bg-slate-50 p-2 rounded-lg border border-slate-100">

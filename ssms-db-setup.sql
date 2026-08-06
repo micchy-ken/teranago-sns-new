@@ -213,7 +213,8 @@ BEGIN
         description NVARCHAR(MAX) NULL,
         location NVARCHAR(255) NULL,
         office NVARCHAR(100) NULL,
-        division NVARCHAR(100) NULL
+        division NVARCHAR(100) NULL,
+        attachments NVARCHAR(MAX) NULL
     );
 END
 ELSE
@@ -226,6 +227,7 @@ BEGIN
     IF COL_LENGTH('dbo.Events', 'location') IS NULL ALTER TABLE dbo.Events ADD location NVARCHAR(255) NULL;
     IF COL_LENGTH('dbo.Events', 'office') IS NULL ALTER TABLE dbo.Events ADD office NVARCHAR(100) NULL;
     IF COL_LENGTH('dbo.Events', 'division') IS NULL ALTER TABLE dbo.Events ADD division NVARCHAR(100) NULL;
+    IF COL_LENGTH('dbo.Events', 'attachments') IS NULL ALTER TABLE dbo.Events ADD attachments NVARCHAR(MAX) NULL;
 END
 GO
 
@@ -244,7 +246,8 @@ BEGIN
         category NVARCHAR(50) NULL,
         type NVARCHAR(50) NULL,
         details NVARCHAR(MAX) NULL,
-        description NVARCHAR(MAX) NULL
+        description NVARCHAR(MAX) NULL,
+        attachments NVARCHAR(MAX) NULL
     );
 END
 ELSE
@@ -256,6 +259,7 @@ BEGIN
     IF COL_LENGTH('dbo.Workflows', 'category') IS NULL ALTER TABLE dbo.Workflows ADD category NVARCHAR(50) NULL;
     IF COL_LENGTH('dbo.Workflows', 'type') IS NULL ALTER TABLE dbo.Workflows ADD type NVARCHAR(50) NULL;
     IF COL_LENGTH('dbo.Workflows', 'details') IS NULL ALTER TABLE dbo.Workflows ADD details NVARCHAR(MAX) NULL;
+    IF COL_LENGTH('dbo.Workflows', 'attachments') IS NULL ALTER TABLE dbo.Workflows ADD attachments NVARCHAR(MAX) NULL;
     
     -- Ensure description is added and is nullable (to fix any NOT NULL constraint issue)
     IF COL_LENGTH('dbo.Workflows', 'description') IS NULL
@@ -324,7 +328,8 @@ BEGIN
         bulletinId VARCHAR(50) NULL,
         authorId VARCHAR(50) NOT NULL,
         content NVARCHAR(MAX) NOT NULL,
-        createdAt DATETIME DEFAULT GETDATE()
+        createdAt DATETIME DEFAULT GETDATE(),
+        attachments NVARCHAR(MAX) NULL
     );
 END
 ELSE
@@ -334,6 +339,7 @@ BEGIN
     IF COL_LENGTH('dbo.BoardComments', 'authorId') IS NULL ALTER TABLE dbo.BoardComments ADD authorId VARCHAR(50) NULL;
     IF COL_LENGTH('dbo.BoardComments', 'content') IS NULL ALTER TABLE dbo.BoardComments ADD content NVARCHAR(MAX) NULL;
     IF COL_LENGTH('dbo.BoardComments', 'createdAt') IS NULL ALTER TABLE dbo.BoardComments ADD createdAt DATETIME DEFAULT GETDATE();
+    IF COL_LENGTH('dbo.BoardComments', 'attachments') IS NULL ALTER TABLE dbo.BoardComments ADD attachments NVARCHAR(MAX) NULL;
 END
 GO
 
@@ -404,7 +410,8 @@ BEGIN
         roomId VARCHAR(50) NOT NULL,
         message NVARCHAR(MAX) NULL,
         content NVARCHAR(MAX) NULL,
-        createdAt DATETIME DEFAULT GETDATE()
+        createdAt DATETIME DEFAULT GETDATE(),
+        attachments NVARCHAR(MAX) NULL
     );
 END
 ELSE
@@ -414,6 +421,7 @@ BEGIN
     IF COL_LENGTH('dbo.ChatMessages', 'message') IS NULL ALTER TABLE dbo.ChatMessages ADD message NVARCHAR(MAX) NULL;
     IF COL_LENGTH('dbo.ChatMessages', 'content') IS NULL ALTER TABLE dbo.ChatMessages ADD content NVARCHAR(MAX) NULL;
     IF COL_LENGTH('dbo.ChatMessages', 'createdAt') IS NULL ALTER TABLE dbo.ChatMessages ADD createdAt DATETIME DEFAULT GETDATE();
+    IF COL_LENGTH('dbo.ChatMessages', 'attachments') IS NULL ALTER TABLE dbo.ChatMessages ADD attachments NVARCHAR(MAX) NULL;
 
     -- Relax constraints if exist in legacy schema
     IF COL_LENGTH('dbo.ChatMessages', 'content') IS NOT NULL

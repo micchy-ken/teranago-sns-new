@@ -888,8 +888,8 @@ export function MyPage({
                     <p className="text-xs text-slate-500 line-clamp-1">{app.description}</p>
 
                     <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-100">
-                      <span>申請者: {app.applicant.name}</span>
-                      <span>承認者: {app.approver.name}</span>
+                      <span>申請者: {app.applicant?.name || '不明'}</span>
+                      <span>承認者: {app.approver?.name || '未指定'}</span>
                       <span>{new Date(app.createdAt).toLocaleDateString('ja-JP')}</span>
                     </div>
                   </div>

@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { X, GitMerge, ArrowRight, CheckCircle2, UserCheck, ShieldCheck, AlertCircle, Plus, Trash2, Building2, ShoppingBag, Calculator, Calendar, Save, Send } from 'lucide-react';
-import { ApplicationType, WorkflowApplication, User, ApprovalFlowRule, ApprovalStepConfig, ItemMaster, PurchaseOrderItem, ApplicationStatus } from '../types';
+import React, { useState, useEffect, useRef } from 'react';
+import { X, GitMerge, ArrowRight, CheckCircle2, UserCheck, ShieldCheck, AlertCircle, Plus, Trash2, Building2, ShoppingBag, Calculator, Calendar, Save, Send, Paperclip, Loader2 } from 'lucide-react';
+import { ApplicationType, WorkflowApplication, User, ApprovalFlowRule, ApprovalStepConfig, ItemMaster, PurchaseOrderItem, ApplicationStatus, AttachmentFile } from '../types';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
+import { uploadMultipleFiles } from '../utils/fileUpload';
 
 interface ApplicationModalProps {
   isOpen: boolean;
@@ -110,6 +111,32 @@ export function ApplicationModal({
   const [selectedFlowId, setSelectedFlowId] = useState<string>('manual');
   const [manualApproverId, setManualApproverId] = useState<string>('');
 
+  // 添付ファイル関連ステート
+  const [attachments, setAttachments] = useState<AttachmentFile[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      setIsUploading(true);
+      try {
+        const uploaded = await uploadMultipleFiles(e.target.files);
+        setAttachments([...attachments, ...uploaded]);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setIsUploading(false);
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
+      }
+    }
+  };
+
+  const handleRemoveAttachment = (id: string) => {
+    setAttachments(attachments.filter(att => att.id !== id));
+  };
+
   // モーダルが開いたとき、initialData があればそのデータをセット、無ければデフォルト設定
   useEffect(() => {
     if (isOpen) {
@@ -123,6 +150,7 @@ export function ApplicationModal({
         setEndDate(initialData.endDate ? initialData.endDate.substring(0, 10) : '');
         setConstructionDate(initialData.constructionDate ? initialData.constructionDate.substring(0, 10) : '');
         setSelectedFlowId(initialData.flowId || 'manual');
+        setAttachments(initialData.attachments || []);
         if (initialData.approver) {
           setManualApproverId(initialData.approver.id);
         }
@@ -137,6 +165,7 @@ export function ApplicationModal({
         setTitle('');
         setDescription('');
         setAmount('');
+        setAttachments([]);
         setQuantity('');
         setStartDate('');
         setEndDate('');
@@ -301,7 +330,8 @@ export function ApplicationModal({
       approver: initialApprover!,
       flowId: selectedFlowId !== 'manual' ? selectedFlowId : undefined,
       flowName: flowName,
-      stepsConfig: stepsConfig
+      stepsConfig: stepsConfig,
+      attachments: attachments
     });
 
     setConfirmModal({
@@ -368,7 +398,8 @@ export function ApplicationModal({
       approver: initialApprover,
       flowId: selectedFlowId !== 'manual' ? selectedFlowId : undefined,
       flowName: flowName,
-      stepsConfig: stepsConfig
+      stepsConfig: stepsConfig,
+      attachments: attachments
     });
 
     onClose();
@@ -377,6 +408,7 @@ export function ApplicationModal({
     setTitle('');
     setDescription('');
     setAmount('');
+    setAttachments([]);
     setQuantity('');
     setStartDate('');
     setEndDate('');
@@ -488,6 +520,75 @@ export function ApplicationModal({
               />
             </div>
           )}
+
+          {/* 添付ファイル設定 (共通) */}
+          <div className="pt-2 border-t border-slate-100">
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                <Paperclip className="w-4 h-4 text-indigo-500" />
+                <span>添付ファイル（領収書・図面・見積書等）</span>
+              </label>
+              <button
+                type="button"
+                disabled={isUploading}
+                onClick={() => fileInputRef.current?.click()}
+                className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 disabled:opacity-50"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>追加</span>
+              </button>
+            </div>
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileChange}
+              multiple
+              className="hidden"
+            />
+
+            {isUploading && (
+              <div className="flex items-center gap-2 p-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-500 mb-1.5">
+                <Loader2 className="w-4 h-4 text-indigo-500 animate-spin" />
+                <span>アップロード中...</span>
+              </div>
+            )}
+
+            {attachments.length > 0 ? (
+              <div className="space-y-1.5 max-h-36 overflow-y-auto">
+                {attachments.map(att => (
+                  <div
+                    key={att.id}
+                    className="flex items-center justify-between p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Paperclip className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <span className="font-semibold text-slate-700 truncate">{att.name}</span>
+                      <span className="text-[10px] text-slate-400">({att.size})</span>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={isUploading}
+                      onClick={() => handleRemoveAttachment(att.id)}
+                      className="text-slate-400 hover:text-rose-600 p-0.5 rounded transition-colors disabled:opacity-50"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              !isUploading && (
+                <div
+                  onClick={() => !isUploading && fileInputRef.current?.click()}
+                  className="p-3 border border-dashed border-slate-200 hover:border-indigo-300 rounded-xl text-center cursor-pointer transition-colors bg-slate-50/50"
+                >
+                  <p className="text-xs text-slate-500 font-medium">
+                    クリックして見積書、領収書、現場写真等を添付
+                  </p>
+                </div>
+              )
+            )}
+          </div>
 
           {/* 発注申請・補充申請の場合は明細リスト編集フォームを表示 */}
           {(type === 'purchase_order' || type === 'inventory_issue') ? (
@@ -780,17 +881,19 @@ export function ApplicationModal({
               <button
                 type="button"
                 onClick={handleSaveDraft}
-                className="px-4 py-2.5 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 active:scale-95 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer border border-slate-200/80 shadow-2xs"
+                disabled={isUploading}
+                className="px-4 py-2.5 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 active:scale-95 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer border border-slate-200/80 shadow-2xs disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <Save className="w-4 h-4 text-slate-500" />
+                <Save className="w-4 h-4 text-slate-500 animate-pulse-slow" />
                 <span>一時保存 (下書き)</span>
               </button>
               <button
                 type="submit"
-                className="px-6 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:scale-95 rounded-xl transition-all shadow-sm cursor-pointer flex items-center gap-1.5"
+                disabled={isUploading}
+                className="px-6 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:scale-95 rounded-xl transition-all shadow-sm cursor-pointer flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Send className="w-4 h-4" />
-                <span>{initialData && initialData.status !== 'draft' ? '修正して再申請する' : '申請を提出する'}</span>
+                <span>{initialData && initialData.status !== 'draft' ? (isUploading ? 'アップロード中...' : '修正して再申請する') : (isUploading ? 'アップロード中...' : '申請を提出する')}</span>
               </button>
             </div>
           </div>

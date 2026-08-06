@@ -404,11 +404,21 @@ export function Timeline({
                     <div>
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-bold text-slate-900 text-base">{event.title}</span>
-                        <span className={`px-2 py-0.5 text-[10px] font-bold rounded ${
-                          event.type === 'company' ? 'bg-purple-100 text-purple-700' :
-                          event.type === 'team' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-700'
+                        <span className={`px-2 py-0.5 text-[10px] font-bold rounded border ${
+                          event.type === 'personal' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                          event.type === 'construction' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                          event.type === 'inspection' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' :
+                          event.type === 'replacement' ? 'bg-cyan-50 text-cyan-700 border-cyan-200' :
+                          event.type === 'repair' ? 'bg-rose-50 text-rose-700 border-rose-200' :
+                          event.type === 'visitor' ? 'bg-orange-50 text-orange-700 border-orange-200' :
+                          'bg-sky-50 text-sky-700 border-sky-200'
                         }`}>
-                          {event.type === 'company' ? '全社' : event.type === 'team' ? 'チーム' : '個人'}
+                          {event.type === 'personal' ? '個人' :
+                           event.type === 'construction' ? '工事' :
+                           event.type === 'inspection' ? '点検' :
+                           event.type === 'replacement' ? '取替' :
+                           event.type === 'repair' ? '修理' :
+                           event.type === 'visitor' ? '来客' : '出張'}
                         </span>
                       </div>
                       <span className="text-xs text-slate-400">

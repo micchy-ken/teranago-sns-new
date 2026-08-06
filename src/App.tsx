@@ -148,9 +148,9 @@ export default function App() {
   const [userState, setUserState] = useState<User>(() => {
     const savedUserId = localStorage.getItem('logged_in_user_id');
     if (savedUserId) {
-      return { id: savedUserId, name: 'ユーザー情報取得中...', role: 'user', department: '' };
+      return { id: savedUserId, name: 'ユーザー情報取得中...', role: 'user', department: '', avatarUrl: '' };
     }
-    return { id: 'u1', name: 'ユーザー', role: 'user', department: '' };
+    return { id: 'u1', name: 'ユーザー', role: 'user', department: '', avatarUrl: '' };
   });
 
   useEffect(() => {
@@ -1598,7 +1598,7 @@ export default function App() {
         || approvalFlows[0];
     }
 
-    const stepsConfig = appData.stepsConfig && appData.stepsConfig.length > 0 
+    const stepsConfig: ApprovalStepConfig[] = appData.stepsConfig && appData.stepsConfig.length > 0 
       ? appData.stepsConfig 
       : (selectedFlow ? selectedFlow.steps : [
           { stepNumber: 1, approverType: 'supervisor_1', stepName: '一次承認（直属上長）' }
@@ -1787,7 +1787,7 @@ export default function App() {
           || approvalFlows[0];
       }
 
-      const stepsConfig = updatedApp.stepsConfig && updatedApp.stepsConfig.length > 0 
+      const stepsConfig: ApprovalStepConfig[] = updatedApp.stepsConfig && updatedApp.stepsConfig.length > 0 
         ? updatedApp.stepsConfig 
         : (selectedFlow ? selectedFlow.steps : [
             { stepNumber: 1, approverType: 'supervisor_1', stepName: '一次承認（直属上長）' }
@@ -1796,7 +1796,7 @@ export default function App() {
       const initialApprover = updatedApp.approver || resolveApproverForStep(updatedApp.applicant, stepsConfig[0], usersList);
       const isSubmittingFromDraftOrReject = (app.status === 'draft' || app.status === 'rejected') && targetStatus === 'pending';
 
-      const resultApp = {
+      const resultApp: WorkflowApplication = {
         ...updatedApp,
         status: targetStatus,
         rejectReason: targetStatus === 'pending' ? undefined : updatedApp.rejectReason,

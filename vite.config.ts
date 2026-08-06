@@ -3,9 +3,9 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import { defineConfig } from 'vite';
 
-export default defineConfig(() => {
+export default defineConfig(({ command }) => {
   return {
-    base: '/teranago-sns-new/',
+    base: command === 'build' ? '/teranago-sns-new/' : '/',
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {

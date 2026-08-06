@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, RefreshCw, Trash2, AlertCircle, Link as LinkIcon, Building2, Users, Paperclip, Plus, Check, UserCheck, Copy } from 'lucide-react';
+import { X, RefreshCw, Trash2, AlertCircle, Link as LinkIcon, Building2, Users, Paperclip, Plus, Check, UserCheck, Copy, Loader2 } from 'lucide-react';
 import { EventType, CalendarEvent, OfficeMaster, DivisionMaster, User, AttachmentFile } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
+import { uploadMultipleFiles } from '../utils/fileUpload';
+import { FilePreviewModal } from './FilePreviewModal';
 
 interface EventModalProps {
   isOpen: boolean;
@@ -52,6 +54,11 @@ export function EventModal({
   const [attachments, setAttachments] = useState<AttachmentFile[]>([]);
   const [error, setError] = useState<string | null>(null);
 
+  // アップロード・プレビュー状態
+  const [isUploading, setIsUploading] = useState(false);
+  const [previewFile, setPreviewFile] = useState<AttachmentFile | null>(null);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const officeNames = Array.from(new Set(offices.map(o => o.name)));
@@ -72,6 +79,7 @@ export function EventModal({
   useEffect(() => {
     setError(null);
     if (isOpen) {
+      setIsUploading(false);
       if (editingEvent) {
         setTitle(editingEvent.title);
         setType(editingEvent.type);
@@ -134,16 +142,21 @@ export function EventModal({
     }
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // 添付ファイルアップロード (非同期)
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      const filesArray = Array.from(e.target.files) as File[];
-      const newAttachments: AttachmentFile[] = filesArray.map((file, idx) => ({
-        id: `event-file-${Date.now()}-${idx}`,
-        name: file.name,
-        size: `${(file.size / 1024 / 1024).toFixed(1)} MB`,
-        type: file.type,
-      }));
-      setAttachments([...attachments, ...newAttachments]);
+      setIsUploading(true);
+      try {
+        const uploaded = await uploadMultipleFiles(e.target.files);
+        setAttachments([...attachments, ...uploaded]);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setIsUploading(false);
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
+      }
     }
   };
 
@@ -451,8 +464,9 @@ export function EventModal({
               </label>
               <button
                 type="button"
+                disabled={isUploading}
                 onClick={() => fileInputRef.current?.click()}
-                className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1"
+                className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 disabled:opacity-50"
               >
                 <Plus className="w-3.5 h-3.5" />
                 追加
@@ -465,6 +479,14 @@ export function EventModal({
               multiple
               className="hidden"
             />
+
+            {isUploading && (
+              <div className="flex items-center gap-2 p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-500 mb-1.5">
+                <Loader2 className="w-4 h-4 text-indigo-500 animate-spin" />
+                <span>ファイルをアップロード中...</span>
+              </div>
+            )}
+
             {attachments.length > 0 ? (
               <div className="space-y-1.5">
                 {attachments.map(att => (
@@ -477,25 +499,42 @@ export function EventModal({
                       <span className="font-semibold text-slate-700 truncate">{att.name}</span>
                       <span className="text-[10px] text-slate-400">({att.size})</span>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveAttachment(att.id)}
-                      className="text-slate-400 hover:text-red-600 p-0.5 rounded transition-colors"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                      {(att.type?.startsWith('image/') || /\.pdf$/i.test(att.name) || /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(att.name)) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPreviewFile(att);
+                            setIsPreviewOpen(true);
+                          }}
+                          className="px-2 py-0.5 text-[10px] font-bold text-emerald-600 hover:bg-emerald-50 rounded-md transition-colors"
+                        >
+                          プレビュー
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        disabled={isUploading}
+                        onClick={() => handleRemoveAttachment(att.id)}
+                        className="text-slate-400 hover:text-red-600 p-0.5 rounded transition-colors disabled:opacity-50"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <div
-                onClick={() => fileInputRef.current?.click()}
-                className="p-3 border border-dashed border-slate-200 hover:border-indigo-300 rounded-xl text-center cursor-pointer transition-colors bg-slate-50/50"
-              >
-                <p className="text-xs text-slate-500 font-medium">
-                  クリックして資料・議事録などを添付
-                </p>
-              </div>
+              !isUploading && (
+                <div
+                  onClick={() => !isUploading && fileInputRef.current?.click()}
+                  className="p-3 border border-dashed border-slate-200 hover:border-indigo-300 rounded-xl text-center cursor-pointer transition-colors bg-slate-50/50"
+                >
+                  <p className="text-xs text-slate-500 font-medium">
+                    クリックして資料・議事録などを添付
+                  </p>
+                </div>
+              )
             )}
           </div>
 
@@ -509,8 +548,9 @@ export function EventModal({
               {currentEditingEvent && (
                 <button
                   type="button"
+                  disabled={isUploading}
                   onClick={handleCopyAndAdd}
-                  className="flex items-center gap-1.5 px-3.5 py-2.5 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition-colors shadow-2xs"
+                  className="flex items-center gap-1.5 px-3.5 py-2.5 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition-colors shadow-2xs disabled:opacity-50"
                   title="この予定をコピーして新規登録画面にします"
                 >
                   <Copy className="w-3.5 h-3.5 text-indigo-600" />
@@ -521,8 +561,9 @@ export function EventModal({
               {currentEditingEvent && onDelete && (
                 <button
                   type="button"
+                  disabled={isUploading}
                   onClick={handleDelete}
-                  className="flex items-center gap-1.5 px-3 py-2.5 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                  className="flex items-center gap-1.5 px-3 py-2.5 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-lg transition-colors disabled:opacity-50"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                   削除
@@ -531,14 +572,21 @@ export function EventModal({
             </div>
 
             <div className="flex justify-end gap-2.5">
-              <button type="button" onClick={onClose} className="px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">キャンセル</button>
-              <button type="submit" className="px-5 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors shadow-sm">
-                {currentEditingEvent ? '更新する' : '保存する'}
+              <button type="button" disabled={isUploading} onClick={onClose} className="px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors disabled:opacity-50">キャンセル</button>
+              <button type="submit" disabled={isUploading} className="px-5 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors shadow-sm disabled:opacity-50 flex items-center gap-1.5">
+                {isUploading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                {isUploading ? '処理中...' : (currentEditingEvent ? '更新する' : '保存する')}
               </button>
             </div>
           </div>
         </form>
       </div>
+
+      <FilePreviewModal
+        isOpen={isPreviewOpen}
+        onClose={() => setIsPreviewOpen(false)}
+        file={previewFile}
+      />
     </div>
   );
 }

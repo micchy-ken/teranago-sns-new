@@ -153,6 +153,7 @@ export interface WorkflowApplication {
   stepsConfig?: ApprovalStepConfig[];
   history?: ApprovalHistoryRecord[];
   rejectReason?: string;
+  attachments?: AttachmentFile[];
 }
 
 export type BoardCategory = 'all' | 'general' | 'hr' | 'it';
@@ -162,6 +163,7 @@ export interface BoardComment {
   author: User;
   content: string;
   createdAt: string;
+  attachments?: AttachmentFile[];
 }
 
 export interface BoardViewer {
@@ -206,11 +208,12 @@ export interface ChatMessage {
   sender: User;
   content: string;
   createdAt: string; // ISO string
-  type?: 'text' | 'stamp' | 'image';
+  type?: 'text' | 'stamp' | 'image' | 'file';
   imageUrl?: string;
   stampId?: string;
   stampText?: string;
   stampCategory?: string;
+  attachments?: AttachmentFile[];
 }
 
 export interface ChatRoom {

@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { X, Paperclip, Pin, Calendar as CalendarIcon, Building2, Users, Tag, Plus, Trash2 } from 'lucide-react';
+import { X, Paperclip, Pin, Calendar as CalendarIcon, Building2, Users, Tag, Plus, Trash2, Loader2 } from 'lucide-react';
 import { BoardTopic, User, OfficeMaster, DivisionMaster, AttachmentFile } from '../types';
+import { uploadMultipleFiles } from '../utils/fileUpload';
 
 interface TopicCreateModalProps {
   isOpen: boolean;
@@ -42,6 +43,7 @@ export function TopicCreateModal({
   // ピン留め
   const [isPinned, setIsPinned] = useState(false);
 
+  const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -58,6 +60,7 @@ export function TopicCreateModal({
       setStartDate('');
       setEndDate('');
       setIsPinned(false);
+      setIsUploading(false);
       setError(null);
     }
   }, [isOpen]);
@@ -91,17 +94,23 @@ export function TopicCreateModal({
     setTags(tags.filter(t => t !== tagToRemove));
   };
 
-  // ファイル選択の擬似ハンドラー
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // ファイル選択ハンドラー（非同期アップロード）
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      const filesArray = Array.from(e.target.files) as File[];
-      const newAttachments: AttachmentFile[] = filesArray.map((file, idx) => ({
-        id: `file-${Date.now()}-${idx}`,
-        name: file.name,
-        size: `${(file.size / 1024 / 1024).toFixed(1)} MB`,
-        type: file.type,
-      }));
-      setAttachments([...attachments, ...newAttachments]);
+      setIsUploading(true);
+      setError(null);
+      try {
+        const uploaded = await uploadMultipleFiles(e.target.files);
+        setAttachments([...attachments, ...uploaded]);
+      } catch (err) {
+        console.error(err);
+        setError('ファイルのアップロードに失敗しました。');
+      } finally {
+        setIsUploading(false);
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
+      }
     }
   };
 
@@ -322,8 +331,9 @@ export function TopicCreateModal({
               </label>
               <button
                 type="button"
+                disabled={isUploading}
                 onClick={() => fileInputRef.current?.click()}
-                className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1"
+                className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 disabled:opacity-50"
               >
                 <Plus className="w-3.5 h-3.5" />
                 ファイルを選択
@@ -336,6 +346,13 @@ export function TopicCreateModal({
               multiple
               className="hidden"
             />
+
+            {isUploading && (
+              <div className="flex items-center gap-2 p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-500 mb-1.5">
+                <Loader2 className="w-4 h-4 text-indigo-500 animate-spin" />
+                <span>ファイルをアップロード中...</span>
+              </div>
+            )}
 
             {attachments.length > 0 ? (
               <div className="space-y-1.5">
@@ -351,8 +368,9 @@ export function TopicCreateModal({
                     </div>
                     <button
                       type="button"
+                      disabled={isUploading}
                       onClick={() => handleRemoveAttachment(att.id)}
-                      className="text-slate-400 hover:text-red-600 p-1 rounded transition-colors"
+                      className="text-slate-400 hover:text-red-600 p-1 rounded transition-colors disabled:opacity-50"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -360,15 +378,17 @@ export function TopicCreateModal({
                 ))}
               </div>
             ) : (
-              <div
-                onClick={() => fileInputRef.current?.click()}
-                className="p-4 border-2 border-dashed border-slate-200 hover:border-indigo-300 rounded-xl text-center cursor-pointer transition-colors bg-slate-50/50"
-              >
-                <Paperclip className="w-5 h-5 text-slate-400 mx-auto mb-1" />
-                <p className="text-xs text-slate-500 font-medium">
-                  クリックして資料・画像・ドキュメントを添付
-                </p>
-              </div>
+              !isUploading && (
+                <div
+                  onClick={() => !isUploading && fileInputRef.current?.click()}
+                  className="p-4 border-2 border-dashed border-slate-200 hover:border-indigo-300 rounded-xl text-center cursor-pointer transition-colors bg-slate-50/50"
+                >
+                  <Paperclip className="w-5 h-5 text-slate-400 mx-auto mb-1" />
+                  <p className="text-xs text-slate-500 font-medium">
+                    クリックして資料・画像・ドキュメントを添付
+                  </p>
+                </div>
+              )
             )}
           </div>
 
@@ -432,16 +452,19 @@ export function TopicCreateModal({
           <div className="pt-2 flex items-center justify-end gap-3 border-t border-slate-200">
             <button
               type="button"
+              disabled={isUploading}
               onClick={onClose}
-              className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+              className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors disabled:opacity-50"
             >
               キャンセル
             </button>
             <button
               type="submit"
-              className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-md transition-all active:scale-[0.99]"
+              disabled={isUploading}
+              className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-md transition-all active:scale-[0.99] disabled:opacity-50 flex items-center gap-1.5"
             >
-              投稿を公開する
+              {isUploading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+              {isUploading ? 'ファイル処理中...' : '投稿を公開する'}
             </button>
           </div>
         </form>
