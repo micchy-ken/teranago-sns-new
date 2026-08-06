@@ -137,24 +137,24 @@ export function Sidebar({ posts, selectedTag, onSelectTag, activeTab, onChangeTa
           日報
         </button>
 
-        <button
-          onClick={() => onChangeTab('admin')}
-          className={`w-full flex items-center justify-between px-3 py-2 rounded-lg font-medium transition-colors ${
-            activeTab === 'admin'
-              ? 'bg-indigo-50 text-indigo-700'
-              : 'text-slate-600 hover:bg-slate-50'
-          }`}
-        >
-          <div className="flex items-center gap-3">
-            <Shield className="w-4 h-4 text-indigo-600" />
-            管理者メニュー
-          </div>
-          {currentUser?.isAdmin && (
+        {currentUser?.isAdmin && (
+          <button
+            onClick={() => onChangeTab('admin')}
+            className={`w-full flex items-center justify-between px-3 py-2 rounded-lg font-medium transition-colors ${
+              activeTab === 'admin'
+                ? 'bg-indigo-50 text-indigo-700'
+                : 'text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <Shield className="w-4 h-4 text-indigo-600" />
+              管理者メニュー
+            </div>
             <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-indigo-100 text-indigo-700">
               管理者
             </span>
-          )}
-        </button>
+          </button>
+        )}
       </nav>
 
       {activeTab === 'timeline' && (

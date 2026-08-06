@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { CalendarEvent, EventType, User, OfficeMaster, DivisionMaster } from '../types';
+import { CalendarEvent, EventType, User, OfficeMaster, DivisionMaster, Memo, RequirementType, MemoUserRecipientStatus } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
-import { ChevronLeft, ChevronRight, List as ListIcon, Calendar as CalendarIcon, Plus, MapPin, Video, AlignLeft, RefreshCw, Clock, Link as LinkIcon, Loader2, Building2, Users, Paperclip } from 'lucide-react';
+import { ChevronLeft, ChevronRight, List as ListIcon, Calendar as CalendarIcon, Plus, MapPin, Video, AlignLeft, RefreshCw, Clock, Link as LinkIcon, Loader2, Building2, Users, Paperclip, MessageSquare, Phone, X } from 'lucide-react';
 import { EventModal } from './EventModal';
 import { fetchIcalFeed } from '../utils/icalParser';
 import { renderWithClickableLinks } from '../utils/linkify';
@@ -16,6 +16,8 @@ interface CalendarProps {
   offices?: OfficeMaster[];
   divisions?: DivisionMaster[];
   initialEventId?: string;
+  memos?: Memo[];
+  onUpdateMemos?: (updatedMemos: Memo[]) => void;
 }
 
 type ViewMode = 'month' | 'week' | 'day' | 'list';
@@ -52,6 +54,8 @@ export function Calendar({
   offices = [],
   divisions = [],
   initialEventId,
+  memos = [],
+  onUpdateMemos,
 }: CalendarProps) {
   const [view, setView] = useState<ViewMode>('month');
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -62,9 +66,27 @@ export function Calendar({
   const [selectedTypeFilter, setSelectedTypeFilter] = useState<string>('all');
   const [showIcal, setShowIcal] = useState<boolean>(true);
 
+  // カレンダーモード：'personal' (個人表示) or 'team' (チーム表示)
+  const [calendarMode, setCalendarMode] = useState<'personal' | 'team'>('personal');
+
+  // 新規伝言メモ追加モーダルの状態
+  const [isMemoModalOpen, setIsMemoModalOpen] = useState(false);
+  const [memoTargetUser, setMemoTargetUser] = useState<User | null>(null);
+
+  // EventModalの初期参加者
+  const [preselectedAttendees, setPreselectedAttendees] = useState<User[] | undefined>(undefined);
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
   const [selectedInitialDate, setSelectedInitialDate] = useState<string | undefined>(undefined);
+
+  // 伝言メモ用の入力状態
+  const [fromName, setFromName] = useState('');
+  const [fromCompany, setFromCompany] = useState('');
+  const [fromPhone, setFromPhone] = useState('');
+  const [requirementType, setRequirementType] = useState<RequirementType>('phone_called');
+  const [customRequirementText, setCustomRequirementText] = useState('');
+  const [content, setContent] = useState('');
 
   // iCal integration state
   const [icalEvents, setIcalEvents] = useState<CalendarEvent[]>([]);
@@ -74,6 +96,7 @@ export function Calendar({
   // Drag and drop state
   const [draggedEventId, setDraggedEventId] = useState<string | null>(null);
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
+  const [draggedFromMemberId, setDraggedFromMemberId] = useState<string | null>(null);
 
   const officeNames = Array.from(new Set(offices.map(o => o.name)));
   const divisionNames = Array.from(new Set(divisions.map(d => d.name)));
@@ -148,6 +171,40 @@ export function Calendar({
     return true;
   });
 
+  // チーム表示用の所属メンバー抽出
+  const teamMembers = (allUsers || []).filter(u => {
+    if (selectedOffice === '全社' || selectedOffice === '全拠点' || selectedDivision === '全部署') {
+      return false;
+    }
+    return u.office === selectedOffice && u.division === selectedDivision;
+  });
+
+  const handleToggleMode = (mode: 'personal' | 'team') => {
+    setCalendarMode(mode);
+    if (mode === 'team') {
+      let nextOffice = selectedOffice;
+      if (selectedOffice === '全社' || selectedOffice === '全拠点') {
+        const firstOffice = officeNames.find(o => o !== '全社' && o !== '全拠点') || officeNames[0] || '';
+        if (firstOffice) {
+          setSelectedOffice(firstOffice);
+          nextOffice = firstOffice;
+        }
+      }
+      let nextDivision = selectedDivision;
+      if (selectedDivision === '全部署') {
+        const firstDivision = divisionNames.find(d => d !== '全部署') || divisionNames[0] || '';
+        if (firstDivision) {
+          setSelectedDivision(firstDivision);
+          nextDivision = firstDivision;
+        }
+      }
+      
+      if (view !== 'week' && view !== 'day') {
+        setView('week');
+      }
+    }
+  };
+
   const changeDate = (offset: number) => {
     const newDate = new Date(currentDate);
     if (view === 'month' || view === 'list') {
@@ -160,9 +217,10 @@ export function Calendar({
     setCurrentDate(newDate);
   };
 
-  const openAddModalWithDate = (dateStr?: string) => {
+  const openAddModalWithDate = (dateStr?: string, initialAttendees?: User[]) => {
     setEditingEvent(null);
     setSelectedInitialDate(dateStr);
+    setPreselectedAttendees(initialAttendees);
     setIsModalOpen(true);
   };
 
@@ -181,9 +239,341 @@ export function Calendar({
     }
   };
 
+  const handleCreateMemo = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!memoTargetUser) return;
+    if (!fromName.trim()) {
+      alert('依頼者のお名前を入力してください。');
+      return;
+    }
+    if (!content.trim()) {
+      alert('伝言の本文内容を入力してください。');
+      return;
+    }
+
+    const recipientStatus: MemoUserRecipientStatus = {
+      userId: memoTargetUser.id,
+      userName: memoTargetUser.name,
+      avatarUrl: memoTargetUser.avatarUrl,
+      department: memoTargetUser.department,
+      office: memoTargetUser.office,
+      division: memoTargetUser.division,
+      isViewed: false,
+      isHandled: false,
+    };
+
+    let reqText = '';
+    if (requirementType === 'phone_called') reqText = '電話がありました';
+    else if (requirementType === 'has_message') reqText = '伝言があります';
+    else if (requirementType === 'call_again') reqText = '再度電話します（折り返し不要）';
+    else if (requirementType === 'please_call_back') reqText = '折り返し連絡下さい';
+    else reqText = customRequirementText || '伝言';
+
+    const newMemo: Memo = {
+      id: `memo-${Date.now()}`,
+      fromName: fromName.trim(),
+      fromCompany: fromCompany.trim() || undefined,
+      fromPhone: fromPhone.trim() || undefined,
+      toUsers: [memoTargetUser],
+      toUser: memoTargetUser,
+      requirementType,
+      requirementText: reqText,
+      content: content.trim(),
+      status: 'unread',
+      createdAt: new Date().toISOString(),
+      createdByUser: currentUser,
+      recipientStatuses: [recipientStatus],
+    };
+
+    if (onUpdateMemos) {
+      onUpdateMemos([...memos, newMemo]);
+    }
+
+    // Reset and close
+    setFromName('');
+    setFromCompany('');
+    setFromPhone('');
+    setRequirementType('phone_called');
+    setCustomRequirementText('');
+    setContent('');
+    setIsMemoModalOpen(false);
+    setMemoTargetUser(null);
+  };
+
+  // チーム表示用の週の日付算出
+  const getWeekDates = (date: Date) => {
+    const current = new Date(date);
+    const day = current.getDay();
+    const sunday = new Date(current);
+    sunday.setDate(current.getDate() - day);
+    
+    const dates: Date[] = [];
+    for (let i = 0; i < 7; i++) {
+      const next = new Date(sunday);
+      next.setDate(sunday.getDate() + i);
+      dates.push(next);
+    }
+    return dates;
+  };
+
+  // チーム週表示のレンダリング
+  const renderTeamWeekView = () => {
+    const dates = getWeekDates(currentDate);
+    const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
+    
+    return (
+      <div className="min-w-[1000px] h-full flex flex-col divide-y divide-slate-200">
+        {/* Table Header */}
+        <div className="grid grid-cols-[220px_1fr_1fr_1fr_1fr_1fr_1fr_1fr] bg-slate-50 text-slate-700 text-xs font-bold shrink-0 sticky top-0 z-10 border-b border-slate-200">
+          <div className="p-3 border-r border-slate-200 flex items-center justify-center">メンバー</div>
+          {dates.map((date, idx) => {
+            const isTodayDate = isSameDay(date, new Date());
+            const weekendColor = date.getDay() === 0 ? 'text-rose-600' : date.getDay() === 6 ? 'text-blue-600' : 'text-slate-700';
+            
+            return (
+              <div 
+                key={idx} 
+                className={`p-3 text-center border-r border-slate-200 last:border-r-0 flex flex-col items-center justify-center gap-0.5 ${isTodayDate ? 'bg-indigo-50/70 border-b-2 border-b-indigo-500' : ''}`}
+              >
+                <span className={`${weekendColor} font-extrabold`}>
+                  {date.getMonth() + 1}/{date.getDate()} ({dayNames[date.getDay()]})
+                </span>
+                {isTodayDate && <span className="text-[10px] bg-indigo-600 text-white font-semibold px-1.5 py-0.5 rounded-full scale-90">今日</span>}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Table Body */}
+        <div className="flex-1 overflow-y-auto divide-y divide-slate-200 bg-white">
+          {teamMembers.map((member) => (
+            <div key={member.id} className="grid grid-cols-[220px_1fr_1fr_1fr_1fr_1fr_1fr_1fr] min-h-[110px] group hover:bg-slate-50/30 transition-colors">
+              {/* Member Column */}
+              <div className="p-3 border-r border-slate-200 bg-white flex flex-col justify-between shrink-0 sticky left-0 z-10">
+                <div className="flex items-center gap-2.5">
+                  <img
+                    src={getAvatarUrl(member.avatarUrl)}
+                    alt={member.name}
+                    className="w-8 h-8 rounded-full border border-slate-200 shrink-0"
+                    referrerPolicy="no-referrer"
+                  />
+                  <div className="min-w-0">
+                    <p className="font-extrabold text-xs text-slate-800 truncate">{member.name}</p>
+                    <p className="text-[10px] text-slate-500 font-medium mt-0.5 truncate">{member.office}・{member.division}</p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setMemoTargetUser(member);
+                    setIsMemoModalOpen(true);
+                  }}
+                  className="mt-2 w-full flex items-center justify-center gap-1.5 px-2 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-indigo-600 text-[10px] font-extrabold rounded-lg border border-slate-200 transition-all cursor-pointer shadow-2xs"
+                >
+                  <Phone className="w-3 h-3 text-indigo-500" />
+                  伝言メモ追加
+                </button>
+              </div>
+
+              {/* Day Columns */}
+              {dates.map((date, idx) => {
+                const dateStr = getLocalDateStr(date.toISOString());
+                const dayEvents = filteredEvents.filter(e => {
+                  const eDate = new Date(e.start);
+                  return isSameDay(eDate, date) && e.attendees?.some(a => a.id === member.id);
+                });
+
+                const cellKey = `team-week-${member.id}-${idx}`;
+                const isDragOver = dragOverKey === cellKey;
+
+                return (
+                  <div
+                    key={idx}
+                    onClick={() => openAddModalWithDate(dateStr, [member])}
+                    onDragOver={(e) => handleDragOver(e, cellKey)}
+                    onDragLeave={handleDragLeave}
+                    onDrop={(e) => handleDrop(e, dateStr, undefined, member.id)}
+                    className={`p-2 border-r border-slate-200 last:border-r-0 flex flex-col gap-1.5 min-h-[115px] cursor-pointer relative transition-colors ${
+                      isDragOver ? 'bg-indigo-100/70 ring-2 ring-indigo-400' : 'hover:bg-indigo-50/20'
+                    }`}
+                  >
+                    {dayEvents.length > 0 ? (
+                      dayEvents.map(e => (
+                        <div
+                          key={e.id}
+                          draggable={!e.isIcal}
+                          onDragStart={(eDrag) => handleDragStart(eDrag, e.id, member.id)}
+                          onClick={(evt) => handleEventClick(evt, e)}
+                          className={`p-1.5 rounded-lg border text-[10px] font-bold leading-snug transition-all hover:shadow-xs shadow-2xs truncate select-none ${getEventStyle(e)}`}
+                        >
+                          <div className="flex items-center gap-1 truncate">
+                            <Clock className="w-2.5 h-2.5 shrink-0" />
+                            <span>{formatEventTime(e)}</span>
+                          </div>
+                          <div className="mt-0.5 truncate font-extrabold">{e.title}</div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="flex-1 flex items-center justify-center text-slate-300 text-[10px] font-semibold opacity-0 group-hover:opacity-100 transition-opacity">
+                        + 予定を追加
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  // チーム日表示のレンダリング
+  const renderTeamDayView = () => {
+    const hours = Array.from({ length: 13 }, (_, i) => i + 8);
+    
+    return (
+      <div className="min-w-[1200px] h-full flex flex-col divide-y divide-slate-200">
+        {/* Table Header */}
+        <div className="grid grid-cols-[220px_repeat(13,1fr)] bg-slate-50 text-slate-700 text-xs font-bold shrink-0 sticky top-0 z-10 border-b border-slate-200">
+          <div className="p-3 border-r border-slate-200 flex items-center justify-center">メンバー</div>
+          {hours.map((hour) => (
+            <div key={hour} className="p-3 text-center border-r border-slate-200 last:border-r-0 font-extrabold flex flex-col items-center justify-center">
+              <span>{String(hour).padStart(2, '0')}:00</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Table Body */}
+        <div className="flex-1 overflow-y-auto divide-y divide-slate-200 bg-white">
+          {teamMembers.map((member) => (
+            <div key={member.id} className="grid grid-cols-[220px_repeat(13,1fr)] min-h-[110px] group hover:bg-slate-50/30 transition-colors">
+              {/* Member Column */}
+              <div className="p-3 border-r border-slate-200 bg-white flex flex-col justify-between shrink-0 sticky left-0 z-10">
+                <div className="flex items-center gap-2.5">
+                  <img
+                    src={getAvatarUrl(member.avatarUrl)}
+                    alt={member.name}
+                    className="w-8 h-8 rounded-full border border-slate-200 shrink-0"
+                    referrerPolicy="no-referrer"
+                  />
+                  <div className="min-w-0">
+                    <p className="font-extrabold text-xs text-slate-800 truncate">{member.name}</p>
+                    <p className="text-[10px] text-slate-500 font-medium mt-0.5 truncate">{member.office}・{member.division}</p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setMemoTargetUser(member);
+                    setIsMemoModalOpen(true);
+                  }}
+                  className="mt-2 w-full flex items-center justify-center gap-1.5 px-2 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-indigo-600 text-[10px] font-extrabold rounded-lg border border-slate-200 transition-all cursor-pointer shadow-2xs"
+                >
+                  <Phone className="w-3 h-3 text-indigo-500" />
+                  伝言メモ追加
+                </button>
+              </div>
+
+              {/* Hour Columns */}
+              {hours.map((hour) => {
+                const dateStr = getLocalDateStr(currentDate.toISOString());
+                const datetimeStr = `${dateStr}T${String(hour).padStart(2, '0')}:00`;
+
+                const hourEvents = filteredEvents.filter(e => {
+                  const eStart = new Date(e.start);
+                  const eEnd = e.end ? new Date(e.end) : eStart;
+                  if (!isSameDay(eStart, currentDate)) return false;
+                  if (!e.attendees?.some(a => a.id === member.id)) return false;
+                  
+                  const startHour = eStart.getHours();
+                  const endHour = eEnd.getHours();
+                  
+                  if (e.isAllDay) return true;
+                  if (e.end) {
+                    if (startHour === endHour) {
+                      return startHour === hour;
+                    }
+                    return startHour <= hour && endHour > hour;
+                  } else {
+                    return startHour === hour;
+                  }
+                });
+
+                const cellKey = `team-day-${member.id}-${hour}`;
+                const isDragOver = dragOverKey === cellKey;
+
+                return (
+                  <div
+                    key={hour}
+                    onClick={() => openAddModalWithDate(datetimeStr, [member])}
+                    onDragOver={(e) => handleDragOver(e, cellKey)}
+                    onDragLeave={handleDragLeave}
+                    onDrop={(e) => handleDrop(e, dateStr, hour, member.id)}
+                    className={`p-1 border-r border-slate-200 last:border-r-0 flex flex-col gap-1 min-h-[115px] cursor-pointer transition-colors ${
+                      isDragOver ? 'bg-indigo-100/70 ring-2 ring-indigo-400' : 'hover:bg-indigo-50/20'
+                    }`}
+                  >
+                    {hourEvents.length > 0 ? (
+                      hourEvents.map(e => (
+                        <div
+                          key={e.id}
+                          draggable={!e.isIcal}
+                          onDragStart={(eDrag) => handleDragStart(eDrag, e.id, member.id)}
+                          onClick={(evt) => handleEventClick(evt, e)}
+                          className={`p-1 rounded-md border text-[9px] font-bold leading-tight transition-all hover:shadow-xs shadow-2xs truncate select-none ${getEventStyle(e)}`}
+                          title={`${e.title} (${formatEventTime(e)})`}
+                        >
+                          <div className="truncate font-extrabold">{e.title}</div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="flex-1 flex items-center justify-center text-slate-300 text-[9px] font-bold opacity-0 group-hover:opacity-100 transition-opacity">
+                        +
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  const renderTeamView = () => {
+    if (teamMembers.length === 0) {
+      return (
+        <div className="flex flex-col items-center justify-center py-20 px-4 text-center bg-white h-full">
+          <Users className="w-12 h-12 text-slate-300 mb-4" />
+          <h3 className="text-sm font-bold text-slate-700">表示対象のメンバーが見つかりません</h3>
+          <p className="text-xs text-slate-500 mt-1 max-w-sm">
+            上部のフィルターから、対象となる拠点と部署を選択してください。
+            <br />
+            （チームモードでは、全社/全部署を除く特定の拠点と部署に所属するメンバーを一覧表示します）
+          </p>
+        </div>
+      );
+    }
+
+    if (view === 'week') {
+      return renderTeamWeekView();
+    } else {
+      return renderTeamDayView();
+    }
+  };
+
   // Drag & Drop handlers
-  const handleDragStart = (e: React.DragEvent, eventId: string) => {
+  const handleDragStart = (e: React.DragEvent, eventId: string, memberId?: string) => {
     setDraggedEventId(eventId);
+    if (memberId) {
+      setDraggedFromMemberId(memberId);
+    } else {
+      setDraggedFromMemberId(null);
+    }
     e.dataTransfer.setData('text/plain', eventId);
     e.dataTransfer.effectAllowed = 'move';
   };
@@ -201,7 +591,7 @@ export function Calendar({
     setDragOverKey(null);
   };
 
-  const handleDrop = (e: React.DragEvent, targetDateStr: string, targetHour?: number) => {
+  const handleDrop = (e: React.DragEvent, targetDateStr: string, targetHour?: number, targetMemberId?: string) => {
     e.preventDefault();
     setDragOverKey(null);
     const eventId = draggedEventId || e.dataTransfer.getData('text/plain');
@@ -242,13 +632,42 @@ export function Calendar({
       }
     }
 
+    let updatedAttendees = [...(ev.attendees || [])];
+    if (targetMemberId) {
+      const targetMember = (allUsers || []).find(u => u.id === targetMemberId);
+      if (targetMember) {
+        if (draggedFromMemberId) {
+          const idx = updatedAttendees.findIndex(a => a.id === draggedFromMemberId);
+          if (idx !== -1) {
+            if (draggedFromMemberId !== targetMemberId) {
+              const targetExistsIdx = updatedAttendees.findIndex(a => a.id === targetMemberId);
+              if (targetExistsIdx !== -1) {
+                updatedAttendees.splice(idx, 1);
+              } else {
+                updatedAttendees[idx] = targetMember;
+              }
+            }
+          } else {
+            if (!updatedAttendees.some(a => a.id === targetMemberId)) {
+              updatedAttendees.push(targetMember);
+            }
+          }
+        } else {
+          updatedAttendees = updatedAttendees.filter(a => !teamMembers.some(tm => tm.id === a.id));
+          updatedAttendees.push(targetMember);
+        }
+      }
+    }
+
     onUpdateEvent?.({
       ...ev,
       start: newStartIso,
       end: newEndIso,
+      attendees: updatedAttendees,
     });
 
     setDraggedEventId(null);
+    setDraggedFromMemberId(null);
   };
 
   // Helper date calculations
@@ -366,8 +785,8 @@ export function Calendar({
                 onChange={e => setSelectedOffice(e.target.value)}
                 className="bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
               >
-                <option value="全社">全社</option>
-                {officeNames.map(o => (
+                {calendarMode !== 'team' && <option value="全社">全社</option>}
+                {officeNames.filter(o => calendarMode !== 'team' || (o !== '全社' && o !== '全拠点')).map(o => (
                   <option key={o} value={o}>{o}</option>
                 ))}
               </select>
@@ -382,8 +801,8 @@ export function Calendar({
                 onChange={e => setSelectedDivision(e.target.value)}
                 className="bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
               >
-                <option value="全部署">全部署</option>
-                {divisionNames.map(d => (
+                {calendarMode !== 'team' && <option value="全部署">全部署</option>}
+                {divisionNames.filter(d => calendarMode !== 'team' || d !== '全部署').map(d => (
                   <option key={d} value={d}>{d}</option>
                 ))}
               </select>
@@ -436,15 +855,33 @@ export function Calendar({
               </button>
             </div>
           )}
+
+          {/* Mode Selector */}
+          <div className="flex items-center bg-white rounded-lg border border-slate-200 p-1 shadow-sm text-xs font-semibold">
+            <button
+              onClick={() => handleToggleMode('personal')}
+              className={`px-3 py-1.5 rounded-md transition-all ${calendarMode === 'personal' ? 'bg-amber-500 text-white font-bold shadow-xs' : 'text-slate-600 hover:bg-slate-50'}`}
+            >
+              個人
+            </button>
+            <button
+              onClick={() => handleToggleMode('team')}
+              className={`px-3 py-1.5 rounded-md transition-all ${calendarMode === 'team' ? 'bg-indigo-600 text-white font-bold shadow-xs' : 'text-slate-600 hover:bg-slate-50'}`}
+            >
+              チーム
+            </button>
+          </div>
           
           {/* View selector */}
           <div className="flex items-center bg-white rounded-lg border border-slate-200 p-1 shadow-sm text-xs font-semibold">
-            <button
-              onClick={() => setView('month')}
-              className={`px-2.5 py-1.5 rounded-md transition-colors ${view === 'month' ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}
-            >
-              月
-            </button>
+            {calendarMode !== 'team' && (
+              <button
+                onClick={() => setView('month')}
+                className={`px-2.5 py-1.5 rounded-md transition-colors ${view === 'month' ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}
+              >
+                月
+              </button>
+            )}
             <button
               onClick={() => setView('week')}
               className={`px-2.5 py-1.5 rounded-md transition-colors ${view === 'week' ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}
@@ -457,13 +894,15 @@ export function Calendar({
             >
               日
             </button>
-            <button
-              onClick={() => setView('list')}
-              className={`p-1.5 rounded-md transition-colors ${view === 'list' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-50'}`}
-              title="リスト表示"
-            >
-              <ListIcon className="w-4 h-4"/>
-            </button>
+            {calendarMode !== 'team' && (
+              <button
+                onClick={() => setView('list')}
+                className={`p-1.5 rounded-md transition-colors ${view === 'list' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-50'}`}
+                title="リスト表示"
+              >
+                <ListIcon className="w-4 h-4"/>
+              </button>
+            )}
           </div>
           
           <button onClick={() => openAddModalWithDate()} className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 transition-colors shadow-sm ml-auto sm:ml-0">
@@ -475,376 +914,382 @@ export function Calendar({
 
       {/* Main View Area */}
       <div className="flex-1 overflow-auto bg-white">
-        {/* 1. MONTH VIEW */}
-        {view === 'month' && (
-          <div className="min-w-[700px] h-full flex flex-col">
-            <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50 shrink-0">
-              {['日', '月', '火', '水', '木', '金', '土'].map((d, idx) => (
-                <div key={d} className={`py-2.5 text-center text-xs font-bold tracking-wider ${idx === 0 ? 'text-red-500' : idx === 6 ? 'text-blue-500' : 'text-slate-500'}`}>{d}</div>
-              ))}
-            </div>
-            <div className="flex-1 grid grid-cols-7 grid-rows-5 lg:grid-rows-6">
-              {days.slice(0, 35).map((day, i) => {
-                const isToday = day === new Date().getDate() && month === new Date().getMonth() && year === new Date().getFullYear();
-                const cellDateStr = day ? `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}` : null;
-                const cellEvents = cellDateStr ? filteredEvents.filter(e => getLocalDateStr(e.start) === cellDateStr) : [];
-                const cellKey = `month-cell-${i}`;
-                const isDragOver = dragOverKey === cellKey;
-                
-                return (
-                  <div
-                    key={i}
-                    onClick={() => cellDateStr && openAddModalWithDate(cellDateStr)}
-                    onDragOver={(e) => cellDateStr && handleDragOver(e, cellKey)}
-                    onDragLeave={handleDragLeave}
-                    onDrop={(e) => cellDateStr && handleDrop(e, cellDateStr)}
-                    className={`border-b border-r border-slate-100 p-1.5 min-h-[100px] group relative transition-colors ${
-                      !day ? 'bg-slate-50/50' : isDragOver ? 'bg-indigo-100/70 ring-2 ring-indigo-400' : 'hover:bg-indigo-50/20 cursor-pointer'
-                    }`}
-                  >
-                    {day && (
-                      <div className="h-full flex flex-col">
-                        <div className="flex items-center justify-between mb-1.5">
-                          <div className={`text-xs font-semibold w-6 h-6 flex items-center justify-center rounded-full ${isToday ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-700'}`}>
-                            {day}
-                          </div>
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); openAddModalWithDate(cellDateStr!); }}
-                            className="opacity-0 group-hover:opacity-100 p-0.5 text-indigo-600 hover:bg-indigo-100 rounded transition-all"
-                            title="この日に予定を追加"
-                          >
-                            <Plus className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                        <div className="flex-1 space-y-1 overflow-y-auto pr-1">
-                          {cellEvents.map(e => (
-                            <div
-                              key={e.id}
-                              draggable={!e.isIcal}
-                              onDragStart={(eDrag) => handleDragStart(eDrag, e.id)}
-                              onClick={(eClick) => handleEventClick(eClick, e)}
-                              className={`text-[10px] px-1.5 py-0.5 rounded truncate border font-medium cursor-pointer transition-all shadow-xs ${getEventStyle(e)}`}
-                              title={`${e.isIcal ? '[iCal連携] ' : ''}${e.title} (${formatEventTime(e)})`}
-                            >
-                              <span className="font-bold mr-1">
-                                {e.isIcal ? '[iCal]' : e.isAllDay ? '[終日]' : new Date(e.start).toLocaleTimeString('ja-JP', {hour: '2-digit', minute:'2-digit'})}
-                              </span>
-                              {e.title}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* 2. WEEK VIEW */}
-        {view === 'week' && (
-          <div className="min-w-[800px] h-full flex flex-col">
-            {/* Week Header */}
-            <div className="grid grid-cols-8 border-b border-slate-200 bg-slate-50 shrink-0 sticky top-0 z-10">
-              <div className="py-3 px-2 text-center text-xs font-bold text-slate-400 border-r border-slate-200">時間</div>
-              {weekDays.map((d, idx) => {
-                const isToday = isSameDay(d, new Date());
-                const dayName = ['日', '月', '火', '水', '木', '金', '土'][d.getDay()];
-                const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-                return (
-                  <div
-                    key={idx}
-                    onClick={() => openAddModalWithDate(dateStr)}
-                    className={`py-2 px-1 text-center border-r border-slate-200 cursor-pointer hover:bg-indigo-50/40 transition-colors ${isToday ? 'bg-indigo-50/60' : ''}`}
-                  >
-                    <div className={`text-xs font-semibold ${idx === 0 ? 'text-red-500' : idx === 6 ? 'text-blue-500' : 'text-slate-500'}`}>{dayName}</div>
-                    <div className={`text-sm font-bold mt-0.5 inline-flex items-center justify-center w-7 h-7 rounded-full ${isToday ? 'bg-indigo-600 text-white' : 'text-slate-800'}`}>
-                      {d.getDate()}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* All-Day Events row */}
-            <div className="grid grid-cols-8 border-b border-slate-200 bg-slate-50/50 shrink-0">
-              <div className="py-2 px-2 text-center text-[11px] font-bold text-slate-500 border-r border-slate-200 flex items-center justify-center">終日</div>
-              {weekDays.map((d, idx) => {
-                const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-                const allDayEvs = filteredEvents.filter(e => e.isAllDay && getLocalDateStr(e.start) === dateStr);
-                const slotKey = `week-allday-${idx}`;
-                const isDragOver = dragOverKey === slotKey;
-
-                return (
-                  <div
-                    key={idx}
-                    onClick={() => openAddModalWithDate(dateStr)}
-                    onDragOver={(e) => handleDragOver(e, slotKey)}
-                    onDragLeave={handleDragLeave}
-                    onDrop={(e) => handleDrop(e, dateStr)}
-                    className={`p-1 border-r border-slate-200 min-h-[40px] cursor-pointer space-y-1 transition-colors ${
-                      isDragOver ? 'bg-indigo-100/70 ring-2 ring-indigo-400' : 'hover:bg-indigo-50/30'
-                    }`}
-                  >
-                    {allDayEvs.map(e => (
-                      <div
-                        key={e.id}
-                        draggable={!e.isIcal}
-                        onDragStart={(eDrag) => handleDragStart(eDrag, e.id)}
-                        onClick={eClick => handleEventClick(eClick, e)}
-                        className={`text-[10px] px-1.5 py-0.5 rounded truncate border font-semibold cursor-pointer shadow-xs transition-all ${getEventStyle(e)}`}
-                        title={e.title}
-                      >
-                        {e.isIcal ? `[iCal] ${e.title}` : e.title}
-                      </div>
-                    ))}
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Hourly Grid */}
-            <div className="flex-1 overflow-y-auto">
-              {hoursList.map(h => {
-                const hourFormatted = `${String(h).padStart(2, '0')}:00`;
-                return (
-                  <div key={h} className="grid grid-cols-8 border-b border-slate-100 min-h-[50px]">
-                    <div className="py-2 px-2 text-center text-xs font-medium text-slate-400 border-r border-slate-200 bg-slate-50/30">
-                      {hourFormatted}
-                    </div>
-                    {weekDays.map((d, idx) => {
-                      const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-                      const slotDateTimeStr = `${dateStr}T${String(h).padStart(2, '0')}:00`;
-                      const slotKey = `week-slot-${idx}-${h}`;
-                      const isDragOver = dragOverKey === slotKey;
-                      
-                      const slotEvents = filteredEvents.filter(e => {
-                        if (e.isAllDay) return false;
-                        if (getLocalDateStr(e.start) !== dateStr) return false;
-                        const eventHour = new Date(e.start).getHours();
-                        return eventHour === h;
-                      });
-
-                      return (
-                        <div
-                          key={idx}
-                          onClick={() => openAddModalWithDate(slotDateTimeStr)}
-                          onDragOver={(e) => handleDragOver(e, slotKey)}
-                          onDragLeave={handleDragLeave}
-                          onDrop={(e) => handleDrop(e, dateStr, h)}
-                          className={`border-r border-slate-100 p-1 cursor-pointer transition-colors relative group ${
-                            isDragOver ? 'bg-indigo-100/70 ring-2 ring-indigo-400' : 'hover:bg-indigo-50/30'
-                          }`}
-                        >
-                          {slotEvents.map(e => (
-                            <div
-                              key={e.id}
-                              draggable={!e.isIcal}
-                              onDragStart={(eDrag) => handleDragStart(eDrag, e.id)}
-                              onClick={eClick => handleEventClick(eClick, e)}
-                              className={`text-[11px] p-1.5 rounded border font-medium mb-1 shadow-xs cursor-pointer transition-all ${getEventStyle(e)}`}
-                              title={`${e.isIcal ? '[iCal] ' : ''}${e.title} (${formatEventTime(e)})`}
-                            >
-                              <div className="font-bold truncate">{e.isIcal ? `[iCal] ${e.title}` : e.title}</div>
-                              <div className="text-[9px] opacity-80">{formatEventTime(e)}</div>
-                            </div>
-                          ))}
-                        </div>
-                      );
-                    })}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* 3. DAY VIEW */}
-        {view === 'day' && (
-          <div className="max-w-4xl mx-auto h-full flex flex-col p-4 sm:p-6">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-200 mb-4">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-2xl bg-indigo-600 text-white flex flex-col items-center justify-center font-bold shadow-md">
-                  <span className="text-xs uppercase leading-none">{['日', '月', '火', '水', '木', '金', '土'][currentDate.getDay()]}</span>
-                  <span className="text-lg leading-none mt-0.5">{currentDate.getDate()}</span>
+        {calendarMode === 'team' ? (
+          renderTeamView()
+        ) : (
+          <>
+            {/* 1. MONTH VIEW */}
+            {view === 'month' && (
+              <div className="min-w-[700px] h-full flex flex-col">
+                <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50 shrink-0">
+                  {['日', '月', '火', '水', '木', '金', '土'].map((d, idx) => (
+                    <div key={d} className={`py-2.5 text-center text-xs font-bold tracking-wider ${idx === 0 ? 'text-red-500' : idx === 6 ? 'text-blue-500' : 'text-slate-500'}`}>{d}</div>
+                  ))}
                 </div>
-                <div>
-                  <h3 className="text-lg font-bold text-slate-800">{getHeaderTitle()}の予定</h3>
-                  <p className="text-xs text-slate-500">予定のクリックで詳細確認・編集を行えます</p>
+                <div className="flex-1 grid grid-cols-7 grid-rows-5 lg:grid-rows-6">
+                  {days.slice(0, 35).map((day, i) => {
+                    const isToday = day === new Date().getDate() && month === new Date().getMonth() && year === new Date().getFullYear();
+                    const cellDateStr = day ? `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}` : null;
+                    const cellEvents = cellDateStr ? filteredEvents.filter(e => getLocalDateStr(e.start) === cellDateStr) : [];
+                    const cellKey = `month-cell-${i}`;
+                    const isDragOver = dragOverKey === cellKey;
+                    
+                    return (
+                      <div
+                        key={i}
+                        onClick={() => cellDateStr && openAddModalWithDate(cellDateStr)}
+                        onDragOver={(e) => cellDateStr && handleDragOver(e, cellKey)}
+                        onDragLeave={handleDragLeave}
+                        onDrop={(e) => cellDateStr && handleDrop(e, cellDateStr)}
+                        className={`border-b border-r border-slate-100 p-1.5 min-h-[100px] group relative transition-colors ${
+                          !day ? 'bg-slate-50/50' : isDragOver ? 'bg-indigo-100/70 ring-2 ring-indigo-400' : 'hover:bg-indigo-50/20 cursor-pointer'
+                        }`}
+                      >
+                        {day && (
+                          <div className="h-full flex flex-col">
+                            <div className="flex items-center justify-between mb-1.5">
+                              <div className={`text-xs font-semibold w-6 h-6 flex items-center justify-center rounded-full ${isToday ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-700'}`}>
+                                {day}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); openAddModalWithDate(cellDateStr!); }}
+                                className="opacity-0 group-hover:opacity-100 p-0.5 text-indigo-600 hover:bg-indigo-100 rounded transition-all"
+                                title="この日に予定を追加"
+                              >
+                                <Plus className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                            <div className="flex-1 space-y-1 overflow-y-auto pr-1">
+                              {cellEvents.map(e => (
+                                <div
+                                  key={e.id}
+                                  draggable={!e.isIcal}
+                                  onDragStart={(eDrag) => handleDragStart(eDrag, e.id)}
+                                  onClick={(eClick) => handleEventClick(eClick, e)}
+                                  className={`text-[10px] px-1.5 py-0.5 rounded truncate border font-medium cursor-pointer transition-all shadow-xs ${getEventStyle(e)}`}
+                                  title={`${e.isIcal ? '[iCal連携] ' : ''}${e.title} (${formatEventTime(e)})`}
+                                >
+                                  <span className="font-bold mr-1">
+                                    {e.isIcal ? '[iCal]' : e.isAllDay ? '[終日]' : new Date(e.start).toLocaleTimeString('ja-JP', {hour: '2-digit', minute:'2-digit'})}
+                                  </span>
+                                  {e.title}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
-              <button
-                onClick={() => {
-                  const dStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
-                  openAddModalWithDate(dStr);
-                }}
-                className="flex items-center gap-1 px-3.5 py-2 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 font-semibold text-xs rounded-lg transition-colors"
-              >
-                <Plus className="w-4 h-4"/>
-                この日に追加
-              </button>
-            </div>
+            )}
 
-            {/* All-Day Events */}
-            {(() => {
-              const dStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
-              const dayAllDayEvents = filteredEvents.filter(e => e.isAllDay && getLocalDateStr(e.start) === dStr);
-              if (dayAllDayEvents.length === 0) return null;
-              return (
-                <div className="mb-6 p-4 bg-slate-50 rounded-xl border border-slate-200">
-                  <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    <Clock className="w-3.5 h-3.5 text-slate-400" />
-                    終日の予定
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {dayAllDayEvents.map(e => (
+            {/* 2. WEEK VIEW */}
+            {view === 'week' && (
+              <div className="min-w-[800px] h-full flex flex-col">
+                {/* Week Header */}
+                <div className="grid grid-cols-8 border-b border-slate-200 bg-slate-50 shrink-0 sticky top-0 z-10">
+                  <div className="py-3 px-2 text-center text-xs font-bold text-slate-400 border-r border-slate-200">時間</div>
+                  {weekDays.map((d, idx) => {
+                    const isToday = isSameDay(d, new Date());
+                    const dayName = ['日', '月', '火', '水', '木', '金', '土'][d.getDay()];
+                    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                    return (
                       <div
-                        key={e.id}
-                        draggable={!e.isIcal}
-                        onDragStart={(eDrag) => handleDragStart(eDrag, e.id)}
-                        onClick={eClick => handleEventClick(eClick, e)}
-                        className={`p-3 rounded-lg border font-semibold cursor-pointer transition-all ${getEventStyle(e)}`}
-                        title="クリックで詳細"
+                        key={idx}
+                        onClick={() => openAddModalWithDate(dateStr)}
+                        className={`py-2 px-1 text-center border-r border-slate-200 cursor-pointer hover:bg-indigo-50/40 transition-colors ${isToday ? 'bg-indigo-50/60' : ''}`}
                       >
-                        <div className="flex items-center justify-between">
-                          <span>{e.isIcal ? `[iCal] ${e.title}` : e.title}</span>
-                          <span className="text-[10px] px-2 py-0.5 bg-white/60 rounded-full">{e.isIcal ? 'iCal連携' : typeLabels[e.type]}</span>
+                        <div className={`text-xs font-semibold ${idx === 0 ? 'text-red-500' : idx === 6 ? 'text-blue-500' : 'text-slate-500'}`}>{dayName}</div>
+                        <div className={`text-sm font-bold mt-0.5 inline-flex items-center justify-center w-7 h-7 rounded-full ${isToday ? 'bg-indigo-600 text-white' : 'text-slate-800'}`}>
+                          {d.getDate()}
                         </div>
-                        {e.memo && <div className="text-xs font-normal mt-1 opacity-90">{renderWithClickableLinks(e.memo)}</div>}
                       </div>
-                    ))}
-                  </div>
+                    );
+                  })}
                 </div>
-              );
-            })()}
 
-            {/* Timeline slots */}
-            <div className="space-y-2 overflow-y-auto flex-1 pr-1">
-              {hoursList.map(h => {
-                const hourFormatted = `${String(h).padStart(2, '0')}:00`;
-                const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
-                const slotDateTimeStr = `${dateStr}T${String(h).padStart(2, '0')}:00`;
-                const slotKey = `day-slot-${h}`;
-                const isDragOver = dragOverKey === slotKey;
+                {/* All-Day Events row */}
+                <div className="grid grid-cols-8 border-b border-slate-200 bg-slate-50/50 shrink-0">
+                  <div className="py-2 px-2 text-center text-[11px] font-bold text-slate-500 border-r border-slate-200 flex items-center justify-center">終日</div>
+                  {weekDays.map((d, idx) => {
+                    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                    const allDayEvs = filteredEvents.filter(e => e.isAllDay && getLocalDateStr(e.start) === dateStr);
+                    const slotKey = `week-allday-${idx}`;
+                    const isDragOver = dragOverKey === slotKey;
 
-                const dayEvents = filteredEvents.filter(e => {
-                  if (e.isAllDay) return false;
-                  if (getLocalDateStr(e.start) !== dateStr) return false;
-                  const eventHour = new Date(e.start).getHours();
-                  return eventHour === h;
-                });
-
-                return (
-                  <div
-                    key={h}
-                    onClick={() => openAddModalWithDate(slotDateTimeStr)}
-                    onDragOver={(e) => handleDragOver(e, slotKey)}
-                    onDragLeave={handleDragLeave}
-                    onDrop={(e) => handleDrop(e, dateStr, h)}
-                    className={`flex gap-4 p-3 rounded-xl border transition-colors cursor-pointer group ${
-                      isDragOver ? 'bg-indigo-100/70 border-indigo-400 ring-2 ring-indigo-400' : 'border-slate-100 hover:border-indigo-200 hover:bg-indigo-50/20'
-                    }`}
-                  >
-                    <div className="w-16 shrink-0 text-xs font-semibold text-slate-400 pt-0.5">{hourFormatted}</div>
-                    <div className="flex-1 min-h-[32px] space-y-2">
-                      {dayEvents.length > 0 ? (
-                        dayEvents.map(e => (
+                    return (
+                      <div
+                        key={idx}
+                        onClick={() => openAddModalWithDate(dateStr)}
+                        onDragOver={(e) => handleDragOver(e, slotKey)}
+                        onDragLeave={handleDragLeave}
+                        onDrop={(e) => handleDrop(e, dateStr)}
+                        className={`p-1 border-r border-slate-200 min-h-[40px] cursor-pointer space-y-1 transition-colors ${
+                          isDragOver ? 'bg-indigo-100/70 ring-2 ring-indigo-400' : 'hover:bg-indigo-50/30'
+                        }`}
+                      >
+                        {allDayEvs.map(e => (
                           <div
                             key={e.id}
                             draggable={!e.isIcal}
                             onDragStart={(eDrag) => handleDragStart(eDrag, e.id)}
                             onClick={eClick => handleEventClick(eClick, e)}
-                            className={`p-3 rounded-lg border flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-xs cursor-pointer transition-all ${getEventStyle(e)}`}
-                            title="クリックで詳細"
+                            className={`text-[10px] px-1.5 py-0.5 rounded truncate border font-semibold cursor-pointer shadow-xs transition-all ${getEventStyle(e)}`}
+                            title={e.title}
                           >
-                            <div>
-                              <div className="font-bold text-sm text-slate-900">{e.isIcal ? `[iCal] ${e.title}` : e.title}</div>
-                              <div className="text-xs font-medium text-slate-600 mt-0.5">{formatEventTime(e)} {e.location ? `• ${e.location}` : ''}</div>
-                              {e.memo && (
-                                <div className="text-xs text-slate-700 mt-1 bg-white/50 p-1.5 rounded border border-slate-200/50">
-                                  {renderWithClickableLinks(e.memo)}
-                                </div>
-                              )}
-                            </div>
-                            <span className="text-[10px] px-2.5 py-1 rounded-md font-bold border bg-white/80 self-start sm:self-center">
-                              {e.isIcal ? 'iCal連携' : typeLabels[e.type]}
-                            </span>
+                            {e.isIcal ? `[iCal] ${e.title}` : e.title}
                           </div>
-                        ))
-                      ) : (
-                        <div className="text-xs text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity pt-0.5 flex items-center gap-1">
-                          <Plus className="w-3.5 h-3.5"/> クリックして{hourFormatted}に予定を追加
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* 4. LIST VIEW */}
-        {view === 'list' && (
-          <div className="p-6 max-w-4xl mx-auto space-y-4">
-            {filteredEvents.length > 0 ? (
-              filteredEvents.sort((a,b) => new Date(a.start).getTime() - new Date(b.start).getTime()).map(e => (
-                <div
-                  key={e.id}
-                  onClick={(eClick) => handleEventClick(eClick, e)}
-                  className="flex gap-5 p-5 rounded-xl border border-slate-200 hover:border-indigo-300 transition-all bg-white shadow-sm cursor-pointer hover:shadow-md"
-                >
-                  <div className="w-20 shrink-0 text-center flex flex-col justify-center">
-                    <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{new Date(e.start).toLocaleDateString('ja-JP', {month:'short', day:'numeric'})}</div>
-                    <div className="text-sm font-bold text-slate-800 mt-1">{formatEventTime(e)}</div>
-                  </div>
-                  <div className="w-px bg-slate-100 shrink-0 my-1"></div>
-                  <div className="flex-1 min-w-0 py-1">
-                    <div className="flex items-center gap-2 mb-1.5">
-                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold tracking-wider border ${getEventStyle(e)}`}>
-                        {e.isIcal ? 'iCal連携' : typeLabels[e.type]}
-                      </span>
-                      <h3 className="font-bold text-slate-900 truncate text-base">{e.title}</h3>
-                      {e.isIcal && <span title="iCal連携カレンダー"><LinkIcon className="w-4 h-4 text-purple-600 ml-1" /></span>}
-                    </div>
-                    {e.memo && (
-                      <div className="text-xs text-slate-700 my-2 bg-slate-50 p-2 rounded-lg border border-slate-100">
-                        {renderWithClickableLinks(e.memo)}
+                        ))}
                       </div>
-                    )}
-                    <div className="flex flex-wrap gap-4 text-xs text-slate-500 mt-2 font-medium items-center">
-                      {e.location && <div className="flex items-center gap-1.5"><MapPin className="w-4 h-4 text-slate-400"/> {e.location}</div>}
-                      {e.attendees && e.attendees.length > 0 && (
-                        <div className="flex items-center gap-1.5">
-                          <Users className="w-4 h-4 text-slate-400" />
-                          <div className="flex -space-x-1.5">
-                            {e.attendees.map(u => (
-                              <img key={u.id} src={getAvatarUrl(u.avatarUrl)} alt={u.name} title={u.name} className="w-4 h-4 rounded-full border border-white object-cover" />
-                            ))}
-                          </div>
-                          <span>({e.attendees.length}名)</span>
-                        </div>
-                      )}
-                      {e.attachments && e.attachments.length > 0 && (
-                        <div className="flex items-center gap-1 text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full text-[11px] font-semibold border border-indigo-100">
-                          <Paperclip className="w-3 h-3" />
-                          <span>添付ファイル ({e.attachments.length})</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                    );
+                  })}
                 </div>
-              ))
-            ) : (
-              <div className="text-center py-16">
-                <CalendarIcon className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-                <h3 className="text-slate-800 font-semibold mb-1">予定がありません</h3>
-                <p className="text-slate-500 text-sm">条件に一致する予定は見つかりませんでした。</p>
+
+                {/* Hourly Grid */}
+                <div className="flex-1 overflow-y-auto">
+                  {hoursList.map(h => {
+                    const hourFormatted = `${String(h).padStart(2, '0')}:00`;
+                    return (
+                      <div key={h} className="grid grid-cols-8 border-b border-slate-100 min-h-[50px]">
+                        <div className="py-2 px-2 text-center text-xs font-medium text-slate-400 border-r border-slate-200 bg-slate-50/30">
+                          {hourFormatted}
+                        </div>
+                        {weekDays.map((d, idx) => {
+                          const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                          const slotDateTimeStr = `${dateStr}T${String(h).padStart(2, '0')}:00`;
+                          const slotKey = `week-slot-${idx}-${h}`;
+                          const isDragOver = dragOverKey === slotKey;
+                          
+                          const slotEvents = filteredEvents.filter(e => {
+                            if (e.isAllDay) return false;
+                            if (getLocalDateStr(e.start) !== dateStr) return false;
+                            const eventHour = new Date(e.start).getHours();
+                            return eventHour === h;
+                          });
+
+                          return (
+                            <div
+                              key={idx}
+                              onClick={() => openAddModalWithDate(slotDateTimeStr)}
+                              onDragOver={(e) => handleDragOver(e, slotKey)}
+                              onDragLeave={handleDragLeave}
+                              onDrop={(e) => handleDrop(e, dateStr, h)}
+                              className={`border-r border-slate-100 p-1 cursor-pointer transition-colors relative group ${
+                                isDragOver ? 'bg-indigo-100/70 ring-2 ring-indigo-400' : 'hover:bg-indigo-50/30'
+                              }`}
+                            >
+                              {slotEvents.map(e => (
+                                <div
+                                  key={e.id}
+                                  draggable={!e.isIcal}
+                                  onDragStart={(eDrag) => handleDragStart(eDrag, e.id)}
+                                  onClick={eClick => handleEventClick(eClick, e)}
+                                  className={`text-[11px] p-1.5 rounded border font-medium mb-1 shadow-xs cursor-pointer transition-all ${getEventStyle(e)}`}
+                                  title={`${e.isIcal ? '[iCal] ' : ''}${e.title} (${formatEventTime(e)})`}
+                                >
+                                  <div className="font-bold truncate">{e.isIcal ? `[iCal] ${e.title}` : e.title}</div>
+                                  <div className="text-[9px] opacity-80">{formatEventTime(e)}</div>
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
-          </div>
+
+            {/* 3. DAY VIEW */}
+            {view === 'day' && (
+              <div className="max-w-4xl mx-auto h-full flex flex-col p-4 sm:p-6">
+                <div className="flex items-center justify-between pb-4 border-b border-slate-200 mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-2xl bg-indigo-600 text-white flex flex-col items-center justify-center font-bold shadow-md">
+                      <span className="text-xs uppercase leading-none">{['日', '月', '火', '水', '木', '金', '土'][currentDate.getDay()]}</span>
+                      <span className="text-lg leading-none mt-0.5">{currentDate.getDate()}</span>
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold text-slate-800">{getHeaderTitle()}の予定</h3>
+                      <p className="text-xs text-slate-500">予定のクリックで詳細確認・編集を行えます</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const dStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
+                      openAddModalWithDate(dStr);
+                    }}
+                    className="flex items-center gap-1 px-3.5 py-2 bg-indigo-55 text-indigo-700 hover:bg-indigo-100 font-semibold text-xs rounded-lg transition-colors"
+                  >
+                    <Plus className="w-4 h-4"/>
+                    この日に追加
+                  </button>
+                </div>
+
+                {/* All-Day Events */}
+                {(() => {
+                  const dStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
+                  const dayAllDayEvents = filteredEvents.filter(e => e.isAllDay && getLocalDateStr(e.start) === dStr);
+                  if (dayAllDayEvents.length === 0) return null;
+                  return (
+                    <div className="mb-6 p-4 bg-slate-50 rounded-xl border border-slate-200">
+                      <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-slate-400" />
+                        終日の予定
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {dayAllDayEvents.map(e => (
+                          <div
+                            key={e.id}
+                            draggable={!e.isIcal}
+                            onDragStart={(eDrag) => handleDragStart(eDrag, e.id)}
+                            onClick={eClick => handleEventClick(eClick, e)}
+                            className={`p-3 rounded-lg border font-semibold cursor-pointer transition-all ${getEventStyle(e)}`}
+                            title="クリックで詳細"
+                          >
+                            <div className="flex items-center justify-between">
+                              <span>{e.isIcal ? `[iCal] ${e.title}` : e.title}</span>
+                              <span className="text-[10px] px-2 py-0.5 bg-white/60 rounded-full">{e.isIcal ? 'iCal連携' : typeLabels[e.type]}</span>
+                            </div>
+                            {e.memo && <div className="text-xs font-normal mt-1 opacity-90">{renderWithClickableLinks(e.memo)}</div>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Timeline slots */}
+                <div className="space-y-2 overflow-y-auto flex-1 pr-1">
+                  {hoursList.map(h => {
+                    const hourFormatted = `${String(h).padStart(2, '0')}:00`;
+                    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
+                    const slotDateTimeStr = `${dateStr}T${String(h).padStart(2, '0')}:00`;
+                    const slotKey = `day-slot-${h}`;
+                    const isDragOver = dragOverKey === slotKey;
+
+                    const dayEvents = filteredEvents.filter(e => {
+                      if (e.isAllDay) return false;
+                      if (getLocalDateStr(e.start) !== dateStr) return false;
+                      const eventHour = new Date(e.start).getHours();
+                      return eventHour === h;
+                    });
+
+                    return (
+                      <div
+                        key={h}
+                        onClick={() => openAddModalWithDate(slotDateTimeStr)}
+                        onDragOver={(e) => handleDragOver(e, slotKey)}
+                        onDragLeave={handleDragLeave}
+                        onDrop={(e) => handleDrop(e, dateStr, h)}
+                        className={`flex gap-4 p-3 rounded-xl border transition-colors cursor-pointer group ${
+                          isDragOver ? 'bg-indigo-100/70 border-indigo-400 ring-2 ring-indigo-400' : 'border-slate-100 hover:border-indigo-200 hover:bg-indigo-50/20'
+                        }`}
+                      >
+                        <div className="w-16 shrink-0 text-xs font-semibold text-slate-400 pt-0.5">{hourFormatted}</div>
+                        <div className="flex-1 min-h-[32px] space-y-2">
+                          {dayEvents.length > 0 ? (
+                            dayEvents.map(e => (
+                              <div
+                                key={e.id}
+                                draggable={!e.isIcal}
+                                onDragStart={(eDrag) => handleDragStart(eDrag, e.id)}
+                                onClick={eClick => handleEventClick(eClick, e)}
+                                className={`p-3 rounded-lg border flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-xs cursor-pointer transition-all ${getEventStyle(e)}`}
+                                title="クリックで詳細"
+                              >
+                                <div>
+                                  <div className="font-bold text-sm text-slate-900">{e.isIcal ? `[iCal] ${e.title}` : e.title}</div>
+                                  <div className="text-xs font-medium text-slate-600 mt-0.5">{formatEventTime(e)} {e.location ? `• ${e.location}` : ''}</div>
+                                  {e.memo && (
+                                    <div className="text-xs text-slate-700 mt-1 bg-white/50 p-1.5 rounded border border-slate-200/50">
+                                      {renderWithClickableLinks(e.memo)}
+                                    </div>
+                                  )}
+                                </div>
+                                <span className="text-[10px] px-2.5 py-1 rounded-md font-bold border bg-white/80 self-start sm:self-center">
+                                  {e.isIcal ? 'iCal連携' : typeLabels[e.type]}
+                                </span>
+                              </div>
+                            ))
+                          ) : (
+                            <div className="text-xs text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity pt-0.5 flex items-center gap-1">
+                              <Plus className="w-3.5 h-3.5"/> クリックして{hourFormatted}に予定を追加
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* 4. LIST VIEW */}
+            {view === 'list' && (
+              <div className="p-6 max-w-4xl mx-auto space-y-4">
+                {filteredEvents.length > 0 ? (
+                  filteredEvents.sort((a,b) => new Date(a.start).getTime() - new Date(b.start).getTime()).map(e => (
+                    <div
+                      key={e.id}
+                      onClick={(eClick) => handleEventClick(eClick, e)}
+                      className="flex gap-5 p-5 rounded-xl border border-slate-200 hover:border-indigo-300 transition-all bg-white shadow-sm cursor-pointer hover:shadow-md"
+                    >
+                      <div className="w-20 shrink-0 text-center flex flex-col justify-center">
+                        <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{new Date(e.start).toLocaleDateString('ja-JP', {month:'short', day:'numeric'})}</div>
+                        <div className="text-sm font-bold text-slate-800 mt-1">{formatEventTime(e)}</div>
+                      </div>
+                      <div className="w-px bg-slate-100 shrink-0 my-1"></div>
+                      <div className="flex-1 min-w-0 py-1">
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold tracking-wider border ${getEventStyle(e)}`}>
+                            {e.isIcal ? 'iCal連携' : typeLabels[e.type]}
+                          </span>
+                          <h3 className="font-bold text-slate-900 truncate text-base">{e.title}</h3>
+                          {e.isIcal && <span title="iCal連携カレンダー"><LinkIcon className="w-4 h-4 text-purple-600 ml-1" /></span>}
+                        </div>
+                        {e.memo && (
+                          <div className="text-xs text-slate-700 my-2 bg-slate-50 p-2 rounded-lg border border-slate-100">
+                            {renderWithClickableLinks(e.memo)}
+                          </div>
+                        )}
+                        <div className="flex flex-wrap gap-4 text-xs text-slate-500 mt-2 font-medium items-center">
+                          {e.location && <div className="flex items-center gap-1.5"><MapPin className="w-4 h-4 text-slate-400"/> {e.location}</div>}
+                          {e.attendees && e.attendees.length > 0 && (
+                            <div className="flex items-center gap-1.5">
+                              <Users className="w-4 h-4 text-slate-400" />
+                              <div className="flex -space-x-1.5">
+                                {e.attendees.map(u => (
+                                  <img key={u.id} src={getAvatarUrl(u.avatarUrl)} alt={u.name} title={u.name} className="w-4 h-4 rounded-full border border-white object-cover" />
+                                ))}
+                              </div>
+                              <span>({e.attendees.length}名)</span>
+                            </div>
+                          )}
+                          {e.attachments && e.attachments.length > 0 && (
+                            <div className="flex items-center gap-1 text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full text-[11px] font-semibold border border-indigo-100">
+                              <Paperclip className="w-3 h-3" />
+                              <span>添付ファイル ({e.attachments.length})</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-center py-16">
+                    <CalendarIcon className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+                    <h3 className="text-slate-800 font-semibold mb-1">予定がありません</h3>
+                    <p className="text-slate-500 text-sm">条件に一致する予定は見つかりませんでした。</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -858,7 +1303,211 @@ export function Calendar({
         offices={offices}
         divisions={divisions}
         allUsers={allUsers}
+        defaultAttendees={preselectedAttendees}
       />
+
+      {/* 伝言メモ新規作成モーダル */}
+      {isMemoModalOpen && memoTargetUser && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 max-w-lg w-full shadow-xl overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in duration-200">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 shrink-0 bg-slate-50">
+              <div className="flex items-center gap-2">
+                <MessageSquare className="w-5 h-5 text-indigo-500" />
+                <h3 className="font-bold text-slate-800 text-sm">
+                  {memoTargetUser.name} さんへの伝言メモ登録
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsMemoModalOpen(false);
+                  setMemoTargetUser(null);
+                }}
+                className="p-1 rounded-lg text-slate-400 hover:bg-slate-200 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateMemo} className="flex-1 overflow-y-auto p-5 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1">
+                  宛先 (メンバー)
+                </label>
+                <div className="flex items-center gap-2 p-2.5 bg-indigo-50/50 border border-indigo-100/60 rounded-xl">
+                  <img
+                    src={getAvatarUrl(memoTargetUser.avatarUrl)}
+                    alt={memoTargetUser.name}
+                    className="w-8 h-8 rounded-full border border-slate-200"
+                    referrerPolicy="no-referrer"
+                  />
+                  <div>
+                    <p className="font-extrabold text-xs text-slate-800">{memoTargetUser.name}</p>
+                    <p className="text-[10px] text-slate-500 mt-0.5">{memoTargetUser.office}・{memoTargetUser.division}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-1">
+                    相手方の会社・組織名
+                  </label>
+                  <input
+                    type="text"
+                    value={fromCompany}
+                    onChange={(e) => setFromCompany(e.target.value)}
+                    placeholder="例: 株式会社〇〇"
+                    className="w-full text-xs font-semibold px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-1">
+                    お名前 <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={fromName}
+                    onChange={(e) => setFromName(e.target.value)}
+                    placeholder="例: 鈴木様"
+                    required
+                    className="w-full text-xs font-semibold px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1">
+                  相手方の連絡先 (電話番号など)
+                </label>
+                <div className="relative">
+                  <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400">
+                    <Phone className="w-3.5 h-3.5" />
+                  </span>
+                  <input
+                    type="text"
+                    value={fromPhone}
+                    onChange={(e) => setFromPhone(e.target.value)}
+                    placeholder="例: 090-0000-0000"
+                    className="w-full text-xs font-semibold pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-2">
+                  要件の種類
+                </label>
+                <div className="grid grid-cols-2 gap-2 text-xs font-semibold">
+                  <button
+                    type="button"
+                    onClick={() => setRequirementType('phone_called')}
+                    className={`p-2.5 rounded-lg border text-left transition-all ${
+                      requirementType === 'phone_called'
+                        ? 'bg-indigo-50 border-indigo-500 text-indigo-700 font-bold'
+                        : 'border-slate-200 hover:bg-slate-50 text-slate-700'
+                    }`}
+                  >
+                    📞 電話がありました
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRequirementType('has_message')}
+                    className={`p-2.5 rounded-lg border text-left transition-all ${
+                      requirementType === 'has_message'
+                        ? 'bg-indigo-50 border-indigo-500 text-indigo-700 font-bold'
+                        : 'border-slate-200 hover:bg-slate-50 text-slate-700'
+                    }`}
+                  >
+                    💬 伝言があります
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRequirementType('call_again')}
+                    className={`p-2.5 rounded-lg border text-left transition-all ${
+                      requirementType === 'call_again'
+                        ? 'bg-indigo-50 border-indigo-500 text-indigo-700 font-bold'
+                        : 'border-slate-200 hover:bg-slate-50 text-slate-700'
+                    }`}
+                  >
+                    🔄 再度お電話します
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRequirementType('please_call_back')}
+                    className={`p-2.5 rounded-lg border text-left transition-all ${
+                      requirementType === 'please_call_back'
+                        ? 'bg-indigo-50 border-indigo-500 text-indigo-700 font-bold'
+                        : 'border-slate-200 hover:bg-slate-50 text-slate-700'
+                    }`}
+                  >
+                    🤙 折り返し連絡下さい
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRequirementType('custom')}
+                    className={`p-2.5 rounded-lg border text-left col-span-2 transition-all ${
+                      requirementType === 'custom'
+                        ? 'bg-indigo-50 border-indigo-500 text-indigo-700 font-bold'
+                        : 'border-slate-200 hover:bg-slate-50 text-slate-700'
+                    }`}
+                  >
+                    ✏️ その他 (自由記入)
+                  </button>
+                </div>
+              </div>
+
+              {requirementType === 'custom' && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-1">
+                    カスタム要件名
+                  </label>
+                  <input
+                    type="text"
+                    value={customRequirementText}
+                    onChange={(e) => setCustomRequirementText(e.target.value)}
+                    placeholder="例: 来社予定など"
+                    className="w-full text-xs font-semibold px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800"
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1">
+                  伝言内容本文 <span className="text-rose-500">*</span>
+                </label>
+                <textarea
+                  value={content}
+                  onChange={(e) => setContent(e.target.value)}
+                  placeholder="伝言の具体的な内容を入力してください。"
+                  required
+                  rows={4}
+                  className="w-full text-xs font-semibold px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800 resize-none"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-4 border-t border-slate-100 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMemoModalOpen(false);
+                    setMemoTargetUser(null);
+                  }}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg transition-colors"
+                >
+                  キャンセル
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg transition-colors shadow-sm"
+                >
+                  送信する
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

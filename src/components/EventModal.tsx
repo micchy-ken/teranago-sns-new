@@ -15,6 +15,7 @@ interface EventModalProps {
   offices?: OfficeMaster[];
   divisions?: DivisionMaster[];
   allUsers?: User[];
+  defaultAttendees?: User[];
 }
 
 const toLocalDatetimeInput = (isoStr?: string) => {
@@ -39,6 +40,7 @@ export function EventModal({
   offices = [],
   divisions = [],
   allUsers = [],
+  defaultAttendees = [],
 }: EventModalProps) {
   const [title, setTitle] = useState('');
   const [type, setType] = useState<EventType>('personal');
@@ -108,7 +110,7 @@ export function EventModal({
         setLocation('');
         setMemo('');
         setIsGoogleSynced(false);
-        setSelectedAttendees([]);
+        setSelectedAttendees(defaultAttendees || []);
         setAttachments([]);
       } else {
         const now = new Date();
@@ -126,11 +128,11 @@ export function EventModal({
         setLocation('');
         setMemo('');
         setIsGoogleSynced(false);
-        setSelectedAttendees([]);
+        setSelectedAttendees(defaultAttendees || []);
         setAttachments([]);
       }
     }
-  }, [isOpen, editingEvent, defaultInitialDate]);
+  }, [isOpen, editingEvent, defaultInitialDate, defaultAttendees]);
 
   if (!isOpen) return null;
 

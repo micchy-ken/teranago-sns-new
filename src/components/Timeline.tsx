@@ -79,15 +79,12 @@ export function Timeline({
   // 拠点オプション一覧
   const officeOptions = useMemo(() => {
     const list = offices.map((o) => o.name);
-    if (!list.includes('名古屋')) list.push('名古屋');
     return Array.from(new Set(list));
   }, [offices]);
 
   // 部門オプション一覧
   const divisionOptions = useMemo(() => {
     const list = divisions.map((d) => d.name);
-    if (!list.includes('総務')) list.push('総務');
-    if (!list.includes('営業')) list.push('営業');
     return Array.from(new Set(list));
   }, [divisions]);
 

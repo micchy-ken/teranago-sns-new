@@ -1469,6 +1469,11 @@ export default function App() {
 
   // Handle event update
   const handleUpdateEvent = async (updatedEvent: CalendarEvent) => {
+    // 楽観的UIアップデート: 画面上の状態を即時に反映
+    const originalEvents = [...events];
+    setEvents(prev => prev.map(e => e.id === updatedEvent.id ? updatedEvent : e));
+    window.dispatchEvent(new CustomEvent('notifications_updated'));
+
     try {
       const response = await fetch(`${API_BASE_URL}/events/${updatedEvent.id}`, {
         method: 'PUT',
@@ -1494,13 +1499,16 @@ export default function App() {
         })
       });
       if (response.ok) {
+        // バックグラウンドでサーバー側の最新情報と同期
         await refetchEvents();
       } else {
-        setEvents(prev => prev.map(e => e.id === updatedEvent.id ? updatedEvent : e));
+        // 失敗した場合は元の状態にロールバック
+        setEvents(originalEvents);
       }
     } catch (err) {
-      console.error('Failed to update event via API:', err);
-      setEvents(prev => prev.map(e => e.id === updatedEvent.id ? updatedEvent : e));
+      console.error('Failed to update event via API, rolling back:', err);
+      // 失敗した場合は元の状態にロールバック
+      setEvents(originalEvents);
     } finally {
       window.dispatchEvent(new CustomEvent('notifications_updated'));
     }
@@ -2344,6 +2352,8 @@ export default function App() {
             offices={offices}
             divisions={divisions}
             initialEventId={targetEventId}
+            memos={memos}
+            onUpdateMemos={handleUpdateMemos}
           />
         )}
         {activeTab === 'workflow' && (
@@ -2423,7 +2433,11 @@ export default function App() {
             onUpdateMemo={handleUpdateMemos}
             onUpdateTopic={handleUpdateTopic}
             onUpdateApplication={(updatedApp) => {
-              setApplications(applications.map(a => a.id === updatedApp.id ? updatedApp : a));
+              if (updatedApp.status === 'approved' || updatedApp.status === 'rejected') {
+                handleWorkflowAction(updatedApp.id, updatedApp.status);
+              } else {
+                setApplications(applications.map(a => a.id === updatedApp.id ? updatedApp : a));
+              }
             }}
             onLogout={handleLogout}
             autoOpenSettings={autoOpenSettings}

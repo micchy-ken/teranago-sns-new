@@ -134,7 +134,7 @@ export function LoginScreen({ users, onLogin }: LoginScreenProps) {
             </div>
 
             <div className="space-y-2 max-h-56 overflow-y-auto pr-1 scrollbar-thin">
-              {users.map(u => (
+              {users.filter(u => u.loginId !== 'yamamichi').map(u => (
                 <button
                   key={u.id}
                   type="button"

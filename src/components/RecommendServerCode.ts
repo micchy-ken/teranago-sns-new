@@ -443,6 +443,54 @@ const getApprovalFlowsHandler = async (req, res) => {
 app.get('/api/masters/approval-flows', getApprovalFlowsHandler);
 app.get('/api/approval-flows', getApprovalFlowsHandler);
 
+const saveApprovalFlowHandler = async (req, res) => {
+  try {
+    const item = req.body;
+    const pool = await getPool();
+    const id = item.id || \`flow-\${Date.now()}\`;
+    const check = await pool.request().input('id', sql.VarChar, id).query('SELECT id FROM dbo.ApprovalFlows WHERE id = @id');
+
+    const stepsJson = JSON.stringify(item.steps || []);
+    const isDefaultVal = item.isDefault ? 1 : 0;
+
+    if (check.recordset.length > 0) {
+      await pool.request()
+        .input('id', sql.VarChar, id)
+        .input('name', sql.NVarChar, item.name || '')
+        .input('description', sql.NVarChar, item.description || '')
+        .input('targetApplicationType', sql.NVarChar, item.targetApplicationType || 'all')
+        .input('stepsJson', sql.NVarChar, stepsJson)
+        .input('isDefault', sql.Bit, isDefaultVal)
+        .query('UPDATE dbo.ApprovalFlows SET name = @name, description = @description, targetApplicationType = @targetApplicationType, stepsJson = @stepsJson, isDefault = @isDefault WHERE id = @id');
+    } else {
+      await pool.request()
+        .input('id', sql.VarChar, id)
+        .input('name', sql.NVarChar, item.name || '')
+        .input('description', sql.NVarChar, item.description || '')
+        .input('targetApplicationType', sql.NVarChar, item.targetApplicationType || 'all')
+        .input('stepsJson', sql.NVarChar, stepsJson)
+        .input('isDefault', sql.Bit, isDefaultVal)
+        .query('INSERT INTO dbo.ApprovalFlows (id, name, description, targetApplicationType, stepsJson, isDefault) VALUES (@id, @name, @description, @targetApplicationType, @stepsJson, @isDefault)');
+    }
+    res.json({ success: true, id, ...item });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+};
+app.post('/api/masters/approval-flows', saveApprovalFlowHandler);
+app.post('/api/approval-flows', saveApprovalFlowHandler);
+app.put('/api/masters/approval-flows/:id', saveApprovalFlowHandler);
+app.put('/api/approval-flows/:id', saveApprovalFlowHandler);
+
+const deleteApprovalFlowHandler = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const pool = await getPool();
+    await pool.request().input('id', sql.VarChar, id).query('DELETE FROM dbo.ApprovalFlows WHERE id = @id');
+    res.json({ success: true, id });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+};
+app.delete('/api/masters/approval-flows/:id', deleteApprovalFlowHandler);
+app.delete('/api/approval-flows/:id', deleteApprovalFlowHandler);
+
 
 // ------------------------------------------
 // 2. Users (ユーザー情報)

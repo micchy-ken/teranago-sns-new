@@ -196,6 +196,14 @@ export function MyPage({
 
   const handleSaveSettings = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!settingsForm.office) {
+      alert('所属拠点を選択してください。');
+      return;
+    }
+    if (!settingsForm.division) {
+      alert('所属部署を選択してください。');
+      return;
+    }
     if (onUpdateUser) {
       onUpdateUser(settingsForm);
     }
@@ -1166,11 +1174,11 @@ export function MyPage({
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">所属拠点</label>
                     <select
-                      value={settingsForm.office}
+                      value={settingsForm.office || ''}
                       onChange={(e) => setSettingsForm({ ...settingsForm, office: e.target.value })}
                       className="w-full px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
                     >
-                      <option value="名古屋">名古屋</option>
+                      <option value="">-- 選択してください --</option>
                       {offices.map((off) => (
                         <option key={off.id} value={off.name}>
                           {off.name}
@@ -1182,11 +1190,11 @@ export function MyPage({
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">所属部署</label>
                     <select
-                      value={settingsForm.division}
+                      value={settingsForm.division || ''}
                       onChange={(e) => setSettingsForm({ ...settingsForm, division: e.target.value })}
                       className="w-full px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-purple-900 focus:outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer"
                     >
-                      <option value="総務">総務</option>
+                      <option value="">-- 選択してください --</option>
                       {divisions.map((div) => (
                         <option key={div.id} value={div.name}>
                           {div.name}

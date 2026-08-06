@@ -215,8 +215,8 @@ export function AdminPanel({
     kanaName: '',
     loginId: '',
     password: 'test',
-    office: offices[0]?.name || '名古屋',
-    division: divisions[0]?.name || '総務',
+    office: '',
+    division: '',
     position: positions[0]?.name || '課長補佐',
     avatarUrl: '',
     email: '',
@@ -315,8 +315,8 @@ export function AdminPanel({
       kanaName: '',
       loginId: '',
       password: 'test',
-      office: offices[0]?.name || '名古屋',
-      division: divisions[0]?.name || '総務',
+      office: '',
+      division: '',
       position: positions[0]?.name || '課長補佐',
       avatarUrl: '',
       email: '',
@@ -338,8 +338,8 @@ export function AdminPanel({
       kanaName: user.kanaName || '',
       loginId: user.loginId || '',
       password: user.password || 'test',
-      office: user.office || offices[0]?.name || '名古屋',
-      division: user.division || divisions[0]?.name || '総務',
+      office: user.office || '',
+      division: user.division || '',
       position: user.position || positions[0]?.name || '課長補佐',
       avatarUrl: user.avatarUrl || '',
       email: user.email || '',
@@ -358,6 +358,14 @@ export function AdminPanel({
     e.preventDefault();
     if (!userFormData.name || !userFormData.name.trim()) {
       setUserFormError('氏名を入力してください。');
+      return;
+    }
+    if (!userFormData.office) {
+      setUserFormError('拠点を選択してください。');
+      return;
+    }
+    if (!userFormData.division) {
+      setUserFormError('部署を選択してください。');
       return;
     }
 
@@ -2609,7 +2617,7 @@ END;`}
                     onChange={(e) => setUserFormData({ ...userFormData, office: e.target.value })}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
                   >
-                    <option value="名古屋">名古屋</option>
+                    <option value="">-- 選択してください --</option>
                     {offices.map((off) => (
                       <option key={off.id} value={off.name}>
                         {off.name}
@@ -2627,7 +2635,7 @@ END;`}
                     onChange={(e) => setUserFormData({ ...userFormData, division: e.target.value })}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-purple-900 focus:outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer"
                   >
-                    <option value="総務">総務</option>
+                    <option value="">-- 選択してください --</option>
                     {divisions.map((div) => (
                       <option key={div.id} value={div.name}>
                         {div.name}
