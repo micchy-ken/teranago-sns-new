@@ -173,6 +173,7 @@ export default function App() {
   };
 
   const [activeTab, setActiveTab] = useState<AppTab>('mypage');
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [autoOpenSettings, setAutoOpenSettings] = useState(false);
 
   const handleOpenPersonalSettings = () => {
@@ -2028,64 +2029,89 @@ export default function App() {
   };
 
   const handleUpdateMemos = async (updatedMemos: any[]) => {
-    const existingIds = new Set(memos.map(m => m.id));
+    // 1. 楽観的UIアップデート: まずstateを即時更新してユーザー体験を高速化する
+    setMemos(updatedMemos);
+    window.dispatchEvent(new CustomEvent('notifications_updated'));
 
     try {
-      for (const memo of updatedMemos) {
-        if (!existingIds.has(memo.id)) {
-          // 新規メモ作成
-          const recipientStatusesJsonStr = JSON.stringify(memo.recipientStatuses);
-          await fetch(`${API_BASE_URL}/memos`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              id: memo.id,
-              senderId: userState.id,
-              receiverId: memo.toUserId || memo.toUser?.id || 'u1',
-              fromName: memo.fromName,
-              fromCompany: memo.fromCompany,
-              fromPhone: memo.fromPhone,
-              content: memo.content,
-              requirementType: memo.requirementType || 'phone_called',
-              requirementText: memo.requirementText || '',
-              recipientStatusesJson: recipientStatusesJsonStr,
-              recipient_statuses_json: recipientStatusesJsonStr,
-              recipientStatuses: recipientStatusesJsonStr,
-              details: {
-                requirementType: memo.requirementType,
-                requirementText: memo.requirementText,
-                targetOffices: memo.targetOffices,
-                targetDivisions: memo.targetDivisions,
-                recipientStatuses: memo.recipientStatuses,
-              },
-              isRead: (memo.status === 'handled' || memo.status === 'read') ? 1 : 0,
-              status: memo.status,
-              createdAt: memo.createdAt || new Date().toISOString()
-            })
-          });
-        } else {
-          // 既存メモの更新（既読・対応フラグ等）
-          const recipientStatusesJsonStr = JSON.stringify(memo.recipientStatuses);
-          await fetch(`${API_BASE_URL}/memos/${memo.id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              isRead: (memo.status === 'handled' || memo.status === 'read') ? 1 : 0,
-              status: memo.status,
-              recipientStatusesJson: recipientStatusesJsonStr,
-              recipient_statuses_json: recipientStatusesJsonStr,
-              recipientStatuses: recipientStatusesJsonStr,
-              details: {
-                requirementType: memo.requirementType,
-                requirementText: memo.requirementText,
-                targetOffices: memo.targetOffices,
-                targetDivisions: memo.targetDivisions,
-                recipientStatuses: memo.recipientStatuses,
-              }
-            })
-          });
-        }
+      // 変更があったメモ、または新規メモのみを抽出してAPIリクエストを投げる
+      const changedMemos = updatedMemos.filter(updatedMemo => {
+        const originalMemo = memos.find(m => m.id === updatedMemo.id);
+        if (!originalMemo) return true; // 新規メモ
+
+        // status または recipientStatuses の中身に変更があるか判定
+        const isStatusChanged = originalMemo.status !== updatedMemo.status;
+        const isRecipientStatusesChanged = JSON.stringify(originalMemo.recipientStatuses) !== JSON.stringify(updatedMemo.recipientStatuses);
+        
+        return isStatusChanged || isRecipientStatusesChanged;
+      });
+
+      // 変更がなければ即終了
+      if (changedMemos.length === 0) {
+        return;
       }
+
+      const existingIds = new Set(memos.map(m => m.id));
+
+      // 変更されたメモのみに対してAPIリクエストをPromise.allで並列実行
+      await Promise.all(
+        changedMemos.map(async (memo) => {
+          const recipientStatusesJsonStr = JSON.stringify(memo.recipientStatuses);
+          if (!existingIds.has(memo.id)) {
+            // 新規メモ作成
+            await fetch(`${API_BASE_URL}/memos`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                id: memo.id,
+                senderId: userState.id,
+                receiverId: memo.toUserId || memo.toUser?.id || 'u1',
+                fromName: memo.fromName,
+                fromCompany: memo.fromCompany,
+                fromPhone: memo.fromPhone,
+                content: memo.content,
+                requirementType: memo.requirementType || 'phone_called',
+                requirementText: memo.requirementText || '',
+                recipientStatusesJson: recipientStatusesJsonStr,
+                recipient_statuses_json: recipientStatusesJsonStr,
+                recipientStatuses: recipientStatusesJsonStr,
+                details: {
+                  requirementType: memo.requirementType,
+                  requirementText: memo.requirementText,
+                  targetOffices: memo.targetOffices,
+                  targetDivisions: memo.targetDivisions,
+                  recipientStatuses: memo.recipientStatuses,
+                },
+                isRead: (memo.status === 'handled' || memo.status === 'read') ? 1 : 0,
+                status: memo.status,
+                createdAt: memo.createdAt || new Date().toISOString()
+              })
+            });
+          } else {
+            // 既存メモの更新（既読・対応フラグ等）
+            await fetch(`${API_BASE_URL}/memos/${memo.id}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                isRead: (memo.status === 'handled' || memo.status === 'read') ? 1 : 0,
+                status: memo.status,
+                recipientStatusesJson: recipientStatusesJsonStr,
+                recipient_statuses_json: recipientStatusesJsonStr,
+                recipientStatuses: recipientStatusesJsonStr,
+                details: {
+                  requirementType: memo.requirementType,
+                  requirementText: memo.requirementText,
+                  targetOffices: memo.targetOffices,
+                  targetDivisions: memo.targetDivisions,
+                  recipientStatuses: memo.recipientStatuses,
+                }
+              })
+            });
+          }
+        })
+      );
+
+      // バックグラウンドで最新データを同期
       await refetchMemos();
     } catch (err) {
       console.warn('Failed to sync memos via API:', err);
@@ -2256,19 +2282,35 @@ export default function App() {
         </div>
       )}
 
-      <main className="max-w-6xl mx-auto px-4 py-8 flex flex-col lg:flex-row gap-8">
+      <main className={`mx-auto px-4 py-8 flex flex-col lg:flex-row gap-8 transition-all duration-300 ${isSidebarCollapsed ? 'max-w-[1400px]' : 'max-w-6xl'}`}>
         
-        {/* Left Sidebar Column */}
-        <aside className="hidden lg:block lg:w-64 shrink-0">
-          <Sidebar
-            posts={posts}
-            selectedTag={selectedTag}
-            onSelectTag={setSelectedTag}
-            activeTab={activeTab}
-            onChangeTab={setActiveTab}
-            currentUser={userState}
-          />
-        </aside>
+        {/* Left Sidebar Column / Restore Button */}
+        {!isSidebarCollapsed ? (
+          <aside className="hidden lg:block lg:w-64 shrink-0 transition-all duration-300">
+            <Sidebar
+              posts={posts}
+              selectedTag={selectedTag}
+              onSelectTag={setSelectedTag}
+              activeTab={activeTab}
+              onChangeTab={setActiveTab}
+              currentUser={userState}
+              onCollapse={() => setIsSidebarCollapsed(true)}
+            />
+          </aside>
+        ) : (
+          <div className="hidden lg:block shrink-0 transition-all duration-300">
+            <button
+              type="button"
+              onClick={() => setIsSidebarCollapsed(false)}
+              className="sticky top-24 p-2.5 bg-white hover:bg-slate-50 border border-slate-200 text-slate-500 hover:text-slate-700 rounded-xl shadow-xs hover:shadow-sm transition-all duration-200 flex items-center justify-center group cursor-pointer"
+              title="メニューを表示"
+            >
+              <svg className="w-4 h-4 fill-current text-indigo-600 group-hover:scale-110 transition-transform" viewBox="0 0 24 24">
+                <path d="M10 17l5-5-5-5v10z" />
+              </svg>
+            </button>
+          </div>
+        )}
 
         {/* Main Content Area */}
         {activeTab === 'timeline' && (

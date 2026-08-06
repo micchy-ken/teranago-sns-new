@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { ChatRoom, ChatMessage, User, OfficeMaster, DivisionMaster, AttachmentFile } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
 import { markChatRoomAsRead } from '../utils/notifications';
+import { API_BASE_URL } from '../config/api';
 import { 
   Search, 
   Send, 
@@ -121,7 +122,7 @@ export function Chat({
     const markAsRead = async () => {
       try {
         const promises = unreadMsgs.map(async (msg) => {
-          await fetch(`/api/chats/messages/${msg.id}/viewers`, {
+          await fetch(`${API_BASE_URL}/chats/messages/${msg.id}/viewers`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ user: currentUser })
@@ -895,6 +896,19 @@ export function Chat({
                             // 送信者を除外した既読メンバー
                             const readMembers = viewersList.filter(v => v.user.id !== msg.sender.id);
                             const readCount = readMembers.length;
+
+                            // 送信者を除いたトーク参加メンバー
+                            const otherParticipants = (activeRoom?.participants || []).filter(p => p.id !== msg.sender.id);
+                            
+                            let displayText = `[既読 ${readCount}]`;
+                            const isAllRead = otherParticipants.length > 0 && otherParticipants.every(p => readMembers.some(v => v.user.id === p.id));
+                            
+                            if (readCount === 0) {
+                              displayText = '[未読]';
+                            } else if (isAllRead) {
+                              displayText = '[全員が既読]';
+                            }
+
                             return (
                               <button
                                 type="button"
@@ -902,10 +916,14 @@ export function Chat({
                                   setSelectedMsgForViewers(msg);
                                   setViewersModalOpen(true);
                                 }}
-                                className="text-[10px] font-bold text-emerald-600 hover:underline hover:text-emerald-700 flex items-center gap-0.5 cursor-pointer bg-transparent border-none p-0"
+                                className={`text-[10px] font-bold hover:underline cursor-pointer bg-transparent border-none p-0 flex items-center gap-0.5 ${
+                                  readCount === 0 
+                                    ? 'text-slate-400 hover:text-slate-500' 
+                                    : 'text-emerald-600 hover:text-emerald-700'
+                                }`}
                                 title="既読メンバーを確認"
                               >
-                                [既読 {readCount}]
+                                {displayText}
                               </button>
                             );
                           })()}
@@ -916,11 +934,10 @@ export function Chat({
                             <button
                               type="button"
                               onClick={() => handleDeleteMessageClick(msg.id)}
-                              className="text-rose-500 hover:text-rose-700 transition-colors mt-1 font-bold flex items-center gap-0.5 cursor-pointer"
+                              className="text-slate-400 hover:text-rose-500 transition-colors mt-1 cursor-pointer flex items-center gap-0.5"
                               title="メッセージを削除"
                             >
-                              <Trash2 className="w-3 h-3" />
-                              <span>削除</span>
+                              <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           )}
                         </div>
@@ -1471,13 +1488,32 @@ export function Chat({
                 <span className="text-xs font-bold text-slate-500 truncate">
                   メッセージ: &ldquo;{selectedMsgForViewers.content || (selectedMsgForViewers.type === 'stamp' ? 'スタンプを送信しました' : 'ファイルを送信しました')}&rdquo;
                 </span>
-                <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-100 shrink-0">
-                  既読 {(() => {
-                    const viewersList = selectedMsgForViewers.viewers || [];
-                    const readMembers = viewersList.filter(v => v.user.id !== selectedMsgForViewers.sender.id);
-                    return readMembers.length;
-                  })()} 名
-                </span>
+                {(() => {
+                  const viewersList = selectedMsgForViewers.viewers || [];
+                  const readMembers = viewersList.filter(v => v.user.id !== selectedMsgForViewers.sender.id);
+                  const otherParticipants = (activeRoom?.participants || []).filter(p => p.id !== selectedMsgForViewers.sender.id);
+                  const isAllRead = otherParticipants.length > 0 && otherParticipants.every(p => readMembers.some(v => v.user.id === p.id));
+                  
+                  if (readMembers.length === 0) {
+                    return (
+                      <span className="text-xs font-bold text-slate-400 bg-slate-50 px-2 py-0.5 rounded-lg border border-slate-200 shrink-0">
+                        未読
+                      </span>
+                    );
+                  }
+                  if (isAllRead) {
+                    return (
+                      <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-100 shrink-0">
+                        全員が既読
+                      </span>
+                    );
+                  }
+                  return (
+                    <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-100 shrink-0">
+                      既読 {readMembers.length} 名
+                    </span>
+                  );
+                })()}
               </div>
 
               <div className="grid grid-cols-1 gap-2.5 max-h-80 overflow-y-auto pr-1">
