@@ -376,7 +376,8 @@ BEGIN
         avatarUrl NVARCHAR(500) NULL,
         lastMessage NVARCHAR(MAX) NULL,
         updatedAt DATETIME DEFAULT GETDATE(),
-        last_updated DATETIME DEFAULT GETDATE()
+        last_updated DATETIME DEFAULT GETDATE(),
+        participantsJson NVARCHAR(MAX) NULL
     );
 END
 ELSE
@@ -386,6 +387,7 @@ BEGIN
     IF COL_LENGTH('dbo.ChatRooms', 'lastMessage') IS NULL ALTER TABLE dbo.ChatRooms ADD lastMessage NVARCHAR(MAX) NULL;
     IF COL_LENGTH('dbo.ChatRooms', 'updatedAt') IS NULL ALTER TABLE dbo.ChatRooms ADD updatedAt DATETIME DEFAULT GETDATE();
     IF COL_LENGTH('dbo.ChatRooms', 'last_updated') IS NULL ALTER TABLE dbo.ChatRooms ADD last_updated DATETIME DEFAULT GETDATE();
+    IF COL_LENGTH('dbo.ChatRooms', 'participantsJson') IS NULL ALTER TABLE dbo.ChatRooms ADD participantsJson NVARCHAR(MAX) NULL;
 
     -- Relax constraint on last_updated if it exists in legacy schema
     IF COL_LENGTH('dbo.ChatRooms', 'last_updated') IS NOT NULL
@@ -411,7 +413,8 @@ BEGIN
         message NVARCHAR(MAX) NULL,
         content NVARCHAR(MAX) NULL,
         createdAt DATETIME DEFAULT GETDATE(),
-        attachments NVARCHAR(MAX) NULL
+        attachments NVARCHAR(MAX) NULL,
+        viewersJson NVARCHAR(MAX) NULL
     );
 END
 ELSE
@@ -422,6 +425,7 @@ BEGIN
     IF COL_LENGTH('dbo.ChatMessages', 'content') IS NULL ALTER TABLE dbo.ChatMessages ADD content NVARCHAR(MAX) NULL;
     IF COL_LENGTH('dbo.ChatMessages', 'createdAt') IS NULL ALTER TABLE dbo.ChatMessages ADD createdAt DATETIME DEFAULT GETDATE();
     IF COL_LENGTH('dbo.ChatMessages', 'attachments') IS NULL ALTER TABLE dbo.ChatMessages ADD attachments NVARCHAR(MAX) NULL;
+    IF COL_LENGTH('dbo.ChatMessages', 'viewersJson') IS NULL ALTER TABLE dbo.ChatMessages ADD viewersJson NVARCHAR(MAX) NULL;
 
     -- Relax constraints if exist in legacy schema
     IF COL_LENGTH('dbo.ChatMessages', 'content') IS NOT NULL

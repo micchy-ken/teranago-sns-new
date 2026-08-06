@@ -214,6 +214,7 @@ export interface ChatMessage {
   stampText?: string;
   stampCategory?: string;
   attachments?: AttachmentFile[];
+  viewers?: BoardViewer[];
 }
 
 export interface ChatRoom {

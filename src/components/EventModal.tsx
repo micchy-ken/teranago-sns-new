@@ -492,14 +492,23 @@ export function EventModal({
                 {attachments.map(att => (
                   <div
                     key={att.id}
-                    className="flex items-center justify-between p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs"
+                    className="flex items-center justify-between p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs animate-in fade-in-50 duration-200"
                   >
-                    <div className="flex items-center gap-2 min-w-0">
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
                       <Paperclip className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                      <span className="font-semibold text-slate-700 truncate">{att.name}</span>
-                      <span className="text-[10px] text-slate-400">({att.size})</span>
+                      <a
+                        href={att.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        download={att.name}
+                        className="font-semibold text-indigo-600 hover:text-indigo-800 hover:underline truncate"
+                        title="クリックしてファイルをダウンロード・表示"
+                      >
+                        {att.name}
+                      </a>
+                      <span className="text-[10px] text-slate-400 shrink-0">({att.size})</span>
                     </div>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 shrink-0 ml-2">
                       {(att.type?.startsWith('image/') || /\.pdf$/i.test(att.name) || /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(att.name)) && (
                         <button
                           type="button"
@@ -512,11 +521,22 @@ export function EventModal({
                           プレビュー
                         </button>
                       )}
+                      <a
+                        href={att.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        download={att.name}
+                        className="px-2 py-0.5 text-[10px] font-bold text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors"
+                        title="ファイルをダウンロード"
+                      >
+                        ダウンロード
+                      </a>
                       <button
                         type="button"
                         disabled={isUploading}
                         onClick={() => handleRemoveAttachment(att.id)}
                         className="text-slate-400 hover:text-red-600 p-0.5 rounded transition-colors disabled:opacity-50"
+                        title="添付を削除"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>

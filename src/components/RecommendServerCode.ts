@@ -1416,29 +1416,39 @@ app.get('/api/chats', async (req, res) => {
       ORDER BY m.createdAt ASC
     \`;
 
-    const rooms = (roomsResult.recordset || []).map(r => ({
-      id: String(r.id),
-      name: r.name,
-      type: r.type,
-      avatarUrl: r.avatarUrl || null,
-      lastMessage: r.lastMessage || '',
-      updatedAt: r.updatedAt,
-      messages: (msgsResult.recordset || [])
-        .filter(m => String(m.roomId) === String(r.id))
-        .map(m => ({
-          id: String(m.id),
-          roomId: String(m.roomId),
-          sender: {
-            id: m.senderId,
-            name: m.senderName || '不明',
-            avatarUrl: m.senderAvatar || '',
-            department: m.senderDepartment || ''
-          },
-          content: m.message,
-          createdAt: m.createdAt,
-          attachments: safeParseJSON(m.attachments || m.attachmentsJson, [])
-        }))
-    }));
+    const rooms = (roomsResult.recordset || []).map(r => {
+      const participants = safeParseJSON(r.participantsJson || r.participants, []);
+      return {
+        id: String(r.id),
+        name: r.name,
+        type: r.type,
+        avatarUrl: r.avatarUrl || null,
+        lastMessage: r.lastMessage || '',
+        updatedAt: r.updatedAt,
+        participants: participants,
+        messages: (msgsResult.recordset || [])
+          .filter(m => String(m.roomId) === String(r.id))
+          .map(m => ({
+            id: String(m.id),
+            roomId: String(m.roomId),
+            sender: {
+              id: m.senderId,
+              name: m.senderName || '不明',
+              avatarUrl: m.senderAvatar || '',
+              department: m.senderDepartment || ''
+            },
+            content: m.message || m.content || '',
+            createdAt: m.createdAt,
+            type: m.type || 'text',
+            imageUrl: m.imageUrl || null,
+            stampId: m.stampId || null,
+            stampText: m.stampText || null,
+            stampCategory: m.stampCategory || null,
+            attachments: safeParseJSON(m.attachments || m.attachmentsJson, []),
+            viewers: safeParseJSON(m.viewersJson || m.viewers, [])
+          }))
+      };
+    });
     res.json(rooms);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1447,14 +1457,118 @@ app.get('/api/chats/rooms', async (req, res) => {
   app._router.handle({ ...req, method: 'GET', url: '/api/chats' }, res);
 });
 
+// 新規チャットルーム作成専用のエンドポイント
+app.post('/api/chats/rooms', async (req, res) => {
+  try {
+    const { id, name, type, avatarUrl, participants } = req.body;
+    const pool = await getPool();
+    const roomId = id || \`c_\${Date.now()}\`;
+    const roomName = name || (type === 'dm' ? 'ダイレクトトーク' : 'グループトーク');
+    const roomType = type || 'group';
+    const participantsStr = participants ? (typeof participants === 'object' ? JSON.stringify(participants) : participants) : '[]';
+
+    let inserted = false;
+    try {
+      await pool.request()
+        .input('id', sql.VarChar, roomId)
+        .input('name', sql.NVarChar, roomName)
+        .input('type', sql.NVarChar, roomType)
+        .input('avatarUrl', sql.VarChar, avatarUrl || null)
+        .input('participantsJson', sql.NVarChar, participantsStr)
+        .query(\`
+          INSERT INTO dbo.ChatRooms (id, name, type, avatarUrl, lastMessage, updatedAt, last_updated, participantsJson)
+          VALUES (@id, @name, @type, @avatarUrl, '', GETDATE(), GETDATE(), @participantsJson)
+        \`);
+      inserted = true;
+    } catch (err) {
+      try {
+        await pool.request()
+          .input('id', sql.VarChar, roomId)
+          .input('name', sql.NVarChar, roomName)
+          .input('type', sql.NVarChar, roomType)
+          .input('avatarUrl', sql.VarChar, avatarUrl || null)
+          .query(\`
+            INSERT INTO dbo.ChatRooms (id, name, type, avatarUrl, lastMessage, updatedAt, last_updated)
+            VALUES (@id, @name, @type, @avatarUrl, '', GETDATE(), GETDATE())
+          \`);
+        inserted = true;
+      } catch (err2) {}
+    }
+
+    if (inserted) {
+      res.status(201).json({ success: true, id: roomId, message: 'チャットルーム作成完了' });
+    } else {
+      res.status(500).json({ error: 'ChatRooms へのインサートに失敗しました。' });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 const handlePostChatMessage = async (req, res) => {
   try {
-    const { senderId, roomId, message, content, attachments } = req.body;
+    const { senderId, roomId, message, content, attachments, roomName, roomType, participants, type, imageUrl, stampId, stampText, stampCategory } = req.body;
     const msgContent = message || content || '';
     const pool = await getPool();
     const id = req.body.id || \`c-\${Date.now()}\`;
     const targetRoomId = roomId || 'r1';
     const attachStr = attachments ? (typeof attachments === 'object' ? JSON.stringify(attachments) : attachments) : null;
+    const msgType = type || 'text';
+
+    // トークルームの自動生成（存在しない場合）
+    const roomCheck = await pool.request()
+      .input('roomId', sql.VarChar, String(targetRoomId))
+      .query('SELECT 1 FROM dbo.ChatRooms WHERE id = @roomId');
+
+    if ((roomCheck.recordset || []).length === 0) {
+      const rName = roomName || (roomType === 'dm' ? 'ダイレクトトーク' : '新規グループトーク');
+      const rType = roomType || 'group';
+      const participantsStr = participants ? (typeof participants === 'object' ? JSON.stringify(participants) : participants) : '[]';
+
+      try {
+        await pool.request()
+          .input('roomId', sql.VarChar, String(targetRoomId))
+          .input('name', sql.NVarChar, rName)
+          .input('type', sql.NVarChar, rType)
+          .input('participantsJson', sql.NVarChar, participantsStr)
+          .query(\`
+            INSERT INTO dbo.ChatRooms (id, name, type, lastMessage, updatedAt, last_updated, participantsJson)
+            VALUES (@roomId, @name, @type, '', GETDATE(), GETDATE(), @participantsJson)
+          \`);
+      } catch (err) {
+        try {
+          await pool.request()
+            .input('roomId', sql.VarChar, String(targetRoomId))
+            .input('name', sql.NVarChar, rName)
+            .input('type', sql.NVarChar, rType)
+            .query(\`
+              INSERT INTO dbo.ChatRooms (id, name, type, lastMessage, updatedAt, last_updated)
+              VALUES (@roomId, @name, @type, '', GETDATE(), GETDATE())
+            \`);
+        } catch (err2) {}
+      }
+    }
+
+    // 送信者を最初の閲覧者にする
+    let initialViewers = [];
+    if (senderId) {
+      const userRes = await pool.request()
+        .input('userId', sql.VarChar, senderId)
+        .query('SELECT id, name, avatarUrl, department FROM dbo.Users WHERE id = @userId');
+      if (userRes.recordset && userRes.recordset.length > 0) {
+        const u = userRes.recordset[0];
+        initialViewers.push({
+          user: {
+            id: u.id,
+            name: u.name,
+            avatarUrl: u.avatarUrl || '',
+            department: u.department || ''
+          },
+          viewedAt: new Date().toISOString()
+        });
+      }
+    }
+    const viewersStr = JSON.stringify(initialViewers);
 
     await pool.request()
       .input('id', sql.VarChar, String(id))
@@ -1463,9 +1577,15 @@ const handlePostChatMessage = async (req, res) => {
       .input('message', sql.NVarChar, msgContent)
       .input('content', sql.NVarChar, msgContent)
       .input('attachments', sql.NVarChar, attachStr)
+      .input('type', sql.VarChar, msgType)
+      .input('imageUrl', sql.NVarChar, imageUrl || null)
+      .input('stampId', sql.VarChar, stampId || null)
+      .input('stampText', sql.NVarChar, stampText || null)
+      .input('stampCategory', sql.NVarChar, stampCategory || null)
+      .input('viewersJson', sql.NVarChar, viewersStr)
       .query\`
-        INSERT INTO dbo.ChatMessages (id, senderId, roomId, message, content, createdAt, attachments) 
-        VALUES (@id, @senderId, @roomId, @message, @content, GETDATE(), @attachments)
+        INSERT INTO dbo.ChatMessages (id, senderId, roomId, message, content, createdAt, attachments, type, imageUrl, stampId, stampText, stampCategory, viewersJson) 
+        VALUES (@id, @senderId, @roomId, @message, @content, GETDATE(), @attachments, @type, @imageUrl, @stampId, @stampText, @stampCategory, @viewersJson)
       \`;
 
     await pool.request()
@@ -1481,6 +1601,40 @@ const handlePostChatMessage = async (req, res) => {
 
 app.post('/api/chats', handlePostChatMessage);
 app.post('/api/chats/message', handlePostChatMessage);
+
+// メッセージ既読追加用のエンドポイント
+app.post('/api/chats/messages/:messageId/viewers', async (req, res) => {
+  const { messageId } = req.params;
+  const { user } = req.body;
+  if (!user || !user.id) {
+    return res.status(400).json({ success: false, error: 'User is required' });
+  }
+  try {
+    const pool = await getPool();
+    const result = await pool.request()
+      .input('messageId', sql.VarChar, messageId)
+      .query('SELECT viewersJson FROM dbo.ChatMessages WHERE id = @messageId');
+    
+    if (result.recordset && result.recordset.length > 0) {
+      const currentViewers = safeParseJSON(result.recordset[0].viewersJson, []);
+      const alreadyExists = currentViewers.some(v => v.user.id === user.id);
+      if (!alreadyExists) {
+        const newViewers = [...currentViewers, { user, viewedAt: new Date().toISOString() }];
+        await pool.request()
+          .input('messageId', sql.VarChar, messageId)
+          .input('viewersJson', sql.NVarChar, JSON.stringify(newViewers))
+          .query('UPDATE dbo.ChatMessages SET viewersJson = @viewersJson WHERE id = @messageId');
+        return res.status(200).json({ success: true, viewers: newViewers });
+      }
+      return res.status(200).json({ success: true, viewers: currentViewers, message: 'Already marked as read' });
+    } else {
+      return res.status(404).json({ success: false, error: 'Message not found' });
+    }
+  } catch (err) {
+    console.error('Failed to update chat message viewers:', err);
+    res.status(500).json({ success: false, error: 'サーバーエラーが発生しました。' });
+  }
+});
 
 // チャットルーム削除用のエンドポイント
 app.delete('/api/chats/:roomId', async (req, res) => {
@@ -1506,6 +1660,52 @@ app.delete('/api/chats/:roomId', async (req, res) => {
     res.status(200).json({ success: true, message: 'チャットルームとメッセージを削除しました。' });
   } catch (err) {
     console.error('Failed to delete chat room:', err);
+    res.status(500).json({ success: false, error: 'サーバーエラーが発生しました。' });
+  }
+});
+
+// 個別のチャットメッセージ削除用のエンドポイント
+app.delete('/api/chats/messages/:messageId', async (req, res) => {
+  const { messageId } = req.params;
+  try {
+    const pool = await getPool();
+    
+    // 対象メッセージの roomId を取得
+    const msgResult = await pool.request()
+      .input('messageId', sql.VarChar, messageId)
+      .query('SELECT roomId FROM dbo.ChatMessages WHERE id = @messageId');
+    
+    if (msgResult.recordset && msgResult.recordset.length > 0) {
+      const roomId = msgResult.recordset[0].roomId;
+      
+      // メッセージの削除
+      await pool.request()
+        .input('messageId', sql.VarChar, messageId)
+        .query('DELETE FROM dbo.ChatMessages WHERE id = @messageId');
+        
+      // 部屋に残っている最新メッセージを取得
+      const latestResult = await pool.request()
+        .input('roomId', sql.VarChar, roomId)
+        .query('SELECT TOP 1 message FROM dbo.ChatMessages WHERE roomId = @roomId ORDER BY createdAt DESC');
+        
+      const lastMsg = (latestResult.recordset && latestResult.recordset.length > 0) 
+        ? latestResult.recordset[0].message 
+        : '';
+        
+      // チャットルームの最終メッセージと更新日時を更新
+      await pool.request()
+        .input('roomId', sql.VarChar, roomId)
+        .input('lastMessage', sql.NVarChar, lastMsg)
+        .query('UPDATE dbo.ChatRooms SET lastMessage = @lastMessage, updatedAt = GETDATE(), last_updated = GETDATE() WHERE id = @roomId');
+    } else {
+      await pool.request()
+        .input('messageId', sql.VarChar, messageId)
+        .query('DELETE FROM dbo.ChatMessages WHERE id = @messageId');
+    }
+
+    res.status(200).json({ success: true, message: 'メッセージを削除しました。' });
+  } catch (err) {
+    console.error('Failed to delete chat message:', err);
     res.status(500).json({ success: false, error: 'サーバーエラーが発生しました。' });
   }
 });

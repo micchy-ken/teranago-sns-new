@@ -29,7 +29,7 @@ import {
   Eye
 } from 'lucide-react';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
-import { uploadMultipleFiles } from '../utils/fileUpload';
+import { uploadMultipleFiles, uploadFile } from '../utils/fileUpload';
 import { FilePreviewModal } from './FilePreviewModal';
 
 interface ChatProps {
@@ -40,7 +40,9 @@ interface ChatProps {
   divisions?: DivisionMaster[];
   onUpdateRooms?: (rooms: ChatRoom[]) => void;
   onDeleteRoom?: (roomId: string) => void;
+  onDeleteMessage?: (roomId: string, messageId: string) => void;
   initialRoomId?: string;
+  refetchRooms?: () => void;
 }
 
 // スタンプの定義
@@ -79,14 +81,6 @@ const STAMP_CATEGORIES = [
   }
 ];
 
-// サンプル写真プリセット（即時送信・テスト用）
-const PRESET_PHOTOS = [
-  { id: 'p1', name: '現場写真', url: 'https://images.unsplash.com/photo-1541888946425-d0fbb186a5b7?w=800&auto=format&fit=crop&q=80' },
-  { id: 'p2', name: '資料・納品書', url: 'https://images.unsplash.com/photo-1531403009284-440f080d1e12?w=800&auto=format&fit=crop&q=80' },
-  { id: 'p3', name: 'オフィス風景', url: 'https://images.unsplash.com/photo-1497366216548-37526070297c?w=800&auto=format&fit=crop&q=80' },
-  { id: 'p4', name: 'CAD・図面イメージ', url: 'https://images.unsplash.com/photo-1503387762-592deb58ef4e?w=800&auto=format&fit=crop&q=80' },
-];
-
 export function Chat({
   rooms,
   users,
@@ -95,10 +89,56 @@ export function Chat({
   divisions = [],
   onUpdateRooms,
   onDeleteRoom,
-  initialRoomId
+  onDeleteMessage,
+  initialRoomId,
+  refetchRooms
 }: ChatProps) {
   const [activeRoomId, setActiveRoomId] = useState<string>(rooms[0]?.id || '');
   const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
+
+  // 閲覧メンバーモーダル用
+  const [viewersModalOpen, setViewersModalOpen] = useState(false);
+  const [selectedMsgForViewers, setSelectedMsgForViewers] = useState<ChatMessage | null>(null);
+
+  const activeRoom = rooms.find((r) => r.id === activeRoomId) || rooms[0];
+
+  // 未読メッセージを自動で既読にする
+  useEffect(() => {
+    if (!activeRoom || !currentUser) return;
+    const messages = activeRoom.messages || [];
+
+    // 自分以外のメッセージで、自分がまだ既読になっていないメッセージ
+    const unreadMsgs = messages.filter(msg => {
+      const isMine = msg.sender.id === currentUser.id;
+      if (isMine) return false;
+      const viewers = msg.viewers || [];
+      const alreadyRead = viewers.some(v => v.user.id === currentUser.id);
+      return !alreadyRead;
+    });
+
+    if (unreadMsgs.length === 0) return;
+
+    const markAsRead = async () => {
+      try {
+        const promises = unreadMsgs.map(async (msg) => {
+          await fetch(`/api/chats/messages/${msg.id}/viewers`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user: currentUser })
+          });
+        });
+        await Promise.all(promises);
+
+        if (refetchRooms) {
+          refetchRooms();
+        }
+      } catch (err) {
+        console.error('Failed to mark messages as read:', err);
+      }
+    };
+
+    markAsRead();
+  }, [activeRoom?.id, activeRoom?.messages?.length, currentUser]);
 
   const handleDeleteRoomClick = (roomId: string) => {
     setConfirmModal({
@@ -119,6 +159,22 @@ export function Chat({
           } else {
             setActiveRoomId('');
           }
+        }
+      }
+    });
+  };
+
+  const handleDeleteMessageClick = (messageId: string) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'メッセージの削除',
+      message: 'このメッセージを削除してもよろしいですか？この操作は取り消せません。',
+      type: 'danger',
+      confirmText: '削除する',
+      cancelText: 'キャンセル',
+      onConfirm: () => {
+        if (onDeleteMessage && activeRoom) {
+          onDeleteMessage(activeRoom.id, messageId);
         }
       }
     });
@@ -149,7 +205,6 @@ export function Chat({
   const [showAddMemberModal, setShowAddMemberModal] = useState(false);
   const [showInfoSidebar, setShowInfoSidebar] = useState(false);
   const [showStampPicker, setShowStampPicker] = useState(false);
-  const [showPhotoPicker, setShowPhotoPicker] = useState(false);
   const [activeStampCategory, setActiveStampCategory] = useState('greeting');
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
 
@@ -179,13 +234,38 @@ export function Chat({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // チャットスクロール用Ref
+  const chatContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  const activeRoom = rooms.find((r) => r.id === activeRoomId) || rooms[0];
+  const prevRoomIdRef = useRef<string | null>(null);
+  const prevMessagesLengthRef = useRef<number>(0);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [activeRoom?.messages]);
+    const container = chatContainerRef.current;
+    if (!container || !activeRoom) return;
+
+    const messages = activeRoom.messages || [];
+    const roomChanged = prevRoomIdRef.current !== activeRoom.id;
+    const msgCount = messages.length;
+    const lengthIncreased = msgCount > prevMessagesLengthRef.current;
+    
+    // 最終メッセージが自分のものであるか確認
+    const lastMessage = messages[msgCount - 1];
+    const sentByMe = lastMessage && lastMessage.sender.id === currentUser.id;
+
+    if (roomChanged) {
+      // 部屋が変わったときは瞬時に一番下へスクロール
+      container.scrollTop = container.scrollHeight;
+    } else if (lengthIncreased) {
+      const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 150;
+      if (sentByMe || isNearBottom) {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }
+    }
+
+    // 次回の比較のためにリファレンスを更新
+    prevRoomIdRef.current = activeRoom.id;
+    prevMessagesLengthRef.current = msgCount;
+  }, [activeRoom?.messages, activeRoom?.id, currentUser?.id]);
 
   // トークルーム名・アイコン取得
   const getRoomName = (room: ChatRoom) => {
@@ -294,22 +374,25 @@ export function Chat({
     updateRoomMessages(activeRoom.id, newMessage);
     setPendingPhotoUrl(null);
     setPhotoCaption('');
-    setShowPhotoPicker(false);
   };
 
   // 写真ローカルファイル選択
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      if (event.target?.result) {
-        setPendingPhotoUrl(event.target.result as string);
-      }
-    };
-    reader.readAsDataURL(file);
-    e.target.value = '';
+    setIsChatUploading(true);
+    try {
+      const uploaded = await uploadFile(file);
+      setPendingPhotoUrl(uploaded.url);
+    } catch (err) {
+      console.error(err);
+      const localUrl = URL.createObjectURL(file);
+      setPendingPhotoUrl(localUrl);
+    } finally {
+      setIsChatUploading(false);
+      e.target.value = '';
+    }
   };
 
   // ルーム内のメッセージ更新
@@ -663,7 +746,7 @@ export function Chat({
 
           <div className="flex-1 flex overflow-hidden">
             {/* メッセージ本文エリア (LINEスタイルトーク画面) */}
-            <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 bg-[#e2e8f0]/40">
+            <div ref={chatContainerRef} className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 bg-[#e2e8f0]/40">
               {(activeRoom?.messages || []).map((msg, index) => {
                 const isMine = msg.sender.id === currentUser.id;
                 const isSystem = msg.id.startsWith('sys_') || msg.id.startsWith('m_init_');
@@ -807,14 +890,39 @@ export function Chat({
 
                         {/* 既読 & タイムスタンプ */}
                         <div className={`flex flex-col text-[10px] text-slate-400 shrink-0 mb-0.5 ${isMine ? 'items-end' : 'items-start'}`}>
-                          {isMine && (
-                            <span className="text-[10px] font-bold text-emerald-600 flex items-center gap-0.5">
-                              既読
-                            </span>
-                          )}
+                          {(() => {
+                            const viewersList = msg.viewers || [];
+                            // 送信者を除外した既読メンバー
+                            const readMembers = viewersList.filter(v => v.user.id !== msg.sender.id);
+                            const readCount = readMembers.length;
+                            return (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedMsgForViewers(msg);
+                                  setViewersModalOpen(true);
+                                }}
+                                className="text-[10px] font-bold text-emerald-600 hover:underline hover:text-emerald-700 flex items-center gap-0.5 cursor-pointer bg-transparent border-none p-0"
+                                title="既読メンバーを確認"
+                              >
+                                [既読 {readCount}]
+                              </button>
+                            );
+                          })()}
                           <span>
                             {new Date(msg.createdAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}
                           </span>
+                          {isMine && (
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteMessageClick(msg.id)}
+                              className="text-rose-500 hover:text-rose-700 transition-colors mt-1 font-bold flex items-center gap-0.5 cursor-pointer"
+                              title="メッセージを削除"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                              <span>削除</span>
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -959,51 +1067,6 @@ export function Chat({
               </div>
             )}
 
-            {/* 写真選択（サンプルプリセット＆ファイル選択）ポップオーバー */}
-            {showPhotoPicker && (
-              <div className="absolute bottom-16 left-12 z-30 w-80 bg-white rounded-2xl border border-slate-200 shadow-xl p-3 space-y-3">
-                <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-                  <span className="text-xs font-bold text-slate-800 flex items-center gap-1">
-                    <ImageIcon className="w-4 h-4 text-indigo-600" />
-                    写真を添付・送信
-                  </span>
-                  <button onClick={() => setShowPhotoPicker(false)} className="text-slate-400 hover:text-slate-600">
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-
-                {/* ファイルアップロードボタン */}
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className="w-full py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold rounded-xl border border-indigo-200 transition-colors flex items-center justify-center gap-2"
-                >
-                  <Upload className="w-4 h-4" />
-                  パソコン/端末から写真をアップロード
-                </button>
-
-                <div className="pt-1">
-                  <span className="text-[11px] font-bold text-slate-400 block mb-2">サンプル写真から選択</span>
-                  <div className="grid grid-cols-2 gap-2">
-                    {PRESET_PHOTOS.map((photo) => (
-                      <button
-                        key={photo.id}
-                        onClick={() => {
-                          setPendingPhotoUrl(photo.url);
-                          setShowPhotoPicker(false);
-                        }}
-                        className="group relative rounded-xl overflow-hidden border border-slate-200 aspect-video hover:border-indigo-500 transition-all text-left"
-                      >
-                        <img src={photo.url} alt={photo.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent flex items-end p-1.5">
-                          <span className="text-[10px] font-bold text-white truncate">{photo.name}</span>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-
             {/* 選択中の添付ファイルプレビュー */}
             {chatAttachments.length > 0 && (
               <div className="flex flex-wrap gap-1.5 p-2 bg-slate-50 border border-slate-200 rounded-xl mb-2">
@@ -1055,12 +1118,10 @@ export function Chat({
               <button
                 type="button"
                 onClick={() => {
-                  setShowPhotoPicker(!showPhotoPicker);
+                  fileInputRef.current?.click();
                   setShowStampPicker(false);
                 }}
-                className={`p-2 rounded-full transition-colors ${
-                  showPhotoPicker ? 'bg-indigo-100 text-indigo-600' : 'hover:bg-slate-100 text-slate-500'
-                }`}
+                className="p-2 rounded-full hover:bg-slate-100 text-slate-500 transition-colors"
                 title="写真を送信"
               >
                 <ImageIcon className="w-5 h-5" />
@@ -1070,7 +1131,6 @@ export function Chat({
                 type="button"
                 onClick={() => {
                   setShowStampPicker(!showStampPicker);
-                  setShowPhotoPicker(false);
                 }}
                 className={`p-2 rounded-full transition-colors ${
                   showStampPicker ? 'bg-indigo-100 text-indigo-600' : 'hover:bg-slate-100 text-slate-500'
@@ -1380,6 +1440,98 @@ export function Chat({
         onClose={() => setIsPreviewOpen(false)}
         file={previewFile}
       />
+
+      {/* ----------------- モーダル: 既読メンバー一覧 ----------------- */}
+      {viewersModalOpen && selectedMsgForViewers && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs transition-opacity"
+            onClick={() => setViewersModalOpen(false)}
+          />
+          <div className="relative bg-white rounded-2xl shadow-xl max-w-lg w-full overflow-hidden flex flex-col max-h-[85vh] animate-in fade-in zoom-in-95 duration-150">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/50">
+              <div className="flex items-center gap-2">
+                <Check className="w-5 h-5 text-emerald-500 font-bold" />
+                <h3 className="text-base font-bold text-slate-800">既読メンバー一覧</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setViewersModalOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                title="閉じる"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-6 overflow-y-auto space-y-4">
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-xs font-bold text-slate-500 truncate">
+                  メッセージ: &ldquo;{selectedMsgForViewers.content || (selectedMsgForViewers.type === 'stamp' ? 'スタンプを送信しました' : 'ファイルを送信しました')}&rdquo;
+                </span>
+                <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-100 shrink-0">
+                  既読 {(() => {
+                    const viewersList = selectedMsgForViewers.viewers || [];
+                    const readMembers = viewersList.filter(v => v.user.id !== selectedMsgForViewers.sender.id);
+                    return readMembers.length;
+                  })()} 名
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 gap-2.5 max-h-80 overflow-y-auto pr-1">
+                {(() => {
+                  const viewersList = selectedMsgForViewers.viewers || [];
+                  const readMembers = viewersList.filter(v => v.user.id !== selectedMsgForViewers.sender.id);
+                  if (readMembers.length === 0) {
+                    return (
+                      <div className="text-center py-8 text-xs text-slate-400 bg-slate-50/50 rounded-xl border border-dashed border-slate-200">
+                        まだ既読メンバーはいません（送信者を除く）
+                      </div>
+                    );
+                  }
+                  return readMembers.map((v, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-center justify-between p-3 bg-slate-50 border border-slate-200/80 rounded-xl text-xs"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <img
+                          src={getAvatarUrl(v.user.avatarUrl)}
+                          alt={v.user.name}
+                          className="w-8 h-8 rounded-full border border-slate-200 object-cover"
+                          referrerPolicy="no-referrer"
+                        />
+                        <div>
+                          <div className="font-bold text-slate-800">{v.user.name}</div>
+                          <div className="text-[10px] text-slate-500">
+                            {v.user.office || ''} {v.user.division || ''}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-[10px] font-mono text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                        {new Date(v.viewedAt).toLocaleDateString('ja-JP')} {new Date(v.viewedAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}
+                      </div>
+                    </div>
+                  ));
+                })()}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-3 border-t border-slate-100 bg-slate-50/50 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setViewersModalOpen(false)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl border border-slate-200 transition-colors cursor-pointer"
+              >
+                閉じる
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

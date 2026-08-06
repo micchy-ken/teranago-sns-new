@@ -411,10 +411,13 @@ export default function App() {
             type: e.category || 'personal',
             office: e.office || '全社',
             division: e.division || '全部署',
-            location: e.location || '',
+            ...detailsObj,
+            location: e.location || detailsObj.location || '',
             memo: e.memo || detailsObj.memo || '',
             isGoogleSynced: false,
-            ...detailsObj,
+            attachments: (e.attachments || e.attachmentsJson) 
+              ? (typeof (e.attachments || e.attachmentsJson) === 'string' && (e.attachments || e.attachmentsJson).startsWith('[') ? JSON.parse(e.attachments || e.attachmentsJson) : (e.attachments || e.attachmentsJson)) 
+              : (detailsObj.attachments || []),
             attendees: mappedAttendees
           };
         });
@@ -778,6 +781,17 @@ export default function App() {
       }
     });
   }, [isAuthenticated]);
+
+  // チャットルームのリアルタイム自動更新
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    
+    const interval = setInterval(() => {
+      refetchChatRooms();
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [isAuthenticated, usersList]);
 
   // Board Handlers
   const handleAddTopic = async (topicData: Omit<BoardTopic, 'id' | 'createdAt' | 'views' | 'commentsCount'>) => {
@@ -1441,6 +1455,7 @@ export default function App() {
           location: eventData.location || '',
           attendees: eventData.attendees || [],
           memo: eventData.memo || '',
+          attachments: eventData.attachments || [],
         })
       });
       if (response.ok) {
@@ -1469,9 +1484,11 @@ export default function App() {
           attendees: updatedEvent.attendees || [],
           memo: updatedEvent.memo || '',
           viewers: (updatedEvent as any).viewers || [],
+          attachments: updatedEvent.attachments || [],
           details: JSON.stringify({
             viewers: (updatedEvent as any).viewers || [],
             memo: updatedEvent.memo || '',
+            attachments: updatedEvent.attachments || [],
           })
         })
       });
@@ -1904,6 +1921,27 @@ export default function App() {
     }
   };
 
+  const handleDeleteChatMessage = async (roomId: string, messageId: string) => {
+    setChatRooms(prevRooms => prevRooms.map(room => {
+      if (room.id === roomId) {
+        return {
+          ...room,
+          messages: (room.messages || []).filter(msg => msg.id !== messageId)
+        };
+      }
+      return room;
+    }));
+
+    try {
+      await fetch(`${API_BASE_URL}/chats/messages/${messageId}`, {
+        method: 'DELETE'
+      });
+      await refetchChatRooms();
+    } catch (err) {
+      console.error('Failed to delete chat message via API:', err);
+    }
+  };
+
   const handleDeleteMemo = async (memoId: string) => {
     try {
       let deletedIds: string[] = [];
@@ -1932,26 +1970,32 @@ export default function App() {
       const lastRoom = updatedRooms[0];
       if (lastRoom && lastRoom.messages && lastRoom.messages.length > 0) {
         const lastMsg = lastRoom.messages[lastRoom.messages.length - 1];
+        const payload = {
+          roomId: lastRoom.id,
+          senderId: lastMsg.sender.id,
+          message: lastMsg.content,
+          content: lastMsg.content,
+          createdAt: lastMsg.createdAt,
+          roomName: lastRoom.name,
+          roomType: lastRoom.type,
+          participants: lastRoom.participants,
+          type: lastMsg.type || 'text',
+          imageUrl: lastMsg.imageUrl || null,
+          stampId: lastMsg.stampId || null,
+          stampText: lastMsg.stampText || null,
+          stampCategory: lastMsg.stampCategory || null,
+          attachments: lastMsg.attachments || []
+        };
         let response = await fetch(`${API_BASE_URL}/chats`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            roomId: lastRoom.id,
-            senderId: lastMsg.sender.id,
-            message: lastMsg.content,
-            createdAt: lastMsg.createdAt
-          })
+          body: JSON.stringify(payload)
         });
         if (!response.ok) {
           await fetch(`${API_BASE_URL}/chats/message`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              roomId: lastRoom.id,
-              senderId: lastMsg.sender.id,
-              content: lastMsg.content,
-              createdAt: lastMsg.createdAt
-            })
+            body: JSON.stringify(payload)
           });
         }
         await refetchChatRooms();
@@ -2295,7 +2339,9 @@ export default function App() {
             divisions={divisions}
             onUpdateRooms={handleUpdateRooms}
             onDeleteRoom={handleDeleteChatRoom}
+            onDeleteMessage={handleDeleteChatMessage}
             initialRoomId={targetChatRoomId}
+            refetchRooms={refetchChatRooms}
           />
         )}
         {activeTab === 'memo' && (

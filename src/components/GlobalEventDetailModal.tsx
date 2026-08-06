@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Calendar as CalendarIcon, Clock, MapPin, ExternalLink, FileText, Users, Building2, Tag, Edit2 } from 'lucide-react';
+import { X, Calendar as CalendarIcon, Clock, MapPin, ExternalLink, FileText, Users, Building2, Tag, Edit2, Paperclip } from 'lucide-react';
 import { CalendarEvent, EventType, User } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
 
@@ -177,6 +177,43 @@ export function GlobalEventDetailModal({
               </h4>
               <div className="p-4 bg-slate-50 border border-slate-200/80 rounded-xl text-xs text-slate-700 whitespace-pre-wrap leading-relaxed">
                 {event.memo}
+              </div>
+            </div>
+          )}
+
+          {/* Attachments Section */}
+          {event.attachments && event.attachments.length > 0 && (
+            <div className="space-y-2 border-t border-slate-100 pt-4">
+              <h4 className="text-xs font-bold text-slate-500 flex items-center gap-1.5">
+                <Paperclip className="w-4 h-4 text-indigo-500" />
+                添付ファイル ({event.attachments.length})
+              </h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {event.attachments.map(att => (
+                  <div
+                    key={att.id}
+                    className="flex items-center justify-between p-3 bg-white border border-slate-200 hover:border-indigo-300 rounded-xl transition-all"
+                  >
+                    <div className="flex items-center gap-2 min-w-0 pr-2">
+                      <Paperclip className="w-4 h-4 text-slate-400 shrink-0" />
+                      <div className="min-w-0">
+                        <div className="text-xs font-bold text-slate-800 truncate">{att.name}</div>
+                        <div className="text-[10px] text-slate-400">{att.size}</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <a
+                        href={att.url || '#'}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        download={att.name}
+                        className="px-2.5 py-1 text-[11px] font-bold text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors shrink-0"
+                      >
+                        ダウンロード
+                      </a>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           )}
