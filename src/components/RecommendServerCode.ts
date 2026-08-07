@@ -919,6 +919,16 @@ app.put('/api/workflows/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+app.delete('/api/workflows/:id', async (req, res) => {
+  try {
+    const pool = await getPool();
+    await pool.request()
+      .input('id', sql.VarChar, String(req.params.id))
+      .query\`DELETE FROM dbo.Workflows WHERE id = @id\`;
+    res.json({ message: '削除完了' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 
 // ==========================================
 // 6. Bulletins / Board (社内掲示板) - 既存DB連動 (安全・完全・閲覧同期対応版)

@@ -14,7 +14,7 @@ import { MyPage } from './components/MyPage';
 import { AdminPanel } from './components/AdminPanel';
 import { LoginScreen } from './components/LoginScreen';
 import { Post, CalendarEvent, WorkflowApplication, User, OfficeMaster, DivisionMaster, PositionMaster, BoardTopic, ChatRoom, ApprovalFlowRule, ApprovalStepConfig, ItemMaster, ApplicationStatus, DailyReport, Memo } from './types';
-import { syncUserReadStatusesFromServer, isMemoUnread, markMemoAsRead, markMemoAsUnread } from './utils/notifications';
+import { syncUserReadStatusesFromServer, isMemoUnread, markMemoAsRead, markMemoAsUnread, markEventAsRead, markTopicAsRead } from './utils/notifications';
 import { TopicDetailModal } from './components/TopicDetailModal';
 import { GlobalEventDetailModal } from './components/GlobalEventDetailModal';
 import { GlobalMemoDetailModal } from './components/GlobalMemoDetailModal';
@@ -826,6 +826,10 @@ export default function App() {
     };
     setTopics([newTopic, ...topics]);
 
+    if (userState?.id) {
+      markTopicAsRead(userState.id, tempId);
+    }
+
     try {
       const response = await fetch(`${API_BASE_URL}/bulletins`, {
         method: 'POST',
@@ -846,6 +850,10 @@ export default function App() {
         })
       });
       if (response.ok) {
+        const data = await response.json();
+        if (data && data.id && userState?.id) {
+          markTopicAsRead(userState.id, data.id);
+        }
         await refetchTopics();
       }
     } catch (err) {
@@ -1461,6 +1469,14 @@ export default function App() {
     };
     setEvents([...events, newEvent]);
 
+    const isSelfAttending = eventData.attendees && eventData.attendees.some(
+      u => u.id === userState.id || u.name === userState.name
+    );
+
+    if (isSelfAttending && userState?.id) {
+      markEventAsRead(userState.id, tempId);
+    }
+
     try {
       const response = await fetch(`${API_BASE_URL}/events`, {
         method: 'POST',
@@ -1480,6 +1496,10 @@ export default function App() {
         })
       });
       if (response.ok) {
+        const data = await response.json();
+        if (data && data.id && isSelfAttending && userState?.id) {
+          markEventAsRead(userState.id, data.id);
+        }
         await refetchEvents();
       }
     } catch (err) {
@@ -1905,27 +1925,20 @@ export default function App() {
 
   // 申請の削除処理
   const handleDeleteApplication = async (applicationId: string) => {
-    if (applicationId.startsWith('a-temp-')) return;
-    setConfirmModal({
-      isOpen: true,
-      title: '申請の削除',
-      message: 'この申請を削除してもよろしいですか？',
-      type: 'danger',
-      confirmText: '削除する',
-      cancelText: 'キャンセル',
-      onConfirm: async () => {
-        setApplications(prevApps => prevApps.filter(app => app.id !== applicationId));
+    setApplications(prevApps => prevApps.filter(app => app.id !== applicationId));
 
-        try {
-          await fetch(`${API_BASE_URL}/workflows/${applicationId}`, {
-            method: 'DELETE'
-          });
-          await refetchApplications();
-        } catch (err) {
-          console.error('Failed to delete workflow via API:', err);
-        }
+    if (applicationId.startsWith('a-temp-')) return;
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/workflows/${applicationId}`, {
+        method: 'DELETE'
+      });
+      if (response.ok) {
+        await refetchApplications();
       }
-    });
+    } catch (err) {
+      console.error('Failed to delete workflow via API:', err);
+    }
   };
 
   const handleDeleteChatRoom = async (roomId: string) => {
@@ -2498,6 +2511,8 @@ export default function App() {
             onLogout={handleLogout}
             autoOpenSettings={autoOpenSettings}
             onCloseSettings={() => setAutoOpenSettings(false)}
+            onAddEvent={handleAddEvent}
+            onAddTopic={handleAddTopic}
           />
         )}
         {activeTab === 'admin' && (

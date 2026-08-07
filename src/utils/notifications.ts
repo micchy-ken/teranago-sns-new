@@ -190,6 +190,11 @@ export function isEventUnread(e: CalendarEvent, user: User, readEventIds: string
 export function isTopicUnread(t: BoardTopic, user: User, readTopicIds: string[] = getReadTopicIds(user?.id)): boolean {
   if (!user || !t) return false;
 
+  // 自分で作成したトピックは未読通知不要
+  if (t.author && (t.author.id === user.id || t.author.name === user.name)) {
+    return false;
+  }
+
   // Server-side viewers check
   if (t.viewers && Array.isArray(t.viewers)) {
     const isViewedOnServer = t.viewers.some((v: any) => 

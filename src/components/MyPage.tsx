@@ -47,9 +47,12 @@ import {
   Camera,
   Upload,
   Trash2,
-  LogOut
+  LogOut,
+  Plus
 } from 'lucide-react';
 import { TopicDetailModal } from './TopicDetailModal';
+import { EventModal } from './EventModal';
+import { TopicCreateModal } from './TopicCreateModal';
 
 interface MyPageProps {
   user: User;
@@ -75,6 +78,8 @@ interface MyPageProps {
   onUpdateMemo?: (updatedMemos: Memo[]) => void;
   onUpdateTopic?: (updatedTopic: BoardTopic) => void;
   onUpdateApplication?: (updatedApp: WorkflowApplication) => void;
+  onAddEvent?: (eventData: Omit<CalendarEvent, 'id'>) => Promise<void> | void;
+  onAddTopic?: (topicData: Omit<BoardTopic, 'id' | 'createdAt' | 'views' | 'commentsCount'>) => Promise<void> | void;
   onLogout?: () => void;
   autoOpenSettings?: boolean;
   onCloseSettings?: () => void;
@@ -97,6 +102,8 @@ export function MyPage({
   onUpdateMemo,
   onUpdateTopic,
   onUpdateApplication,
+  onAddEvent,
+  onAddTopic,
   onLogout,
   autoOpenSettings,
   onCloseSettings,
@@ -123,6 +130,19 @@ export function MyPage({
   const [selectedTopic, setSelectedTopic] = useState<BoardTopic | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isEventModalOpen, setIsEventModalOpen] = useState(false);
+  const [isCreateTopicModalOpen, setIsCreateTopicModalOpen] = useState(false);
+
+  // 既存タグの収集
+  const existingTags = React.useMemo(() => {
+    const tagsSet = new Set<string>();
+    topics.forEach(t => {
+      if (t.tags) {
+        t.tags.forEach(tag => tagsSet.add(tag));
+      }
+    });
+    return Array.from(tagsSet);
+  }, [topics]);
 
   useEffect(() => {
     if (autoOpenSettings) {
@@ -534,13 +554,22 @@ export function MyPage({
               )}
             </div>
 
-            <button
-              onClick={() => onChangeTab('calendar')}
-              className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 hover:underline"
-            >
-              カレンダーへ
-              <ArrowUpRight className="w-3.5 h-3.5" />
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setIsEventModalOpen(true)}
+                className="text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                予定追加
+              </button>
+              <button
+                onClick={() => onChangeTab('calendar')}
+                className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 hover:underline"
+              >
+                カレンダーへ
+                <ArrowUpRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
 
           <div className="p-4 flex-1 space-y-3">
@@ -640,13 +669,22 @@ export function MyPage({
               )}
             </div>
 
-            <button
-              onClick={() => onChangeTab('board')}
-              className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 hover:underline"
-            >
-              掲示板一覧へ
-              <ArrowUpRight className="w-3.5 h-3.5" />
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setIsCreateTopicModalOpen(true)}
+                className="text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                新規投稿
+              </button>
+              <button
+                onClick={() => onChangeTab('board')}
+                className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 hover:underline"
+              >
+                掲示板一覧へ
+                <ArrowUpRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
 
           <div className="p-4 flex-1 space-y-3">
@@ -1061,6 +1099,38 @@ export function MyPage({
           }}
         />
       )}
+
+      {/* スケジュール新規作成モーダル */}
+      <EventModal
+        isOpen={isEventModalOpen}
+        onClose={() => setIsEventModalOpen(false)}
+        onSave={async (eventData) => {
+          if (onAddEvent) {
+            await onAddEvent(eventData);
+          }
+          setIsEventModalOpen(false);
+        }}
+        offices={offices}
+        divisions={divisions}
+        allUsers={allUsers}
+        currentUser={user}
+      />
+
+      {/* 掲示板新規作成モーダル */}
+      <TopicCreateModal
+        isOpen={isCreateTopicModalOpen}
+        onClose={() => setIsCreateTopicModalOpen(false)}
+        onSubmit={async (topicData) => {
+          if (onAddTopic) {
+            await onAddTopic(topicData);
+          }
+          setIsCreateTopicModalOpen(false);
+        }}
+        currentUser={user}
+        offices={offices}
+        divisions={divisions}
+        existingTags={existingTags}
+      />
 
       {/* 個人設定・カレンダー連携モーダル */}
       {isSettingsOpen && (

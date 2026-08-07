@@ -423,7 +423,9 @@ export function Board({
         onUpdateTopic={handleUpdateTopicInternal}
         onDeleteTopic={(topicId) => {
           setIsDetailModalOpen(false);
-          setTopicToDelete(topicId);
+          if (onDeleteTopic) {
+            onDeleteTopic(topicId);
+          }
         }}
       />
 
