@@ -16,6 +16,7 @@ interface EventModalProps {
   divisions?: DivisionMaster[];
   allUsers?: User[];
   defaultAttendees?: User[];
+  currentUser?: User;
 }
 
 const toLocalDatetimeInput = (isoStr?: string) => {
@@ -41,6 +42,7 @@ export function EventModal({
   divisions = [],
   allUsers = [],
   defaultAttendees = [],
+  currentUser,
 }: EventModalProps) {
   const [title, setTitle] = useState('');
   const [type, setType] = useState<EventType>('personal');
@@ -67,6 +69,7 @@ export function EventModal({
   const divisionNames = Array.from(new Set(divisions.map(d => d.name)));
 
   const [currentEditingEvent, setCurrentEditingEvent] = useState<CalendarEvent | null>(editingEvent || null);
+  const isIcal = currentEditingEvent ? currentEditingEvent.isIcal === true : false;
 
   useEffect(() => {
     setCurrentEditingEvent(editingEvent || null);
@@ -79,8 +82,8 @@ export function EventModal({
     setError('内容を複製しました。日時やタイトルなどを確認し「保存する」を押してください。');
   };
   useEffect(() => {
-    setError(null);
     if (isOpen) {
+      setError(null);
       setIsUploading(false);
       if (editingEvent) {
         setTitle(editingEvent.title);
@@ -95,44 +98,45 @@ export function EventModal({
         setIsGoogleSynced(!!editingEvent.isGoogleSynced);
         setSelectedAttendees(editingEvent.attendees || []);
         setAttachments(editingEvent.attachments || []);
-      } else if (defaultInitialDate) {
-        if (defaultInitialDate.includes('T')) {
-          setStart(defaultInitialDate);
+      } else {
+        setTitle('');
+        setType('personal');
+        setOffice('全社');
+        setDivision('全部署');
+        setIsAllDay(false);
+        setLocation('');
+        setMemo('');
+        setIsGoogleSynced(false);
+        setAttachments([]);
+
+        // 参加者の初期設定：指定された初期参加者がいればそれ、なければログインユーザーをデフォルトに
+        if (defaultAttendees && defaultAttendees.length > 0) {
+          setSelectedAttendees(defaultAttendees);
+        } else if (currentUser) {
+          setSelectedAttendees([currentUser]);
         } else {
-          setStart(`${defaultInitialDate}T09:00`);
+          setSelectedAttendees([]);
+        }
+
+        // 開始日時の初期設定
+        if (defaultInitialDate) {
+          if (defaultInitialDate.includes('T')) {
+            setStart(defaultInitialDate);
+          } else {
+            setStart(`${defaultInitialDate}T09:00`);
+          }
+        } else {
+          const now = new Date();
+          const year = now.getFullYear();
+          const month = String(now.getMonth() + 1).padStart(2, '0');
+          const day = String(now.getDate()).padStart(2, '0');
+          const hours = String(now.getHours()).padStart(2, '0');
+          setStart(`${year}-${month}-${day}T${hours}:00`);
         }
         setEnd('');
-        setTitle('');
-        setType('personal');
-        setOffice('全社');
-        setDivision('全部署');
-        setIsAllDay(false);
-        setLocation('');
-        setMemo('');
-        setIsGoogleSynced(false);
-        setSelectedAttendees(defaultAttendees || []);
-        setAttachments([]);
-      } else {
-        const now = new Date();
-        const year = now.getFullYear();
-        const month = String(now.getMonth() + 1).padStart(2, '0');
-        const day = String(now.getDate()).padStart(2, '0');
-        const hours = String(now.getHours()).padStart(2, '0');
-        setStart(`${year}-${month}-${day}T${hours}:00`);
-        setEnd('');
-        setTitle('');
-        setType('personal');
-        setOffice('全社');
-        setDivision('全部署');
-        setIsAllDay(false);
-        setLocation('');
-        setMemo('');
-        setIsGoogleSynced(false);
-        setSelectedAttendees(defaultAttendees || []);
-        setAttachments([]);
       }
     }
-  }, [isOpen, editingEvent, defaultInitialDate, defaultAttendees]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -273,7 +277,7 @@ export function EventModal({
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
-          {editingEvent?.isIcal && (
+          {isIcal && (
             <div className="p-3.5 bg-indigo-50 border border-indigo-200 text-indigo-800 text-xs font-medium rounded-xl flex items-center gap-2.5">
               <LinkIcon className="w-4 h-4 text-indigo-600 shrink-0" />
               <span>マイページで設定された iCal URL から同期された外部予定です。</span>
@@ -292,9 +296,12 @@ export function EventModal({
             <input
               type="text"
               required
+              readOnly={isIcal}
               value={title}
               onChange={e => { setTitle(e.target.value); setError(null); }}
-              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-colors"
+              className={`w-full px-3.5 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors ${
+                isIcal ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-slate-50 focus:bg-white'
+              }`}
               placeholder="予定のタイトル"
             />
           </div>
@@ -304,8 +311,11 @@ export function EventModal({
               <label className="block text-xs font-semibold text-slate-700 mb-1">区分</label>
               <select
                 value={type}
+                disabled={isIcal}
                 onChange={e => setType(e.target.value as EventType)}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-colors"
+                className={`w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors ${
+                  isIcal ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-slate-50 focus:bg-white'
+                }`}
               >
                 <option value="personal">個人</option>
                 <option value="construction">工事</option>
@@ -324,8 +334,11 @@ export function EventModal({
               </label>
               <select
                 value={office}
+                disabled={isIcal}
                 onChange={e => setOffice(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-colors"
+                className={`w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors ${
+                  isIcal ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-slate-50 focus:bg-white'
+                }`}
               >
                 <option value="全社">全社</option>
                 {officeNames.map(o => (
@@ -341,8 +354,11 @@ export function EventModal({
               </label>
               <select
                 value={division}
+                disabled={isIcal}
                 onChange={e => setDivision(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-colors"
+                className={`w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors ${
+                  isIcal ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-slate-50 focus:bg-white'
+                }`}
               >
                 <option value="全部署">全部署</option>
                 {divisionNames.map(d => (
@@ -356,11 +372,16 @@ export function EventModal({
             <input
               type="checkbox"
               id="isAllDay"
+              disabled={isIcal}
               checked={isAllDay}
               onChange={e => { setIsAllDay(e.target.checked); setError(null); }}
-              className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+              className={`w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 ${
+                isIcal ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
+              }`}
             />
-            <label htmlFor="isAllDay" className="text-sm font-semibold text-slate-700 cursor-pointer select-none">
+            <label htmlFor="isAllDay" className={`text-sm font-semibold select-none ${
+              isIcal ? 'text-slate-400 cursor-not-allowed' : 'text-slate-700 cursor-pointer'
+            }`}>
               終日予定として設定
             </label>
           </div>
@@ -374,20 +395,26 @@ export function EventModal({
                 <input
                   type="date"
                   required
+                  readOnly={isIcal}
                   value={start.split('T')[0] || ''}
                   onChange={e => {
                     setStart(e.target.value ? `${e.target.value}T00:00` : '');
                     setError(null);
                   }}
-                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-colors text-sm"
+                  className={`w-full px-3.5 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors text-sm ${
+                    isIcal ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-slate-50 focus:bg-white'
+                  }`}
                 />
               ) : (
                 <input
                   type="datetime-local"
                   required
+                  readOnly={isIcal}
                   value={start}
                   onChange={e => { setStart(e.target.value); setError(null); }}
-                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-colors text-sm"
+                  className={`w-full px-3.5 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors text-sm ${
+                    isIcal ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-slate-50 focus:bg-white'
+                  }`}
                 />
               )}
             </div>
@@ -399,19 +426,25 @@ export function EventModal({
               {isAllDay ? (
                 <input
                   type="date"
+                  readOnly={isIcal}
                   value={end ? end.split('T')[0] : ''}
                   onChange={e => {
                     setEnd(e.target.value ? `${e.target.value}T23:59` : '');
                     setError(null);
                   }}
-                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-colors text-sm"
+                  className={`w-full px-3.5 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors text-sm ${
+                    isIcal ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-slate-50 focus:bg-white'
+                  }`}
                 />
               ) : (
                 <input
                   type="datetime-local"
+                  readOnly={isIcal}
                   value={end}
                   onChange={e => { setEnd(e.target.value); setError(null); }}
-                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-colors text-sm"
+                  className={`w-full px-3.5 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors text-sm ${
+                    isIcal ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-slate-50 focus:bg-white'
+                  }`}
                 />
               )}
             </div>
@@ -425,18 +458,19 @@ export function EventModal({
                 参加者メンバー ({selectedAttendees.length}名選択中)
               </span>
             </label>
-            <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto p-2 bg-slate-50 border border-slate-200 rounded-xl">
+            <div className={`flex flex-wrap gap-2 max-h-32 overflow-y-auto p-2 border border-slate-200 rounded-xl ${isIcal ? 'bg-slate-100' : 'bg-slate-50'}`}>
               {allUsers.map(user => {
                 const isSelected = selectedAttendees.some(u => u.id === user.id);
                 return (
                   <button
                     key={user.id}
                     type="button"
+                    disabled={isIcal}
                     onClick={() => toggleAttendee(user)}
                     className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all border ${
                       isSelected
-                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
-                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                        ? (isIcal ? 'bg-slate-300 text-slate-600 border-slate-300 cursor-not-allowed' : 'bg-indigo-600 text-white border-indigo-600 shadow-xs')
+                        : (isIcal ? 'bg-slate-200 text-slate-400 border-slate-200 cursor-not-allowed' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100')
                     }`}
                   >
                     <img
@@ -454,7 +488,16 @@ export function EventModal({
 
           <div>
             <label className="block text-sm font-semibold text-slate-700 mb-1.5">場所</label>
-            <input type="text" value={location} onChange={e => setLocation(e.target.value)} className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-colors" placeholder="会議室など" />
+            <input
+              type="text"
+              readOnly={isIcal}
+              value={location}
+              onChange={e => setLocation(e.target.value)}
+              className={`w-full px-3.5 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors ${
+                isIcal ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-slate-50 focus:bg-white'
+              }`}
+              placeholder="会議室など"
+            />
           </div>
 
           {/* 添付ファイル設定 */}
@@ -464,15 +507,17 @@ export function EventModal({
                 <Paperclip className="w-4 h-4 text-slate-500" />
                 添付ファイル
               </label>
-              <button
-                type="button"
-                disabled={isUploading}
-                onClick={() => fileInputRef.current?.click()}
-                className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 disabled:opacity-50"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                追加
-              </button>
+              {!isIcal && (
+                <button
+                  type="button"
+                  disabled={isUploading}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 disabled:opacity-50"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  追加
+                </button>
+              )}
             </div>
             <input
               type="file"
@@ -533,21 +578,23 @@ export function EventModal({
                       >
                         ダウンロード
                       </a>
-                      <button
-                        type="button"
-                        disabled={isUploading}
-                        onClick={() => handleRemoveAttachment(att.id)}
-                        className="text-slate-400 hover:text-red-600 p-0.5 rounded transition-colors disabled:opacity-50"
-                        title="添付を削除"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      {!isIcal && (
+                        <button
+                          type="button"
+                          disabled={isUploading}
+                          onClick={() => handleRemoveAttachment(att.id)}
+                          className="text-slate-400 hover:text-red-600 p-0.5 rounded transition-colors disabled:opacity-50"
+                          title="添付を削除"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
               </div>
             ) : (
-              !isUploading && (
+              !isUploading && !isIcal && (
                 <div
                   onClick={() => !isUploading && fileInputRef.current?.click()}
                   className="p-3 border border-dashed border-slate-200 hover:border-indigo-300 rounded-xl text-center cursor-pointer transition-colors bg-slate-50/50"
@@ -562,7 +609,15 @@ export function EventModal({
 
           <div>
             <label className="block text-sm font-semibold text-slate-700 mb-1.5">内容</label>
-            <textarea value={memo} onChange={e => setMemo(e.target.value)} className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-colors resize-none h-24 text-sm" placeholder="詳細な内容... (URLを入力すると自動的にリンクになります)"></textarea>
+            <textarea
+              readOnly={isIcal}
+              value={memo}
+              onChange={e => setMemo(e.target.value)}
+              className={`w-full px-3.5 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors resize-none h-24 text-sm ${
+                isIcal ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-slate-50 focus:bg-white'
+              }`}
+              placeholder="詳細な内容... (URLを入力すると自動的にリンクになります)"
+            ></textarea>
           </div>
 
           <div className="flex items-center justify-between pt-6 border-t border-slate-100">
@@ -580,7 +635,7 @@ export function EventModal({
                 </button>
               )}
 
-              {currentEditingEvent && onDelete && (
+              {currentEditingEvent && onDelete && !isIcal && (
                 <button
                   type="button"
                   disabled={isUploading}
@@ -595,10 +650,20 @@ export function EventModal({
 
             <div className="flex justify-end gap-2.5">
               <button type="button" disabled={isUploading} onClick={onClose} className="px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors disabled:opacity-50">キャンセル</button>
-              <button type="submit" disabled={isUploading} className="px-5 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors shadow-sm disabled:opacity-50 flex items-center gap-1.5">
-                {isUploading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                {isUploading ? '処理中...' : (currentEditingEvent ? '更新する' : '保存する')}
-              </button>
+              {isIcal ? (
+                <button
+                  type="button"
+                  disabled
+                  className="px-5 py-2.5 text-sm font-bold text-slate-400 bg-slate-100 border border-slate-200 rounded-lg cursor-not-allowed flex items-center gap-1.5"
+                >
+                  外部予定 (編集不可)
+                </button>
+              ) : (
+                <button type="submit" disabled={isUploading} className="px-5 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors shadow-sm disabled:opacity-50 flex items-center gap-1.5">
+                  {isUploading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  {isUploading ? '処理中...' : (currentEditingEvent ? '更新する' : '保存する')}
+                </button>
+              )}
             </div>
           </div>
         </form>

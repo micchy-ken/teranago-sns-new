@@ -584,6 +584,10 @@ export default function App() {
               participants: resolvedParticipants,
               messages: Array.isArray(room.messages) ? room.messages : []
             };
+          })
+          .filter((room: any) => {
+            if (!userState?.id) return true;
+            return room.participants.some((p: any) => String(p.id) === String(userState.id));
           });
         setChatRooms(mapped);
       }

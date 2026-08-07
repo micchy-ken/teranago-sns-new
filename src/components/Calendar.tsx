@@ -1304,6 +1304,7 @@ export function Calendar({
         divisions={divisions}
         allUsers={allUsers}
         defaultAttendees={preselectedAttendees}
+        currentUser={currentUser}
       />
 
       {/* 伝言メモ新規作成モーダル */}
