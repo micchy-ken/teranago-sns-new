@@ -52,8 +52,15 @@ if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 
+// 外部NAS同期・外部ファイル連携用ディレクトリ
+const externalFilesDir = path.join(process.cwd(), 'external-files');
+if (!fs.existsSync(externalFilesDir)) {
+  fs.mkdirSync(externalFilesDir, { recursive: true });
+}
+
 // 画像・添付ファイルをブラウザに配信する静的配信設定 (http://[サーバーのIP]:[PORT]/uploads/xxx.png でアクセス可能にします)
 app.use('/uploads', express.static(uploadDir));
+app.use('/external-files', express.static(externalFilesDir));
 
 // multer ストレージ（保存ファイル命名規則）の設定
 const storage = multer.diskStorage({
@@ -2106,6 +2113,140 @@ app.post('/api/topics/:id/viewers', handleAddViewer);
 
 app.delete('/api/bulletins/:id', handleDeleteBulletin);
 app.delete('/api/board/:id', handleDeleteBulletin);
+
+
+// ==========================================
+// 8. 外部NAS同期・外部ファイル連携用 API
+// ==========================================
+// 外部ファイル用のmulterストレージ設定 (ファイル名の日本語文字化け対策を含む)
+const externalStorage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const subDir = typeof req.body.folder === 'string' ? req.body.folder.replace(/\.\./g, '') : '';
+    const targetPath = path.join(externalFilesDir, subDir);
+    if (!fs.existsSync(targetPath)) {
+      fs.mkdirSync(targetPath, { recursive: true });
+    }
+    cb(null, targetPath);
+  },
+  filename: function (req, file, cb) {
+    let originalName = file.originalname;
+    try {
+      // multipartヘッダーのエンコードに起因する日本語ファイル名の文字化けを防止
+      originalName = Buffer.from(file.originalname, 'latin1').toString('utf8');
+    } catch (e) {
+      originalName = file.originalname;
+    }
+    cb(null, originalName);
+  }
+});
+const uploadExternal = multer({ storage: externalStorage });
+
+app.post('/api/external-files/upload', uploadExternal.single('file'), (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'ファイルが選択されていません。' });
+    }
+    res.json({
+      message: 'アップロード完了しました。',
+      file: {
+        name: req.file.filename,
+        path: req.body.folder ? (req.body.folder + '/' + req.file.filename).replace(/\\/g, '/') : req.file.filename,
+        size: req.file.size
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+function getAllFilesRecursive(dirPath: string, relativeRoot = ""): any[] {
+  let results: any[] = [];
+  if (!fs.existsSync(dirPath)) return results;
+  try {
+    const list = fs.readdirSync(dirPath);
+    list.forEach((file) => {
+      // ドットファイルや隠しファイル、システム一時ファイルは無視
+      if (file.startsWith('.') || file === '@eaDir' || file === 'thumbs.db') return;
+      
+      const filePath = path.join(dirPath, file);
+      const relPath = relativeRoot ? path.join(relativeRoot, file) : file;
+      const stat = fs.statSync(filePath);
+      
+      if (stat.isDirectory()) {
+        results.push({
+          name: file,
+          path: relPath.replace(/\\/g, '/'),
+          size: 0,
+          mtime: stat.mtime,
+          isDirectory: true,
+          extension: ''
+        });
+        // 子ディレクトリを再帰的に探索
+        results = results.concat(getAllFilesRecursive(filePath, relPath));
+      } else {
+        const ext = path.extname(file).replace('.', '').toLowerCase();
+        results.push({
+          name: file,
+          path: relPath.replace(/\\/g, '/'),
+          url: '/external-files/' + relPath.replace(/\\/g, '/'),
+          size: stat.size,
+          mtime: stat.mtime,
+          isDirectory: false,
+          extension: ext
+        });
+      }
+    });
+  } catch (e) {
+    console.error('Error scanning folder:', e);
+  }
+  return results;
+}
+
+app.get('/api/external-files/list', (req, res) => {
+  try {
+    const allFiles = getAllFilesRecursive(externalFilesDir);
+    const query = typeof req.query.q === 'string' ? req.query.q.toLowerCase().trim() : '';
+    
+    if (query) {
+      const filtered = allFiles.filter(f => 
+        f.name.toLowerCase().includes(query) || 
+        f.path.toLowerCase().includes(query)
+      );
+      return res.json(filtered);
+    }
+    
+    res.json(allFiles);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ファイル削除 API (必要に応じてWEBアプリ側から削除可能にする)
+app.delete('/api/external-files', (req, res) => {
+  try {
+    const targetRelPath = req.query.path;
+    if (!targetRelPath || typeof targetRelPath !== 'string') {
+      return res.status(400).json({ error: 'ファイルパスが指定されていません' });
+    }
+    // パス・トラバーサル防止の安全対策
+    const sanitizedPath = targetRelPath.replace(/\.\./g, '');
+    const safePath = path.join(externalFilesDir, sanitizedPath);
+    
+    if (fs.existsSync(safePath)) {
+      const stat = fs.statSync(safePath);
+      if (stat.isDirectory()) {
+        fs.rmdirSync(safePath, { recursive: true });
+      } else {
+        fs.unlinkSync(safePath);
+      }
+      res.json({ message: '削除に成功しました' });
+    } else {
+      res.status(404).json({ error: 'ファイルが見つかりません' });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 
 // =========================================================

@@ -1,7 +1,7 @@
-import { Hash, Home, Bookmark, User, Calendar as CalendarIcon, FileText, MessageSquare, Phone, ClipboardList, Monitor, Shield } from 'lucide-react';
+import { Hash, Home, Bookmark, User, Calendar as CalendarIcon, FileText, MessageSquare, Phone, ClipboardList, Monitor, Shield, HardDrive } from 'lucide-react';
 import { Post, User as UserType } from '../types';
 
-export type AppTab = 'timeline' | 'calendar' | 'workflow' | 'board' | 'chat' | 'memo' | 'daily_report' | 'mypage' | 'admin';
+export type AppTab = 'timeline' | 'calendar' | 'workflow' | 'board' | 'chat' | 'memo' | 'daily_report' | 'files' | 'mypage' | 'admin';
 
 interface SidebarProps {
   posts: Post[];
@@ -135,6 +135,17 @@ export function Sidebar({ posts, selectedTag, onSelectTag, activeTab, onChangeTa
         >
           <ClipboardList className="w-4 h-4" />
           日報
+        </button>
+        <button
+          onClick={() => onChangeTab('files')}
+          className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${
+            activeTab === 'files'
+              ? 'bg-indigo-50 text-indigo-700'
+              : 'text-slate-600 hover:bg-slate-50'
+          }`}
+        >
+          <HardDrive className="w-4 h-4 text-indigo-500" />
+          NAS共有ファイル
         </button>
 
         {currentUser?.isAdmin && (
