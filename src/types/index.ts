@@ -225,6 +225,7 @@ export interface ChatRoom {
   messages: ChatMessage[];
   lastUpdated: string;
   readStatus?: Record<string, string>;
+  adminIds?: string[];
 }
 
 export type RequirementType = 

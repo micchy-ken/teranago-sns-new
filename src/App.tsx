@@ -561,14 +561,30 @@ export default function App() {
 
         const mapped = data
           .filter((room: any) => !deletedIds.includes(String(room.id)))
-          .map((room: any) => ({
-            ...room,
-            id: String(room.id),
-            participants: Array.isArray(room.participants) && room.participants.length > 0 
-              ? room.participants 
-              : currentUsers.slice(0, 3),
-            messages: Array.isArray(room.messages) ? room.messages : []
-          }));
+          .map((room: any) => {
+            // 参加者リストの構築
+            let resolvedParticipants: User[] = [];
+            if (Array.isArray(room.participants) && room.participants.length > 0) {
+              resolvedParticipants = room.participants;
+            }
+
+            // 安全なデフォルトフォールバック
+            if (resolvedParticipants.length === 0) {
+              if (room.type === 'dm') {
+                resolvedParticipants = currentUsers.slice(0, 3);
+              } else {
+                // 社内SNSのグループチャットは、デフォルトで社員（ユーザー）全員を参加者にする
+                resolvedParticipants = currentUsers;
+              }
+            }
+
+            return {
+              ...room,
+              id: String(room.id),
+              participants: resolvedParticipants,
+              messages: Array.isArray(room.messages) ? room.messages : []
+            };
+          });
         setChatRooms(mapped);
       }
     } catch (err: any) {
@@ -1974,41 +1990,75 @@ export default function App() {
   };
 
   const handleUpdateRooms = async (updatedRooms: ChatRoom[]) => {
+    const prevRooms = [...chatRooms];
     setChatRooms(updatedRooms);
+
     try {
-      const lastRoom = updatedRooms[0];
-      if (lastRoom && lastRoom.messages && lastRoom.messages.length > 0) {
-        const lastMsg = lastRoom.messages[lastRoom.messages.length - 1];
-        const payload = {
-          roomId: lastRoom.id,
-          senderId: lastMsg.sender.id,
-          message: lastMsg.content,
-          content: lastMsg.content,
-          createdAt: lastMsg.createdAt,
-          roomName: lastRoom.name,
-          roomType: lastRoom.type,
-          participants: lastRoom.participants,
-          type: lastMsg.type || 'text',
-          imageUrl: lastMsg.imageUrl || null,
-          stampId: lastMsg.stampId || null,
-          stampText: lastMsg.stampText || null,
-          stampCategory: lastMsg.stampCategory || null,
-          attachments: lastMsg.attachments || []
-        };
-        let response = await fetch(`${API_BASE_URL}/chats`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        if (!response.ok) {
-          await fetch(`${API_BASE_URL}/chats/message`, {
-            method: 'POST',
+      // 変更があったチャットルーム（メッセージ追加、または参加者変更）を検知して同期
+      for (const updatedRoom of updatedRooms) {
+        const originalRoom = prevRooms.find(r => r.id === updatedRoom.id);
+        
+        const isParticipantsChanged = !originalRoom || 
+          JSON.stringify(originalRoom.participants) !== JSON.stringify(updatedRoom.participants) ||
+          JSON.stringify(originalRoom.adminIds) !== JSON.stringify(updatedRoom.adminIds) ||
+          originalRoom.name !== updatedRoom.name;
+        
+        const originalMsgs = originalRoom?.messages || [];
+        const updatedMsgs = updatedRoom.messages || [];
+        const isMessagesChanged = originalMsgs.length !== updatedMsgs.length;
+
+        if (isParticipantsChanged || isMessagesChanged) {
+          // 1. チャットルーム情報（参加者、既読ステータスなど）を PUT で更新
+          await fetch(`${API_BASE_URL}/chats/${updatedRoom.id}`, {
+            method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
+            body: JSON.stringify({
+              name: updatedRoom.name,
+              participants: updatedRoom.participants || [],
+              adminIds: updatedRoom.adminIds || [],
+              readStatus: updatedRoom.readStatus || {},
+              messages: updatedMsgs
+            })
           });
+
+          // 2. 新着メッセージがあれば POST で同期
+          if (isMessagesChanged && updatedMsgs.length > 0) {
+            const lastMsg = updatedMsgs[updatedMsgs.length - 1];
+            const isNewMsg = originalMsgs.length === 0 || !originalMsgs.some(m => m.id === lastMsg.id);
+            if (isNewMsg) {
+              const payload = {
+                roomId: updatedRoom.id,
+                senderId: lastMsg.sender.id,
+                message: lastMsg.content,
+                content: lastMsg.content,
+                createdAt: lastMsg.createdAt,
+                roomName: updatedRoom.name,
+                roomType: updatedRoom.type,
+                participants: updatedRoom.participants,
+                type: lastMsg.type || 'text',
+                imageUrl: lastMsg.imageUrl || null,
+                stampId: lastMsg.stampId || null,
+                stampText: lastMsg.stampText || null,
+                stampCategory: lastMsg.stampCategory || null,
+                attachments: lastMsg.attachments || []
+              };
+              let response = await fetch(`${API_BASE_URL}/chats`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+              });
+              if (!response.ok) {
+                await fetch(`${API_BASE_URL}/chats/message`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(payload)
+                });
+              }
+            }
+          }
         }
-        await refetchChatRooms();
       }
+      await refetchChatRooms();
     } catch (err) {
       console.warn('Failed to sync chat message via API:', err);
     }
@@ -2021,9 +2071,11 @@ export default function App() {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            name: room.name,
+            participants: room.participants || [],
+            adminIds: room.adminIds || [],
             readStatus: room.readStatus || {},
-            messages: room.messages || [],
-            participants: room.participants || []
+            messages: room.messages || []
           })
         });
       }

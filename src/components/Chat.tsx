@@ -27,7 +27,10 @@ import {
   Paperclip,
   Loader2,
   Download,
-  Eye
+  Eye,
+  Edit3,
+  Shield,
+  Crown
 } from 'lucide-react';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { uploadMultipleFiles, uploadFile } from '../utils/fileUpload';
@@ -94,14 +97,31 @@ export function Chat({
   initialRoomId,
   refetchRooms
 }: ChatProps) {
-  const [activeRoomId, setActiveRoomId] = useState<string>(rooms[0]?.id || '');
+  // 自分が参加している部屋のみを抽出
+  const myRooms = rooms.filter((r) => r.participants && r.participants.some((p) => p.id === currentUser.id));
+
+  const [activeRoomId, setActiveRoomId] = useState<string>(() => {
+    const initial = rooms.filter((r) => r.participants && r.participants.some((p) => p.id === currentUser.id))[0]?.id || '';
+    return initial;
+  });
   const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
+
+  // activeRoomIdの整合性維持（退室時や部屋増減時）
+  useEffect(() => {
+    if (myRooms.length > 0) {
+      if (!activeRoomId || !myRooms.some(r => r.id === activeRoomId)) {
+        setActiveRoomId(myRooms[0].id);
+      }
+    } else {
+      setActiveRoomId('');
+    }
+  }, [rooms, currentUser?.id]);
 
   // 閲覧メンバーモーダル用
   const [viewersModalOpen, setViewersModalOpen] = useState(false);
   const [selectedMsgForViewers, setSelectedMsgForViewers] = useState<ChatMessage | null>(null);
 
-  const activeRoom = rooms.find((r) => r.id === activeRoomId) || rooms[0];
+  const activeRoom = myRooms.find((r) => r.id === activeRoomId) || myRooms[0];
 
   // 未読メッセージを自動で既読にする
   useEffect(() => {
@@ -209,6 +229,10 @@ export function Chat({
   const [activeStampCategory, setActiveStampCategory] = useState('greeting');
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
 
+  // チャットルームの編集用ステート
+  const [isRenamingRoom, setIsRenamingRoom] = useState(false);
+  const [roomRenameText, setRoomRenameText] = useState('');
+
   // 添付ファイル関連ステート
   const [chatAttachments, setChatAttachments] = useState<AttachmentFile[]>([]);
   const [isChatUploading, setIsChatUploading] = useState(false);
@@ -268,6 +292,23 @@ export function Chat({
     prevMessagesLengthRef.current = msgCount;
   }, [activeRoom?.messages, activeRoom?.id, currentUser?.id]);
 
+  // グループチャットかどうかを判定する安全な関数（参加者が3人以上、または明示的にgroupである場合）
+  const isGroupRoom = (room: ChatRoom) => {
+    if (!room) return false;
+    return room.type === 'group' || (room.participants && room.participants.length > 2);
+  };
+
+  // トークルームの管理者かどうかを判定する関数
+  const isUserRoomAdmin = (room: ChatRoom, userId: string) => {
+    if (!room || !isGroupRoom(room)) return false;
+    const admins = room.adminIds || [];
+    if (admins.length === 0) {
+      // 古いトークルーム（管理者データがない場合）は、安全のために全員を管理者とする
+      return true;
+    }
+    return admins.includes(userId);
+  };
+
   // トークルーム名・アイコン取得
   const getRoomName = (room: ChatRoom) => {
     if (!room) return 'トークルーム';
@@ -280,7 +321,7 @@ export function Chat({
 
   const getRoomIcon = (room: ChatRoom) => {
     if (!room) return null;
-    if (room.type === 'group') {
+    if (isGroupRoom(room)) {
       return (
         <div className="w-10 h-10 rounded-full bg-indigo-100 border border-indigo-200 flex items-center justify-center text-indigo-600 shrink-0">
           <Users className="w-5 h-5" />
@@ -443,6 +484,7 @@ export function Chat({
       name: newRoomType === 'group' ? ((newRoomName || '').trim() || '新規グループトーク') : undefined,
       type: newRoomType,
       participants: allParticipants,
+      adminIds: newRoomType === 'group' ? [currentUser.id] : [],
       messages: [
         {
           id: `m_init_${Date.now()}`,
@@ -507,6 +549,162 @@ export function Chat({
     setSelectedUserIds([]);
   };
 
+  // メンバー削除
+  const handleRemoveMember = (memberId: string) => {
+    if (!activeRoom) return;
+
+    const memberToRemove = activeRoom.participants.find(p => p.id === memberId);
+    if (!memberToRemove) return;
+
+    // 自分自身をグループから退出させる、または他メンバーを削除する
+    const isSelf = memberId === currentUser.id;
+    const confirmMsg = isSelf 
+      ? 'このグループチャットから退室しますか？' 
+      : `${memberToRemove.name}さんをこのグループから削除しますか？`;
+
+    setConfirmModal({
+      isOpen: true,
+      title: isSelf ? 'グループの退室' : 'メンバーの削除',
+      message: confirmMsg,
+      type: 'danger',
+      confirmText: '実行',
+      cancelText: 'キャンセル',
+      onConfirm: () => {
+        const newParticipants = (activeRoom.participants || []).filter((p) => p.id !== memberId);
+
+        const systemMsg: ChatMessage = {
+          id: `sys_${Date.now()}`,
+          sender: currentUser,
+          content: isSelf 
+            ? `${currentUser.name}さんがグループを退室しました。` 
+            : `${memberToRemove.name}さんがグループから削除されました。`,
+          createdAt: new Date().toISOString(),
+          type: 'text'
+        };
+
+        const updated = rooms.map((r) => {
+          if (r.id === activeRoom.id) {
+            return {
+              ...r,
+              participants: newParticipants,
+              messages: [...(r.messages || []), systemMsg],
+              lastUpdated: new Date().toISOString()
+            };
+          }
+          return r;
+        });
+
+        if (onUpdateRooms) {
+          onUpdateRooms(updated);
+        }
+        
+        if (isSelf) {
+          // 自分が退室した場合、アクティブな部屋を切り替える
+          const remainingRooms = rooms.filter(r => r.id !== activeRoom.id);
+          if (remainingRooms.length > 0) {
+            setActiveRoomId(remainingRooms[0].id);
+          } else {
+            setActiveRoomId('');
+          }
+          setShowInfoSidebar(false);
+        }
+      }
+    });
+  };
+
+  // チャットルーム名の変更
+  const handleRenameRoom = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeRoom || !roomRenameText.trim()) return;
+
+    const oldName = getRoomName(activeRoom);
+    const newName = roomRenameText.trim();
+    if (oldName === newName) {
+      setIsRenamingRoom(false);
+      return;
+    }
+
+    const systemMsg: ChatMessage = {
+      id: `sys_${Date.now()}`,
+      sender: currentUser,
+      content: `グループ名が「${oldName}」から「${newName}」に変更されました。`,
+      createdAt: new Date().toISOString(),
+      type: 'text'
+    };
+
+    const updated = rooms.map((r) => {
+      if (r.id === activeRoom.id) {
+        return {
+          ...r,
+          name: newName,
+          messages: [...(r.messages || []), systemMsg],
+          lastUpdated: new Date().toISOString()
+        };
+      }
+      return r;
+    });
+
+    if (onUpdateRooms) {
+      onUpdateRooms(updated);
+    }
+    setIsRenamingRoom(false);
+  };
+
+  // 管理者権限の付与・剥奪
+  const handleToggleAdmin = (userId: string) => {
+    if (!activeRoom) return;
+    
+    const isAdmin = (activeRoom.adminIds || []).includes(userId);
+    const targetUser = activeRoom.participants.find(p => p.id === userId);
+    if (!targetUser) return;
+
+    let newAdminIds = [...(activeRoom.adminIds || [])];
+    if (isAdmin) {
+      // 管理者が自分自身かつ唯一の管理者である場合は解除できない
+      const activeAdminsInRoom = newAdminIds.filter(id => activeRoom.participants.some(p => p.id === id));
+      if (userId === currentUser.id && activeAdminsInRoom.length <= 1) {
+        setConfirmModal({
+          isOpen: true,
+          title: '権限の変更不可',
+          message: '管理者は最低1名必要です。他の管理者を設定したあとに権限を解除してください。',
+          type: 'info',
+          confirmText: 'OK',
+          onConfirm: () => {}
+        });
+        return;
+      }
+      newAdminIds = newAdminIds.filter(id => id !== userId);
+    } else {
+      newAdminIds.push(userId);
+    }
+
+    const systemMsg: ChatMessage = {
+      id: `sys_${Date.now()}`,
+      sender: currentUser,
+      content: isAdmin 
+        ? `${targetUser.name}さんの管理者権限が解除されました。` 
+        : `${targetUser.name}さんが管理者に設定されました。`,
+      createdAt: new Date().toISOString(),
+      type: 'text'
+    };
+
+    const updated = rooms.map((r) => {
+      if (r.id === activeRoom.id) {
+        return {
+          ...r,
+          adminIds: newAdminIds,
+          messages: [...(r.messages || []), systemMsg],
+          lastUpdated: new Date().toISOString()
+        };
+      }
+      return r;
+    });
+
+    if (onUpdateRooms) {
+      onUpdateRooms(updated);
+    }
+  };
+
   const resetCreateForm = () => {
     setNewRoomType('group');
     setNewRoomName('');
@@ -529,10 +727,10 @@ export function Chat({
   });
 
   // フィルタリング後のルーム一覧
-  const filteredRooms = rooms
+  const filteredRooms = myRooms
     .filter((r) => {
-      if (roomFilter === 'group') return r.type === 'group';
-      if (roomFilter === 'dm') return r.type === 'dm';
+      if (roomFilter === 'group') return isGroupRoom(r);
+      if (roomFilter === 'dm') return !isGroupRoom(r);
       return true;
     })
     .filter((r) => {
@@ -664,16 +862,18 @@ export function Chat({
                       </p>
                     </div>
                   </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDeleteRoomClick(room.id);
-                    }}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md opacity-0 group-hover:opacity-100 transition-opacity"
-                    title="チャットルームを削除"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  {(!isGroupRoom(room) || isUserRoomAdmin(room, currentUser.id)) && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteRoomClick(room.id);
+                      }}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md opacity-0 group-hover:opacity-100 transition-opacity"
+                      title="チャットルームを削除"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
               );
             })
@@ -694,11 +894,41 @@ export function Chat({
               {getRoomIcon(activeRoom)}
               <div>
                 <div className="flex items-center gap-2">
-                  <h2 className="text-sm font-bold text-slate-900">{getRoomName(activeRoom)}</h2>
-                  {activeRoom.type === 'group' && (
-                    <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 text-[10px] font-semibold rounded-full border border-indigo-200/60">
-                      グループ
-                    </span>
+                  {isRenamingRoom ? (
+                    <form onSubmit={handleRenameRoom} className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={roomRenameText}
+                        onChange={(e) => setRoomRenameText(e.target.value)}
+                        className="px-2 py-1 bg-slate-50 border border-slate-300 rounded text-xs font-semibold focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                        autoFocus
+                      />
+                      <button type="submit" className="text-xs font-semibold text-emerald-600 hover:text-emerald-800">保存</button>
+                      <button type="button" onClick={() => setIsRenamingRoom(false)} className="text-xs font-semibold text-slate-500 hover:text-slate-700">キャンセル</button>
+                    </form>
+                  ) : (
+                    <div className="flex items-center gap-1.5">
+                      <h2 className="text-sm font-bold text-slate-900">{getRoomName(activeRoom)}</h2>
+                      {isGroupRoom(activeRoom) && (
+                        <>
+                          {isUserRoomAdmin(activeRoom, currentUser.id) && (
+                            <button
+                              onClick={() => {
+                                setRoomRenameText(getRoomName(activeRoom));
+                                setIsRenamingRoom(true);
+                              }}
+                              className="p-1 text-slate-400 hover:text-indigo-600 rounded hover:bg-slate-50 transition-colors"
+                              title="グループ名を変更"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 text-[10px] font-semibold rounded-full border border-indigo-200/60">
+                            グループ
+                          </span>
+                        </>
+                      )}
+                    </div>
                   )}
                 </div>
                 <p className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
@@ -712,7 +942,7 @@ export function Chat({
             </div>
 
             <div className="flex items-center gap-2">
-              {activeRoom.type === 'group' && (
+              {isGroupRoom(activeRoom) && (
                 <button
                   onClick={() => {
                     setSelectedUserIds([]);
@@ -735,13 +965,16 @@ export function Chat({
               >
                 <Info className="w-4 h-4" />
               </button>
-              <button
-                onClick={() => handleDeleteRoomClick(activeRoom.id)}
-                className="p-2 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                title="トークルームを削除"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
+              {/* グループの場合は管理者のみ削除可能。DMの場合は誰でも削除可能 */}
+              {(!isGroupRoom(activeRoom) || isUserRoomAdmin(activeRoom, currentUser.id)) && (
+                <button
+                  onClick={() => handleDeleteRoomClick(activeRoom.id)}
+                  className="p-2 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                  title="トークルームを削除"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              )}
             </div>
           </div>
 
@@ -965,7 +1198,7 @@ export function Chat({
                   </h4>
                   <div className="space-y-2">
                     {activeRoom.participants.map((member) => (
-                      <div key={member.id} className="flex items-center gap-2.5 p-1.5 rounded-lg hover:bg-slate-50">
+                      <div key={member.id} className="flex items-center gap-2.5 p-1.5 rounded-lg hover:bg-slate-50 group/member">
                         <img
                           src={getAvatarUrl(member.avatarUrl)}
                           alt={member.name}
@@ -979,12 +1212,52 @@ export function Chat({
                             {member.office} / {member.division}
                           </p>
                         </div>
+                        {isGroupRoom(activeRoom) && (
+                          <div className="flex items-center gap-1 shrink-0">
+                            {/* 管理者（王冠）アイコンの表示・トグル */}
+                            {isUserRoomAdmin(activeRoom, member.id) ? (
+                              <button
+                                onClick={() => isUserRoomAdmin(activeRoom, currentUser.id) ? handleToggleAdmin(member.id) : undefined}
+                                className={`p-1 rounded transition-all ${
+                                  isUserRoomAdmin(activeRoom, currentUser.id)
+                                    ? 'text-amber-500 hover:scale-110 cursor-pointer'
+                                    : 'text-amber-500 cursor-default'
+                                }`}
+                                title={isUserRoomAdmin(activeRoom, currentUser.id) ? '管理者（クリックで権限解除）' : '管理者'}
+                              >
+                                <Crown className="w-3.5 h-3.5 fill-amber-300" />
+                              </button>
+                            ) : (
+                              // 自分が管理者なら、他の一般メンバーに管理者権限を付与するボタンを薄く表示
+                              isUserRoomAdmin(activeRoom, currentUser.id) && (
+                                <button
+                                  onClick={() => handleToggleAdmin(member.id)}
+                                  className="p-1 text-slate-300 hover:text-amber-500 hover:scale-110 transition-all cursor-pointer"
+                                  title="管理者に設定"
+                                >
+                                  <Crown className="w-3.5 h-3.5" />
+                                </button>
+                              )
+                            )}
+
+                            {/* メンバー削除（ゴミ箱）ボタン : 自分が管理者 or 自分自身の場合のみ表示 */}
+                            {((isUserRoomAdmin(activeRoom, currentUser.id) && member.id !== currentUser.id) || (member.id === currentUser.id)) && (
+                              <button
+                                onClick={() => handleRemoveMember(member.id)}
+                                className="p-1 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded transition-colors cursor-pointer"
+                                title={member.id === currentUser.id ? 'グループを退室' : 'グループから削除'}
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
                 </div>
 
-                {activeRoom.type === 'group' && (
+                {isGroupRoom(activeRoom) && (
                   <button
                     onClick={() => {
                       setSelectedUserIds([]);

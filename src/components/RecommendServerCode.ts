@@ -101,6 +101,13 @@ async function getPool() {
   try {
     globalPool = await sql.connect(dbConfig);
     console.log('✅ Connected to MS SQL Server successfully.');
+    // Check and add adminIdsJson column to dbo.ChatRooms
+    try {
+      await globalPool.request().query("IF COL_LENGTH('dbo.ChatRooms', 'adminIdsJson') IS NULL ALTER TABLE dbo.ChatRooms ADD adminIdsJson NVARCHAR(MAX) NULL");
+      console.log('✅ Checked/Added adminIdsJson column to dbo.ChatRooms');
+    } catch (e) {
+      console.warn('⚠️ Failed to alter ChatRooms table:', e.message);
+    }
     return globalPool;
   } catch (err) {
     globalPool = null;
@@ -1466,6 +1473,7 @@ app.get('/api/chats', async (req, res) => {
 
     const rooms = (roomsResult.recordset || []).map(r => {
       const participants = safeParseJSON(r.participantsJson || r.participants, []);
+      const adminIds = safeParseJSON(r.adminIdsJson || r.adminIds, []);
       return {
         id: String(r.id),
         name: r.name,
@@ -1474,6 +1482,7 @@ app.get('/api/chats', async (req, res) => {
         lastMessage: r.lastMessage || '',
         updatedAt: r.updatedAt,
         participants: participants,
+        adminIds: adminIds,
         messages: (msgsResult.recordset || [])
           .filter(m => String(m.roomId) === String(r.id))
           .map(m => ({
@@ -1508,46 +1517,49 @@ app.get('/api/chats/rooms', async (req, res) => {
 // 新規チャットルーム作成専用のエンドポイント
 app.post('/api/chats/rooms', async (req, res) => {
   try {
-    const { id, name, type, avatarUrl, participants } = req.body;
+    const { id, name, type, avatarUrl, participants, adminIds } = req.body;
     const pool = await getPool();
     const roomId = id || \`c_\${Date.now()}\`;
     const roomName = name || (type === 'dm' ? 'ダイレクトトーク' : 'グループトーク');
     const roomType = type || 'group';
     const participantsStr = participants ? (typeof participants === 'object' ? JSON.stringify(participants) : participants) : '[]';
+    const adminIdsStr = adminIds ? (typeof adminIds === 'object' ? JSON.stringify(adminIds) : adminIds) : '[]';
 
-    let inserted = false;
-    try {
-      await pool.request()
-        .input('id', sql.VarChar, roomId)
-        .input('name', sql.NVarChar, roomName)
-        .input('type', sql.NVarChar, roomType)
-        .input('avatarUrl', sql.VarChar, avatarUrl || null)
-        .input('participantsJson', sql.NVarChar, participantsStr)
-        .query(\`
-          INSERT INTO dbo.ChatRooms (id, name, type, avatarUrl, lastMessage, updatedAt, last_updated, participantsJson)
-          VALUES (@id, @name, @type, @avatarUrl, '', GETDATE(), GETDATE(), @participantsJson)
-        \`);
-      inserted = true;
-    } catch (err) {
-      try {
-        await pool.request()
-          .input('id', sql.VarChar, roomId)
-          .input('name', sql.NVarChar, roomName)
-          .input('type', sql.NVarChar, roomType)
-          .input('avatarUrl', sql.VarChar, avatarUrl || null)
-          .query(\`
-            INSERT INTO dbo.ChatRooms (id, name, type, avatarUrl, lastMessage, updatedAt, last_updated)
-            VALUES (@id, @name, @type, @avatarUrl, '', GETDATE(), GETDATE())
-          \`);
-        inserted = true;
-      } catch (err2) {}
+    // カラム一覧を取得して、存在するカラムを特定する
+    const columnsRes = await pool.request().query("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'ChatRooms' AND TABLE_SCHEMA = 'dbo'");
+    const dbColumns = (columnsRes.recordset || []).map(row => row.COLUMN_NAME);
+
+    const insertCols = ['id', 'name', 'type', 'avatarUrl', 'lastMessage', 'updatedAt', 'last_updated'];
+    const insertVals = ['@id', '@name', '@type', '@avatarUrl', "''", 'GETDATE()', 'GETDATE()'];
+
+    const request = pool.request()
+      .input('id', sql.VarChar, roomId)
+      .input('name', sql.NVarChar, roomName)
+      .input('type', sql.NVarChar, roomType)
+      .input('avatarUrl', sql.VarChar, avatarUrl || null);
+
+    if (participants !== undefined) {
+      const colName = dbColumns.includes('participantsJson') ? 'participantsJson' : (dbColumns.includes('participants') ? 'participants' : null);
+      if (colName) {
+        insertCols.push(colName);
+        insertVals.push('@participantsJson');
+        request.input('participantsJson', sql.NVarChar, participantsStr);
+      }
     }
 
-    if (inserted) {
-      res.status(201).json({ success: true, id: roomId, message: 'チャットルーム作成完了' });
-    } else {
-      res.status(500).json({ error: 'ChatRooms へのインサートに失敗しました。' });
+    if (adminIds !== undefined) {
+      const colName = dbColumns.includes('adminIdsJson') ? 'adminIdsJson' : (dbColumns.includes('adminIds') ? 'adminIds' : null);
+      if (colName) {
+        insertCols.push(colName);
+        insertVals.push('@adminIdsJson');
+        request.input('adminIdsJson', sql.NVarChar, adminIdsStr);
+      }
     }
+
+    const query = \`INSERT INTO dbo.ChatRooms (\${insertCols.join(', ')}) VALUES (\${insertVals.join(', ')})\`;
+    await request.query(query);
+
+    res.status(201).json({ success: true, id: roomId, message: 'チャットルーム作成完了' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1555,7 +1567,7 @@ app.post('/api/chats/rooms', async (req, res) => {
 
 const handlePostChatMessage = async (req, res) => {
   try {
-    const { senderId, roomId, message, content, attachments, roomName, roomType, participants, type, imageUrl, stampId, stampText, stampCategory } = req.body;
+    const { senderId, roomId, message, content, attachments, roomName, roomType, participants, type, imageUrl, stampId, stampText, stampCategory, adminIds } = req.body;
     const msgContent = message || content || '';
     const pool = await getPool();
     const id = req.body.id || \`c-\${Date.now()}\`;
@@ -1572,29 +1584,37 @@ const handlePostChatMessage = async (req, res) => {
       const rName = roomName || (roomType === 'dm' ? 'ダイレクトトーク' : '新規グループトーク');
       const rType = roomType || 'group';
       const participantsStr = participants ? (typeof participants === 'object' ? JSON.stringify(participants) : participants) : '[]';
+      // もしリクエストボディに adminIds があればそれを使う。なければ、グループチャットの場合 senderId を唯一の管理者とする
+      const admins = adminIds ? (Array.isArray(adminIds) ? adminIds : [adminIds]) : (rType === 'group' && senderId ? [senderId] : []);
+      const adminIdsStr = JSON.stringify(admins);
 
-      try {
-        await pool.request()
-          .input('roomId', sql.VarChar, String(targetRoomId))
-          .input('name', sql.NVarChar, rName)
-          .input('type', sql.NVarChar, rType)
-          .input('participantsJson', sql.NVarChar, participantsStr)
-          .query(\`
-            INSERT INTO dbo.ChatRooms (id, name, type, lastMessage, updatedAt, last_updated, participantsJson)
-            VALUES (@roomId, @name, @type, '', GETDATE(), GETDATE(), @participantsJson)
-          \`);
-      } catch (err) {
-        try {
-          await pool.request()
-            .input('roomId', sql.VarChar, String(targetRoomId))
-            .input('name', sql.NVarChar, rName)
-            .input('type', sql.NVarChar, rType)
-            .query(\`
-              INSERT INTO dbo.ChatRooms (id, name, type, lastMessage, updatedAt, last_updated)
-              VALUES (@roomId, @name, @type, '', GETDATE(), GETDATE())
-            \`);
-        } catch (err2) {}
+      const columnsRes = await pool.request().query("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'ChatRooms' AND TABLE_SCHEMA = 'dbo'");
+      const dbColumns = (columnsRes.recordset || []).map(row => row.COLUMN_NAME);
+
+      const insertCols = ['id', 'name', 'type', 'lastMessage', 'updatedAt', 'last_updated'];
+      const insertVals = ['@roomId', '@name', '@type', "''", 'GETDATE()', 'GETDATE()'];
+
+      const request = pool.request()
+        .input('roomId', sql.VarChar, String(targetRoomId))
+        .input('name', sql.NVarChar, rName)
+        .input('type', sql.NVarChar, rType);
+
+      const partCol = dbColumns.includes('participantsJson') ? 'participantsJson' : (dbColumns.includes('participants') ? 'participants' : null);
+      if (partCol) {
+        insertCols.push(partCol);
+        insertVals.push('@participantsJson');
+        request.input('participantsJson', sql.NVarChar, participantsStr);
       }
+
+      const adminCol = dbColumns.includes('adminIdsJson') ? 'adminIdsJson' : (dbColumns.includes('adminIds') ? 'adminIds' : null);
+      if (adminCol) {
+        insertCols.push(adminCol);
+        insertVals.push('@adminIdsJson');
+        request.input('adminIdsJson', sql.NVarChar, adminIdsStr);
+      }
+
+      const insertQuery = \`INSERT INTO dbo.ChatRooms (\${insertCols.join(', ')}) VALUES (\${insertVals.join(', ')})\`;
+      await request.query(insertQuery);
     }
 
     // 送信者を最初の閲覧者にする
@@ -1680,6 +1700,55 @@ app.post('/api/chats/messages/:messageId/viewers', async (req, res) => {
     }
   } catch (err) {
     console.error('Failed to update chat message viewers:', err);
+    res.status(500).json({ success: false, error: 'サーバーエラーが発生しました。' });
+  }
+});
+
+// チャットルーム情報（ルーム名、参加メンバーなど）更新用のエンドポイント
+app.put('/api/chats/:roomId', async (req, res) => {
+  const { roomId } = req.params;
+  const { name, participants, adminIds } = req.body;
+  try {
+    const pool = await getPool();
+    
+    // カラム一覧を取得して、存在するカラムを特定する
+    const columnsRes = await pool.request().query("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'ChatRooms' AND TABLE_SCHEMA = 'dbo'");
+    const dbColumns = (columnsRes.recordset || []).map(row => row.COLUMN_NAME);
+
+    let query = 'UPDATE dbo.ChatRooms SET updatedAt = GETDATE(), last_updated = GETDATE()';
+    const request = pool.request().input('roomId', sql.VarChar, roomId);
+    
+    if (name !== undefined) {
+      query += ', name = @name';
+      request.input('name', sql.NVarChar, name);
+    }
+    
+    if (participants !== undefined) {
+      const participantsStr = Array.isArray(participants) ? JSON.stringify(participants) : String(participants);
+      // カラム名が 'participantsJson' か 'participants' かを判定
+      const colName = dbColumns.includes('participantsJson') ? 'participantsJson' : (dbColumns.includes('participants') ? 'participants' : null);
+      if (colName) {
+        query += \`, \${colName} = @participantsJson\`;
+        request.input('participantsJson', sql.NVarChar, participantsStr);
+      }
+    }
+
+    if (adminIds !== undefined) {
+      const adminIdsStr = Array.isArray(adminIds) ? JSON.stringify(adminIds) : String(adminIds);
+      // カラム名が 'adminIdsJson' か 'adminIds' かを判定
+      const colName = dbColumns.includes('adminIdsJson') ? 'adminIdsJson' : (dbColumns.includes('adminIds') ? 'adminIds' : null);
+      if (colName) {
+        query += \`, \${colName} = @adminIdsJson\`;
+        request.input('adminIdsJson', sql.NVarChar, adminIdsStr);
+      }
+    }
+    
+    query += ' WHERE id = @roomId';
+    await request.query(query);
+    
+    res.status(200).json({ success: true, message: 'チャットルーム情報を更新しました。' });
+  } catch (err) {
+    console.error('Failed to update chat room:', err);
     res.status(500).json({ success: false, error: 'サーバーエラーが発生しました。' });
   }
 });
