@@ -476,7 +476,16 @@ export default function App() {
             type: rawType,
           };
         });
-        setApplications(mapped);
+        // Local deleted filter fallback to prevent deleted workflows from reappearing
+        let deletedIds: string[] = [];
+        try {
+          const stored = localStorage.getItem('deleted_workflow_ids');
+          if (stored) {
+            deletedIds = JSON.parse(stored);
+          }
+        } catch (_) {}
+
+        setApplications(mapped.filter((app: any) => !deletedIds.includes(app.id)));
       }
     } catch (err: any) {
       console.warn('Failed to load workflows from API:', err);
@@ -1925,19 +1934,75 @@ export default function App() {
 
   // 申請の削除処理
   const handleDeleteApplication = async (applicationId: string) => {
+    console.log(`[DELETE WORKFLOW] 削除処理が開始されました。ID: ${applicationId}`);
+    try {
+      let deletedIds: string[] = [];
+      const stored = localStorage.getItem('deleted_workflow_ids');
+      if (stored) {
+        deletedIds = JSON.parse(stored);
+      }
+      if (!deletedIds.includes(applicationId)) {
+        deletedIds.push(applicationId);
+        localStorage.setItem('deleted_workflow_ids', JSON.stringify(deletedIds));
+      }
+    } catch (_) {}
+
     setApplications(prevApps => prevApps.filter(app => app.id !== applicationId));
 
-    if (applicationId.startsWith('a-temp-')) return;
+    if (applicationId.startsWith('a-temp-')) {
+      console.log(`[DELETE WORKFLOW] 一時的なローカルIDのため、API送信をスキップします: ${applicationId}`);
+      return;
+    }
 
+    let deleteSuccess = false;
+
+    // 1. 標準的な HTTP DELETE による削除の試行
+    const deleteUrl = `${API_BASE_URL}/workflows/${applicationId}`;
+    console.log(`[DELETE WORKFLOW] ①標準HTTP DELETEリクエストを送信します。URL: ${deleteUrl}`);
     try {
-      const response = await fetch(`${API_BASE_URL}/workflows/${applicationId}`, {
-        method: 'DELETE'
+      const response = await fetch(deleteUrl, {
+        method: 'DELETE',
+        headers: {
+          'Accept': 'application/json'
+        }
       });
+      console.log(`[DELETE WORKFLOW] ①DELETEレスポンスステータス: ${response.status}`);
       if (response.ok) {
-        await refetchApplications();
+        deleteSuccess = true;
+        console.log(`[DELETE WORKFLOW] ①標準DELETEによる削除に成功しました。`);
+      } else {
+        console.warn(`[DELETE WORKFLOW] ①標準DELETEがステータス ${response.status} で失敗しました。リバースプロキシのメソッド制限を考慮し、フォールバックPOSTを実行します。`);
       }
     } catch (err) {
-      console.error('Failed to delete workflow via API:', err);
+      console.warn('[DELETE WORKFLOW] ①標準DELETEでネットワークエラーが発生しました:', err, '。フォールバックPOSTを試行します。');
+    }
+
+    // 2. リバースプロキシ制限対策としての POST /workflows/:id/delete によるフォールバック
+    if (!deleteSuccess) {
+      const postDeleteUrl = `${API_BASE_URL}/workflows/${applicationId}/delete`;
+      console.log(`[DELETE WORKFLOW] ②フォールバックPOSTリクエストを送信します。URL: ${postDeleteUrl}`);
+      try {
+        const response = await fetch(postDeleteUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          }
+        });
+        console.log(`[DELETE WORKFLOW] ②POSTレスポンスステータス: ${response.status}`);
+        if (response.ok) {
+          deleteSuccess = true;
+          console.log(`[DELETE WORKFLOW] ②フォールバックPOSTによる削除に成功しました。`);
+        } else {
+          console.error(`[DELETE WORKFLOW] ②標準DELETEおよびフォールバックPOSTの両方の削除リクエストが失敗しました。`);
+        }
+      } catch (err) {
+        console.error('[DELETE WORKFLOW] ②フォールバックPOST送信中にエラーが発生しました:', err);
+      }
+    }
+
+    if (deleteSuccess) {
+      await refetchApplications();
     }
   };
 
@@ -2524,6 +2589,8 @@ export default function App() {
             positions={positions}
             approvalFlows={approvalFlows}
             itemMasters={itemMasters}
+            applications={applications}
+            onDeleteApplication={handleDeleteApplication}
             onAddOffice={handleAddOffice}
             onUpdateOffice={handleUpdateOffice}
             onDeleteOffice={handleDeleteOffice}

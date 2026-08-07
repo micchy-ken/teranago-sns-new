@@ -246,7 +246,7 @@ const deleteOfficeHandler = async (req, res) => {
   try {
     const { id } = req.params;
     const pool = await getPool();
-    await pool.request().input('id', sql.VarChar, id).query\`DELETE FROM dbo.Offices WHERE id = @id\`;
+    await pool.request().input('id', sql.VarChar, id).query('DELETE FROM dbo.Offices WHERE id = @id');
     res.json({ success: true, id });
   } catch (err) { res.status(500).json({ error: err.message }); }
 };
@@ -299,7 +299,7 @@ const deleteDivisionHandler = async (req, res) => {
   try {
     const { id } = req.params;
     const pool = await getPool();
-    await pool.request().input('id', sql.VarChar, id).query\`DELETE FROM dbo.Divisions WHERE id = @id\`;
+    await pool.request().input('id', sql.VarChar, id).query('DELETE FROM dbo.Divisions WHERE id = @id');
     res.json({ success: true, id });
   } catch (err) { res.status(500).json({ error: err.message }); }
 };
@@ -352,7 +352,7 @@ const deletePositionHandler = async (req, res) => {
   try {
     const { id } = req.params;
     const pool = await getPool();
-    await pool.request().input('id', sql.VarChar, id).query\`DELETE FROM dbo.Positions WHERE id = @id\`;
+    await pool.request().input('id', sql.VarChar, id).query('DELETE FROM dbo.Positions WHERE id = @id');
     res.json({ success: true, id });
   } catch (err) { res.status(500).json({ error: err.message }); }
 };
@@ -409,7 +409,7 @@ const deleteItemMasterHandler = async (req, res) => {
   try {
     const { id } = req.params;
     const pool = await getPool();
-    await pool.request().input('id', sql.VarChar, id).query\`DELETE FROM dbo.ItemMasters WHERE id = @id\`;
+    await pool.request().input('id', sql.VarChar, id).query('DELETE FROM dbo.ItemMasters WHERE id = @id');
     res.json({ success: true, id });
   } catch (err) { res.status(500).json({ error: err.message }); }
 };
@@ -601,7 +601,7 @@ app.put('/api/users/:id', async (req, res) => {
 app.delete('/api/users/:id', async (req, res) => {
   try {
     const pool = await getPool();
-    await pool.request().input('id', sql.VarChar, String(req.params.id)).query\`DELETE FROM dbo.Users WHERE id = @id\`;
+    await pool.request().input('id', sql.VarChar, String(req.params.id)).query('DELETE FROM dbo.Users WHERE id = @id');
     res.json({ message: 'ユーザー削除完了' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -702,9 +702,9 @@ app.post('/api/posts/:id/like', async (req, res) => {
 app.delete('/api/posts/:id', async (req, res) => {
   try {
     const pool = await getPool();
-    await pool.request().input('id', sql.VarChar, String(req.params.id)).query\`DELETE FROM dbo.Posts WHERE id = @id\`;
+    await pool.request().input('id', sql.VarChar, String(req.params.id)).query('DELETE FROM dbo.Posts WHERE id = @id');
     try {
-      await pool.request().input('postId', sql.VarChar, String(req.params.id)).query\`DELETE FROM dbo.PostTags WHERE postId = @postId\`;
+      await pool.request().input('postId', sql.VarChar, String(req.params.id)).query('DELETE FROM dbo.PostTags WHERE postId = @postId');
     } catch (_) {}
     res.json({ message: '削除完了' });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -828,7 +828,7 @@ app.put('/api/events/:id', async (req, res) => {
 app.delete('/api/events/:id', async (req, res) => {
   try {
     const pool = await getPool();
-    await pool.request().input('id', sql.VarChar, String(req.params.id)).query\`DELETE FROM dbo.Events WHERE id = @id\`;
+    await pool.request().input('id', sql.VarChar, String(req.params.id)).query('DELETE FROM dbo.Events WHERE id = @id');
     res.json({ message: '削除完了' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -924,7 +924,18 @@ app.delete('/api/workflows/:id', async (req, res) => {
     const pool = await getPool();
     await pool.request()
       .input('id', sql.VarChar, String(req.params.id))
-      .query\`DELETE FROM dbo.Workflows WHERE id = @id\`;
+      .query('DELETE FROM dbo.Workflows WHERE id = @id');
+    res.json({ message: '削除完了' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// 互換性・リバースプロキシ対策用のPOSTベース削除エンドポイント
+app.post('/api/workflows/:id/delete', async (req, res) => {
+  try {
+    const pool = await getPool();
+    await pool.request()
+      .input('id', sql.VarChar, String(req.params.id))
+      .query('DELETE FROM dbo.Workflows WHERE id = @id');
     res.json({ message: '削除完了' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1949,7 +1960,7 @@ app.put('/api/memos/:id', async (req, res) => {
 app.delete('/api/memos/:id', async (req, res) => {
   try {
     const pool = await getPool();
-    await pool.request().input('id', sql.VarChar, String(req.params.id)).query\`DELETE FROM dbo.Memos WHERE id = @id\`;
+    await pool.request().input('id', sql.VarChar, String(req.params.id)).query('DELETE FROM dbo.Memos WHERE id = @id');
     res.json({ message: '伝言メモ削除完了' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

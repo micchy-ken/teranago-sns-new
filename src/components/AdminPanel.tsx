@@ -42,7 +42,7 @@ import {
   Copy,
   Check
 } from 'lucide-react';
-import { User, OfficeMaster, DivisionMaster, PositionMaster, OfficeType, ApprovalFlowRule, ApprovalStepConfig, ApplicationType, ApproverType, ItemMaster } from '../types';
+import { User, OfficeMaster, DivisionMaster, PositionMaster, OfficeType, ApprovalFlowRule, ApprovalStepConfig, ApplicationType, ApproverType, ItemMaster, WorkflowApplication, ApplicationStatus } from '../types';
 
 interface AdminPanelProps {
   currentUser: User;
@@ -52,6 +52,8 @@ interface AdminPanelProps {
   positions?: PositionMaster[];
   approvalFlows?: ApprovalFlowRule[];
   itemMasters?: ItemMaster[];
+  applications?: WorkflowApplication[];
+  onDeleteApplication?: (id: string) => void;
   onAddOffice: (office: Omit<OfficeMaster, 'id'>) => void;
   onUpdateOffice: (office: OfficeMaster) => void;
   onDeleteOffice: (id: string) => void;
@@ -89,6 +91,8 @@ export function AdminPanel({
   positions = [],
   approvalFlows = [],
   itemMasters = [],
+  applications = [],
+  onDeleteApplication,
   onAddOffice,
   onUpdateOffice,
   onDeleteOffice,
@@ -110,10 +114,12 @@ export function AdminPanel({
   onUpdateItemMaster,
   onDeleteItemMaster,
 }: AdminPanelProps) {
-  const [activeSubTab, setActiveSubTab] = useState<'users' | 'offices' | 'divisions' | 'positions' | 'items' | 'approval_flows' | 'system'>('users');
+  const [activeSubTab, setActiveSubTab] = useState<'users' | 'offices' | 'divisions' | 'positions' | 'items' | 'approval_flows' | 'system' | 'workflows_cleanup'>('users');
   const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedOfficeFilter, setSelectedOfficeFilter] = useState<string>('all');
+  const [workflowSearchQuery, setWorkflowSearchQuery] = useState('');
+  const [workflowStatusFilter, setWorkflowStatusFilter] = useState<'all' | 'approved' | 'pending' | 'rejected' | 'draft'>('all');
 
   // システム情報・診断ツール拡張用状態
   const [diagnosticLoading, setDiagnosticLoading] = useState(false);
@@ -1274,6 +1280,18 @@ export function AdminPanel({
         >
           <Settings className="w-4 h-4" />
           システム情報
+        </button>
+
+        <button
+          onClick={() => setActiveSubTab('workflows_cleanup')}
+          className={`flex-1 py-2.5 text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition-all ${
+            activeSubTab === 'workflows_cleanup'
+              ? 'bg-indigo-600 text-white shadow-sm'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+          }`}
+        >
+          <Trash2 className="w-4 h-4" />
+          承認済みワークフロー削除
         </button>
       </div>
 
@@ -3338,6 +3356,226 @@ END;`}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* WORKFLOWS CLEANUP SUB TAB */}
+      {activeSubTab === 'workflows_cleanup' && (
+        <div className="space-y-6">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+              <div>
+                <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
+                  <Trash2 className="w-5 h-5 text-indigo-600" />
+                  ワークフロー削除・クリーンアップ
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  テスト用や不要になった申請（ワークフロー）のデータを一括、または個別で安全に削除できます。
+                </p>
+              </div>
+            </div>
+
+            {/* 一括削除セクション */}
+            {applications.filter(app => app.status === 'approved').length > 0 && (
+              <div className="mt-6 p-4 bg-rose-50 border border-rose-200 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <h4 className="text-sm font-bold text-rose-900 flex items-center gap-1.5">
+                    <AlertTriangle className="w-4 h-4 text-rose-600" />
+                    承認済みワークフローの一括削除
+                  </h4>
+                  <p className="text-xs text-rose-700 leading-relaxed">
+                    現在、システム内に承認済みのワークフローが <strong>{applications.filter(app => app.status === 'approved').length} 件</strong> 存在します。<br />
+                    テストなどで作成した承認済みデータを一掃したい場合は、右のボタンからすべて一括削除できます。
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const approvedApps = applications.filter(app => app.status === 'approved');
+                    setConfirmModal({
+                      isOpen: true,
+                      title: '承認済みワークフローの一括削除',
+                      message: `現在登録されているすべての承認済みワークフロー（${approvedApps.length}件）を削除します。この操作は取り消せません。本当によろしいですか？`,
+                      type: 'danger',
+                      confirmText: '一括削除する',
+                      cancelText: 'キャンセル',
+                      onConfirm: async () => {
+                        if (onDeleteApplication) {
+                          for (const app of approvedApps) {
+                            await onDeleteApplication(app.id);
+                          }
+                          setConfirmModal({
+                            isOpen: true,
+                            title: '一括削除完了',
+                            message: `${approvedApps.length} 件の承認済みワークフローを削除しました。`,
+                            type: 'success',
+                            confirmText: 'OK'
+                          });
+                        }
+                      }
+                    });
+                  }}
+                  className="flex items-center gap-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold px-4 py-2.5 rounded-lg shadow-sm transition-all whitespace-nowrap shrink-0 cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  承認済みを一括削除
+                </button>
+              </div>
+            )}
+
+            {/* 検索・絞り込みバー */}
+            <div className="mt-6 flex flex-col sm:flex-row gap-3">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  value={workflowSearchQuery}
+                  onChange={(e) => setWorkflowSearchQuery(e.target.value)}
+                  placeholder="タイトル、申請者名、理由などで検索..."
+                  className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                />
+              </div>
+
+              <div className="flex gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200 shrink-0">
+                {(['all', 'approved', 'pending', 'rejected', 'draft'] as const).map((status) => {
+                  const labelMap: Record<typeof status, string> = {
+                    all: 'すべて',
+                    approved: '承認済み',
+                    pending: '申請中',
+                    rejected: '却下',
+                    draft: '下書き',
+                  };
+                  const count = status === 'all' 
+                    ? applications.length 
+                    : applications.filter(app => app.status === status).length;
+
+                  return (
+                    <button
+                      key={status}
+                      onClick={() => setWorkflowStatusFilter(status)}
+                      className={`px-3 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${
+                        workflowStatusFilter === status
+                          ? 'bg-white text-indigo-600 shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      {labelMap[status]} ({count})
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* リスト */}
+            <div className="mt-4 border border-slate-200 rounded-xl overflow-hidden bg-white shadow-xs">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200 text-slate-700 text-xs font-bold">
+                    <th className="py-3 px-4">申請書ID</th>
+                    <th className="py-3 px-4">申請種別</th>
+                    <th className="py-3 px-4">タイトル</th>
+                    <th className="py-3 px-4">申請者</th>
+                    <th className="py-3 px-4">申請日時</th>
+                    <th className="py-3 px-4">状況</th>
+                    <th className="py-3 px-4 text-center">操作</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {applications
+                    .filter(app => {
+                      // ステータス絞り込み
+                      if (workflowStatusFilter !== 'all' && app.status !== workflowStatusFilter) {
+                        return false;
+                      }
+                      // 検索クエリ絞り込み
+                      if (workflowSearchQuery.trim()) {
+                        const query = workflowSearchQuery.toLowerCase();
+                        const titleMatch = app.title?.toLowerCase().includes(query);
+                        const descMatch = app.description?.toLowerCase().includes(query);
+                        const applicantMatch = app.applicant?.name?.toLowerCase().includes(query);
+                        const typeMatch = app.type?.toLowerCase().includes(query);
+                        return titleMatch || descMatch || applicantMatch || typeMatch;
+                      }
+                      return true;
+                    })
+                    .map((app) => {
+                      const statusConfig: Record<string, { label: string; bg: string; text: string }> = {
+                        approved: { label: '承認済み', bg: 'bg-emerald-50 border-emerald-200', text: 'text-emerald-700' },
+                        pending: { label: '申請中', bg: 'bg-amber-50 border-amber-200', text: 'text-amber-700' },
+                        rejected: { label: '却下', bg: 'bg-rose-50 border-rose-200', text: 'text-rose-700' },
+                        draft: { label: '下書き', bg: 'bg-slate-50 border-slate-200', text: 'text-slate-600' },
+                      };
+                      const s = statusConfig[app.status] || { label: app.status, bg: 'bg-slate-100', text: 'text-slate-800' };
+
+                      return (
+                        <tr key={app.id} className="hover:bg-slate-50/50 text-xs transition-colors">
+                          <td className="py-3 px-4 font-mono text-slate-500 font-bold">{app.id}</td>
+                          <td className="py-3 px-4 font-bold text-slate-700">{app.type}</td>
+                          <td className="py-3 px-4 font-bold text-slate-800">{app.title}</td>
+                          <td className="py-3 px-4">
+                            <div className="flex items-center gap-2">
+                              {app.applicant?.avatarUrl ? (
+                                <img src={getAvatarUrl(app.applicant.avatarUrl)} className="w-5 h-5 rounded-full object-cover" />
+                              ) : (
+                                <div className="w-5 h-5 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 font-bold">
+                                  {app.applicant?.name?.slice(0, 1) || '未'}
+                                </div>
+                              )}
+                              <span className="font-bold text-slate-700">{app.applicant?.name || '不明'}</span>
+                            </div>
+                          </td>
+                          <td className="py-3 px-4 text-slate-500">
+                            {new Date(app.createdAt).toLocaleString('ja-JP', {
+                              year: 'numeric',
+                              month: '2-digit',
+                              day: '2-digit',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </td>
+                          <td className="py-3 px-4">
+                            <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${s.bg} ${s.text}`}>
+                              {s.label}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setConfirmModal({
+                                  isOpen: true,
+                                  title: '申請ワークフローの削除',
+                                  message: `申請「${app.title}」（ID: ${app.id}）を削除してもよろしいですか？この操作は取り消せません。`,
+                                  type: 'danger',
+                                  confirmText: '削除する',
+                                  cancelText: 'キャンセル',
+                                  onConfirm: () => {
+                                    if (onDeleteApplication) {
+                                      onDeleteApplication(app.id);
+                                    }
+                                  }
+                                });
+                              }}
+                              className="inline-flex items-center gap-1 text-rose-600 hover:bg-rose-50 px-2 py-1 rounded-md transition-all font-bold cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>削除</span>
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  {applications.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="py-12 text-center text-slate-400 font-medium">
+                        登録されている申請データはありません。
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
