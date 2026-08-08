@@ -12,7 +12,15 @@ export const SILHOUETTE_SVG = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDo
  * また、アップロードされた相対パス（/uploads/...）の場合は適切な絶対URLに変換します。
  */
 export const getAvatarUrl = (url?: string): string => {
-  if (!url || typeof url !== 'string' || url.trim() === '' || url.includes('pravatar.cc') || url === 'avatar') {
+  if (
+    !url || 
+    typeof url !== 'string' || 
+    url.trim() === '' || 
+    url.includes('pravatar') || 
+    url.includes('placeholder') ||
+    url.includes('picsum.photos') ||
+    url === 'avatar'
+  ) {
     return SILHOUETTE_SVG;
   }
 
@@ -58,6 +66,16 @@ export const getAvatarUrl = (url?: string): string => {
   const baseUrl = API_BASE_URL.replace(/\/api$/, '');
   const prefix = sanitizedUrl.startsWith('/') ? sanitizedUrl : `/${sanitizedUrl}`;
   return `${baseUrl}${prefix}`;
+};
+
+/**
+ * <img> タグの onError イベント用ハンドラー
+ * 画像読み込みエラーが発生した場合にデフォルトシルエット画像に自動フォールバックします。
+ */
+export const handleAvatarError = (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
+  if (e.currentTarget.src !== SILHOUETTE_SVG) {
+    e.currentTarget.src = SILHOUETTE_SVG;
+  }
 };
 
 /**

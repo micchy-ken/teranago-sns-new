@@ -182,8 +182,7 @@ export function isEventUnread(e: CalendarEvent, user: User, readEventIds: string
   if (readEventIds.includes(e.id)) return false;
 
   const isAttendee = e.attendees ? e.attendees.some((a) => a?.id === user.id || a?.name === user.name) : false;
-  const isTargetOffice = e.office === '全社' || e.office === user.office;
-  return isAttendee || isTargetOffice;
+  return isAttendee;
 }
 
 /** 2. 掲示板トピックの未読判定 */

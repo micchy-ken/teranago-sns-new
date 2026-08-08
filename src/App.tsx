@@ -19,6 +19,7 @@ import { syncUserReadStatusesFromServer, isMemoUnread, markMemoAsRead, markMemoA
 import { TopicDetailModal } from './components/TopicDetailModal';
 import { GlobalEventDetailModal } from './components/GlobalEventDetailModal';
 import { GlobalMemoDetailModal } from './components/GlobalMemoDetailModal';
+import { filterStepsForApplicant, resolveApproverForStep, getSupervisorAtLevel } from './utils/workflowHelpers';
 
 // Helper to map and sanitize API user objects to match frontend types safely
 const mapUserFromApi = (apiUser: any): User => {
@@ -1674,13 +1675,16 @@ export default function App() {
         || approvalFlows[0];
     }
 
-    const stepsConfig: ApprovalStepConfig[] = appData.stepsConfig && appData.stepsConfig.length > 0 
+    let rawSteps: ApprovalStepConfig[] = appData.stepsConfig && appData.stepsConfig.length > 0 
       ? appData.stepsConfig 
       : (selectedFlow ? selectedFlow.steps : [
           { stepNumber: 1, approverType: 'supervisor_1', stepName: '一次承認（直属上長）' }
         ]);
 
-    const initialApprover = appData.approver || resolveApproverForStep(appData.applicant, stepsConfig[0], usersList);
+    // 申請者に合わせたステップ調整（2次上長不在の場合は1次のみ）
+    const stepsConfig = filterStepsForApplicant(appData.applicant, rawSteps, usersList);
+
+    const initialApprover = appData.approver || resolveApproverForStep(appData.applicant, stepsConfig[0] || rawSteps[0], usersList);
 
     const tempId = `a-temp-${Date.now()}`;
     const newApp: WorkflowApplication = {

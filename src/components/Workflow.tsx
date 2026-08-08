@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { WorkflowApplication, ApplicationType, ApplicationStatus, User as UserType, ApprovalFlowRule, ApprovalStepConfig, ItemMaster, AttachmentFile } from '../types';
-import { FileText, CheckCircle2, XCircle, Clock, Plus, ArrowRight, GitMerge, UserCheck, AlertTriangle, Edit3, MessageSquare, Send, X, ShoppingBag, Building2, Hash, ExternalLink, Package, Calendar, RotateCcw, Trash2, Paperclip } from 'lucide-react';
+import { FileText, CheckCircle2, XCircle, Clock, Plus, ArrowRight, GitMerge, UserCheck, AlertTriangle, Edit3, MessageSquare, Send, X, ShoppingBag, Building2, Hash, ExternalLink, Package, Calendar, RotateCcw, Trash2, Paperclip, ChevronDown, ChevronUp } from 'lucide-react';
 import { ApplicationModal } from './ApplicationModal';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { FilePreviewModal } from './FilePreviewModal';
-import { getAvatarUrl } from '../utils/avatar';
+import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
+import { filterStepsForApplicant, getSupervisorAtLevel, resolveApproverForStep } from '../utils/workflowHelpers';
 
 interface WorkflowProps {
   applications: WorkflowApplication[];
@@ -97,6 +98,24 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
 
   // 発注No入力ステート
   const [poInputs, setPoInputs] = useState<Record<string, string>>({});
+
+  // 適用フローの開閉ステート (app.id -> boolean)
+  const [expandedFlows, setExpandedFlows] = useState<Record<string, boolean>>({});
+
+  const isFlowExpanded = (app: WorkflowApplication) => {
+    if (expandedFlows[app.id] !== undefined) {
+      return expandedFlows[app.id];
+    }
+    // デフォルト: 承認済み (approved) の場合は折りたたみ (false)、それ以外は展開 (true)
+    return app.status !== 'approved';
+  };
+
+  const toggleFlowExpand = (appId: string, currentStatus?: string) => {
+    setExpandedFlows(prev => {
+      const currentVal = prev[appId] !== undefined ? prev[appId] : currentStatus !== 'approved';
+      return { ...prev, [appId]: !currentVal };
+    });
+  };
 
   // 発注No保存ハンドラー
   const handleSavePoNumber = (app: WorkflowApplication) => {
@@ -597,144 +616,170 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
                   </div>
                 )}
 
-                {app.stepsConfig && app.stepsConfig.length > 0 && (
-                  <div className="mb-4 p-3.5 bg-slate-50 border border-slate-200/90 rounded-2xl text-xs space-y-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200/60 pb-2">
-                      <div className="flex items-center gap-2">
-                        <GitMerge className="w-4 h-4 text-indigo-600 shrink-0" />
-                        <span className="font-bold text-slate-700">適用フロー:</span>
-                        <span className="font-extrabold text-indigo-800 bg-indigo-100/70 px-2 py-0.5 rounded border border-indigo-200">
-                          {app.flowName || '標準承認フロー'} ({app.stepsConfig.length}段階)
-                        </span>
-                      </div>
+                {app.stepsConfig && app.stepsConfig.length > 0 && (() => {
+                  const displaySteps = filterStepsForApplicant(app.applicant, app.stepsConfig, allUsers);
+                  const expanded = isFlowExpanded(app);
 
-                      {app.status === 'pending' && (
-                        <div className="flex items-center gap-1.5 font-bold text-amber-900 bg-amber-100/80 px-2.5 py-1 rounded-lg border border-amber-300 animate-pulse">
-                          <Clock className="w-3.5 h-3.5 text-amber-700" />
-                          <span>
-                            確認待ち: 今 <strong className="underline decoration-amber-500 font-extrabold">{app.approver?.name || '承認者'}</strong> さんの承認確認待ちです
+                  return (
+                    <div className="mb-4 p-3.5 bg-slate-50 border border-slate-200/90 rounded-2xl text-xs space-y-3">
+                      <div 
+                        onClick={() => toggleFlowExpand(app.id, app.status)}
+                        className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200/60 pb-2 cursor-pointer select-none hover:opacity-90 transition-opacity"
+                      >
+                        <div className="flex items-center gap-2">
+                          <GitMerge className="w-4 h-4 text-indigo-600 shrink-0" />
+                          <span className="font-bold text-slate-700">適用フロー:</span>
+                          <span className="font-extrabold text-indigo-800 bg-indigo-100/70 px-2 py-0.5 rounded border border-indigo-200">
+                            {app.flowName || '標準承認フロー'} ({displaySteps.length}段階)
                           </span>
                         </div>
-                      )}
 
-                      {app.status === 'approved' && (
-                        <div className="flex items-center gap-1 font-bold text-emerald-800 bg-emerald-100/80 px-2.5 py-0.5 rounded-lg border border-emerald-300">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>全ステップ承認完了</span>
-                        </div>
-                      )}
-
-                      {app.status === 'rejected' && (
-                        <div className="flex items-center gap-1 font-bold text-rose-800 bg-rose-100/80 px-2.5 py-0.5 rounded-lg border border-rose-300">
-                          <XCircle className="w-3.5 h-3.5 text-rose-600" />
-                          <span>途中却下済み</span>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* ステップ進行プログレスルート */}
-                    <div className="flex flex-wrap items-center gap-2 pt-1">
-                      {/* 申請者 */}
-                      <div className="flex items-center gap-1.5 px-2 py-1 bg-white rounded-lg border border-slate-200 text-slate-700 font-medium">
-                        <span className="w-4 h-4 rounded-full bg-slate-200 text-slate-700 text-[10px] font-bold flex items-center justify-center shrink-0">発</span>
-                        <span className="font-bold text-slate-900">{app.applicant?.name}</span>
-                        <span className="text-[10px] text-slate-400">(申請)</span>
-                      </div>
-
-                      {app.stepsConfig.map((step, idx) => {
-                        const stepNum = idx + 1;
-                        const currentStep = app.currentStepIndex || 1;
-                        const userInfo = resolveStepUserInfo(app, step, idx);
-
-                        let stepState: 'completed' | 'current' | 'upcoming' = 'upcoming';
-                        if (app.status === 'approved') {
-                          stepState = 'completed';
-                        } else if (app.status === 'rejected') {
-                          if (stepNum < currentStep) stepState = 'completed';
-                          else stepState = 'upcoming';
-                        } else {
-                          if (stepNum < currentStep) stepState = 'completed';
-                          else if (stepNum === currentStep) stepState = 'current';
-                          else stepState = 'upcoming';
-                        }
-
-                        return (
-                          <React.Fragment key={idx}>
-                            <ArrowRight className="w-3.5 h-3.5 text-slate-300 shrink-0" />
-
-                            <div
-                              className={`flex items-center gap-2 px-2.5 py-1.5 rounded-xl border text-xs transition-all ${
-                                stepState === 'completed'
-                                  ? 'bg-emerald-50/80 border-emerald-200 text-emerald-900'
-                                  : stepState === 'current'
-                                  ? 'bg-amber-50 border-amber-300 ring-2 ring-amber-200/80 text-amber-950 font-bold shadow-xs'
-                                  : 'bg-white border-slate-200 text-slate-400 opacity-75'
-                              }`}
-                            >
-                              <div
-                                className={`w-5 h-5 rounded-full text-[10px] font-extrabold flex items-center justify-center shrink-0 ${
-                                  stepState === 'completed'
-                                    ? 'bg-emerald-600 text-white'
-                                    : stepState === 'current'
-                                    ? 'bg-amber-600 text-white'
-                                    : 'bg-slate-200 text-slate-600'
-                                }`}
-                              >
-                                {stepState === 'completed' ? '✓' : stepNum}
-                              </div>
-
-                              <div className="flex flex-col">
-                                <div className="flex items-center gap-1">
-                                  <span className="font-bold">{userInfo.name}</span>
-                                  {stepState === 'current' && (
-                                    <span className="text-[9px] font-extrabold bg-amber-200 text-amber-900 px-1 rounded">
-                                      確認待ち
-                                    </span>
-                                  )}
-                                  {stepState === 'completed' && (
-                                    <span className="text-[9px] font-extrabold bg-emerald-200 text-emerald-900 px-1 rounded">
-                                      承認済
-                                    </span>
-                                  )}
-                                </div>
-                                <span className="text-[9px] text-slate-500 font-normal">
-                                  {step.stepName || `${stepNum}次承認`} ({userInfo.roleLabel})
-                                </span>
-                              </div>
+                        <div className="flex items-center gap-2">
+                          {app.status === 'pending' && (
+                            <div className="flex items-center gap-1.5 font-bold text-amber-900 bg-amber-100/80 px-2.5 py-1 rounded-lg border border-amber-300 animate-pulse">
+                              <Clock className="w-3.5 h-3.5 text-amber-700" />
+                              <span>
+                                確認待ち: 今 <strong className="underline decoration-amber-500 font-extrabold">{app.approver?.name || '承認者'}</strong> さんの承認確認待ちです
+                              </span>
                             </div>
-                          </React.Fragment>
-                        );
-                      })}
-                    </div>
+                          )}
 
-                    {/* 承認履歴ログの表示 */}
-                    {app.history && app.history.length > 0 && (
-                      <div className="pt-2 border-t border-slate-200/60 flex flex-wrap items-center gap-2 text-[11px]">
-                        <span className="font-bold text-slate-600">進行履歴:</span>
-                        {app.history.map((hist, hIdx) => (
-                          <span
-                            key={hIdx}
-                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-medium border ${
-                              hist.status === 'approved'
-                                ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                                : 'bg-rose-50 text-rose-800 border-rose-200'
-                            }`}
+                          {app.status === 'approved' && (
+                            <div className="flex items-center gap-1 font-bold text-emerald-800 bg-emerald-100/80 px-2.5 py-0.5 rounded-lg border border-emerald-300">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                              <span>全ステップ承認完了</span>
+                            </div>
+                          )}
+
+                          {app.status === 'rejected' && (
+                            <div className="flex items-center gap-1 font-bold text-rose-800 bg-rose-100/80 px-2.5 py-0.5 rounded-lg border border-rose-300">
+                              <XCircle className="w-3.5 h-3.5 text-rose-600" />
+                              <span>途中却下済み</span>
+                            </div>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleFlowExpand(app.id, app.status);
+                            }}
+                            className="flex items-center gap-1 px-2 py-1 rounded-md bg-white border border-slate-200 hover:bg-slate-100 text-slate-600 font-bold text-[11px] transition-all ml-1 cursor-pointer shadow-2xs shrink-0"
                           >
-                            {hist.status === 'approved' ? (
-                              <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
-                            ) : (
-                              <XCircle className="w-3 h-3 text-rose-600 shrink-0" />
-                            )}
-                            <span>
-                              {hist.stepNumber === 0 ? '再申請' : `ステップ${hist.stepNumber}`}: <strong>{hist.approver.name}</strong> {hist.status === 'approved' ? (hist.stepNumber === 0 ? '提出' : '承認') : '却下'}
-                              {hist.comment && <span className="text-slate-600 font-normal ml-1">「{hist.comment}」</span>}
-                            </span>
-                          </span>
-                        ))}
+                            {expanded ? <ChevronUp className="w-3.5 h-3.5 text-slate-500" /> : <ChevronDown className="w-3.5 h-3.5 text-slate-500" />}
+                            <span>{expanded ? '折りたたむ' : '詳細表示'}</span>
+                          </button>
+                        </div>
                       </div>
-                    )}
-                  </div>
-                )}
+
+                      {expanded && (
+                        <>
+                          {/* ステップ進行プログレスルート */}
+                          <div className="flex flex-wrap items-center gap-2 pt-1">
+                            {/* 申請者 */}
+                            <div className="flex items-center gap-1.5 px-2 py-1 bg-white rounded-lg border border-slate-200 text-slate-700 font-medium">
+                              <span className="w-4 h-4 rounded-full bg-slate-200 text-slate-700 text-[10px] font-bold flex items-center justify-center shrink-0">発</span>
+                              <span className="font-bold text-slate-900">{app.applicant?.name}</span>
+                              <span className="text-[10px] text-slate-400">(申請)</span>
+                            </div>
+
+                            {displaySteps.map((step, idx) => {
+                              const stepNum = idx + 1;
+                              const currentStep = app.currentStepIndex || 1;
+                              const userInfo = resolveStepUserInfo(app, step, idx);
+
+                              let stepState: 'completed' | 'current' | 'upcoming' = 'upcoming';
+                              if (app.status === 'approved') {
+                                stepState = 'completed';
+                              } else if (app.status === 'rejected') {
+                                if (stepNum < currentStep) stepState = 'completed';
+                                else stepState = 'upcoming';
+                              } else {
+                                if (stepNum < currentStep) stepState = 'completed';
+                                else if (stepNum === currentStep) stepState = 'current';
+                                else stepState = 'upcoming';
+                              }
+
+                              return (
+                                <React.Fragment key={idx}>
+                                  <ArrowRight className="w-3.5 h-3.5 text-slate-300 shrink-0" />
+
+                                  <div
+                                    className={`flex items-center gap-2 px-2.5 py-1.5 rounded-xl border text-xs transition-all ${
+                                      stepState === 'completed'
+                                        ? 'bg-emerald-50/80 border-emerald-200 text-emerald-900'
+                                        : stepState === 'current'
+                                        ? 'bg-amber-50 border-amber-300 ring-2 ring-amber-200/80 text-amber-950 font-bold shadow-xs'
+                                        : 'bg-white border-slate-200 text-slate-400 opacity-75'
+                                    }`}
+                                  >
+                                    <div
+                                      className={`w-5 h-5 rounded-full text-[10px] font-extrabold flex items-center justify-center shrink-0 ${
+                                        stepState === 'completed'
+                                          ? 'bg-emerald-600 text-white'
+                                          : stepState === 'current'
+                                          ? 'bg-amber-600 text-white'
+                                          : 'bg-slate-200 text-slate-600'
+                                      }`}
+                                    >
+                                      {stepState === 'completed' ? '✓' : stepNum}
+                                    </div>
+
+                                    <div className="flex flex-col">
+                                      <div className="flex items-center gap-1">
+                                        <span className="font-bold">{userInfo.name}</span>
+                                        {stepState === 'current' && (
+                                          <span className="text-[9px] font-extrabold bg-amber-200 text-amber-900 px-1 rounded">
+                                            確認待ち
+                                          </span>
+                                        )}
+                                        {stepState === 'completed' && (
+                                          <span className="text-[9px] font-extrabold bg-emerald-200 text-emerald-900 px-1 rounded">
+                                            承認済
+                                          </span>
+                                        )}
+                                      </div>
+                                      <span className="text-[9px] text-slate-500 font-normal">
+                                        {step.stepName || `${stepNum}次承認`} ({userInfo.roleLabel})
+                                      </span>
+                                    </div>
+                                  </div>
+                                </React.Fragment>
+                              );
+                            })}
+                          </div>
+
+                          {/* 承認履歴ログの表示 */}
+                          {app.history && app.history.length > 0 && (
+                            <div className="pt-2 border-t border-slate-200/60 flex flex-wrap items-center gap-2 text-[11px]">
+                              <span className="font-bold text-slate-600">進行履歴:</span>
+                              {app.history.map((hist, hIdx) => (
+                                <span
+                                  key={hIdx}
+                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-medium border ${
+                                    hist.status === 'approved'
+                                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                      : 'bg-rose-50 text-rose-800 border-rose-200'
+                                  }`}
+                                >
+                                  {hist.status === 'approved' ? (
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                  ) : (
+                                    <XCircle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                                  )}
+                                  <span>
+                                    {hist.stepNumber === 0 ? '再申請' : `ステップ${hist.stepNumber}`}: <strong>{hist.approver.name}</strong> {hist.status === 'approved' ? (hist.stepNumber === 0 ? '提出' : '承認') : '却下'}
+                                    {hist.comment && <span className="text-slate-600 font-normal ml-1">「{hist.comment}」</span>}
+                                  </span>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {/* 発注申請における管理・発注No付与・現場確認URL・補充連携パネル */}
                 {app.type === 'purchase_order' && (

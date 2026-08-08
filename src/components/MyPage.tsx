@@ -302,12 +302,11 @@ export function MyPage({
     }
   };
 
-  // 1. 直近スケジュール（自分が参加 または 全社・自拠点宛て）
+  // 1. 直近スケジュール（自分が参加している予定のみ）
   const myEvents = events
     .filter((e) => {
       const isAttendee = e.attendees ? e.attendees.some((a) => a?.id === user?.id || a?.name === user?.name) : false;
-      const isTargetOffice = e.office === '全社' || e.office === user?.office;
-      return isAttendee || isTargetOffice;
+      return isAttendee;
     })
     .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
 

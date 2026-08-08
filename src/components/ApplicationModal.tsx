@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, GitMerge, ArrowRight, CheckCircle2, UserCheck, ShieldCheck, AlertCircle, Plus, Trash2, Building2, ShoppingBag, Calculator, Calendar, Save, Send, Paperclip, Loader2 } from 'lucide-react';
 import { ApplicationType, WorkflowApplication, User, ApprovalFlowRule, ApprovalStepConfig, ItemMaster, PurchaseOrderItem, ApplicationStatus, AttachmentFile } from '../types';
+import { filterStepsForApplicant, getSupervisorAtLevel, resolveApproverForStep, resolveApproverForStepDetails } from '../utils/workflowHelpers';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { uploadMultipleFiles } from '../utils/fileUpload';
 
@@ -22,65 +23,7 @@ const typeLabels: Record<ApplicationType, string> = {
   other: 'その他',
 };
 
-// 申請者から見た N 階層目の上長ユーザーを取得するヘルパー関数
-const getSupervisorAtLevel = (applicant: User, targetLevel: number, users: User[]): User | null => {
-  let curr: User | undefined = applicant;
-  for (let i = 0; i < targetLevel; i++) {
-    if (!curr || !curr.supervisorId) break;
-    const sup = users.find(u => u.id === curr.supervisorId);
-    if (!sup) break;
-    curr = sup;
-  }
-  return (curr && curr.id !== applicant.id) ? curr : null;
-};
 
-// ステップ設定に基づき実際の承認者とラベルを算出するヘルパー
-const resolveApproverForStep = (
-  applicant: User,
-  stepConfig: ApprovalStepConfig,
-  index: number,
-  users: User[]
-): { user: User; label: string; isFallback: boolean } => {
-  if (stepConfig.approverType === 'specific_user' && stepConfig.specificUserId) {
-    const specUser = users.find(u => u.id === stepConfig.specificUserId);
-    if (specUser) {
-      return { user: specUser, label: `${specUser.name}（個人指定）`, isFallback: false };
-    }
-  }
-
-  let targetLevel = stepConfig.supervisorLevel;
-  if (!targetLevel) {
-    if (stepConfig.approverType === 'supervisor_1') targetLevel = 1;
-    else if (stepConfig.approverType === 'supervisor_2') targetLevel = 2;
-    else targetLevel = index + 1;
-  }
-
-  const sup = getSupervisorAtLevel(applicant, targetLevel, users);
-  if (sup) {
-    return {
-      user: sup,
-      label: `${sup.name} (${targetLevel === 1 ? '直属上長' : `第${targetLevel}階層上長`})`,
-      isFallback: false
-    };
-  }
-
-  // 上長が登録されていない場合フォールバック
-  const fallback1 = getSupervisorAtLevel(applicant, 1, users);
-  if (fallback1) {
-    return {
-      user: fallback1,
-      label: `${fallback1.name} (直属上長 ※${targetLevel}次上長未設定のため代行)`,
-      isFallback: true
-    };
-  }
-
-  const adminUser = users.find(u => u.id === 'u4' || u.isAdmin) || users[0];
-  return {
-    user: adminUser,
-    label: `${adminUser.name} (全社管理者 ※上長未設定代行)`,
-    isFallback: true
-  };
-};
 
 export function ApplicationModal({
   isOpen,
@@ -266,17 +209,16 @@ export function ApplicationModal({
 
   if (!isOpen) return null;
 
-  // 現在選択中の承認フロー設定を取得
+  // 現在選択中の承認フロー設定を取得し、申請者に応じてステップをフィルタリング (2次上長不在の場合は1次のみ)
   const currentFlow = approvalFlows.find(f => f.id === selectedFlowId);
+  const activeStepsConfig = currentFlow ? filterStepsForApplicant(currentUser, currentFlow.steps, allUsers) : [];
 
   // 申請者(currentUser)の実際の承認ルートを計算
-  const actualRoute = currentFlow
-    ? currentFlow.steps.map((step, idx) => ({
-        stepNumber: idx + 1,
-        stepName: step.stepName || `${idx + 1}次承認`,
-        ...resolveApproverForStep(currentUser, step, idx, allUsers)
-      }))
-    : [];
+  const actualRoute = activeStepsConfig.map((step, idx) => ({
+    stepNumber: idx + 1,
+    stepName: step.stepName || `${idx + 1}次承認`,
+    ...resolveApproverForStepDetails(currentUser, step, idx, allUsers)
+  }));
 
   const handleSaveDraft = () => {
     const draftTitle = (title || '').trim() || '(無題の下書き)';
@@ -287,7 +229,7 @@ export function ApplicationModal({
 
     if (selectedFlowId !== 'manual' && currentFlow) {
       flowName = currentFlow.name;
-      stepsConfig = currentFlow.steps;
+      stepsConfig = activeStepsConfig;
       if (actualRoute.length > 0) {
         initialApprover = actualRoute[0].user;
       }
@@ -357,7 +299,7 @@ export function ApplicationModal({
 
     if (selectedFlowId !== 'manual' && currentFlow) {
       flowName = currentFlow.name;
-      stepsConfig = currentFlow.steps;
+      stepsConfig = activeStepsConfig;
       if (actualRoute.length > 0) {
         initialApprover = actualRoute[0].user;
       }

@@ -1,8 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { PostForm } from './PostForm';
-import { PostCard } from './PostCard';
 import { Post, CalendarEvent, BoardTopic, OfficeMaster, DivisionMaster, User } from '../types';
-import { getAvatarUrl } from '../utils/avatar';
+import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
 import { AppTab } from './Sidebar';
 import { 
   Calendar, 
@@ -10,7 +9,6 @@ import {
   MapPin, 
   Users, 
   Monitor, 
-  MessageSquare, 
   Eye, 
   ArrowUpRight,
   Sparkles,
@@ -21,9 +19,15 @@ import {
   X,
   MessageCircle,
   Loader2,
-  AlertTriangle
+  AlertTriangle,
+  ChevronRight,
+  Heart,
+  Share2,
+  Trash2,
+  MessageSquare
 } from 'lucide-react';
 import { formatRelativeTime } from '../utils';
+import { API_BASE_URL } from '../config/api';
 
 interface TimelineProps {
   posts: Post[];
@@ -75,6 +79,9 @@ export function Timeline({
   // 拠点・部門フィルター
   const [selectedOffice, setSelectedOffice] = useState<string>('all');
   const [selectedDivision, setSelectedDivision] = useState<string>('all');
+
+  // 選択詳細アイテム
+  const [selectedDetailItem, setSelectedDetailItem] = useState<TimelineFeedItem | null>(null);
 
   // 拠点オプション一覧
   const officeOptions = useMemo(() => {
@@ -147,8 +154,15 @@ export function Timeline({
       });
     }
 
-    // 降順ソート (最新順)
-    items.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    // 降順ソート (登録・更新の最新順)
+    const getItemTimestamp = (item: TimelineFeedItem) => {
+      const data = item.data as any;
+      const timeStr = data.updatedAt || data.createdAt || data.start || item.date;
+      const t = new Date(timeStr).getTime();
+      return isNaN(t) ? 0 : t;
+    };
+
+    items.sort((a, b) => getItemTimestamp(b) - getItemTimestamp(a));
 
     // フィルタリング処理
     return items.filter((item) => {
@@ -368,185 +382,143 @@ export function Timeline({
         )}
 
         {combinedFeed.length > 0 ? (
-          combinedFeed.map((item) => {
-            if (item.type === 'post') {
-              return (
-                <PostCard
-                  key={item.id}
-                  post={item.data}
-                  onLike={onToggleLike}
-                  onTagClick={onSelectTag}
-                  onDelete={onDeletePost}
-                  currentUser={currentUser}
-                />
-              );
-            }
-
-            if (item.type === 'event') {
-              const event = item.data;
-              return (
-                <article
-                  key={item.id}
-                  className="bg-white rounded-2xl border border-amber-200/90 p-5 shadow-sm hover:shadow-md transition-all relative overflow-hidden"
-                >
-                  <div className="absolute top-0 right-0 px-3 py-1 bg-amber-500 text-white font-extrabold text-[10px] rounded-bl-xl flex items-center gap-1 shadow-2xs">
-                    <Calendar className="w-3 h-3" />
-                    スケジュール登録
-                  </div>
-
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className="w-10 h-10 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center font-bold shrink-0 shadow-2xs">
-                      <Calendar className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-bold text-slate-900 text-base">{event.title}</span>
-                        <span className={`px-2 py-0.5 text-[10px] font-bold rounded border ${
-                          event.type === 'personal' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
-                          event.type === 'construction' ? 'bg-amber-50 text-amber-700 border-amber-200' :
-                          event.type === 'inspection' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' :
-                          event.type === 'replacement' ? 'bg-cyan-50 text-cyan-700 border-cyan-200' :
-                          event.type === 'repair' ? 'bg-rose-50 text-rose-700 border-rose-200' :
-                          event.type === 'visitor' ? 'bg-orange-50 text-orange-700 border-orange-200' :
-                          'bg-sky-50 text-sky-700 border-sky-200'
-                        }`}>
-                          {event.type === 'personal' ? '個人' :
-                           event.type === 'construction' ? '工事' :
-                           event.type === 'inspection' ? '点検' :
-                           event.type === 'replacement' ? '取替' :
-                           event.type === 'repair' ? '修理' :
-                           event.type === 'visitor' ? '来客' : '出張'}
-                        </span>
-                      </div>
-                      <span className="text-xs text-slate-400">
-                        {formatRelativeTime(event.start)} に追加
+          <div className="space-y-2">
+            {combinedFeed.map((item) => {
+              if (item.type === 'post') {
+                const post = item.data;
+                return (
+                  <div
+                    key={item.id}
+                    onClick={() => setSelectedDetailItem(item)}
+                    className="bg-white rounded-xl border border-slate-200/90 hover:border-slate-300 p-3 shadow-2xs hover:shadow-xs transition-all flex items-center justify-between gap-3 cursor-pointer group"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                      <span className="px-2 py-0.5 bg-slate-100 text-slate-700 font-extrabold text-[11px] rounded shrink-0 flex items-center gap-1 border border-slate-200">
+                        <MessageCircle className="w-3 h-3 text-slate-500" />
+                        つぶやき
                       </span>
+                      <img
+                        src={getAvatarUrl(post.author?.avatarUrl)}
+                        onError={handleAvatarError}
+                        alt={post.author?.name || '匿名'}
+                        className="w-6 h-6 rounded-full object-cover border border-slate-100 bg-slate-100 shrink-0"
+                      />
+                      <span className="font-bold text-xs text-slate-800 shrink-0">
+                        {post.author?.name || '匿名'}
+                      </span>
+                      <span className="text-xs text-slate-600 font-medium truncate min-w-0">
+                        {post.content}
+                      </span>
+                      {post.tags && post.tags.length > 0 && (
+                        <span className="text-[10px] text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded font-semibold shrink-0 hidden sm:inline-block">
+                          #{post.tags[0]}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-[11px] text-slate-400 font-medium whitespace-nowrap">
+                        {formatRelativeTime(post.createdAt)}
+                      </span>
+                      <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-0.5 transition-all" />
                     </div>
                   </div>
+                );
+              }
 
-                  <div className="bg-amber-50/50 rounded-xl p-3.5 border border-amber-100 space-y-2 mb-3">
-                    <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
-                      <Clock className="w-4 h-4 text-amber-600 shrink-0" />
-                      <span>日時: {new Date(event.start).toLocaleString('ja-JP')}</span>
-                    </div>
-
-                    {event.location && (
-                      <div className="flex items-center gap-2 text-xs text-slate-700">
-                        <MapPin className="w-4 h-4 text-amber-600 shrink-0" />
-                        <span>場所: {event.location}</span>
-                      </div>
-                    )}
-
-                    {event.memo && (
-                      <p className="text-xs text-slate-600 line-clamp-2 pt-1 border-t border-amber-100/80 leading-relaxed">
-                        {event.memo}
-                      </p>
-                    )}
-
-                    {event.attendees && event.attendees.length > 0 && (
-                      <div className="flex items-center gap-2 pt-1.5 border-t border-amber-100/80">
-                        <Users className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                        <span className="text-[11px] font-bold text-slate-600">参加者:</span>
-                        <div className="flex items-center -space-x-1">
-                          {event.attendees.slice(0, 5).map((att) => (
+              if (item.type === 'event') {
+                const event = item.data;
+                const eventUser = (event as any).createdBy || (event.attendees && event.attendees.length > 0 ? event.attendees[0] : null);
+                return (
+                  <div
+                    key={item.id}
+                    onClick={() => setSelectedDetailItem(item)}
+                    className="bg-white rounded-xl border border-amber-200/90 hover:border-amber-300 p-3 shadow-2xs hover:shadow-xs transition-all flex flex-col gap-1.5 cursor-pointer group"
+                  >
+                    {/* 1行目: 種別バッジ + 顔アイコン + 名前 */}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="px-2 py-0.5 bg-amber-50 text-amber-700 font-extrabold text-[11px] rounded shrink-0 flex items-center gap-1 border border-amber-200">
+                          <Calendar className="w-3 h-3 text-amber-600" />
+                          予定
+                        </span>
+                        {eventUser && (
+                          <div className="flex items-center gap-1.5 min-w-0">
                             <img
-                              key={att.id}
-                              src={getAvatarUrl(att.avatarUrl)}
-                              alt={att.name}
-                              title={att.name}
-                              className="w-5 h-5 rounded-full border border-white object-cover"
+                              src={getAvatarUrl(eventUser.avatarUrl)}
+                              onError={handleAvatarError}
+                              alt={eventUser.name}
+                              className="w-5 h-5 rounded-full object-cover border border-slate-100 bg-slate-100 shrink-0"
                             />
-                          ))}
-                          {event.attendees.length > 5 && (
-                            <span className="text-[10px] font-bold text-slate-500 pl-1.5">
-                              +{event.attendees.length - 5}名
+                            <span className="font-bold text-xs text-slate-800 truncate">
+                              {eventUser.name}
                             </span>
-                          )}
-                        </div>
+                            {event.attendees && event.attendees.length > 1 && (
+                              <span className="text-[10px] text-slate-500 font-medium shrink-0">
+                                他{event.attendees.length - 1}名
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
+                      <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-amber-600 group-hover:translate-x-0.5 transition-all shrink-0" />
+                    </div>
 
-                  <div className="flex items-center justify-between text-xs pt-1">
-                    <span className="text-slate-400 text-[11px]">
-                      対象: {event.office || '全社'} / {event.division || '全部署'}
-                    </span>
-                    {onChangeTab && (
-                      <button
-                        onClick={() => onChangeTab('calendar')}
-                        className="text-indigo-600 font-bold hover:text-indigo-800 flex items-center gap-1 hover:underline"
-                      >
-                        カレンダーで確認 <ArrowUpRight className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
-                </article>
-              );
-            }
-
-            if (item.type === 'topic') {
-              const topic = item.data;
-              return (
-                <article
-                  key={item.id}
-                  className="bg-white rounded-2xl border border-indigo-200/90 p-5 shadow-sm hover:shadow-md transition-all relative overflow-hidden"
-                >
-                  <div className="absolute top-0 right-0 px-3 py-1 bg-indigo-600 text-white font-extrabold text-[10px] rounded-bl-xl flex items-center gap-1 shadow-2xs">
-                    <Monitor className="w-3 h-3" />
-                    掲示板投稿
-                  </div>
-
-                  <div className="flex items-center gap-3 mb-3">
-                    <img
-                      src={getAvatarUrl(topic.author.avatarUrl)}
-                      alt={topic.author.name}
-                      className="w-10 h-10 rounded-full object-cover border border-slate-100 bg-slate-100 shrink-0"
-                    />
-                    <div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-bold text-slate-900 text-sm">{topic.author.name}</span>
-                        <span className="text-xs px-2 py-0.5 bg-indigo-50 text-indigo-700 font-bold rounded border border-indigo-100">
-                          {topic.office || '全社'} / {topic.division || '全部署'}
+                    {/* 2行目: 内容、日時 */}
+                    <div className="flex items-center justify-between gap-3 text-xs pl-0.5">
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <span className="font-semibold text-slate-900 truncate min-w-0">
+                          {event.title}
                         </span>
+                        {event.location && (
+                          <span className="text-[11px] text-slate-500 font-medium truncate shrink-0 hidden sm:inline-block">
+                            📍 {event.location}
+                          </span>
+                        )}
                       </div>
-                      <span className="text-xs text-slate-400">{formatRelativeTime(topic.createdAt)}</span>
-                    </div>
-                  </div>
-
-                  <div className="mb-3 space-y-1.5">
-                    <h3 className="font-bold text-slate-900 text-base leading-snug">{topic.title}</h3>
-                    <p className="text-sm text-slate-700 line-clamp-3 whitespace-pre-wrap leading-relaxed">
-                      {topic.content}
-                    </p>
-                  </div>
-
-                  <div className="flex items-center justify-between text-xs pt-3 border-t border-slate-100">
-                    <div className="flex items-center gap-3 text-slate-500">
-                      <span className="flex items-center gap-1">
-                        <MessageSquare className="w-3.5 h-3.5 text-slate-400" />
-                        {topic.commentsCount || 0} 件
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Eye className="w-3.5 h-3.5 text-slate-400" />
-                        {topic.views || 0} 回閲覧
+                      <span className="text-[11px] text-slate-400 font-medium whitespace-nowrap shrink-0">
+                        {formatRelativeTime(event.start)}
                       </span>
                     </div>
-
-                    {onChangeTab && (
-                      <button
-                        onClick={() => onChangeTab('board')}
-                        className="text-indigo-600 font-bold hover:text-indigo-800 flex items-center gap-1 hover:underline"
-                      >
-                        掲示板で確認 <ArrowUpRight className="w-3.5 h-3.5" />
-                      </button>
-                    )}
                   </div>
-                </article>
-              );
-            }
+                );
+              }
 
-            return null;
-          })
+              if (item.type === 'topic') {
+                const topic = item.data;
+                return (
+                  <div
+                    key={item.id}
+                    onClick={() => setSelectedDetailItem(item)}
+                    className="bg-white rounded-xl border border-indigo-200/90 hover:border-indigo-300 p-3 shadow-2xs hover:shadow-xs transition-all flex items-center justify-between gap-3 cursor-pointer group"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                      <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 font-extrabold text-[11px] rounded shrink-0 flex items-center gap-1 border border-indigo-200">
+                        <Monitor className="w-3 h-3 text-indigo-600" />
+                        掲示板
+                      </span>
+                      <img
+                        src={getAvatarUrl(topic.author?.avatarUrl)}
+                        onError={handleAvatarError}
+                        alt={topic.author?.name || '匿名'}
+                        className="w-6 h-6 rounded-full object-cover border border-slate-100 bg-slate-100 shrink-0"
+                      />
+                      <span className="font-bold text-xs text-slate-900 truncate min-w-0">
+                        {topic.title}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-[11px] text-slate-400 font-medium whitespace-nowrap">
+                        {formatRelativeTime(topic.createdAt)}
+                      </span>
+                      <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-0.5 transition-all" />
+                    </div>
+                  </div>
+                );
+              }
+
+              return null;
+            })}
+          </div>
         ) : (
           <div className="text-center py-12 bg-white rounded-2xl border border-slate-200 p-5 shadow-sm ring-1 ring-slate-900/5">
             <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -559,6 +531,248 @@ export function Timeline({
           </div>
         )}
       </div>
+
+      {/* 詳細ダイアログ (モーダル) */}
+      {selectedDetailItem && (
+        <div
+          className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center z-50 p-4"
+          onClick={() => setSelectedDetailItem(null)}
+        >
+          <div
+            className="bg-white rounded-2xl border border-slate-200 max-w-lg w-full shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-slate-50/50 shrink-0">
+              <div className="flex items-center gap-2">
+                {selectedDetailItem.type === 'post' && (
+                  <span className="px-2.5 py-1 bg-slate-800 text-white font-extrabold text-xs rounded-md flex items-center gap-1">
+                    <MessageCircle className="w-3.5 h-3.5" /> つぶやき詳細
+                  </span>
+                )}
+                {selectedDetailItem.type === 'event' && (
+                  <span className="px-2.5 py-1 bg-amber-500 text-white font-extrabold text-xs rounded-md flex items-center gap-1">
+                    <Calendar className="w-3.5 h-3.5" /> スケジュール詳細
+                  </span>
+                )}
+                {selectedDetailItem.type === 'topic' && (
+                  <span className="px-2.5 py-1 bg-indigo-600 text-white font-extrabold text-xs rounded-md flex items-center gap-1">
+                    <Monitor className="w-3.5 h-3.5" /> 掲示板詳細
+                  </span>
+                )}
+              </div>
+              <button
+                onClick={() => setSelectedDetailItem(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 overflow-y-auto space-y-4 text-sm text-slate-700">
+              {selectedDetailItem.type === 'post' && (() => {
+                const post = selectedDetailItem.data;
+                return (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <img
+                          src={getAvatarUrl(post.author?.avatarUrl)}
+                          onError={handleAvatarError}
+                          alt={post.author?.name || '匿名'}
+                          className="w-10 h-10 rounded-full object-cover border border-slate-100 bg-slate-100"
+                        />
+                        <div>
+                          <div className="font-bold text-slate-900 text-sm">{post.author?.name || '匿名'}</div>
+                          <div className="text-xs text-slate-400">{post.author?.department || '未設定'}</div>
+                        </div>
+                      </div>
+                      <span className="text-xs text-slate-400">{formatRelativeTime(post.createdAt)}</span>
+                    </div>
+
+                    <div className="text-slate-800 leading-relaxed whitespace-pre-wrap bg-slate-50/60 p-4 rounded-xl border border-slate-100">
+                      {post.content}
+                    </div>
+
+                    {post.nasLink && (
+                      <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg flex items-center justify-between gap-2">
+                        <div className="flex items-start gap-2 min-w-0">
+                          <span className="text-xs font-bold text-slate-500 bg-white border border-slate-200 px-1.5 py-0.5 rounded shadow-xs shrink-0">NAS</span>
+                          <a
+                            href={`${API_BASE_URL}/nas-file?path=${encodeURIComponent(post.nasLink)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-indigo-600 hover:underline break-all font-semibold"
+                          >
+                            {post.nasLink}
+                          </a>
+                        </div>
+                        <button
+                          onClick={() => navigator.clipboard.writeText(post.nasLink || '')}
+                          className="text-[10px] font-bold text-slate-500 hover:text-slate-700 bg-white border border-slate-200 px-2 py-1 rounded shrink-0"
+                        >
+                          コピー
+                        </button>
+                      </div>
+                    )}
+
+                    {post.tags && post.tags.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {post.tags.map(tag => (
+                          <span
+                            key={tag}
+                            onClick={() => {
+                              onSelectTag(tag);
+                              setSelectedDetailItem(null);
+                            }}
+                            className="text-xs text-indigo-600 font-bold bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-md cursor-pointer transition-colors"
+                          >
+                            #{tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+                      <button
+                        onClick={() => onToggleLike(post.id)}
+                        className={`flex items-center gap-1.5 text-xs font-bold transition-colors ${
+                          post.isLiked ? 'text-pink-600' : 'text-slate-500 hover:text-pink-600'
+                        }`}
+                      >
+                        <Heart className={`w-4 h-4 ${post.isLiked ? 'fill-current' : ''}`} />
+                        <span>{post.likes > 0 ? `${post.likes} いいね` : 'いいね'}</span>
+                      </button>
+
+                      {onDeletePost && currentUser && (currentUser.isAdmin || currentUser.role === 'admin' || currentUser.id === post.author?.id) && (
+                        <button
+                          onClick={() => {
+                            onDeletePost(post.id);
+                            setSelectedDetailItem(null);
+                          }}
+                          className="text-xs font-bold text-rose-500 hover:text-rose-700 flex items-center gap-1"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" /> 削除する
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {selectedDetailItem.type === 'event' && (() => {
+                const event = selectedDetailItem.data;
+                return (
+                  <div className="space-y-4">
+                    <div>
+                      <h3 className="font-bold text-slate-900 text-lg">{event.title}</h3>
+                      <span className="text-xs text-slate-400">{formatRelativeTime(event.start)} に追加</span>
+                    </div>
+
+                    <div className="bg-amber-50/60 rounded-xl p-4 border border-amber-100 space-y-2 text-xs">
+                      <div className="flex items-center gap-2 font-bold text-slate-800">
+                        <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+                        <span>日時: {new Date(event.start).toLocaleString('ja-JP')}</span>
+                      </div>
+                      {event.location && (
+                        <div className="flex items-center gap-2 text-slate-700">
+                          <MapPin className="w-4 h-4 text-amber-600 shrink-0" />
+                          <span>場所: {event.location}</span>
+                        </div>
+                      )}
+                      {event.memo && (
+                        <p className="text-slate-700 pt-2 border-t border-amber-100 whitespace-pre-wrap leading-relaxed">
+                          {event.memo}
+                        </p>
+                      )}
+                      {event.attendees && event.attendees.length > 0 && (
+                        <div className="pt-2 border-t border-amber-100">
+                          <span className="font-bold text-slate-700 mb-1.5 block">参加メンバー ({event.attendees.length}名):</span>
+                          <div className="flex flex-wrap gap-2">
+                            {event.attendees.map(a => (
+                              <div key={a.id} className="flex items-center gap-1.5 bg-white border border-amber-200 px-2 py-1 rounded-md">
+                                <img src={getAvatarUrl(a.avatarUrl)} onError={handleAvatarError} alt={a.name} className="w-4 h-4 rounded-full object-cover" />
+                                <span className="font-bold text-[11px] text-slate-800">{a.name}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {onChangeTab && (
+                      <div className="pt-2 flex justify-end">
+                        <button
+                          onClick={() => {
+                            setSelectedDetailItem(null);
+                            onChangeTab('calendar');
+                          }}
+                          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-xs transition-colors"
+                        >
+                          カレンダーで確認 <ArrowUpRight className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {selectedDetailItem.type === 'topic' && (() => {
+                const topic = selectedDetailItem.data;
+                return (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-3">
+                      <img
+                        src={getAvatarUrl(topic.author?.avatarUrl)}
+                        onError={handleAvatarError}
+                        alt={topic.author?.name || '匿名'}
+                        className="w-10 h-10 rounded-full object-cover border border-slate-100 bg-slate-100"
+                      />
+                      <div>
+                        <div className="font-bold text-slate-900 text-sm">{topic.author?.name || '匿名'}</div>
+                        <div className="text-xs text-slate-400">{topic.office || '全社'} / {topic.division || '全部署'}</div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <h3 className="font-bold text-slate-900 text-base mb-2">{topic.title}</h3>
+                      <div className="text-slate-800 leading-relaxed whitespace-pre-wrap bg-slate-50/60 p-4 rounded-xl border border-slate-100">
+                        {topic.content}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between text-xs pt-3 border-t border-slate-100">
+                      <div className="flex items-center gap-3 text-slate-500">
+                        <span className="flex items-center gap-1">
+                          <MessageSquare className="w-3.5 h-3.5 text-slate-400" />
+                          {topic.commentsCount || 0} 件のコメント
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Eye className="w-3.5 h-3.5 text-slate-400" />
+                          {topic.views || 0} 回閲覧
+                        </span>
+                      </div>
+
+                      {onChangeTab && (
+                        <button
+                          onClick={() => {
+                            setSelectedDetailItem(null);
+                            onChangeTab('board');
+                          }}
+                          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-xs transition-colors"
+                        >
+                          掲示板で確認 <ArrowUpRight className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
