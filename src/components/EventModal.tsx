@@ -12,6 +12,8 @@ interface EventModalProps {
   onDelete?: (eventId: string) => void;
   editingEvent?: CalendarEvent | null;
   defaultInitialDate?: string; // YYYY-MM-DD or YYYY-MM-DDTHH:mm
+  defaultEndDate?: string;     // YYYY-MM-DD or YYYY-MM-DDTHH:mm
+  defaultIsAllDay?: boolean;
   offices?: OfficeMaster[];
   divisions?: DivisionMaster[];
   allUsers?: User[];
@@ -31,6 +33,26 @@ const toLocalDatetimeInput = (isoStr?: string) => {
   return `${year}-${month}-${day}T${hours}:${minutes}`;
 };
 
+const extractLocalDateStr = (isoOrDateStr?: string) => {
+  if (!isoOrDateStr) return '';
+  if (isoOrDateStr.includes('T')) {
+    const parts = isoOrDateStr.split('T');
+    if (parts[0] && parts[0].length === 10 && parts[0].includes('-')) {
+      return parts[0];
+    }
+  } else if (isoOrDateStr.length === 10 && isoOrDateStr.includes('-')) {
+    return isoOrDateStr;
+  }
+  const d = new Date(isoOrDateStr);
+  if (isNaN(d.getTime())) {
+    return isoOrDateStr.split('T')[0] || '';
+  }
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
+
 export function EventModal({
   isOpen,
   onClose,
@@ -38,6 +60,8 @@ export function EventModal({
   onDelete,
   editingEvent,
   defaultInitialDate,
+  defaultEndDate,
+  defaultIsAllDay,
   offices = [],
   divisions = [],
   allUsers = [],
@@ -90,9 +114,28 @@ export function EventModal({
         setType(editingEvent.type);
         setOffice(editingEvent.office || '全社');
         setDivision(editingEvent.division || '全部署');
-        setIsAllDay(!!editingEvent.isAllDay);
-        setStart(toLocalDatetimeInput(editingEvent.start));
-        setEnd(editingEvent.end ? toLocalDatetimeInput(editingEvent.end) : '');
+
+        const isAllDayEv = !!editingEvent.isAllDay;
+        const startDateStr = extractLocalDateStr(editingEvent.start);
+        const endDateStr = editingEvent.end ? extractLocalDateStr(editingEvent.end) : startDateStr;
+        
+        let startLocal = '';
+        let endLocal = '';
+
+        if (isAllDayEv) {
+          startLocal = `${startDateStr}T00:00`;
+          endLocal = `${endDateStr}T23:59`;
+        } else {
+          startLocal = toLocalDatetimeInput(editingEvent.start);
+          const effectiveEndIso = editingEvent.end || editingEvent.start;
+          endLocal = toLocalDatetimeInput(effectiveEndIso);
+        }
+
+        const isMultiDay = !!(startDateStr && endDateStr && startDateStr !== endDateStr);
+        setIsAllDay(isAllDayEv || isMultiDay);
+
+        setStart(startLocal);
+        setEnd(endLocal);
         setLocation(editingEvent.location || '');
         setMemo(editingEvent.memo || '');
         setIsGoogleSynced(!!editingEvent.isGoogleSynced);
@@ -103,7 +146,14 @@ export function EventModal({
         setType('personal');
         setOffice('全社');
         setDivision('全部署');
-        setIsAllDay(false);
+        
+        const initStartStr = defaultInitialDate ? extractLocalDateStr(defaultInitialDate) : extractLocalDateStr(new Date().toISOString());
+        const initEndStr = defaultEndDate ? extractLocalDateStr(defaultEndDate) : initStartStr;
+        const isMulti = !!(defaultEndDate && initStartStr !== initEndStr);
+
+        const useAllDay = defaultIsAllDay !== undefined ? defaultIsAllDay : isMulti;
+        setIsAllDay(useAllDay);
+
         setLocation('');
         setMemo('');
         setIsGoogleSynced(false);
@@ -118,25 +168,32 @@ export function EventModal({
           setSelectedAttendees([]);
         }
 
-        // 開始日時の初期設定
-        if (defaultInitialDate) {
-          if (defaultInitialDate.includes('T')) {
-            setStart(defaultInitialDate);
-          } else {
-            setStart(`${defaultInitialDate}T09:00`);
-          }
+        // 開始日時・終了日時の初期設定
+        if (useAllDay) {
+          setStart(`${initStartStr}T00:00`);
+          setEnd(`${initEndStr}T23:59`);
         } else {
-          const now = new Date();
-          const year = now.getFullYear();
-          const month = String(now.getMonth() + 1).padStart(2, '0');
-          const day = String(now.getDate()).padStart(2, '0');
-          const hours = String(now.getHours()).padStart(2, '0');
-          setStart(`${year}-${month}-${day}T${hours}:00`);
+          if (defaultInitialDate) {
+            setStart(defaultInitialDate.includes('T') ? defaultInitialDate : `${defaultInitialDate}T09:00`);
+          } else {
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            const hours = String(now.getHours()).padStart(2, '0');
+            setStart(`${year}-${month}-${day}T${hours}:00`);
+          }
+
+          if (defaultEndDate) {
+            setEnd(defaultEndDate.includes('T') ? defaultEndDate : `${defaultEndDate}T18:00`);
+          } else {
+            setEnd('');
+          }
         }
-        setEnd('');
       }
     }
-  }, [isOpen]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, editingEvent]);
 
   if (!isOpen) return null;
 
@@ -202,12 +259,10 @@ export function EventModal({
 
     if (isAllDay) {
       const startDatePart = start.split('T')[0];
-      startIso = new Date(`${startDatePart}T00:00:00`).toISOString();
+      startIso = `${startDatePart}T00:00:00`;
 
-      if (end) {
-        const endDatePart = end.split('T')[0];
-        endIso = new Date(`${endDatePart}T23:59:59`).toISOString();
-      }
+      const endDatePart = (end && end.trim()) ? end.split('T')[0] : startDatePart;
+      endIso = `${endDatePart}T23:59:59`;
     } else {
       startIso = new Date(start).toISOString();
       if (end) {
@@ -277,6 +332,24 @@ export function EventModal({
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
+          {isAllDay && start && end && start.split('T')[0] !== end.split('T')[0] && (
+            <div className="p-3 bg-purple-50 border border-purple-200 text-purple-900 text-xs font-bold rounded-xl flex items-center justify-between gap-2 shadow-2xs">
+              <div className="flex items-center gap-2">
+                <span className="bg-purple-600 text-white text-[10px] font-black px-2 py-0.5 rounded-md tracking-wider">ドラッグ範囲選択</span>
+                <span>{start.split('T')[0]} ～ {end.split('T')[0]}</span>
+              </div>
+              <span className="text-purple-700 font-extrabold bg-purple-100 px-2 py-0.5 rounded-md">
+                {(() => {
+                  const d1 = new Date(start.split('T')[0]);
+                  const d2 = new Date(end.split('T')[0]);
+                  if (isNaN(d1.getTime()) || isNaN(d2.getTime())) return '複数日';
+                  const diff = Math.floor(Math.abs(d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+                  return `${diff}日間の終日予定`;
+                })()}
+              </span>
+            </div>
+          )}
+
           {isIcal && (
             <div className="p-3.5 bg-indigo-50 border border-indigo-200 text-indigo-800 text-xs font-medium rounded-xl flex items-center gap-2.5">
               <LinkIcon className="w-4 h-4 text-indigo-600 shrink-0" />

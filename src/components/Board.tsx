@@ -262,7 +262,7 @@ export function Board({
 
       {/* Main Board Topic List */}
       <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-50/40">
-        <div className="max-w-5xl mx-auto space-y-3">
+        <div className="w-full space-y-3">
           {filteredAndSortedTopics.length > 0 ? (
             filteredAndSortedTopics.map(topic => {
               const viewersCount = topic.viewers?.length || 0;

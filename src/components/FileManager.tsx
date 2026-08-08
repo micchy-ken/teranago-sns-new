@@ -107,7 +107,7 @@ export default function FileManager({ currentUser }: FileManagerProps) {
         {
           name: '2026年度_事業計画書.pdf',
           path: '共有ドキュメント/2026年度_事業計画書.pdf',
-          url: '/external-files/共有ドキュメント/2026年度_事業計画書.pdf',
+          url: '/api/external-files/serve?path=' + encodeURIComponent('共有ドキュメント/2026年度_事業計画書.pdf'),
           size: 4520114,
           mtime: '2026-08-01T10:30:00.000Z',
           isDirectory: false,
@@ -116,7 +116,7 @@ export default function FileManager({ currentUser }: FileManagerProps) {
         {
           name: '社内ポータルシステム操作マニュアル.docx',
           path: '共有ドキュメント/社内ポータルシステム操作マニュアル.docx',
-          url: '/external-files/共有ドキュメント/社内ポータルシステム操作マニュアル.docx',
+          url: '/api/external-files/serve?path=' + encodeURIComponent('共有ドキュメント/社内ポータルシステム操作マニュアル.docx'),
           size: 2450123,
           mtime: '2026-08-02T14:20:00.000Z',
           isDirectory: false,
@@ -125,7 +125,7 @@ export default function FileManager({ currentUser }: FileManagerProps) {
         {
           name: '社内セキュリティ規約.pdf',
           path: '共有ドキュメント/社内セキュリティ規約.pdf',
-          url: '/external-files/共有ドキュメント/社内セキュリティ規約.pdf',
+          url: '/api/external-files/serve?path=' + encodeURIComponent('共有ドキュメント/社内セキュリティ規約.pdf'),
           size: 1204958,
           mtime: '2026-07-25T11:00:00.000Z',
           isDirectory: false,
@@ -143,7 +143,7 @@ export default function FileManager({ currentUser }: FileManagerProps) {
         {
           name: 'サーバー接続手順.txt',
           path: '共有ドキュメント/サーバー接続手順.txt',
-          url: '/external-files/共有ドキュメント/サーバー接続手順.txt',
+          url: '/api/external-files/serve?path=' + encodeURIComponent('共有ドキュメント/サーバー接続手順.txt'),
           size: 1540,
           mtime: '2026-08-04T09:15:00.000Z',
           isDirectory: false,
@@ -152,7 +152,7 @@ export default function FileManager({ currentUser }: FileManagerProps) {
         {
           name: '2026_Q2_売上計画.xlsx',
           path: '営業部/2026_Q2_売上計画.xlsx',
-          url: '/external-files/営業部/2026_Q2_売上計画.xlsx',
+          url: '/api/external-files/serve?path=' + encodeURIComponent('営業部/2026_Q2_売上計画.xlsx'),
           size: 1845012,
           mtime: '2026-08-05T13:00:00.000Z',
           isDirectory: false,
@@ -161,7 +161,7 @@ export default function FileManager({ currentUser }: FileManagerProps) {
         {
           name: '営業活動ガイドライン.pdf',
           path: '営業部/営業活動ガイドライン.pdf',
-          url: '/external-files/営業部/営業活動ガイドライン.pdf',
+          url: '/api/external-files/serve?path=' + encodeURIComponent('営業部/営業活動ガイドライン.pdf'),
           size: 3204900,
           mtime: '2026-08-05T15:20:00.000Z',
           isDirectory: false,
@@ -170,7 +170,7 @@ export default function FileManager({ currentUser }: FileManagerProps) {
         {
           name: '健康診断受診手続き.pdf',
           path: '総務関連/健康診断受診手続き.pdf',
-          url: '/external-files/総務関連/健康診断受診手続き.pdf',
+          url: '/api/external-files/serve?path=' + encodeURIComponent('総務関連/健康診断受診手続き.pdf'),
           size: 1045900,
           mtime: '2026-07-30T10:00:00.000Z',
           isDirectory: false,
@@ -289,17 +289,16 @@ export default function FileManager({ currentUser }: FileManagerProps) {
     setShowNewFolderModal(false);
 
     try {
-      // 実際にはフォルダ作成APIはないが、ダミー作成（もしくはアップロード時に自動生成される）
-      const response = await fetch(`${API_BASE_URL}/external-files/upload`, {
+      const response = await fetch(`${API_BASE_URL}/external-files/folder`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ createFolder: folderPath })
+        body: JSON.stringify({ folder: folderPath })
       });
       if (response.ok) {
         fetchFileList();
       }
     } catch (e) {
-      console.warn('Folder creation API not standard, fallback to local state');
+      console.warn('Folder creation API error, fallback to local state');
     }
   };
 
@@ -346,7 +345,7 @@ export default function FileManager({ currentUser }: FileManagerProps) {
         const uploadedMeta: ExternalFile = {
           name: selectedFile.name,
           path: currentPath ? `${currentPath}/${selectedFile.name}` : selectedFile.name,
-          url: `/external-files/${currentPath ? `${currentPath}/${selectedFile.name}` : selectedFile.name}`,
+          url: `/api/external-files/serve?path=` + encodeURIComponent(currentPath ? `${currentPath}/${selectedFile.name}` : selectedFile.name),
           size: selectedFile.size,
           mtime: new Date().toISOString(),
           isDirectory: false,
@@ -431,7 +430,7 @@ export default function FileManager({ currentUser }: FileManagerProps) {
   const visibleFiles = getVisibleFiles();
 
   return (
-    <div className="w-full max-w-6xl mx-auto bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col min-h-[600px] animate-fade-in" id="file-manager-root">
+    <div className="w-full bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col min-h-[600px] animate-fade-in" id="file-manager-root">
       
       {/* ヘッダーエリア */}
       <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex flex-col md:flex-row md:items-center justify-between gap-4">

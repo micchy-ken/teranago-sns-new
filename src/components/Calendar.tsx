@@ -60,11 +60,24 @@ export function Calendar({
   const [view, setView] = useState<ViewMode>('month');
   const [currentDate, setCurrentDate] = useState(new Date());
   
-  // 拠点・部署のプルダウンフィルター状態
-  const [selectedOffice, setSelectedOffice] = useState<string>('全社');
-  const [selectedDivision, setSelectedDivision] = useState<string>('全部署');
+  // 拠点・部署のプルダウンフィルター状態（初期値はログインユーザーの所属拠点・所属部署）
+  const [selectedOffice, setSelectedOffice] = useState<string>(() => currentUser?.office || '全社');
+  const [selectedDivision, setSelectedDivision] = useState<string>(() => currentUser?.division || '全部署');
   const [selectedTypeFilter, setSelectedTypeFilter] = useState<string>('all');
-  const [showIcal, setShowIcal] = useState<boolean>(true);
+
+  // currentUserの所属拠点・所属部署の初期反映
+  const userInitRef = React.useRef(false);
+  useEffect(() => {
+    if (currentUser && !userInitRef.current) {
+      if (currentUser.office) {
+        setSelectedOffice(currentUser.office);
+      }
+      if (currentUser.division) {
+        setSelectedDivision(currentUser.division);
+      }
+      userInitRef.current = true;
+    }
+  }, [currentUser]);
 
   // カレンダーモード：'personal' (個人表示) or 'team' (チーム表示)
   const [calendarMode, setCalendarMode] = useState<'personal' | 'team'>('personal');
@@ -79,6 +92,14 @@ export function Calendar({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
   const [selectedInitialDate, setSelectedInitialDate] = useState<string | undefined>(undefined);
+  const [selectedEndDate, setSelectedEndDate] = useState<string | undefined>(undefined);
+  const [selectedIsAllDay, setSelectedIsAllDay] = useState<boolean | undefined>(undefined);
+
+  // マウスドラッグによる複数日範囲選択状態
+  const [selectionStart, setSelectionStart] = useState<string | null>(null);
+  const [selectionEnd, setSelectionEnd] = useState<string | null>(null);
+  const [isSelectingRange, setIsSelectingRange] = useState<boolean>(false);
+  const [selectionAttendees, setSelectionAttendees] = useState<User[] | undefined>(undefined);
 
   // 伝言メモ用の入力状態
   const [fromName, setFromName] = useState('');
@@ -144,7 +165,7 @@ export function Calendar({
   
   // イベントのフィルタリング処理
   const filteredEvents = combinedEvents.filter(e => {
-    if (e.isIcal) return showIcal;
+    if (e.isIcal) return true;
 
     if (selectedTypeFilter !== 'all' && e.type !== selectedTypeFilter) {
       return false;
@@ -184,18 +205,18 @@ export function Calendar({
     if (mode === 'team') {
       let nextOffice = selectedOffice;
       if (selectedOffice === '全社' || selectedOffice === '全拠点') {
-        const firstOffice = officeNames.find(o => o !== '全社' && o !== '全拠点') || officeNames[0] || '';
-        if (firstOffice) {
-          setSelectedOffice(firstOffice);
-          nextOffice = firstOffice;
+        const targetOffice = currentUser?.office || officeNames.find(o => o !== '全社' && o !== '全拠点') || officeNames[0] || '';
+        if (targetOffice) {
+          setSelectedOffice(targetOffice);
+          nextOffice = targetOffice;
         }
       }
       let nextDivision = selectedDivision;
       if (selectedDivision === '全部署') {
-        const firstDivision = divisionNames.find(d => d !== '全部署') || divisionNames[0] || '';
-        if (firstDivision) {
-          setSelectedDivision(firstDivision);
-          nextDivision = firstDivision;
+        const targetDivision = currentUser?.division || divisionNames.find(d => d !== '全部署') || divisionNames[0] || '';
+        if (targetDivision) {
+          setSelectedDivision(targetDivision);
+          nextDivision = targetDivision;
         }
       }
       
@@ -217,12 +238,181 @@ export function Calendar({
     setCurrentDate(newDate);
   };
 
-  const openAddModalWithDate = (dateStr?: string, initialAttendees?: User[]) => {
+  const openAddModalWithDate = (
+    dateStr?: string,
+    initialAttendees?: User[],
+    endDateStr?: string,
+    isAllDay?: boolean
+  ) => {
     setEditingEvent(null);
     setSelectedInitialDate(dateStr);
+    setSelectedEndDate(endDateStr || dateStr);
+    setSelectedIsAllDay(isAllDay !== undefined ? isAllDay : (endDateStr && endDateStr !== dateStr ? true : undefined));
     setPreselectedAttendees(initialAttendees);
     setIsModalOpen(true);
   };
+
+  const getSelectionRange = useCallback(() => {
+    if (!selectionStart || !selectionEnd) return null;
+    if (selectionStart <= selectionEnd) {
+      return { start: selectionStart, end: selectionEnd };
+    } else {
+      return { start: selectionEnd, end: selectionStart };
+    }
+  }, [selectionStart, selectionEnd]);
+
+  const isDateInSelectionRange = (dateStr: string) => {
+    const range = getSelectionRange();
+    if (!range) return false;
+    return dateStr >= range.start && dateStr <= range.end;
+  };
+
+  const isEventOccurringOnDate = (e: CalendarEvent, dateStr: string) => {
+    const startStr = getLocalDateStr(e.start);
+    const endStr = e.end ? getLocalDateStr(e.end) : startStr;
+    return dateStr >= startStr && dateStr <= endStr;
+  };
+
+  const sortEvents = (eventsList: CalendarEvent[]) => {
+    return [...eventsList].sort((a, b) => {
+      const aStart = getLocalDateStr(a.start);
+      const bStart = getLocalDateStr(b.start);
+      const aEnd = a.end ? getLocalDateStr(a.end) : aStart;
+      const bEnd = b.end ? getLocalDateStr(b.end) : bStart;
+
+      const aIsMultiDay = aStart !== aEnd;
+      const bIsMultiDay = bStart !== bEnd;
+
+      if (aIsMultiDay && !bIsMultiDay) return -1;
+      if (!aIsMultiDay && bIsMultiDay) return 1;
+
+      if (aStart !== bStart) return aStart.localeCompare(bStart);
+
+      const aDuration = new Date(aEnd).getTime() - new Date(aStart).getTime();
+      const bDuration = new Date(bEnd).getTime() - new Date(bStart).getTime();
+      if (aDuration !== bDuration) return bDuration - aDuration;
+
+      if (a.isAllDay && !b.isAllDay) return -1;
+      if (!a.isAllDay && b.isAllDay) return 1;
+
+      return new Date(a.start).getTime() - new Date(b.start).getTime();
+    });
+  };
+
+  const multiDayTypeStyles: Record<EventType, string> = {
+    personal: 'bg-emerald-600 text-white border-emerald-700 hover:bg-emerald-700 shadow-2xs',
+    construction: 'bg-amber-600 text-white border-amber-700 hover:bg-amber-700 shadow-2xs',
+    inspection: 'bg-indigo-600 text-white border-indigo-700 hover:bg-indigo-700 shadow-2xs',
+    replacement: 'bg-cyan-600 text-white border-cyan-700 hover:bg-cyan-700 shadow-2xs',
+    repair: 'bg-rose-600 text-white border-rose-700 hover:bg-rose-700 shadow-2xs',
+    visitor: 'bg-orange-600 text-white border-orange-700 hover:bg-orange-700 shadow-2xs',
+    business_trip: 'bg-sky-600 text-white border-sky-700 hover:bg-sky-700 shadow-2xs'
+  };
+
+  const getEventStyle = (e: CalendarEvent, forceSolid = false) => {
+    if (e.isIcal) return forceSolid ? 'bg-purple-600 text-white border-purple-700 hover:bg-purple-700' : icalStyle;
+    const startStr = getLocalDateStr(e.start);
+    const endStr = e.end ? getLocalDateStr(e.end) : startStr;
+    const isMultiDay = startStr !== endStr;
+    if (forceSolid || e.isAllDay || isMultiDay) {
+      return multiDayTypeStyles[e.type] || 'bg-indigo-600 text-white border-indigo-700 hover:bg-indigo-700';
+    }
+    return typeStyles[e.type];
+  };
+
+  const getMultiDayStyle = (e: CalendarEvent, cellDateStr: string, isMonth = false) => {
+    const startStr = getLocalDateStr(e.start);
+    const endStr = e.end ? getLocalDateStr(e.end) : startStr;
+
+    if (startStr === endStr) {
+      return {
+        isMultiDay: false,
+        containerClass: isMonth ? 'rounded-md shadow-2xs mx-1 px-1.5' : 'rounded-md shadow-2xs',
+        showTitle: true,
+      };
+    }
+
+    const isStartDay = cellDateStr === startStr;
+    const isEndDay = cellDateStr === endStr;
+    const cellDate = new Date(cellDateStr);
+    const isWeekFirstDay = cellDate.getDay() === 0;
+
+    if (isMonth) {
+      if (isStartDay) {
+        return {
+          isMultiDay: true,
+          containerClass: 'rounded-l-full rounded-r-none border-r-0 relative z-20 font-bold text-white shadow-xs ml-1 mr-0 pr-2 pl-2',
+          showTitle: true,
+        };
+      } else if (isEndDay) {
+        return {
+          isMultiDay: true,
+          containerClass: 'rounded-r-full rounded-l-none border-l-0 relative z-20 font-bold text-white shadow-xs mr-1 ml-0 pl-2 pr-2',
+          showTitle: isWeekFirstDay,
+        };
+      } else {
+        return {
+          isMultiDay: true,
+          containerClass: 'rounded-none border-x-0 relative z-20 font-bold text-white shadow-2xs mx-0 px-2',
+          showTitle: isWeekFirstDay,
+        };
+      }
+    }
+
+    if (isStartDay) {
+      return {
+        isMultiDay: true,
+        containerClass: 'rounded-l-full rounded-r-none border-r-0 relative z-20 font-bold text-white shadow-xs -mr-2.5 pr-3 ml-0.5',
+        showTitle: true,
+      };
+    } else if (isEndDay) {
+      return {
+        isMultiDay: true,
+        containerClass: 'rounded-r-full rounded-l-none border-l-0 relative z-20 font-bold text-white shadow-xs -ml-2.5 pl-3 mr-0.5',
+        showTitle: isWeekFirstDay,
+      };
+    } else {
+      return {
+        isMultiDay: true,
+        containerClass: 'rounded-none border-x-0 relative z-20 font-bold text-white shadow-2xs -mx-2.5 px-2.5',
+        showTitle: isWeekFirstDay,
+      };
+    }
+  };
+
+  const handleCellMouseDown = (e: React.MouseEvent, dateStr: string, attendees?: User[]) => {
+    if (e.button !== 0) return;
+    setIsSelectingRange(true);
+    setSelectionStart(dateStr);
+    setSelectionEnd(dateStr);
+    setSelectionAttendees(attendees);
+  };
+
+  const handleCellMouseEnter = (dateStr: string) => {
+    if (isSelectingRange) {
+      setSelectionEnd(dateStr);
+    }
+  };
+
+  useEffect(() => {
+    const handleGlobalMouseUp = () => {
+      if (isSelectingRange) {
+        setIsSelectingRange(false);
+        const range = getSelectionRange();
+        if (range) {
+          openAddModalWithDate(range.start, selectionAttendees, range.end, true);
+        }
+        setSelectionStart(null);
+        setSelectionEnd(null);
+        setSelectionAttendees(undefined);
+      }
+    };
+
+    window.addEventListener('mouseup', handleGlobalMouseUp);
+    return () => {
+      window.removeEventListener('mouseup', handleGlobalMouseUp);
+    };
+  }, [isSelectingRange, getSelectionRange, selectionAttendees]);
 
   const handleEventClick = (e: React.MouseEvent, event: CalendarEvent) => {
     e.stopPropagation();
@@ -380,40 +570,57 @@ export function Calendar({
               {dates.map((date, idx) => {
                 const dateStr = getLocalDateStr(date.toISOString());
                 const dayEvents = filteredEvents.filter(e => {
-                  const eDate = new Date(e.start);
-                  return isSameDay(eDate, date) && e.attendees?.some(a => a.id === member.id);
+                  return isEventOccurringOnDate(e, dateStr) && e.attendees?.some(a => a.id === member.id);
                 });
 
                 const cellKey = `team-week-${member.id}-${idx}`;
                 const isDragOver = dragOverKey === cellKey;
+                const isSelectedRange = isDateInSelectionRange(dateStr);
 
                 return (
                   <div
                     key={idx}
-                    onClick={() => openAddModalWithDate(dateStr, [member])}
+                    onMouseDown={(e) => handleCellMouseDown(e, dateStr, [member])}
+                    onMouseEnter={() => handleCellMouseEnter(dateStr)}
                     onDragOver={(e) => handleDragOver(e, cellKey)}
                     onDragLeave={handleDragLeave}
                     onDrop={(e) => handleDrop(e, dateStr, undefined, member.id)}
-                    className={`p-2 border-r border-slate-200 last:border-r-0 flex flex-col gap-1.5 min-h-[115px] cursor-pointer relative transition-colors ${
-                      isDragOver ? 'bg-indigo-100/70 ring-2 ring-indigo-400' : 'hover:bg-indigo-50/20'
+                    className={`p-2 border-r border-slate-200 last:border-r-0 flex flex-col gap-1.5 min-h-[115px] cursor-pointer relative transition-colors select-none ${
+                      isSelectedRange ? 'bg-indigo-100/90 ring-2 ring-indigo-500/70 z-10' : isDragOver ? 'bg-indigo-100/70 ring-2 ring-indigo-400' : 'hover:bg-indigo-50/20'
                     }`}
                   >
                     {dayEvents.length > 0 ? (
-                      dayEvents.map(e => (
-                        <div
-                          key={e.id}
-                          draggable={!e.isIcal}
-                          onDragStart={(eDrag) => handleDragStart(eDrag, e.id, member.id)}
-                          onClick={(evt) => handleEventClick(evt, e)}
-                          className={`p-1.5 rounded-lg border text-[10px] font-bold leading-snug transition-all hover:shadow-xs shadow-2xs truncate select-none ${getEventStyle(e)}`}
-                        >
-                          <div className="flex items-center gap-1 truncate">
-                            <Clock className="w-2.5 h-2.5 shrink-0" />
-                            <span>{formatEventTime(e)}</span>
+                      sortEvents(dayEvents).map(e => {
+                        const multiProps = getMultiDayStyle(e, dateStr);
+                        return (
+                          <div
+                            key={e.id}
+                            draggable={!e.isIcal}
+                            onDragStart={(eDrag) => handleDragStart(eDrag, e.id, member.id)}
+                            onClick={(evt) => handleEventClick(evt, e)}
+                            className={`border text-[10px] font-bold leading-snug transition-all hover:shadow-xs shadow-2xs truncate select-none ${getEventStyle(e)} ${multiProps.containerClass} ${
+                              multiProps.isMultiDay ? 'py-0.5 px-1.5 flex items-center h-5.5' : 'p-1.5'
+                            }`}
+                            title={`${e.title} (${formatEventTime(e)})`}
+                          >
+                            {multiProps.isMultiDay ? (
+                              <span className="truncate font-bold tracking-tight">
+                                {multiProps.showTitle ? e.title : '\u00A0'}
+                              </span>
+                            ) : (
+                              <>
+                                <div className="flex items-center gap-1 truncate">
+                                  <Clock className="w-2.5 h-2.5 shrink-0" />
+                                  <span>{formatEventTime(e)}</span>
+                                </div>
+                                <div className="mt-0.5 truncate font-extrabold">
+                                  {e.title}
+                                </div>
+                              </>
+                            )}
                           </div>
-                          <div className="mt-0.5 truncate font-extrabold">{e.title}</div>
-                        </div>
-                      ))
+                        );
+                      })
                     ) : (
                       <div className="flex-1 flex items-center justify-center text-slate-300 text-[10px] font-semibold opacity-0 group-hover:opacity-100 transition-opacity">
                         + 予定を追加
@@ -741,6 +948,14 @@ export function Calendar({
 
   const getLocalDateStr = (isoOrDateStr: string) => {
     if (!isoOrDateStr) return '';
+    if (isoOrDateStr.includes('T')) {
+      const parts = isoOrDateStr.split('T');
+      if (parts[0] && parts[0].length === 10 && parts[0].includes('-')) {
+        return parts[0];
+      }
+    } else if (isoOrDateStr.length === 10 && isoOrDateStr.includes('-')) {
+      return isoOrDateStr;
+    }
     const d = new Date(isoOrDateStr);
     if (isNaN(d.getTime())) {
       return isoOrDateStr.split('T')[0];
@@ -752,11 +967,6 @@ export function Calendar({
   };
 
   const hoursList = Array.from({ length: 15 }, (_, i) => i + 8); // 8:00 to 22:00
-
-  const getEventStyle = (e: CalendarEvent) => {
-    if (e.isIcal) return icalStyle;
-    return typeStyles[e.type];
-  };
 
   return (
     <div className="flex-1 bg-white rounded-xl border border-slate-200 shadow-sm ring-1 ring-slate-900/5 overflow-hidden flex flex-col min-h-[600px] lg:h-[calc(100vh-8rem)]">
@@ -822,39 +1032,7 @@ export function Calendar({
                 ))}
               </select>
             </div>
-
-            {/* iCal */}
-            <label className="flex items-center gap-1.5 cursor-pointer select-none pl-2 border-l border-slate-200">
-              <input
-                type="checkbox"
-                checked={showIcal}
-                onChange={e => setShowIcal(e.target.checked)}
-                className="rounded border-slate-300 text-purple-600 focus:ring-purple-500 cursor-pointer"
-              />
-              <span className="font-medium text-purple-700 text-xs flex items-center gap-1">
-                <LinkIcon className="w-3 h-3 text-purple-500" />
-                iCal
-              </span>
-            </label>
           </div>
-
-          {/* iCal Sync Badge */}
-          {currentUser?.icalUrl && (
-            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-50 border border-purple-200 text-purple-700 rounded-lg text-xs font-semibold shadow-xs">
-              <span className="flex items-center gap-1">
-                <LinkIcon className="w-3.5 h-3.5 text-purple-600" />
-                iCal同期({icalEvents.length}件)
-              </span>
-              <button 
-                onClick={loadIcalEvents} 
-                disabled={isIcalLoading}
-                className="p-0.5 hover:bg-purple-100 rounded transition-colors text-purple-600"
-                title="iCalを再同期"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${isIcalLoading ? 'animate-spin' : ''}`} />
-              </button>
-            </div>
-          )}
 
           {/* Mode Selector */}
           <div className="flex items-center bg-white rounded-lg border border-slate-200 p-1 shadow-sm text-xs font-semibold">
@@ -930,24 +1108,26 @@ export function Calendar({
                   {days.slice(0, 35).map((day, i) => {
                     const isToday = day === new Date().getDate() && month === new Date().getMonth() && year === new Date().getFullYear();
                     const cellDateStr = day ? `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}` : null;
-                    const cellEvents = cellDateStr ? filteredEvents.filter(e => getLocalDateStr(e.start) === cellDateStr) : [];
+                    const cellEvents = cellDateStr ? filteredEvents.filter(e => isEventOccurringOnDate(e, cellDateStr)) : [];
                     const cellKey = `month-cell-${i}`;
                     const isDragOver = dragOverKey === cellKey;
+                    const isSelectedRange = cellDateStr ? isDateInSelectionRange(cellDateStr) : false;
                     
                     return (
                       <div
                         key={i}
-                        onClick={() => cellDateStr && openAddModalWithDate(cellDateStr)}
+                        onMouseDown={(e) => cellDateStr && handleCellMouseDown(e, cellDateStr)}
+                        onMouseEnter={() => cellDateStr && handleCellMouseEnter(cellDateStr)}
                         onDragOver={(e) => cellDateStr && handleDragOver(e, cellKey)}
                         onDragLeave={handleDragLeave}
                         onDrop={(e) => cellDateStr && handleDrop(e, cellDateStr)}
-                        className={`border-b border-r border-slate-100 p-1.5 min-h-[100px] group relative transition-colors ${
-                          !day ? 'bg-slate-50/50' : isDragOver ? 'bg-indigo-100/70 ring-2 ring-indigo-400' : 'hover:bg-indigo-50/20 cursor-pointer'
+                        className={`border-b border-r border-slate-100 py-1.5 px-0 min-h-[100px] group relative transition-colors select-none ${
+                          !day ? 'bg-slate-50/50' : isSelectedRange ? 'bg-indigo-100/90 ring-2 ring-indigo-500/70 z-10' : isDragOver ? 'bg-indigo-100/70 ring-2 ring-indigo-400' : 'hover:bg-indigo-50/20 cursor-pointer'
                         }`}
                       >
                         {day && (
                           <div className="h-full flex flex-col">
-                            <div className="flex items-center justify-between mb-1.5">
+                            <div className="flex items-center justify-between mb-1.5 px-1.5">
                               <div className={`text-xs font-semibold w-6 h-6 flex items-center justify-center rounded-full ${isToday ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-700'}`}>
                                 {day}
                               </div>
@@ -960,22 +1140,24 @@ export function Calendar({
                                 <Plus className="w-3.5 h-3.5" />
                               </button>
                             </div>
-                            <div className="flex-1 space-y-1 overflow-y-auto pr-1">
-                              {cellEvents.map(e => (
-                                <div
-                                  key={e.id}
-                                  draggable={!e.isIcal}
-                                  onDragStart={(eDrag) => handleDragStart(eDrag, e.id)}
-                                  onClick={(eClick) => handleEventClick(eClick, e)}
-                                  className={`text-[10px] px-1.5 py-0.5 rounded truncate border font-medium cursor-pointer transition-all shadow-xs ${getEventStyle(e)}`}
-                                  title={`${e.isIcal ? '[iCal連携] ' : ''}${e.title} (${formatEventTime(e)})`}
-                                >
-                                  <span className="font-bold mr-1">
-                                    {e.isIcal ? '[iCal]' : e.isAllDay ? '[終日]' : new Date(e.start).toLocaleTimeString('ja-JP', {hour: '2-digit', minute:'2-digit'})}
-                                  </span>
-                                  {e.title}
-                                </div>
-                              ))}
+                            <div className="flex-1 space-y-1 overflow-y-auto px-0">
+                              {sortEvents(cellEvents).map(e => {
+                                const multiProps = getMultiDayStyle(e, cellDateStr!, true);
+                                return (
+                                  <div
+                                    key={e.id}
+                                    draggable={!e.isIcal}
+                                    onDragStart={(eDrag) => handleDragStart(eDrag, e.id)}
+                                    onClick={(eClick) => handleEventClick(eClick, e)}
+                                    className={`text-[10px] py-0.5 px-1.5 border font-bold cursor-pointer transition-all flex items-center h-5.5 select-none truncate ${getEventStyle(e)} ${multiProps.containerClass}`}
+                                    title={`${e.isIcal ? '[iCal連携] ' : ''}${e.title} (${formatEventTime(e)})`}
+                                  >
+                                    <span className="truncate font-bold tracking-tight">
+                                      {multiProps.showTitle ? (e.isIcal ? `[iCal] ${e.title}` : e.title) : '\u00A0'}
+                                    </span>
+                                  </div>
+                                );
+                              })}
                             </div>
                           </div>
                         )}
@@ -996,11 +1178,15 @@ export function Calendar({
                     const isToday = isSameDay(d, new Date());
                     const dayName = ['日', '月', '火', '水', '木', '金', '土'][d.getDay()];
                     const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                    const isSelectedRange = isDateInSelectionRange(dateStr);
                     return (
                       <div
                         key={idx}
-                        onClick={() => openAddModalWithDate(dateStr)}
-                        className={`py-2 px-1 text-center border-r border-slate-200 cursor-pointer hover:bg-indigo-50/40 transition-colors ${isToday ? 'bg-indigo-50/60' : ''}`}
+                        onMouseDown={(e) => handleCellMouseDown(e, dateStr)}
+                        onMouseEnter={() => handleCellMouseEnter(dateStr)}
+                        className={`py-2 px-1 text-center border-r border-slate-200 cursor-pointer select-none transition-colors ${
+                          isSelectedRange ? 'bg-indigo-100/90 ring-2 ring-indigo-500/70 z-10' : isToday ? 'bg-indigo-50/60' : 'hover:bg-indigo-50/40'
+                        }`}
                       >
                         <div className={`text-xs font-semibold ${idx === 0 ? 'text-red-500' : idx === 6 ? 'text-blue-500' : 'text-slate-500'}`}>{dayName}</div>
                         <div className={`text-sm font-bold mt-0.5 inline-flex items-center justify-center w-7 h-7 rounded-full ${isToday ? 'bg-indigo-600 text-white' : 'text-slate-800'}`}>
@@ -1016,33 +1202,40 @@ export function Calendar({
                   <div className="py-2 px-2 text-center text-[11px] font-bold text-slate-500 border-r border-slate-200 flex items-center justify-center">終日</div>
                   {weekDays.map((d, idx) => {
                     const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-                    const allDayEvs = filteredEvents.filter(e => e.isAllDay && getLocalDateStr(e.start) === dateStr);
+                    const allDayEvs = filteredEvents.filter(e => (e.isAllDay || getLocalDateStr(e.start) !== getLocalDateStr(e.end)) && isEventOccurringOnDate(e, dateStr));
                     const slotKey = `week-allday-${idx}`;
                     const isDragOver = dragOverKey === slotKey;
+                    const isSelectedRange = isDateInSelectionRange(dateStr);
 
                     return (
                       <div
                         key={idx}
-                        onClick={() => openAddModalWithDate(dateStr)}
+                        onMouseDown={(e) => handleCellMouseDown(e, dateStr)}
+                        onMouseEnter={() => handleCellMouseEnter(dateStr)}
                         onDragOver={(e) => handleDragOver(e, slotKey)}
                         onDragLeave={handleDragLeave}
                         onDrop={(e) => handleDrop(e, dateStr)}
-                        className={`p-1 border-r border-slate-200 min-h-[40px] cursor-pointer space-y-1 transition-colors ${
-                          isDragOver ? 'bg-indigo-100/70 ring-2 ring-indigo-400' : 'hover:bg-indigo-50/30'
+                        className={`p-1 border-r border-slate-200 min-h-[40px] cursor-pointer space-y-1 transition-colors select-none ${
+                          isSelectedRange ? 'bg-indigo-100/90 ring-2 ring-indigo-500/70 z-10' : isDragOver ? 'bg-indigo-100/70 ring-2 ring-indigo-400' : 'hover:bg-indigo-50/30'
                         }`}
                       >
-                        {allDayEvs.map(e => (
-                          <div
-                            key={e.id}
-                            draggable={!e.isIcal}
-                            onDragStart={(eDrag) => handleDragStart(eDrag, e.id)}
-                            onClick={eClick => handleEventClick(eClick, e)}
-                            className={`text-[10px] px-1.5 py-0.5 rounded truncate border font-semibold cursor-pointer shadow-xs transition-all ${getEventStyle(e)}`}
-                            title={e.title}
-                          >
-                            {e.isIcal ? `[iCal] ${e.title}` : e.title}
-                          </div>
-                        ))}
+                        {sortEvents(allDayEvs).map(e => {
+                          const multiProps = getMultiDayStyle(e, dateStr);
+                          return (
+                            <div
+                              key={e.id}
+                              draggable={!e.isIcal}
+                              onDragStart={(eDrag) => handleDragStart(eDrag, e.id)}
+                              onClick={eClick => handleEventClick(eClick, e)}
+                              className={`text-[10px] py-0.5 px-1.5 border font-semibold cursor-pointer transition-all flex items-center h-5.5 select-none truncate ${getEventStyle(e, true)} ${multiProps.containerClass}`}
+                              title={e.title}
+                            >
+                              <span className="truncate font-bold tracking-tight">
+                                {multiProps.showTitle ? (e.isIcal ? `[iCal] ${e.title}` : e.title) : '\u00A0'}
+                              </span>
+                            </div>
+                          );
+                        })}
                       </div>
                     );
                   })}
@@ -1106,7 +1299,7 @@ export function Calendar({
 
             {/* 3. DAY VIEW */}
             {view === 'day' && (
-              <div className="max-w-4xl mx-auto h-full flex flex-col p-4 sm:p-6">
+              <div className="w-full h-full flex flex-col p-4 sm:p-6">
                 <div className="flex items-center justify-between pb-4 border-b border-slate-200 mb-4">
                   <div className="flex items-center gap-3">
                     <div className="w-12 h-12 rounded-2xl bg-indigo-600 text-white flex flex-col items-center justify-center font-bold shadow-md">
@@ -1130,34 +1323,42 @@ export function Calendar({
                   </button>
                 </div>
 
-                {/* All-Day Events */}
+                {/* All-Day & Multi-Day Events */}
                 {(() => {
                   const dStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
-                  const dayAllDayEvents = filteredEvents.filter(e => e.isAllDay && getLocalDateStr(e.start) === dStr);
+                  const dayAllDayEvents = filteredEvents.filter(e => (e.isAllDay || getLocalDateStr(e.start) !== getLocalDateStr(e.end)) && isEventOccurringOnDate(e, dStr));
                   if (dayAllDayEvents.length === 0) return null;
                   return (
                     <div className="mb-6 p-4 bg-slate-50 rounded-xl border border-slate-200">
                       <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
                         <Clock className="w-3.5 h-3.5 text-slate-400" />
-                        終日の予定
+                        終日・複数日予定
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        {dayAllDayEvents.map(e => (
-                          <div
-                            key={e.id}
-                            draggable={!e.isIcal}
-                            onDragStart={(eDrag) => handleDragStart(eDrag, e.id)}
-                            onClick={eClick => handleEventClick(eClick, e)}
-                            className={`p-3 rounded-lg border font-semibold cursor-pointer transition-all ${getEventStyle(e)}`}
-                            title="クリックで詳細"
-                          >
-                            <div className="flex items-center justify-between">
-                              <span>{e.isIcal ? `[iCal] ${e.title}` : e.title}</span>
-                              <span className="text-[10px] px-2 py-0.5 bg-white/60 rounded-full">{e.isIcal ? 'iCal連携' : typeLabels[e.type]}</span>
+                        {dayAllDayEvents.map(e => {
+                          const sStr = getLocalDateStr(e.start);
+                          const eStr = e.end ? getLocalDateStr(e.end) : sStr;
+                          const isMulti = sStr !== eStr;
+                          return (
+                            <div
+                              key={e.id}
+                              draggable={!e.isIcal}
+                              onDragStart={(eDrag) => handleDragStart(eDrag, e.id)}
+                              onClick={eClick => handleEventClick(eClick, e)}
+                              className={`p-3 rounded-lg border font-semibold cursor-pointer transition-all ${getEventStyle(e, true)}`}
+                              title="クリックで詳細"
+                            >
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <div className="font-bold">{e.isIcal ? `[iCal] ${e.title}` : e.title}</div>
+                                  {isMulti && <div className="text-[11px] font-medium opacity-90">{sStr} ～ {eStr}</div>}
+                                </div>
+                                <span className="text-[10px] px-2 py-0.5 bg-white/20 rounded-full font-bold">{e.isIcal ? 'iCal' : typeLabels[e.type]}</span>
+                              </div>
+                              {e.memo && <div className="text-xs font-normal mt-1 opacity-90">{renderWithClickableLinks(e.memo)}</div>}
                             </div>
-                            {e.memo && <div className="text-xs font-normal mt-1 opacity-90">{renderWithClickableLinks(e.memo)}</div>}
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   );
@@ -1231,7 +1432,7 @@ export function Calendar({
 
             {/* 4. LIST VIEW */}
             {view === 'list' && (
-              <div className="p-6 max-w-4xl mx-auto space-y-4">
+              <div className="p-6 w-full space-y-4">
                 {filteredEvents.length > 0 ? (
                   filteredEvents.sort((a,b) => new Date(a.start).getTime() - new Date(b.start).getTime()).map(e => (
                     <div
@@ -1300,6 +1501,8 @@ export function Calendar({
         onDelete={onDeleteEvent}
         editingEvent={editingEvent}
         defaultInitialDate={selectedInitialDate}
+        defaultEndDate={selectedEndDate}
+        defaultIsAllDay={selectedIsAllDay}
         offices={offices}
         divisions={divisions}
         allUsers={allUsers}

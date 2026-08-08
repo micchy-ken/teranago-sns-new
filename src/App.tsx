@@ -2399,7 +2399,7 @@ export default function App() {
 
       {Object.keys(fetchErrors).length > 0 && (
         <div className="bg-rose-50 border-b border-rose-200 py-3 px-4 text-rose-800 text-sm">
-          <div className="max-w-6xl mx-auto flex items-start justify-between gap-4">
+          <div className="w-full px-4 sm:px-6 lg:px-8 flex items-start justify-between gap-4">
             <div className="flex items-start gap-2.5">
               <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
               <div>
@@ -2425,7 +2425,7 @@ export default function App() {
         </div>
       )}
 
-      <main className={`mx-auto px-4 py-8 flex flex-col lg:flex-row gap-8 transition-all duration-300 ${isSidebarCollapsed ? 'max-w-[1400px]' : 'max-w-6xl'}`}>
+      <main className="w-full px-4 sm:px-6 lg:px-8 py-6 flex flex-col lg:flex-row gap-6 transition-all duration-300">
         
         {/* Left Sidebar Column / Restore Button */}
         {!isSidebarCollapsed ? (

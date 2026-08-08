@@ -1390,13 +1390,13 @@ export function MyPage({
                     <input
                       type="text"
                       readOnly
-                      value={`https://teranago.co.jp/api/ical/user_${user.id}_calendar.ics`}
+                      value={`${API_BASE_URL}/ical/user_${user.id}_calendar.ics`}
                       className="flex-1 px-3 py-1.5 bg-white border border-amber-300 rounded-lg text-[11px] font-mono text-slate-700 select-all focus:outline-none"
                     />
                     <button
                       type="button"
                       onClick={() => {
-                        navigator.clipboard.writeText(`https://teranago.co.jp/api/ical/user_${user.id}_calendar.ics`);
+                        navigator.clipboard.writeText(`${API_BASE_URL}/ical/user_${user.id}_calendar.ics`);
                         setCopiedICal(true);
                         setTimeout(() => setCopiedICal(false), 2000);
                       }}

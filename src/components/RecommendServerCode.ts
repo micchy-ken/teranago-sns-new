@@ -2150,7 +2150,7 @@ app.post('/api/external-files/upload', uploadExternal.single('file'), (req, res)
       message: 'アップロード完了しました。',
       file: {
         name: req.file.filename,
-        path: req.body.folder ? (req.body.folder + '/' + req.file.filename).replace(/\\/g, '/') : req.file.filename,
+        path: req.body.folder ? (req.body.folder + '/' + req.file.filename).replace(/\\\\/g, '/') : req.file.filename,
         size: req.file.size
       }
     });
@@ -2159,8 +2159,8 @@ app.post('/api/external-files/upload', uploadExternal.single('file'), (req, res)
   }
 });
 
-function getAllFilesRecursive(dirPath: string, relativeRoot = ""): any[] {
-  let results: any[] = [];
+function getAllFilesRecursive(dirPath, relativeRoot = "") {
+  let results = [];
   if (!fs.existsSync(dirPath)) return results;
   try {
     const list = fs.readdirSync(dirPath);
@@ -2175,7 +2175,7 @@ function getAllFilesRecursive(dirPath: string, relativeRoot = ""): any[] {
       if (stat.isDirectory()) {
         results.push({
           name: file,
-          path: relPath.replace(/\\/g, '/'),
+          path: relPath.replace(/\\\\/g, '/'),
           size: 0,
           mtime: stat.mtime,
           isDirectory: true,
@@ -2187,8 +2187,8 @@ function getAllFilesRecursive(dirPath: string, relativeRoot = ""): any[] {
         const ext = path.extname(file).replace('.', '').toLowerCase();
         results.push({
           name: file,
-          path: relPath.replace(/\\/g, '/'),
-          url: '/external-files/' + relPath.replace(/\\/g, '/'),
+          path: relPath.replace(/\\\\/g, '/'),
+          url: '/api/external-files/serve?path=' + encodeURIComponent(relPath.replace(/\\\\/g, '/')),
           size: stat.size,
           mtime: stat.mtime,
           isDirectory: false,
@@ -2221,6 +2221,47 @@ app.get('/api/external-files/list', (req, res) => {
   }
 });
 
+// 外部ファイル個別取得・プレビュー・ダウンロード用 API (リバースプロキシの追加設定が不要になります)
+app.get('/api/external-files/serve', (req, res) => {
+  try {
+    const targetRelPath = req.query.path;
+    if (!targetRelPath || typeof targetRelPath !== 'string') {
+      return res.status(400).json({ error: 'ファイルパスが指定されていません' });
+    }
+    // パス・トラバーサル防止の安全対策
+    const sanitizedPath = targetRelPath.replace(/\.\./g, '');
+    const safePath = path.join(externalFilesDir, sanitizedPath);
+    
+    if (fs.existsSync(safePath)) {
+      res.sendFile(safePath);
+    } else {
+      res.status(404).json({ error: 'ファイルが見つかりません' });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 新規フォルダ作成 API
+app.post('/api/external-files/folder', (req, res) => {
+  try {
+    const { folder } = req.body;
+    if (!folder || typeof folder !== 'string') {
+      return res.status(400).json({ error: 'フォルダ名が指定されていません' });
+    }
+    const sanitizedPath = folder.replace(/\.\./g, '');
+    const safePath = path.join(externalFilesDir, sanitizedPath);
+    if (!fs.existsSync(safePath)) {
+      fs.mkdirSync(safePath, { recursive: true });
+      res.json({ message: 'フォルダを作成しました', path: sanitizedPath });
+    } else {
+      res.status(400).json({ error: '既に同名のフォルダ・ファイルが存在します' });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ファイル削除 API (必要に応じてWEBアプリ側から削除可能にする)
 app.delete('/api/external-files', (req, res) => {
   try {
@@ -2245,6 +2286,58 @@ app.delete('/api/external-files', (req, res) => {
     }
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// iCalプロキシ取得 API (CORS回避用)
+app.get('/api/ical-proxy', async (req, res) => {
+  try {
+    const targetUrl = req.query.url;
+    if (!targetUrl || typeof targetUrl !== 'string') {
+      return res.status(400).send('URLパラメータが指定されていません');
+    }
+    const fetch = (await import('node-fetch')).default;
+    const response = await fetch(targetUrl);
+    if (!response.ok) {
+      return res.status(response.status).send('iCalの取得に失敗しました');
+    }
+    const text = await response.text();
+    res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+    res.send(text);
+  } catch (err) {
+    res.status(500).send(err.message);
+  }
+});
+
+// カレンダーiCal(ICS)エクスポート API
+app.get('/api/ical/user_:userId_calendar.ics', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    let pool = await poolPromise;
+    let result = await pool.request()
+      .input('userId', sql.NVarChar, userId)
+      .query('SELECT * FROM dbo.CalendarEvents WHERE createdBy = @userId');
+    
+    let icsContent = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Company SNS Calendar//JA\r\nCALSCALE:GREGORIAN\r\nMETHOD:PUBLISH\r\nX-WR-CALNAME:社内カレンダー同期\r\n";
+    
+    for (const evt of result.recordset) {
+      const dtStart = evt.startDate ? new Date(evt.startDate).toISOString().replace(/-|:|\.\d+/g, '') : '';
+      const dtEnd = evt.endDate ? new Date(evt.endDate).toISOString().replace(/-|:|\.\d+/g, '') : dtStart;
+      icsContent += "BEGIN:VEVENT\r\n";
+      icsContent += "UID:evt-" + evt.id + "@company-sns\r\n";
+      icsContent += "SUMMARY:" + (evt.title || '').replace(/\n/g, ' ') + "\r\n";
+      if (evt.description) icsContent += "DESCRIPTION:" + evt.description.replace(/\n/g, '\\n') + "\r\n";
+      if (dtStart) icsContent += "DTSTART:" + dtStart + "\r\n";
+      if (dtEnd) icsContent += "DTEND:" + dtEnd + "\r\n";
+      icsContent += "END:VEVENT\r\n";
+    }
+    icsContent += "END:VCALENDAR\r\n";
+
+    res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="user_' + userId + '_calendar.ics"');
+    res.send(icsContent);
+  } catch (err) {
+    res.status(500).send(err.message);
   }
 });
 
