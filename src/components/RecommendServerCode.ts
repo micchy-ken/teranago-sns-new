@@ -2318,20 +2318,20 @@ app.get('/api/ical/user_:userId_calendar.ics', async (req, res) => {
       .input('userId', sql.NVarChar, userId)
       .query('SELECT * FROM dbo.CalendarEvents WHERE createdBy = @userId');
     
-    let icsContent = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Company SNS Calendar//JA\r\nCALSCALE:GREGORIAN\r\nMETHOD:PUBLISH\r\nX-WR-CALNAME:社内カレンダー同期\r\n";
+    let icsContent = "BEGIN:VCALENDAR\\r\\nVERSION:2.0\\r\\nPRODID:-//Company SNS Calendar//JA\\r\\nCALSCALE:GREGORIAN\\r\\nMETHOD:PUBLISH\\r\\nX-WR-CALNAME:社内カレンダー同期\\r\\n";
     
     for (const evt of result.recordset) {
-      const dtStart = evt.startDate ? new Date(evt.startDate).toISOString().replace(/-|:|\.\d+/g, '') : '';
-      const dtEnd = evt.endDate ? new Date(evt.endDate).toISOString().replace(/-|:|\.\d+/g, '') : dtStart;
-      icsContent += "BEGIN:VEVENT\r\n";
-      icsContent += "UID:evt-" + evt.id + "@company-sns\r\n";
-      icsContent += "SUMMARY:" + (evt.title || '').replace(/\n/g, ' ') + "\r\n";
-      if (evt.description) icsContent += "DESCRIPTION:" + evt.description.replace(/\n/g, '\\n') + "\r\n";
-      if (dtStart) icsContent += "DTSTART:" + dtStart + "\r\n";
-      if (dtEnd) icsContent += "DTEND:" + dtEnd + "\r\n";
-      icsContent += "END:VEVENT\r\n";
+      const dtStart = evt.startDate ? new Date(evt.startDate).toISOString().replace(/-|:|\\.\\\\d+/g, '') : '';
+      const dtEnd = evt.endDate ? new Date(evt.endDate).toISOString().replace(/-|:|\\.\\\\d+/g, '') : dtStart;
+      icsContent += "BEGIN:VEVENT\\r\\n";
+      icsContent += "UID:evt-" + evt.id + "@company-sns\\r\\n";
+      icsContent += "SUMMARY:" + (evt.title || '').replace(/\\\\n/g, ' ') + "\\r\\n";
+      if (evt.description) icsContent += "DESCRIPTION:" + evt.description.replace(/\\\\n/g, '\\\\\\\\n') + "\\r\\n";
+      if (dtStart) icsContent += "DTSTART:" + dtStart + "\\r\\n";
+      if (dtEnd) icsContent += "DTEND:" + dtEnd + "\\r\\n";
+      icsContent += "END:VEVENT\\r\\n";
     }
-    icsContent += "END:VCALENDAR\r\n";
+    icsContent += "END:VCALENDAR\\r\\n";
 
     res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="user_' + userId + '_calendar.ics"');
