@@ -544,13 +544,20 @@ export default function FileManager({ currentUser }: FileManagerProps) {
     try {
       const response = await fetch(downloadUrl);
       if (response.ok) {
-        const blob = await response.blob();
-        // 万が一レスポンスが 404 エラーHTMLや Cannot GET だった場合はフォールバック
         const contentType = response.headers.get('content-type') || '';
         if (contentType.includes('text/html')) {
-          throw new Error('API returned HTML page instead of file');
+          const text = await response.text();
+          setConfirmModal({
+            isOpen: true,
+            title: 'ダウンロードエラー (Cannot GET)',
+            message: `APIからファイルではなくHTMLレスポンス(Cannot GET /api/external-files/serve)が返されました。\nAPIサーバーのエンドポイント定義やURLルーティングをご確認ください。\n\nリクエストURL: ${downloadUrl}\n内容: ${text.slice(0, 100)}`,
+            type: 'warning',
+            confirmText: '確認'
+          });
+          return;
         }
 
+        const blob = await response.blob();
         const blobUrl = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = blobUrl;
@@ -560,20 +567,23 @@ export default function FileManager({ currentUser }: FileManagerProps) {
         document.body.removeChild(link);
         setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
       } else {
-        throw new Error(`HTTP Error: ${response.status}`);
+        const errText = await response.text().catch(() => '');
+        setConfirmModal({
+          isOpen: true,
+          title: 'ダウンロード失敗',
+          message: `サーバーエラー (ステータスコード: ${response.status})\n${errText}`,
+          type: 'warning',
+          confirmText: '確認'
+        });
       }
-    } catch (err) {
-      console.warn('ダウンロード通信エラー。プレビュー用サンプルファイルをダウンロードします:', err);
-      const fallbackContent = `【NAS共有ファイル デモサンプル】\nファイル名: ${file.name}\nパス: ${file.path}\n更新日時: ${file.mtime}\n\n※このファイルはWEBプレビュー環境用のサンプルデータです。\nオンプレミス／社内サーバーで配布コード「Server.js」を稼働させることで、実際のNAS/共有ストレージのファイルがそのままダウンロードされます。`;
-      const blob = new Blob([fallbackContent], { type: 'text/plain;charset=utf-8' });
-      const blobUrl = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = blobUrl;
-      link.setAttribute('download', file.name.endsWith('.txt') ? file.name : `${file.name}.txt`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+    } catch (err: any) {
+      setConfirmModal({
+        isOpen: true,
+        title: '通信エラー',
+        message: `ダウンロード中にエラーが発生しました: ${err.message}`,
+        type: 'warning',
+        confirmText: '確認'
+      });
     }
   };
 
@@ -927,30 +937,12 @@ export default function FileManager({ currentUser }: FileManagerProps) {
                   className="max-w-full max-h-full object-contain rounded-lg shadow-sm"
                 />
               ) : previewFile.extension === 'pdf' ? (
-                // PDFプレビュー (iframe / Blob)
-                getFileUrl(previewFile).startsWith('/api/') ? (
-                  <div className="w-full h-full bg-white rounded-lg shadow-sm p-8 flex flex-col items-center justify-center text-center">
-                    <FileText className="w-16 h-16 text-indigo-500 mb-3" />
-                    <h4 className="text-base font-bold text-slate-800 mb-1">{previewFile.name}</h4>
-                    <p className="text-xs text-slate-500 max-w-md mb-4">
-                      【デモ用サンプルPDF】<br />
-                      オンプレミス社内サーバー（server.ts）連携時に本物のPDFファイルがインラインプレビュー表示されます。
-                    </p>
-                    <button
-                      onClick={() => handleDownload(previewFile)}
-                      className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold hover:bg-indigo-700 transition-colors cursor-pointer flex items-center gap-2"
-                    >
-                      <Download className="w-4 h-4" />
-                      サンプルファイルをダウンロード
-                    </button>
-                  </div>
-                ) : (
-                  <iframe
-                    src={getFileUrl(previewFile)}
-                    className="w-full h-full border-none rounded-lg bg-white shadow-sm"
-                    title="PDFプレビュー"
-                  />
-                )
+                // PDFプレビュー (iframe)
+                <iframe
+                  src={getFileUrl(previewFile)}
+                  className="w-full h-full border-none rounded-lg bg-white shadow-sm"
+                  title="PDFプレビュー"
+                />
               ) : PREVIEW_TEXT_EXTS.includes(previewFile.extension) && previewContent ? (
                 // テキストプレビュー
                 <pre className="w-full h-full bg-slate-900 text-slate-100 p-4 rounded-lg font-mono text-xs overflow-auto text-left leading-relaxed">

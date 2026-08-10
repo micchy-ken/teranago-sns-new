@@ -2118,10 +2118,20 @@ app.delete('/api/board/:id', handleDeleteBulletin);
 // ==========================================
 // 8. 外部NAS同期・外部ファイル連携用 API
 // ==========================================
+// パス正規化ヘルパー (テンプレート文字列のエスケープ崩れを100%防ぐため String.fromCharCode を使用)
+function normalizePath(inputPath) {
+  if (!inputPath || typeof inputPath !== 'string') return '';
+  let cleaned = inputPath.split('..').join('').split(String.fromCharCode(92)).join('/');
+  while (cleaned.startsWith('/')) {
+    cleaned = cleaned.slice(1);
+  }
+  return cleaned;
+}
+
 // 外部ファイル用のmulterストレージ設定 (ファイル名の日本語文字化け対策を含む)
 const externalStorage = multer.diskStorage({
   destination: function (req, file, cb) {
-    const subDir = typeof req.body.folder === 'string' ? req.body.folder.replace(/\.\./g, '') : '';
+    const subDir = typeof req.body.folder === 'string' ? normalizePath(req.body.folder) : '';
     const targetPath = path.join(externalFilesDir, subDir);
     if (!fs.existsSync(targetPath)) {
       fs.mkdirSync(targetPath, { recursive: true });
@@ -2146,11 +2156,13 @@ app.post('/api/external-files/upload', uploadExternal.single('file'), (req, res)
     if (!req.file) {
       return res.status(400).json({ error: 'ファイルが選択されていません。' });
     }
+    const folderPath = req.body.folder ? normalizePath(req.body.folder) : '';
+    const filePath = folderPath ? normalizePath(folderPath + '/' + req.file.filename) : req.file.filename;
     res.json({
       message: 'アップロード完了しました。',
       file: {
         name: req.file.filename,
-        path: req.body.folder ? (req.body.folder + '/' + req.file.filename).replace(/\\\\/g, '/') : req.file.filename,
+        path: filePath,
         size: req.file.size
       }
     });
@@ -2170,12 +2182,13 @@ function getAllFilesRecursive(dirPath, relativeRoot = "") {
       
       const filePath = path.join(dirPath, file);
       const relPath = relativeRoot ? path.join(relativeRoot, file) : file;
+      const cleanRelPath = normalizePath(relPath);
       const stat = fs.statSync(filePath);
       
       if (stat.isDirectory()) {
         results.push({
           name: file,
-          path: relPath.replace(/\\\\/g, '/'),
+          path: cleanRelPath,
           size: 0,
           mtime: stat.mtime,
           isDirectory: true,
@@ -2187,8 +2200,8 @@ function getAllFilesRecursive(dirPath, relativeRoot = "") {
         const ext = path.extname(file).replace('.', '').toLowerCase();
         results.push({
           name: file,
-          path: relPath.replace(/\\\\/g, '/'),
-          url: '/api/external-files/serve?path=' + encodeURIComponent(relPath.replace(/\\\\/g, '/')),
+          path: cleanRelPath,
+          url: '/api/external-files/serve?path=' + encodeURIComponent(cleanRelPath),
           size: stat.size,
           mtime: stat.mtime,
           isDirectory: false,
@@ -2229,7 +2242,7 @@ app.get('/api/external-files/serve', (req, res) => {
       return res.status(400).json({ error: 'ファイルパスが指定されていません' });
     }
     // パス・トラバーサル防止の安全対策および区切り文字の正規化
-    const sanitizedPath = targetRelPath.replace(/\.\./g, '').replace(/\\/g, '/').replace(/^\/+/, '');
+    const sanitizedPath = normalizePath(targetRelPath);
     if (!sanitizedPath || sanitizedPath === '.' || sanitizedPath === '/') {
       return res.status(400).json({ error: '有効なファイルパスが指定されていません' });
     }
@@ -2257,7 +2270,7 @@ app.post('/api/external-files/folder', (req, res) => {
     if (!folder || typeof folder !== 'string') {
       return res.status(400).json({ error: 'フォルダ名が指定されていません' });
     }
-    const sanitizedPath = folder.replace(/\.\./g, '').replace(/\\/g, '/').replace(/^\/+/, '');
+    const sanitizedPath = normalizePath(folder);
     if (!sanitizedPath || sanitizedPath === '.' || sanitizedPath === '/') {
       return res.status(400).json({ error: '有効なフォルダ名が指定されていません' });
     }
@@ -2281,7 +2294,7 @@ app.delete('/api/external-files', (req, res) => {
       return res.status(400).json({ error: 'ファイルパスが指定されていません' });
     }
     // パス・トラバーサル防止の安全対策および区切り文字の正規化
-    const sanitizedPath = targetRelPath.replace(/\.\./g, '').replace(/\\/g, '/').replace(/^\/+/, '');
+    const sanitizedPath = normalizePath(targetRelPath);
     
     // ルートフォルダ自体の誤削除を防ぐセキュリティガード
     if (!sanitizedPath || sanitizedPath === '.' || sanitizedPath === '/') {
