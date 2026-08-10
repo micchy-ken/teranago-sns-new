@@ -2309,33 +2309,232 @@ app.get('/api/ical-proxy', async (req, res) => {
   }
 });
 
+// iCal案内およびエクスポート API
+app.get(['/api/ical', '/api/ical/'], (req, res) => {
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(\`
+    <div style="font-family: sans-serif; padding: 24px; max-width: 600px; margin: auto; line-height: 1.6;">
+      <h2 style="color: #4f46e5; border-bottom: 2px solid #e5e7eb; padding-bottom: 8px;">iCalカレンダー同期機能</h2>
+      <p>このエンドポイントは、各ユーザー専用のiCal形式カレンダーを提供します。</p>
+      <div style="background-color: #f3f4f6; padding: 16px; border-radius: 8px; font-family: monospace; font-size: 14px; margin: 16px 0;">
+        <strong>URLフォーマット:</strong><br>
+        /api/ical/user_【ユーザーID】_calendar.ics
+      </div>
+      <p><strong>例 (u1の場合):</strong><br>
+        <a href="/api/ical/user_u1_calendar.ics" style="color: #2563eb; text-decoration: underline;">/api/ical/user_u1_calendar.ics</a>
+      </p>
+      <p style="color: #6b7280; font-size: 13px; margin-top: 24px; border-top: 1px solid #e5e7eb; padding-top: 16px;">
+        ※GoogleカレンダーやOutlook、Mac標準カレンダーなどの「URLで追加」機能に上記URLを設定することで同期が可能です。
+      </p>
+    </div>
+  \`);
+});
+
 // カレンダーiCal(ICS)エクスポート API
 app.get('/api/ical/user_:userId_calendar.ics', async (req, res) => {
   try {
-    const { userId } = req.params;
-    let pool = await poolPromise;
-    let result = await pool.request()
-      .input('userId', sql.NVarChar, userId)
-      .query('SELECT * FROM dbo.CalendarEvents WHERE createdBy = @userId');
-    
-    let icsContent = "BEGIN:VCALENDAR\\r\\nVERSION:2.0\\r\\nPRODID:-//Company SNS Calendar//JA\\r\\nCALSCALE:GREGORIAN\\r\\nMETHOD:PUBLISH\\r\\nX-WR-CALNAME:社内カレンダー同期\\r\\n";
-    
-    for (const evt of result.recordset) {
-      const dtStart = evt.startDate ? new Date(evt.startDate).toISOString().replace(/-|:|\\.\\\\d+/g, '') : '';
-      const dtEnd = evt.endDate ? new Date(evt.endDate).toISOString().replace(/-|:|\\.\\\\d+/g, '') : dtStart;
+    let rawUserId = req.params.userId || req.params.userId_calendar || '';
+    if (rawUserId.endsWith('_calendar')) {
+      rawUserId = rawUserId.substring(0, rawUserId.length - '_calendar'.length);
+    }
+    const userId = rawUserId;
+
+    const pool = await getPool();
+
+    // ユーザー情報を取得して所属拠点・部署を調べる
+    let userOffice = '全社';
+    let userDivision = '全部署';
+    try {
+      const userRes = await pool.request()
+        .input('userId', sql.VarChar, userId)
+        .query('SELECT office, division FROM dbo.Users WHERE id = @userId');
+      if (userRes.recordset && userRes.recordset.length > 0) {
+        userOffice = userRes.recordset[0].office || '全社';
+        userDivision = userRes.recordset[0].division || '全部署';
+      }
+    } catch (_) {}
+
+    // イベント全件取得
+    const result = await pool.request()
+      .query('SELECT * FROM dbo.Events ORDER BY startAt ASC');
+
+    // ユーザーに関係あるイベントだけフィルタリング
+    const filteredEvents = (result.recordset || []).filter(evt => {
+      // 1. office / division フィルタ
+      const eventOffice = evt.office || '全社';
+      const eventDivision = evt.division || '全部署';
+
+      const isOfficeMatch = eventOffice === '全社' || eventOffice === '全拠点' || eventOffice === userOffice;
+      const isDivisionMatch = eventDivision === '全部署' || eventDivision === userDivision;
+
+      if (isOfficeMatch && isDivisionMatch) {
+        return true;
+      }
+
+      // 2. 参加者(attendees) フィルタ
+      let attendees = [];
+      if (evt.description && typeof evt.description === 'string' && evt.description.startsWith('{')) {
+        try {
+          const detailsObj = JSON.parse(evt.description);
+          const rawAttendees = evt.attendees || detailsObj.attendees || [];
+          if (Array.isArray(rawAttendees)) {
+            attendees = rawAttendees.map((att) => (typeof att === 'object' && att !== null) ? String(att.id) : String(att));
+          } else if (typeof rawAttendees === 'string') {
+            const parsedAtt = JSON.parse(rawAttendees);
+            if (Array.isArray(parsedAtt)) {
+              attendees = parsedAtt.map((att) => (typeof att === 'object' && att !== null) ? String(att.id) : String(att));
+            }
+          }
+        } catch (_) {}
+      }
+
+      if (attendees.includes(userId)) {
+        return true;
+      }
+
+      return false;
+    });
+
+    // UTC (末尾に Z) フォーマットヘルパー (ミリ秒を含まない YYYYMMDDTHHMMSSZ)
+    const formatToUtc = (dateObj) => {
+      const d = new Date(dateObj);
+      if (isNaN(d.getTime())) return '';
+      const pad = (n) => String(n).padStart(2, '0');
+      const yyyy = d.getUTCFullYear();
+      const mm = pad(d.getUTCMonth() + 1);
+      const dd = pad(d.getUTCDate());
+      const hh = pad(d.getUTCHours());
+      const min = pad(d.getUTCMinutes());
+      const ss = pad(d.getUTCSeconds());
+      return \`\${yyyy}\${mm}\${dd}T\${hh}\${min}\${ss}Z\`;
+    };
+
+    const formatToUtcDate = (dateObj) => {
+      const d = new Date(dateObj);
+      if (isNaN(d.getTime())) return '';
+      const pad = (n) => String(n).padStart(2, '0');
+      const yyyy = d.getUTCFullYear();
+      const mm = pad(d.getUTCMonth() + 1);
+      const dd = pad(d.getUTCDate());
+      return \`\${yyyy}\${mm}\${dd}\`;
+    };
+
+    const extractLocalDateStr = (dateInput) => {
+      if (!dateInput) return '';
+      if (dateInput instanceof Date) {
+        const y = dateInput.getFullYear();
+        const m = String(dateInput.getMonth() + 1).padStart(2, '0');
+        const d = String(dateInput.getDate()).padStart(2, '0');
+        return \`\${y}-\${m}-\${d}\`;
+      }
+      const str = String(dateInput);
+      const match = str.match(/^(\\d{4})[-/](\\d{2})[-/](\\d{2})/);
+      if (match) {
+        return \`\${match[1]}-\${match[2]}-\${match[3]}\`;
+      }
+      const d = new Date(dateInput);
+      if (isNaN(d.getTime())) return '';
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return \`\${y}-\${m}-\${day}\`;
+    };
+
+    let icsContent = "BEGIN:VCALENDAR\\r\\nVERSION:2.0\\r\\nPRODID:-//Company SNS Calendar//JA\\r\\nCALSCALE:GREGORIAN\\r\\nMETHOD:PUBLISH\\r\\nX-WR-CALNAME:社内カレンダー同期\\r\\nX-WR-TIMEZONE:Asia/Tokyo\\r\\n";
+    const nowStr = formatToUtc(new Date());
+
+    for (const evt of filteredEvents) {
+      const isAllDay = evt.isAllDay === true || evt.isAllDay === 1;
+      let dtStartLine = '';
+      let dtEndLine = '';
+
+      if (isAllDay) {
+        const startStr = extractLocalDateStr(evt.startAt);
+        const endStr = evt.endAt ? extractLocalDateStr(evt.endAt) : startStr;
+        if (startStr && endStr) {
+          const startClean = startStr.replace(/-/g, '');
+          dtStartLine = "DTSTART;VALUE=DATE:" + startClean + "\\r\\n";
+          
+          const parts = endStr.split('-');
+          const endYear = parseInt(parts[0], 10);
+          const endMonth = parseInt(parts[1], 10) - 1;
+          const endDay = parseInt(parts[2], 10);
+          
+          const nextDate = new Date(endYear, endMonth, endDay + 1, 12, 0, 0);
+          const nextYear = nextDate.getFullYear();
+          const nextMonth = String(nextDate.getMonth() + 1).padStart(2, '0');
+          const nextDay = String(nextDate.getDate()).padStart(2, '0');
+          dtEndLine = "DTEND;VALUE=DATE:" + \`\${nextYear}\${nextMonth}\${nextDay}\` + "\\r\\n";
+        }
+      } else {
+        const startD = evt.startAt ? new Date(evt.startAt) : null;
+        const endD = evt.endAt ? new Date(evt.endAt) : startD;
+        if (startD && endD) {
+          dtStartLine = "DTSTART:" + formatToUtc(startD) + "\\r\\n";
+          dtEndLine = "DTEND:" + formatToUtc(endD) + "\\r\\n";
+        }
+      }
+      
+      let descText = evt.description || '';
+      if (descText.startsWith('{')) {
+        try {
+          const parsed = JSON.parse(descText);
+          descText = parsed.memo || '';
+        } catch (_) {}
+      }
+
+      // 改行のエスケープおよびカンマ等のエスケープ
+      const summaryEscaped = (evt.title || '').replace(/\\r\\n|\\r|\\n/g, ' ').replace(/[,;]/g, '\\\\$&');
+      const descEscaped = descText.replace(/\\r\\n|\\r|\\n/g, '\\\\n').replace(/[,;]/g, '\\\\$&');
+      const locEscaped = (evt.location || '').replace(/\\r\\n|\\r|\\n/g, ' ').replace(/[,;]/g, '\\\\$&');
+
       icsContent += "BEGIN:VEVENT\\r\\n";
       icsContent += "UID:evt-" + evt.id + "@company-sns\\r\\n";
-      icsContent += "SUMMARY:" + (evt.title || '').replace(/\\\\n/g, ' ') + "\\r\\n";
-      if (evt.description) icsContent += "DESCRIPTION:" + evt.description.replace(/\\\\n/g, '\\\\\\\\n') + "\\r\\n";
-      if (dtStart) icsContent += "DTSTART:" + dtStart + "\\r\\n";
-      if (dtEnd) icsContent += "DTEND:" + dtEnd + "\\r\\n";
+      icsContent += "DTSTAMP:" + nowStr + "\\r\\n";
+      icsContent += "SUMMARY:" + summaryEscaped + "\\r\\n";
+      if (descText) icsContent += "DESCRIPTION:" + descEscaped + "\\r\\n";
+      if (evt.location) icsContent += "LOCATION:" + locEscaped + "\\r\\n";
+      if (dtStartLine) icsContent += dtStartLine;
+      if (dtEndLine) icsContent += dtEndLine;
       icsContent += "END:VEVENT\\r\\n";
     }
     icsContent += "END:VCALENDAR\\r\\n";
 
+    // RFC 5545 に準拠した75オクテット（バイト）以内での折りたたみ(Folding)処理
+    const lines = icsContent.split("\\r\\n");
+    const foldedLines = lines.map(line => {
+      if (!line) return '';
+      const buf = Buffer.from(line, 'utf-8');
+      if (buf.length <= 72) return line;
+
+      let result = '';
+      let currentBytes = 0;
+      let currentStr = '';
+
+      for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        const charBytes = Buffer.from(char, 'utf-8').length;
+
+        if (currentBytes + charBytes > 72) {
+          result += currentStr + "\\r\\n ";
+          currentStr = char;
+          currentBytes = charBytes;
+        } else {
+          currentStr += char;
+          currentBytes += charBytes;
+        }
+      }
+      result += currentStr;
+      return result;
+    });
+    const finalIcs = foldedLines.join("\\r\\n");
+
     res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
-    res.setHeader('Content-Disposition', 'attachment; filename="user_' + userId + '_calendar.ics"');
-    res.send(icsContent);
+    res.setHeader('Content-Disposition', 'inline; filename="user_' + userId + '_calendar.ics"');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.send(finalIcs);
   } catch (err) {
     res.status(500).send(err.message);
   }

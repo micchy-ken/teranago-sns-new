@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { API_BASE_URL } from '../config/api';
 import { User } from '../types';
+import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 
 interface ExternalFile {
   name: string;
@@ -51,6 +52,7 @@ export default function FileManager({ currentUser }: FileManagerProps) {
   const [isDragActive, setIsDragActive] = useState(false);
   const [showNewFolderModal, setShowNewFolderModal] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
+  const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
   
   // プレビュー関連
   const [previewFile, setPreviewFile] = useState<ExternalFile | null>(null);
@@ -303,22 +305,30 @@ export default function FileManager({ currentUser }: FileManagerProps) {
   };
 
   // ファイル削除
-  const handleDeleteFile = async (file: ExternalFile) => {
-    if (!window.confirm(`「${file.name}」を本当に削除しますか？`)) return;
+  const handleDeleteFile = (file: ExternalFile) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'ファイルの削除確認',
+      message: `「${file.name}」を本当に削除しますか？\nこの操作は取り消せません。`,
+      type: 'danger',
+      confirmText: '削除する',
+      cancelText: 'キャンセル',
+      onConfirm: async () => {
+        // ローカルから即削除
+        setFiles(prev => prev.filter(f => f.path !== file.path));
 
-    // ローカルから即削除
-    setFiles(prev => prev.filter(f => f.path !== file.path));
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/external-files?path=${encodeURIComponent(file.path)}`, {
-        method: 'DELETE'
-      });
-      if (response.ok) {
-        fetchFileList();
+        try {
+          const response = await fetch(`${API_BASE_URL}/external-files?path=${encodeURIComponent(file.path)}`, {
+            method: 'DELETE'
+          });
+          if (response.ok) {
+            fetchFileList();
+          }
+        } catch (err) {
+          console.error('削除リクエストに失敗しました:', err);
+        }
       }
-    } catch (err) {
-      console.error('削除リクエストに失敗しました:', err);
-    }
+    });
   };
 
   // ファイルアップロードの処理
@@ -844,6 +854,10 @@ export default function FileManager({ currentUser }: FileManagerProps) {
         </div>
       )}
 
+      <ConfirmModal
+        {...confirmModal}
+        onClose={() => setConfirmModal((prev) => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 }

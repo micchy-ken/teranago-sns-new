@@ -3,6 +3,7 @@ import { User, CalendarEvent, BoardTopic, Memo, WorkflowApplication, ChatRoom, O
 import { AppTab } from './Sidebar';
 import { getAvatarUrl, SILHOUETTE_SVG } from '../utils/avatar';
 import { API_BASE_URL } from '../config/api';
+import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import {
   getReadEventIds,
   markEventAsRead as markEventAsReadUtil,
@@ -208,6 +209,7 @@ export function MyPage({
   // 設定フォーム状態
   const [settingsForm, setSettingsForm] = useState<User>(user);
   const [copiedICal, setCopiedICal] = useState(false);
+  const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
 
   const handleOpenSettings = () => {
     setSettingsForm(user);
@@ -217,11 +219,23 @@ export function MyPage({
   const handleSaveSettings = (e: React.FormEvent) => {
     e.preventDefault();
     if (!settingsForm.office) {
-      alert('所属拠点を選択してください。');
+      setConfirmModal({
+        isOpen: true,
+        title: '入力エラー',
+        message: '所属拠点を選択してください。',
+        type: 'warning',
+        confirmText: '確認',
+      });
       return;
     }
     if (!settingsForm.division) {
-      alert('所属部署を選択してください。');
+      setConfirmModal({
+        isOpen: true,
+        title: '入力エラー',
+        message: '所属部署を選択してください。',
+        type: 'warning',
+        confirmText: '確認',
+      });
       return;
     }
     if (onUpdateUser) {
@@ -1446,6 +1460,10 @@ export function MyPage({
           </div>
         </div>
       )}
+      <ConfirmModal
+        {...confirmModal}
+        onClose={() => setConfirmModal((prev) => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 }

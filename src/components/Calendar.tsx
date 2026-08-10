@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight, List as ListIcon, Calendar as CalendarIcon, 
 import { EventModal } from './EventModal';
 import { fetchIcalFeed } from '../utils/icalParser';
 import { renderWithClickableLinks } from '../utils/linkify';
+import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 
 interface CalendarProps {
   events: CalendarEvent[];
@@ -85,6 +86,7 @@ export function Calendar({
   // 新規伝言メモ追加モーダルの状態
   const [isMemoModalOpen, setIsMemoModalOpen] = useState(false);
   const [memoTargetUser, setMemoTargetUser] = useState<User | null>(null);
+  const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
 
   // EventModalの初期参加者
   const [preselectedAttendees, setPreselectedAttendees] = useState<User[] | undefined>(undefined);
@@ -433,11 +435,23 @@ export function Calendar({
     e.preventDefault();
     if (!memoTargetUser) return;
     if (!fromName.trim()) {
-      alert('依頼者のお名前を入力してください。');
+      setConfirmModal({
+        isOpen: true,
+        title: '入力エラー',
+        message: '依頼者のお名前を入力してください。',
+        type: 'warning',
+        confirmText: '確認',
+      });
       return;
     }
     if (!content.trim()) {
-      alert('伝言の本文内容を入力してください。');
+      setConfirmModal({
+        isOpen: true,
+        title: '入力エラー',
+        message: '伝言の本文内容を入力してください。',
+        type: 'warning',
+        confirmText: '確認',
+      });
       return;
     }
 
@@ -1712,6 +1726,10 @@ export function Calendar({
           </div>
         </div>
       )}
+      <ConfirmModal
+        {...confirmModal}
+        onClose={() => setConfirmModal((prev) => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 }

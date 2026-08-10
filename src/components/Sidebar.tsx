@@ -1,5 +1,7 @@
-import { Hash, Home, Bookmark, User, Calendar as CalendarIcon, FileText, MessageSquare, Phone, ClipboardList, Monitor, Shield, HardDrive } from 'lucide-react';
+import React, { useState } from 'react';
+import { Hash, Home, Bookmark, User, Calendar as CalendarIcon, FileText, MessageSquare, Phone, ClipboardList, Monitor, Shield, HardDrive, Copy, Check } from 'lucide-react';
 import { Post, User as UserType } from '../types';
+import { RECOMMEND_SERVER_JS } from './RecommendServerCode';
 
 export type AppTab = 'timeline' | 'calendar' | 'workflow' | 'board' | 'chat' | 'memo' | 'daily_report' | 'files' | 'mypage' | 'admin';
 
@@ -15,6 +17,20 @@ interface SidebarProps {
 }
 
 export function Sidebar({ posts, selectedTag, onSelectTag, activeTab, onChangeTab, currentUser, className, onCollapse }: SidebarProps) {
+  const [isCopied, setIsCopied] = useState(false);
+
+  const handleCopyServerCode = async () => {
+    try {
+      await navigator.clipboard.writeText(RECOMMEND_SERVER_JS);
+      setIsCopied(true);
+      setTimeout(() => {
+        setIsCopied(false);
+      }, 2000);
+    } catch (err) {
+      console.error('Failed to copy: ', err);
+    }
+  };
+
   // Extract and count tags
   const tagCounts = (posts || []).reduce((acc, post) => {
     if (post && post.tags && Array.isArray(post.tags)) {
@@ -149,22 +165,41 @@ export function Sidebar({ posts, selectedTag, onSelectTag, activeTab, onChangeTa
         </button>
 
         {currentUser?.isAdmin && (
-          <button
-            onClick={() => onChangeTab('admin')}
-            className={`w-full flex items-center justify-between px-3 py-2 rounded-lg font-medium transition-colors ${
-              activeTab === 'admin'
-                ? 'bg-indigo-50 text-indigo-700'
-                : 'text-slate-600 hover:bg-slate-50'
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              <Shield className="w-4 h-4 text-indigo-600" />
-              管理者メニュー
-            </div>
-            <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-indigo-100 text-indigo-700">
-              管理者
-            </span>
-          </button>
+          <div className="space-y-1">
+            <button
+              onClick={() => onChangeTab('admin')}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg font-medium transition-colors ${
+                activeTab === 'admin'
+                  ? 'bg-indigo-50 text-indigo-700'
+                  : 'text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <Shield className="w-4 h-4 text-indigo-600" />
+                管理者メニュー
+              </div>
+              <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-indigo-100 text-indigo-700">
+                管理者
+              </span>
+            </button>
+            <button
+              onClick={handleCopyServerCode}
+              className="w-full flex items-center gap-2 pl-7 py-1 rounded text-[11px] font-semibold text-indigo-600/80 hover:text-indigo-700 hover:bg-indigo-50/50 active:bg-indigo-50 transition-colors cursor-pointer"
+              title="Server.jsのコードをクリップボードにコピーします"
+            >
+              {isCopied ? (
+                <>
+                  <Check className="w-3 h-3 text-green-600 animate-pulse" />
+                  <span className="text-green-600">コピー完了！</span>
+                </>
+              ) : (
+                <>
+                  <Copy className="w-3 h-3" />
+                  <span>Server.jsのコピー</span>
+                </>
+              )}
+            </button>
+          </div>
         )}
       </nav>
 
