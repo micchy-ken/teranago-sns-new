@@ -32,6 +32,7 @@ async function startServer() {
   // 静的ファイル配信
   app.use('/external-files', express.static(externalFilesDir));
   app.use('/bulletinsfiles', express.static(bulletinsFilesDir));
+  app.use('/api/bulletinsfiles', express.static(bulletinsFilesDir));
 
   // ==========================================
   // 掲示板添付ファイルアップロード API (/app/bulletinsfiles へ保存)

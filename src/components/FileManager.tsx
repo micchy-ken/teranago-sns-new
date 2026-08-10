@@ -17,7 +17,8 @@ import {
   X, 
   ExternalLink,
   CheckCircle,
-  AlertCircle
+  AlertCircle,
+  Paperclip
 } from 'lucide-react';
 import { API_BASE_URL } from '../config/api';
 import { User } from '../types';
@@ -50,7 +51,7 @@ export default function FileManager({ currentUser }: FileManagerProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeSourceFilter, setActiveSourceFilter] = useState<'all' | 'nas' | 'bulletin'>('all');
+  const [activeSourceFilter, setActiveSourceFilter] = useState<'nas' | 'bulletin'>('nas');
   const [currentPath, setCurrentPath] = useState<string>(''); // 空文字はルート
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
@@ -125,13 +126,11 @@ export default function FileManager({ currentUser }: FileManagerProps) {
     }
 
     if (file.source === 'bulletin') {
-      const baseUrl = (API_BASE_URL || '').replace(/\/+$/, '');
-      const rawUrl = file.url || `/bulletinsfiles/${encodeURIComponent(file.rawFilename || file.name)}`;
-      let fullUrl = rawUrl.startsWith('http') ? rawUrl : `${baseUrl}${rawUrl}`;
+      const filename = file.rawFilename || file.path || file.name;
       if (isDownload) {
-        fullUrl += `${fullUrl.includes('?') ? '&' : '?'}download=1`;
+        return `/api/bulletins/file/${encodeURIComponent(filename)}?download=1`;
       }
-      return fullUrl;
+      return `/bulletinsfiles/${encodeURIComponent(filename)}`;
     }
     
     const relPath = file.path || '';
@@ -482,10 +481,14 @@ export default function FileManager({ currentUser }: FileManagerProps) {
         <div>
           <div className="flex items-center gap-2">
             <HardDrive className="w-5 h-5 text-indigo-600" />
-            <h2 className="text-lg font-bold text-slate-800">共有ファイル</h2>
+            <h2 className="text-lg font-bold text-slate-800">
+              {activeSourceFilter === 'nas' ? 'NAS 共有ファイル' : '掲示板 添付ファイル'}
+            </h2>
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            NAS同期フォルダおよび掲示板に投稿された添付ファイルを一括で確認・検索・閲覧・ダウンロードできます。
+            {activeSourceFilter === 'nas' 
+              ? '自社NASの同期フォルダから直接参照・検索・追加・共有できるファイルマネージャーです。'
+              : '掲示板の投稿やコメントに添付されたすべてのファイルを一括検索・高画質プレビュー・ダウンロードできます。'}
           </p>
         </div>
 
@@ -499,68 +502,64 @@ export default function FileManager({ currentUser }: FileManagerProps) {
             title="ファイル一覧を更新"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-            再同期
+            再更新
           </button>
 
-          {/* 新規フォルダ */}
-          <button
-            type="button"
-            onClick={() => setShowNewFolderModal(true)}
-            className="p-2 bg-white hover:bg-slate-100 border border-slate-200 rounded-xl text-slate-600 shadow-xs transition-colors flex items-center justify-center gap-1.5 text-xs font-medium cursor-pointer"
-          >
-            <FolderPlus className="w-3.5 h-3.5 text-amber-500" />
-            新規フォルダ
-          </button>
+          {activeSourceFilter === 'nas' && (
+            <>
+              {/* 新規フォルダ */}
+              <button
+                type="button"
+                onClick={() => setShowNewFolderModal(true)}
+                className="p-2 bg-white hover:bg-slate-100 border border-slate-200 rounded-xl text-slate-600 shadow-xs transition-colors flex items-center justify-center gap-1.5 text-xs font-medium cursor-pointer"
+              >
+                <FolderPlus className="w-3.5 h-3.5 text-amber-500" />
+                新規フォルダ
+              </button>
 
-          {/* アップロードボタン */}
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isUploading}
-            className="p-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-xs transition-colors flex items-center justify-center gap-1.5 text-xs font-bold cursor-pointer"
-          >
-            <Upload className="w-3.5 h-3.5" />
-            アップロード
-          </button>
-          <input 
-            type="file" 
-            ref={fileInputRef} 
-            onChange={(e) => e.target.files?.[0] && handleUploadFile(e.target.files[0])} 
-            className="hidden" 
-          />
+              {/* アップロードボタン */}
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploading}
+                className="p-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-xs transition-colors flex items-center justify-center gap-1.5 text-xs font-bold cursor-pointer"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                アップロード
+              </button>
+              <input 
+                type="file" 
+                ref={fileInputRef} 
+                onChange={(e) => e.target.files?.[0] && handleUploadFile(e.target.files[0])} 
+                className="hidden" 
+              />
+            </>
+          )}
         </div>
       </div>
 
       {/* ソース切り替えタブ */}
       <div className="px-6 pt-3 pb-0 bg-white border-b border-slate-100 flex items-center gap-2">
         <button
-          onClick={() => setActiveSourceFilter('all')}
-          className={`px-3 py-1.5 rounded-t-lg text-xs font-bold transition-colors border-b-2 cursor-pointer ${
-            activeSourceFilter === 'all'
-              ? 'border-indigo-600 text-indigo-700 bg-indigo-50/50'
-              : 'border-transparent text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          すべて ({files.length})
-        </button>
-        <button
           onClick={() => setActiveSourceFilter('nas')}
-          className={`px-3 py-1.5 rounded-t-lg text-xs font-bold transition-colors border-b-2 cursor-pointer ${
+          className={`px-4 py-2 rounded-t-xl text-xs font-bold transition-all flex items-center gap-2 border-b-2 cursor-pointer ${
             activeSourceFilter === 'nas'
-              ? 'border-indigo-600 text-indigo-700 bg-indigo-50/50'
-              : 'border-transparent text-slate-500 hover:text-slate-800'
+              ? 'border-indigo-600 text-indigo-700 bg-indigo-50/60 shadow-xs'
+              : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-50'
           }`}
         >
+          <HardDrive className="w-3.5 h-3.5" />
           NAS共有ファイル ({files.filter(f => f.source === 'nas').length})
         </button>
         <button
           onClick={() => setActiveSourceFilter('bulletin')}
-          className={`px-3 py-1.5 rounded-t-lg text-xs font-bold transition-colors border-b-2 cursor-pointer ${
+          className={`px-4 py-2 rounded-t-xl text-xs font-bold transition-all flex items-center gap-2 border-b-2 cursor-pointer ${
             activeSourceFilter === 'bulletin'
-              ? 'border-indigo-600 text-indigo-700 bg-indigo-50/50'
-              : 'border-transparent text-slate-500 hover:text-slate-800'
+              ? 'border-indigo-600 text-indigo-700 bg-indigo-50/60 shadow-xs'
+              : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-50'
           }`}
         >
+          <Paperclip className="w-3.5 h-3.5" />
           掲示板添付ファイル ({files.filter(f => f.source === 'bulletin').length})
         </button>
       </div>
@@ -569,30 +568,46 @@ export default function FileManager({ currentUser }: FileManagerProps) {
       <div className="p-4 border-b border-slate-100 bg-white flex flex-col sm:flex-row items-center gap-4">
         {/* パンくずリスト、または検索時の状態 */}
         <div className="flex-1 flex items-center gap-1 overflow-x-auto w-full py-1">
-          <button
-            onClick={() => { setCurrentPath(''); setSearchQuery(''); }}
-            className="text-xs font-bold text-slate-600 hover:text-indigo-600 flex items-center gap-1 bg-slate-100 px-2 py-1 rounded-lg shrink-0"
-          >
-            <HardDrive className="w-3 h-3 text-slate-500" />
-            ROOT
-          </button>
-
-          {getBreadcrumbs().map((part, index) => (
-            <React.Fragment key={index}>
-              <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+          {activeSourceFilter === 'bulletin' ? (
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-slate-700 bg-purple-50 text-purple-700 px-2.5 py-1 rounded-lg border border-purple-200/60 flex items-center gap-1.5">
+                <Paperclip className="w-3.5 h-3.5" />
+                掲示板添付ファイル一覧
+              </span>
+              {searchQuery && (
+                <span className="text-xs bg-indigo-50 text-indigo-700 px-2 py-1 rounded-lg font-bold">
+                  検索結果: "{searchQuery}"
+                </span>
+              )}
+            </div>
+          ) : (
+            <>
               <button
-                onClick={() => { navigateToBreadcrumb(index); setSearchQuery(''); }}
-                className="text-xs font-semibold text-slate-600 hover:text-indigo-600 max-w-[120px] truncate bg-slate-50 px-2 py-1 rounded-lg shrink-0"
+                onClick={() => { setCurrentPath(''); setSearchQuery(''); }}
+                className="text-xs font-bold text-slate-600 hover:text-indigo-600 flex items-center gap-1 bg-slate-100 px-2 py-1 rounded-lg shrink-0 cursor-pointer"
               >
-                {part}
+                <HardDrive className="w-3 h-3 text-slate-500" />
+                ROOT
               </button>
-            </React.Fragment>
-          ))}
 
-          {searchQuery && (
-            <span className="text-xs bg-indigo-50 text-indigo-700 px-2 py-1 rounded-lg font-bold">
-              検索中: "{searchQuery}"
-            </span>
+              {getBreadcrumbs().map((part, index) => (
+                <React.Fragment key={index}>
+                  <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  <button
+                    onClick={() => { navigateToBreadcrumb(index); setSearchQuery(''); }}
+                    className="text-xs font-semibold text-slate-600 hover:text-indigo-600 max-w-[120px] truncate bg-slate-50 px-2 py-1 rounded-lg shrink-0 cursor-pointer"
+                  >
+                    {part}
+                  </button>
+                </React.Fragment>
+              ))}
+
+              {searchQuery && (
+                <span className="text-xs bg-indigo-50 text-indigo-700 px-2 py-1 rounded-lg font-bold">
+                  検索中: "{searchQuery}"
+                </span>
+              )}
+            </>
           )}
         </div>
 
