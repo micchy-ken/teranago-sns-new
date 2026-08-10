@@ -63,141 +63,36 @@ export default function FileManager({ currentUser }: FileManagerProps) {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 初回ロード
+  // 初回ロード（旧バージョンのlocalStorageキャッシュをクリアして必ずAPIと同期）
   useEffect(() => {
+    try {
+      localStorage.removeItem('teranago_external_files_deleted');
+      localStorage.removeItem('teranago_external_files_uploads_meta');
+    } catch (e) {
+      // ignore
+    }
     fetchFileList();
   }, []);
 
-  // ファイル一覧取得
+  // ファイル一覧取得 (フォールバック処理を排除し、完全なAPI通信で一覧を取得)
   const fetchFileList = async () => {
     setLoading(true);
     setError(null);
-
-    // ローカルストレージに保持した削除済みリストとユーザー追加入力リストを取得
-    const deletedPaths: string[] = JSON.parse(localStorage.getItem('teranago_external_files_deleted') || '[]');
-    const localUploads: ExternalFile[] = JSON.parse(localStorage.getItem('teranago_external_files_uploads_meta') || '[]');
 
     try {
       const response = await fetch(`${API_BASE_URL}/external-files/list`);
       if (response.ok) {
         const data: ExternalFile[] = await response.json();
-        // 削除済みファイルをフィルター除外
-        const filtered = data.filter(f => !deletedPaths.includes(f.path));
-        // 手動追加（ローカル）分で未存在するものを結合
-        const existingPaths = new Set(filtered.map(f => f.path));
-        const extraUploads = localUploads.filter(u => !deletedPaths.includes(u.path) && !existingPaths.has(u.path));
-        setFiles([...extraUploads, ...filtered]);
+        setFiles(data);
       } else {
-        throw new Error(`サーバーレスポンスエラー: ${response.status}`);
+        const errText = await response.text().catch(() => '');
+        setError(`サーバーからファイル一覧を取得できませんでした (ステータス: ${response.status})。APIサーバー(${API_BASE_URL})への接続を確認してください。`);
+        setFiles([]);
       }
     } catch (err: any) {
-      console.warn('APIから外部ファイル一覧の取得に失敗しました。ローカルストレージ・デモデータを表示します:', err);
-      // ローカル/デモ動作時のためのリッチなモックデータ
-      const mockFiles: ExternalFile[] = [
-        {
-          name: '共有ドキュメント',
-          path: '共有ドキュメント',
-          size: 0,
-          mtime: new Date().toISOString(),
-          isDirectory: true,
-          extension: ''
-        },
-        {
-          name: '営業部',
-          path: '営業部',
-          size: 0,
-          mtime: new Date().toISOString(),
-          isDirectory: true,
-          extension: ''
-        },
-        {
-          name: '総務関連',
-          path: '総務関連',
-          size: 0,
-          mtime: new Date().toISOString(),
-          isDirectory: true,
-          extension: ''
-        },
-        {
-          name: '2026年度_事業計画書.pdf',
-          path: '共有ドキュメント/2026年度_事業計画書.pdf',
-          url: '/api/external-files/serve?path=' + encodeURIComponent('共有ドキュメント/2026年度_事業計画書.pdf'),
-          size: 4520114,
-          mtime: '2026-08-01T10:30:00.000Z',
-          isDirectory: false,
-          extension: 'pdf'
-        },
-        {
-          name: '社内ポータルシステム操作マニュアル.docx',
-          path: '共有ドキュメント/社内ポータルシステム操作マニュアル.docx',
-          url: '/api/external-files/serve?path=' + encodeURIComponent('共有ドキュメント/社内ポータルシステム操作マニュアル.docx'),
-          size: 2450123,
-          mtime: '2026-08-02T14:20:00.000Z',
-          isDirectory: false,
-          extension: 'docx'
-        },
-        {
-          name: '社内セキュリティ規約.pdf',
-          path: '共有ドキュメント/社内セキュリティ規約.pdf',
-          url: '/api/external-files/serve?path=' + encodeURIComponent('共有ドキュメント/社内セキュリティ規約.pdf'),
-          size: 1204958,
-          mtime: '2026-07-25T11:00:00.000Z',
-          isDirectory: false,
-          extension: 'pdf'
-        },
-        {
-          name: 'お気に入りロゴ.png',
-          path: '共有ドキュメント/お気に入りロゴ.png',
-          url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&auto=format&fit=crop&q=60', // デモ用のリアルプレビュー
-          size: 890450,
-          mtime: '2026-08-03T18:45:00.000Z',
-          isDirectory: false,
-          extension: 'png'
-        },
-        {
-          name: 'サーバー接続手順.txt',
-          path: '共有ドキュメント/サーバー接続手順.txt',
-          url: '/api/external-files/serve?path=' + encodeURIComponent('共有ドキュメント/サーバー接続手順.txt'),
-          size: 1540,
-          mtime: '2026-08-04T09:15:00.000Z',
-          isDirectory: false,
-          extension: 'txt'
-        },
-        {
-          name: '2026_Q2_売上計画.xlsx',
-          path: '営業部/2026_Q2_売上計画.xlsx',
-          url: '/api/external-files/serve?path=' + encodeURIComponent('営業部/2026_Q2_売上計画.xlsx'),
-          size: 1845012,
-          mtime: '2026-08-05T13:00:00.000Z',
-          isDirectory: false,
-          extension: 'xlsx'
-        },
-        {
-          name: '営業活動ガイドライン.pdf',
-          path: '営業部/営業活動ガイドライン.pdf',
-          url: '/api/external-files/serve?path=' + encodeURIComponent('営業部/営業活動ガイドライン.pdf'),
-          size: 3204900,
-          mtime: '2026-08-05T15:20:00.000Z',
-          isDirectory: false,
-          extension: 'pdf'
-        },
-        {
-          name: '健康診断受診手続き.pdf',
-          path: '総務関連/健康診断受診手続き.pdf',
-          url: '/api/external-files/serve?path=' + encodeURIComponent('総務関連/健康診断受診手続き.pdf'),
-          size: 1045900,
-          mtime: '2026-07-30T10:00:00.000Z',
-          isDirectory: false,
-          extension: 'pdf'
-        }
-      ];
-
-      // 削除済み除外 & 手動アップロード分結合
-      const filteredMock = mockFiles.filter(f => !deletedPaths.includes(f.path));
-      const mockPaths = new Set(filteredMock.map(f => f.path));
-      const validUploads = localUploads.filter(u => !deletedPaths.includes(u.path) && !mockPaths.has(u.path));
-
-      setFiles([...validUploads, ...filteredMock]);
+      console.error('APIから外部ファイル一覧の取得に失敗しました:', err);
+      setError(`接続エラー: ${err.message || 'APIサーバーにアクセスできません。ネットワーク環境やCORS設定をご確認ください。'}`);
+      setFiles([]);
     } finally {
       setLoading(false);
     }
@@ -206,12 +101,6 @@ export default function FileManager({ currentUser }: FileManagerProps) {
   // 共通のファイルアクセスURL構築ヘルパー
   const getFileUrl = (file: ExternalFile | null, isDownload = false) => {
     if (!file) return '';
-    
-    // ブラウザで直接読み込んだ Blob URL または File オブジェクトが存在する場合は最優先使用
-    if (file.blobUrl) return file.blobUrl;
-    if (file.fileObject) {
-      return URL.createObjectURL(file.fileObject);
-    }
 
     if (file.url && file.url.startsWith('http') && !file.url.includes('/api/external-files/')) {
       return file.url;
@@ -249,32 +138,19 @@ export default function FileManager({ currentUser }: FileManagerProps) {
     setPreviewLoading(true);
     setPreviewContent(null);
     try {
-      if (file.fileObject) {
-        const text = await file.fileObject.text();
-        setPreviewContent(text);
-        setPreviewLoading(false);
-        return;
-      }
-
       const url = getFileUrl(file);
       const res = await fetch(url);
       if (res.ok) {
         const text = await res.text();
-        // 404 HTMLページや Cannot GET が返ってきた場合はフォールバックへ
         if (text.includes('<!DOCTYPE html>') || text.startsWith('Cannot GET')) {
-          throw new Error('API Endpoint returned HTML/error response');
+          throw new Error('APIからHTMLエラーページが返されました');
         }
         setPreviewContent(text);
       } else {
-        throw new Error();
+        throw new Error(`ステータスコード: ${res.status}`);
       }
-    } catch {
-      // デモ用プレビューフォールバック
-      if (file.name.endsWith('.txt')) {
-        setPreviewContent(`【社内NAS同期共有ファイル：${file.name}】\n\n1. 接続IPアドレス: 192.168.11.250\n2. 共有フォルダパス: \\\\192.168.11.250\\shared-documents\n3. 認証方法: 各自のActive Directory ID / パスワード\n\n※WEBアプリ外からファイルをこのフォルダに放り込むだけで、自動でこの一覧に同期・反映されます。`);
-      } else {
-        setPreviewContent('プレビューテキストを読み込めませんでした。直接ダウンロードしてお試しください。');
-      }
+    } catch (err: any) {
+      setPreviewContent(`プレビューの読み込みに失敗しました (${err.message || '接続エラー'})。`);
     } finally {
       setPreviewLoading(false);
     }
@@ -342,20 +218,7 @@ export default function FileManager({ currentUser }: FileManagerProps) {
     if (!newFolderName.trim()) return;
     const folderPath = currentPath ? `${currentPath}/${newFolderName.trim()}` : newFolderName.trim();
     
-    // API送信はダミーが多いため、まずはローカル反映
-    const newFolder: ExternalFile = {
-      name: newFolderName.trim(),
-      path: folderPath,
-      size: 0,
-      mtime: new Date().toISOString(),
-      isDirectory: true,
-      extension: ''
-    };
-
-    setFiles(prev => [newFolder, ...prev]);
-    setNewFolderName('');
-    setShowNewFolderModal(false);
-
+    setLoading(true);
     try {
       const response = await fetch(`${API_BASE_URL}/external-files/folder`, {
         method: 'POST',
@@ -363,10 +226,29 @@ export default function FileManager({ currentUser }: FileManagerProps) {
         body: JSON.stringify({ folder: folderPath })
       });
       if (response.ok) {
-        fetchFileList();
+        setNewFolderName('');
+        setShowNewFolderModal(false);
+        await fetchFileList();
+      } else {
+        const errData = await response.json().catch(() => ({}));
+        setConfirmModal({
+          isOpen: true,
+          title: 'フォルダ作成失敗',
+          message: errData.error || 'フォルダ作成処理でエラーが発生しました。',
+          type: 'warning',
+          confirmText: '確認'
+        });
       }
-    } catch (e) {
-      console.warn('Folder creation API error, fallback to local state');
+    } catch (e: any) {
+      setConfirmModal({
+        isOpen: true,
+        title: '通信エラー',
+        message: `APIサーバーに接続できませんでした: ${e.message}`,
+        type: 'warning',
+        confirmText: '確認'
+      });
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -375,26 +257,11 @@ export default function FileManager({ currentUser }: FileManagerProps) {
     setConfirmModal({
       isOpen: true,
       title: 'ファイルの削除確認',
-      message: `「${file.name}」を本当に削除しますか？\nこの操作は取り消せません。`,
+      message: `「${file.name}」を本当に削除しますか？\nこの操作は実フォルダからファイルを削除します。`,
       type: 'danger',
       confirmText: '削除する',
       cancelText: 'キャンセル',
       onConfirm: async () => {
-        // ローカルステートから即時削除反映
-        setFiles(prev => prev.filter(f => f.path !== file.path));
-
-        // ローカルストレージに削除済みフラグを保存（GitHub Pagesなどの静的環境対策）
-        const deletedPaths: string[] = JSON.parse(localStorage.getItem('teranago_external_files_deleted') || '[]');
-        if (!deletedPaths.includes(file.path)) {
-          deletedPaths.push(file.path);
-          localStorage.setItem('teranago_external_files_deleted', JSON.stringify(deletedPaths));
-        }
-
-        // アップロードしたローカルデータからも削除
-        const localUploads: ExternalFile[] = JSON.parse(localStorage.getItem('teranago_external_files_uploads_meta') || '[]');
-        const updatedUploads = localUploads.filter(u => u.path !== file.path);
-        localStorage.setItem('teranago_external_files_uploads_meta', JSON.stringify(updatedUploads));
-
         try {
           const deleteUrl = `${API_BASE_URL}/external-files?path=${encodeURIComponent(file.path)}`;
           const response = await fetch(deleteUrl, {
@@ -402,25 +269,25 @@ export default function FileManager({ currentUser }: FileManagerProps) {
           });
 
           if (response.ok) {
-            fetchFileList();
+            await fetchFileList();
           } else {
             const errData = await response.json().catch(() => ({}));
-            // ルートディレクトリ保護エラーなど明らかなガードエラー時
-            if (response.status === 400 && errData.error) {
-              fetchFileList(); // 元の一覧を復元
-              setConfirmModal({
-                isOpen: true,
-                title: '削除できませんでした',
-                message: errData.error,
-                type: 'warning',
-                confirmText: '確認'
-              });
-            } else {
-              console.warn('API削除エラー。ローカル削除状態を維持します:', errData);
-            }
+            setConfirmModal({
+              isOpen: true,
+              title: '削除できませんでした',
+              message: errData.error || '削除処理でエラーが発生しました。',
+              type: 'warning',
+              confirmText: '確認'
+            });
           }
         } catch (err: any) {
-          console.warn('削除リクエストの通信エラー。ローカル削除状態を維持します:', err);
+          setConfirmModal({
+            isOpen: true,
+            title: '通信エラー',
+            message: `削除リクエストの通信エラーが発生しました: ${err.message}`,
+            type: 'warning',
+            confirmText: '確認'
+          });
         }
       }
     });
@@ -429,54 +296,40 @@ export default function FileManager({ currentUser }: FileManagerProps) {
   // ファイルアップロードの処理
   const handleUploadFile = async (selectedFile: File) => {
     setIsUploading(true);
-    setUploadProgress('準備中...');
-
-    // ブラウザローカルでのプレビュー・ダウンロード用に Blob URL を生成
-    const blobUrl = URL.createObjectURL(selectedFile);
-    const filePath = currentPath ? `${currentPath}/${selectedFile.name}` : selectedFile.name;
-
-    const uploadedMeta: ExternalFile = {
-      name: selectedFile.name,
-      path: filePath,
-      url: blobUrl,
-      blobUrl: blobUrl,
-      fileObject: selectedFile,
-      size: selectedFile.size,
-      mtime: new Date().toISOString(),
-      isDirectory: false,
-      extension: selectedFile.name.split('.').pop()?.toLowerCase() || ''
-    };
-
-    // 先にローカルステートおよび LocalStorage に登録（即時反応）
-    setFiles(prev => [uploadedMeta, ...prev.filter(f => f.path !== filePath)]);
-    const localUploads: ExternalFile[] = JSON.parse(localStorage.getItem('teranago_external_files_uploads_meta') || '[]');
-    const metaToSave = { ...uploadedMeta, fileObject: undefined }; // JSON化できないFileオブジェクトを除いて保存
-    const updatedUploads = [metaToSave, ...localUploads.filter(u => u.path !== filePath)];
-    localStorage.setItem('teranago_external_files_uploads_meta', JSON.stringify(updatedUploads));
+    setUploadProgress('アップロード中...');
 
     const formData = new FormData();
     formData.append('file', selectedFile);
     formData.append('folder', currentPath);
 
     try {
-      setUploadProgress('アップロード中...');
       const response = await fetch(`${API_BASE_URL}/external-files/upload`, {
         method: 'POST',
         body: formData
       });
 
       if (response.ok) {
-        setUploadProgress('アップロード完了！同期中...');
-        setTimeout(() => {
-          setIsUploading(false);
-          setUploadProgress(null);
-          fetchFileList();
-        }, 1000);
+        setUploadProgress('アップロード完了！一覧を更新中...');
+        await fetchFileList();
       } else {
-        throw new Error('サーバーがエラーを返しました');
+        const errData = await response.json().catch(() => ({}));
+        setConfirmModal({
+          isOpen: true,
+          title: 'アップロード失敗',
+          message: errData.error || 'サーバーへのアップロードに失敗しました。',
+          type: 'warning',
+          confirmText: '確認'
+        });
       }
-    } catch (err) {
-      console.warn('APIへのアップロードに失敗しました。ローカルストレージのデータを保持します:', err);
+    } catch (err: any) {
+      setConfirmModal({
+        isOpen: true,
+        title: '通信エラー',
+        message: `アップロードの通信エラーが発生しました: ${err.message}`,
+        type: 'warning',
+        confirmText: '確認'
+      });
+    } finally {
       setIsUploading(false);
       setUploadProgress(null);
     }
@@ -513,20 +366,6 @@ export default function FileManager({ currentUser }: FileManagerProps) {
 
   // 直接ダウンロード
   const handleDownload = async (file: ExternalFile) => {
-    // fileObject や blobUrl がある場合は、アップロードされた本物の生データ（PDF/画像/Office等）を直接ダウンロード！
-    if (file.fileObject || file.blobUrl) {
-      const downloadHref = file.blobUrl || (file.fileObject ? URL.createObjectURL(file.fileObject) : '');
-      if (downloadHref) {
-        const link = document.createElement('a');
-        link.href = downloadHref;
-        link.setAttribute('download', file.name);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        return;
-      }
-    }
-
     // 外部直リンク（unsplashなど）の場合
     if (file.url && file.url.startsWith('http') && !file.url.includes('/api/external-files/')) {
       const link = document.createElement('a');
@@ -722,6 +561,23 @@ export default function FileManager({ currentUser }: FileManagerProps) {
               <RefreshCw className="w-4 h-4 text-indigo-600 animate-spin" />
               <span className="text-xs font-medium text-indigo-700">{uploadProgress}</span>
             </div>
+          </div>
+        )}
+
+        {/* エラーメッセージ表示 */}
+        {error && (
+          <div className="bg-rose-50 border border-rose-200 p-4 rounded-xl mb-4 flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <h4 className="text-xs font-bold text-rose-800">同期エラー</h4>
+              <p className="text-xs text-rose-700 mt-0.5 leading-relaxed">{error}</p>
+            </div>
+            <button 
+              onClick={fetchFileList}
+              className="text-xs font-bold bg-white text-rose-700 hover:bg-rose-100 border border-rose-200 px-2.5 py-1 rounded-lg transition-colors shrink-0 cursor-pointer"
+            >
+              再試行
+            </button>
           </div>
         )}
 
