@@ -17,8 +17,85 @@ async function startServer() {
     fs.mkdirSync(externalFilesDir, { recursive: true });
   }
 
+  // 掲示板添付ファイル用ストレージディレクトリ（/app/bulletinsfiles または ./bulletinsfiles）
+  const bulletinsFilesDir = process.env.BULLETINS_FILES_DIR ||
+    (fs.existsSync('/app/bulletinsfiles') ? '/app/bulletinsfiles' : path.join(process.cwd(), 'bulletinsfiles'));
+
+  if (!fs.existsSync(bulletinsFilesDir)) {
+    try {
+      fs.mkdirSync(bulletinsFilesDir, { recursive: true });
+    } catch (e) {
+      console.error('掲示板添付用ディレクトリの作成に失敗しました:', e);
+    }
+  }
+
   // 静的ファイル配信
   app.use('/external-files', express.static(externalFilesDir));
+  app.use('/bulletinsfiles', express.static(bulletinsFilesDir));
+
+  // ==========================================
+  // 掲示板添付ファイルアップロード API (/app/bulletinsfiles へ保存)
+  // ==========================================
+  const bulletinsStorage = multer.diskStorage({
+    destination: function (req, file, cb) {
+      if (!fs.existsSync(bulletinsFilesDir)) {
+        fs.mkdirSync(bulletinsFilesDir, { recursive: true });
+      }
+      cb(null, bulletinsFilesDir);
+    },
+    filename: function (req, file, cb) {
+      let originalName = file.originalname;
+      try {
+        originalName = Buffer.from(file.originalname, 'latin1').toString('utf8');
+      } catch (e) {
+        originalName = file.originalname;
+      }
+      const ext = path.extname(originalName);
+      const baseName = path.basename(originalName, ext);
+      const timeStamp = Date.now();
+      const safeFilename = `${timeStamp}_${baseName}${ext}`;
+      cb(null, safeFilename);
+    }
+  });
+  const uploadBulletins = multer({ storage: bulletinsStorage });
+
+  const handleBulletinUpload = (req: express.Request, res: express.Response) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: 'ファイルが選択されていません。' });
+      }
+      const fileUrl = `/bulletinsfiles/${encodeURIComponent(req.file.filename)}`;
+      res.json({
+        message: 'アップロード成功',
+        url: fileUrl,
+        filename: req.file.filename,
+        originalName: req.file.originalname,
+        size: req.file.size
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  };
+
+  app.post('/api/upload', uploadBulletins.single('file'), handleBulletinUpload);
+  app.post('/api/bulletins/upload', uploadBulletins.single('file'), handleBulletinUpload);
+
+  app.get('/api/bulletins/file/:filename', (req, res) => {
+    try {
+      const filename = decodeURIComponent(req.params.filename);
+      const safePath = path.join(bulletinsFilesDir, path.basename(filename));
+      if (fs.existsSync(safePath)) {
+        if (req.query.download === '1') {
+          return res.download(safePath, filename);
+        }
+        res.sendFile(safePath);
+      } else {
+        res.status(404).json({ error: '添付ファイルが見つかりません' });
+      }
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
 
   // ==========================================
   // 外部NAS同期・外部ファイル連携用 API
