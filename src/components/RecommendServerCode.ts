@@ -2228,11 +2228,19 @@ app.get('/api/external-files/serve', (req, res) => {
     if (!targetRelPath || typeof targetRelPath !== 'string') {
       return res.status(400).json({ error: 'ファイルパスが指定されていません' });
     }
-    // パス・トラバーサル防止の安全対策
-    const sanitizedPath = targetRelPath.replace(/\.\./g, '');
+    // パス・トラバーサル防止の安全対策および区切り文字の正規化
+    const sanitizedPath = targetRelPath.replace(/\.\./g, '').replace(/\\/g, '/').replace(/^\/+/, '');
+    if (!sanitizedPath || sanitizedPath === '.' || sanitizedPath === '/') {
+      return res.status(400).json({ error: '有効なファイルパスが指定されていません' });
+    }
     const safePath = path.join(externalFilesDir, sanitizedPath);
     
     if (fs.existsSync(safePath)) {
+      const filename = path.basename(safePath);
+      // download=1 クエリパラメータ指定時は強制ダウンロード
+      if (req.query.download === '1') {
+        return res.download(safePath, filename);
+      }
       res.sendFile(safePath);
     } else {
       res.status(404).json({ error: 'ファイルが見つかりません' });
@@ -2249,7 +2257,10 @@ app.post('/api/external-files/folder', (req, res) => {
     if (!folder || typeof folder !== 'string') {
       return res.status(400).json({ error: 'フォルダ名が指定されていません' });
     }
-    const sanitizedPath = folder.replace(/\.\./g, '');
+    const sanitizedPath = folder.replace(/\.\./g, '').replace(/\\/g, '/').replace(/^\/+/, '');
+    if (!sanitizedPath || sanitizedPath === '.' || sanitizedPath === '/') {
+      return res.status(400).json({ error: '有効なフォルダ名が指定されていません' });
+    }
     const safePath = path.join(externalFilesDir, sanitizedPath);
     if (!fs.existsSync(safePath)) {
       fs.mkdirSync(safePath, { recursive: true });
@@ -2269,23 +2280,39 @@ app.delete('/api/external-files', (req, res) => {
     if (!targetRelPath || typeof targetRelPath !== 'string') {
       return res.status(400).json({ error: 'ファイルパスが指定されていません' });
     }
-    // パス・トラバーサル防止の安全対策
-    const sanitizedPath = targetRelPath.replace(/\.\./g, '');
+    // パス・トラバーサル防止の安全対策および区切り文字の正規化
+    const sanitizedPath = targetRelPath.replace(/\.\./g, '').replace(/\\/g, '/').replace(/^\/+/, '');
+    
+    // ルートフォルダ自体の誤削除を防ぐセキュリティガード
+    if (!sanitizedPath || sanitizedPath === '.' || sanitizedPath === '/') {
+      return res.status(400).json({ error: 'ルートディレクトリを削除することはできません。' });
+    }
+
     const safePath = path.join(externalFilesDir, sanitizedPath);
+    
+    // 絶対パス解決後に再度ルートディレクトリと一致しないか厳密チェック
+    if (path.resolve(safePath) === path.resolve(externalFilesDir)) {
+      return res.status(400).json({ error: 'ルートディレクトリを削除することはできません。' });
+    }
     
     if (fs.existsSync(safePath)) {
       const stat = fs.statSync(safePath);
       if (stat.isDirectory()) {
-        fs.rmdirSync(safePath, { recursive: true });
+        if (typeof fs.rmSync === 'function') {
+          fs.rmSync(safePath, { recursive: true, force: true });
+        } else {
+          fs.rmdirSync(safePath, { recursive: true });
+        }
       } else {
         fs.unlinkSync(safePath);
       }
       res.json({ message: '削除に成功しました' });
     } else {
-      res.status(404).json({ error: 'ファイルが見つかりません' });
+      res.status(404).json({ error: 'ファイルまたはフォルダが見つかりません' });
     }
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('ファイル削除エラー:', err);
+    res.status(500).json({ error: 'ファイル削除処理中にエラーが発生しました: ' + err.message });
   }
 });
 

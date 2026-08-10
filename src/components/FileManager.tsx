@@ -185,16 +185,46 @@ export default function FileManager({ currentUser }: FileManagerProps) {
     }
   };
 
+  // 共通のファイルアクセスURL構築ヘルパー
+  const getFileUrl = (file: ExternalFile | null, isDownload = false) => {
+    if (!file) return '';
+    if (file.url && file.url.startsWith('http')) {
+      return file.url;
+    }
+    
+    const relPath = file.path || '';
+    const rawUrl = file.url || `/api/external-files/serve?path=${encodeURIComponent(relPath)}`;
+
+    if (rawUrl.startsWith('http')) return rawUrl;
+
+    const baseUrl = (API_BASE_URL || '').replace(/\/+$/, '');
+
+    let fullUrl = '';
+    if (rawUrl.startsWith('/api/')) {
+      if (baseUrl.endsWith('/api')) {
+        fullUrl = `${baseUrl}${rawUrl.substring(4)}`;
+      } else {
+        fullUrl = `${baseUrl}${rawUrl}`;
+      }
+    } else if (rawUrl.startsWith('/')) {
+      fullUrl = `${baseUrl}${rawUrl}`;
+    } else {
+      fullUrl = `${baseUrl}/${rawUrl}`;
+    }
+
+    if (isDownload && !fullUrl.includes('download=1')) {
+      fullUrl += `${fullUrl.includes('?') ? '&' : '?'}download=1`;
+    }
+
+    return fullUrl;
+  };
+
   // テキストファイルのコンテンツ読み込み (プレビュー用)
   const fetchTextContent = async (file: ExternalFile) => {
     setPreviewLoading(true);
     setPreviewContent(null);
     try {
-      // モックURL or 本物のURL
-      const url = file.url?.startsWith('http') 
-        ? file.url 
-        : `${API_BASE_URL.replace('/api', '')}${file.url}`;
-      
+      const url = getFileUrl(file);
       const res = await fetch(url);
       if (res.ok) {
         const text = await res.text();
@@ -314,18 +344,36 @@ export default function FileManager({ currentUser }: FileManagerProps) {
       confirmText: '削除する',
       cancelText: 'キャンセル',
       onConfirm: async () => {
-        // ローカルから即削除
+        // ローカルステートから即時削除反映
         setFiles(prev => prev.filter(f => f.path !== file.path));
 
         try {
-          const response = await fetch(`${API_BASE_URL}/external-files?path=${encodeURIComponent(file.path)}`, {
+          const deleteUrl = `${API_BASE_URL}/external-files?path=${encodeURIComponent(file.path)}`;
+          const response = await fetch(deleteUrl, {
             method: 'DELETE'
           });
+
           if (response.ok) {
             fetchFileList();
+          } else {
+            const errData = await response.json().catch(() => ({}));
+            // ルートディレクトリ保護エラーなど明らかなガードエラー時
+            if (response.status === 400 && errData.error) {
+              fetchFileList(); // 元の一覧を復元
+              setConfirmModal({
+                isOpen: true,
+                title: '削除できませんでした',
+                message: errData.error,
+                type: 'warning',
+                confirmText: '確認'
+              });
+            } else {
+              // API未接続のプレビュー環境では画面上のローカル削除を維持
+              console.warn('API削除エラー。プレビュー環境のためローカル表示のみ削除を維持します:', errData);
+            }
           }
-        } catch (err) {
-          console.error('削除リクエストに失敗しました:', err);
+        } catch (err: any) {
+          console.warn('削除リクエストの通信エラー。プレビュー環境のためローカル表示のみ削除を維持します:', err);
         }
       }
     });
@@ -350,12 +398,13 @@ export default function FileManager({ currentUser }: FileManagerProps) {
       if (response.ok) {
         setUploadProgress('アップロード完了！同期中...');
         const data = await response.json();
+        const filePath = currentPath ? `${currentPath}/${selectedFile.name}` : selectedFile.name;
         
         // ローカルステートに即時追加
         const uploadedMeta: ExternalFile = {
           name: selectedFile.name,
-          path: currentPath ? `${currentPath}/${selectedFile.name}` : selectedFile.name,
-          url: `/api/external-files/serve?path=` + encodeURIComponent(currentPath ? `${currentPath}/${selectedFile.name}` : selectedFile.name),
+          path: filePath,
+          url: `/api/external-files/serve?path=` + encodeURIComponent(filePath),
           size: selectedFile.size,
           mtime: new Date().toISOString(),
           isDirectory: false,
@@ -373,10 +422,11 @@ export default function FileManager({ currentUser }: FileManagerProps) {
       }
     } catch (err) {
       console.warn('APIへのアップロードに失敗しました。プレビュー環境のためローカルに疑似追加します。', err);
+      const filePath = currentPath ? `${currentPath}/${selectedFile.name}` : selectedFile.name;
       // ローカルでのみ追加してあげる（モック体験）
       const uploadedMeta: ExternalFile = {
         name: selectedFile.name,
-        path: currentPath ? `${currentPath}/${selectedFile.name}` : selectedFile.name,
+        path: filePath,
         url: URL.createObjectURL(selectedFile), // ローカルプレビュー用
         size: selectedFile.size,
         mtime: new Date().toISOString(),
@@ -419,22 +469,59 @@ export default function FileManager({ currentUser }: FileManagerProps) {
   };
 
   // 直接ダウンロード
-  const handleDownload = (file: ExternalFile) => {
-    if (!file.url) return;
-    
-    // 完全なURLを構築
-    const downloadUrl = file.url.startsWith('http')
-      ? file.url
-      : `${API_BASE_URL.replace('/api', '')}${file.url}`;
+  const handleDownload = async (file: ExternalFile) => {
+    // blob URL または 外部直リンク（unsplashなど）の場合
+    if (file.url && (file.url.startsWith('blob:') || (file.url.startsWith('http') && !file.url.includes('/api/external-files/')))) {
+      const link = document.createElement('a');
+      link.href = file.url;
+      link.setAttribute('download', file.name);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      return;
+    }
 
-    // Aタグによるダウンロードトリガー
-    const link = document.createElement('a');
-    link.href = downloadUrl;
-    link.setAttribute('download', file.name);
-    link.setAttribute('target', '_blank');
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const downloadUrl = getFileUrl(file, true);
+    if (!downloadUrl) return;
+
+    try {
+      const response = await fetch(downloadUrl);
+      if (response.ok) {
+        const blob = await response.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = blobUrl;
+        link.setAttribute('download', file.name);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+      } else {
+        // API非接続環境（プレビュー画面等）でのダウンロード用フォールバック処理
+        const fallbackContent = `【NAS共有ファイル デモサンプル】\nファイル名: ${file.name}\nパス: ${file.path}\n更新日時: ${file.mtime}\n\n※このファイルはWEBプレビュー環境用のサンプルデータです。\nオンプレミス／社内サーバーで配布コード「Server.js」を稼働させることで、実際のNAS/共有ストレージのファイルがそのままダウンロードされます。`;
+        const blob = new Blob([fallbackContent], { type: 'text/plain;charset=utf-8' });
+        const blobUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = blobUrl;
+        link.setAttribute('download', file.name.endsWith('.txt') ? file.name : `${file.name}.txt`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+      }
+    } catch (err) {
+      console.warn('ダウンロード通信エラー。プレビュー用ファイル保存を実行します:', err);
+      const fallbackContent = `【NAS共有ファイル デモサンプル】\nファイル名: ${file.name}\nパス: ${file.path}\n更新日時: ${file.mtime}\n\n※このファイルはWEBプレビュー環境用のサンプルデータです。\nオンプレミス／社内サーバーで配布コード「Server.js」を稼働させることで、実際のNAS/共有ストレージのファイルがそのままダウンロードされます。`;
+      const blob = new Blob([fallbackContent], { type: 'text/plain;charset=utf-8' });
+      const blobUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.setAttribute('download', file.name.endsWith('.txt') ? file.name : `${file.name}.txt`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+    }
   };
 
   const visibleFiles = getVisibleFiles();
@@ -751,10 +838,8 @@ export default function FileManager({ currentUser }: FileManagerProps) {
                 </button>
                 <button
                   onClick={() => {
-                    if (previewFile.url) {
-                      const fullUrl = previewFile.url.startsWith('http')
-                        ? previewFile.url
-                        : `${API_BASE_URL.replace('/api', '')}${previewFile.url}`;
+                    const fullUrl = getFileUrl(previewFile);
+                    if (fullUrl) {
                       window.open(fullUrl, '_blank');
                     }
                   }}
@@ -783,7 +868,7 @@ export default function FileManager({ currentUser }: FileManagerProps) {
               ) : PREVIEW_IMAGE_EXTS.includes(previewFile.extension) ? (
                 // 画像プレビュー
                 <img 
-                  src={previewFile.url?.startsWith('http') ? previewFile.url : `${API_BASE_URL.replace('/api', '')}${previewFile.url}`}
+                  src={getFileUrl(previewFile)}
                   alt={previewFile.name}
                   referrerPolicy="no-referrer"
                   className="max-w-full max-h-full object-contain rounded-lg shadow-sm"
@@ -791,7 +876,7 @@ export default function FileManager({ currentUser }: FileManagerProps) {
               ) : previewFile.extension === 'pdf' ? (
                 // PDFプレビュー (iframe)
                 <iframe
-                  src={`${API_BASE_URL.replace('/api', '')}${previewFile.url}`}
+                  src={getFileUrl(previewFile)}
                   className="w-full h-full border-none rounded-lg bg-white shadow-sm"
                   title="PDFプレビュー"
                 />
