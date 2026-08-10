@@ -31,6 +31,8 @@ interface ExternalFile {
   mtime: string;
   isDirectory: boolean;
   extension: string;
+  fileObject?: File;
+  blobUrl?: string;
 }
 
 interface FileManagerProps {
@@ -70,16 +72,26 @@ export default function FileManager({ currentUser }: FileManagerProps) {
   const fetchFileList = async () => {
     setLoading(true);
     setError(null);
+
+    // ローカルストレージに保持した削除済みリストとユーザー追加入力リストを取得
+    const deletedPaths: string[] = JSON.parse(localStorage.getItem('teranago_external_files_deleted') || '[]');
+    const localUploads: ExternalFile[] = JSON.parse(localStorage.getItem('teranago_external_files_uploads_meta') || '[]');
+
     try {
       const response = await fetch(`${API_BASE_URL}/external-files/list`);
       if (response.ok) {
-        const data = await response.json();
-        setFiles(data);
+        const data: ExternalFile[] = await response.json();
+        // 削除済みファイルをフィルター除外
+        const filtered = data.filter(f => !deletedPaths.includes(f.path));
+        // 手動追加（ローカル）分で未存在するものを結合
+        const existingPaths = new Set(filtered.map(f => f.path));
+        const extraUploads = localUploads.filter(u => !deletedPaths.includes(u.path) && !existingPaths.has(u.path));
+        setFiles([...extraUploads, ...filtered]);
       } else {
         throw new Error(`サーバーレスポンスエラー: ${response.status}`);
       }
     } catch (err: any) {
-      console.warn('APIから外部ファイル一覧の取得に失敗しました。ダミーデータを表示します:', err);
+      console.warn('APIから外部ファイル一覧の取得に失敗しました。ローカルストレージ・デモデータを表示します:', err);
       // ローカル/デモ動作時のためのリッチなモックデータ
       const mockFiles: ExternalFile[] = [
         {
@@ -179,7 +191,13 @@ export default function FileManager({ currentUser }: FileManagerProps) {
           extension: 'pdf'
         }
       ];
-      setFiles(mockFiles);
+
+      // 削除済み除外 & 手動アップロード分結合
+      const filteredMock = mockFiles.filter(f => !deletedPaths.includes(f.path));
+      const mockPaths = new Set(filteredMock.map(f => f.path));
+      const validUploads = localUploads.filter(u => !deletedPaths.includes(u.path) && !mockPaths.has(u.path));
+
+      setFiles([...validUploads, ...filteredMock]);
     } finally {
       setLoading(false);
     }
@@ -188,7 +206,14 @@ export default function FileManager({ currentUser }: FileManagerProps) {
   // 共通のファイルアクセスURL構築ヘルパー
   const getFileUrl = (file: ExternalFile | null, isDownload = false) => {
     if (!file) return '';
-    if (file.url && file.url.startsWith('http')) {
+    
+    // ブラウザで直接読み込んだ Blob URL または File オブジェクトが存在する場合は最優先使用
+    if (file.blobUrl) return file.blobUrl;
+    if (file.fileObject) {
+      return URL.createObjectURL(file.fileObject);
+    }
+
+    if (file.url && file.url.startsWith('http') && !file.url.includes('/api/external-files/')) {
       return file.url;
     }
     
@@ -224,10 +249,21 @@ export default function FileManager({ currentUser }: FileManagerProps) {
     setPreviewLoading(true);
     setPreviewContent(null);
     try {
+      if (file.fileObject) {
+        const text = await file.fileObject.text();
+        setPreviewContent(text);
+        setPreviewLoading(false);
+        return;
+      }
+
       const url = getFileUrl(file);
       const res = await fetch(url);
       if (res.ok) {
         const text = await res.text();
+        // 404 HTMLページや Cannot GET が返ってきた場合はフォールバックへ
+        if (text.includes('<!DOCTYPE html>') || text.startsWith('Cannot GET')) {
+          throw new Error('API Endpoint returned HTML/error response');
+        }
         setPreviewContent(text);
       } else {
         throw new Error();
@@ -347,6 +383,18 @@ export default function FileManager({ currentUser }: FileManagerProps) {
         // ローカルステートから即時削除反映
         setFiles(prev => prev.filter(f => f.path !== file.path));
 
+        // ローカルストレージに削除済みフラグを保存（GitHub Pagesなどの静的環境対策）
+        const deletedPaths: string[] = JSON.parse(localStorage.getItem('teranago_external_files_deleted') || '[]');
+        if (!deletedPaths.includes(file.path)) {
+          deletedPaths.push(file.path);
+          localStorage.setItem('teranago_external_files_deleted', JSON.stringify(deletedPaths));
+        }
+
+        // アップロードしたローカルデータからも削除
+        const localUploads: ExternalFile[] = JSON.parse(localStorage.getItem('teranago_external_files_uploads_meta') || '[]');
+        const updatedUploads = localUploads.filter(u => u.path !== file.path);
+        localStorage.setItem('teranago_external_files_uploads_meta', JSON.stringify(updatedUploads));
+
         try {
           const deleteUrl = `${API_BASE_URL}/external-files?path=${encodeURIComponent(file.path)}`;
           const response = await fetch(deleteUrl, {
@@ -368,12 +416,11 @@ export default function FileManager({ currentUser }: FileManagerProps) {
                 confirmText: '確認'
               });
             } else {
-              // API未接続のプレビュー環境では画面上のローカル削除を維持
-              console.warn('API削除エラー。プレビュー環境のためローカル表示のみ削除を維持します:', errData);
+              console.warn('API削除エラー。ローカル削除状態を維持します:', errData);
             }
           }
         } catch (err: any) {
-          console.warn('削除リクエストの通信エラー。プレビュー環境のためローカル表示のみ削除を維持します:', err);
+          console.warn('削除リクエストの通信エラー。ローカル削除状態を維持します:', err);
         }
       }
     });
@@ -383,6 +430,29 @@ export default function FileManager({ currentUser }: FileManagerProps) {
   const handleUploadFile = async (selectedFile: File) => {
     setIsUploading(true);
     setUploadProgress('準備中...');
+
+    // ブラウザローカルでのプレビュー・ダウンロード用に Blob URL を生成
+    const blobUrl = URL.createObjectURL(selectedFile);
+    const filePath = currentPath ? `${currentPath}/${selectedFile.name}` : selectedFile.name;
+
+    const uploadedMeta: ExternalFile = {
+      name: selectedFile.name,
+      path: filePath,
+      url: blobUrl,
+      blobUrl: blobUrl,
+      fileObject: selectedFile,
+      size: selectedFile.size,
+      mtime: new Date().toISOString(),
+      isDirectory: false,
+      extension: selectedFile.name.split('.').pop()?.toLowerCase() || ''
+    };
+
+    // 先にローカルステートおよび LocalStorage に登録（即時反応）
+    setFiles(prev => [uploadedMeta, ...prev.filter(f => f.path !== filePath)]);
+    const localUploads: ExternalFile[] = JSON.parse(localStorage.getItem('teranago_external_files_uploads_meta') || '[]');
+    const metaToSave = { ...uploadedMeta, fileObject: undefined }; // JSON化できないFileオブジェクトを除いて保存
+    const updatedUploads = [metaToSave, ...localUploads.filter(u => u.path !== filePath)];
+    localStorage.setItem('teranago_external_files_uploads_meta', JSON.stringify(updatedUploads));
 
     const formData = new FormData();
     formData.append('file', selectedFile);
@@ -397,21 +467,6 @@ export default function FileManager({ currentUser }: FileManagerProps) {
 
       if (response.ok) {
         setUploadProgress('アップロード完了！同期中...');
-        const data = await response.json();
-        const filePath = currentPath ? `${currentPath}/${selectedFile.name}` : selectedFile.name;
-        
-        // ローカルステートに即時追加
-        const uploadedMeta: ExternalFile = {
-          name: selectedFile.name,
-          path: filePath,
-          url: `/api/external-files/serve?path=` + encodeURIComponent(filePath),
-          size: selectedFile.size,
-          mtime: new Date().toISOString(),
-          isDirectory: false,
-          extension: selectedFile.name.split('.').pop()?.toLowerCase() || ''
-        };
-        setFiles(prev => [uploadedMeta, ...prev]);
-
         setTimeout(() => {
           setIsUploading(false);
           setUploadProgress(null);
@@ -421,19 +476,7 @@ export default function FileManager({ currentUser }: FileManagerProps) {
         throw new Error('サーバーがエラーを返しました');
       }
     } catch (err) {
-      console.warn('APIへのアップロードに失敗しました。プレビュー環境のためローカルに疑似追加します。', err);
-      const filePath = currentPath ? `${currentPath}/${selectedFile.name}` : selectedFile.name;
-      // ローカルでのみ追加してあげる（モック体験）
-      const uploadedMeta: ExternalFile = {
-        name: selectedFile.name,
-        path: filePath,
-        url: URL.createObjectURL(selectedFile), // ローカルプレビュー用
-        size: selectedFile.size,
-        mtime: new Date().toISOString(),
-        isDirectory: false,
-        extension: selectedFile.name.split('.').pop()?.toLowerCase() || ''
-      };
-      setFiles(prev => [uploadedMeta, ...prev]);
+      console.warn('APIへのアップロードに失敗しました。ローカルストレージのデータを保持します:', err);
       setIsUploading(false);
       setUploadProgress(null);
     }
@@ -470,8 +513,22 @@ export default function FileManager({ currentUser }: FileManagerProps) {
 
   // 直接ダウンロード
   const handleDownload = async (file: ExternalFile) => {
-    // blob URL または 外部直リンク（unsplashなど）の場合
-    if (file.url && (file.url.startsWith('blob:') || (file.url.startsWith('http') && !file.url.includes('/api/external-files/')))) {
+    // fileObject や blobUrl がある場合は、アップロードされた本物の生データ（PDF/画像/Office等）を直接ダウンロード！
+    if (file.fileObject || file.blobUrl) {
+      const downloadHref = file.blobUrl || (file.fileObject ? URL.createObjectURL(file.fileObject) : '');
+      if (downloadHref) {
+        const link = document.createElement('a');
+        link.href = downloadHref;
+        link.setAttribute('download', file.name);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        return;
+      }
+    }
+
+    // 外部直リンク（unsplashなど）の場合
+    if (file.url && file.url.startsWith('http') && !file.url.includes('/api/external-files/')) {
       const link = document.createElement('a');
       link.href = file.url;
       link.setAttribute('download', file.name);
@@ -488,6 +545,12 @@ export default function FileManager({ currentUser }: FileManagerProps) {
       const response = await fetch(downloadUrl);
       if (response.ok) {
         const blob = await response.blob();
+        // 万が一レスポンスが 404 エラーHTMLや Cannot GET だった場合はフォールバック
+        const contentType = response.headers.get('content-type') || '';
+        if (contentType.includes('text/html')) {
+          throw new Error('API returned HTML page instead of file');
+        }
+
         const blobUrl = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = blobUrl;
@@ -497,20 +560,10 @@ export default function FileManager({ currentUser }: FileManagerProps) {
         document.body.removeChild(link);
         setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
       } else {
-        // API非接続環境（プレビュー画面等）でのダウンロード用フォールバック処理
-        const fallbackContent = `【NAS共有ファイル デモサンプル】\nファイル名: ${file.name}\nパス: ${file.path}\n更新日時: ${file.mtime}\n\n※このファイルはWEBプレビュー環境用のサンプルデータです。\nオンプレミス／社内サーバーで配布コード「Server.js」を稼働させることで、実際のNAS/共有ストレージのファイルがそのままダウンロードされます。`;
-        const blob = new Blob([fallbackContent], { type: 'text/plain;charset=utf-8' });
-        const blobUrl = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = blobUrl;
-        link.setAttribute('download', file.name.endsWith('.txt') ? file.name : `${file.name}.txt`);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+        throw new Error(`HTTP Error: ${response.status}`);
       }
     } catch (err) {
-      console.warn('ダウンロード通信エラー。プレビュー用ファイル保存を実行します:', err);
+      console.warn('ダウンロード通信エラー。プレビュー用サンプルファイルをダウンロードします:', err);
       const fallbackContent = `【NAS共有ファイル デモサンプル】\nファイル名: ${file.name}\nパス: ${file.path}\n更新日時: ${file.mtime}\n\n※このファイルはWEBプレビュー環境用のサンプルデータです。\nオンプレミス／社内サーバーで配布コード「Server.js」を稼働させることで、実際のNAS/共有ストレージのファイルがそのままダウンロードされます。`;
       const blob = new Blob([fallbackContent], { type: 'text/plain;charset=utf-8' });
       const blobUrl = URL.createObjectURL(blob);
@@ -874,12 +927,30 @@ export default function FileManager({ currentUser }: FileManagerProps) {
                   className="max-w-full max-h-full object-contain rounded-lg shadow-sm"
                 />
               ) : previewFile.extension === 'pdf' ? (
-                // PDFプレビュー (iframe)
-                <iframe
-                  src={getFileUrl(previewFile)}
-                  className="w-full h-full border-none rounded-lg bg-white shadow-sm"
-                  title="PDFプレビュー"
-                />
+                // PDFプレビュー (iframe / Blob)
+                getFileUrl(previewFile).startsWith('/api/') ? (
+                  <div className="w-full h-full bg-white rounded-lg shadow-sm p-8 flex flex-col items-center justify-center text-center">
+                    <FileText className="w-16 h-16 text-indigo-500 mb-3" />
+                    <h4 className="text-base font-bold text-slate-800 mb-1">{previewFile.name}</h4>
+                    <p className="text-xs text-slate-500 max-w-md mb-4">
+                      【デモ用サンプルPDF】<br />
+                      オンプレミス社内サーバー（server.ts）連携時に本物のPDFファイルがインラインプレビュー表示されます。
+                    </p>
+                    <button
+                      onClick={() => handleDownload(previewFile)}
+                      className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold hover:bg-indigo-700 transition-colors cursor-pointer flex items-center gap-2"
+                    >
+                      <Download className="w-4 h-4" />
+                      サンプルファイルをダウンロード
+                    </button>
+                  </div>
+                ) : (
+                  <iframe
+                    src={getFileUrl(previewFile)}
+                    className="w-full h-full border-none rounded-lg bg-white shadow-sm"
+                    title="PDFプレビュー"
+                  />
+                )
               ) : PREVIEW_TEXT_EXTS.includes(previewFile.extension) && previewContent ? (
                 // テキストプレビュー
                 <pre className="w-full h-full bg-slate-900 text-slate-100 p-4 rounded-lg font-mono text-xs overflow-auto text-left leading-relaxed">
