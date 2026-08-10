@@ -228,6 +228,46 @@ const handleBulletinUpload = (req, res) => {
 app.post('/api/upload', uploadBulletins.single('file'), handleBulletinUpload);
 app.post('/api/bulletins/upload', uploadBulletins.single('file'), handleBulletinUpload);
 
+// 掲示板添付ファイル一覧取得 API
+app.get('/api/bulletinsfiles/list', (req, res) => {
+  try {
+    if (!fs.existsSync(bulletinsFilesDir)) {
+      return res.json([]);
+    }
+    const filenames = fs.readdirSync(bulletinsFilesDir);
+    const result = filenames.map(filename => {
+      const filePath = path.join(bulletinsFilesDir, filename);
+      let stat;
+      try {
+        stat = fs.statSync(filePath);
+      } catch (e) {
+        return null;
+      }
+      if (stat.isDirectory()) return null;
+
+      const ext = path.extname(filename).toLowerCase().replace('.', '');
+      const displayName = filename.includes('_') ? filename.substring(filename.indexOf('_') + 1) : filename;
+
+      return {
+        name: displayName,
+        rawFilename: filename,
+        path: filename,
+        url: \`/bulletinsfiles/\${encodeURIComponent(filename)}\`,
+        size: stat.size,
+        mtime: stat.mtime.toISOString(),
+        isDirectory: false,
+        extension: ext,
+        source: 'bulletin'
+      };
+    }).filter(Boolean);
+
+    result.sort((a, b) => new Date(b.mtime).getTime() - new Date(a.mtime).getTime());
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/bulletins/file/:filename', (req, res) => {
   try {
     const filename = decodeURIComponent(req.params.filename);

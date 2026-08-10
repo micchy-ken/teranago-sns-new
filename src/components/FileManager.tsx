@@ -33,6 +33,8 @@ interface ExternalFile {
   extension: string;
   fileObject?: File;
   blobUrl?: string;
+  source?: 'nas' | 'bulletin';
+  rawFilename?: string;
 }
 
 interface FileManagerProps {
@@ -48,6 +50,7 @@ export default function FileManager({ currentUser }: FileManagerProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [activeSourceFilter, setActiveSourceFilter] = useState<'all' | 'nas' | 'bulletin'>('all');
   const [currentPath, setCurrentPath] = useState<string>(''); // 空文字はルート
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
@@ -74,24 +77,39 @@ export default function FileManager({ currentUser }: FileManagerProps) {
     fetchFileList();
   }, []);
 
-  // ファイル一覧取得 (フォールバック処理を排除し、完全なAPI通信で一覧を取得)
+  // ファイル一覧取得 (NAS共有 + 掲示板添付ファイルを両方取得して統合)
   const fetchFileList = async () => {
     setLoading(true);
     setError(null);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/external-files/list`);
-      if (response.ok) {
-        const data: ExternalFile[] = await response.json();
-        setFiles(data);
-      } else {
-        const errText = await response.text().catch(() => '');
-        setError(`サーバーからファイル一覧を取得できませんでした (ステータス: ${response.status})。APIサーバー(${API_BASE_URL})への接続を確認してください。`);
-        setFiles([]);
+      const [nasRes, bulletinRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/external-files/list`).catch(() => null),
+        fetch(`${API_BASE_URL}/bulletinsfiles/list`).catch(() => null)
+      ]);
+
+      let combined: ExternalFile[] = [];
+
+      if (nasRes && nasRes.ok) {
+        const nasData: ExternalFile[] = await nasRes.json();
+        const formattedNas = nasData.map(f => ({ ...f, source: 'nas' as const }));
+        combined = [...combined, ...formattedNas];
+      }
+
+      if (bulletinRes && bulletinRes.ok) {
+        const bulletinData: ExternalFile[] = await bulletinRes.json();
+        const formattedBulletin = bulletinData.map(f => ({ ...f, source: 'bulletin' as const }));
+        combined = [...combined, ...formattedBulletin];
+      }
+
+      setFiles(combined);
+
+      if ((!nasRes || !nasRes.ok) && (!bulletinRes || !bulletinRes.ok)) {
+        setError(`サーバーからファイル一覧を取得できませんでした。APIサーバー(${API_BASE_URL})への接続を確認してください。`);
       }
     } catch (err: any) {
-      console.error('APIから外部ファイル一覧の取得に失敗しました:', err);
-      setError(`接続エラー: ${err.message || 'APIサーバーにアクセスできません。ネットワーク環境やCORS設定をご確認ください。'}`);
+      console.error('APIから共有ファイル一覧の取得に失敗しました:', err);
+      setError(`接続エラー: ${err.message || 'APIサーバーにアクセスできません。ネットワーク環境をご確認ください。'}`);
       setFiles([]);
     } finally {
       setLoading(false);
@@ -104,6 +122,16 @@ export default function FileManager({ currentUser }: FileManagerProps) {
 
     if (file.url && file.url.startsWith('http') && !file.url.includes('/api/external-files/')) {
       return file.url;
+    }
+
+    if (file.source === 'bulletin') {
+      const baseUrl = (API_BASE_URL || '').replace(/\/+$/, '');
+      const rawUrl = file.url || `/bulletinsfiles/${encodeURIComponent(file.rawFilename || file.name)}`;
+      let fullUrl = rawUrl.startsWith('http') ? rawUrl : `${baseUrl}${rawUrl}`;
+      if (isDownload) {
+        fullUrl += `${fullUrl.includes('?') ? '&' : '?'}download=1`;
+      }
+      return fullUrl;
     }
     
     const relPath = file.path || '';
@@ -191,21 +219,34 @@ export default function FileManager({ currentUser }: FileManagerProps) {
     setCurrentPath(newPath);
   };
 
-  // 現在の階層に存在するファイル・フォルダをフィルタ
+  // 現在の階層・検索・ソースフィルターに存在するファイル・フォルダをフィルタ
   const getVisibleFiles = () => {
-    // 検索モード
-    if (searchQuery.trim() !== '') {
-      const q = searchQuery.toLowerCase();
-      return files.filter(f => f.name.toLowerCase().includes(q) || f.path.toLowerCase().includes(q));
+    // 1. ソースフィルタ
+    let filtered = files;
+    if (activeSourceFilter === 'nas') {
+      filtered = files.filter(f => f.source === 'nas');
+    } else if (activeSourceFilter === 'bulletin') {
+      filtered = files.filter(f => f.source === 'bulletin');
     }
 
-    // 階層ナビゲーションモード
-    return files.filter(f => {
+    // 2. 検索キーワード指定、または掲示板添付ファイルモード
+    if (searchQuery.trim() !== '' || activeSourceFilter === 'bulletin') {
+      const q = searchQuery.toLowerCase().trim();
+      if (!q) return filtered;
+      return filtered.filter(f => 
+        f.name.toLowerCase().includes(q) || 
+        f.path.toLowerCase().includes(q) ||
+        f.extension.toLowerCase().includes(q)
+      );
+    }
+
+    // 3. NAS階層ナビゲーションモード
+    return filtered.filter(f => {
+      if (f.source === 'bulletin') return true; // 掲示板添付ファイルはリストアップ
+
       if (!currentPath) {
-        // ルート直下
         return !f.path.includes('/');
       } else {
-        // 現在のフォルダ内
         const lastSlashIndex = f.path.lastIndexOf('/');
         const fileParent = lastSlashIndex !== -1 ? f.path.substring(0, lastSlashIndex) : '';
         return fileParent === currentPath && f.path !== currentPath;
@@ -263,10 +304,15 @@ export default function FileManager({ currentUser }: FileManagerProps) {
       cancelText: 'キャンセル',
       onConfirm: async () => {
         try {
-          const deleteUrl = `${API_BASE_URL}/external-files?path=${encodeURIComponent(file.path)}`;
-          const response = await fetch(deleteUrl, {
-            method: 'DELETE'
-          });
+          let deleteUrl = '';
+          if (file.source === 'bulletin') {
+            const param = file.rawFilename || file.path || file.name;
+            deleteUrl = `${API_BASE_URL}/bulletins/file?filename=${encodeURIComponent(param)}`;
+          } else {
+            deleteUrl = `${API_BASE_URL}/external-files?path=${encodeURIComponent(file.path)}`;
+          }
+
+          const response = await fetch(deleteUrl, { method: 'DELETE' });
 
           if (response.ok) {
             await fetchFileList();
@@ -436,10 +482,10 @@ export default function FileManager({ currentUser }: FileManagerProps) {
         <div>
           <div className="flex items-center gap-2">
             <HardDrive className="w-5 h-5 text-indigo-600" />
-            <h2 className="text-lg font-bold text-slate-800">NAS 共有ファイル・フォルダ</h2>
+            <h2 className="text-lg font-bold text-slate-800">共有ファイル</h2>
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            WEBアプリ外（自社NAS内の同期フォルダ等）から直接追加したファイルも自動反映され、瞬時に検索・閲覧・ダウンロード可能です。
+            NAS同期フォルダおよび掲示板に投稿された添付ファイルを一括で確認・検索・閲覧・ダウンロードできます。
           </p>
         </div>
 
@@ -450,7 +496,7 @@ export default function FileManager({ currentUser }: FileManagerProps) {
             onClick={fetchFileList}
             disabled={loading}
             className="p-2 bg-white hover:bg-slate-100 border border-slate-200 rounded-xl text-slate-600 shadow-xs transition-colors flex items-center justify-center gap-1.5 text-xs font-medium cursor-pointer"
-            title="NAS同期を更新"
+            title="ファイル一覧を更新"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
             再同期
@@ -483,6 +529,40 @@ export default function FileManager({ currentUser }: FileManagerProps) {
             className="hidden" 
           />
         </div>
+      </div>
+
+      {/* ソース切り替えタブ */}
+      <div className="px-6 pt-3 pb-0 bg-white border-b border-slate-100 flex items-center gap-2">
+        <button
+          onClick={() => setActiveSourceFilter('all')}
+          className={`px-3 py-1.5 rounded-t-lg text-xs font-bold transition-colors border-b-2 cursor-pointer ${
+            activeSourceFilter === 'all'
+              ? 'border-indigo-600 text-indigo-700 bg-indigo-50/50'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          すべて ({files.length})
+        </button>
+        <button
+          onClick={() => setActiveSourceFilter('nas')}
+          className={`px-3 py-1.5 rounded-t-lg text-xs font-bold transition-colors border-b-2 cursor-pointer ${
+            activeSourceFilter === 'nas'
+              ? 'border-indigo-600 text-indigo-700 bg-indigo-50/50'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          NAS共有ファイル ({files.filter(f => f.source === 'nas').length})
+        </button>
+        <button
+          onClick={() => setActiveSourceFilter('bulletin')}
+          className={`px-3 py-1.5 rounded-t-lg text-xs font-bold transition-colors border-b-2 cursor-pointer ${
+            activeSourceFilter === 'bulletin'
+              ? 'border-indigo-600 text-indigo-700 bg-indigo-50/50'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          掲示板添付ファイル ({files.filter(f => f.source === 'bulletin').length})
+        </button>
       </div>
 
       {/* 検索・ナビゲーション */}
@@ -521,7 +601,7 @@ export default function FileManager({ currentUser }: FileManagerProps) {
           <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
           <input
             type="text"
-            placeholder="全階層からファイルをインクリメンタル検索..."
+            placeholder="ファイル名・拡張子で検索..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-9 pr-4 py-2 w-full text-xs bg-slate-100 border-none focus:outline-none focus:ring-2 focus:ring-indigo-500 rounded-xl placeholder-slate-400 transition-all duration-200"
@@ -605,6 +685,7 @@ export default function FileManager({ currentUser }: FileManagerProps) {
                 <thead>
                   <tr className="border-b border-slate-100 text-slate-400 text-xs font-semibold">
                     <th className="pb-3 pt-1 pl-2">名前</th>
+                    <th className="pb-3 pt-1">区分</th>
                     <th className="pb-3 pt-1">更新日時</th>
                     <th className="pb-3 pt-1 text-right">サイズ</th>
                     <th className="pb-3 pt-1 text-right pr-2">アクション</th>
@@ -626,6 +707,7 @@ export default function FileManager({ currentUser }: FileManagerProps) {
                         </div>
                         <span className="text-xs font-bold text-slate-500">... (親フォルダへ)</span>
                       </td>
+                      <td className="py-3 text-xs text-slate-400">---</td>
                       <td className="py-3 text-xs text-slate-400">---</td>
                       <td className="py-3 text-xs text-slate-400 text-right">---</td>
                       <td className="py-3 text-right pr-2"></td>
@@ -670,6 +752,17 @@ export default function FileManager({ currentUser }: FileManagerProps) {
                               )}
                             </div>
                           </div>
+                        )}
+                      </td>
+                      <td className="py-3.5">
+                        {file.source === 'bulletin' ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-200/60">
+                            掲示板添付
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200/60">
+                            NAS共有
+                          </span>
                         )}
                       </td>
                       <td className="py-3.5 text-xs text-slate-500">

@@ -161,7 +161,7 @@ export function Sidebar({ posts, selectedTag, onSelectTag, activeTab, onChangeTa
           }`}
         >
           <HardDrive className="w-4 h-4 text-indigo-500" />
-          NAS共有ファイル
+          共有ファイル
         </button>
 
         {currentUser?.isAdmin && (
