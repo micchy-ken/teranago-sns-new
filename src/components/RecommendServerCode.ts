@@ -72,6 +72,7 @@ if (!fs.existsSync(externalFilesDir)) {
 // 画像・添付ファイルをブラウザに配信する静的配信設定 (http://[サーバーのIP]:[PORT]/uploads/xxx.png でアクセス可能にします)
 app.use('/uploads', express.static(uploadDir));
 app.use('/bulletinsfiles', express.static(bulletinsFilesDir));
+app.use('/api/bulletinsfiles', express.static(bulletinsFilesDir));
 app.use('/external-files', express.static(externalFilesDir));
 
 // multer ストレージ（保存ファイル命名規則）の設定

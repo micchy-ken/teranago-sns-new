@@ -294,6 +294,17 @@ export default function FileManager({ currentUser }: FileManagerProps) {
 
   // ファイル削除
   const handleDeleteFile = (file: ExternalFile) => {
+    if (file.source === 'bulletin') {
+      setConfirmModal({
+        isOpen: true,
+        title: '削除できません',
+        message: '掲示板の添付ファイルは共有ファイル画面から削除できません。（閲覧・ダウンロード専用）',
+        type: 'warning',
+        confirmText: '確認'
+      });
+      return;
+    }
+
     setConfirmModal({
       isOpen: true,
       title: 'ファイルの削除確認',
@@ -303,14 +314,7 @@ export default function FileManager({ currentUser }: FileManagerProps) {
       cancelText: 'キャンセル',
       onConfirm: async () => {
         try {
-          let deleteUrl = '';
-          if (file.source === 'bulletin') {
-            const param = file.rawFilename || file.path || file.name;
-            deleteUrl = `${API_BASE_URL}/bulletins/file?filename=${encodeURIComponent(param)}`;
-          } else {
-            deleteUrl = `${API_BASE_URL}/external-files?path=${encodeURIComponent(file.path)}`;
-          }
-
+          const deleteUrl = `${API_BASE_URL}/external-files?path=${encodeURIComponent(file.path)}`;
           const response = await fetch(deleteUrl, { method: 'DELETE' });
 
           if (response.ok) {
@@ -344,8 +348,9 @@ export default function FileManager({ currentUser }: FileManagerProps) {
     setUploadProgress('アップロード中...');
 
     const formData = new FormData();
-    formData.append('file', selectedFile);
+    // 重要: multer が req.body.folder を取得できるよう file より前に append する
     formData.append('folder', currentPath);
+    formData.append('file', selectedFile);
 
     try {
       const response = await fetch(`${API_BASE_URL}/external-files/upload`, {
@@ -817,14 +822,16 @@ export default function FileManager({ currentUser }: FileManagerProps) {
                             </button>
                           )}
 
-                          {/* 削除 (管理者 or 権限、ここでは自由削除可としておく) */}
-                          <button
-                            onClick={() => handleDeleteFile(file)}
-                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                            title="削除"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {/* 削除 (NAS共有ファイルのみ削除可能。掲示板添付ファイルは閲覧・ダウンロード専用) */}
+                          {file.source !== 'bulletin' && (
+                            <button
+                              onClick={() => handleDeleteFile(file)}
+                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                              title="削除"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
