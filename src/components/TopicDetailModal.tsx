@@ -3,7 +3,7 @@ import { X, MessageSquare, Eye, Pin, Paperclip, Calendar as CalendarIcon, Send, 
 import { BoardTopic, User, OfficeMaster, DivisionMaster, AttachmentFile } from '../types';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { getAvatarUrl } from '../utils/avatar';
-import { uploadMultipleFiles } from '../utils/fileUpload';
+import { uploadMultipleFiles, deleteAttachmentFile, deleteAttachmentFiles } from '../utils/fileUpload';
 import { FilePreviewModal } from './FilePreviewModal';
 
 interface TopicDetailModalProps {
@@ -202,7 +202,12 @@ export function TopicDetailModal({
   };
 
   // コメント削除
-  const handleDeleteComment = (commentId: string) => {
+  const handleDeleteComment = async (commentId: string) => {
+    const commentToDelete = (topic.comments || []).find(c => c.id === commentId);
+    if (commentToDelete && commentToDelete.attachments && commentToDelete.attachments.length > 0) {
+      await deleteAttachmentFiles(commentToDelete.attachments);
+    }
+
     const updatedComments = (topic.comments || []).filter(c => c.id !== commentId);
     const updatedTopic: BoardTopic = {
       ...topic,
@@ -251,11 +256,21 @@ export function TopicDetailModal({
                   setConfirmModal({
                     isOpen: true,
                     title: 'トピックの削除',
-                    message: 'このトピックを削除してもよろしいですか？この操作は取り消せません。',
+                    message: 'このトピックを削除してもよろしいですか？添付ファイルも含めて削除されます。',
                     type: 'danger',
                     confirmText: '削除する',
                     cancelText: 'キャンセル',
-                    onConfirm: () => onDeleteTopic(topic.id)
+                    onConfirm: async () => {
+                      // トピック本文の添付ファイルと全コメントの添付ファイルをすべて収集して一括物理削除
+                      const allAttachments = [
+                        ...(topic.attachments || []),
+                        ...(topic.comments || []).flatMap(c => c.attachments || [])
+                      ];
+                      if (allAttachments.length > 0) {
+                        await deleteAttachmentFiles(allAttachments);
+                      }
+                      onDeleteTopic(topic.id);
+                    }
                   });
                 }}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 font-bold text-xs rounded-xl border border-red-200 transition-colors"
@@ -498,7 +513,12 @@ export function TopicDetailModal({
                       <button
                         type="button"
                         disabled={isEditingUploading}
-                        onClick={() => setEditAttachments(editAttachments.filter(a => a.id !== att.id))}
+                        onClick={async () => {
+                          if (att.url) {
+                            await deleteAttachmentFile(att.url);
+                          }
+                          setEditAttachments(editAttachments.filter(a => a.id !== att.id));
+                        }}
                         className="text-slate-400 hover:text-red-600 p-0.5 disabled:opacity-50"
                       >
                         <Trash2 className="w-3.5 h-3.5" />

@@ -38,7 +38,7 @@ app.use(express.json());
 app.use((req, res, next) => {
   // もし '/api/xxx' ではなく '/xxx' で届いた場合、内部的に '/api/xxx' へリライトして、
   // すべての '/api/...' ルートが正しくマッチするようにします
-  if (!req.url.startsWith('/api') && req.url !== '/health' && !req.url.startsWith('/uploads')) {
+  if (!req.url.startsWith('/api') && req.url !== '/health' && !req.url.startsWith('/uploads') && !req.url.startsWith('/bulletinsfiles') && !req.url.startsWith('/external-files')) {
     req.url = '/api' + req.url;
   }
   next();
@@ -52,6 +52,17 @@ if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 
+// 掲示板添付ファイル用ディレクトリ (/app/bulletinsfiles または ./bulletinsfiles)
+const bulletinsFilesDir = process.env.BULLETINS_FILES_DIR || 
+  (fs.existsSync('/app/bulletinsfiles') ? '/app/bulletinsfiles' : path.join(process.cwd(), 'bulletinsfiles'));
+if (!fs.existsSync(bulletinsFilesDir)) {
+  try {
+    fs.mkdirSync(bulletinsFilesDir, { recursive: true });
+  } catch (e) {
+    console.error('掲示板添付ディレクトリ作成失敗:', e);
+  }
+}
+
 // 外部NAS同期・外部ファイル連携用ディレクトリ
 const externalFilesDir = path.join(process.cwd(), 'external-files');
 if (!fs.existsSync(externalFilesDir)) {
@@ -60,6 +71,7 @@ if (!fs.existsSync(externalFilesDir)) {
 
 // 画像・添付ファイルをブラウザに配信する静的配信設定 (http://[サーバーのIP]:[PORT]/uploads/xxx.png でアクセス可能にします)
 app.use('/uploads', express.static(uploadDir));
+app.use('/bulletinsfiles', express.static(bulletinsFilesDir));
 app.use('/external-files', express.static(externalFilesDir));
 
 // multer ストレージ（保存ファイル命名規則）の設定
@@ -162,41 +174,147 @@ app.post('/api/upload-avatar', upload.single('avatar'), (req, res) => {
 });
 
 // =========================================================
-// 添付ファイルアップロードAPI（領収書、図面、見積書、現場写真、PDFなど）
+// 掲示板添付ファイル・汎用ファイルアップロードAPI (/app/bulletinsfiles へ保存)
 // =========================================================
-const fileStorage = multer.diskStorage({
+const bulletinsStorage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, uploadDir);
+    if (!fs.existsSync(bulletinsFilesDir)) {
+      fs.mkdirSync(bulletinsFilesDir, { recursive: true });
+    }
+    cb(null, bulletinsFilesDir);
   },
   filename: function (req, file, cb) {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname);
-    const baseName = path.basename(file.originalname, ext).replace(/[^a-zA-Z0-9_\\u3040-\\u309f\\u30a0-\\u30ff\\u4e00-\\u9faf]/g, '');
-    cb(null, 'file-' + uniqueSuffix + '-' + baseName + ext);
+    let originalName = file.originalname;
+    try {
+      originalName = Buffer.from(file.originalname, 'latin1').toString('utf8');
+    } catch (e) {
+      originalName = file.originalname;
+    }
+    const ext = path.extname(originalName);
+    const baseName = path.basename(originalName, ext);
+    const timeStamp = Date.now();
+    const safeFilename = \`\${timeStamp}_\${baseName}\${ext}\`;
+    cb(null, safeFilename);
   }
 });
 
-const uploadFile = multer({
-  storage: fileStorage,
-  limits: { fileSize: 10 * 1024 * 1024 } // 10MB制限
+const uploadBulletins = multer({
+  storage: bulletinsStorage,
+  limits: { fileSize: 50 * 1024 * 1024 } // 50MB制限
 });
 
-app.post('/api/upload', uploadFile.single('file'), (req, res) => {
+const handleBulletinUpload = (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'ファイルがアップロードされていません。' });
     }
-    const fileUrl = \`/uploads/\${req.file.filename}\`;
+    const fileUrl = \`/bulletinsfiles/\${encodeURIComponent(req.file.filename)}\`;
     res.json({
+      message: 'アップロード成功',
       url: fileUrl,
       fileUrl: fileUrl,
       path: fileUrl,
+      filename: req.file.filename,
       name: req.file.originalname,
+      originalName: req.file.originalname,
       size: (req.file.size / 1024 / 1024).toFixed(2) + ' MB'
     });
   } catch (error) {
     console.error('ファイルアップロードエラー:', error);
     res.status(500).json({ error: 'サーバーエラーが発生しました。' });
+  }
+};
+
+app.post('/api/upload', uploadBulletins.single('file'), handleBulletinUpload);
+app.post('/api/bulletins/upload', uploadBulletins.single('file'), handleBulletinUpload);
+
+app.get('/api/bulletins/file/:filename', (req, res) => {
+  try {
+    const filename = decodeURIComponent(req.params.filename);
+    const safePath = path.join(bulletinsFilesDir, path.basename(filename));
+    if (fs.existsSync(safePath)) {
+      if (req.query.download === '1') {
+        return res.download(safePath, filename);
+      }
+      res.sendFile(safePath);
+    } else {
+      res.status(404).json({ error: '添付ファイルが見つかりません' });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 掲示板添付ファイルの削除 API
+app.delete('/api/bulletins/file', (req, res) => {
+  try {
+    const fileUrl = req.query.fileUrl || req.body?.fileUrl || '';
+    const filenameParam = req.query.filename || req.body?.filename || '';
+
+    let filename = filenameParam;
+    if (!filename && fileUrl) {
+      const urlParts = fileUrl.split('/bulletinsfiles/');
+      if (urlParts.length > 1) {
+        filename = decodeURIComponent(urlParts[urlParts.length - 1].split('?')[0]);
+      } else {
+        filename = path.basename(fileUrl.split('?')[0]);
+      }
+    }
+
+    if (!filename) {
+      return res.status(400).json({ error: 'ファイル名が指定されていません。' });
+    }
+
+    const safeFilename = path.basename(filename);
+    const targetPath = path.join(bulletinsFilesDir, safeFilename);
+
+    if (fs.existsSync(targetPath)) {
+      fs.unlinkSync(targetPath);
+      console.log('[Bulletins] 添付ファイルを削除しました: ' + targetPath);
+      return res.json({ message: '添付ファイルを削除しました', filename: safeFilename });
+    } else {
+      return res.status(404).json({ error: '対象の添付ファイルが存在しません', filename: safeFilename });
+    }
+  } catch (err) {
+    console.error('添付ファイル削除エラー:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 掲示板添付ファイルの一括削除 API
+app.post('/api/bulletins/delete-multiple', (req, res) => {
+  try {
+    const fileUrls = req.body?.fileUrls || [];
+    const deleted = [];
+    const errors = [];
+
+    fileUrls.forEach(fileUrl => {
+      if (!fileUrl) return;
+      let filename = '';
+      const urlParts = fileUrl.split('/bulletinsfiles/');
+      if (urlParts.length > 1) {
+        filename = decodeURIComponent(urlParts[urlParts.length - 1].split('?')[0]);
+      } else {
+        filename = path.basename(fileUrl.split('?')[0]);
+      }
+
+      if (filename) {
+        const safeFilename = path.basename(filename);
+        const targetPath = path.join(bulletinsFilesDir, safeFilename);
+        if (fs.existsSync(targetPath)) {
+          try {
+            fs.unlinkSync(targetPath);
+            deleted.push(safeFilename);
+          } catch (e) {
+            errors.push(safeFilename + ': ' + e.message);
+          }
+        }
+      }
+    });
+
+    res.json({ message: '添付ファイル一括削除完了', deleted, errors });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

@@ -16,6 +16,7 @@ import { LoginScreen } from './components/LoginScreen';
 import FileManager from './components/FileManager';
 import { Post, CalendarEvent, WorkflowApplication, User, OfficeMaster, DivisionMaster, PositionMaster, BoardTopic, ChatRoom, ApprovalFlowRule, ApprovalStepConfig, ItemMaster, ApplicationStatus, DailyReport, Memo } from './types';
 import { syncUserReadStatusesFromServer, isMemoUnread, markMemoAsRead, markMemoAsUnread, markEventAsRead, markTopicAsRead } from './utils/notifications';
+import { deleteAttachmentFiles } from './utils/fileUpload';
 import { TopicDetailModal } from './components/TopicDetailModal';
 import { GlobalEventDetailModal } from './components/GlobalEventDetailModal';
 import { GlobalMemoDetailModal } from './components/GlobalMemoDetailModal';
@@ -907,6 +908,17 @@ export default function App() {
   };
 
   const handleDeleteTopic = async (topicId: string) => {
+    const targetTopic = topics.find(t => t.id === topicId);
+    if (targetTopic) {
+      const allAttachments = [
+        ...(targetTopic.attachments || []),
+        ...(targetTopic.comments || []).flatMap(c => c.attachments || [])
+      ];
+      if (allAttachments.length > 0) {
+        await deleteAttachmentFiles(allAttachments);
+      }
+    }
+
     setTopics(prev => prev.filter(t => t.id !== topicId));
 
     try {

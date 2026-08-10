@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { BoardTopic, User, OfficeMaster, DivisionMaster } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
 import { markTopicAsRead } from '../utils/notifications';
+import { deleteAttachmentFiles } from '../utils/fileUpload';
 import { MessageSquare, Eye, Plus, Search, Pin, Paperclip, Calendar as CalendarIcon, Building2, Users, Flame, Tag, Trash2, Server } from 'lucide-react';
 import { TopicCreateModal } from './TopicCreateModal';
 import { TopicDetailModal } from './TopicDetailModal';
@@ -433,12 +434,22 @@ export function Board({
       <ConfirmModal
         isOpen={!!topicToDelete}
         title="トピックの削除"
-        message="このトピックを削除してもよろしいですか？この操作は取り消せません。"
+        message="このトピックを削除してもよろしいですか？添付ファイルも含めて削除されます。"
         type="danger"
         confirmText="削除する"
         cancelText="キャンセル"
-        onConfirm={() => {
+        onConfirm={async () => {
           if (topicToDelete && onDeleteTopic) {
+            const targetTopic = topics.find(t => t.id === topicToDelete);
+            if (targetTopic) {
+              const allAttachments = [
+                ...(targetTopic.attachments || []),
+                ...(targetTopic.comments || []).flatMap(c => c.attachments || [])
+              ];
+              if (allAttachments.length > 0) {
+                await deleteAttachmentFiles(allAttachments);
+              }
+            }
             onDeleteTopic(topicToDelete);
           }
           setTopicToDelete(null);

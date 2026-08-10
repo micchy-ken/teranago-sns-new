@@ -97,6 +97,79 @@ async function startServer() {
     }
   });
 
+  // 掲示板添付ファイルの削除 API
+  app.delete('/api/bulletins/file', (req, res) => {
+    try {
+      const fileUrl = (req.query.fileUrl || req.body?.fileUrl || '') as string;
+      const filenameParam = (req.query.filename || req.body?.filename || '') as string;
+
+      let filename = filenameParam;
+      if (!filename && fileUrl) {
+        const urlParts = fileUrl.split('/bulletinsfiles/');
+        if (urlParts.length > 1) {
+          filename = decodeURIComponent(urlParts[urlParts.length - 1].split('?')[0]);
+        } else {
+          filename = path.basename(fileUrl.split('?')[0]);
+        }
+      }
+
+      if (!filename) {
+        return res.status(400).json({ error: 'ファイル名が指定されていません。' });
+      }
+
+      const safeFilename = path.basename(filename);
+      const targetPath = path.join(bulletinsFilesDir, safeFilename);
+
+      if (fs.existsSync(targetPath)) {
+        fs.unlinkSync(targetPath);
+        console.log(`[Bulletins] 添付ファイルを削除しました: ${targetPath}`);
+        return res.json({ message: '添付ファイルを削除しました', filename: safeFilename });
+      } else {
+        return res.status(404).json({ error: '対象の添付ファイルが存在しません', filename: safeFilename });
+      }
+    } catch (err: any) {
+      console.error('添付ファイル削除エラー:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 掲示板添付ファイルの一括削除 API
+  app.post('/api/bulletins/delete-multiple', (req, res) => {
+    try {
+      const fileUrls: string[] = req.body?.fileUrls || [];
+      const deleted: string[] = [];
+      const errors: string[] = [];
+
+      fileUrls.forEach(fileUrl => {
+        if (!fileUrl) return;
+        let filename = '';
+        const urlParts = fileUrl.split('/bulletinsfiles/');
+        if (urlParts.length > 1) {
+          filename = decodeURIComponent(urlParts[urlParts.length - 1].split('?')[0]);
+        } else {
+          filename = path.basename(fileUrl.split('?')[0]);
+        }
+
+        if (filename) {
+          const safeFilename = path.basename(filename);
+          const targetPath = path.join(bulletinsFilesDir, safeFilename);
+          if (fs.existsSync(targetPath)) {
+            try {
+              fs.unlinkSync(targetPath);
+              deleted.push(safeFilename);
+            } catch (e: any) {
+              errors.push(`${safeFilename}: ${e.message}`);
+            }
+          }
+        }
+      });
+
+      res.json({ message: '添付ファイル一括削除完了', deleted, errors });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // ==========================================
   // 外部NAS同期・外部ファイル連携用 API
   // ==========================================

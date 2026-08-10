@@ -45,3 +45,45 @@ export async function uploadMultipleFiles(files: FileList | File[]): Promise<Att
   const uploadPromises = fileList.map(file => uploadFile(file));
   return Promise.all(uploadPromises);
 }
+
+/**
+ * 添付ファイルをサーバーのマウントフォルダ (/app/bulletinsfiles) から物理削除します。
+ */
+export async function deleteAttachmentFile(fileUrl: string): Promise<boolean> {
+  if (!fileUrl) return false;
+  try {
+    const response = await fetch(`${API_BASE_URL}/bulletins/file?fileUrl=${encodeURIComponent(fileUrl)}`, {
+      method: 'DELETE',
+    });
+    return response.ok;
+  } catch (err) {
+    console.error('Failed to delete attachment file:', err);
+    return false;
+  }
+}
+
+/**
+ * 複数の添付ファイルを一括で物理削除します。
+ */
+export async function deleteAttachmentFiles(attachments?: (AttachmentFile | string)[]): Promise<void> {
+  if (!attachments || attachments.length === 0) return;
+
+  const urls: string[] = attachments.map(item => {
+    if (typeof item === 'string') return item;
+    return item?.url || '';
+  }).filter(Boolean);
+
+  if (urls.length === 0) return;
+
+  try {
+    await fetch(`${API_BASE_URL}/bulletins/delete-multiple`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ fileUrls: urls }),
+    });
+  } catch (err) {
+    console.error('Failed to delete multiple attachment files:', err);
+  }
+}
