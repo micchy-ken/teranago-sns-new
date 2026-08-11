@@ -6,6 +6,7 @@ import { EventModal } from './EventModal';
 import { fetchIcalFeed } from '../utils/icalParser';
 import { renderWithClickableLinks } from '../utils/linkify';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
+import { getLocalDateStr } from '../utils/dateUtils';
 
 interface CalendarProps {
   events: CalendarEvent[];
@@ -582,7 +583,7 @@ export function Calendar({
 
               {/* Day Columns */}
               {dates.map((date, idx) => {
-                const dateStr = getLocalDateStr(date.toISOString());
+                const dateStr = getLocalDateStr(date);
                 const dayEvents = filteredEvents.filter(e => {
                   return isEventOccurringOnDate(e, dateStr) && e.attendees?.some(a => a.id === member.id);
                 });
@@ -700,7 +701,7 @@ export function Calendar({
 
               {/* Hour Columns */}
               {hours.map((hour) => {
-                const dateStr = getLocalDateStr(currentDate.toISOString());
+                const dateStr = getLocalDateStr(currentDate);
                 const datetimeStr = `${dateStr}T${String(hour).padStart(2, '0')}:00`;
 
                 const hourEvents = filteredEvents.filter(e => {
@@ -947,37 +948,15 @@ export function Calendar({
   const formatEventTime = (e: CalendarEvent) => {
     if (e.isAllDay) return '終日';
     const startDate = new Date(e.start);
-    const startTimeStr = startDate.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+    const startTimeStr = startDate.toLocaleTimeString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit' });
     if (!e.end) return `${startTimeStr}〜`;
     const endDate = new Date(e.end);
-    const endTimeStr = endDate.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+    const endTimeStr = endDate.toLocaleTimeString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit' });
     return `${startTimeStr}〜${endTimeStr}`;
   };
 
   const isSameDay = (d1: Date, d2: Date) => {
-    return d1.getFullYear() === d2.getFullYear() &&
-      d1.getMonth() === d2.getMonth() &&
-      d1.getDate() === d2.getDate();
-  };
-
-  const getLocalDateStr = (isoOrDateStr: string) => {
-    if (!isoOrDateStr) return '';
-    if (isoOrDateStr.includes('T')) {
-      const parts = isoOrDateStr.split('T');
-      if (parts[0] && parts[0].length === 10 && parts[0].includes('-')) {
-        return parts[0];
-      }
-    } else if (isoOrDateStr.length === 10 && isoOrDateStr.includes('-')) {
-      return isoOrDateStr;
-    }
-    const d = new Date(isoOrDateStr);
-    if (isNaN(d.getTime())) {
-      return isoOrDateStr.split('T')[0];
-    }
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
+    return getLocalDateStr(d1) === getLocalDateStr(d2);
   };
 
   const hoursList = Array.from({ length: 15 }, (_, i) => i + 8); // 8:00 to 22:00

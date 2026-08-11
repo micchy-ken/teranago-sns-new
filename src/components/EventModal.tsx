@@ -4,6 +4,7 @@ import { EventType, CalendarEvent, OfficeMaster, DivisionMaster, User, Attachmen
 import { getAvatarUrl } from '../utils/avatar';
 import { uploadMultipleFiles } from '../utils/fileUpload';
 import { FilePreviewModal } from './FilePreviewModal';
+import { getLocalDateStr } from '../utils/dateUtils';
 
 interface EventModalProps {
   isOpen: boolean;
@@ -23,34 +24,33 @@ interface EventModalProps {
 
 const toLocalDatetimeInput = (isoStr?: string) => {
   if (!isoStr) return '';
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(isoStr)) return isoStr;
   const d = new Date(isoStr);
   if (isNaN(d.getTime())) return isoStr;
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  const hours = String(d.getHours()).padStart(2, '0');
-  const minutes = String(d.getMinutes()).padStart(2, '0');
+
+  const formatter = new Intl.DateTimeFormat('ja-JP', {
+    timeZone: 'Asia/Tokyo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+
+  const parts = formatter.formatToParts(d);
+  const year = parts.find(p => p.type === 'year')?.value;
+  const month = parts.find(p => p.type === 'month')?.value;
+  const day = parts.find(p => p.type === 'day')?.value;
+  let hours = parts.find(p => p.type === 'hour')?.value || '00';
+  if (hours === '24') hours = '00';
+  const minutes = parts.find(p => p.type === 'minute')?.value || '00';
+
   return `${year}-${month}-${day}T${hours}:${minutes}`;
 };
 
 const extractLocalDateStr = (isoOrDateStr?: string) => {
-  if (!isoOrDateStr) return '';
-  if (isoOrDateStr.includes('T')) {
-    const parts = isoOrDateStr.split('T');
-    if (parts[0] && parts[0].length === 10 && parts[0].includes('-')) {
-      return parts[0];
-    }
-  } else if (isoOrDateStr.length === 10 && isoOrDateStr.includes('-')) {
-    return isoOrDateStr;
-  }
-  const d = new Date(isoOrDateStr);
-  if (isNaN(d.getTime())) {
-    return isoOrDateStr.split('T')[0] || '';
-  }
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+  return getLocalDateStr(isoOrDateStr);
 };
 
 export function EventModal({
@@ -259,14 +259,16 @@ export function EventModal({
 
     if (isAllDay) {
       const startDatePart = start.split('T')[0];
-      startIso = `${startDatePart}T00:00:00`;
+      startIso = `${startDatePart}T00:00:00+09:00`;
 
       const endDatePart = (end && end.trim()) ? end.split('T')[0] : startDatePart;
-      endIso = `${endDatePart}T23:59:59`;
+      endIso = `${endDatePart}T23:59:59+09:00`;
     } else {
-      startIso = new Date(start).toISOString();
+      const formattedStart = start.includes('+') || start.endsWith('Z') ? start : `${start}:00+09:00`;
+      startIso = new Date(formattedStart).toISOString();
       if (end) {
-        endIso = new Date(end).toISOString();
+        const formattedEnd = end.includes('+') || end.endsWith('Z') ? end : `${end}:00+09:00`;
+        endIso = new Date(formattedEnd).toISOString();
       }
     }
 
