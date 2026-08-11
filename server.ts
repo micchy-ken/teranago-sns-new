@@ -106,7 +106,7 @@ async function startServer() {
           name: displayName,
           rawFilename: filename,
           path: filename,
-          url: `/bulletinsfiles/${encodeURIComponent(filename)}`,
+          url: `/api/bulletins/file/${encodeURIComponent(filename)}`,
           size: stat.size,
           mtime: stat.mtime.toISOString(),
           isDirectory: false,
@@ -125,19 +125,61 @@ async function startServer() {
     }
   });
 
-  app.get('/api/bulletins/file/:filename', (req, res) => {
+  app.get('/api/bulletins/file/:filename(*)', (req, res) => {
     try {
-      const filename = decodeURIComponent(req.params.filename);
-      const safePath = path.join(bulletinsFilesDir, path.basename(filename));
-      if (fs.existsSync(safePath)) {
-        if (req.query.download === '1') {
-          return res.download(safePath, filename);
+      const rawParam = req.params.filename || req.params[0] || '';
+      let filename = rawParam;
+      try {
+        filename = decodeURIComponent(rawParam);
+      } catch (e) {
+        filename = rawParam;
+      }
+
+      let foundFile = '';
+      const candidateNames = [
+        path.basename(filename),
+        path.basename(rawParam),
+      ];
+
+      for (const cand of candidateNames) {
+        if (!cand) continue;
+        const testPath = path.join(bulletinsFilesDir, cand);
+        if (fs.existsSync(testPath) && !fs.statSync(testPath).isDirectory()) {
+          foundFile = cand;
+          break;
         }
-        res.sendFile(safePath);
+      }
+
+      // 見つからなかった場合、ディレクトリ内を検索（タイムスタンプ接頭辞の有無や部分一致対応）
+      if (!foundFile && fs.existsSync(bulletinsFilesDir)) {
+        const files = fs.readdirSync(bulletinsFilesDir);
+        const searchBase = path.basename(filename);
+        const matched = files.find(f => {
+          if (f === searchBase) return true;
+          if (f.endsWith(`_${searchBase}`)) return true;
+          try {
+            if (decodeURIComponent(f) === searchBase) return true;
+          } catch (e) {}
+          return false;
+        });
+        if (matched) {
+          foundFile = matched;
+        }
+      }
+
+      if (foundFile) {
+        const safePath = path.join(bulletinsFilesDir, foundFile);
+        const displayName = foundFile.includes('_') ? foundFile.substring(foundFile.indexOf('_') + 1) : foundFile;
+
+        if (req.query.download === '1') {
+          return res.download(safePath, displayName);
+        }
+        return res.sendFile(safePath);
       } else {
-        res.status(404).json({ error: '添付ファイルが見つかりません' });
+        res.status(404).json({ error: `添付ファイルが見つかりません (${filename})` });
       }
     } catch (err: any) {
+      console.error('掲示板ファイル取得エラー:', err);
       res.status(500).json({ error: err.message });
     }
   });

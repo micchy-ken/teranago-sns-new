@@ -121,20 +121,19 @@ export default function FileManager({ currentUser }: FileManagerProps) {
   const getFileUrl = (file: ExternalFile | null, isDownload = false) => {
     if (!file) return '';
 
-    if (file.url && file.url.startsWith('http') && !file.url.includes('/api/external-files/')) {
+    if (file.url && file.url.startsWith('http') && !file.url.includes('/api/external-files/') && !file.url.includes('/api/bulletins/')) {
       return file.url;
     }
 
+    let rawUrl = '';
+
     if (file.source === 'bulletin') {
       const filename = file.rawFilename || file.path || file.name;
-      if (isDownload) {
-        return `/api/bulletins/file/${encodeURIComponent(filename)}?download=1`;
-      }
-      return `/bulletinsfiles/${encodeURIComponent(filename)}`;
+      rawUrl = `/api/bulletins/file/${encodeURIComponent(filename)}`;
+    } else {
+      const relPath = file.path || '';
+      rawUrl = file.url || `/api/external-files/serve?path=${encodeURIComponent(relPath)}`;
     }
-    
-    const relPath = file.path || '';
-    const rawUrl = file.url || `/api/external-files/serve?path=${encodeURIComponent(relPath)}`;
 
     if (rawUrl.startsWith('http')) return rawUrl;
 

@@ -1,6 +1,7 @@
 import React from 'react';
 import { X, Download, FileText, FileImage, FileCode, FileSpreadsheet } from 'lucide-react';
 import { AttachmentFile } from '../types';
+import { API_BASE_URL } from '../config/api';
 
 interface FilePreviewModalProps {
   isOpen: boolean;
@@ -10,6 +11,29 @@ interface FilePreviewModalProps {
 
 export function FilePreviewModal({ isOpen, onClose, file }: FilePreviewModalProps) {
   if (!isOpen || !file) return null;
+
+  const getNormalizedUrl = (rawUrl?: string) => {
+    if (!rawUrl) return '';
+    let url = rawUrl;
+    if (url.includes('/bulletinsfiles/')) {
+      const filename = url.split('/bulletinsfiles/').pop()?.split('?')[0];
+      if (filename) {
+        url = `/api/bulletins/file/${filename}`;
+      }
+    }
+    if (url.startsWith('http')) return url;
+
+    const baseUrl = (API_BASE_URL || '').replace(/\/+$/, '');
+    if (url.startsWith('/api/')) {
+      return baseUrl.endsWith('/api') ? `${baseUrl}${url.substring(4)}` : `${baseUrl}${url}`;
+    }
+    if (url.startsWith('/')) {
+      return `${baseUrl}${url}`;
+    }
+    return `${baseUrl}/${url}`;
+  };
+
+  const previewUrl = getNormalizedUrl(file.url);
 
   const isImage = file.type?.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(file.name);
   const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
@@ -23,9 +47,10 @@ export function FilePreviewModal({ isOpen, onClose, file }: FilePreviewModalProp
   };
 
   const handleDownload = () => {
-    if (!file.url) return;
+    const downloadUrl = getNormalizedUrl(file.url);
+    if (!downloadUrl) return;
     const link = document.createElement('a');
-    link.href = file.url;
+    link.href = downloadUrl.includes('?') ? `${downloadUrl}&download=1` : `${downloadUrl}?download=1`;
     link.download = file.name;
     document.body.appendChild(link);
     link.click();
@@ -80,19 +105,19 @@ export function FilePreviewModal({ isOpen, onClose, file }: FilePreviewModalProp
 
         {/* Preview Content */}
         <div className="flex-1 overflow-auto bg-slate-100 p-6 flex items-center justify-center min-h-[300px]">
-          {isImage && file.url ? (
+          {isImage && previewUrl ? (
             <div className="max-w-full max-h-[70vh] flex items-center justify-center">
               <img
-                src={file.url}
+                src={previewUrl}
                 alt={file.name}
                 referrerPolicy="no-referrer"
                 className="max-w-full max-h-[70vh] rounded-lg shadow-sm border border-slate-200/50 object-contain bg-white"
               />
             </div>
-          ) : isPdf && file.url ? (
+          ) : isPdf && previewUrl ? (
             <div className="w-full h-[70vh] bg-white rounded-lg overflow-hidden border border-slate-200">
               <iframe
-                src={`${file.url}#toolbar=1`}
+                src={`${previewUrl}#toolbar=1`}
                 className="w-full h-full border-0"
                 title={file.name}
               />
