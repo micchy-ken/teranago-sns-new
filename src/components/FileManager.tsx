@@ -121,15 +121,18 @@ export default function FileManager({ currentUser }: FileManagerProps) {
   const getFileUrl = (file: ExternalFile | null, isDownload = false) => {
     if (!file) return '';
 
-    if (file.url && file.url.startsWith('http') && !file.url.includes('/api/external-files/') && !file.url.includes('/api/bulletins/')) {
+    if (file.url && file.url.startsWith('http') && !file.url.includes('/api/external-files/')) {
       return file.url;
     }
 
     let rawUrl = '';
-
     if (file.source === 'bulletin') {
       const filename = file.rawFilename || file.path || file.name;
-      rawUrl = `/api/bulletins/file/${encodeURIComponent(filename)}`;
+      if (isDownload) {
+        rawUrl = `/api/bulletins/file/${encodeURIComponent(filename)}?download=1`;
+      } else {
+        rawUrl = file.url || `/bulletinsfiles/${encodeURIComponent(filename)}`;
+      }
     } else {
       const relPath = file.path || '';
       rawUrl = file.url || `/api/external-files/serve?path=${encodeURIComponent(relPath)}`;
@@ -138,6 +141,7 @@ export default function FileManager({ currentUser }: FileManagerProps) {
     if (rawUrl.startsWith('http')) return rawUrl;
 
     const baseUrl = (API_BASE_URL || '').replace(/\/+$/, '');
+    const serverOrigin = baseUrl.endsWith('/api') ? baseUrl.slice(0, -4) : baseUrl;
 
     let fullUrl = '';
     if (rawUrl.startsWith('/api/')) {
@@ -147,9 +151,9 @@ export default function FileManager({ currentUser }: FileManagerProps) {
         fullUrl = `${baseUrl}${rawUrl}`;
       }
     } else if (rawUrl.startsWith('/')) {
-      fullUrl = `${baseUrl}${rawUrl}`;
+      fullUrl = `${serverOrigin}${rawUrl}`;
     } else {
-      fullUrl = `${baseUrl}/${rawUrl}`;
+      fullUrl = `${serverOrigin}/${rawUrl}`;
     }
 
     if (isDownload && !fullUrl.includes('download=1')) {
