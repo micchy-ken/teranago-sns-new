@@ -30,7 +30,8 @@ import {
   Eye,
   Edit3,
   Shield,
-  Crown
+  Crown,
+  ArrowLeft
 } from 'lucide-react';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { uploadMultipleFiles, uploadFile } from '../utils/fileUpload';
@@ -104,6 +105,7 @@ export function Chat({
     const initial = rooms.filter((r) => r.participants && r.participants.some((p) => p.id === currentUser.id))[0]?.id || '';
     return initial;
   });
+  const [mobileView, setMobileView] = useState<'list' | 'room'>(() => initialRoomId ? 'room' : 'list');
   const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
 
   // activeRoomIdの整合性維持（退室時や部屋増減時）
@@ -208,6 +210,7 @@ export function Chat({
       if (rooms.some(r => r.id === initialRoomId)) {
         processedInitialRoomIdRef.current = initialRoomId;
         setActiveRoomId(initialRoomId);
+        setMobileView('room');
       }
     }
   }, [initialRoomId, rooms]);
@@ -742,7 +745,7 @@ export function Chat({
     });
 
   return (
-    <div className="flex-1 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex h-[calc(100vh-8.5rem)] relative">
+    <div className="flex-1 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex h-[calc(100dvh-8rem)] sm:h-[calc(100vh-8.5rem)] relative w-full">
       {/* 隠しファイルインプット */}
       <input
         type="file"
@@ -753,12 +756,14 @@ export function Chat({
       />
 
       {/* ----------------- 左サイドバー (トークルーム一覧) ----------------- */}
-      <div className="w-80 border-r border-slate-200 bg-slate-50/50 flex flex-col shrink-0">
+      <div className={`w-full md:w-80 border-r border-slate-200 bg-slate-50/50 flex flex-col shrink-0 ${
+        mobileView === 'room' ? 'hidden md:flex' : 'flex'
+      }`}>
         {/* ヘッダー＆新規ルーム作成ボタン */}
-        <div className="p-3.5 border-b border-slate-200 bg-white space-y-3">
+        <div className="p-3 sm:p-3.5 border-b border-slate-200 bg-white space-y-2.5 sm:space-y-3">
           <div className="flex items-center justify-between">
-            <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-              <MessageSquare className="w-5 h-5 text-indigo-600" />
+            <h2 className="text-sm sm:text-base font-bold text-slate-900 flex items-center gap-2">
+              <MessageSquare className="w-4 h-4 sm:w-5 sm:h-5 text-indigo-600" />
               チャットトーク
             </h2>
             <button
@@ -766,7 +771,7 @@ export function Chat({
                 resetCreateForm();
                 setShowCreateModal(true);
               }}
-              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1.5"
+              className="px-2.5 sm:px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1 sm:gap-1.5"
             >
               <Plus className="w-3.5 h-3.5" />
               ルーム作成
@@ -824,7 +829,10 @@ export function Chat({
               return (
                 <div key={room.id} className="relative group">
                   <button
-                    onClick={() => setActiveRoomId(room.id)}
+                    onClick={() => {
+                      setActiveRoomId(room.id);
+                      setMobileView('room');
+                    }}
                     className={`w-full flex items-center gap-3 p-3 text-left transition-colors relative ${
                       isActive ? 'bg-indigo-50/70 border-l-4 border-indigo-600' : 'hover:bg-slate-100/70'
                     }`}
@@ -868,7 +876,7 @@ export function Chat({
                         e.stopPropagation();
                         handleDeleteRoomClick(room.id);
                       }}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md opacity-0 group-hover:opacity-100 transition-opacity"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md opacity-80 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
                       title="チャットルームを削除"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -887,28 +895,40 @@ export function Chat({
 
       {/* ----------------- メイン (LINE風トーク画面) ----------------- */}
       {activeRoom ? (
-        <div className="flex-1 flex flex-col bg-slate-100/70 relative">
+        <div className={`flex-1 flex flex-col bg-slate-100/70 relative min-w-0 ${
+          mobileView === 'list' ? 'hidden md:flex' : 'flex'
+        }`}>
           {/* トークルームヘッダー */}
-          <div className="px-5 py-3 border-b border-slate-200 bg-white flex items-center justify-between shadow-2xs z-10 shrink-0">
-            <div className="flex items-center gap-3">
-              {getRoomIcon(activeRoom)}
-              <div>
-                <div className="flex items-center gap-2">
+          <div className="px-3 sm:px-5 py-2.5 sm:py-3 border-b border-slate-200 bg-white flex items-center justify-between shadow-2xs z-10 shrink-0 gap-2">
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+              <button
+                type="button"
+                onClick={() => setMobileView('list')}
+                className="md:hidden p-1.5 -ml-1 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors shrink-0"
+                title="トーク一覧に戻る"
+              >
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+              <div className="shrink-0">
+                {getRoomIcon(activeRoom)}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5 sm:gap-2">
                   {isRenamingRoom ? (
-                    <form onSubmit={handleRenameRoom} className="flex items-center gap-2">
+                    <form onSubmit={handleRenameRoom} className="flex items-center gap-1 sm:gap-2 min-w-0">
                       <input
                         type="text"
                         value={roomRenameText}
                         onChange={(e) => setRoomRenameText(e.target.value)}
-                        className="px-2 py-1 bg-slate-50 border border-slate-300 rounded text-xs font-semibold focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                        className="px-2 py-1 bg-slate-50 border border-slate-300 rounded text-xs font-semibold focus:ring-1 focus:ring-indigo-500 focus:outline-none min-w-0 w-28 sm:w-48"
                         autoFocus
                       />
-                      <button type="submit" className="text-xs font-semibold text-emerald-600 hover:text-emerald-800">保存</button>
-                      <button type="button" onClick={() => setIsRenamingRoom(false)} className="text-xs font-semibold text-slate-500 hover:text-slate-700">キャンセル</button>
+                      <button type="submit" className="text-xs font-semibold text-emerald-600 hover:text-emerald-800 shrink-0">保存</button>
+                      <button type="button" onClick={() => setIsRenamingRoom(false)} className="text-xs font-semibold text-slate-500 hover:text-slate-700 shrink-0">取消</button>
                     </form>
                   ) : (
-                    <div className="flex items-center gap-1.5">
-                      <h2 className="text-sm font-bold text-slate-900">{getRoomName(activeRoom)}</h2>
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <h2 className="text-xs sm:text-sm font-bold text-slate-900 truncate">{getRoomName(activeRoom)}</h2>
                       {isGroupRoom(activeRoom) && (
                         <>
                           {isUserRoomAdmin(activeRoom, currentUser.id) && (
@@ -917,13 +937,13 @@ export function Chat({
                                 setRoomRenameText(getRoomName(activeRoom));
                                 setIsRenamingRoom(true);
                               }}
-                              className="p-1 text-slate-400 hover:text-indigo-600 rounded hover:bg-slate-50 transition-colors"
+                              className="p-1 text-slate-400 hover:text-indigo-600 rounded hover:bg-slate-50 transition-colors shrink-0"
                               title="グループ名を変更"
                             >
                               <Edit3 className="w-3.5 h-3.5" />
                             </button>
                           )}
-                          <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 text-[10px] font-semibold rounded-full border border-indigo-200/60">
+                          <span className="hidden xs:inline-block px-1.5 sm:px-2 py-0.5 bg-indigo-50 text-indigo-700 text-[10px] font-semibold rounded-full border border-indigo-200/60 shrink-0">
                             グループ
                           </span>
                         </>
@@ -931,17 +951,17 @@ export function Chat({
                     </div>
                   )}
                 </div>
-                <p className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
-                  <Users className="w-3 h-3 text-slate-400" />
-                  メンバー {activeRoom.participants.length}名 :{' '}
-                  <span className="truncate max-w-xs text-slate-600">
+                <p className="text-[11px] sm:text-xs text-slate-500 flex items-center gap-1 mt-0.5 truncate">
+                  <Users className="w-3 h-3 text-slate-400 shrink-0" />
+                  <span className="shrink-0">{activeRoom.participants.length}名:</span>
+                  <span className="truncate text-slate-600">
                     {activeRoom.participants.map((p) => p.name).join(', ')}
                   </span>
                 </p>
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 sm:gap-2 shrink-0">
               {isGroupRoom(activeRoom) && (
                 <button
                   onClick={() => {
@@ -949,16 +969,16 @@ export function Chat({
                     setModalSearch('');
                     setShowAddMemberModal(true);
                   }}
-                  className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5"
+                  className="p-1.5 sm:px-3 sm:py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1"
                   title="メンバーを追加"
                 >
-                  <UserPlus className="w-3.5 h-3.5 text-indigo-600" />
-                  メンバー追加
+                  <UserPlus className="w-4 h-4 sm:w-3.5 sm:h-3.5 text-indigo-600" />
+                  <span className="hidden sm:inline">メンバー追加</span>
                 </button>
               )}
               <button
                 onClick={() => setShowInfoSidebar(!showInfoSidebar)}
-                className={`p-2 rounded-lg transition-colors ${
+                className={`p-1.5 sm:p-2 rounded-lg transition-colors ${
                   showInfoSidebar ? 'bg-indigo-50 text-indigo-600' : 'hover:bg-slate-100 text-slate-500'
                 }`}
                 title="ルーム詳細"
@@ -969,7 +989,7 @@ export function Chat({
               {(!isGroupRoom(activeRoom) || isUserRoomAdmin(activeRoom, currentUser.id)) && (
                 <button
                   onClick={() => handleDeleteRoomClick(activeRoom.id)}
-                  className="p-2 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                  className="p-1.5 sm:p-2 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
                   title="トークルームを削除"
                 >
                   <Trash2 className="w-4 h-4" />
@@ -980,15 +1000,15 @@ export function Chat({
 
           <div className="flex-1 flex overflow-hidden">
             {/* メッセージ本文エリア (LINEスタイルトーク画面) */}
-            <div ref={chatContainerRef} className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 bg-[#e2e8f0]/40">
+            <div ref={chatContainerRef} className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-3 sm:space-y-4 bg-[#e2e8f0]/40">
               {(activeRoom?.messages || []).map((msg, index) => {
                 const isMine = msg.sender.id === currentUser.id;
                 const isSystem = msg.id.startsWith('sys_') || msg.id.startsWith('m_init_');
 
                 if (isSystem) {
                   return (
-                    <div key={msg.id} className="flex justify-center my-3">
-                      <span className="px-3 py-1 bg-slate-200/80 text-slate-600 text-[11px] font-medium rounded-full shadow-2xs">
+                    <div key={msg.id} className="flex justify-center my-2 sm:my-3">
+                      <span className="px-2.5 py-0.5 sm:px-3 sm:py-1 bg-slate-200/80 text-slate-600 text-[10px] sm:text-[11px] font-medium rounded-full shadow-2xs">
                         {msg.content}
                       </span>
                     </div>
@@ -999,25 +1019,25 @@ export function Chat({
                 const showSenderName = !isMine && (!prevMsg || prevMsg.sender.id !== msg.sender.id || prevMsg.id.startsWith('sys_'));
 
                 return (
-                  <div key={msg.id} className={`flex gap-2.5 ${isMine ? 'flex-row-reverse' : 'flex-row'}`}>
+                  <div key={msg.id} className={`flex gap-2 sm:gap-2.5 ${isMine ? 'flex-row-reverse' : 'flex-row'}`}>
                     {/* 相手のアバター */}
                     {!isMine && (
-                      <div className="w-8 h-8 shrink-0">
+                      <div className="w-7 h-7 sm:w-8 sm:h-8 shrink-0">
                         {showSenderName ? (
                           <img
                             src={getAvatarUrl(msg.sender.avatarUrl)}
                             alt={msg.sender.name}
-                            className="w-8 h-8 rounded-full border border-slate-200 object-cover shadow-2xs"
+                            className="w-7 h-7 sm:w-8 sm:h-8 rounded-full border border-slate-200 object-cover shadow-2xs"
                           />
                         ) : (
-                          <div className="w-8 h-8" />
+                          <div className="w-7 h-7 sm:w-8 sm:h-8" />
                         )}
                       </div>
                     )}
 
-                    <div className={`flex flex-col ${isMine ? 'items-end' : 'items-start'} max-w-[75%]`}>
+                    <div className={`flex flex-col ${isMine ? 'items-end' : 'items-start'} max-w-[85%] sm:max-w-[75%]`}>
                       {showSenderName && (
-                        <span className="text-[11px] font-bold text-slate-600 mb-1 ml-1">
+                        <span className="text-[10px] sm:text-[11px] font-bold text-slate-600 mb-1 ml-1">
                           {msg.sender.name}
                         </span>
                       )}
@@ -1029,27 +1049,27 @@ export function Chat({
                             {(() => {
                               const stampDef = STAMP_CATEGORIES.flatMap((c) => c.stamps).find((s) => s.id === msg.stampId);
                               return (
-                                <div className={`inline-flex flex-col items-center justify-center p-3.5 rounded-2xl border-2 shadow-md hover:scale-105 transition-transform ${stampDef?.color || 'bg-emerald-500 text-white border-emerald-600'}`}>
-                                  <span className="text-3xl mb-1">{stampDef?.icon || '😊'}</span>
-                                  <span className="text-sm font-black tracking-wide drop-shadow-xs">{msg.stampText || msg.content}</span>
+                                <div className={`inline-flex flex-col items-center justify-center p-2.5 sm:p-3.5 rounded-2xl border-2 shadow-md hover:scale-105 transition-transform ${stampDef?.color || 'bg-emerald-500 text-white border-emerald-600'}`}>
+                                  <span className="text-2xl sm:text-3xl mb-1">{stampDef?.icon || '😊'}</span>
+                                  <span className="text-xs sm:text-sm font-black tracking-wide drop-shadow-xs">{msg.stampText || msg.content}</span>
                                 </div>
                               );
                             })()}
                           </div>
                         ) : msg.type === 'image' ? (
-                          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm max-w-sm">
+                          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm max-w-xs sm:max-w-sm">
                             <div className="relative group cursor-pointer" onClick={() => setLightboxImage(msg.imageUrl || null)}>
                               <img
                                 src={msg.imageUrl}
                                 alt="添付写真"
-                                className="w-full max-h-64 object-cover hover:opacity-95 transition-opacity"
+                                className="w-full max-h-56 sm:max-h-64 object-cover hover:opacity-95 transition-opacity"
                               />
                               <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-bold gap-1">
                                 <Maximize2 className="w-4 h-4" /> 拡大表示
                               </div>
                             </div>
                             {msg.content && msg.content !== '写真を送信しました' && (
-                              <div className="p-2.5 text-xs text-slate-800 border-t border-slate-100 whitespace-pre-wrap">
+                              <div className="p-2 sm:p-2.5 text-xs text-slate-800 border-t border-slate-100 whitespace-pre-wrap">
                                 {msg.content}
                               </div>
                             )}
@@ -1058,7 +1078,7 @@ export function Chat({
                           // LINE風フキダシ
                           <div className="flex flex-col gap-1.5 items-stretch">
                             <div
-                              className={`px-4 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap break-words shadow-2xs relative ${
+                              className={`px-3.5 py-2 sm:px-4 sm:py-2.5 rounded-2xl text-xs sm:text-sm leading-relaxed whitespace-pre-wrap break-words shadow-2xs relative ${
                                 isMine
                                   ? 'bg-[#dcf8c6] text-slate-900 rounded-tr-xs border border-emerald-200/80 font-medium'
                                   : 'bg-white text-slate-800 rounded-tl-xs border border-slate-200'
@@ -1184,103 +1204,110 @@ export function Chat({
 
             {/* ----------------- 右サイドバー (ルーム情報) ----------------- */}
             {showInfoSidebar && (
-              <div className="w-64 border-l border-slate-200 bg-white p-4 overflow-y-auto shrink-0 space-y-5">
-                <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-                  <h3 className="text-xs font-bold text-slate-900">トーク詳細</h3>
-                  <button onClick={() => setShowInfoSidebar(false)} className="text-slate-400 hover:text-slate-600">
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-
-                <div>
-                  <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">
-                    参加メンバー ({activeRoom.participants.length})
-                  </h4>
-                  <div className="space-y-2">
-                    {activeRoom.participants.map((member) => (
-                      <div key={member.id} className="flex items-center gap-2.5 p-1.5 rounded-lg hover:bg-slate-50 group/member">
-                        <img
-                          src={getAvatarUrl(member.avatarUrl)}
-                          alt={member.name}
-                          className="w-8 h-8 rounded-full border border-slate-200 object-cover shrink-0"
-                        />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-xs font-bold text-slate-800 truncate">
-                            {member.name} {member.id === currentUser.id && '(自分)'}
-                          </p>
-                          <p className="text-[10px] text-slate-500 truncate">
-                            {member.office} / {member.division}
-                          </p>
-                        </div>
-                        {isGroupRoom(activeRoom) && (
-                          <div className="flex items-center gap-1 shrink-0">
-                            {/* 管理者（王冠）アイコンの表示・トグル */}
-                            {isUserRoomAdmin(activeRoom, member.id) ? (
-                              <button
-                                onClick={() => isUserRoomAdmin(activeRoom, currentUser.id) ? handleToggleAdmin(member.id) : undefined}
-                                className={`p-1 rounded transition-all ${
-                                  isUserRoomAdmin(activeRoom, currentUser.id)
-                                    ? 'text-amber-500 hover:scale-110 cursor-pointer'
-                                    : 'text-amber-500 cursor-default'
-                                }`}
-                                title={isUserRoomAdmin(activeRoom, currentUser.id) ? '管理者（クリックで権限解除）' : '管理者'}
-                              >
-                                <Crown className="w-3.5 h-3.5 fill-amber-300" />
-                              </button>
-                            ) : (
-                              // 自分が管理者なら、他の一般メンバーに管理者権限を付与するボタンを薄く表示
-                              isUserRoomAdmin(activeRoom, currentUser.id) && (
-                                <button
-                                  onClick={() => handleToggleAdmin(member.id)}
-                                  className="p-1 text-slate-300 hover:text-amber-500 hover:scale-110 transition-all cursor-pointer"
-                                  title="管理者に設定"
-                                >
-                                  <Crown className="w-3.5 h-3.5" />
-                                </button>
-                              )
-                            )}
-
-                            {/* メンバー削除（ゴミ箱）ボタン : 自分が管理者 or 自分自身の場合のみ表示 */}
-                            {((isUserRoomAdmin(activeRoom, currentUser.id) && member.id !== currentUser.id) || (member.id === currentUser.id)) && (
-                              <button
-                                onClick={() => handleRemoveMember(member.id)}
-                                className="p-1 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded transition-colors cursor-pointer"
-                                title={member.id === currentUser.id ? 'グループを退室' : 'グループから削除'}
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    ))}
+              <>
+                {/* モバイル用背景オーバーレイ */}
+                <div
+                  className="md:hidden fixed inset-0 bg-slate-900/40 z-30 backdrop-blur-xs"
+                  onClick={() => setShowInfoSidebar(false)}
+                />
+                <div className="fixed md:static inset-y-0 right-0 z-40 md:z-auto w-72 sm:w-80 md:w-64 border-l border-slate-200 bg-white p-4 overflow-y-auto shrink-0 space-y-5 shadow-2xl md:shadow-none animate-in slide-in-from-right-10 md:animate-none duration-200">
+                  <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+                    <h3 className="text-xs font-bold text-slate-900">トーク詳細</h3>
+                    <button onClick={() => setShowInfoSidebar(false)} className="text-slate-400 hover:text-slate-600 p-1">
+                      <X className="w-4 h-4" />
+                    </button>
                   </div>
-                </div>
 
-                {isGroupRoom(activeRoom) && (
-                  <button
-                    onClick={() => {
-                      setSelectedUserIds([]);
-                      setModalSearch('');
-                      setShowAddMemberModal(true);
-                    }}
-                    className="w-full py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5"
-                  >
-                    <UserPlus className="w-4 h-4" />
-                    メンバーを追加する
-                  </button>
-                )}
-              </div>
+                  <div>
+                    <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+                      参加メンバー ({activeRoom.participants.length})
+                    </h4>
+                    <div className="space-y-2">
+                      {activeRoom.participants.map((member) => (
+                        <div key={member.id} className="flex items-center gap-2.5 p-1.5 rounded-lg hover:bg-slate-50 group/member">
+                          <img
+                            src={getAvatarUrl(member.avatarUrl)}
+                            alt={member.name}
+                            className="w-8 h-8 rounded-full border border-slate-200 object-cover shrink-0"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-bold text-slate-800 truncate">
+                              {member.name} {member.id === currentUser.id && '(自分)'}
+                            </p>
+                            <p className="text-[10px] text-slate-500 truncate">
+                              {member.office} / {member.division}
+                            </p>
+                          </div>
+                          {isGroupRoom(activeRoom) && (
+                            <div className="flex items-center gap-1 shrink-0">
+                              {/* 管理者（王冠）アイコンの表示・トグル */}
+                              {isUserRoomAdmin(activeRoom, member.id) ? (
+                                <button
+                                  onClick={() => isUserRoomAdmin(activeRoom, currentUser.id) ? handleToggleAdmin(member.id) : undefined}
+                                  className={`p-1 rounded transition-all ${
+                                    isUserRoomAdmin(activeRoom, currentUser.id)
+                                      ? 'text-amber-500 hover:scale-110 cursor-pointer'
+                                      : 'text-amber-500 cursor-default'
+                                  }`}
+                                  title={isUserRoomAdmin(activeRoom, currentUser.id) ? '管理者（クリックで権限解除）' : '管理者'}
+                                >
+                                  <Crown className="w-3.5 h-3.5 fill-amber-300" />
+                                </button>
+                              ) : (
+                                // 自分が管理者なら、他の一般メンバーに管理者権限を付与するボタンを薄く表示
+                                isUserRoomAdmin(activeRoom, currentUser.id) && (
+                                  <button
+                                    onClick={() => handleToggleAdmin(member.id)}
+                                    className="p-1 text-slate-300 hover:text-amber-500 hover:scale-110 transition-all cursor-pointer"
+                                    title="管理者に設定"
+                                  >
+                                    <Crown className="w-3.5 h-3.5" />
+                                  </button>
+                                )
+                              )}
+
+                              {/* メンバー削除（ゴミ箱）ボタン : 自分が管理者 or 自分自身の場合のみ表示 */}
+                              {((isUserRoomAdmin(activeRoom, currentUser.id) && member.id !== currentUser.id) || (member.id === currentUser.id)) && (
+                                <button
+                                  onClick={() => handleRemoveMember(member.id)}
+                                  className="p-1 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded transition-colors cursor-pointer"
+                                  title={member.id === currentUser.id ? 'グループを退室' : 'グループから削除'}
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {isGroupRoom(activeRoom) && (
+                    <button
+                      onClick={() => {
+                        setSelectedUserIds([]);
+                        setModalSearch('');
+                        setShowAddMemberModal(true);
+                      }}
+                      className="w-full py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5"
+                    >
+                      <UserPlus className="w-4 h-4" />
+                      メンバーを追加する
+                    </button>
+                  )}
+                </div>
+              </>
             )}
           </div>
 
           {/* ----------------- メッセージ入力バー ----------------- */}
-          <div className="p-3 bg-white border-t border-slate-200 shrink-0 relative">
+          <div className="p-2 sm:p-3 bg-white border-t border-slate-200 shrink-0 relative">
             {/* 写真添付プレビューモーダル / ポップアップ */}
             {pendingPhotoUrl && (
-              <div className="mb-3 p-3 bg-indigo-50/80 border border-indigo-200 rounded-xl flex items-center gap-3">
-                <img src={pendingPhotoUrl} alt="送信プレビュー" className="w-16 h-16 rounded-lg object-cover border border-indigo-200 shrink-0" />
-                <div className="flex-1 min-w-0">
+              <div className="mb-2 p-2.5 bg-indigo-50/80 border border-indigo-200 rounded-xl flex flex-col sm:flex-row items-start sm:items-center gap-2.5">
+                <img src={pendingPhotoUrl} alt="送信プレビュー" className="w-14 h-14 sm:w-16 sm:h-16 rounded-lg object-cover border border-indigo-200 shrink-0" />
+                <div className="flex-1 w-full min-w-0">
                   <input
                     type="text"
                     value={photoCaption}
@@ -1308,24 +1335,24 @@ export function Chat({
 
             {/* スタンプ選択ポップオーバー */}
             {showStampPicker && (
-              <div className="absolute bottom-16 left-4 z-30 w-80 sm:w-96 bg-white rounded-2xl border border-slate-200 shadow-xl p-3 space-y-3">
+              <div className="absolute bottom-16 left-2 right-2 sm:left-4 sm:right-auto sm:w-96 max-w-[calc(100vw-1rem)] bg-white rounded-2xl border border-slate-200 shadow-xl p-3 space-y-3 z-30">
                 <div className="flex items-center justify-between pb-2 border-b border-slate-100">
                   <span className="text-xs font-bold text-slate-800 flex items-center gap-1">
                     <Smile className="w-4 h-4 text-indigo-600" />
                     スタンプを選択
                   </span>
-                  <button onClick={() => setShowStampPicker(false)} className="text-slate-400 hover:text-slate-600">
+                  <button onClick={() => setShowStampPicker(false)} className="text-slate-400 hover:text-slate-600 p-1">
                     <X className="w-4 h-4" />
                   </button>
                 </div>
 
                 {/* スタンプカテゴリータブ */}
-                <div className="flex gap-1 border-b border-slate-100 pb-2">
+                <div className="flex gap-1 border-b border-slate-100 pb-2 overflow-x-auto">
                   {STAMP_CATEGORIES.map((cat) => (
                     <button
                       key={cat.id}
                       onClick={() => setActiveStampCategory(cat.id)}
-                      className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${
+                      className={`px-2.5 sm:px-3 py-1 rounded-full text-xs font-semibold shrink-0 transition-all ${
                         activeStampCategory === cat.id
                           ? 'bg-indigo-600 text-white shadow-2xs'
                           : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -1337,7 +1364,7 @@ export function Chat({
                 </div>
 
                 {/* スタンプグリッド */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 max-h-56 overflow-y-auto p-1">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-48 sm:max-h-56 overflow-y-auto p-1">
                   {STAMP_CATEGORIES.find((c) => c.id === activeStampCategory)?.stamps.map((stamp) => (
                     <button
                       key={stamp.id}
@@ -1347,10 +1374,10 @@ export function Chat({
                           STAMP_CATEGORIES.find((c) => c.id === activeStampCategory)?.name || 'スタンプ'
                         )
                       }
-                      className={`p-3 rounded-xl border-2 flex flex-col items-center justify-center gap-1 hover:scale-105 transition-all shadow-xs ${stamp.color}`}
+                      className={`p-2.5 sm:p-3 rounded-xl border-2 flex flex-col items-center justify-center gap-1 hover:scale-105 transition-all shadow-xs ${stamp.color}`}
                     >
-                      <span className="text-2xl">{stamp.icon}</span>
-                      <span className="text-xs font-black tracking-wide">{stamp.text}</span>
+                      <span className="text-xl sm:text-2xl">{stamp.icon}</span>
+                      <span className="text-[11px] sm:text-xs font-black tracking-wide">{stamp.text}</span>
                     </button>
                   ))}
                 </div>
@@ -1366,7 +1393,7 @@ export function Chat({
                     className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-semibold"
                   >
                     <Paperclip className="w-3.5 h-3.5 text-slate-400" />
-                    <span className="text-slate-700 truncate max-w-[150px]">{att.name}</span>
+                    <span className="text-slate-700 truncate max-w-[120px] sm:max-w-[150px]">{att.name}</span>
                     <button
                       type="button"
                       onClick={() => setChatAttachments(chatAttachments.filter(a => a.id !== att.id))}
@@ -1387,12 +1414,12 @@ export function Chat({
             )}
 
             {/* メッセージ入力フォーム */}
-            <form onSubmit={handleSendMessage} className="flex items-center gap-2">
+            <form onSubmit={handleSendMessage} className="flex items-center gap-1.5 sm:gap-2">
               <button
                 type="button"
                 disabled={isChatUploading}
                 onClick={() => chatFileInputRef.current?.click()}
-                className="p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-full border border-slate-200 transition-colors shrink-0 disabled:opacity-50"
+                className="p-2 sm:p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-full border border-slate-200 transition-colors shrink-0 disabled:opacity-50"
                 title="ファイルを添付"
               >
                 <Paperclip className="w-4 h-4" />
@@ -1411,10 +1438,10 @@ export function Chat({
                   fileInputRef.current?.click();
                   setShowStampPicker(false);
                 }}
-                className="p-2 rounded-full hover:bg-slate-100 text-slate-500 transition-colors"
+                className="p-1.5 sm:p-2 rounded-full hover:bg-slate-100 text-slate-500 transition-colors shrink-0"
                 title="写真を送信"
               >
-                <ImageIcon className="w-5 h-5" />
+                <ImageIcon className="w-4 h-4 sm:w-5 sm:h-5" />
               </button>
 
               <button
@@ -1422,12 +1449,12 @@ export function Chat({
                 onClick={() => {
                   setShowStampPicker(!showStampPicker);
                 }}
-                className={`p-2 rounded-full transition-colors ${
+                className={`p-1.5 sm:p-2 rounded-full transition-colors shrink-0 ${
                   showStampPicker ? 'bg-indigo-100 text-indigo-600' : 'hover:bg-slate-100 text-slate-500'
                 }`}
                 title="スタンプを送る"
               >
-                <Smile className="w-5 h-5" />
+                <Smile className="w-4 h-4 sm:w-5 sm:h-5" />
               </button>
 
               <input
@@ -1435,13 +1462,13 @@ export function Chat({
                 value={messageText}
                 onChange={(e) => setMessageText(e.target.value)}
                 placeholder="メッセージを入力..."
-                className="flex-1 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-full focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-xs sm:text-sm font-semibold text-slate-800"
+                className="flex-1 min-w-0 px-3 sm:px-4 py-2 sm:py-2.5 bg-slate-50 border border-slate-200 rounded-full focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-xs sm:text-sm font-semibold text-slate-800"
               />
 
               <button
                 type="submit"
                 disabled={((!messageText || !messageText.trim()) && chatAttachments.length === 0) || isChatUploading}
-                className="p-2.5 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 disabled:opacity-40 disabled:hover:bg-indigo-600 transition-colors shadow-sm shrink-0 flex items-center justify-center"
+                className="p-2 sm:p-2.5 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 disabled:opacity-40 disabled:hover:bg-indigo-600 transition-colors shadow-sm shrink-0 flex items-center justify-center"
               >
                 {isChatUploading ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
@@ -1453,7 +1480,9 @@ export function Chat({
           </div>
         </div>
       ) : (
-        <div className="flex-1 flex flex-col items-center justify-center bg-slate-50 text-slate-400 p-8">
+        <div className={`flex-1 flex flex-col items-center justify-center bg-slate-50 text-slate-400 p-8 ${
+          mobileView === 'list' ? 'hidden md:flex' : 'flex'
+        }`}>
           <MessageSquare className="w-16 h-16 mb-4 opacity-20 text-indigo-600" />
           <p className="font-bold text-slate-600">トークルームを選択してください</p>
           <p className="text-xs text-slate-400 mt-1">「+ ルーム作成」ボタンから新規トークを始められます</p>

@@ -53,6 +53,17 @@ const extractLocalDateStr = (isoOrDateStr?: string) => {
   return getLocalDateStr(isoOrDateStr);
 };
 
+const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
+const MINUTES = Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, '0'));
+
+const roundTo5Minutes = (minStr?: string) => {
+  if (!minStr) return '00';
+  const m = parseInt(minStr, 10) || 0;
+  const rounded = Math.round(m / 5) * 5;
+  if (rounded >= 60) return '55';
+  return String(rounded).padStart(2, '0');
+};
+
 export function EventModal({
   isOpen,
   onClose,
@@ -277,8 +288,6 @@ export function EventModal({
         ...currentEditingEvent,
         title: (title || '').trim(),
         type,
-        office,
-        division,
         start: startIso,
         end: endIso,
         isAllDay,
@@ -292,8 +301,6 @@ export function EventModal({
       onSave({
         title: (title || '').trim(),
         type,
-        office,
-        division,
         start: startIso,
         end: endIso,
         isAllDay,
@@ -381,66 +388,24 @@ export function EventModal({
             />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">区分</label>
-              <select
-                value={type}
-                disabled={isIcal}
-                onChange={e => setType(e.target.value as EventType)}
-                className={`w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors ${
-                  isIcal ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-slate-50 focus:bg-white'
-                }`}
-              >
-                <option value="personal">個人</option>
-                <option value="construction">工事</option>
-                <option value="inspection">点検</option>
-                <option value="replacement">取替</option>
-                <option value="repair">修理</option>
-                <option value="visitor">来客</option>
-                <option value="business_trip">出張</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1">
-                <Building2 className="w-3.5 h-3.5 text-slate-500" />
-                拠点
-              </label>
-              <select
-                value={office}
-                disabled={isIcal}
-                onChange={e => setOffice(e.target.value)}
-                className={`w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors ${
-                  isIcal ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-slate-50 focus:bg-white'
-                }`}
-              >
-                <option value="全社">全社</option>
-                {officeNames.map(o => (
-                  <option key={o} value={o}>{o}</option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1">
-                <Users className="w-3.5 h-3.5 text-slate-500" />
-                部署
-              </label>
-              <select
-                value={division}
-                disabled={isIcal}
-                onChange={e => setDivision(e.target.value)}
-                className={`w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors ${
-                  isIcal ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-slate-50 focus:bg-white'
-                }`}
-              >
-                <option value="全部署">全部署</option>
-                {divisionNames.map(d => (
-                  <option key={d} value={d}>{d}</option>
-                ))}
-              </select>
-            </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">区分</label>
+            <select
+              value={type}
+              disabled={isIcal}
+              onChange={e => setType(e.target.value as EventType)}
+              className={`w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors ${
+                isIcal ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-slate-50 focus:bg-white'
+              }`}
+            >
+              <option value="personal">個人</option>
+              <option value="construction">工事</option>
+              <option value="inspection">点検</option>
+              <option value="replacement">取替</option>
+              <option value="repair">修理</option>
+              <option value="visitor">来客</option>
+              <option value="business_trip">出張</option>
+            </select>
           </div>
 
           <div className="flex items-center gap-2 pt-1">
@@ -481,23 +446,79 @@ export function EventModal({
                   }`}
                 />
               ) : (
-                <input
-                  type="datetime-local"
-                  required
-                  readOnly={isIcal}
-                  value={start}
-                  onChange={e => { setStart(e.target.value); setError(null); }}
-                  className={`w-full px-3.5 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors text-sm ${
-                    isIcal ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-slate-50 focus:bg-white'
-                  }`}
-                />
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="date"
+                    required
+                    readOnly={isIcal}
+                    value={start.split('T')[0] || ''}
+                    onChange={e => {
+                      const d = e.target.value;
+                      const h = start.split('T')[1]?.split(':')[0] || '09';
+                      const m = roundTo5Minutes(start.split('T')[1]?.split(':')[1] || '00');
+                      setStart(d ? `${d}T${h}:${m}` : '');
+                      setError(null);
+                    }}
+                    className={`flex-1 min-w-[120px] px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors text-sm ${
+                      isIcal ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-slate-50 focus:bg-white'
+                    }`}
+                  />
+                  <select
+                    disabled={isIcal}
+                    value={start.split('T')[1]?.split(':')[0] || '09'}
+                    onChange={e => {
+                      const d = start.split('T')[0] || extractLocalDateStr(new Date().toISOString());
+                      const h = e.target.value;
+                      const m = roundTo5Minutes(start.split('T')[1]?.split(':')[1] || '00');
+                      setStart(`${d}T${h}:${m}`);
+                      setError(null);
+                    }}
+                    className={`px-2 py-2 border border-slate-200 rounded-lg text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer ${
+                      isIcal ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-slate-50 focus:bg-white'
+                    }`}
+                  >
+                    {HOURS.map(h => (
+                      <option key={h} value={h}>{h}時</option>
+                    ))}
+                  </select>
+                  <span className="text-slate-400 font-bold">:</span>
+                  <select
+                    disabled={isIcal}
+                    value={roundTo5Minutes(start.split('T')[1]?.split(':')[1] || '00')}
+                    onChange={e => {
+                      const d = start.split('T')[0] || extractLocalDateStr(new Date().toISOString());
+                      const h = start.split('T')[1]?.split(':')[0] || '09';
+                      const m = e.target.value;
+                      setStart(`${d}T${h}:${m}`);
+                      setError(null);
+                    }}
+                    className={`px-2 py-2 border border-slate-200 rounded-lg text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer ${
+                      isIcal ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-slate-50 focus:bg-white'
+                    }`}
+                  >
+                    {MINUTES.map(m => (
+                      <option key={m} value={m}>{m}分</option>
+                    ))}
+                  </select>
+                </div>
               )}
             </div>
 
             <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-1.5">
-                終了{isAllDay ? '日' : '日時'} <span className="text-slate-400 font-normal text-xs">(任意)</span>
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-sm font-semibold text-slate-700">
+                  終了{isAllDay ? '日' : '日時'} <span className="text-slate-400 font-normal text-xs">(任意)</span>
+                </label>
+                {!isAllDay && end && !isIcal && (
+                  <button
+                    type="button"
+                    onClick={() => { setEnd(''); setError(null); }}
+                    className="text-xs text-slate-400 hover:text-red-500 transition-colors"
+                  >
+                    指定なし
+                  </button>
+                )}
+              </div>
               {isAllDay ? (
                 <input
                   type="date"
@@ -512,15 +533,64 @@ export function EventModal({
                   }`}
                 />
               ) : (
-                <input
-                  type="datetime-local"
-                  readOnly={isIcal}
-                  value={end}
-                  onChange={e => { setEnd(e.target.value); setError(null); }}
-                  className={`w-full px-3.5 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors text-sm ${
-                    isIcal ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-slate-50 focus:bg-white'
-                  }`}
-                />
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="date"
+                    readOnly={isIcal}
+                    value={end ? end.split('T')[0] : ''}
+                    onChange={e => {
+                      const d = e.target.value;
+                      if (!d) {
+                        setEnd('');
+                      } else {
+                        const h = end ? (end.split('T')[1]?.split(':')[0] || '18') : '18';
+                        const m = end ? roundTo5Minutes(end.split('T')[1]?.split(':')[1] || '00') : '00';
+                        setEnd(`${d}T${h}:${m}`);
+                      }
+                      setError(null);
+                    }}
+                    className={`flex-1 min-w-[120px] px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors text-sm ${
+                      isIcal ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-slate-50 focus:bg-white'
+                    }`}
+                  />
+                  <select
+                    disabled={isIcal || !end}
+                    value={end ? (end.split('T')[1]?.split(':')[0] || '18') : '18'}
+                    onChange={e => {
+                      const d = (end && end.split('T')[0]) || start.split('T')[0] || extractLocalDateStr(new Date().toISOString());
+                      const h = e.target.value;
+                      const m = end ? roundTo5Minutes(end.split('T')[1]?.split(':')[1] || '00') : '00';
+                      setEnd(`${d}T${h}:${m}`);
+                      setError(null);
+                    }}
+                    className={`px-2 py-2 border border-slate-200 rounded-lg text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer ${
+                      isIcal || !end ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-slate-50 focus:bg-white'
+                    }`}
+                  >
+                    {HOURS.map(h => (
+                      <option key={h} value={h}>{h}時</option>
+                    ))}
+                  </select>
+                  <span className="text-slate-400 font-bold">:</span>
+                  <select
+                    disabled={isIcal || !end}
+                    value={end ? roundTo5Minutes(end.split('T')[1]?.split(':')[1] || '00') : '00'}
+                    onChange={e => {
+                      const d = (end && end.split('T')[0]) || start.split('T')[0] || extractLocalDateStr(new Date().toISOString());
+                      const h = end ? (end.split('T')[1]?.split(':')[0] || '18') : '18';
+                      const m = e.target.value;
+                      setEnd(`${d}T${h}:${m}`);
+                      setError(null);
+                    }}
+                    className={`px-2 py-2 border border-slate-200 rounded-lg text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer ${
+                      isIcal || !end ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-slate-50 focus:bg-white'
+                    }`}
+                  >
+                    {MINUTES.map(m => (
+                      <option key={m} value={m}>{m}分</option>
+                    ))}
+                  </select>
+                </div>
               )}
             </div>
           </div>

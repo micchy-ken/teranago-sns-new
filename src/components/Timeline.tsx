@@ -169,7 +169,7 @@ export function Timeline({
       // --- A. 拠点フィルタ ---
       if (selectedOffice !== 'all') {
         if (item.type === 'event') {
-          const matchOffice = !item.data.office || item.data.office === '全社' || item.data.office === selectedOffice;
+          const matchOffice = item.data.attendees ? item.data.attendees.some((a: any) => !a.office || a.office === selectedOffice) : true;
           if (!matchOffice) return false;
         } else if (item.type === 'topic') {
           const matchOffice = !item.data.office || item.data.office === '全社' || item.data.office === selectedOffice;
@@ -188,7 +188,7 @@ export function Timeline({
       // --- B. 部門フィルタ ---
       if (selectedDivision !== 'all') {
         if (item.type === 'event') {
-          const matchDivision = !item.data.division || item.data.division === '全部署' || item.data.division === selectedDivision;
+          const matchDivision = item.data.attendees ? item.data.attendees.some((a: any) => !a.division || a.division === selectedDivision) : true;
           if (!matchDivision) return false;
         } else if (item.type === 'topic') {
           const matchDivision = !item.data.division || item.data.division === '全部署' || item.data.division === selectedDivision;
@@ -221,8 +221,8 @@ export function Timeline({
           const titleMatch = (item.data.title || '').toLowerCase().includes(query);
           const memoMatch = (item.data.memo || '').toLowerCase().includes(query);
           const locMatch = (item.data.location || '').toLowerCase().includes(query);
-          const officeMatch = (item.data.office || '').toLowerCase().includes(query);
-          if (!titleMatch && !memoMatch && !locMatch && !officeMatch) return false;
+          const attMatch = (item.data.attendees || []).some((a: any) => (a.name || '').toLowerCase().includes(query));
+          if (!titleMatch && !memoMatch && !locMatch && !attMatch) return false;
         } else if (item.type === 'topic') {
           const titleMatch = (item.data.title || '').toLowerCase().includes(query);
           const contentMatch = (item.data.content || '').toLowerCase().includes(query);

@@ -2441,7 +2441,7 @@ export default function App() {
         </div>
       )}
 
-      <main className="w-full px-4 sm:px-6 lg:px-8 py-6 flex flex-col lg:flex-row gap-6 transition-all duration-300">
+      <main className={`w-full ${activeTab === 'chat' || activeTab === 'calendar' ? 'px-2 py-2 sm:px-6 lg:px-8 sm:py-6' : 'px-4 sm:px-6 lg:px-8 py-6'} flex flex-col lg:flex-row gap-6 transition-all duration-300`}>
         
         {/* Left Sidebar Column / Restore Button */}
         {!isSidebarCollapsed ? (
