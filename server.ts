@@ -372,6 +372,8 @@ async function startServer() {
     };
     app.get(`/${fileName}`, handleStaticAsset);
     app.get(`/public/${fileName}`, handleStaticAsset);
+    app.get(`/teranago-sns-new/${fileName}`, handleStaticAsset);
+    app.get(`/teranago-sns-new/public/${fileName}`, handleStaticAsset);
   });
 
   // 公開ファイル直接ダウンロード用 API

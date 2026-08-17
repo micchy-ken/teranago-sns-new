@@ -1,8 +1,8 @@
-# Force binary files to be treated as binary in Git
-*.png binary
-*.jpg binary
-*.jpeg binary
-*.gif binary
-*.ico binary
-*.webp binary
-*.svg text
+# Force binary files to be treated as pure raw binary in Git (no line ending or charset conversions)
+*.png binary -text -diff
+*.jpg binary -text -diff
+*.jpeg binary -text -diff
+*.gif binary -text -diff
+*.ico binary -text -diff
+*.webp binary -text -diff
+*.svg text eol=lf
