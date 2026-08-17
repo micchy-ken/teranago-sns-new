@@ -342,9 +342,48 @@ async function startServer() {
   }
 
   // 静的ファイル配信
+  const publicDir = path.join(process.cwd(), 'public');
+  app.use('/public', express.static(publicDir, { maxAge: '1d' }));
   app.use('/external-files', express.static(externalFilesDir));
   app.use('/bulletinsfiles', express.static(bulletinsFilesDir));
   app.use('/api/bulletinsfiles', express.static(bulletinsFilesDir));
+
+  // PWA・静的アイコン・マニフェスト等の明示的エンドポイント（開発/本番問わずバイナリとして確実に返却）
+  const publicStaticFiles = ['pwa-192x192.png', 'pwa-512x512.png', 'icon.svg', 'manifest.json'];
+  publicStaticFiles.forEach(fileName => {
+    const handleStaticAsset = (req: express.Request, res: express.Response) => {
+      const filePath = path.join(publicDir, fileName);
+      if (fs.existsSync(filePath)) {
+        if (fileName.endsWith('.png')) {
+          res.setHeader('Content-Type', 'image/png');
+        } else if (fileName.endsWith('.svg')) {
+          res.setHeader('Content-Type', 'image/svg+xml');
+        } else if (fileName.endsWith('.json')) {
+          res.setHeader('Content-Type', 'application/manifest+json; charset=utf-8');
+        }
+        res.setHeader('Cache-Control', 'public, max-age=86400');
+        if (req.query.download === '1') {
+          return res.download(filePath, fileName);
+        }
+        res.sendFile(filePath);
+      } else {
+        res.status(404).send('Not found');
+      }
+    };
+    app.get(`/${fileName}`, handleStaticAsset);
+    app.get(`/public/${fileName}`, handleStaticAsset);
+  });
+
+  // 公開ファイル直接ダウンロード用 API
+  app.get('/api/public-files/download/:filename', (req, res) => {
+    const fileName = path.basename(req.params.filename);
+    const filePath = path.join(publicDir, fileName);
+    if (fs.existsSync(filePath)) {
+      res.download(filePath, fileName);
+    } else {
+      res.status(404).json({ error: 'ファイルが見つかりません' });
+    }
+  });
 
   // ==========================================
   // 掲示板添付ファイルアップロード API (/app/bulletinsfiles へ保存)

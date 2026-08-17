@@ -1,7 +1,7 @@
 {
   "short_name": "社内SNS",
   "name": "寺子屋社内ナレッジSNS",
-  "id": "/teranago-sns-new/",
+  "id": "/",
   "icons": [
     {
       "src": "icon.svg",
@@ -50,11 +50,11 @@
       "label": "社内SNS デスクトップ"
     }
   ],
-  "start_url": "/teranago-sns-new/",
+  "start_url": "/",
   "background_color": "#ffffff",
   "theme_color": "#4f46e5",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "scope": "/teranago-sns-new/",
+  "scope": "/",
   "description": "寺子屋グループ 社内ナレッジSNS & 業務管理プラットフォーム"
 }
