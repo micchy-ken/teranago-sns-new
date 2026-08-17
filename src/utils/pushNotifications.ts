@@ -16,6 +16,14 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   return outputArray;
 }
 
+function withTimeout<T>(promise: Promise<T>, ms: number, errorMessage: string): Promise<T> {
+  let timer: any;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(errorMessage)), ms);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timer));
+}
+
 export interface PushStatus {
   isSupported: boolean;
   permission: NotificationPermission;
@@ -23,6 +31,7 @@ export interface PushStatus {
   subscriptionCount?: number;
   isStandalone: boolean;
   isIOS: boolean;
+  inIframe: boolean;
 }
 
 export function isPushNotificationSupported(): boolean {
@@ -32,6 +41,15 @@ export function isPushNotificationSupported(): boolean {
     'PushManager' in window &&
     'Notification' in window
   );
+}
+
+export function isInIframe(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.self !== window.top;
+  } catch (e) {
+    return true;
+  }
 }
 
 export function isPWAStandalone(): boolean {
@@ -58,6 +76,7 @@ export async function getPushNotificationStatus(userId?: string): Promise<PushSt
   const isSupported = isPushNotificationSupported();
   const isStandalone = isPWAStandalone();
   const isIOS = isIOSDevice();
+  const inIframe = isInIframe();
 
   if (!isSupported) {
     return {
@@ -66,6 +85,7 @@ export async function getPushNotificationStatus(userId?: string): Promise<PushSt
       isSubscribed: false,
       isStandalone,
       isIOS,
+      inIframe,
     };
   }
 
@@ -73,9 +93,17 @@ export async function getPushNotificationStatus(userId?: string): Promise<PushSt
   let isSubscribed = false;
 
   try {
-    const registration = await navigator.serviceWorker.ready;
-    const subscription = await registration.pushManager.getSubscription();
-    isSubscribed = !!subscription;
+    if ('serviceWorker' in navigator) {
+      await navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
+      const registration = await Promise.race([
+        navigator.serviceWorker.ready,
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500))
+      ]);
+      if (registration) {
+        const subscription = await registration.pushManager.getSubscription().catch(() => null);
+        isSubscribed = !!subscription;
+      }
+    }
   } catch (e) {
     console.warn('[Push] Error checking subscription:', e);
   }
@@ -83,7 +111,11 @@ export async function getPushNotificationStatus(userId?: string): Promise<PushSt
   let subscriptionCount = 0;
   if (userId) {
     try {
-      const res = await fetch(`${API_BASE_URL}/push/status/${encodeURIComponent(userId)}`);
+      const res = await withTimeout(
+        fetch(`${API_BASE_URL}/push/status/${encodeURIComponent(userId)}`),
+        3000,
+        'ステータス通信タイムアウト'
+      );
       if (res.ok) {
         const data = await res.json();
         subscriptionCount = data.subscriptionCount || 0;
@@ -100,87 +132,143 @@ export async function getPushNotificationStatus(userId?: string): Promise<PushSt
     subscriptionCount,
     isStandalone,
     isIOS,
+    inIframe,
   };
 }
 
 /**
  * Push通知を有効化（パーミッション取得 + VAPID購読登録）
  */
-export async function subscribeToPushNotifications(userId: string): Promise<{
+export async function subscribeToPushNotifications(
+  userId: string,
+  onProgress?: (stepMsg: string) => void
+): Promise<{
   success: boolean;
   message?: string;
   error?: string;
 }> {
+  const inIframe = isInIframe();
+
   if (!isPushNotificationSupported()) {
     if (isIOSDevice() && !isPWAStandalone()) {
       return {
         success: false,
-        error: 'iPhone/iPadでは、Safariの「共有」メニューから「ホーム画面に追加」したアプリから通知を有効にする必要があります。',
+        error: 'iPhone/iPadでは、Safariの「共有」メニューから「ホーム画面に追加」したPWAアプリ内から通知を有効にする必要があります。',
       };
     }
     return {
       success: false,
-      error: 'お使いのブラウザはWeb Push通知に対応していません。',
+      error: 'お使いのブラウザ環境はWeb Push通知に対応していません。',
     };
   }
 
   try {
-    // 1. 通知パーミッションの要求
-    const permission = await Notification.requestPermission();
+    // ステップ1: 環境チェック
+    onProgress?.('📍 [1/5] 動作環境の検証中...');
+    if (inIframe && Notification.permission === 'default') {
+      console.warn('[Push] Warning: Running inside iFrame while permission is default');
+    }
+
+    // ステップ2: パーミッション取得
+    onProgress?.('📍 [2/5] 通知許可ポップアップのダイアログ要求中...');
+    let permission = Notification.permission;
+    if (permission === 'default') {
+      try {
+        permission = await withTimeout(
+          Notification.requestPermission(),
+          7000,
+          '通知ダイアログの許可に応答がありませんでした。プレビュー画面（iFrame）内でお試しの場合は、画面右上の「新しいタブで開く」アイコンを押して別タブでお試しください。'
+        );
+      } catch (permErr: any) {
+        if (inIframe) {
+          throw new Error('iFrame（画面枠内）ではブラウザの通知許可ダイアログが拒否・ブロックされました。画面右上の「新しいタブで開く」を押して別タブでアクセスし直してください。');
+        }
+        throw permErr;
+      }
+    }
+
     if (permission !== 'granted') {
       return {
         success: false,
-        error: '通知の許可が得られませんでした。ブラウザの設定で通知を許可してください。',
+        error: '通知の許可が得られませんでした（ブロック中）。ブラウザのアドレスバー左側の鍵アイコン等から通知を「許可」に変更してください。',
       };
     }
 
-    // 2. サーバーからVAPID公開鍵を取得
-    const keyRes = await fetch(`${API_BASE_URL}/push/vapid-public-key`);
+    // ステップ3: VAPID公開鍵取得
+    onProgress?.('📍 [3/5] サーバーからVAPID公開鍵を取得中...');
+    const keyRes = await withTimeout(
+      fetch(`${API_BASE_URL}/push/vapid-public-key`),
+      5000,
+      'サーバーからVAPID公開鍵の取得でタイムアウトしました。'
+    );
+
     if (!keyRes.ok) {
       throw new Error('サーバーからVAPID公開鍵を取得できませんでした。');
     }
     const { publicKey } = await keyRes.json();
     if (!publicKey) {
-      throw new Error('有効なVAPID公開鍵がありません。');
+      throw new Error('有効なVAPID公開鍵がサーバーから返されませんでした。');
     }
 
-    // 3. Service Workerの登録取得
-    const registration = await navigator.serviceWorker.ready;
+    // ステップ4: Service Worker 登録と接続
+    onProgress?.('📍 [4/5] Service Worker (/sw.js) の起動とPushManager準備中...');
+    let registration: ServiceWorkerRegistration;
+    try {
+      await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+      registration = await withTimeout(
+        navigator.serviceWorker.ready,
+        5000,
+        'Service Worker (/sw.js) の起動準備でタイムアウトしました。ページを再読み込みしてお試しください。'
+      );
+    } catch (swErr: any) {
+      console.warn('[Push] SW register error:', swErr);
+      throw new Error(`Service Workerの初期化失敗: ${swErr.message}`);
+    }
 
     // 既存の購読があれば再取得、なければ新規作成
-    let subscription = await registration.pushManager.getSubscription();
+    onProgress?.('📍 [5/5] 暗号化キーの生成と通知エンドポイント登録中...');
+    let subscription = await registration.pushManager.getSubscription().catch(() => null);
     if (!subscription) {
       const convertedVapidKey = urlBase64ToUint8Array(publicKey);
-      subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: convertedVapidKey,
-      });
+      subscription = await withTimeout(
+        registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: convertedVapidKey,
+        }),
+        8000,
+        'プッシュ通知サーバー(FCM/APNs)への登録通信でタイムアウトしました。ネットワークやVPN制限をご確認ください。'
+      );
     }
 
-    // 4. サーバーへ購読情報を送信して保存
-    const subRes = await fetch(`${API_BASE_URL}/push/subscribe`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        userId: String(userId),
-        subscription: subscription.toJSON(),
-        userAgent: navigator.userAgent,
+    // ステップ5: サーバーへ購読情報の保存
+    const subRes = await withTimeout(
+      fetch(`${API_BASE_URL}/push/subscribe`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: String(userId),
+          subscription: subscription.toJSON(),
+          userAgent: navigator.userAgent,
+        }),
       }),
-    });
+      5000,
+      'サーバーへの通知端末登録でタイムアウトしました。'
+    );
 
     if (!subRes.ok) {
-      throw new Error('サーバーへの通知購読登録に失敗しました。');
+      const errJson = await subRes.json().catch(() => ({}));
+      throw new Error(errJson.error || 'サーバーへの通知購読登録に失敗しました。');
     }
 
     return {
       success: true,
-      message: 'スマートフォンへのプッシュ通知を有効にしました！',
+      message: '🎉 この端末へのリアルタイム・プッシュ通知を有効にしました！',
     };
   } catch (err: any) {
     console.error('[Push] Subscribe failed:', err);
     return {
       success: false,
-      error: err.message || '通知の登録に失敗しました。',
+      error: err.message || '通知の登録処理中にエラーが発生しました。',
     };
   }
 }
@@ -284,3 +372,87 @@ export async function triggerPushNotification(params: {
     console.warn('[Push] Failed to trigger notification:', err);
   }
 }
+
+export interface PushDiagnosticReport {
+  isHttps: boolean;
+  isTopWindow: boolean;
+  hasServiceWorker: boolean;
+  hasPushManager: boolean;
+  hasNotification: boolean;
+  permission: NotificationPermission;
+  isIOS: boolean;
+  isStandalone: boolean;
+  vapidApiOk: boolean;
+  swActive: boolean;
+  recommendations: string[];
+}
+
+export async function runPushDiagnostics(): Promise<PushDiagnosticReport> {
+  const isHttps = typeof window !== 'undefined' && (window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+  const isTopWindow = typeof window !== 'undefined' && window.self === window.top;
+  const hasServiceWorker = typeof navigator !== 'undefined' && 'serviceWorker' in navigator;
+  const hasPushManager = typeof window !== 'undefined' && 'PushManager' in window;
+  const hasNotification = typeof window !== 'undefined' && 'Notification' in window;
+  const permission = hasNotification ? Notification.permission : 'default';
+  const isIOS = isIOSDevice();
+  const isStandalone = isPWAStandalone();
+
+  let vapidApiOk = false;
+  try {
+    const res = await withTimeout(fetch(`${API_BASE_URL}/push/vapid-public-key`), 3000, 'timeout');
+    if (res.ok) {
+      const data = await res.json();
+      vapidApiOk = !!data.publicKey;
+    }
+  } catch (e) {
+    vapidApiOk = false;
+  }
+
+  let swActive = false;
+  if (hasServiceWorker) {
+    try {
+      await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+      const reg = await withTimeout(navigator.serviceWorker.ready, 3000, 'timeout');
+      swActive = !!reg;
+    } catch (e) {
+      swActive = false;
+    }
+  }
+
+  const recommendations: string[] = [];
+
+  if (!isTopWindow) {
+    recommendations.push('【重要】現在はプレビュー画面（iFrame枠内）で動作しています。iFrame内ではブラウザのセキュリティ制限により「通知の許可ポップアップ」がブロックされ応答不能になる場合があります。画面右上の「新しいタブで開く」を押して直接アプリを開いてからお試しください。');
+  }
+
+  if (isIOS && !isStandalone) {
+    recommendations.push('iPhone / iPad をご利用の場合は、Safari下部の共有ボタン [↑] から「ホーム画面に追加」を実行し、ホーム画面のアイコンから起動した状態で「通知を有効にする」を押してください。');
+  }
+
+  if (permission === 'denied') {
+    recommendations.push('ブラウザで本サイトの通知が「ブロック（拒否）」に設定されています。ブラウザのアドレスバー左側の鍵アイコン等から通知を「許可」に変更してください。');
+  }
+
+  if (!vapidApiOk) {
+    recommendations.push('バックエンドサーバーからのVAPID鍵取得API (/api/push/vapid-public-key) が応答しませんでした。サーバーが稼働しているか確認してください。');
+  }
+
+  if (!swActive) {
+    recommendations.push('Service Worker (/sw.js) の起動準備がタイムアウトしました。ページを再読み込みしてお試しください。');
+  }
+
+  return {
+    isHttps,
+    isTopWindow,
+    hasServiceWorker,
+    hasPushManager,
+    hasNotification,
+    permission,
+    isIOS,
+    isStandalone,
+    vapidApiOk,
+    swActive,
+    recommendations,
+  };
+}
+
