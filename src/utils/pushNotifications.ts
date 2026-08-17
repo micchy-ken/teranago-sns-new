@@ -449,10 +449,7 @@ export async function runPushDiagnostics(): Promise<PushDiagnosticReport> {
   let swErrorDetails = '';
   if (hasServiceWorker) {
     try {
-      let reg = await navigator.serviceWorker.getRegistration('/');
-      if (!reg) {
-        reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
-      }
+      const reg = await getOrRegisterSW();
       swActive = !!reg;
     } catch (e: any) {
       swActive = false;
