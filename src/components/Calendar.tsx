@@ -7,6 +7,7 @@ import { fetchIcalFeed } from '../utils/icalParser';
 import { renderWithClickableLinks } from '../utils/linkify';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { getLocalDateStr } from '../utils/dateUtils';
+import { triggerPushNotification } from '../utils/pushNotifications';
 
 interface CalendarProps {
   events: CalendarEvent[];
@@ -486,6 +487,17 @@ export function Calendar({
 
     if (onUpdateMemos) {
       onUpdateMemos([...memos, newMemo]);
+    }
+
+    if (memoTargetUser && memoTargetUser.id !== currentUser?.id) {
+      triggerPushNotification({
+        targetUserId: memoTargetUser.id,
+        excludeUserId: currentUser?.id,
+        title: `📞 伝言メモ: ${fromCompany ? `${fromCompany} ` : ''}${fromName}様`,
+        body: `【${reqText}】${content ? ` ${content.slice(0, 40)}` : ''}`,
+        url: `/?tab=memo&memoId=${newMemo.id}`,
+        tag: `memo-${newMemo.id}`
+      });
     }
 
     // Reset and close

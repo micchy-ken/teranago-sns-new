@@ -2,6 +2,7 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import multer from 'multer';
+import webpush from 'web-push';
 import { createServer as createViteServer } from 'vite';
 
 async function startServer() {
@@ -10,6 +11,304 @@ async function startServer() {
 
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+  const dataDir = path.join(process.cwd(), 'data');
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true });
+  }
+
+  // ==========================================
+  // Web Push (VAPID) 設定・初期化
+  // ==========================================
+  const vapidKeysPath = path.join(dataDir, 'vapid-keys.json');
+  let vapidKeys: { publicKey: string; privateKey: string };
+
+  if (fs.existsSync(vapidKeysPath)) {
+    try {
+      vapidKeys = JSON.parse(fs.readFileSync(vapidKeysPath, 'utf8'));
+    } catch (e) {
+      vapidKeys = webpush.generateVAPIDKeys();
+      fs.writeFileSync(vapidKeysPath, JSON.stringify(vapidKeys, null, 2), 'utf8');
+    }
+  } else {
+    vapidKeys = webpush.generateVAPIDKeys();
+    fs.writeFileSync(vapidKeysPath, JSON.stringify(vapidKeys, null, 2), 'utf8');
+  }
+
+  try {
+    webpush.setVapidDetails(
+      'mailto:admin@example.com',
+      vapidKeys.publicKey,
+      vapidKeys.privateKey
+    );
+    console.log('[WebPush] VAPID keys loaded. Public Key:', vapidKeys.publicKey);
+  } catch (e) {
+    console.error('[WebPush] Failed to set VAPID details:', e);
+  }
+
+  // Push Subscription 保存管理
+  const subscriptionsPath = path.join(dataDir, 'push-subscriptions.json');
+  interface StoredSubscription {
+    id: string;
+    userId: string;
+    subscription: webpush.PushSubscription;
+    userAgent?: string;
+    createdAt: string;
+    lastActiveAt: string;
+  }
+
+  function loadSubscriptions(): StoredSubscription[] {
+    if (!fs.existsSync(subscriptionsPath)) return [];
+    try {
+      return JSON.parse(fs.readFileSync(subscriptionsPath, 'utf8'));
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function saveSubscriptions(subs: StoredSubscription[]) {
+    try {
+      fs.writeFileSync(subscriptionsPath, JSON.stringify(subs, null, 2), 'utf8');
+    } catch (e) {
+      console.error('[WebPush] Failed to save subscriptions:', e);
+    }
+  }
+
+  // ==========================================
+  // Web Push API エンドポイント
+  // ==========================================
+
+  // VAPID公開鍵取得
+  app.get('/api/push/vapid-public-key', (req, res) => {
+    res.json({ publicKey: vapidKeys.publicKey });
+  });
+
+  // 端末のPush通知購読登録
+  app.post('/api/push/subscribe', (req, res) => {
+    try {
+      const { userId, subscription, userAgent } = req.body;
+      if (!userId || !subscription || !subscription.endpoint) {
+        return res.status(400).json({ error: 'ユーザーIDおよび購読情報が必要です。' });
+      }
+
+      const allSubs = loadSubscriptions();
+      const existingIdx = allSubs.findIndex(s => s.subscription.endpoint === subscription.endpoint);
+      const now = new Date().toISOString();
+
+      if (existingIdx >= 0) {
+        allSubs[existingIdx] = {
+          ...allSubs[existingIdx],
+          userId: String(userId),
+          subscription,
+          userAgent: userAgent || allSubs[existingIdx].userAgent,
+          lastActiveAt: now
+        };
+      } else {
+        allSubs.push({
+          id: `sub_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          userId: String(userId),
+          subscription,
+          userAgent,
+          createdAt: now,
+          lastActiveAt: now
+        });
+      }
+
+      saveSubscriptions(allSubs);
+      const userSubCount = allSubs.filter(s => s.userId === String(userId)).length;
+      res.json({ success: true, message: '通知の購読を登録しました。', count: userSubCount });
+    } catch (err: any) {
+      console.error('[WebPush] Subscribe error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 端末のPush通知購読解除
+  app.post('/api/push/unsubscribe', (req, res) => {
+    try {
+      const { endpoint, userId } = req.body;
+      if (!endpoint) {
+        return res.status(400).json({ error: '解除対象のエンドポイントが必要です。' });
+      }
+
+      let allSubs = loadSubscriptions();
+      const initialCount = allSubs.length;
+      allSubs = allSubs.filter(s => {
+        if (s.subscription.endpoint === endpoint) return false;
+        if (userId && s.userId === String(userId) && !endpoint) return false;
+        return true;
+      });
+
+      saveSubscriptions(allSubs);
+      res.json({ success: true, message: '通知の購読を解除しました。', removed: initialCount - allSubs.length });
+    } catch (err: any) {
+      console.error('[WebPush] Unsubscribe error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ユーザーの通知購読状態確認
+  app.get('/api/push/status/:userId', (req, res) => {
+    try {
+      const userId = String(req.params.userId);
+      const allSubs = loadSubscriptions();
+      const userSubs = allSubs.filter(s => s.userId === userId);
+      res.json({
+        isSubscribed: userSubs.length > 0,
+        subscriptionCount: userSubs.length
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // プッシュ通知送信 API
+  app.post('/api/push/send', async (req, res) => {
+    try {
+      const {
+        targetUserId,
+        targetUserIds,
+        excludeUserId,
+        title,
+        body,
+        icon = '/icon.svg',
+        badge = '/icon.svg',
+        url = '/',
+        data = {},
+        tag
+      } = req.body;
+
+      if (!title || !body) {
+        return res.status(400).json({ error: 'タイトルと本文は必須です。' });
+      }
+
+      const allSubs = loadSubscriptions();
+      let targets: StoredSubscription[] = [];
+
+      if (targetUserId === 'all') {
+        targets = allSubs.filter(s => !excludeUserId || s.userId !== String(excludeUserId));
+      } else if (Array.isArray(targetUserIds) && targetUserIds.length > 0) {
+        const idSet = new Set(targetUserIds.map(String));
+        targets = allSubs.filter(s => idSet.has(s.userId) && (!excludeUserId || s.userId !== String(excludeUserId)));
+      } else if (targetUserId) {
+        targets = allSubs.filter(s => s.userId === String(targetUserId));
+      }
+
+      if (targets.length === 0) {
+        return res.json({ success: true, message: '送信対象の端末がありませんでした。', sentCount: 0 });
+      }
+
+      const payload = JSON.stringify({
+        title,
+        body,
+        icon,
+        badge,
+        url,
+        data: {
+          ...data,
+          url
+        },
+        tag: tag || `notif_${Date.now()}`,
+        renotify: true
+      });
+
+      const staleEndpoints: string[] = [];
+      let sentCount = 0;
+      let failureCount = 0;
+
+      await Promise.all(
+        targets.map(async (sub) => {
+          try {
+            await webpush.sendNotification(sub.subscription, payload);
+            sentCount++;
+          } catch (err: any) {
+            failureCount++;
+            console.error(`[WebPush] Push failed for user ${sub.userId}:`, err.statusCode || err.message);
+            // 404/410 は購読期限切れ・端末側で解除されたエンドポイント
+            if (err.statusCode === 404 || err.statusCode === 410) {
+              staleEndpoints.push(sub.subscription.endpoint);
+            }
+          }
+        })
+      );
+
+      // 無効になったエンドポイントを削除整理
+      if (staleEndpoints.length > 0) {
+        const remainingSubs = allSubs.filter(s => !staleEndpoints.includes(s.subscription.endpoint));
+        saveSubscriptions(remainingSubs);
+        console.log(`[WebPush] Pruned ${staleEndpoints.length} stale subscriptions.`);
+      }
+
+      res.json({
+        success: true,
+        sentCount,
+        failureCount,
+        totalTargets: targets.length
+      });
+    } catch (err: any) {
+      console.error('[WebPush] Send notification error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // テスト通知送信 API
+  app.post('/api/push/test', async (req, res) => {
+    try {
+      const { userId } = req.body;
+      if (!userId) {
+        return res.status(400).json({ error: 'ユーザーIDが必要です。' });
+      }
+
+      const allSubs = loadSubscriptions();
+      const targets = allSubs.filter(s => s.userId === String(userId));
+
+      if (targets.length === 0) {
+        return res.status(404).json({
+          error: 'このユーザーに登録された通知先端末が見つかりません。まず「通知を有効にする」を実行してください。'
+        });
+      }
+
+      const payload = JSON.stringify({
+        title: '🎉 Web Push通知テスト',
+        body: 'スマートフォンへのプッシュ通知連携が正常に動作しています！',
+        icon: '/icon.svg',
+        badge: '/icon.svg',
+        url: '/',
+        tag: 'test-notification',
+        renotify: true
+      });
+
+      let sentCount = 0;
+      const staleEndpoints: string[] = [];
+
+      await Promise.all(
+        targets.map(async (sub) => {
+          try {
+            await webpush.sendNotification(sub.subscription, payload);
+            sentCount++;
+          } catch (err: any) {
+            console.error(`[WebPush] Test push error:`, err.statusCode || err.message);
+            if (err.statusCode === 404 || err.statusCode === 410) {
+              staleEndpoints.push(sub.subscription.endpoint);
+            }
+          }
+        })
+      );
+
+      if (staleEndpoints.length > 0) {
+        const remainingSubs = allSubs.filter(s => !staleEndpoints.includes(s.subscription.endpoint));
+        saveSubscriptions(remainingSubs);
+      }
+
+      res.json({
+        success: true,
+        message: `${sentCount}台の端末にテスト通知を送信しました。`,
+        sentCount
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
 
   // 外部ファイル（NAS共有用）ストレージディレクトリ
   const externalFilesDir = path.join(process.cwd(), 'data', 'external-files');

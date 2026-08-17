@@ -36,6 +36,7 @@ import {
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { uploadMultipleFiles, uploadFile } from '../utils/fileUpload';
 import { FilePreviewModal } from './FilePreviewModal';
+import { triggerPushNotification } from '../utils/pushNotifications';
 
 interface ChatProps {
   rooms: ChatRoom[];
@@ -455,6 +456,30 @@ export function Chat({
 
     if (onUpdateRooms) {
       onUpdateRooms(updated);
+    }
+
+    // 他の参加者にプッシュ通知を配信
+    const targetRoom = rooms.find(r => r.id === roomId);
+    if (targetRoom) {
+      const otherParticipantIds = (targetRoom.participants || [])
+        .map(p => p.id)
+        .filter(id => id && id !== currentUser.id);
+
+      if (otherParticipantIds.length > 0) {
+        const roomName = getRoomName(targetRoom);
+        const previewContent = message.type === 'image' 
+          ? '📷 写真が送信されました' 
+          : (message.type === 'stamp' ? `[スタンプ] ${message.content}` : (message.content || ''));
+
+        triggerPushNotification({
+          targetUserIds: otherParticipantIds,
+          excludeUserId: currentUser.id,
+          title: `💬 ${currentUser.name} (${roomName})`,
+          body: previewContent.slice(0, 60),
+          url: `/?tab=chat&chatRoomId=${roomId}`,
+          tag: `chat-${roomId}`
+        });
+      }
     }
   };
 

@@ -2468,7 +2468,7 @@ END;`}
                   </div>
                   <ol className="list-decimal text-[11px] text-amber-700 mt-2 ml-4 space-y-1.5 leading-normal">
                     <li>NAS内の任意のフォルダ（例: <code className="bg-amber-100 px-1 py-0.5 rounded text-amber-800">/volume1/web/api</code>）に、この推奨コードを <code className="font-bold font-mono">server.js</code> として保存します。</li>
-                    <li>同フォルダ内に <code className="font-bold font-mono">package.json</code> を作成し、<code className="font-mono bg-amber-100 px-1 py-0.5 rounded text-amber-800">{"{\"dependencies\": {\"express\": \"^4.18.2\", \"cors\": \"^2.8.5\", \"mssql\": \"^10.0.1\", \"dotenv\": \"^16.3.1\", \"multer\": \"^1.4.5-lts.1\"}}"}</code> と記述します。</li>
+                    <li>同フォルダ内に <code className="font-bold font-mono">package.json</code> を作成し、<code className="font-mono bg-amber-100 px-1 py-0.5 rounded text-amber-800">{"{\"name\": \"sns-backend-api\", \"version\": \"1.0.0\", \"main\": \"server.js\", \"type\": \"module\", \"dependencies\": {\"cors\": \"^2.8.5\", \"dotenv\": \"^16.4.5\", \"express\": \"^4.19.2\", \"mssql\": \"^10.0.2\", \"multer\": \"^1.4.5-lts.2\", \"node-fetch\": \"^2.7.0\", \"web-push\": \"^3.6.7\"}, \"nodemonConfig\": {\"ignore\": [\"uploads/*\", \"public/uploads/*\"]}}"}</code> と記述します。</li>
                     <li>ターミナル（SSH）で同フォルダに入り、<code className="font-mono bg-amber-100 px-1 py-0.5 rounded text-amber-800">npm install</code> を実行して依存関係をダウンロードします。</li>
                     <li>同フォルダ内に <code className="font-mono font-bold">.env</code> を作成し、接続設定（DB_USER, DB_PASSWORD, DB_SERVER 等）を保存し、<code className="font-mono bg-amber-100 px-1 py-0.5 rounded text-amber-800">node server.js</code> で起動します。</li>
                   </ol>

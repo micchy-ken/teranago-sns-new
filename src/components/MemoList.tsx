@@ -3,6 +3,7 @@ import { Memo, User, OfficeMaster, DivisionMaster, RequirementType, MemoUserReci
 import { getAvatarUrl } from '../utils/avatar';
 import { API_BASE_URL } from '../config/api';
 import { markMemoAsRead } from '../utils/notifications';
+import { triggerPushNotification } from '../utils/pushNotifications';
 import { 
   Phone, 
   Check, 
@@ -371,6 +372,18 @@ export function MemoList({
       })
       .then(() => {
         updateMemosState([newMemo, ...memos]);
+
+        // Push通知送信
+        const targetIds = targetUsers.map(u => u.id).filter(id => id && id !== currentUser.id);
+
+        triggerPushNotification({
+          targetUserIds: targetIds.length > 0 ? targetIds : undefined,
+          excludeUserId: currentUser.id,
+          title: `📞 伝言メモ: ${fromCompany ? `${fromCompany} ` : ''}${fromName}様`,
+          body: `【${reqText}】${content ? ` ${content.slice(0, 40)}` : ''}`,
+          url: `/?tab=memo&memoId=${newMemo.id}`,
+          tag: `memo-${newMemo.id}`
+        });
 
         // リセット
         setFromName('');

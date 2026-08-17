@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Search, Bell, Menu, Phone, FileText, Monitor, Calendar as CalendarIcon, MessageSquare, CheckCheck, ChevronRight, X } from 'lucide-react';
+import { Search, Bell, Menu, Phone, FileText, Monitor, Calendar as CalendarIcon, MessageSquare, CheckCheck, ChevronRight, X, Smartphone } from 'lucide-react';
 import { User, Memo, WorkflowApplication, BoardTopic, CalendarEvent, ChatRoom } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
 import { AppTab } from './Sidebar';
@@ -530,7 +530,7 @@ export function Header({
                 </div>
 
                 {/* Footer */}
-                <div className="p-2.5 bg-slate-50 border-t border-slate-100 text-center">
+                <div className="p-2.5 bg-slate-50 border-t border-slate-100 flex flex-col gap-1.5 text-center">
                   <button
                     type="button"
                     onClick={() => {
@@ -541,6 +541,19 @@ export function Header({
                   >
                     マイページですべての通知とタスクを確認 →
                   </button>
+                  {onOpenSettings && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsOpen(false);
+                        onOpenSettings();
+                      }}
+                      className="w-full py-1 px-3 text-[11px] font-medium text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 rounded-md transition-colors flex items-center justify-center gap-1.5"
+                    >
+                      <Smartphone className="w-3.5 h-3.5" />
+                      <span>スマホのプッシュ通知設定を開く</span>
+                    </button>
+                  )}
                 </div>
               </div>
             )}

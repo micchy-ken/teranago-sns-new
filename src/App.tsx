@@ -16,6 +16,7 @@ import { LoginScreen } from './components/LoginScreen';
 import FileManager from './components/FileManager';
 import { Post, CalendarEvent, WorkflowApplication, User, OfficeMaster, DivisionMaster, PositionMaster, BoardTopic, ChatRoom, ApprovalFlowRule, ApprovalStepConfig, ItemMaster, ApplicationStatus, DailyReport, Memo } from './types';
 import { syncUserReadStatusesFromServer, isMemoUnread, markMemoAsRead, markMemoAsUnread, markEventAsRead, markTopicAsRead } from './utils/notifications';
+import { triggerPushNotification } from './utils/pushNotifications';
 import { deleteAttachmentFiles } from './utils/fileUpload';
 import { TopicDetailModal } from './components/TopicDetailModal';
 import { GlobalEventDetailModal } from './components/GlobalEventDetailModal';
@@ -842,6 +843,16 @@ export default function App() {
       markTopicAsRead(userState.id, tempId);
     }
 
+    // 全ユーザーに掲示板のプッシュ通知を配信
+    triggerPushNotification({
+      targetUserId: 'all',
+      excludeUserId: topicData.author.id,
+      title: `📢 掲示板新着: ${topicData.title}`,
+      body: `${topicData.author.name}さんが「${topicData.title}」を投稿しました。`,
+      url: `/?tab=board&topicId=${tempId}`,
+      tag: `topic-${tempId}`
+    });
+
     try {
       const response = await fetch(`${API_BASE_URL}/bulletins`, {
         method: 'POST',
@@ -1500,6 +1511,21 @@ export default function App() {
       markEventAsRead(userState.id, tempId);
     }
 
+    // 参加者にプッシュ通知を配信
+    const attendeeIds = (eventData.attendees || [])
+      .map(a => a.id)
+      .filter(id => id && id !== userState.id);
+    if (attendeeIds.length > 0) {
+      triggerPushNotification({
+        targetUserIds: attendeeIds,
+        excludeUserId: userState.id,
+        title: `📅 新しい予定: ${eventData.title}`,
+        body: `${userState.name}さんが「${eventData.title}」を追加しました。`,
+        url: `/?tab=calendar&eventId=${tempId}`,
+        tag: `event-${tempId}`
+      });
+    }
+
     try {
       const response = await fetch(`${API_BASE_URL}/events`, {
         method: 'POST',
@@ -1714,6 +1740,18 @@ export default function App() {
     };
     setApplications([newApp, ...applications]);
 
+    // 承認者にプッシュ通知を配信
+    if (initialApprover?.id && initialApprover.id !== appData.applicant.id && appData.status !== 'draft') {
+      triggerPushNotification({
+        targetUserId: initialApprover.id,
+        excludeUserId: appData.applicant.id,
+        title: `📋 承認依頼: ${appData.title}`,
+        body: `${appData.applicant.name}さんから新しい申請が届きました。`,
+        url: `/?tab=workflow&appId=${tempId}`,
+        tag: `wf-${tempId}`
+      });
+    }
+
     try {
       const response = await fetch(`${API_BASE_URL}/workflows`, {
         method: 'POST',
@@ -1817,6 +1855,41 @@ export default function App() {
           ]
         };
       }
+    }
+
+    // 申請者に結果を通知 (却下または全承認時)
+    if (resultApp.applicant && resultApp.applicant.id !== userState.id) {
+      if (actionStatus === 'rejected') {
+        triggerPushNotification({
+          targetUserId: resultApp.applicant.id,
+          excludeUserId: userState.id,
+          title: `❌ 申請却下: ${resultApp.title}`,
+          body: `${userState.name}さんにより却下されました。理由: ${comment || '未記入'}`,
+          url: `/?tab=workflow&appId=${id}`,
+          tag: `wf-${id}`
+        });
+      } else if (resultApp.status === 'approved') {
+        triggerPushNotification({
+          targetUserId: resultApp.applicant.id,
+          excludeUserId: userState.id,
+          title: `✅ 申請承認完了: ${resultApp.title}`,
+          body: `${userState.name}さんにより最終承認されました。`,
+          url: `/?tab=workflow&appId=${id}`,
+          tag: `wf-${id}`
+        });
+      }
+    }
+
+    // 次の承認者がいる場合、次の承認者に依頼を通知
+    if (actionStatus === 'approved' && resultApp.status === 'pending' && resultApp.approver && resultApp.approver.id !== userState.id) {
+      triggerPushNotification({
+        targetUserId: resultApp.approver.id,
+        excludeUserId: userState.id,
+        title: `📋 次期承認依頼: ${resultApp.title}`,
+        body: `${targetApp.applicant.name}さんの申請（ステップ ${resultApp.currentStepIndex}/${resultApp.totalSteps}）の確認をお願いします。`,
+        url: `/?tab=workflow&appId=${id}`,
+        tag: `wf-${id}`
+      });
     }
 
     if (!id.startsWith('a-temp-')) {
