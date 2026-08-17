@@ -84,6 +84,7 @@ const mapPostFromApi = (apiPost: any, allUsers: User[]): Post => {
 
 import { AlertCircle, RefreshCw, X } from 'lucide-react';
 import { ConfirmModal, ConfirmModalState } from './components/ConfirmModal';
+import { InstallPwaPrompt } from './components/InstallPwaPrompt';
 
 export default function App() {
   const [usersList, setUsersList] = useState<User[]>([]);
@@ -2410,6 +2411,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans selection:bg-indigo-100 selection:text-indigo-900 overflow-x-hidden" style={{ backgroundColor: '#f8fafc' }}>
+      <InstallPwaPrompt />
       <Header 
         searchQuery={searchQuery} 
         onSearchChange={setSearchQuery} 
