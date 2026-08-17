@@ -7,10 +7,17 @@ const ASSETS_TO_CACHE = [
 
 // Install event
 self.addEventListener('install', (event) => {
+  self.skipWaiting();
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(ASSETS_TO_CACHE);
-    }).then(() => self.skipWaiting())
+    caches.open(CACHE_NAME).then(async (cache) => {
+      for (const asset of ASSETS_TO_CACHE) {
+        try {
+          await cache.add(asset);
+        } catch (e) {
+          // キャッシュ失敗は無視してSWインストールを完了させる
+        }
+      }
+    })
   );
 });
 

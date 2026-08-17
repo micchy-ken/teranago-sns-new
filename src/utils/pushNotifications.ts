@@ -69,6 +69,36 @@ export function isIOSDevice(): boolean {
   );
 }
 
+export async function getOrRegisterSW(): Promise<ServiceWorkerRegistration | null> {
+  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
+    return null;
+  }
+  try {
+    let reg = await navigator.serviceWorker.getRegistration('/');
+    if (reg) {
+      return reg;
+    }
+    reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+    if (reg) {
+      return reg;
+    }
+  } catch (e) {
+    console.warn('[Push] Error in getOrRegisterSW:', e);
+  }
+
+  try {
+    const readyReg = await Promise.race([
+      navigator.serviceWorker.ready,
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000)),
+    ]);
+    if (readyReg) return readyReg;
+  } catch (e) {
+    // ignore
+  }
+
+  return null;
+}
+
 /**
  * 端末のPush通知状態を取得
  */
@@ -93,16 +123,10 @@ export async function getPushNotificationStatus(userId?: string): Promise<PushSt
   let isSubscribed = false;
 
   try {
-    if ('serviceWorker' in navigator) {
-      await navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
-      const registration = await Promise.race([
-        navigator.serviceWorker.ready,
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500))
-      ]);
-      if (registration) {
-        const subscription = await registration.pushManager.getSubscription().catch(() => null);
-        isSubscribed = !!subscription;
-      }
+    const registration = await getOrRegisterSW();
+    if (registration) {
+      const subscription = await registration.pushManager.getSubscription().catch(() => null);
+      isSubscribed = !!subscription;
     }
   } catch (e) {
     console.warn('[Push] Error checking subscription:', e);
@@ -212,17 +236,9 @@ export async function subscribeToPushNotifications(
 
     // ステップ4: Service Worker 登録と接続
     onProgress?.('📍 [4/5] Service Worker (/sw.js) の起動とPushManager準備中...');
-    let registration: ServiceWorkerRegistration;
-    try {
-      await navigator.serviceWorker.register('/sw.js', { scope: '/' });
-      registration = await withTimeout(
-        navigator.serviceWorker.ready,
-        5000,
-        'Service Worker (/sw.js) の起動準備でタイムアウトしました。ページを再読み込みしてお試しください。'
-      );
-    } catch (swErr: any) {
-      console.warn('[Push] SW register error:', swErr);
-      throw new Error(`Service Workerの初期化失敗: ${swErr.message}`);
+    let registration = await getOrRegisterSW();
+    if (!registration) {
+      throw new Error('Service Worker (/sw.js) の起動準備に失敗しました。ページを再読み込みしてお試しください。');
     }
 
     // 既存の購読があれば再取得、なければ新規作成
@@ -286,8 +302,8 @@ export async function unsubscribeFromPushNotifications(userId?: string): Promise
   }
 
   try {
-    const registration = await navigator.serviceWorker.ready;
-    const subscription = await registration.pushManager.getSubscription();
+    const registration = await getOrRegisterSW();
+    const subscription = registration ? await registration.pushManager.getSubscription().catch(() => null) : null;
 
     if (subscription) {
       const endpoint = subscription.endpoint;
@@ -411,8 +427,7 @@ export async function runPushDiagnostics(): Promise<PushDiagnosticReport> {
   let swActive = false;
   if (hasServiceWorker) {
     try {
-      await navigator.serviceWorker.register('/sw.js', { scope: '/' });
-      const reg = await withTimeout(navigator.serviceWorker.ready, 3000, 'timeout');
+      const reg = await getOrRegisterSW();
       swActive = !!reg;
     } catch (e) {
       swActive = false;
