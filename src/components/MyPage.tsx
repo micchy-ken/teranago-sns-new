@@ -4,6 +4,7 @@ import { AppTab } from './Sidebar';
 import { getAvatarUrl, SILHOUETTE_SVG } from '../utils/avatar';
 import { API_BASE_URL } from '../config/api';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
+import { getLocalDateStr } from '../utils/dateUtils';
 import {
   getPushNotificationStatus,
   subscribeToPushNotifications,
@@ -387,11 +388,22 @@ export function MyPage({
     }
   };
 
-  // 1. 直近スケジュール（自分が参加している予定のみ）
+  // 1. 直近スケジュール（自分が参加している本日以降1週間の予定）
+  const todayStr = getLocalDateStr(new Date());
+  const todayStart = new Date(todayStr + 'T00:00:00');
+  const weekEnd = new Date(todayStart);
+  weekEnd.setDate(weekEnd.getDate() + 7);
+  weekEnd.setHours(23, 59, 59, 999);
+
   const myEvents = events
     .filter((e) => {
       const isAttendee = e.attendees ? e.attendees.some((a) => a?.id === user?.id || a?.name === user?.name) : false;
-      return isAttendee;
+      if (!isAttendee) return false;
+
+      const eventStart = new Date(e.start);
+      const eventEnd = e.end ? new Date(e.end) : eventStart;
+
+      return eventEnd >= todayStart && eventStart <= weekEnd;
     })
     .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
 
@@ -630,7 +642,7 @@ export function MyPage({
               <div className="p-1.5 bg-amber-500 text-white rounded-lg shadow-2xs">
                 <CalendarIcon className="w-4 h-4" />
               </div>
-              <h2 className="text-sm font-extrabold text-slate-900">参加スケジュール（直近）</h2>
+              <h2 className="text-sm font-extrabold text-slate-900">参加スケジュール（本日以降1週間）</h2>
               {unreadEvents.length > 0 && (
                 <span className="px-2 py-0.5 bg-rose-500 text-white text-[10px] font-black rounded-full">
                   未確認 {unreadEvents.length}
@@ -658,7 +670,7 @@ export function MyPage({
 
           <div className="p-4 flex-1 space-y-3">
             {myEvents.length > 0 ? (
-              myEvents.slice(0, 5).map((evt) => {
+              myEvents.map((evt) => {
                 const isUnread = !readEventIds.includes(evt.id);
                 const eventDate = new Date(evt.start);
 
@@ -732,7 +744,7 @@ export function MyPage({
               })
             ) : (
               <div className="p-8 text-center text-slate-400 text-xs">
-                直近の参加予定はありません
+                本日以降1週間の参加予定はありません
               </div>
             )}
           </div>
