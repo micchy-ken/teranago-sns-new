@@ -1765,8 +1765,13 @@ export function MyPage({
                   <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200/80">
                     <span className="text-[10px] text-slate-400 block font-medium">Service Worker (/sw.js)</span>
                     <span className={`font-bold flex items-center gap-1 mt-0.5 ${diagReport.swActive ? 'text-emerald-600' : 'text-rose-600'}`}>
-                      {diagReport.swActive ? '✅ 稼働可能' : '❌ 起動不能/タイムアウト'}
+                      {diagReport.swActive ? '✅ 稼働可能' : '❌ 起動不能/エラー'}
                     </span>
+                    {diagReport.swErrorDetails && (
+                      <span className="text-[9px] text-rose-500 block truncate mt-0.5 font-mono" title={diagReport.swErrorDetails}>
+                        {diagReport.swErrorDetails}
+                      </span>
+                    )}
                   </div>
 
                   <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200/80">

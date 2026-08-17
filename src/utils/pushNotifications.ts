@@ -400,6 +400,7 @@ export interface PushDiagnosticReport {
   isStandalone: boolean;
   vapidApiOk: boolean;
   swActive: boolean;
+  swErrorDetails?: string;
   recommendations: string[];
 }
 
@@ -425,13 +426,21 @@ export async function runPushDiagnostics(): Promise<PushDiagnosticReport> {
   }
 
   let swActive = false;
+  let swErrorDetails = '';
   if (hasServiceWorker) {
     try {
-      const reg = await getOrRegisterSW();
+      let reg = await navigator.serviceWorker.getRegistration('/');
+      if (!reg) {
+        reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+      }
       swActive = !!reg;
-    } catch (e) {
+    } catch (e: any) {
       swActive = false;
+      swErrorDetails = e.name ? `${e.name}: ${e.message}` : String(e);
+      console.warn('[Push Diagnostics] SW Register failed:', e);
     }
+  } else {
+    swErrorDetails = 'お使いのブラウザはServiceWorkerに対応していません。';
   }
 
   const recommendations: string[] = [];
@@ -453,7 +462,7 @@ export async function runPushDiagnostics(): Promise<PushDiagnosticReport> {
   }
 
   if (!swActive) {
-    recommendations.push('Service Worker (/sw.js) の起動準備がタイムアウトしました。ページを再読み込みしてお試しください。');
+    recommendations.push(`Service Worker (/sw.js) の起動に失敗しました（エラー詳細: ${swErrorDetails || '応答なし/タイムアウト'}）。ブラウザのプライベートモード/シークレットモードや、サードパーティCookie/ストレージ制限が有効になっていないかご確認ください。`);
   }
 
   return {
@@ -467,6 +476,7 @@ export async function runPushDiagnostics(): Promise<PushDiagnosticReport> {
     isStandalone,
     vapidApiOk,
     swActive,
+    swErrorDetails,
     recommendations,
   };
 }

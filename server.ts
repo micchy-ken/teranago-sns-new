@@ -83,6 +83,19 @@ async function startServer() {
     res.json({ publicKey: vapidKeys.publicKey });
   });
 
+  // Service Worker ファイルの明示的サーブ (/sw.js)
+  app.get('/sw.js', (req, res) => {
+    res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+    res.setHeader('Service-Worker-Allowed', '/');
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    const swPath = path.join(process.cwd(), 'public', 'sw.js');
+    if (fs.existsSync(swPath)) {
+      res.sendFile(swPath);
+    } else {
+      res.status(404).send('// Service Worker file not found');
+    }
+  });
+
   // 端末のPush通知購読登録
   app.post('/api/push/subscribe', (req, res) => {
     try {
