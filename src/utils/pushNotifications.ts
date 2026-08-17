@@ -73,27 +73,47 @@ export async function getOrRegisterSW(): Promise<ServiceWorkerRegistration | nul
   if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
     return null;
   }
+
+  // 既存の登録をチェック
   try {
-    let reg = await navigator.serviceWorker.getRegistration('/');
-    if (reg) {
-      return reg;
-    }
-    reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
-    if (reg) {
-      return reg;
+    const regs = await navigator.serviceWorker.getRegistrations();
+    if (regs && regs.length > 0) {
+      const activeReg = regs.find((r) => r.active || r.waiting || r.installing);
+      if (activeReg) return activeReg;
     }
   } catch (e) {
-    console.warn('[Push] Error in getOrRegisterSW:', e);
+    console.warn('[Push] Error getting SW registrations:', e);
   }
 
-  try {
-    const readyReg = await Promise.race([
-      navigator.serviceWorker.ready,
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000)),
-    ]);
-    if (readyReg) return readyReg;
-  } catch (e) {
-    // ignore
+  // ViteのBASE_URLと相対パスの候補URLリストを作成
+  const baseUrl = import.meta.env.BASE_URL || './';
+  const cleanBase = baseUrl.endsWith('/') ? baseUrl : baseUrl + '/';
+
+  const candidateUrls = [
+    `${cleanBase}sw.js`,
+    './sw.js',
+    'sw.js',
+    '/sw.js',
+  ];
+
+  const uniqueUrls = Array.from(new Set(candidateUrls));
+  let lastError: any = null;
+
+  for (const scriptUrl of uniqueUrls) {
+    try {
+      const reg = await navigator.serviceWorker.register(scriptUrl);
+      if (reg) {
+        console.log(`[Push] ServiceWorker registered successfully with '${scriptUrl}'`);
+        return reg;
+      }
+    } catch (e: any) {
+      lastError = e;
+      console.warn(`[Push] SW register attempt failed for '${scriptUrl}':`, e);
+    }
+  }
+
+  if (lastError) {
+    throw lastError;
   }
 
   return null;
