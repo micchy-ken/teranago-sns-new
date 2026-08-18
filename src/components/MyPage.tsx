@@ -25,8 +25,11 @@ import {
   getReadMemoIds,
   markMemoAsRead as markMemoAsReadUtil,
   markMemoAsUnread as markMemoAsUnreadUtil,
+  getReadWorkflowIds,
+  markWorkflowAsRead as markWorkflowAsReadUtil,
   isEventUnread,
   isTopicUnread,
+  isMemoUnhandled,
   isMemoUnread,
   isWorkflowPending,
   isChatUnread,
@@ -435,11 +438,11 @@ export function MyPage({
     if (onUpdateMemo) {
       const updated = memos.map((m) => {
         if (m.id === memoId) {
-          const currentlyUnread = isMemoUnread(m, user, []);
+          const currentlyUnhandled = isMemoUnhandled(m, user);
           const nowIso = new Date().toISOString();
 
           // キャッシュの同期
-          if (currentlyUnread) {
+          if (currentlyUnhandled) {
             markMemoAsReadUtil(user.id, memoId);
           } else {
             markMemoAsUnreadUtil(user.id, memoId);
@@ -449,16 +452,16 @@ export function MyPage({
           const nextRecipientStatuses = statuses.length > 0
             ? statuses.map((st) => {
                 if (st.userId === user.id) {
-                  const nextHandled = currentlyUnread; // 未読なら対応完了(true)、対応完了なら未対応(false)
+                  const nextHandled = currentlyUnhandled; // 未対応なら対応完了(true)、対応完了なら未対応(false)
                   return {
                     ...st,
-                    isViewed: nextHandled ? true : false,
-                    viewedAt: nextHandled ? (st.viewedAt || nowIso) : undefined,
+                    isViewed: true,
+                    viewedAt: st.viewedAt || nowIso,
                     isHandled: nextHandled,
                     handledAt: nextHandled ? nowIso : undefined,
                     handledByUserId: nextHandled ? user.id : undefined,
                     handledByUserName: nextHandled ? user.name : undefined,
-                    status: nextHandled ? ('handled' as const) : ('unread' as const),
+                    status: nextHandled ? ('handled' as const) : ('read' as const),
                   };
                 }
                 return st;
@@ -471,19 +474,19 @@ export function MyPage({
                   department: user.department || '',
                   office: user.office || '',
                   division: user.division || '',
-                  isViewed: currentlyUnread,
-                  viewedAt: currentlyUnread ? nowIso : undefined,
-                  isHandled: currentlyUnread,
-                  handledAt: currentlyUnread ? nowIso : undefined,
-                  handledByUserId: currentlyUnread ? user.id : undefined,
-                  handledByUserName: currentlyUnread ? user.name : undefined,
-                  status: currentlyUnread ? ('handled' as const) : ('unread' as const),
+                  isViewed: true,
+                  viewedAt: nowIso,
+                  isHandled: currentlyUnhandled,
+                  handledAt: currentlyUnhandled ? nowIso : undefined,
+                  handledByUserId: currentlyUnhandled ? user.id : undefined,
+                  handledByUserName: currentlyUnhandled ? user.name : undefined,
+                  status: currentlyUnhandled ? ('handled' as const) : ('read' as const),
                 }
               ];
 
           // 全員が対応完了しているかチェック
           const allHandled = nextRecipientStatuses.length > 0 && nextRecipientStatuses.every((s) => s.isHandled);
-          const nextOverallStatus = allHandled ? ('handled' as const) : ('unread' as const);
+          const nextOverallStatus = allHandled ? ('handled' as const) : ('read' as const);
 
           return {
             ...m,
@@ -552,6 +555,7 @@ export function MyPage({
     })
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
+  const unhandledMemos = myMemos.filter((m) => isMemoUnhandled(m, user));
   const unreadMemos = myMemos.filter((m) => isMemoUnread(m, user, readMemoIds));
 
   // 4. 自分に関係するワークフロー（自分が申請者 または 承認者）
@@ -807,7 +811,7 @@ export function MyPage({
             title="伝言メモ"
             icon={Phone}
             iconBgColor="bg-rose-500 hover:bg-rose-600"
-            badgeCount={unreadMemos.length}
+            badgeCount={unhandledMemos.length}
             badgeLabel="未対応"
             badgeBgColor="bg-rose-500"
             onNavigate={() => onChangeTab('memo')}
@@ -830,6 +834,7 @@ export function MyPage({
             <div className="space-y-3">
               {myMemos.length > 0 ? (
                 myMemos.map((memo) => {
+                  const isUnhandled = isMemoUnhandled(memo, user);
                   const isUnread = isMemoUnread(memo, user, readMemoIds);
 
                   return (
@@ -842,20 +847,25 @@ export function MyPage({
                         }
                       }}
                       className={`p-3.5 rounded-xl border transition-all flex flex-col gap-2 cursor-pointer hover:border-rose-400 ${
-                        isUnread
+                        isUnhandled
                           ? 'bg-rose-50/40 border-rose-300 shadow-xs'
                           : 'bg-white border-slate-200 opacity-80'
                       }`}
                     >
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
-                          {isUnread ? (
+                          {isUnhandled ? (
                             <span className="px-2 py-0.5 bg-rose-500 text-white font-black text-[10px] rounded-full flex items-center gap-1">
                               <Clock className="w-3 h-3" /> 未対応
                             </span>
                           ) : (
                             <span className="px-2 py-0.5 bg-slate-100 text-slate-600 font-bold text-[10px] rounded-full flex items-center gap-1">
                               <Check className="w-3 h-3 text-emerald-600" /> 対応完了
+                            </span>
+                          )}
+                          {isUnread && (
+                            <span className="px-1.5 py-0.5 bg-amber-500 text-white font-black text-[9px] rounded-full">
+                              未読
                             </span>
                           )}
                           <span className="text-xs font-bold text-slate-900">
@@ -870,12 +880,12 @@ export function MyPage({
                             handleToggleMemoStatus(memo.id);
                           }}
                           className={`relative z-10 cursor-pointer px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all border ${
-                            isUnread
+                            isUnhandled
                               ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700 hover:shadow-xs'
                               : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
                           }`}
                         >
-                          {isUnread ? '確認済にする' : '未対応に戻す'}
+                          {isUnhandled ? '対応完了にする' : '未対応に戻す'}
                         </button>
                       </div>
 
@@ -935,6 +945,7 @@ export function MyPage({
                     <div
                       key={app.id}
                       onClick={() => {
+                        markWorkflowAsReadUtil(user?.id, app.id);
                         if (onNavigateToContent) {
                           onNavigateToContent({ tab: 'workflow', applicationId: app.id });
                         } else {

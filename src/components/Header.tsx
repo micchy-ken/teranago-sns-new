@@ -15,6 +15,8 @@ import {
   markChatRoomAsRead,
   getReadMemoIds,
   markMemoAsRead,
+  getReadWorkflowIds,
+  markWorkflowAsRead,
   NotificationItem,
 } from '../utils/notifications';
 
@@ -131,6 +133,7 @@ export function Header({
   const [readTopicIds, setReadTopicIds] = useState<string[]>(() => getReadTopicIds(currentUser?.id));
   const [readChatTimestamps, setReadChatTimestamps] = useState<Record<string, string>>(() => getReadChatTimestamps(currentUser?.id));
   const [readMemoIds, setReadMemoIds] = useState<string[]>(() => getReadMemoIds(currentUser?.id));
+  const [readWorkflowIds, setReadWorkflowIds] = useState<string[]>(() => getReadWorkflowIds(currentUser?.id));
   const popoverRef = useRef<HTMLDivElement>(null);
 
   // Cross-functional search state
@@ -410,6 +413,7 @@ export function Header({
       setReadTopicIds(getReadTopicIds(currentUser?.id));
       setReadChatTimestamps(getReadChatTimestamps(currentUser?.id));
       setReadMemoIds(getReadMemoIds(currentUser?.id));
+      setReadWorkflowIds(getReadWorkflowIds(currentUser?.id));
     };
     handleSync();
     window.addEventListener('notifications_updated', handleSync);
@@ -444,8 +448,9 @@ export function Header({
       readTopicIds,
       readChatTimestamps,
       readMemoIds,
+      readWorkflowIds,
     });
-  }, [currentUser, memos, applications, topics, events, chatRooms, readEventIds, readTopicIds, readChatTimestamps, readMemoIds]);
+  }, [currentUser, memos, applications, topics, events, chatRooms, readEventIds, readTopicIds, readChatTimestamps, readMemoIds, readWorkflowIds]);
 
   const memoNotifications = useMemo(() => allNotifications.filter((n) => n.type === 'memo'), [allNotifications]);
   const workflowNotifications = useMemo(() => allNotifications.filter((n) => n.type === 'workflow'), [allNotifications]);
@@ -492,6 +497,9 @@ export function Header({
         });
         onUpdateMemos(updated);
       }
+    } else if (item.type === 'workflow' && item.originalData) {
+      const app = item.originalData as WorkflowApplication;
+      markWorkflowAsRead(currentUser?.id, app.id);
     } else if (item.type === 'board' && item.originalData) {
       const topic = item.originalData as BoardTopic;
       markTopicAsRead(currentUser?.id, topic.id);
@@ -545,6 +553,7 @@ export function Header({
   const handleMarkAllAsRead = () => {
     allNotifications.forEach((item) => {
       if (item.type === 'memo' && item.originalData) markMemoAsRead(currentUser?.id, item.originalData.id);
+      if (item.type === 'workflow' && item.originalData) markWorkflowAsRead(currentUser?.id, item.originalData.id);
       if (item.type === 'board' && item.originalData) markTopicAsRead(currentUser?.id, item.originalData.id);
       if (item.type === 'chat' && item.originalData) markChatRoomAsRead(currentUser?.id, item.originalData.id);
       if (item.type === 'event' && item.originalData) markEventAsRead(currentUser?.id, item.originalData.id);

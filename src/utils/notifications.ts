@@ -19,10 +19,11 @@ export interface NotificationItem {
 const memoryReadEventIds: Record<string, string[]> = {};
 const memoryReadTopicIds: Record<string, string[]> = {};
 const memoryReadMemoIds: Record<string, string[]> = {};
+const memoryReadWorkflowIds: Record<string, string[]> = {};
 const memoryReadChatTimestamps: Record<string, Record<string, string>> = {};
 
 /** サーバーへ既読状態を送信（非同期） */
-async function saveReadStatusToServer(userId: string, targetType: 'event' | 'topic' | 'memo' | 'chat', targetId: string) {
+async function saveReadStatusToServer(userId: string, targetType: 'event' | 'topic' | 'memo' | 'workflow' | 'chat', targetId: string) {
   if (!userId || !targetType || !targetId) return;
   try {
     await fetch(`${API_BASE_URL}/read-statuses`, {
@@ -41,13 +42,14 @@ export async function syncUserReadStatusesFromServer(userId: string) {
   try {
     const res = await fetch(`${API_BASE_URL}/read-statuses/${encodeURIComponent(userId)}`);
     if (!res.ok) return;
-    const data: { event?: string[]; topic?: string[]; memo?: string[]; chat?: string[] } = await res.json();
+    const data: { event?: string[]; topic?: string[]; memo?: string[]; workflow?: string[]; chat?: string[] } = await res.json();
     if (!data) return;
 
     // サーバーから取得したデータだけでインメモリキャッシュを完全に上書き
     memoryReadEventIds[userId] = data.event || [];
     memoryReadTopicIds[userId] = data.topic || [];
     memoryReadMemoIds[userId] = data.memo || [];
+    memoryReadWorkflowIds[userId] = data.workflow || [];
     
     const chatTimestamps: Record<string, string> = {};
     if (Array.isArray(data.chat)) {
@@ -163,6 +165,35 @@ export function markMemoAsUnread(userId?: string, memoId?: string) {
   }
 }
 
+/** 5. ワークフロー既読 */
+export function getReadWorkflowIds(userId?: string): string[] {
+  if (!userId) return [];
+  return memoryReadWorkflowIds[userId] || [];
+}
+
+export function markWorkflowAsRead(userId?: string, workflowId?: string) {
+  if (!userId || !workflowId) return;
+  if (!memoryReadWorkflowIds[userId]) {
+    memoryReadWorkflowIds[userId] = [];
+  }
+  if (!memoryReadWorkflowIds[userId].includes(workflowId)) {
+    memoryReadWorkflowIds[userId].push(workflowId);
+    window.dispatchEvent(new CustomEvent('notifications_updated'));
+  }
+  saveReadStatusToServer(userId, 'workflow', workflowId);
+}
+
+export function markAllWorkflowsAsRead(userId?: string, workflowIds?: string[]) {
+  if (!userId || !workflowIds || !workflowIds.length) return;
+  if (!memoryReadWorkflowIds[userId]) {
+    memoryReadWorkflowIds[userId] = [];
+  }
+  const nextSet = new Set([...memoryReadWorkflowIds[userId], ...workflowIds]);
+  memoryReadWorkflowIds[userId] = Array.from(nextSet);
+  window.dispatchEvent(new CustomEvent('notifications_updated'));
+  workflowIds.forEach((id) => saveReadStatusToServer(userId, 'workflow', id));
+}
+
 // -------------------------------------------------------------
 // 個別コンテンツの未読/未確認判定関数 (統一ルール)
 // -------------------------------------------------------------
@@ -245,8 +276,8 @@ export function isTopicUnread(t: BoardTopic, user: User, readTopicIds: string[] 
   return true;
 }
 
-/** 3. 伝言メモの未完了・未読判定 */
-export function isMemoUnread(m: Memo, user: User, readMemoIds: string[] = getReadMemoIds(user?.id)): boolean {
+/** 3. 伝言メモの未対応(処理前)判定 */
+export function isMemoUnhandled(m: Memo, user: User): boolean {
   if (!user || !m) return false;
 
   // 全体ステータスが対応済み(handled)なら未対応ではない
@@ -255,10 +286,8 @@ export function isMemoUnread(m: Memo, user: User, readMemoIds: string[] = getRea
   // recipientStatuses が存在する場合
   if (m.recipientStatuses && m.recipientStatuses.length > 0) {
     const userStatus = m.recipientStatuses.find((st) => st.userId === user.id);
-    if (userStatus) {
-      if (userStatus.isHandled || userStatus.status === 'handled') {
-        return false;
-      }
+    if (userStatus && (userStatus.isHandled || userStatus.status === 'handled')) {
+      return false;
     }
   }
 
@@ -269,19 +298,53 @@ export function isMemoUnread(m: Memo, user: User, readMemoIds: string[] = getRea
     (m.targetOffices && user.office && m.targetOffices.includes(user.office)) ||
     (m.targetDivisions && user.division && m.targetDivisions.includes(user.division));
 
-  if (!isToUser) return false;
+  return isToUser;
+}
+
+/** 4. 伝言メモの未読(ベルマーク通知対象)判定 */
+export function isMemoUnread(m: Memo, user: User, readMemoIds: string[] = getReadMemoIds(user?.id)): boolean {
+  if (!user || !m) return false;
+
+  // 未対応でないものは通知対象外
+  if (!isMemoUnhandled(m, user)) return false;
+
+  // 閲覧済み・既読であれば通知対象外
+  if (m.status === 'read') return false;
+  if (readMemoIds.includes(m.id)) return false;
+
+  if (m.recipientStatuses && m.recipientStatuses.length > 0) {
+    const userStatus = m.recipientStatuses.find((st) => st.userId === user.id);
+    if (userStatus && (userStatus.isViewed || userStatus.status === 'read')) {
+      return false;
+    }
+  }
 
   return true;
 }
 
-/** 4. ワークフロー承認依頼の未承認判定 */
+/** 5. ワークフロー承認依頼の未承認(処理前)判定 */
 export function isWorkflowPending(app: WorkflowApplication, user: User): boolean {
   if (!user || !app) return false;
   const isApprover = app.approver?.id === user.id || app.approver?.name === user.name;
   return isApprover && app.status === 'pending';
 }
 
-/** 5. チャットメッセージの未読判定 */
+/** 6. ワークフロー承認依頼の未読(ベルマーク通知対象)判定 */
+export function isWorkflowUnread(
+  app: WorkflowApplication,
+  user: User,
+  readWorkflowIds: string[] = getReadWorkflowIds(user?.id)
+): boolean {
+  if (!user || !app) return false;
+  // 要承認の申請であること
+  if (!isWorkflowPending(app, user)) return false;
+  // 既にベルマーク通知を確認済み（既読）であれば未読通知対象外
+  if (readWorkflowIds.includes(app.id)) return false;
+
+  return true;
+}
+
+/** 7. チャットメッセージの未読判定 */
 export function isChatUnread(room: ChatRoom, user: User, readChatTimestamps: Record<string, string> = getReadChatTimestamps(user?.id)): boolean {
   if (!user || !room || !room.messages || room.messages.length === 0) return false;
   const isParticipant = room.participants?.some((p) => p?.id === user.id || p?.name === user.name);
@@ -316,6 +379,7 @@ export function getUnreadNotifications({
   readTopicIds = getReadTopicIds(user?.id),
   readChatTimestamps = getReadChatTimestamps(user?.id),
   readMemoIds = getReadMemoIds(user?.id),
+  readWorkflowIds = getReadWorkflowIds(user?.id),
 }: {
   user: User;
   memos?: Memo[];
@@ -327,6 +391,7 @@ export function getUnreadNotifications({
   readTopicIds?: string[];
   readChatTimestamps?: Record<string, string>;
   readMemoIds?: string[];
+  readWorkflowIds?: string[];
 }): NotificationItem[] {
   if (!user) return [];
 
@@ -356,7 +421,7 @@ export function getUnreadNotifications({
 
   // 2. Workflows
   applications.forEach((app) => {
-    if (isWorkflowPending(app, user)) {
+    if (isWorkflowUnread(app, user, readWorkflowIds)) {
       list.push({
         id: `wf_${app.id}`,
         type: 'workflow',
