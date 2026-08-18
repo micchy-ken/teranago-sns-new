@@ -17,8 +17,7 @@ export interface User {
   phoneOutside?: string;   // 電話番号（外線）
   phoneExtension?: string; // 電話番号（内線）
   mobilePhone?: string;    // 電話番号（携帯）
-  icalUrl?: string;        // 外部iCal(ICS) URL連携（インポート）
-  icalCalendarName?: string; // iCalカレンダー表示名・外部配信名
+  icalUrl?: string;        // 外部iCal(ICS) URL連携
   supervisorId?: string;   // 上長（承認者）ユーザーID
 }
 

@@ -69,11 +69,7 @@ import {
   Loader2,
   Info,
   Wrench,
-  AlertTriangle,
-  ChevronDown,
-  ChevronUp,
-  HelpCircle,
-  Sparkles,
+  AlertTriangle
 } from 'lucide-react';
 import { TopicDetailModal } from './TopicDetailModal';
 import { EventModal } from './EventModal';
@@ -308,7 +304,6 @@ export function MyPage({
   // 設定フォーム状態
   const [settingsForm, setSettingsForm] = useState<User>(user);
   const [copiedICal, setCopiedICal] = useState(false);
-  const [showIcalGuide, setShowIcalGuide] = useState(false);
   const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
 
   const handleOpenSettings = () => {
@@ -509,60 +504,6 @@ export function MyPage({
 
   return (
     <div className="flex-1 overflow-y-auto bg-slate-50/50 rounded-xl border border-slate-200 h-[calc(100vh-8rem)] p-4 sm:p-6 space-y-6">
-      {/* ユーザー情報ヘッダー ＆ 個人設定・カレンダー連携ボタン */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-        <div className="flex items-center gap-3.5 min-w-0">
-          <img
-            src={getAvatarUrl(user.avatarUrl)}
-            alt={user.name}
-            className="w-12 h-12 rounded-xl object-cover border border-slate-200 shadow-2xs shrink-0"
-            onError={(e) => {
-              (e.currentTarget as HTMLImageElement).src = SILHOUETTE_SVG;
-            }}
-          />
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-base sm:text-lg font-black text-slate-900 truncate">{user.name}</h1>
-              {user.kanaName && (
-                <span className="text-xs text-slate-400 font-medium">({user.kanaName})</span>
-              )}
-              {user.isAdmin && (
-                <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 text-[10px] font-bold rounded border border-indigo-200">
-                  管理者
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-2 text-xs text-slate-500 mt-0.5 flex-wrap">
-              <span>{user.office || '拠点未設定'}</span>
-              <span>/</span>
-              <span>{user.division || '部署未設定'}</span>
-              {user.position && (
-                <>
-                  <span>/</span>
-                  <span className="font-semibold text-slate-700">{user.position}</span>
-                </>
-              )}
-              {user.icalCalendarName && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-800 text-[10px] font-bold rounded border border-amber-200">
-                  <CalendarIcon className="w-3 h-3 text-amber-600" />
-                  iCal名: {user.icalCalendarName}
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 w-full md:w-auto shrink-0">
-          <button
-            onClick={handleOpenSettings}
-            className="w-full md:w-auto px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-          >
-            <Settings className="w-4 h-4" />
-            個人設定（iCal・通知・プロフィール）
-          </button>
-        </div>
-      </div>
-
       {/* 5つの未読通知サマリーカード */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
         {/* スケジュール */}
@@ -1553,131 +1494,44 @@ export function MyPage({
 
               {/* 外部カレンダー連携（iCal / Google Calendar） */}
               <div className="space-y-3 pt-4 border-t border-slate-100">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5 pb-1 border-b border-slate-100">
-                    <CalendarIcon className="w-4 h-4 text-amber-500" />
-                    外部カレンダー同期設定 (iCal / Google Calendar)
-                  </h3>
-                  <button
-                    type="button"
-                    onClick={() => setShowIcalGuide(!showIcalGuide)}
-                    className="text-[11px] font-bold text-amber-700 hover:text-amber-800 flex items-center gap-1 hover:underline cursor-pointer"
-                  >
-                    <HelpCircle className="w-3.5 h-3.5" />
-                    連携手順・名前変更ヘルプ
-                    {showIcalGuide ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                  </button>
-                </div>
+                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5 pb-1 border-b border-slate-100">
+                  <CalendarIcon className="w-4 h-4 text-amber-500" />
+                  外部カレンダー同期設定 (iCal / Google Calendar)
+                </h3>
 
-                <div className="p-3.5 bg-amber-50/60 rounded-xl border border-amber-200 space-y-3.5">
-                  {/* iCalカレンダー名（外部配信時の初期表示名） */}
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="block text-xs font-bold text-amber-950">
-                        iCalカレンダー名 (外部カレンダーでの表示名・配信名)
-                      </label>
-                      <span className="text-[10px] text-amber-700 font-bold bg-amber-100/80 px-2 py-0.5 rounded">
-                        マイページで編集可能
-                      </span>
+                <div className="p-3.5 bg-amber-50/60 rounded-xl border border-amber-200 space-y-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <h4 className="text-xs font-bold text-amber-900">iCal形式 外部連携URL</h4>
+                      <p className="text-[11px] text-amber-700 leading-relaxed mt-0.5">
+                        GoogleカレンダーやiPhone・Outlook等にこのURLを登録すると、社内スケジュールが自動同期されます。
+                      </p>
                     </div>
+                    <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded shrink-0">
+                      同期有効
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
                     <input
                       type="text"
-                      value={settingsForm.icalCalendarName || ''}
-                      onChange={(e) => setSettingsForm({ ...settingsForm, icalCalendarName: e.target.value })}
-                      placeholder={`例: 社内予定 (${settingsForm.name || user.name})`}
-                      className="w-full px-3 py-2 bg-white border border-amber-300 rounded-lg text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-2xs"
+                      readOnly
+                      value={`${API_BASE_URL}/ical/user_${user.id}_calendar.ics`}
+                      className="flex-1 px-3 py-1.5 bg-white border border-amber-300 rounded-lg text-[11px] font-mono text-slate-700 select-all focus:outline-none"
                     />
-                    <p className="text-[11px] text-amber-800 leading-relaxed mt-1">
-                      GoogleカレンダーやiPhone・Outlook等の外部アプリに登録した際に一覧に表示されるカレンダーの名前です。（未設定時は「社内予定」が自動設定されます）
-                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(`${API_BASE_URL}/ical/user_${user.id}_calendar.ics`);
+                        setCopiedICal(true);
+                        setTimeout(() => setCopiedICal(false), 2000);
+                      }}
+                      className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1 shrink-0 cursor-pointer"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                      {copiedICal ? 'コピー完了' : 'URLコピー'}
+                    </button>
                   </div>
-
-                  {/* 配信URL (エクスポート) */}
-                  <div className="pt-2 border-t border-amber-200/60 space-y-1.5">
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <h4 className="text-xs font-bold text-amber-900">外部連携URL（社内予定のエクスポート）</h4>
-                        <p className="text-[11px] text-amber-700 leading-relaxed mt-0.5">
-                          GoogleカレンダーやiPhone等の「URLで追加」「照会カレンダー」にこのURLを登録してください。
-                        </p>
-                      </div>
-                      <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded shrink-0">
-                        同期有効
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        readOnly
-                        value={`${API_BASE_URL}/ical/user_${user.id}_calendar.ics${settingsForm.icalCalendarName?.trim() ? `?name=${encodeURIComponent(settingsForm.icalCalendarName.trim())}` : ''}`}
-                        className="flex-1 px-3 py-1.5 bg-white border border-amber-300 rounded-lg text-[11px] font-mono text-slate-700 select-all focus:outline-none"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const exportUrl = `${API_BASE_URL}/ical/user_${user.id}_calendar.ics${settingsForm.icalCalendarName?.trim() ? `?name=${encodeURIComponent(settingsForm.icalCalendarName.trim())}` : ''}`;
-                          navigator.clipboard.writeText(exportUrl);
-                          setCopiedICal(true);
-                          setTimeout(() => setCopiedICal(false), 2000);
-                        }}
-                        className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1 shrink-0 cursor-pointer shadow-2xs"
-                      >
-                        <Copy className="w-3.5 h-3.5" />
-                        {copiedICal ? 'コピー完了' : 'URLコピー'}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* 外部カレンダーの取り込み（インポート） */}
-                  <div className="pt-2 border-t border-amber-200/60 space-y-1.5">
-                    <label className="block text-xs font-bold text-amber-950">
-                      外部カレンダーの取り込み (ICS/iCal URLインポート)
-                    </label>
-                    <input
-                      type="url"
-                      value={settingsForm.icalUrl || ''}
-                      onChange={(e) => setSettingsForm({ ...settingsForm, icalUrl: e.target.value })}
-                      placeholder="https://calendar.google.com/calendar/ical/.../public/basic.ics または webcal://..."
-                      className="w-full px-3 py-2 bg-white border border-amber-300 rounded-lg text-xs font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-2xs"
-                    />
-                    <p className="text-[11px] text-amber-800 leading-relaxed">
-                      Googleカレンダー等の公開ICS URLを登録すると、社内SNSのカレンダー画面に外部の予定を取り込んで重ねて表示できます。
-                    </p>
-                  </div>
-
-                  {/* ガイド & 名前変更のワンポイント */}
-                  {showIcalGuide && (
-                    <div className="pt-3 border-t border-amber-200 space-y-2 text-xs text-amber-950 bg-amber-100/60 p-3 rounded-lg">
-                      <div className="font-bold flex items-center gap-1.5 text-amber-900">
-                        <Info className="w-4 h-4 text-amber-600 shrink-0" />
-                        外部アプリでの登録手順 &amp; カレンダー名変更のヒント
-                      </div>
-                      <div className="space-y-2 text-[11px] leading-relaxed text-slate-700">
-                        <div>
-                          <strong className="text-slate-900">📅 Googleカレンダーに追加する場合:</strong>
-                          <ol className="list-decimal list-inside pl-1 space-y-0.5 mt-0.5 text-slate-600">
-                            <li>Googleカレンダー画面左側の「他のカレンダー」横の「＋」をクリック</li>
-                            <li>「URLで追加」を選択し、上記でコピーしたURLを貼り付け</li>
-                            <li>「カレンダーを追加」をクリックで連携完了</li>
-                            <li>※ 登録後もGoogleカレンダーの設定メニュー（該当カレンダーの︙ &gt;「設定と共有」）から、カレンダーの名前や色をいつでも自由に変更できます。</li>
-                          </ol>
-                        </div>
-                        <div className="pt-1.5 border-t border-amber-200/50">
-                          <strong className="text-slate-900">📱 iPhone / iPad (iOSカレンダー) に追加する場合:</strong>
-                          <p className="text-slate-600 mt-0.5">
-                            「設定」アプリ &gt;「カレンダー」&gt;「アカウント」&gt;「アカウントを追加」&gt;「その他」&gt;「照会するカレンダーを追加」を選択し、コピーしたURLを貼り付けてください。「説明」欄でカレンダー名を自由に変更できます。
-                          </p>
-                        </div>
-                        <div className="pt-1.5 border-t border-amber-200/50">
-                          <strong className="text-slate-900">💻 Outlook に追加する場合:</strong>
-                          <p className="text-slate-600 mt-0.5">
-                            Outlookカレンダー &gt;「カレンダーの追加」&gt;「Webから定期受信」を選択し、URLを貼り付けて名前を設定します。
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  )}
                 </div>
               </div>
 
