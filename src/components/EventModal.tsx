@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, RefreshCw, Trash2, AlertCircle, Link as LinkIcon, Building2, Users, Paperclip, Plus, Check, UserCheck, Copy, Loader2, Repeat, Clock } from 'lucide-react';
+import { X, RefreshCw, Trash2, AlertCircle, Link as LinkIcon, Building2, Users, Paperclip, Plus, Check, UserCheck, Copy, Loader2, Repeat, Clock, UploadCloud } from 'lucide-react';
 import { EventType, CalendarEvent, OfficeMaster, DivisionMaster, User, AttachmentFile, RecurrenceRule, RecurrenceFrequency, RecurrenceMonthlyType } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
 import { uploadMultipleFiles } from '../utils/fileUpload';
@@ -134,6 +134,7 @@ export function EventModal({
 
   // アップロード・プレビュー状態
   const [isUploading, setIsUploading] = useState(false);
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [previewFile, setPreviewFile] = useState<AttachmentFile | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
@@ -345,12 +346,12 @@ export function EventModal({
   };
 
   // 添付ファイルアップロード (非同期)
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
+  const processUploadedFiles = async (files: FileList | File[]) => {
+    if (files && files.length > 0) {
       setIsUploading(true);
       try {
-        const uploaded = await uploadMultipleFiles(e.target.files);
-        setAttachments([...attachments, ...uploaded]);
+        const uploaded = await uploadMultipleFiles(files);
+        setAttachments(prev => [...prev, ...uploaded]);
       } catch (err) {
         console.error(err);
       } finally {
@@ -359,6 +360,35 @@ export function EventModal({
           fileInputRef.current.value = '';
         }
       }
+    }
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      await processUploadedFiles(e.target.files);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!isIcal) {
+      setIsDraggingOver(true);
+    }
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(false);
+    if (!isIcal && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      await processUploadedFiles(e.dataTransfer.files);
     }
   };
 
@@ -1143,84 +1173,121 @@ export function EventModal({
               className="hidden"
             />
 
-            {isUploading && (
-              <div className="flex items-center gap-2 p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-500 mb-1.5">
-                <Loader2 className="w-4 h-4 text-indigo-500 animate-spin" />
-                <span>ファイルをアップロード中...</span>
-              </div>
-            )}
-
-            {attachments.length > 0 ? (
-              <div className="space-y-1.5">
-                {attachments.map(att => (
-                  <div
-                    key={att.id}
-                    className="flex items-center justify-between p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs animate-in fade-in-50 duration-200"
-                  >
-                    <div className="flex items-center gap-2 min-w-0 flex-1">
-                      <Paperclip className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                      <a
-                        href={att.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        download={att.name}
-                        className="font-semibold text-indigo-600 hover:text-indigo-800 hover:underline truncate"
-                        title="クリックしてファイルをダウンロード・表示"
-                      >
-                        {att.name}
-                      </a>
-                      <span className="text-[10px] text-slate-400 shrink-0">({att.size})</span>
-                    </div>
-                    <div className="flex items-center gap-1.5 shrink-0 ml-2">
-                      {(att.type?.startsWith('image/') || /\.pdf$/i.test(att.name) || /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(att.name)) && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setPreviewFile(att);
-                            setIsPreviewOpen(true);
-                          }}
-                          className="px-2 py-0.5 text-[10px] font-bold text-emerald-600 hover:bg-emerald-50 rounded-md transition-colors"
-                        >
-                          プレビュー
-                        </button>
-                      )}
-                      <a
-                        href={att.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        download={att.name}
-                        className="px-2 py-0.5 text-[10px] font-bold text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors"
-                        title="ファイルをダウンロード"
-                      >
-                        ダウンロード
-                      </a>
-                      {!isIcal && (
-                        <button
-                          type="button"
-                          disabled={isUploading}
-                          onClick={() => handleRemoveAttachment(att.id)}
-                          className="text-slate-400 hover:text-red-600 p-0.5 rounded transition-colors disabled:opacity-50"
-                          title="添付を削除"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              !isUploading && !isIcal && (
-                <div
-                  onClick={() => !isUploading && fileInputRef.current?.click()}
-                  className="p-3 border border-dashed border-slate-200 hover:border-indigo-300 rounded-xl text-center cursor-pointer transition-colors bg-slate-50/50"
-                >
-                  <p className="text-xs text-slate-500 font-medium">
-                    クリックして資料・議事録などを添付
-                  </p>
+            <div
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              className={`relative rounded-xl transition-all ${
+                isDraggingOver
+                  ? 'border-2 border-dashed border-indigo-500 bg-indigo-50/80 p-4 text-center ring-2 ring-indigo-300'
+                  : ''
+              }`}
+            >
+              {isDraggingOver && (
+                <div className="flex flex-col items-center justify-center gap-1 text-indigo-700 pointer-events-none py-2">
+                  <UploadCloud className="w-6 h-6 animate-bounce text-indigo-600" />
+                  <p className="text-xs font-bold">ここにファイルをドロップして添付</p>
                 </div>
-              )
-            )}
+              )}
+
+              {!isDraggingOver && (
+                <>
+                  {isUploading && (
+                    <div className="flex items-center gap-2 p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-500 mb-1.5">
+                      <Loader2 className="w-4 h-4 text-indigo-500 animate-spin" />
+                      <span>ファイルをアップロード中...</span>
+                    </div>
+                  )}
+
+                  {attachments.length > 0 ? (
+                    <div className="space-y-1.5">
+                      {attachments.map(att => (
+                        <div
+                          key={att.id}
+                          className="flex items-center justify-between p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs animate-in fade-in-50 duration-200"
+                        >
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            <Paperclip className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            <a
+                              href={att.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              download={att.name}
+                              className="font-semibold text-indigo-600 hover:text-indigo-800 hover:underline truncate"
+                              title="クリックしてファイルをダウンロード・表示"
+                            >
+                              {att.name}
+                            </a>
+                            <span className="text-[10px] text-slate-400 shrink-0">({att.size})</span>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                            {(att.type?.startsWith('image/') || /\.pdf$/i.test(att.name) || /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(att.name)) && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setPreviewFile(att);
+                                  setIsPreviewOpen(true);
+                                }}
+                                className="px-2 py-0.5 text-[10px] font-bold text-emerald-600 hover:bg-emerald-50 rounded-md transition-colors"
+                              >
+                                プレビュー
+                              </button>
+                            )}
+                            <a
+                              href={att.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              download={att.name}
+                              className="px-2 py-0.5 text-[10px] font-bold text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors"
+                              title="ファイルをダウンロード"
+                            >
+                              ダウンロード
+                            </a>
+                            {!isIcal && (
+                              <button
+                                type="button"
+                                disabled={isUploading}
+                                onClick={() => handleRemoveAttachment(att.id)}
+                                className="text-slate-400 hover:text-red-600 p-0.5 rounded transition-colors disabled:opacity-50"
+                                title="添付を削除"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                      {!isUploading && !isIcal && (
+                        <div
+                          onClick={() => !isUploading && fileInputRef.current?.click()}
+                          className="p-2.5 border border-dashed border-slate-200 hover:border-indigo-400 hover:bg-indigo-50/30 rounded-xl text-center cursor-pointer transition-all bg-slate-50/50"
+                        >
+                          <p className="text-xs text-slate-500 font-medium flex items-center justify-center gap-1.5">
+                            <UploadCloud className="w-3.5 h-3.5 text-indigo-500" />
+                            クリックまたはファイルをドラッグ＆ドロップして追加添付
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    !isUploading && !isIcal && (
+                      <div
+                        onClick={() => !isUploading && fileInputRef.current?.click()}
+                        className="p-3.5 border border-dashed border-slate-200 hover:border-indigo-400 hover:bg-indigo-50/30 rounded-xl text-center cursor-pointer transition-all bg-slate-50/50 flex flex-col items-center justify-center gap-1"
+                      >
+                        <UploadCloud className="w-5 h-5 text-indigo-500 mb-0.5" />
+                        <p className="text-xs text-slate-600 font-bold">
+                          ドラッグ＆ドロップでファイルを添付
+                        </p>
+                        <p className="text-[11px] text-slate-400 font-medium">
+                          またはクリックしてファイルを選択（資料・議事録など）
+                        </p>
+                      </div>
+                    )
+                  )}
+                </>
+              )}
+            </div>
           </div>
 
           <div>

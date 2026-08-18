@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, MessageSquare, Eye, Pin, Paperclip, Calendar as CalendarIcon, Send, Trash2, Building2, Users, Tag, CheckCircle2, Edit3, Save, Plus, Loader2, Eye as EyeIcon, Download } from 'lucide-react';
+import { X, MessageSquare, Eye, Pin, Paperclip, Calendar as CalendarIcon, Send, Trash2, Building2, Users, Tag, CheckCircle2, Edit3, Save, Plus, Loader2, Eye as EyeIcon, Download, UploadCloud } from 'lucide-react';
 import { BoardTopic, User, OfficeMaster, DivisionMaster, AttachmentFile } from '../types';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { getAvatarUrl } from '../utils/avatar';
@@ -54,6 +54,8 @@ export function TopicDetailModal({
   const [editTagInput, setEditTagInput] = useState('');
   const [editAttachments, setEditAttachments] = useState<AttachmentFile[]>([]);
   const [isEditingUploading, setIsEditingUploading] = useState(false);
+  const [isEditingDraggingOver, setIsEditingDraggingOver] = useState(false);
+  const [isCommentDraggingOver, setIsCommentDraggingOver] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -141,12 +143,12 @@ export function TopicDetailModal({
   };
 
   // 添付ファイル変更 (非同期アップロード)
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
+  const processEditingUploadedFiles = async (files: FileList | File[]) => {
+    if (files && files.length > 0) {
       setIsEditingUploading(true);
       try {
-        const uploaded = await uploadMultipleFiles(e.target.files);
-        setEditAttachments([...editAttachments, ...uploaded]);
+        const uploaded = await uploadMultipleFiles(files);
+        setEditAttachments(prev => [...prev, ...uploaded]);
       } catch (err) {
         console.error(err);
       } finally {
@@ -158,13 +160,40 @@ export function TopicDetailModal({
     }
   };
 
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      await processEditingUploadedFiles(e.target.files);
+    }
+  };
+
+  const handleEditingDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsEditingDraggingOver(true);
+  };
+
+  const handleEditingDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsEditingDraggingOver(false);
+  };
+
+  const handleEditingDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsEditingDraggingOver(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      await processEditingUploadedFiles(e.dataTransfer.files);
+    }
+  };
+
   // コメント添付ファイル選択 (非同期アップロード)
-  const handleCommentFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
+  const processCommentUploadedFiles = async (files: FileList | File[]) => {
+    if (files && files.length > 0) {
       setIsCommentUploading(true);
       try {
-        const uploaded = await uploadMultipleFiles(e.target.files);
-        setCommentAttachments([...commentAttachments, ...uploaded]);
+        const uploaded = await uploadMultipleFiles(files);
+        setCommentAttachments(prev => [...prev, ...uploaded]);
       } catch (err) {
         console.error(err);
       } finally {
@@ -173,6 +202,33 @@ export function TopicDetailModal({
           commentFileInputRef.current.value = '';
         }
       }
+    }
+  };
+
+  const handleCommentFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      await processCommentUploadedFiles(e.target.files);
+    }
+  };
+
+  const handleCommentDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsCommentDraggingOver(true);
+  };
+
+  const handleCommentDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsCommentDraggingOver(false);
+  };
+
+  const handleCommentDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsCommentDraggingOver(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      await processCommentUploadedFiles(e.dataTransfer.files);
     }
   };
 
@@ -499,32 +555,63 @@ export function TopicDetailModal({
                   className="hidden"
                 />
 
-                {isEditingUploading && (
-                  <div className="flex items-center gap-2 p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-500 mb-1.5">
-                    <Loader2 className="w-4 h-4 text-indigo-500 animate-spin" />
-                    <span>ファイルをアップロード中...</span>
-                  </div>
-                )}
-
-                <div className="space-y-1.5">
-                  {editAttachments.map(att => (
-                    <div key={att.id} className="flex items-center justify-between p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs">
-                      <span className="font-semibold text-slate-700 truncate">{att.name}</span>
-                      <button
-                        type="button"
-                        disabled={isEditingUploading}
-                        onClick={async () => {
-                          if (att.url) {
-                            await deleteAttachmentFile(att.url);
-                          }
-                          setEditAttachments(editAttachments.filter(a => a.id !== att.id));
-                        }}
-                        className="text-slate-400 hover:text-red-600 p-0.5 disabled:opacity-50"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                <div
+                  onDragOver={handleEditingDragOver}
+                  onDragLeave={handleEditingDragLeave}
+                  onDrop={handleEditingDrop}
+                  className={`relative rounded-xl transition-all ${
+                    isEditingDraggingOver
+                      ? 'border-2 border-dashed border-indigo-500 bg-indigo-50/80 p-3 text-center ring-2 ring-indigo-300'
+                      : ''
+                  }`}
+                >
+                  {isEditingDraggingOver ? (
+                    <div className="flex flex-col items-center justify-center gap-1 text-indigo-700 pointer-events-none py-1">
+                      <UploadCloud className="w-5 h-5 animate-bounce text-indigo-600" />
+                      <p className="text-xs font-bold">ここにファイルをドロップして添付</p>
                     </div>
-                  ))}
+                  ) : (
+                    <>
+                      {isEditingUploading && (
+                        <div className="flex items-center gap-2 p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-500 mb-1.5">
+                          <Loader2 className="w-4 h-4 text-indigo-500 animate-spin" />
+                          <span>ファイルをアップロード中...</span>
+                        </div>
+                      )}
+
+                      <div className="space-y-1.5">
+                        {editAttachments.map(att => (
+                          <div key={att.id} className="flex items-center justify-between p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+                            <span className="font-semibold text-slate-700 truncate">{att.name}</span>
+                            <button
+                              type="button"
+                              disabled={isEditingUploading}
+                              onClick={async () => {
+                                if (att.url) {
+                                  await deleteAttachmentFile(att.url);
+                                }
+                                setEditAttachments(editAttachments.filter(a => a.id !== att.id));
+                              }}
+                              className="text-slate-400 hover:text-red-600 p-0.5 disabled:opacity-50"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ))}
+                        {!isEditingUploading && (
+                          <div
+                            onClick={() => !isEditingUploading && fileInputRef.current?.click()}
+                            className="p-2 border border-dashed border-slate-200 hover:border-indigo-400 hover:bg-indigo-50/30 rounded-lg text-center cursor-pointer transition-all bg-slate-50/50"
+                          >
+                            <p className="text-xs text-slate-500 font-medium flex items-center justify-center gap-1">
+                              <UploadCloud className="w-3.5 h-3.5 text-indigo-500" />
+                              ドラッグ＆ドロップまたはクリックでファイルを添付
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -742,69 +829,90 @@ export function TopicDetailModal({
                       )}
                     </div>
 
-                    {/* Comment Attachments Preview */}
-                    {commentAttachments.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5 p-2 bg-slate-50 border border-slate-200 rounded-xl">
-                        {commentAttachments.map(att => (
-                          <div
-                            key={att.id}
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-semibold"
-                          >
-                            <Paperclip className="w-3.5 h-3.5 text-slate-400" />
-                            <span className="text-slate-700 truncate max-w-[150px]">{att.name}</span>
+                    {/* Comment Input Container with D&D */}
+                    <div
+                      onDragOver={handleCommentDragOver}
+                      onDragLeave={handleCommentDragLeave}
+                      onDrop={handleCommentDrop}
+                      className={`relative rounded-xl transition-all ${
+                        isCommentDraggingOver
+                          ? 'border-2 border-dashed border-indigo-500 bg-indigo-50/90 p-3 ring-2 ring-indigo-300'
+                          : ''
+                      }`}
+                    >
+                      {isCommentDraggingOver ? (
+                        <div className="flex items-center justify-center gap-2 text-indigo-700 pointer-events-none py-1.5">
+                          <UploadCloud className="w-5 h-5 animate-bounce text-indigo-600" />
+                          <p className="text-xs font-bold">ここにファイルをドロップしてコメントに添付</p>
+                        </div>
+                      ) : (
+                        <>
+                          {/* Comment Attachments Preview */}
+                          {commentAttachments.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5 p-2 bg-slate-50 border border-slate-200 rounded-xl mb-2">
+                              {commentAttachments.map(att => (
+                                <div
+                                  key={att.id}
+                                  className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-semibold"
+                                >
+                                  <Paperclip className="w-3.5 h-3.5 text-slate-400" />
+                                  <span className="text-slate-700 truncate max-w-[150px]">{att.name}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setCommentAttachments(commentAttachments.filter(a => a.id !== att.id))}
+                                    className="text-slate-400 hover:text-red-500 font-bold ml-1 transition-colors"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {isCommentUploading && (
+                            <div className="flex items-center gap-1.5 text-xs text-slate-500 font-semibold p-1 mb-1">
+                              <Loader2 className="w-3.5 h-3.5 text-indigo-500 animate-spin" />
+                              <span>ファイルアップロード中...</span>
+                            </div>
+                          )}
+
+                          {/* Comment Input */}
+                          <form onSubmit={handleAddComment} className="flex gap-2 items-center">
                             <button
                               type="button"
-                              onClick={() => setCommentAttachments(commentAttachments.filter(a => a.id !== att.id))}
-                              className="text-slate-400 hover:text-red-500 font-bold ml-1 transition-colors"
+                              disabled={isCommentUploading}
+                              onClick={() => commentFileInputRef.current?.click()}
+                              className="p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl border border-slate-200 transition-colors shrink-0 disabled:opacity-50"
+                              title="ファイルを添付（ドラッグ＆ドロップ可）"
                             >
-                              <X className="w-3.5 h-3.5" />
+                              <Paperclip className="w-4 h-4" />
                             </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {isCommentUploading && (
-                      <div className="flex items-center gap-1.5 text-xs text-slate-500 font-semibold p-1">
-                        <Loader2 className="w-3.5 h-3.5 text-indigo-500 animate-spin" />
-                        <span>ファイルアップロード中...</span>
-                      </div>
-                    )}
-
-                    {/* Comment Input */}
-                    <form onSubmit={handleAddComment} className="flex gap-2 pt-2 items-center">
-                      <button
-                        type="button"
-                        disabled={isCommentUploading}
-                        onClick={() => commentFileInputRef.current?.click()}
-                        className="p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl border border-slate-200 transition-colors shrink-0 disabled:opacity-50"
-                        title="ファイルを添付"
-                      >
-                        <Paperclip className="w-4 h-4" />
-                      </button>
-                      <input
-                        type="file"
-                        ref={commentFileInputRef}
-                        onChange={handleCommentFileChange}
-                        multiple
-                        className="hidden"
-                      />
-                      <input
-                        type="text"
-                        placeholder="コメントを入力..."
-                        value={commentText}
-                        onChange={e => setCommentText(e.target.value)}
-                        className="flex-1 px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
-                      />
-                      <button
-                        type="submit"
-                        disabled={((!commentText || !commentText.trim()) && commentAttachments.length === 0) || isCommentUploading}
-                        className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 shrink-0"
-                      >
-                        <Send className="w-3.5 h-3.5" />
-                        送信
-                      </button>
-                    </form>
+                            <input
+                              type="file"
+                              ref={commentFileInputRef}
+                              onChange={handleCommentFileChange}
+                              multiple
+                              className="hidden"
+                            />
+                            <input
+                              type="text"
+                              placeholder="コメントを入力... (ファイルをドラッグ＆ドロップ可)"
+                              value={commentText}
+                              onChange={e => setCommentText(e.target.value)}
+                              className="flex-1 px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
+                            />
+                            <button
+                              type="submit"
+                              disabled={((!commentText || !commentText.trim()) && commentAttachments.length === 0) || isCommentUploading}
+                              className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 shrink-0"
+                            >
+                              <Send className="w-3.5 h-3.5" />
+                              送信
+                            </button>
+                          </form>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </>
               ) : (

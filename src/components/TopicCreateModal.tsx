@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { X, Paperclip, Pin, Calendar as CalendarIcon, Building2, Users, Tag, Plus, Trash2, Loader2 } from 'lucide-react';
+import { X, Paperclip, Pin, Calendar as CalendarIcon, Building2, Users, Tag, Plus, Trash2, Loader2, UploadCloud } from 'lucide-react';
 import { BoardTopic, User, OfficeMaster, DivisionMaster, AttachmentFile } from '../types';
 import { uploadMultipleFiles } from '../utils/fileUpload';
 
@@ -44,6 +44,7 @@ export function TopicCreateModal({
   const [isPinned, setIsPinned] = useState(false);
 
   const [isUploading, setIsUploading] = useState(false);
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -61,6 +62,7 @@ export function TopicCreateModal({
       setEndDate('');
       setIsPinned(false);
       setIsUploading(false);
+      setIsDraggingOver(false);
       setError(null);
     }
   }, [isOpen]);
@@ -95,13 +97,13 @@ export function TopicCreateModal({
   };
 
   // ファイル選択ハンドラー（非同期アップロード）
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
+  const processUploadedFiles = async (files: FileList | File[]) => {
+    if (files && files.length > 0) {
       setIsUploading(true);
       setError(null);
       try {
-        const uploaded = await uploadMultipleFiles(e.target.files);
-        setAttachments([...attachments, ...uploaded]);
+        const uploaded = await uploadMultipleFiles(files);
+        setAttachments(prev => [...prev, ...uploaded]);
       } catch (err) {
         console.error(err);
         setError('ファイルのアップロードに失敗しました。');
@@ -111,6 +113,33 @@ export function TopicCreateModal({
           fileInputRef.current.value = '';
         }
       }
+    }
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      await processUploadedFiles(e.target.files);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      await processUploadedFiles(e.dataTransfer.files);
     }
   };
 
@@ -347,49 +376,83 @@ export function TopicCreateModal({
               className="hidden"
             />
 
-            {isUploading && (
-              <div className="flex items-center gap-2 p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-500 mb-1.5">
-                <Loader2 className="w-4 h-4 text-indigo-500 animate-spin" />
-                <span>ファイルをアップロード中...</span>
-              </div>
-            )}
-
-            {attachments.length > 0 ? (
-              <div className="space-y-1.5">
-                {attachments.map(att => (
-                  <div
-                    key={att.id}
-                    className="flex items-center justify-between p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs"
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <Paperclip className="w-4 h-4 text-slate-400 shrink-0" />
-                      <span className="font-semibold text-slate-700 truncate">{att.name}</span>
-                      <span className="text-[10px] text-slate-400">({att.size})</span>
-                    </div>
-                    <button
-                      type="button"
-                      disabled={isUploading}
-                      onClick={() => handleRemoveAttachment(att.id)}
-                      className="text-slate-400 hover:text-red-600 p-1 rounded transition-colors disabled:opacity-50"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              !isUploading && (
-                <div
-                  onClick={() => !isUploading && fileInputRef.current?.click()}
-                  className="p-4 border-2 border-dashed border-slate-200 hover:border-indigo-300 rounded-xl text-center cursor-pointer transition-colors bg-slate-50/50"
-                >
-                  <Paperclip className="w-5 h-5 text-slate-400 mx-auto mb-1" />
-                  <p className="text-xs text-slate-500 font-medium">
-                    クリックして資料・画像・ドキュメントを添付
-                  </p>
+            <div
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              className={`relative rounded-xl transition-all ${
+                isDraggingOver
+                  ? 'border-2 border-dashed border-indigo-500 bg-indigo-50/80 p-4 text-center ring-2 ring-indigo-300'
+                  : ''
+              }`}
+            >
+              {isDraggingOver ? (
+                <div className="flex flex-col items-center justify-center gap-1 text-indigo-700 pointer-events-none py-2">
+                  <UploadCloud className="w-6 h-6 animate-bounce text-indigo-600" />
+                  <p className="text-xs font-bold">ここにファイルをドロップして添付</p>
                 </div>
-              )
-            )}
+              ) : (
+                <>
+                  {isUploading && (
+                    <div className="flex items-center gap-2 p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-500 mb-1.5">
+                      <Loader2 className="w-4 h-4 text-indigo-500 animate-spin" />
+                      <span>ファイルをアップロード中...</span>
+                    </div>
+                  )}
+
+                  {attachments.length > 0 ? (
+                    <div className="space-y-1.5">
+                      {attachments.map(att => (
+                        <div
+                          key={att.id}
+                          className="flex items-center justify-between p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <Paperclip className="w-4 h-4 text-slate-400 shrink-0" />
+                            <span className="font-semibold text-slate-700 truncate">{att.name}</span>
+                            <span className="text-[10px] text-slate-400">({att.size})</span>
+                          </div>
+                          <button
+                            type="button"
+                            disabled={isUploading}
+                            onClick={() => handleRemoveAttachment(att.id)}
+                            className="text-slate-400 hover:text-red-600 p-1 rounded transition-colors disabled:opacity-50"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                      {!isUploading && (
+                        <div
+                          onClick={() => !isUploading && fileInputRef.current?.click()}
+                          className="p-2.5 border border-dashed border-slate-200 hover:border-indigo-400 hover:bg-indigo-50/30 rounded-xl text-center cursor-pointer transition-all bg-slate-50/50"
+                        >
+                          <p className="text-xs text-slate-500 font-medium flex items-center justify-center gap-1.5">
+                            <UploadCloud className="w-3.5 h-3.5 text-indigo-500" />
+                            クリックまたはファイルをドラッグ＆ドロップして追加添付
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    !isUploading && (
+                      <div
+                        onClick={() => !isUploading && fileInputRef.current?.click()}
+                        className="p-4 border-2 border-dashed border-slate-200 hover:border-indigo-400 hover:bg-indigo-50/30 rounded-xl text-center cursor-pointer transition-all bg-slate-50/50 flex flex-col items-center justify-center gap-1"
+                      >
+                        <UploadCloud className="w-5 h-5 text-indigo-500 mb-0.5" />
+                        <p className="text-xs text-slate-600 font-bold">
+                          ドラッグ＆ドロップでファイルを添付
+                        </p>
+                        <p className="text-[11px] text-slate-400 font-medium">
+                          またはクリックしてファイルを選択（資料・画像・ドキュメントなど）
+                        </p>
+                      </div>
+                    )
+                  )}
+                </>
+              )}
+            </div>
           </div>
 
           {/* 公開期間設定 (デフォルト: オフ) */}

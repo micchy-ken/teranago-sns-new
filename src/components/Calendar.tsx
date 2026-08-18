@@ -3,7 +3,6 @@ import { CalendarEvent, EventType, User, OfficeMaster, DivisionMaster, Memo, Req
 import { getAvatarUrl } from '../utils/avatar';
 import { ChevronLeft, ChevronRight, List as ListIcon, Calendar as CalendarIcon, Plus, MapPin, Video, AlignLeft, RefreshCw, Clock, Link as LinkIcon, Loader2, Building2, Users, Paperclip, MessageSquare, Phone, X } from 'lucide-react';
 import { EventModal } from './EventModal';
-import { fetchIcalFeed } from '../utils/icalParser';
 import { renderWithClickableLinks } from '../utils/linkify';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { getLocalDateStr } from '../utils/dateUtils';
@@ -36,8 +35,6 @@ const typeStyles: Record<EventType, string> = {
   visitor: 'bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100',
   business_trip: 'bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100'
 };
-
-const icalStyle = 'bg-purple-100 text-purple-800 border-purple-300 hover:bg-purple-200';
 
 const typeLabels: Record<EventType, string> = {
   personal: '個人',
@@ -116,11 +113,6 @@ export function Calendar({
   const [customRequirementText, setCustomRequirementText] = useState('');
   const [content, setContent] = useState('');
 
-  // iCal integration state
-  const [icalEvents, setIcalEvents] = useState<CalendarEvent[]>([]);
-  const [isIcalLoading, setIsIcalLoading] = useState(false);
-  const [icalError, setIcalError] = useState<string | null>(null);
-  
   // Drag and drop state
   const [draggedEventId, setDraggedEventId] = useState<string | null>(null);
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
@@ -129,38 +121,13 @@ export function Calendar({
   const officeNames = Array.from(new Set(offices.map(o => o.name)));
   const divisionNames = Array.from(new Set(divisions.map(d => d.name)));
 
-  // Fetch iCal feed when currentUser.icalUrl is set
-  const loadIcalEvents = useCallback(async () => {
-    if (!currentUser?.icalUrl) {
-      setIcalEvents([]);
-      return;
-    }
-    setIsIcalLoading(true);
-    setIcalError(null);
-    try {
-      const fetched = await fetchIcalFeed(currentUser.icalUrl, currentUser);
-      setIcalEvents(fetched);
-    } catch (err) {
-      console.warn('Failed to load iCal feed:', err);
-      setIcalError('iCalフィードの取得に失敗しました');
-    } finally {
-      setIsIcalLoading(false);
-    }
-  }, [currentUser?.icalUrl, currentUser]);
-
-  useEffect(() => {
-    loadIcalEvents();
-  }, [loadIcalEvents]);
-
-  const combinedEvents = [...events, ...icalEvents];
-
   // 表示期間の前後を含む展開用日付範囲（前後3ヶ月）
   const viewRangeStart = new Date(currentDate.getFullYear(), currentDate.getMonth() - 2, 1);
   const viewRangeEnd = new Date(currentDate.getFullYear(), currentDate.getMonth() + 3, 0);
 
   const expandedEvents = React.useMemo(() => {
-    return expandRecurringEvents(combinedEvents, viewRangeStart, viewRangeEnd);
-  }, [combinedEvents, currentDate]);
+    return expandRecurringEvents(events, viewRangeStart, viewRangeEnd);
+  }, [events, currentDate]);
 
   const processedInitialEventIdRef = React.useRef<string | null>(null);
 
@@ -192,8 +159,6 @@ export function Calendar({
   
   // イベントのフィルタリング処理
   const filteredEvents = expandedEvents.filter(e => {
-    if (e.isIcal) return true;
-
     if (selectedTypeFilter !== 'all' && e.type !== selectedTypeFilter) {
       return false;
     }
@@ -335,7 +300,6 @@ export function Calendar({
   };
 
   const getEventStyle = (e: CalendarEvent, forceSolid = false) => {
-    if (e.isIcal) return forceSolid ? 'bg-purple-600 text-white border-purple-700 hover:bg-purple-700' : icalStyle;
     const startStr = getLocalDateStr(e.start);
     const endStr = e.end ? getLocalDateStr(e.end) : startStr;
     const isMultiDay = startStr !== endStr;
@@ -650,7 +614,7 @@ export function Calendar({
                         return (
                           <div
                             key={e.id}
-                            draggable={!e.isIcal}
+                            draggable
                             onDragStart={(eDrag) => handleDragStart(eDrag, e.id, member.id)}
                             onClick={(evt) => handleEventClick(evt, e)}
                             className={`border text-[9px] sm:text-[10px] font-bold leading-snug transition-all hover:shadow-xs shadow-2xs truncate select-none ${getEventStyle(e)} ${multiProps.containerClass} ${
@@ -782,7 +746,7 @@ export function Calendar({
                       hourEvents.map(e => (
                         <div
                           key={e.id}
-                          draggable={!e.isIcal}
+                          draggable
                           onDragStart={(eDrag) => handleDragStart(eDrag, e.id, member.id)}
                           onClick={(evt) => handleEventClick(evt, e)}
                           className={`p-1 rounded-md border text-[9px] font-bold leading-tight transition-all hover:shadow-xs shadow-2xs truncate select-none ${getEventStyle(e)}`}
@@ -859,8 +823,8 @@ export function Calendar({
     const eventId = draggedEventId || e.dataTransfer.getData('text/plain');
     if (!eventId) return;
 
-    const ev = combinedEvents.find(item => item.id === eventId);
-    if (!ev || ev.isIcal) return; // iCal events are read-only from feed
+    const ev = expandedEvents.find(item => item.id === eventId);
+    if (!ev) return;
 
     let newStartIso: string;
     let newEndIso: string | undefined = undefined;
@@ -1435,14 +1399,14 @@ export function Calendar({
                             dayEvents.map(e => (
                               <div
                                 key={e.id}
-                                draggable={!e.isIcal}
+                                draggable
                                 onDragStart={(eDrag) => handleDragStart(eDrag, e.id)}
                                 onClick={eClick => handleEventClick(eClick, e)}
                                 className={`p-2.5 sm:p-3 rounded-lg border flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-2 shadow-xs cursor-pointer transition-all ${getEventStyle(e)}`}
                                 title="クリックで詳細"
                               >
                                 <div className="min-w-0">
-                                  <div className="font-bold text-xs sm:text-sm text-slate-900 truncate">{e.isIcal ? `[iCal] ${e.title}` : e.title}</div>
+                                  <div className="font-bold text-xs sm:text-sm text-slate-900 truncate">{e.title}</div>
                                   <div className="text-[11px] sm:text-xs font-medium text-slate-600 mt-0.5">{formatEventTime(e)} {e.location ? `• ${e.location}` : ''}</div>
                                   {e.memo && (
                                     <div className="text-[11px] sm:text-xs text-slate-700 mt-1 bg-white/50 p-1.5 rounded border border-slate-200/50">
@@ -1451,7 +1415,7 @@ export function Calendar({
                                   )}
                                 </div>
                                 <span className="text-[9px] sm:text-[10px] px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-md font-bold border bg-white/80 self-start sm:self-center shrink-0">
-                                  {e.isIcal ? 'iCal連携' : typeLabels[e.type]}
+                                  {typeLabels[e.type]}
                                 </span>
                               </div>
                             ))
@@ -1490,10 +1454,9 @@ export function Calendar({
                       <div className="flex-1 min-w-0 py-0.5">
                         <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                           <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold tracking-wider border ${getEventStyle(e)}`}>
-                            {e.isIcal ? 'iCal連携' : typeLabels[e.type]}
+                            {typeLabels[e.type]}
                           </span>
                           <h3 className="font-bold text-slate-900 truncate text-sm sm:text-base flex-1 min-w-0">{e.title}</h3>
-                          {e.isIcal && <span title="iCal連携カレンダー"><LinkIcon className="w-3.5 h-3.5 text-purple-600 ml-1 shrink-0" /></span>}
                         </div>
                         {e.memo && (
                           <div className="text-xs text-slate-700 my-2 bg-slate-50 p-2 rounded-lg border border-slate-100">

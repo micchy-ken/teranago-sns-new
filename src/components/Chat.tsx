@@ -31,7 +31,8 @@ import {
   Edit3,
   Shield,
   Crown,
-  ArrowLeft
+  ArrowLeft,
+  UploadCloud
 } from 'lucide-react';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { uploadMultipleFiles, uploadFile } from '../utils/fileUpload';
@@ -240,6 +241,7 @@ export function Chat({
   // 添付ファイル関連ステート
   const [chatAttachments, setChatAttachments] = useState<AttachmentFile[]>([]);
   const [isChatUploading, setIsChatUploading] = useState(false);
+  const [isChatDraggingOver, setIsChatDraggingOver] = useState(false);
   const [previewFile, setPreviewFile] = useState<AttachmentFile | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const chatFileInputRef = useRef<HTMLInputElement>(null);
@@ -368,12 +370,12 @@ export function Chat({
   };
 
   // チャット用添付ファイル非同期アップロード
-  const handleChatFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
+  const processChatUploadedFiles = async (files: FileList | File[]) => {
+    if (files && files.length > 0) {
       setIsChatUploading(true);
       try {
-        const uploaded = await uploadMultipleFiles(e.target.files);
-        setChatAttachments([...chatAttachments, ...uploaded]);
+        const uploaded = await uploadMultipleFiles(files);
+        setChatAttachments(prev => [...prev, ...uploaded]);
       } catch (err) {
         console.error(err);
       } finally {
@@ -382,6 +384,33 @@ export function Chat({
           chatFileInputRef.current.value = '';
         }
       }
+    }
+  };
+
+  const handleChatFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      await processChatUploadedFiles(e.target.files);
+    }
+  };
+
+  const handleChatDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsChatDraggingOver(true);
+  };
+
+  const handleChatDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsChatDraggingOver(false);
+  };
+
+  const handleChatDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsChatDraggingOver(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      await processChatUploadedFiles(e.dataTransfer.files);
     }
   };
 
@@ -1023,7 +1052,20 @@ export function Chat({
             </div>
           </div>
 
-          <div className="flex-1 flex overflow-hidden">
+          <div
+            onDragOver={handleChatDragOver}
+            onDragLeave={handleChatDragLeave}
+            onDrop={handleChatDrop}
+            className="flex-1 flex overflow-hidden relative"
+          >
+            {isChatDraggingOver && (
+              <div className="absolute inset-0 bg-indigo-600/90 backdrop-blur-xs z-50 flex flex-col items-center justify-center gap-3 text-white pointer-events-none animate-in fade-in duration-150 p-6 text-center">
+                <UploadCloud className="w-12 h-12 animate-bounce text-white" />
+                <p className="text-lg font-extrabold tracking-wide">ここにファイルをドロップしてチャットに添付</p>
+                <p className="text-xs text-indigo-100">画像・PDF・各種ドキュメントを即座に送信準備します</p>
+              </div>
+            )}
+
             {/* メッセージ本文エリア (LINEスタイルトーク画面) */}
             <div ref={chatContainerRef} className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-3 sm:space-y-4 bg-[#e2e8f0]/40">
               {(activeRoom?.messages || []).map((msg, index) => {
@@ -1327,7 +1369,12 @@ export function Chat({
           </div>
 
           {/* ----------------- メッセージ入力バー ----------------- */}
-          <div className="p-2 sm:p-3 bg-white border-t border-slate-200 shrink-0 relative">
+          <div
+            onDragOver={handleChatDragOver}
+            onDragLeave={handleChatDragLeave}
+            onDrop={handleChatDrop}
+            className="p-2 sm:p-3 bg-white border-t border-slate-200 shrink-0 relative"
+          >
             {/* 写真添付プレビューモーダル / ポップアップ */}
             {pendingPhotoUrl && (
               <div className="mb-2 p-2.5 bg-indigo-50/80 border border-indigo-200 rounded-xl flex flex-col sm:flex-row items-start sm:items-center gap-2.5">
@@ -1486,7 +1533,7 @@ export function Chat({
                 type="text"
                 value={messageText}
                 onChange={(e) => setMessageText(e.target.value)}
-                placeholder="メッセージを入力..."
+                placeholder="メッセージを入力... (ファイルをドラッグ＆ドロップ可)"
                 className="flex-1 min-w-0 px-3 sm:px-4 py-2 sm:py-2.5 bg-slate-50 border border-slate-200 rounded-full focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-xs sm:text-sm font-semibold text-slate-800"
               />
 

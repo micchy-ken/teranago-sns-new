@@ -53,12 +53,10 @@ export function GlobalEventDetailModal({
   };
 
   const getStyle = () => {
-    if (event.isIcal) return 'bg-purple-50 text-purple-700 border-purple-200';
     return typeStyles[event.type] || 'bg-slate-50 text-slate-700 border-slate-200';
   };
 
   const getLabel = () => {
-    if (event.isIcal) return 'iCal予定';
     return typeLabels[event.type] || '予定';
   };
 

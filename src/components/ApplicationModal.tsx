@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, GitMerge, ArrowRight, CheckCircle2, UserCheck, ShieldCheck, AlertCircle, Plus, Trash2, Building2, ShoppingBag, Calculator, Calendar, Save, Send, Paperclip, Loader2 } from 'lucide-react';
+import { X, GitMerge, ArrowRight, CheckCircle2, UserCheck, ShieldCheck, AlertCircle, Plus, Trash2, Building2, ShoppingBag, Calculator, Calendar, Save, Send, Paperclip, Loader2, UploadCloud } from 'lucide-react';
 import { ApplicationType, WorkflowApplication, User, ApprovalFlowRule, ApprovalStepConfig, ItemMaster, PurchaseOrderItem, ApplicationStatus, AttachmentFile } from '../types';
 import { filterStepsForApplicant, getSupervisorAtLevel, resolveApproverForStep, resolveApproverForStepDetails } from '../utils/workflowHelpers';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
@@ -57,14 +57,15 @@ export function ApplicationModal({
   // 添付ファイル関連ステート
   const [attachments, setAttachments] = useState<AttachmentFile[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
+  const processUploadedFiles = async (files: FileList | File[]) => {
+    if (files && files.length > 0) {
       setIsUploading(true);
       try {
-        const uploaded = await uploadMultipleFiles(e.target.files);
-        setAttachments([...attachments, ...uploaded]);
+        const uploaded = await uploadMultipleFiles(files);
+        setAttachments(prev => [...prev, ...uploaded]);
       } catch (err) {
         console.error(err);
       } finally {
@@ -73,6 +74,33 @@ export function ApplicationModal({
           fileInputRef.current.value = '';
         }
       }
+    }
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      await processUploadedFiles(e.target.files);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      await processUploadedFiles(e.dataTransfer.files);
     }
   };
 
@@ -474,7 +502,7 @@ export function ApplicationModal({
                 type="button"
                 disabled={isUploading}
                 onClick={() => fileInputRef.current?.click()}
-                className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 disabled:opacity-50"
+                className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 disabled:opacity-50 cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>追加</span>
@@ -488,15 +516,43 @@ export function ApplicationModal({
               className="hidden"
             />
 
+            {/* D&D ドロップエリア */}
+            <div
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              onClick={() => !isUploading && fileInputRef.current?.click()}
+              className={`p-3.5 border-2 border-dashed rounded-xl text-center cursor-pointer transition-all ${
+                isDraggingOver
+                  ? 'border-indigo-500 bg-indigo-50/90 ring-2 ring-indigo-300'
+                  : 'border-slate-200 hover:border-indigo-300 bg-slate-50/50 hover:bg-slate-50'
+              }`}
+            >
+              {isDraggingOver ? (
+                <div className="flex items-center justify-center gap-2 text-indigo-700 pointer-events-none py-1">
+                  <UploadCloud className="w-5 h-5 animate-bounce text-indigo-600" />
+                  <p className="text-xs font-bold">ここにファイルをドロップして添付</p>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center gap-1 pointer-events-none">
+                  <UploadCloud className="w-5 h-5 text-slate-400" />
+                  <p className="text-xs text-slate-600 font-semibold">
+                    ファイルをドラッグ＆ドロップ、または<span className="text-indigo-600 underline ml-1">クリックして選択</span>
+                  </p>
+                  <p className="text-[10px] text-slate-400">見積書、領収書、現場写真、PDF、画像など</p>
+                </div>
+              )}
+            </div>
+
             {isUploading && (
-              <div className="flex items-center gap-2 p-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-500 mb-1.5">
+              <div className="flex items-center gap-2 p-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-500 mt-2">
                 <Loader2 className="w-4 h-4 text-indigo-500 animate-spin" />
                 <span>アップロード中...</span>
               </div>
             )}
 
-            {attachments.length > 0 ? (
-              <div className="space-y-1.5 max-h-36 overflow-y-auto">
+            {attachments.length > 0 && (
+              <div className="space-y-1.5 max-h-36 overflow-y-auto mt-2">
                 {attachments.map(att => (
                   <div
                     key={att.id}
@@ -510,25 +566,17 @@ export function ApplicationModal({
                     <button
                       type="button"
                       disabled={isUploading}
-                      onClick={() => handleRemoveAttachment(att.id)}
-                      className="text-slate-400 hover:text-rose-600 p-0.5 rounded transition-colors disabled:opacity-50"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRemoveAttachment(att.id);
+                      }}
+                      className="text-slate-400 hover:text-rose-600 p-0.5 rounded transition-colors disabled:opacity-50 cursor-pointer"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 ))}
               </div>
-            ) : (
-              !isUploading && (
-                <div
-                  onClick={() => !isUploading && fileInputRef.current?.click()}
-                  className="p-3 border border-dashed border-slate-200 hover:border-indigo-300 rounded-xl text-center cursor-pointer transition-colors bg-slate-50/50"
-                >
-                  <p className="text-xs text-slate-500 font-medium">
-                    クリックして見積書、領収書、現場写真等を添付
-                  </p>
-                </div>
-              )
             )}
           </div>
 
