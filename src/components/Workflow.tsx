@@ -106,13 +106,13 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
     if (expandedFlows[app.id] !== undefined) {
       return expandedFlows[app.id];
     }
-    // デフォルト: 承認済み (approved) の場合は折りたたみ (false)、それ以外は展開 (true)
-    return app.status !== 'approved';
+    // デフォルト: 折りたたみ (false)
+    return false;
   };
 
   const toggleFlowExpand = (appId: string, currentStatus?: string) => {
     setExpandedFlows(prev => {
-      const currentVal = prev[appId] !== undefined ? prev[appId] : currentStatus !== 'approved';
+      const currentVal = prev[appId] !== undefined ? prev[appId] : false;
       return { ...prev, [appId]: !currentVal };
     });
   };
