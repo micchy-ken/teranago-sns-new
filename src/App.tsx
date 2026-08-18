@@ -2608,6 +2608,7 @@ export default function App() {
         topics={topics}
         events={events}
         chatRooms={chatRooms}
+        posts={posts}
         onSelectTab={setActiveTab}
         onOpenSettings={handleOpenPersonalSettings}
         onNavigateToContent={handleNavigateToContent}

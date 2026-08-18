@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Search, Bell, Menu, Phone, FileText, Monitor, Calendar as CalendarIcon, MessageSquare, CheckCheck, ChevronRight, X, Smartphone } from 'lucide-react';
-import { User, Memo, WorkflowApplication, BoardTopic, CalendarEvent, ChatRoom } from '../types';
+import { Search, Bell, Menu, Phone, FileText, Monitor, Calendar as CalendarIcon, MessageSquare, CheckCheck, ChevronRight, X, Smartphone, Users, MessageCircle } from 'lucide-react';
+import { User, Memo, WorkflowApplication, BoardTopic, CalendarEvent, ChatRoom, Post } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
 import { AppTab } from './Sidebar';
 import {
@@ -17,6 +17,18 @@ import {
   NotificationItem,
 } from '../utils/notifications';
 
+export interface GlobalSearchResultItem {
+  id: string;
+  type: 'board' | 'event' | 'memo' | 'workflow' | 'chat' | 'post' | 'user';
+  typeName: string;
+  title: string;
+  snippet: string;
+  badgeText?: string;
+  dateStr?: string;
+  tab: AppTab;
+  originalData?: any;
+}
+
 interface HeaderProps {
   searchQuery: string;
   onSearchChange: (query: string) => void;
@@ -29,6 +41,7 @@ interface HeaderProps {
   topics?: BoardTopic[];
   events?: CalendarEvent[];
   chatRooms?: ChatRoom[];
+  posts?: Post[];
   onSelectTab?: (tab: AppTab) => void;
   onOpenSettings?: () => void;
   onNavigateToContent?: (target: {
@@ -38,6 +51,7 @@ interface HeaderProps {
     memoId?: string;
     applicationId?: string;
     eventId?: string;
+    postId?: string;
   }) => void;
   onUpdateMemos?: (memos: Memo[]) => void;
   onUpdateTopic?: (topic: BoardTopic) => void;
@@ -77,6 +91,7 @@ export function Header({
   topics = [],
   events = [],
   chatRooms = [],
+  posts = [],
   onSelectTab,
   onOpenSettings,
   onNavigateToContent,
@@ -93,6 +108,268 @@ export function Header({
   const [readChatTimestamps, setReadChatTimestamps] = useState<Record<string, string>>(() => getReadChatTimestamps(currentUser?.id));
   const [readMemoIds, setReadMemoIds] = useState<string[]>(() => getReadMemoIds(currentUser?.id));
   const popoverRef = useRef<HTMLDivElement>(null);
+
+  // Cross-functional search state
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
+  const [searchCategoryFilter, setSearchCategoryFilter] = useState<'all' | 'board' | 'event' | 'memo' | 'workflow' | 'chat' | 'post' | 'user'>('all');
+  const searchContainerRef = useRef<HTMLDivElement>(null);
+
+  // Close search overlay on outside click or Escape key
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(event.target as Node)) {
+        setIsSearchFocused(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsSearchFocused(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
+
+  // Global cross-functional search calculation
+  const searchResults = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return [];
+
+    const results: GlobalSearchResultItem[] = [];
+
+    // 1. 掲示板 (Board Topics)
+    topics.forEach((t) => {
+      const matchTitle = t.title?.toLowerCase().includes(q);
+      const matchContent = t.content?.toLowerCase().includes(q);
+      const matchCategory = t.category?.toLowerCase().includes(q);
+      const matchTags = t.tags?.some((tag) => tag.toLowerCase().includes(q));
+
+      if (matchTitle || matchContent || matchCategory || matchTags) {
+        results.push({
+          id: `topic-${t.id}`,
+          type: 'board',
+          typeName: '掲示板',
+          title: t.title,
+          snippet: t.content ? t.content.slice(0, 80) : '',
+          badgeText: t.category || '掲示板',
+          dateStr: t.createdAt ? t.createdAt.split('T')[0] : '',
+          tab: 'board',
+          originalData: t,
+        });
+      }
+    });
+
+    // 2. スケジュール (Calendar Events)
+    events.forEach((evt) => {
+      const matchTitle = evt.title?.toLowerCase().includes(q);
+      const matchLocation = evt.location?.toLowerCase().includes(q);
+      const matchMemo = evt.memo?.toLowerCase().includes(q);
+
+      if (matchTitle || matchLocation || matchMemo) {
+        results.push({
+          id: `event-${evt.id}`,
+          type: 'event',
+          typeName: 'スケジュール',
+          title: evt.title,
+          snippet: `${evt.start ? evt.start.split('T')[0] : ''}${evt.location ? ` @ ${evt.location}` : ''}${evt.memo ? ` - ${evt.memo.slice(0, 60)}` : ''}`,
+          badgeText: evt.type || '予定',
+          dateStr: evt.start ? evt.start.split('T')[0] : '',
+          tab: 'calendar',
+          originalData: evt,
+        });
+      }
+    });
+
+    // 3. 伝言メモ (Memos)
+    memos.forEach((m) => {
+      const matchFrom = m.fromName?.toLowerCase().includes(q) || m.fromCompany?.toLowerCase().includes(q);
+      const matchContent = m.content?.toLowerCase().includes(q) || m.requirementText?.toLowerCase().includes(q);
+      const matchTo = m.toUser?.name?.toLowerCase().includes(q);
+
+      if (matchFrom || matchContent || matchTo) {
+        results.push({
+          id: `memo-${m.id}`,
+          type: 'memo',
+          typeName: '伝言メモ',
+          title: `${m.fromCompany ? `${m.fromCompany} ` : ''}${m.fromName || '伝言メモ'}`,
+          snippet: `【用件】${m.requirementText || m.content || '詳細なし'}`,
+          badgeText: `宛先: ${m.toUser?.name || '自分'}`,
+          dateStr: m.createdAt ? m.createdAt.split('T')[0] : '',
+          tab: 'memo',
+          originalData: m,
+        });
+      }
+    });
+
+    // 4. ワークフロー (Applications)
+    applications.forEach((app) => {
+      const matchTitle = app.title?.toLowerCase().includes(q);
+      const matchDesc = app.description?.toLowerCase().includes(q);
+      const matchApplicant = app.applicant?.name?.toLowerCase().includes(q);
+
+      if (matchTitle || matchDesc || matchApplicant) {
+        results.push({
+          id: `wf-${app.id}`,
+          type: 'workflow',
+          typeName: 'ワークフロー',
+          title: app.title,
+          snippet: `申請者: ${app.applicant?.name || '不明'} / 内容: ${app.description || ''}`,
+          badgeText: app.flowName || '申請',
+          dateStr: app.createdAt ? app.createdAt.split('T')[0] : '',
+          tab: 'workflow',
+          originalData: app,
+        });
+      }
+    });
+
+    // 5. チャット (Chat Rooms)
+    chatRooms.forEach((room) => {
+      const roomTitle = room.name || room.participants?.map((p) => p.name).join(', ') || 'チャット';
+      const matchName = roomTitle.toLowerCase().includes(q);
+      const matchedMsgs = room.messages?.filter((msg) => msg.content?.toLowerCase().includes(q));
+      const hasMsgMatch = matchedMsgs && matchedMsgs.length > 0;
+
+      if (matchName || hasMsgMatch) {
+        const snippetText = hasMsgMatch
+          ? matchedMsgs[matchedMsgs.length - 1].content
+          : `参加者: ${room.participants?.map((p) => p.name).join(', ')}`;
+        results.push({
+          id: `chat-${room.id}`,
+          type: 'chat',
+          typeName: 'チャット',
+          title: roomTitle,
+          snippet: snippetText,
+          badgeText: `${room.participants?.length || 0}名参加`,
+          dateStr: room.lastUpdated ? room.lastUpdated.split('T')[0] : '',
+          tab: 'chat',
+          originalData: room,
+        });
+      }
+    });
+
+    // 6. タイムライン (Posts)
+    if (posts) {
+      posts.forEach((p) => {
+        const matchContent = p.content?.toLowerCase().includes(q);
+        const matchAuthor = p.author?.name?.toLowerCase().includes(q);
+        const matchTags = p.tags?.some((t) => t.toLowerCase().includes(q));
+
+        if (matchContent || matchAuthor || matchTags) {
+          results.push({
+            id: `post-${p.id}`,
+            type: 'post',
+            typeName: 'タイムライン',
+            title: `${p.author?.name || '投稿'}のタイムライン`,
+            snippet: p.content ? p.content.slice(0, 80) : '',
+            badgeText: p.tags?.length ? `#${p.tags[0]}` : '投稿',
+            dateStr: p.createdAt ? p.createdAt.split('T')[0] : '',
+            tab: 'timeline',
+            originalData: p,
+          });
+        }
+      });
+    }
+
+    // 7. 社員 (Users)
+    if (allUsers) {
+      allUsers.forEach((u) => {
+        const matchName = u.name?.toLowerCase().includes(q);
+        const matchKana = u.kanaName?.toLowerCase().includes(q);
+        const matchOffice = u.office?.toLowerCase().includes(q);
+        const matchDivision = u.division?.toLowerCase().includes(q);
+        const matchPosition = u.position?.toLowerCase().includes(q);
+
+        if (matchName || matchKana || matchOffice || matchDivision || matchPosition) {
+          results.push({
+            id: `user-${u.id}`,
+            type: 'user',
+            typeName: '社員',
+            title: `${u.name}${u.kanaName ? ` (${u.kanaName})` : ''}`,
+            snippet: `${u.office || ''} ${u.division || ''} ${u.position || ''}`,
+            badgeText: u.department || '社員',
+            tab: 'chat',
+            originalData: u,
+          });
+        }
+      });
+    }
+
+    return results;
+  }, [searchQuery, topics, events, memos, applications, chatRooms, posts, allUsers]);
+
+  const filteredSearchResults = useMemo(() => {
+    if (searchCategoryFilter === 'all') return searchResults;
+    return searchResults.filter((item) => item.type === searchCategoryFilter);
+  }, [searchResults, searchCategoryFilter]);
+
+  const categoryCounts = useMemo(() => {
+    const counts = {
+      all: searchResults.length,
+      board: 0,
+      event: 0,
+      memo: 0,
+      workflow: 0,
+      chat: 0,
+      post: 0,
+      user: 0,
+    };
+    searchResults.forEach((item) => {
+      if (counts[item.type] !== undefined) {
+        counts[item.type]++;
+      }
+    });
+    return counts;
+  }, [searchResults]);
+
+  const handleSearchResultClick = (item: GlobalSearchResultItem) => {
+    setIsSearchFocused(false);
+
+    if (item.type === 'user' && item.originalData) {
+      if (onNavigateToContent) {
+        onNavigateToContent({ tab: 'chat' });
+      } else if (onSelectTab) {
+        onSelectTab('chat');
+      }
+      return;
+    }
+
+    if (onNavigateToContent) {
+      const targetParams: any = { tab: item.tab };
+      if (item.type === 'board' && item.originalData) targetParams.topicId = item.originalData.id;
+      if (item.type === 'chat' && item.originalData) targetParams.chatRoomId = item.originalData.id;
+      if (item.type === 'memo' && item.originalData) targetParams.memoId = item.originalData.id;
+      if (item.type === 'workflow' && item.originalData) targetParams.applicationId = item.originalData.id;
+      if (item.type === 'event' && item.originalData) targetParams.eventId = item.originalData.id;
+      if (item.type === 'post' && item.originalData) targetParams.postId = item.originalData.id;
+
+      onNavigateToContent(targetParams);
+    } else if (onSelectTab) {
+      onSelectTab(item.tab);
+    }
+  };
+
+  const getSearchItemBadge = (type: GlobalSearchResultItem['type']) => {
+    switch (type) {
+      case 'board':
+        return { icon: Monitor, bg: 'bg-indigo-100 text-indigo-700 border-indigo-200' };
+      case 'event':
+        return { icon: CalendarIcon, bg: 'bg-amber-100 text-amber-700 border-amber-200' };
+      case 'memo':
+        return { icon: Phone, bg: 'bg-rose-100 text-rose-700 border-rose-200' };
+      case 'workflow':
+        return { icon: FileText, bg: 'bg-purple-100 text-purple-700 border-purple-200' };
+      case 'chat':
+        return { icon: MessageSquare, bg: 'bg-blue-100 text-blue-700 border-blue-200' };
+      case 'post':
+        return { icon: MessageCircle, bg: 'bg-sky-100 text-sky-700 border-sky-200' };
+      case 'user':
+        return { icon: Users, bg: 'bg-emerald-100 text-emerald-700 border-emerald-200' };
+    }
+  };
 
   // Sync read states when custom event fires or user changes
   useEffect(() => {
@@ -341,19 +618,208 @@ export function Header({
         </div>
 
         {/* Search area */}
-        <div className="flex-1 max-w-xl px-2 sm:px-12">
+        <div className="flex-1 max-w-xl px-2 sm:px-12 relative" ref={searchContainerRef}>
           <div className="relative group">
             <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none text-slate-400">
               <Search className="h-4 w-4" />
             </div>
             <input
               type="text"
-              className="w-full bg-slate-100 border-transparent focus:bg-white focus:ring-2 focus:ring-indigo-500 rounded-full py-2 pl-10 pr-4 text-sm transition-all"
-              placeholder="キーワードでナレッジを検索..."
+              className="w-full bg-slate-100 border-transparent focus:bg-white focus:ring-2 focus:ring-indigo-500 rounded-full py-2 pl-10 pr-9 text-sm transition-all"
+              placeholder="キーワードでナレッジ・社内データを横断検索..."
               value={searchQuery}
-              onChange={(e) => onSearchChange(e.target.value)}
+              onFocus={() => setIsSearchFocused(true)}
+              onChange={(e) => {
+                onSearchChange(e.target.value);
+                setIsSearchFocused(true);
+              }}
             />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => {
+                  onSearchChange('');
+                  setIsSearchFocused(false);
+                }}
+                className="absolute inset-y-0 right-3 flex items-center text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+                title="検索入力をクリア"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </div>
+
+          {/* Cross-functional Search Dropdown Overlay */}
+          {isSearchFocused && searchQuery.trim().length > 0 && (
+            <div className="absolute left-2 right-2 sm:left-12 sm:right-12 top-full mt-2 bg-white rounded-2xl shadow-2xl border border-slate-200/90 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150 ring-1 ring-slate-900/5 max-h-[80vh] flex flex-col">
+              {/* Dropdown Header */}
+              <div className="p-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between gap-2 shrink-0">
+                <div className="flex items-center gap-2">
+                  <Search className="w-4 h-4 text-indigo-600" />
+                  <span className="font-bold text-slate-800 text-xs sm:text-sm">
+                    横断検索結果 ({searchResults.length}件)
+                  </span>
+                </div>
+                <span className="text-[10px] text-slate-400 hidden sm:inline">Escキーまたは外側クリックで閉じる</span>
+              </div>
+
+              {/* Category Filter Pills */}
+              <div className="flex items-center gap-1 p-2 bg-white border-b border-slate-100 overflow-x-auto text-xs no-scrollbar shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setSearchCategoryFilter('all')}
+                  className={`px-2.5 py-1 rounded-lg font-medium whitespace-nowrap transition-colors cursor-pointer ${
+                    searchCategoryFilter === 'all'
+                      ? 'bg-slate-800 text-white font-bold'
+                      : 'text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  すべて ({categoryCounts.all})
+                </button>
+                {categoryCounts.board > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchCategoryFilter('board')}
+                    className={`px-2.5 py-1 rounded-lg font-medium whitespace-nowrap transition-colors cursor-pointer ${
+                      searchCategoryFilter === 'board'
+                        ? 'bg-indigo-600 text-white font-bold'
+                        : 'text-slate-600 hover:bg-indigo-50'
+                    }`}
+                  >
+                    掲示板 ({categoryCounts.board})
+                  </button>
+                )}
+                {categoryCounts.event > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchCategoryFilter('event')}
+                    className={`px-2.5 py-1 rounded-lg font-medium whitespace-nowrap transition-colors cursor-pointer ${
+                      searchCategoryFilter === 'event'
+                        ? 'bg-amber-600 text-white font-bold'
+                        : 'text-slate-600 hover:bg-amber-50'
+                    }`}
+                  >
+                    スケジュール ({categoryCounts.event})
+                  </button>
+                )}
+                {categoryCounts.memo > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchCategoryFilter('memo')}
+                    className={`px-2.5 py-1 rounded-lg font-medium whitespace-nowrap transition-colors cursor-pointer ${
+                      searchCategoryFilter === 'memo'
+                        ? 'bg-rose-600 text-white font-bold'
+                        : 'text-slate-600 hover:bg-rose-50'
+                    }`}
+                  >
+                    伝言メモ ({categoryCounts.memo})
+                  </button>
+                )}
+                {categoryCounts.workflow > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchCategoryFilter('workflow')}
+                    className={`px-2.5 py-1 rounded-lg font-medium whitespace-nowrap transition-colors cursor-pointer ${
+                      searchCategoryFilter === 'workflow'
+                        ? 'bg-purple-600 text-white font-bold'
+                        : 'text-slate-600 hover:bg-purple-50'
+                    }`}
+                  >
+                    ワークフロー ({categoryCounts.workflow})
+                  </button>
+                )}
+                {categoryCounts.chat > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchCategoryFilter('chat')}
+                    className={`px-2.5 py-1 rounded-lg font-medium whitespace-nowrap transition-colors cursor-pointer ${
+                      searchCategoryFilter === 'chat'
+                        ? 'bg-blue-600 text-white font-bold'
+                        : 'text-slate-600 hover:bg-blue-50'
+                    }`}
+                  >
+                    チャット ({categoryCounts.chat})
+                  </button>
+                )}
+                {categoryCounts.post > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchCategoryFilter('post')}
+                    className={`px-2.5 py-1 rounded-lg font-medium whitespace-nowrap transition-colors cursor-pointer ${
+                      searchCategoryFilter === 'post'
+                        ? 'bg-sky-600 text-white font-bold'
+                        : 'text-slate-600 hover:bg-sky-50'
+                    }`}
+                  >
+                    タイムライン ({categoryCounts.post})
+                  </button>
+                )}
+                {categoryCounts.user > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchCategoryFilter('user')}
+                    className={`px-2.5 py-1 rounded-lg font-medium whitespace-nowrap transition-colors cursor-pointer ${
+                      searchCategoryFilter === 'user'
+                        ? 'bg-emerald-600 text-white font-bold'
+                        : 'text-slate-600 hover:bg-emerald-50'
+                    }`}
+                  >
+                    社員 ({categoryCounts.user})
+                  </button>
+                )}
+              </div>
+
+              {/* Results List */}
+              <div className="divide-y divide-slate-100 overflow-y-auto max-h-80">
+                {filteredSearchResults.length > 0 ? (
+                  filteredSearchResults.map((item) => {
+                    const badgeInfo = getSearchItemBadge(item.type);
+                    const IconComp = badgeInfo.icon;
+                    return (
+                      <div
+                        key={item.id}
+                        onClick={() => handleSearchResultClick(item)}
+                        className="p-3 hover:bg-slate-50 transition-colors cursor-pointer flex items-start gap-3 group"
+                      >
+                        <div className={`p-2 rounded-xl border ${badgeInfo.bg} shrink-0 mt-0.5`}>
+                          <IconComp className="w-4 h-4" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-2 mb-0.5">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${badgeInfo.bg}`}>
+                                {item.typeName}
+                              </span>
+                              <h4 className="text-xs sm:text-sm font-bold text-slate-800 line-clamp-1 group-hover:text-indigo-600 transition-colors">
+                                {item.title}
+                              </h4>
+                            </div>
+                            {item.dateStr && (
+                              <span className="text-[10px] text-slate-400 whitespace-nowrap shrink-0">
+                                {item.dateStr}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed">
+                            {item.snippet}
+                          </p>
+                        </div>
+                        <div className="shrink-0 self-center text-slate-300 group-hover:text-indigo-500 transition-colors">
+                          <ChevronRight className="w-4 h-4" />
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="p-8 text-center text-slate-400 flex flex-col items-center justify-center gap-2">
+                    <Search className="w-8 h-8 text-slate-300 mb-1" />
+                    <p className="text-sm font-semibold text-slate-600">該当する検索結果が見つかりませんでした</p>
+                    <p className="text-xs text-slate-400">キーワードを変更してお試しください</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Right actions */}
