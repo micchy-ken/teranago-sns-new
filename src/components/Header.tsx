@@ -61,6 +61,29 @@ interface HeaderProps {
   onToggleMobileMenu?: () => void;
 }
 
+function formatLocalDateStr(isoStr?: string): string {
+  if (!isoStr) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(isoStr)) return isoStr;
+  const d = new Date(isoStr);
+  if (isNaN(d.getTime())) return isoStr.split('T')[0] || isoStr;
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function formatLocalDateTimeStr(isoStr?: string, isAllDay?: boolean): string {
+  if (!isoStr) return '';
+  const datePart = formatLocalDateStr(isoStr);
+  if (isAllDay) return `${datePart} (終日)`;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(isoStr)) return `${datePart} (終日)`;
+  const d = new Date(isoStr);
+  if (isNaN(d.getTime())) return datePart;
+  const hours = String(d.getHours()).padStart(2, '0');
+  const minutes = String(d.getMinutes()).padStart(2, '0');
+  return `${datePart} ${hours}:${minutes}`;
+}
+
 function formatRelativeTime(dateString: string): string {
   if (!dateString) return '';
   const date = new Date(dateString);
@@ -157,7 +180,7 @@ export function Header({
           title: t.title,
           snippet: t.content ? t.content.slice(0, 80) : '',
           badgeText: t.category || '掲示板',
-          dateStr: t.createdAt ? t.createdAt.split('T')[0] : '',
+          dateStr: formatLocalDateStr(t.createdAt),
           tab: 'board',
           originalData: t,
         });
@@ -177,15 +200,16 @@ export function Header({
       const matchMemo = evt.memo?.toLowerCase().includes(q);
 
       if (matchTitle || matchLocation || matchMemo) {
-        const datePart = evt.start ? evt.start.split('T')[0] : '';
+        const localDate = formatLocalDateStr(evt.start);
+        const localDateTime = formatLocalDateTimeStr(evt.start, evt.isAllDay);
         results.push({
           id: `event-${evt.id}`,
           type: 'event',
           typeName: 'スケジュール',
           title: evt.title,
-          snippet: `${datePart}${evt.location ? ` @ ${evt.location}` : ''}${evt.memo ? ` - ${evt.memo.slice(0, 60)}` : ''}`,
+          snippet: `${localDateTime}${evt.location ? ` @ ${evt.location}` : ''}${evt.memo ? ` - ${evt.memo.slice(0, 60)}` : ''}`,
           badgeText: evt.type || '予定',
-          dateStr: datePart,
+          dateStr: localDate,
           tab: 'calendar',
           originalData: evt,
         });
@@ -206,7 +230,7 @@ export function Header({
           title: `${m.fromCompany ? `${m.fromCompany} ` : ''}${m.fromName || '伝言メモ'}`,
           snippet: `【用件】${m.requirementText || m.content || '詳細なし'}`,
           badgeText: `宛先: ${m.toUser?.name || '自分'}`,
-          dateStr: m.createdAt ? m.createdAt.split('T')[0] : '',
+          dateStr: formatLocalDateStr(m.createdAt),
           tab: 'memo',
           originalData: m,
         });
@@ -227,7 +251,7 @@ export function Header({
           title: app.title,
           snippet: `申請者: ${app.applicant?.name || '不明'} / 内容: ${app.description || ''}`,
           badgeText: app.flowName || '申請',
-          dateStr: app.createdAt ? app.createdAt.split('T')[0] : '',
+          dateStr: formatLocalDateStr(app.createdAt),
           tab: 'workflow',
           originalData: app,
         });
@@ -252,7 +276,7 @@ export function Header({
           title: roomTitle,
           snippet: snippetText,
           badgeText: `${room.participants?.length || 0}名参加`,
-          dateStr: room.lastUpdated ? room.lastUpdated.split('T')[0] : '',
+          dateStr: formatLocalDateStr(room.lastUpdated),
           tab: 'chat',
           originalData: room,
         });
@@ -274,7 +298,7 @@ export function Header({
             title: `${p.author?.name || '投稿'}のタイムライン`,
             snippet: p.content ? p.content.slice(0, 80) : '',
             badgeText: p.tags?.length ? `#${p.tags[0]}` : '投稿',
-            dateStr: p.createdAt ? p.createdAt.split('T')[0] : '',
+            dateStr: formatLocalDateStr(p.createdAt),
             tab: 'timeline',
             originalData: p,
           });
