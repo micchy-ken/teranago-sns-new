@@ -175,8 +175,14 @@ export function EventModal({
     setError('内容を複製しました。日時やタイトルなどを確認し「保存する」を押してください。');
   };
 
+  const handleModalClose = () => {
+    setActionModalState({ isOpen: false, mode: 'edit' });
+    onClose();
+  };
+
   useEffect(() => {
     if (isOpen) {
+      setActionModalState({ isOpen: false, mode: 'edit' });
       setError(null);
       setIsUploading(false);
       if (editingEvent) {
@@ -496,18 +502,23 @@ export function EventModal({
       if (pendingPayload) {
         onSave(pendingPayload, scope, originalDate);
       }
-      onClose();
+      handleModalClose();
     } else if (mode === 'delete') {
       if (editingEvent && onDelete) {
         onDelete(editingEvent.id, scope, originalDate);
       }
-      onClose();
+      handleModalClose();
     }
   };
 
   return (
     <div
-      onClick={onClose}
+      onClick={(e) => {
+        if (actionModalState.isOpen || isPreviewOpen) return;
+        if (e.target === e.currentTarget) {
+          handleModalClose();
+        }
+      }}
       className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-50 p-4 backdrop-blur-sm overflow-y-auto"
     >
       <div
@@ -526,7 +537,7 @@ export function EventModal({
               </span>
             )}
           </div>
-          <button onClick={onClose} className="p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 rounded-full transition-colors">
+          <button onClick={handleModalClose} className="p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 rounded-full transition-colors">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -1219,7 +1230,7 @@ export function EventModal({
             </div>
 
             <div className="flex justify-end gap-2.5">
-              <button type="button" disabled={isUploading} onClick={onClose} className="px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors disabled:opacity-50">キャンセル</button>
+              <button type="button" disabled={isUploading} onClick={handleModalClose} className="px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors disabled:opacity-50">キャンセル</button>
               {isIcal ? (
                 <button
                   type="button"
