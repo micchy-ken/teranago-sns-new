@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { CalendarEvent, EventType, User, OfficeMaster, DivisionMaster, Memo, RequirementType, MemoUserRecipientStatus } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
-import { ChevronLeft, ChevronRight, List as ListIcon, Calendar as CalendarIcon, Plus, MapPin, Video, AlignLeft, RefreshCw, Clock, Link as LinkIcon, Loader2, Building2, Users, Paperclip, MessageSquare, Phone, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, List as ListIcon, Calendar as CalendarIcon, Plus, MapPin, Video, AlignLeft, RefreshCw, Clock, Link as LinkIcon, Loader2, Building2, Users, Paperclip, MessageSquare, Phone, X, Monitor, Maximize2, Minimize2 } from 'lucide-react';
 import { EventModal } from './EventModal';
 import { renderWithClickableLinks } from '../utils/linkify';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
@@ -22,6 +22,7 @@ interface CalendarProps {
   initialEventId?: string;
   memos?: Memo[];
   onUpdateMemos?: (updatedMemos: Memo[]) => void;
+  onRefetchEvents?: () => void;
 }
 
 type ViewMode = 'month' | 'week' | 'day' | 'list';
@@ -58,9 +59,16 @@ export function Calendar({
   initialEventId,
   memos = [],
   onUpdateMemos,
+  onRefetchEvents,
 }: CalendarProps) {
   const [view, setView] = useState<ViewMode>('month');
   const [currentDate, setCurrentDate] = useState(new Date());
+
+  // デジタルサイネージモード関連の状態
+  const [isSignageMode, setIsSignageMode] = useState<boolean>(false);
+  const [liveClock, setLiveClock] = useState<Date>(new Date());
+  const [lastRefetchedAt, setLastRefetchedAt] = useState<Date>(new Date());
+  const [countdown, setCountdown] = useState<number>(30);
   
   // 拠点・部署のプルダウンフィルター状態（初期値はログインユーザーの所属拠点・所属部署）
   const [selectedOffice, setSelectedOffice] = useState<string>(() => currentUser?.office || '全社');
@@ -83,6 +91,70 @@ export function Calendar({
 
   // カレンダーモード：'personal' (個人表示) or 'team' (チーム表示)
   const [calendarMode, setCalendarMode] = useState<'personal' | 'team'>('personal');
+
+  // チーム・日表示以外に変更されたらサイネージモードを自動解除
+  useEffect(() => {
+    if (calendarMode !== 'team' || view !== 'day') {
+      if (isSignageMode) {
+        setIsSignageMode(false);
+      }
+    }
+  }, [calendarMode, view, isSignageMode]);
+
+  // サイネージモード作動中のタイマー（1秒ごとの時計・カウントダウン & 30秒ごとの自動データ更新）
+  useEffect(() => {
+    if (!isSignageMode) return;
+
+    const timerId = setInterval(() => {
+      setLiveClock(new Date());
+      setCountdown(prev => {
+        if (prev <= 1) {
+          if (onRefetchEvents) {
+            onRefetchEvents();
+            setLastRefetchedAt(new Date());
+          }
+          return 30;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timerId);
+  }, [isSignageMode, onRefetchEvents]);
+
+  // サイネージモード切り替えハンドラー
+  const handleToggleSignageMode = (enable: boolean) => {
+    setIsSignageMode(enable);
+    if (enable) {
+      if (onRefetchEvents) {
+        onRefetchEvents();
+        setLastRefetchedAt(new Date());
+      }
+      setCountdown(30);
+      try {
+        if (document.documentElement.requestFullscreen) {
+          document.documentElement.requestFullscreen().catch(() => {});
+        }
+      } catch (_) {}
+    } else {
+      try {
+        if (document.fullscreenElement) {
+          document.exitFullscreen().catch(() => {});
+        }
+      } catch (_) {}
+    }
+  };
+
+  // ブラウザのEscキー等によるフルスクリーン解除の監視
+  useEffect(() => {
+    const handleFsChange = () => {
+      if (!document.fullscreenElement && isSignageMode) {
+        setIsSignageMode(false);
+      }
+    };
+    document.addEventListener('fullscreenchange', handleFsChange);
+    return () => document.removeEventListener('fullscreenchange', handleFsChange);
+  }, [isSignageMode]);
 
   // 新規伝言メモ追加モーダルの状態
   const [isMemoModalOpen, setIsMemoModalOpen] = useState(false);
@@ -1083,6 +1155,32 @@ export function Calendar({
               </button>
             )}
           </div>
+
+          {/* デジタルサイネージモード トグル (スケジュール・チーム・日 選択時のみ表示) */}
+          {calendarMode === 'team' && view === 'day' && (
+            <button
+              type="button"
+              onClick={() => handleToggleSignageMode(!isSignageMode)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-bold transition-all shadow-sm cursor-pointer shrink-0 ${
+                isSignageMode
+                  ? 'bg-rose-600 text-white border-rose-700 ring-2 ring-rose-300'
+                  : 'bg-slate-800 text-white border-slate-700 hover:bg-slate-700'
+              }`}
+              title="デジタルサイネージモード（30秒自動更新・全画面表示）"
+            >
+              <Monitor className="w-4 h-4 text-amber-300 shrink-0" />
+              <span className="hidden sm:inline">デジタルサイネージ</span>
+              <span className="sm:hidden">サイネージ</span>
+              {isSignageMode ? (
+                <span className="flex h-2 w-2 relative">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+              ) : (
+                <span className="text-[10px] bg-indigo-500/30 text-indigo-200 px-1.5 py-0.5 rounded font-mono">30s</span>
+              )}
+            </button>
+          )}
           
           <button onClick={() => openAddModalWithDate()} className="flex items-center justify-center gap-1 sm:gap-1.5 px-3 sm:px-4 py-1.5 sm:py-2 bg-indigo-600 text-white text-xs sm:text-sm font-semibold rounded-lg hover:bg-indigo-700 transition-colors shadow-sm ml-auto sm:ml-0 shrink-0">
             <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4"/>
@@ -1714,6 +1812,135 @@ export function Calendar({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* デジタルサイネージモード 全画面オーバーレイ */}
+      {isSignageMode && (
+        <div className="fixed inset-0 z-[9999] bg-slate-900 text-slate-100 flex flex-col font-sans overflow-hidden select-none">
+          {/* Top Control Bar */}
+          <div className="bg-slate-800/95 backdrop-blur-md border-b border-slate-700 px-4 sm:px-6 py-2.5 flex flex-wrap items-center justify-between gap-3 shrink-0 shadow-xl">
+            {/* Left: Badge & Filters */}
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-gradient-to-r from-indigo-600 to-indigo-800 text-white rounded-lg shadow-inner font-extrabold text-xs sm:text-sm tracking-wide">
+                <Monitor className="w-4 h-4 text-amber-300 animate-pulse shrink-0" />
+                <span>デジタルサイネージ</span>
+              </div>
+
+              <div className="hidden md:flex items-center gap-2.5 text-xs bg-slate-900/80 px-3 py-1.5 rounded-lg border border-slate-700">
+                <div className="flex items-center gap-1">
+                  <Building2 className="w-3.5 h-3.5 text-orange-400 shrink-0" />
+                  <span className="text-slate-400 font-medium">拠点:</span>
+                  <select
+                    value={selectedOffice}
+                    onChange={e => setSelectedOffice(e.target.value)}
+                    className="bg-slate-800 border border-slate-600 text-white rounded px-2 py-0.5 font-bold focus:outline-none cursor-pointer"
+                  >
+                    {officeNames.filter(o => o !== '全社' && o !== '全拠点').map(o => (
+                      <option key={o} value={o}>{o}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="w-px h-3 bg-slate-700" />
+                <div className="flex items-center gap-1">
+                  <Users className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                  <span className="text-slate-400 font-medium">部署:</span>
+                  <select
+                    value={selectedDivision}
+                    onChange={e => setSelectedDivision(e.target.value)}
+                    className="bg-slate-800 border border-slate-600 text-white rounded px-2 py-0.5 font-bold focus:outline-none cursor-pointer"
+                  >
+                    {divisionNames.filter(d => d !== '全部署').map(d => (
+                      <option key={d} value={d}>{d}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* Center: Navigation & Real-time Clock */}
+            <div className="flex items-center gap-3 sm:gap-4">
+              <div className="flex items-center gap-1 bg-slate-800 border border-slate-700 rounded-lg p-0.5">
+                <button
+                  type="button"
+                  onClick={() => changeDate(-1)}
+                  className="p-1 hover:bg-slate-700 rounded text-slate-300 transition-colors cursor-pointer"
+                  title="前日"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentDate(new Date())}
+                  className="px-2 py-0.5 text-xs font-bold bg-indigo-600 text-white rounded hover:bg-indigo-500 transition-colors cursor-pointer"
+                >
+                  今日
+                </button>
+                <button
+                  type="button"
+                  onClick={() => changeDate(1)}
+                  className="p-1 hover:bg-slate-700 rounded text-slate-300 transition-colors cursor-pointer"
+                  title="翌日"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="text-xs sm:text-sm font-extrabold text-slate-200">
+                {currentDate.getFullYear()}年{currentDate.getMonth() + 1}月{currentDate.getDate()}日 (
+                {['日', '月', '火', '水', '木', '金', '土'][currentDate.getDay()]})
+              </div>
+
+              <div className="flex items-center gap-1.5 bg-slate-950 px-3 py-1 rounded-lg border border-indigo-500/40 text-indigo-300 font-mono text-base sm:text-lg font-black tracking-wider shadow-inner">
+                <Clock className="w-4 h-4 text-indigo-400" />
+                <span>{liveClock.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+              </div>
+            </div>
+
+            {/* Right: Sync Status & Exit */}
+            <div className="flex items-center gap-2.5">
+              <div className="hidden lg:flex items-center gap-2 bg-emerald-950/90 border border-emerald-500/40 text-emerald-300 text-xs px-2.5 py-1 rounded-lg font-bold">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+                <span>30秒自動更新</span>
+                <span className="text-[10px] text-emerald-400 font-mono ml-0.5">({countdown}s)</span>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (onRefetchEvents) {
+                    onRefetchEvents();
+                    setLastRefetchedAt(new Date());
+                    setCountdown(30);
+                  }
+                }}
+                className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg text-xs font-bold text-slate-200 transition-all cursor-pointer shadow-xs"
+                title="即時スケジュール手動更新"
+              >
+                <RefreshCw className="w-3.5 h-3.5 text-indigo-400" />
+                <span className="hidden sm:inline">更新</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleToggleSignageMode(false)}
+                className="flex items-center gap-1 px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-extrabold shadow-sm transition-all cursor-pointer"
+                title="全画面サイネージモードを終了"
+              >
+                <Minimize2 className="w-4 h-4" />
+                <span>解除</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Full Screen Calendar View */}
+          <div className="flex-1 overflow-auto p-2 sm:p-3 bg-slate-950">
+            <div className="h-full bg-white rounded-xl shadow-2xl overflow-auto text-slate-800 border border-slate-800">
+              {renderTeamDayView()}
+            </div>
           </div>
         </div>
       )}

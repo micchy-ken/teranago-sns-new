@@ -2796,6 +2796,7 @@ export default function App() {
             initialEventId={targetEventId}
             memos={memos}
             onUpdateMemos={handleUpdateMemos}
+            onRefetchEvents={refetchEvents}
           />
         )}
         {activeTab === 'workflow' && (
@@ -2891,6 +2892,9 @@ export default function App() {
             onCloseSettings={() => setAutoOpenSettings(false)}
             onAddEvent={handleAddEvent}
             onAddTopic={handleAddTopic}
+            onAddApplication={handleAddApplication}
+            approvalFlows={approvalFlows}
+            itemMasters={itemMasters}
           />
         )}
         {activeTab === 'admin' && (

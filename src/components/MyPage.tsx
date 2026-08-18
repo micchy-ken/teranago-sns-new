@@ -79,7 +79,10 @@ import {
 import { TopicDetailModal } from './TopicDetailModal';
 import { EventModal } from './EventModal';
 import { TopicCreateModal } from './TopicCreateModal';
+import { ApplicationModal } from './ApplicationModal';
+import { MemoCreateModal } from './MemoCreateModal';
 import { MyPageSectionCard } from './MyPageSectionCard';
+import { ApprovalFlowRule, ItemMaster, ApplicationStatus } from '../types';
 
 interface MyPageProps {
   user: User;
@@ -107,6 +110,9 @@ interface MyPageProps {
   onUpdateApplication?: (updatedApp: WorkflowApplication) => void;
   onAddEvent?: (eventData: Omit<CalendarEvent, 'id'>) => Promise<void> | void;
   onAddTopic?: (topicData: Omit<BoardTopic, 'id' | 'createdAt' | 'views' | 'commentsCount'>) => Promise<void> | void;
+  onAddApplication?: (application: Omit<WorkflowApplication, 'id' | 'createdAt' | 'status'> & { status?: ApplicationStatus }) => Promise<void> | void;
+  approvalFlows?: ApprovalFlowRule[];
+  itemMasters?: ItemMaster[];
   onLogout?: () => void;
   autoOpenSettings?: boolean;
   onCloseSettings?: () => void;
@@ -131,6 +137,9 @@ export function MyPage({
   onUpdateApplication,
   onAddEvent,
   onAddTopic,
+  onAddApplication,
+  approvalFlows = [],
+  itemMasters = [],
   onLogout,
   autoOpenSettings,
   onCloseSettings,
@@ -159,6 +168,8 @@ export function MyPage({
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isEventModalOpen, setIsEventModalOpen] = useState(false);
   const [isCreateTopicModalOpen, setIsCreateTopicModalOpen] = useState(false);
+  const [isCreateApplicationOpen, setIsCreateApplicationOpen] = useState(false);
+  const [isCreateMemoOpen, setIsCreateMemoOpen] = useState(false);
 
   // Web Push 通知状態管理
   const [pushStatus, setPushStatus] = useState<PushStatus | null>(null);
@@ -800,6 +811,16 @@ export function MyPage({
             badgeLabel="未対応"
             badgeBgColor="bg-rose-500"
             onNavigate={() => onChangeTab('memo')}
+            actionButton={
+              <button
+                type="button"
+                onClick={() => setIsCreateMemoOpen(true)}
+                className="text-xs font-bold bg-rose-500 hover:bg-rose-600 text-white px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                新規登録
+              </button>
+            }
             isFullWidth={isFullWidth}
             isDragging={isDragging}
             onDragStart={(e) => handleDragStart(e, index)}
@@ -889,6 +910,16 @@ export function MyPage({
             badgeLabel="要承認"
             badgeBgColor="bg-purple-600"
             onNavigate={() => onChangeTab('workflow')}
+            actionButton={
+              <button
+                type="button"
+                onClick={() => setIsCreateApplicationOpen(true)}
+                className="text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                新規登録
+              </button>
+            }
             isFullWidth={isFullWidth}
             isDragging={isDragging}
             onDragStart={(e) => handleDragStart(e, index)}
@@ -1337,6 +1368,34 @@ export function MyPage({
         offices={offices}
         divisions={divisions}
         existingTags={existingTags}
+      />
+
+      {/* ワークフロー新規申請モーダル */}
+      <ApplicationModal
+        isOpen={isCreateApplicationOpen}
+        onClose={() => setIsCreateApplicationOpen(false)}
+        onSave={async (appData) => {
+          if (onAddApplication) {
+            await onAddApplication(appData);
+          }
+          setIsCreateApplicationOpen(false);
+        }}
+        allUsers={allUsers}
+        currentUser={user}
+        approvalFlows={approvalFlows}
+        itemMasters={itemMasters}
+      />
+
+      {/* 伝言メモ新規登録モーダル */}
+      <MemoCreateModal
+        isOpen={isCreateMemoOpen}
+        onClose={() => setIsCreateMemoOpen(false)}
+        currentUser={user}
+        users={allUsers}
+        offices={offices}
+        divisions={divisions}
+        memos={memos}
+        onUpdateMemos={onUpdateMemo}
       />
 
       {/* 個人設定・カレンダー連携モーダル */}
