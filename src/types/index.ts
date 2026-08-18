@@ -88,6 +88,7 @@ export interface CalendarEvent {
   location?: string;
   url?: string;
   attendees: User[];
+  createdBy?: User;
   attachments?: AttachmentFile[];
   memo?: string;
   isGoogleSynced: boolean;

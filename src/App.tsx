@@ -1557,7 +1557,8 @@ export default function App() {
     const tempId = `e-temp-${Date.now()}`;
     const newEvent: CalendarEvent = {
       ...eventData,
-      id: tempId
+      id: tempId,
+      createdBy: eventData.createdBy || userState,
     };
     setEvents([...events, newEvent]);
 

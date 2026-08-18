@@ -440,7 +440,7 @@ export function EventModal({
 
     const recurrenceObj = buildRecurrenceRule();
 
-    const eventPayload = {
+    const eventPayload: Omit<CalendarEvent, 'id'> = {
       title: (title || '').trim(),
       type,
       start: startIso,
@@ -452,6 +452,7 @@ export function EventModal({
       memo,
       isGoogleSynced: false,
       attendees: selectedAttendees,
+      createdBy: editingEvent?.createdBy || currentUser,
       attachments,
       recurrence: recurrenceObj,
     };

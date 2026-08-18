@@ -171,7 +171,36 @@ export function markMemoAsUnread(userId?: string, memoId?: string) {
 export function isEventUnread(e: CalendarEvent, user: User, readEventIds: string[] = getReadEventIds(user?.id)): boolean {
   if (!user || !e) return false;
 
-  // Server-side viewers check
+  // 1. 作成者（登録者）が自分自身の場合は未読・通知対象外（自分が登録した予定）
+  if (e.createdBy && (e.createdBy.id === user.id || e.createdBy.name === user.name || (e.createdBy as any) === user.id)) {
+    return false;
+  }
+  if ((e as any).author && ((e as any).author.id === user.id || (e as any).author.name === user.name || (e as any).author === user.id)) {
+    return false;
+  }
+  if ((e as any).createdById && ((e as any).createdById === user.id || String((e as any).createdById) === String(user.id))) {
+    return false;
+  }
+
+  const attendees = e.attendees || [];
+  const isAttendee = attendees.some((a) => a?.id === user.id || a?.name === user.name);
+
+  // 2. 自分が参加者に含まれていない場合は通知対象外
+  if (!isAttendee) {
+    return false;
+  }
+
+  // 3. 参加者が自分1名だけの場合（個人用務、自分用の予定など）は通知対象外
+  if (attendees.length === 1 && isAttendee) {
+    return false;
+  }
+
+  // 4. 個人用務(personal)で自分が参加者の予定は通知対象外
+  if (e.type === 'personal') {
+    return false;
+  }
+
+  // 5. Server-side viewers check (サーバー側で閲覧済み)
   if ((e as any).viewers && Array.isArray((e as any).viewers)) {
     const isViewedOnServer = (e as any).viewers.some((v: any) => 
       v?.userId === user.id || v?.user?.id === user.id || v?.id === user.id || v === user.id || (v?.user?.name && v?.user?.name === user.name)
@@ -179,10 +208,15 @@ export function isEventUnread(e: CalendarEvent, user: User, readEventIds: string
     if (isViewedOnServer) return false;
   }
 
+  // 6. 既読IDチェック（実ID、親ID、インスタンス展開IDのプレフィックスすべて照合）
   if (readEventIds.includes(e.id)) return false;
+  if (e.recurrenceParentId && readEventIds.includes(e.recurrenceParentId)) return false;
+  if (e.id.includes('_')) {
+    const parentId = e.id.split('_')[0];
+    if (readEventIds.includes(parentId)) return false;
+  }
 
-  const isAttendee = e.attendees ? e.attendees.some((a) => a?.id === user.id || a?.name === user.name) : false;
-  return isAttendee;
+  return true;
 }
 
 /** 2. 掲示板トピックの未読判定 */

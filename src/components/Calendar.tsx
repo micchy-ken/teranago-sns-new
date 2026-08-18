@@ -929,8 +929,10 @@ export function Calendar({
 
   const daysInMonth = getDaysInMonth(year, month);
   const firstDay = getFirstDayOfMonth(year, month);
+  const totalWeeks = Math.ceil((firstDay + daysInMonth) / 7);
+  const totalSlots = Math.max(35, totalWeeks * 7);
 
-  const days = Array.from({ length: 42 }, (_, i) => {
+  const days = Array.from({ length: totalSlots }, (_, i) => {
     const day = i - firstDay + 1;
     if (day > 0 && day <= daysInMonth) return day;
     return null;
@@ -1128,8 +1130,8 @@ export function Calendar({
                     <div key={d} className={`py-2 text-center text-xs font-bold tracking-wider ${idx === 0 ? 'text-red-500' : idx === 6 ? 'text-blue-500' : 'text-slate-500'}`}>{d}</div>
                   ))}
                 </div>
-                <div className="flex-1 grid grid-cols-7 grid-rows-5 lg:grid-rows-6">
-                  {days.slice(0, 35).map((day, i) => {
+                <div className={`flex-1 grid grid-cols-7 ${totalWeeks >= 6 ? 'grid-rows-6' : 'grid-rows-5'}`}>
+                  {days.map((day, i) => {
                     const isToday = day === new Date().getDate() && month === new Date().getMonth() && year === new Date().getFullYear();
                     const cellDateStr = day ? `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}` : null;
                     const cellEvents = cellDateStr ? filteredEvents.filter(e => isEventOccurringOnDate(e, cellDateStr)) : [];
