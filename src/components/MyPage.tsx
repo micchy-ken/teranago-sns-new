@@ -578,7 +578,7 @@ export function MyPage({
   };
 
   const renderSectionCard = (sectionId: string, index: number) => {
-    const isFullWidth = sectionId === 'chats';
+    const isFullWidth = false;
     const isDragging = draggedIndex === index;
 
     switch (sectionId) {
@@ -995,9 +995,9 @@ export function MyPage({
             onDragOver={(e) => handleDragOver(e, index)}
             onDrop={(e) => handleDrop(e, index)}
           >
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
               {myChatRooms.length > 0 ? (
-                myChatRooms.slice(0, 6).map((room) => {
+                myChatRooms.slice(0, 8).map((room) => {
                   const isUnread = isChatUnread(room, user, readChatTimestamps);
                   const lastMsg = room.messages && room.messages.length > 0 ? room.messages[room.messages.length - 1] : null;
 

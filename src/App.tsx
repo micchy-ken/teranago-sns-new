@@ -194,7 +194,15 @@ export default function App() {
   };
 
   const [activeTab, setActiveTab] = useState<AppTab>('mypage');
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
+    return localStorage.getItem('is_sidebar_collapsed') === 'true';
+  });
+
+  useEffect(() => {
+    if (userState?.preferences?.isSidebarCollapsed !== undefined) {
+      setIsSidebarCollapsed(!!userState.preferences.isSidebarCollapsed);
+    }
+  }, [userState?.id, userState?.preferences?.isSidebarCollapsed]);
   const [autoOpenSettings, setAutoOpenSettings] = useState(false);
 
   const handleOpenPersonalSettings = () => {
@@ -1180,6 +1188,22 @@ export default function App() {
       }
     } catch (err: any) {
       console.warn('Failed to update user via API, keeping locally:', err);
+    }
+  };
+
+  const handleToggleSidebarCollapse = (collapsed: boolean) => {
+    setIsSidebarCollapsed(collapsed);
+    localStorage.setItem('is_sidebar_collapsed', String(collapsed));
+
+    if (userState && userState.id) {
+      const updatedUser: User = {
+        ...userState,
+        preferences: {
+          ...(userState.preferences || {}),
+          isSidebarCollapsed: collapsed,
+        },
+      };
+      handleUpdateUser(updatedUser);
     }
   };
 
@@ -2713,14 +2737,14 @@ export default function App() {
               activeTab={activeTab}
               onChangeTab={setActiveTab}
               currentUser={userState}
-              onCollapse={() => setIsSidebarCollapsed(true)}
+              onCollapse={() => handleToggleSidebarCollapse(true)}
             />
           </aside>
         ) : (
           <div className="hidden lg:block shrink-0 transition-all duration-300">
             <button
               type="button"
-              onClick={() => setIsSidebarCollapsed(false)}
+              onClick={() => handleToggleSidebarCollapse(false)}
               className="sticky top-24 p-2.5 bg-white hover:bg-slate-50 border border-slate-200 text-slate-500 hover:text-slate-700 rounded-xl shadow-xs hover:shadow-sm transition-all duration-200 flex items-center justify-center group cursor-pointer"
               title="メニューを表示"
             >

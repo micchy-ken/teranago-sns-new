@@ -1,5 +1,6 @@
 export interface UserPreferences {
   mypageSectionOrder?: string[];
+  isSidebarCollapsed?: boolean;
   [key: string]: any;
 }
 
