@@ -1,8 +1,52 @@
 import { CalendarEvent, RecurrenceRule } from '../types';
-import { getLocalDateStr } from './dateUtils';
+import { getLocalDateStr, formatTimePartJST } from './dateUtils';
 import { RecurrenceActionScope } from '../components/RecurrenceActionModal';
 
 const DAY_NAMES = ['日', '月', '火', '水', '木', '金', '土'];
+
+/**
+ * 繰り返しルールの安全なパース（オブジェクト・JSON文字列対応）
+ */
+export function safeParseRecurrence(val: any): RecurrenceRule | undefined {
+  if (!val) return undefined;
+  if (typeof val === 'object' && val !== null) {
+    if (val.frequency && val.frequency !== 'none') return val as RecurrenceRule;
+    return undefined;
+  }
+  if (typeof val === 'string' && val.trim().startsWith('{')) {
+    try {
+      const parsed = JSON.parse(val);
+      if (parsed && parsed.frequency && parsed.frequency !== 'none') {
+        return parsed as RecurrenceRule;
+      }
+    } catch (_) {}
+  }
+  return undefined;
+}
+
+/**
+ * 除外日リストの安全なパース（配列・JSON文字列対応）
+ */
+export function safeParseExceptions(val: any): string[] {
+  if (!val) return [];
+  if (Array.isArray(val)) return val;
+  if (typeof val === 'string' && val.trim().startsWith('[')) {
+    try {
+      const parsed = JSON.parse(val);
+      if (Array.isArray(parsed)) return parsed;
+    } catch (_) {}
+  }
+  return [];
+}
+
+/**
+ * YYYY-MM-DD 文字列からタイムゾーン歪みなしで曜日 (0: 日 ~ 6: 土) を取得
+ */
+export function getDayOfWeekFromDateStr(dateStr: string): number {
+  if (!dateStr || !dateStr.includes('-')) return 0;
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d, 12, 0, 0)).getUTCDay();
+}
 
 /**
  * 指定した年・月・第N週・曜日の日付 (日: 1~31) を計算する
@@ -12,14 +56,14 @@ const DAY_NAMES = ['日', '月', '火', '水', '木', '金', '土'];
  * @param dayOfWeek 0: 日, 1: 月, ..., 6: 土
  */
 export function getNthWeekdayOfMonth(year: number, month: number, weekOfMonth: number, dayOfWeek: number): number | null {
-  const firstDay = new Date(year, month, 1);
-  const firstDayOfWeek = firstDay.getDay();
+  const firstDay = new Date(Date.UTC(year, month, 1, 12, 0, 0));
+  const firstDayOfWeek = firstDay.getUTCDay();
   
   let offset = dayOfWeek - firstDayOfWeek;
   if (offset < 0) offset += 7;
   
   const day = 1 + offset + (weekOfMonth - 1) * 7;
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const daysInMonth = new Date(Date.UTC(year, month + 1, 0, 12, 0, 0)).getUTCDate();
   
   if (day > daysInMonth) return null;
   return day;
@@ -38,7 +82,8 @@ export function calculateWeekOfMonth(date: Date): { weekOfMonth: number; dayOfWe
 /**
  * 繰り返しルールの日本語説明ラベルを生成する
  */
-export function getRecurrenceLabel(rule?: RecurrenceRule): string {
+export function getRecurrenceLabel(ruleInput?: any): string {
+  const rule = safeParseRecurrence(ruleInput);
   if (!rule || rule.frequency === 'none') return '';
 
   let label = '';
@@ -80,8 +125,9 @@ export function getRecurrenceLabel(rule?: RecurrenceRule): string {
  */
 export function isRecurringEvent(event?: CalendarEvent | null): boolean {
   if (!event) return false;
+  const rec = safeParseRecurrence(event.recurrence);
   return !!(
-    (event.recurrence && event.recurrence.frequency !== 'none') ||
+    (rec && rec.frequency !== 'none') ||
     event.recurrenceParentId ||
     event.instanceDate
   );
@@ -92,10 +138,10 @@ export function isRecurringEvent(event?: CalendarEvent | null): boolean {
  */
 export function addDays(dateStr: string, days: number): string {
   const [y, m, d] = dateStr.split('-').map(Number);
-  const date = new Date(y, m - 1, d + days);
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
+  const date = new Date(Date.UTC(y, m - 1, d + days, 12, 0, 0));
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 }
 
@@ -105,21 +151,21 @@ export function addDays(dateStr: string, days: number): string {
 export function diffDays(startDateStr: string, endDateStr: string): number {
   const [y1, m1, d1] = startDateStr.split('-').map(Number);
   const [y2, m2, d2] = endDateStr.split('-').map(Number);
-  const t1 = new Date(y1, m1 - 1, d1).getTime();
-  const t2 = new Date(y2, m2 - 1, d2).getTime();
+  const t1 = Date.UTC(y1, m1 - 1, d1, 12, 0, 0);
+  const t2 = Date.UTC(y2, m2 - 1, d2, 12, 0, 0);
   return Math.round((t2 - t1) / (1000 * 60 * 60 * 24));
 }
 
 /**
- * ISO日時文字列の日付部分を新しい日付 (YYYY-MM-DD) に差し替える
+ * ISO日時文字列の日付部分を新しい日付 (YYYY-MM-DD) に安全に差し替える（JST 基準）
  */
-export function replaceDateInIso(isoStr: string | undefined, newDateStr: string): string | undefined {
-  if (!isoStr) return undefined;
-  const timeMatch = isoStr.match(/T(\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?)$/);
-  if (timeMatch) {
-    return `${newDateStr}T${timeMatch[1]}`;
+export function replaceDateInIso(isoStr: string | undefined, newDateStr: string, isAllDay = false): string | undefined {
+  if (!isoStr && !newDateStr) return undefined;
+  if (isAllDay) {
+    return `${newDateStr}T00:00:00+09:00`;
   }
-  return `${newDateStr}T09:00:00`;
+  const timePart = isoStr ? formatTimePartJST(isoStr) : '09:00:00';
+  return `${newDateStr}T${timePart}+09:00`;
 }
 
 /**
@@ -150,7 +196,7 @@ export function expandRecurringEvents(
 
   // 2. 各イベントを処理
   for (const event of normalAndParentEvents) {
-    const recurrence = event.recurrence;
+    const recurrence = safeParseRecurrence(event.recurrence);
 
     // 繰り返し設定がない単発イベント
     if (!recurrence || recurrence.frequency === 'none') {
@@ -163,7 +209,7 @@ export function expandRecurringEvents(
     const eventEndDateStr = event.end ? getLocalDateStr(event.end) : eventStartDateStr;
     const durationDays = Math.max(0, diffDays(eventStartDateStr, eventEndDateStr));
 
-    const exceptions = new Set(event.recurrenceExceptions || []);
+    const exceptions = new Set(safeParseExceptions(event.recurrenceExceptions));
     let count = 0;
     const maxCount = recurrence.endType === 'count' ? (recurrence.count || 999) : 999;
     const untilDateStr = recurrence.endType === 'until_date' ? recurrence.endDate : undefined;
@@ -176,24 +222,25 @@ export function expandRecurringEvents(
     const maxLimitStr = getLocalDateStr(maxFutureDate.toISOString());
     const effectiveLimitEndStr = untilDateStr && untilDateStr < maxLimitStr ? untilDateStr : maxLimitStr;
 
-    // 週・日・月ごとのステップ処理
+    const isAllDay = !!event.isAllDay;
+
+    // 日毎の繰り返し (daily)
     if (recurrence.frequency === 'daily') {
-      let currDate = new Date(startYear, startMonth - 1, startDay);
+      let currStr = eventStartDateStr;
       while (true) {
-        const currStr = getLocalDateStr(currDate.toISOString());
         if (currStr > effectiveLimitEndStr) break;
-        if (currStr > viewEndStr && count >= maxCount) break;
+        if (currStr > viewEndStr && recurrence.endType !== 'count') break;
 
         count++;
         if (count > maxCount) break;
 
-        if (!exceptions.has(currStr)) {
+        if (currStr >= viewStartStr && currStr <= viewEndStr && !exceptions.has(currStr)) {
           const overrideKey = `${event.id}_${currStr}`;
           if (overrideMap.has(overrideKey)) {
             const ovr = overrideMap.get(overrideKey)!;
             result.push({
               ...ovr,
-              instanceDate: currStr
+              instanceDate: currStr,
             });
           } else {
             const instEndStr = durationDays > 0 ? addDays(currStr, durationDays) : currStr;
@@ -203,37 +250,36 @@ export function expandRecurringEvents(
               recurrenceParentId: event.id,
               recurrenceOriginalDate: currStr,
               instanceDate: currStr,
-              start: replaceDateInIso(event.start, currStr) || event.start,
-              end: event.end ? replaceDateInIso(event.end, instEndStr) : undefined,
+              start: replaceDateInIso(event.start, currStr, isAllDay) || event.start,
+              end: event.end ? replaceDateInIso(event.end, instEndStr, isAllDay) : undefined,
             });
           }
         }
 
-        currDate.setDate(currDate.getDate() + 1);
+        currStr = addDays(currStr, 1);
       }
     } else if (recurrence.frequency === 'weekly') {
       const selectedDays = recurrence.daysOfWeek && recurrence.daysOfWeek.length > 0 
         ? recurrence.daysOfWeek 
-        : [new Date(startYear, startMonth - 1, startDay).getDay()];
+        : [getDayOfWeekFromDateStr(eventStartDateStr)];
 
-      let currDate = new Date(startYear, startMonth - 1, startDay);
+      let currStr = eventStartDateStr;
       while (true) {
-        const currStr = getLocalDateStr(currDate.toISOString());
         if (currStr > effectiveLimitEndStr) break;
-        if (currStr > viewEndStr && count >= maxCount) break;
+        if (currStr > viewEndStr && recurrence.endType !== 'count') break;
 
-        const dayOfWeek = currDate.getDay();
+        const dayOfWeek = getDayOfWeekFromDateStr(currStr);
         if (selectedDays.includes(dayOfWeek)) {
           count++;
           if (count > maxCount) break;
 
-          if (!exceptions.has(currStr)) {
+          if (currStr >= viewStartStr && currStr <= viewEndStr && !exceptions.has(currStr)) {
             const overrideKey = `${event.id}_${currStr}`;
             if (overrideMap.has(overrideKey)) {
               const ovr = overrideMap.get(overrideKey)!;
               result.push({
                 ...ovr,
-                instanceDate: currStr
+                instanceDate: currStr,
               });
             } else {
               const instEndStr = durationDays > 0 ? addDays(currStr, durationDays) : currStr;
@@ -243,14 +289,14 @@ export function expandRecurringEvents(
                 recurrenceParentId: event.id,
                 recurrenceOriginalDate: currStr,
                 instanceDate: currStr,
-                start: replaceDateInIso(event.start, currStr) || event.start,
-                end: event.end ? replaceDateInIso(event.end, instEndStr) : undefined,
+                start: replaceDateInIso(event.start, currStr, isAllDay) || event.start,
+                end: event.end ? replaceDateInIso(event.end, instEndStr, isAllDay) : undefined,
               });
             }
           }
         }
 
-        currDate.setDate(currDate.getDate() + 1);
+        currStr = addDays(currStr, 1);
       }
     } else if (recurrence.frequency === 'monthly') {
       let currentYear = startYear;
@@ -263,28 +309,29 @@ export function expandRecurringEvents(
           instanceDay = getNthWeekdayOfMonth(currentYear, currentMonth, recurrence.weekOfMonth, recurrence.dayOfWeek);
         } else {
           const targetDay = recurrence.monthDay || startDay;
-          const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+          const daysInMonth = new Date(Date.UTC(currentYear, currentMonth + 1, 0, 12, 0, 0)).getUTCDate();
           instanceDay = Math.min(targetDay, daysInMonth);
         }
 
         if (instanceDay !== null) {
-          const instDate = new Date(currentYear, currentMonth, instanceDay);
-          const currStr = getLocalDateStr(instDate.toISOString());
+          const mStr = String(currentMonth + 1).padStart(2, '0');
+          const dStr = String(instanceDay).padStart(2, '0');
+          const currStr = `${currentYear}-${mStr}-${dStr}`;
 
           if (currStr >= eventStartDateStr) {
             if (currStr > effectiveLimitEndStr) break;
-            if (currStr > viewEndStr && count >= maxCount) break;
+            if (currStr > viewEndStr && recurrence.endType !== 'count') break;
 
             count++;
             if (count > maxCount) break;
 
-            if (!exceptions.has(currStr)) {
+            if (currStr >= viewStartStr && currStr <= viewEndStr && !exceptions.has(currStr)) {
               const overrideKey = `${event.id}_${currStr}`;
               if (overrideMap.has(overrideKey)) {
                 const ovr = overrideMap.get(overrideKey)!;
                 result.push({
                   ...ovr,
-                  instanceDate: currStr
+                  instanceDate: currStr,
                 });
               } else {
                 const instEndStr = durationDays > 0 ? addDays(currStr, durationDays) : currStr;
@@ -294,8 +341,8 @@ export function expandRecurringEvents(
                   recurrenceParentId: event.id,
                   recurrenceOriginalDate: currStr,
                   instanceDate: currStr,
-                  start: replaceDateInIso(event.start, currStr) || event.start,
-                  end: event.end ? replaceDateInIso(event.end, instEndStr) : undefined,
+                  start: replaceDateInIso(event.start, currStr, isAllDay) || event.start,
+                  end: event.end ? replaceDateInIso(event.end, instEndStr, isAllDay) : undefined,
                 });
               }
             }
@@ -308,29 +355,32 @@ export function expandRecurringEvents(
           currentYear++;
         }
 
-        const testDate = new Date(currentYear, currentMonth, 1);
-        if (getLocalDateStr(testDate.toISOString()) > effectiveLimitEndStr) {
+        const testMonthStr = String(currentMonth + 1).padStart(2, '0');
+        const testStr = `${currentYear}-${testMonthStr}-01`;
+        if (testStr > effectiveLimitEndStr) {
           break;
         }
       }
     } else if (recurrence.frequency === 'yearly') {
       let currentYear = startYear;
       while (true) {
-        const instDate = new Date(currentYear, startMonth - 1, startDay);
-        const currStr = getLocalDateStr(instDate.toISOString());
+        const mStr = String(startMonth).padStart(2, '0');
+        const dStr = String(startDay).padStart(2, '0');
+        const currStr = `${currentYear}-${mStr}-${dStr}`;
+
         if (currStr > effectiveLimitEndStr) break;
-        if (currStr > viewEndStr && count >= maxCount) break;
+        if (currStr > viewEndStr && recurrence.endType !== 'count') break;
 
         count++;
         if (count > maxCount) break;
 
-        if (!exceptions.has(currStr)) {
+        if (currStr >= viewStartStr && currStr <= viewEndStr && !exceptions.has(currStr)) {
           const overrideKey = `${event.id}_${currStr}`;
           if (overrideMap.has(overrideKey)) {
             const ovr = overrideMap.get(overrideKey)!;
             result.push({
               ...ovr,
-              instanceDate: currStr
+              instanceDate: currStr,
             });
           } else {
             const instEndStr = durationDays > 0 ? addDays(currStr, durationDays) : currStr;
@@ -340,8 +390,8 @@ export function expandRecurringEvents(
               recurrenceParentId: event.id,
               recurrenceOriginalDate: currStr,
               instanceDate: currStr,
-              start: replaceDateInIso(event.start, currStr) || event.start,
-              end: event.end ? replaceDateInIso(event.end, instEndStr) : undefined,
+              start: replaceDateInIso(event.start, currStr, isAllDay) || event.start,
+              end: event.end ? replaceDateInIso(event.end, instEndStr, isAllDay) : undefined,
             });
           }
         }

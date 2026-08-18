@@ -96,3 +96,26 @@ export function formatTimeJST(
 
   return new Intl.DateTimeFormat('ja-JP', defaultOptions).format(d);
 }
+
+/**
+ * JST で時刻部分（例: 08:30:00）のみを正確に取得
+ */
+export function formatTimePartJST(dateInput: Date | string | number | null | undefined): string {
+  if (!dateInput) return '09:00:00';
+  const d = typeof dateInput === 'string' || typeof dateInput === 'number' ? new Date(dateInput) : dateInput;
+  if (isNaN(d.getTime())) return '09:00:00';
+
+  const defaultOptions: Intl.DateTimeFormatOptions = {
+    timeZone: 'Asia/Tokyo',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  };
+
+  const parts = new Intl.DateTimeFormat('ja-JP', defaultOptions).formatToParts(d);
+  const hour = parts.find(p => p.type === 'hour')?.value || '09';
+  const minute = parts.find(p => p.type === 'minute')?.value || '00';
+  const second = parts.find(p => p.type === 'second')?.value || '00';
+  return `${hour}:${minute}:${second}`;
+}

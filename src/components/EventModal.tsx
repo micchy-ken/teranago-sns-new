@@ -5,7 +5,7 @@ import { getAvatarUrl } from '../utils/avatar';
 import { uploadMultipleFiles } from '../utils/fileUpload';
 import { FilePreviewModal } from './FilePreviewModal';
 import { getLocalDateStr } from '../utils/dateUtils';
-import { calculateWeekOfMonth, isRecurringEvent, getRecurrenceLabel } from '../utils/recurrenceUtils';
+import { calculateWeekOfMonth, isRecurringEvent, getRecurrenceLabel, safeParseRecurrence } from '../utils/recurrenceUtils';
 import { RecurrenceActionModal, RecurrenceActionScope } from './RecurrenceActionModal';
 
 export interface EventModalProps {
@@ -213,17 +213,18 @@ export function EventModal({
         setAttachments(editingEvent.attachments || []);
 
         // 繰り返し設定の復元
-        if (editingEvent.recurrence && editingEvent.recurrence.frequency !== 'none') {
+        const parsedRec = safeParseRecurrence(editingEvent.recurrence);
+        if (parsedRec && parsedRec.frequency !== 'none') {
           setIsRecurring(true);
-          setRecurrenceFreq(editingEvent.recurrence.frequency || 'weekly');
-          setSelectedDaysOfWeek(editingEvent.recurrence.daysOfWeek || [new Date(startDateStr).getDay()]);
-          setMonthlyType(editingEvent.recurrence.monthlyType || 'same_day');
-          setMonthDay(editingEvent.recurrence.monthDay || new Date(startDateStr).getDate());
-          setWeekOfMonth(editingEvent.recurrence.weekOfMonth || 1);
-          setDayOfWeek(editingEvent.recurrence.dayOfWeek !== undefined ? editingEvent.recurrence.dayOfWeek : new Date(startDateStr).getDay());
-          setRecurrenceEndType(editingEvent.recurrence.endType || 'never');
-          setRecurrenceEndDate(editingEvent.recurrence.endDate || '');
-          setRecurrenceCount(editingEvent.recurrence.count || 10);
+          setRecurrenceFreq(parsedRec.frequency || 'weekly');
+          setSelectedDaysOfWeek(parsedRec.daysOfWeek || [new Date(startDateStr).getDay()]);
+          setMonthlyType(parsedRec.monthlyType || 'same_day');
+          setMonthDay(parsedRec.monthDay || new Date(startDateStr).getDate());
+          setWeekOfMonth(parsedRec.weekOfMonth || 1);
+          setDayOfWeek(parsedRec.dayOfWeek !== undefined ? parsedRec.dayOfWeek : new Date(startDateStr).getDay());
+          setRecurrenceEndType(parsedRec.endType || 'never');
+          setRecurrenceEndDate(parsedRec.endDate || '');
+          setRecurrenceCount(parsedRec.count || 10);
         } else if (editingEvent.recurrenceParentId) {
           // 個別インスタンス
           setIsRecurring(true);

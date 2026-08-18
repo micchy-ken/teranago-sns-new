@@ -22,7 +22,7 @@ import { TopicDetailModal } from './components/TopicDetailModal';
 import { GlobalEventDetailModal } from './components/GlobalEventDetailModal';
 import { GlobalMemoDetailModal } from './components/GlobalMemoDetailModal';
 import { filterStepsForApplicant, resolveApproverForStep, getSupervisorAtLevel } from './utils/workflowHelpers';
-import { planRecurrenceSave, planRecurrenceDelete } from './utils/recurrenceUtils';
+import { planRecurrenceSave, planRecurrenceDelete, safeParseRecurrence, safeParseExceptions } from './utils/recurrenceUtils';
 import { RecurrenceActionScope } from './components/RecurrenceActionModal';
 
 // Helper to map and sanitize API user objects to match frontend types safely
@@ -410,12 +410,15 @@ export default function App() {
               })
             : [];
 
+          const parsedRecurrence = safeParseRecurrence(e.recurrence || detailsObj.recurrence);
+          const parsedExceptions = safeParseExceptions(e.recurrenceExceptions || detailsObj.recurrenceExceptions);
+
           return {
             id: String(e.id),
             title: e.title || '予定',
             start: e.startAt || e.start || new Date().toISOString(),
             end: e.endAt || e.end || e.startAt || e.start || new Date().toISOString(),
-            isAllDay: e.isAllDay === true || e.isAllDay === 1,
+            isAllDay: e.isAllDay === true || e.isAllDay === 1 || e.isAllDay === 'true' || e.isAllDay === '1',
             type: e.category || 'personal',
             office: e.office || '全社',
             division: e.division || '全部署',
@@ -427,10 +430,10 @@ export default function App() {
               ? (typeof (e.attachments || e.attachmentsJson) === 'string' && (e.attachments || e.attachmentsJson).startsWith('[') ? JSON.parse(e.attachments || e.attachmentsJson) : (e.attachments || e.attachmentsJson)) 
               : (detailsObj.attachments || []),
             attendees: mappedAttendees,
-            recurrence: e.recurrence || detailsObj.recurrence || undefined,
+            recurrence: parsedRecurrence,
             recurrenceParentId: e.recurrenceParentId || detailsObj.recurrenceParentId || undefined,
             recurrenceOriginalDate: e.recurrenceOriginalDate || detailsObj.recurrenceOriginalDate || undefined,
-            recurrenceExceptions: e.recurrenceExceptions || detailsObj.recurrenceExceptions || undefined,
+            recurrenceExceptions: parsedExceptions,
           };
         });
         setEvents(mapped);
@@ -1503,6 +1506,17 @@ export default function App() {
 
   // Helper to persist event to API
   const saveEventToApi = async (ev: CalendarEvent, isNew = false) => {
+    const descObj = {
+      attendees: ev.attendees || [],
+      viewers: (ev as any).viewers || [],
+      memo: ev.memo || '',
+      attachments: ev.attachments || [],
+      recurrence: ev.recurrence || null,
+      recurrenceParentId: ev.recurrenceParentId || null,
+      recurrenceOriginalDate: ev.recurrenceOriginalDate || null,
+      recurrenceExceptions: ev.recurrenceExceptions || [],
+    };
+
     const payload = {
       title: ev.title,
       startAt: ev.start,
@@ -1519,15 +1533,8 @@ export default function App() {
       recurrenceParentId: ev.recurrenceParentId || null,
       recurrenceOriginalDate: ev.recurrenceOriginalDate || null,
       recurrenceExceptions: ev.recurrenceExceptions || [],
-      details: JSON.stringify({
-        viewers: (ev as any).viewers || [],
-        memo: ev.memo || '',
-        attachments: ev.attachments || [],
-        recurrence: ev.recurrence || null,
-        recurrenceParentId: ev.recurrenceParentId || null,
-        recurrenceOriginalDate: ev.recurrenceOriginalDate || null,
-        recurrenceExceptions: ev.recurrenceExceptions || [],
-      })
+      description: JSON.stringify(descObj),
+      details: JSON.stringify(descObj)
     };
 
     if (isNew || !ev.id || ev.id.startsWith('e-temp-') || ev.id.startsWith('e-recur-split-') || ev.id.startsWith('e-ovr-')) {

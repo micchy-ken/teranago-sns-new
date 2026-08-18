@@ -129,10 +129,10 @@ async function getPool() {
     } catch (e) {
       console.warn('⚠️ Failed to alter ChatRooms table:', e.message);
     }
-    // Check and add recurrence columns to dbo.Events
+    // Check and add recurrence columns to dbo.Events & make isGoogleSynced/isIcal nullable
     try {
-      await globalPool.request().query("IF COL_LENGTH('dbo.Events', 'recurrence') IS NULL ALTER TABLE dbo.Events ADD recurrence NVARCHAR(MAX) NULL; IF COL_LENGTH('dbo.Events', 'recurrenceParentId') IS NULL ALTER TABLE dbo.Events ADD recurrenceParentId VARCHAR(50) NULL; IF COL_LENGTH('dbo.Events', 'recurrenceOriginalDate') IS NULL ALTER TABLE dbo.Events ADD recurrenceOriginalDate VARCHAR(50) NULL; IF COL_LENGTH('dbo.Events', 'recurrenceExceptions') IS NULL ALTER TABLE dbo.Events ADD recurrenceExceptions NVARCHAR(MAX) NULL;");
-      console.log('✅ Checked/Added recurrence columns to dbo.Events');
+      await globalPool.request().query("IF COL_LENGTH('dbo.Events', 'recurrence') IS NULL ALTER TABLE dbo.Events ADD recurrence NVARCHAR(MAX) NULL; IF COL_LENGTH('dbo.Events', 'recurrenceParentId') IS NULL ALTER TABLE dbo.Events ADD recurrenceParentId VARCHAR(50) NULL; IF COL_LENGTH('dbo.Events', 'recurrenceOriginalDate') IS NULL ALTER TABLE dbo.Events ADD recurrenceOriginalDate VARCHAR(50) NULL; IF COL_LENGTH('dbo.Events', 'recurrenceExceptions') IS NULL ALTER TABLE dbo.Events ADD recurrenceExceptions NVARCHAR(MAX) NULL; IF COL_LENGTH('dbo.Events', 'isGoogleSynced') IS NOT NULL ALTER TABLE dbo.Events ALTER COLUMN isGoogleSynced BIT NULL; IF COL_LENGTH('dbo.Events', 'isIcal') IS NOT NULL ALTER TABLE dbo.Events ALTER COLUMN isIcal BIT NULL;");
+      console.log('✅ Checked/Added recurrence columns and made isGoogleSynced/isIcal nullable in dbo.Events');
     } catch (e) {
       console.warn('⚠️ Failed to alter Events table:', e.message);
     }

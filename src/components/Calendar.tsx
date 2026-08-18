@@ -188,7 +188,13 @@ export function Calendar({
 
     // 自分のカレンダー表示（personal mode）の場合：自分が参加者に含まれる予定のみ表示
     if (calendarMode === 'personal' && currentUser) {
-      const isAttendee = e.attendees ? e.attendees.some(a => a?.id === currentUser.id || a?.name === currentUser.name) : false;
+      const isAttendee = e.attendees ? e.attendees.some(a => {
+        if (!a) return false;
+        return a.id === currentUser.id ||
+          String(a.id) === String(currentUser.id) ||
+          a.name === currentUser.name ||
+          (a.email && currentUser.email && a.email === currentUser.email);
+      }) : false;
       if (!isAttendee) return false;
     }
 
@@ -605,7 +611,7 @@ export function Calendar({
               {dates.map((date, idx) => {
                 const dateStr = getLocalDateStr(date);
                 const dayEvents = filteredEvents.filter(e => {
-                  return isEventOccurringOnDate(e, dateStr) && e.attendees?.some(a => a.id === member.id);
+                  return isEventOccurringOnDate(e, dateStr) && e.attendees?.some(a => a && (a.id === member.id || String(a.id) === String(member.id) || a.name === member.name));
                 });
 
                 const cellKey = `team-week-${member.id}-${idx}`;
@@ -728,7 +734,7 @@ export function Calendar({
                   const eStart = new Date(e.start);
                   const eEnd = e.end ? new Date(e.end) : eStart;
                   if (!isSameDay(eStart, currentDate)) return false;
-                  if (!e.attendees?.some(a => a.id === member.id)) return false;
+                  if (!e.attendees?.some(a => a && (a.id === member.id || String(a.id) === String(member.id) || a.name === member.name))) return false;
                   
                   const startHour = eStart.getHours();
                   const endHour = eEnd.getHours();

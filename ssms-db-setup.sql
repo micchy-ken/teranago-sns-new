@@ -236,6 +236,16 @@ BEGIN
     IF COL_LENGTH('dbo.Events', 'recurrenceParentId') IS NULL ALTER TABLE dbo.Events ADD recurrenceParentId VARCHAR(50) NULL;
     IF COL_LENGTH('dbo.Events', 'recurrenceOriginalDate') IS NULL ALTER TABLE dbo.Events ADD recurrenceOriginalDate VARCHAR(50) NULL;
     IF COL_LENGTH('dbo.Events', 'recurrenceExceptions') IS NULL ALTER TABLE dbo.Events ADD recurrenceExceptions NVARCHAR(MAX) NULL;
+    
+    -- isGoogleSynced / isIcal を NULL許容に変更（NOT NULL制約によるINSERTエラー防止）
+    IF COL_LENGTH('dbo.Events', 'isGoogleSynced') IS NOT NULL
+    BEGIN
+        ALTER TABLE dbo.Events ALTER COLUMN isGoogleSynced BIT NULL;
+    END
+    IF COL_LENGTH('dbo.Events', 'isIcal') IS NOT NULL
+    BEGIN
+        ALTER TABLE dbo.Events ALTER COLUMN isIcal BIT NULL;
+    END
 END
 GO
 
