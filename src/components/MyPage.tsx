@@ -1,10 +1,11 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { User, CalendarEvent, BoardTopic, Memo, WorkflowApplication, ChatRoom, OfficeMaster, DivisionMaster, PositionMaster } from '../types';
 import { AppTab } from './Sidebar';
 import { getAvatarUrl, SILHOUETTE_SVG } from '../utils/avatar';
 import { API_BASE_URL } from '../config/api';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { getLocalDateStr } from '../utils/dateUtils';
+import { expandRecurringEvents } from '../utils/recurrenceUtils';
 import {
   getPushNotificationStatus,
   subscribeToPushNotifications,
@@ -417,17 +418,24 @@ export function MyPage({
   weekEnd.setDate(weekEnd.getDate() + 7);
   weekEnd.setHours(23, 59, 59, 999);
 
-  const myEvents = events
-    .filter((e) => {
-      const isAttendee = e.attendees ? e.attendees.some((a) => a?.id === user?.id || a?.name === user?.name) : false;
-      if (!isAttendee) return false;
+  const expandedMyPageEvents = useMemo(() => {
+    if (!events || !events.length) return [];
+    return expandRecurringEvents(events, todayStart, weekEnd);
+  }, [events, todayStart, weekEnd]);
 
-      const eventStart = new Date(e.start);
-      const eventEnd = e.end ? new Date(e.end) : eventStart;
+  const myEvents = useMemo(() => {
+    return expandedMyPageEvents
+      .filter((e) => {
+        const isAttendee = e.attendees ? e.attendees.some((a) => a?.id === user?.id || a?.name === user?.name) : false;
+        if (!isAttendee) return false;
 
-      return eventEnd >= todayStart && eventStart <= weekEnd;
-    })
-    .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
+        const eventStart = new Date(e.start);
+        const eventEnd = e.end ? new Date(e.end) : eventStart;
+
+        return eventEnd >= todayStart && eventStart <= weekEnd;
+      })
+      .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
+  }, [expandedMyPageEvents, user?.id, user?.name, todayStart, weekEnd]);
 
   const unreadEvents = myEvents.filter((e) => isEventUnread(e, user, readEventIds));
 

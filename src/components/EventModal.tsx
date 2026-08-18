@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, RefreshCw, Trash2, AlertCircle, Link as LinkIcon, Building2, Users, Paperclip, Plus, Check, UserCheck, Copy, Loader2, Repeat } from 'lucide-react';
+import { X, RefreshCw, Trash2, AlertCircle, Link as LinkIcon, Building2, Users, Paperclip, Plus, Check, UserCheck, Copy, Loader2, Repeat, Clock } from 'lucide-react';
 import { EventType, CalendarEvent, OfficeMaster, DivisionMaster, User, AttachmentFile, RecurrenceRule, RecurrenceFrequency, RecurrenceMonthlyType } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
 import { uploadMultipleFiles } from '../utils/fileUpload';
@@ -289,9 +289,15 @@ export function EventModal({
           }
 
           if (defaultEndDate) {
-            setEnd(defaultEndDate.includes('T') ? defaultEndDate : `${defaultEndDate}T18:00`);
+            if (defaultEndDate.includes('T')) {
+              setEnd(defaultEndDate);
+            } else if (defaultEndDate === initStartStr) {
+              setEnd(`${defaultEndDate}T10:00`);
+            } else {
+              setEnd(`${defaultEndDate}T18:00`);
+            }
           } else {
-            setEnd('');
+            setEnd(initStartStr ? `${initStartStr}T10:00` : '');
           }
         }
 
@@ -523,7 +529,7 @@ export function EventModal({
     >
       <div
         onClick={e => e.stopPropagation()}
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-lg my-8 max-h-[90vh] overflow-y-auto ring-1 ring-slate-900/5"
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-lg sm:max-w-xl my-8 max-h-[90vh] overflow-y-auto ring-1 ring-slate-900/5"
       >
         <div className="flex items-center justify-between p-5 border-b border-slate-100">
           <div className="flex items-center gap-2">
@@ -628,12 +634,12 @@ export function EventModal({
             </label>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-1.5">
-                開始{isAllDay ? '日' : '日時'} <span className="text-red-500">*</span>
-              </label>
-              {isAllDay ? (
+          {isAllDay ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 bg-slate-50/80 p-3.5 rounded-xl border border-slate-200/80">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  開始日 <span className="text-red-500">*</span>
+                </label>
                 <input
                   type="date"
                   required
@@ -643,12 +649,48 @@ export function EventModal({
                     setStart(e.target.value ? `${e.target.value}T00:00` : '');
                     setError(null);
                   }}
-                  className={`w-full px-3.5 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors text-sm ${
-                    isIcal ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-slate-50 focus:bg-white'
+                  className={`w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors text-sm font-medium shadow-2xs ${
+                    isIcal ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'hover:border-slate-300'
                   }`}
                 />
-              ) : (
-                <div className="flex items-center gap-1.5">
+              </div>
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-bold text-slate-700">
+                    終了日 <span className="text-slate-400 font-normal text-[11px]">(任意)</span>
+                  </label>
+                  {end && !isIcal && (
+                    <button
+                      type="button"
+                      onClick={() => { setEnd(''); setError(null); }}
+                      className="text-[11px] font-semibold text-rose-500 hover:text-rose-600 transition-colors"
+                    >
+                      クリア
+                    </button>
+                  )}
+                </div>
+                <input
+                  type="date"
+                  readOnly={isIcal}
+                  value={end ? end.split('T')[0] : ''}
+                  onChange={e => {
+                    setEnd(e.target.value ? `${e.target.value}T23:59` : '');
+                    setError(null);
+                  }}
+                  className={`w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors text-sm font-medium shadow-2xs ${
+                    isIcal ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'hover:border-slate-300'
+                  }`}
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3.5 bg-slate-50/80 p-3.5 rounded-xl border border-slate-200/80">
+              {/* 開始日時 */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  開始日時 <span className="text-red-500">*</span>
+                </label>
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                   <input
                     type="date"
                     required
@@ -661,81 +703,70 @@ export function EventModal({
                       setStart(d ? `${d}T${h}:${m}` : '');
                       setError(null);
                     }}
-                    className={`flex-1 min-w-[120px] px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors text-sm ${
-                      isIcal ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-slate-50 focus:bg-white'
+                    className={`flex-1 min-w-0 px-3.5 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors text-sm font-medium shadow-2xs ${
+                      isIcal ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'hover:border-slate-300'
                     }`}
                   />
-                  <select
-                    disabled={isIcal}
-                    value={start.split('T')[1]?.split(':')[0] || '09'}
-                    onChange={e => {
-                      const d = start.split('T')[0] || extractLocalDateStr(new Date().toISOString());
-                      const h = e.target.value;
-                      const m = roundTo5Minutes(start.split('T')[1]?.split(':')[1] || '00');
-                      setStart(`${d}T${h}:${m}`);
-                      setError(null);
-                    }}
-                    className={`px-2 py-2 border border-slate-200 rounded-lg text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer ${
-                      isIcal ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-slate-50 focus:bg-white'
-                    }`}
-                  >
-                    {HOURS.map(h => (
-                      <option key={h} value={h}>{h}時</option>
-                    ))}
-                  </select>
-                  <span className="text-slate-400 font-bold">:</span>
-                  <select
-                    disabled={isIcal}
-                    value={roundTo5Minutes(start.split('T')[1]?.split(':')[1] || '00')}
-                    onChange={e => {
-                      const d = start.split('T')[0] || extractLocalDateStr(new Date().toISOString());
-                      const h = start.split('T')[1]?.split(':')[0] || '09';
-                      const m = e.target.value;
-                      setStart(`${d}T${h}:${m}`);
-                      setError(null);
-                    }}
-                    className={`px-2 py-2 border border-slate-200 rounded-lg text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer ${
-                      isIcal ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-slate-50 focus:bg-white'
-                    }`}
-                  >
-                    {MINUTES.map(m => (
-                      <option key={m} value={m}>{m}分</option>
-                    ))}
-                  </select>
+                  <div className="flex items-center gap-1.5 shrink-0 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 shadow-2xs">
+                    <Clock className="w-4 h-4 text-indigo-500 shrink-0 ml-0.5" />
+                    <select
+                      disabled={isIcal}
+                      value={start.split('T')[1]?.split(':')[0] || '09'}
+                      onChange={e => {
+                        const d = start.split('T')[0] || extractLocalDateStr(new Date().toISOString());
+                        const h = e.target.value;
+                        const m = roundTo5Minutes(start.split('T')[1]?.split(':')[1] || '00');
+                        setStart(`${d}T${h}:${m}`);
+                        setError(null);
+                      }}
+                      className={`px-1.5 py-0.5 bg-transparent text-sm font-bold text-slate-800 focus:outline-none cursor-pointer ${
+                        isIcal ? 'text-slate-400 cursor-not-allowed' : ''
+                      }`}
+                    >
+                      {HOURS.map(h => (
+                        <option key={h} value={h}>{h}時</option>
+                      ))}
+                    </select>
+                    <span className="text-slate-400 font-bold">:</span>
+                    <select
+                      disabled={isIcal}
+                      value={roundTo5Minutes(start.split('T')[1]?.split(':')[1] || '00')}
+                      onChange={e => {
+                        const d = start.split('T')[0] || extractLocalDateStr(new Date().toISOString());
+                        const h = start.split('T')[1]?.split(':')[0] || '09';
+                        const m = e.target.value;
+                        setStart(`${d}T${h}:${m}`);
+                        setError(null);
+                      }}
+                      className={`px-1.5 py-0.5 bg-transparent text-sm font-bold text-slate-800 focus:outline-none cursor-pointer ${
+                        isIcal ? 'text-slate-400 cursor-not-allowed' : ''
+                      }`}
+                    >
+                      {MINUTES.map(m => (
+                        <option key={m} value={m}>{m}分</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
-              )}
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="block text-sm font-semibold text-slate-700">
-                  終了{isAllDay ? '日' : '日時'} <span className="text-slate-400 font-normal text-xs">(任意)</span>
-                </label>
-                {!isAllDay && end && !isIcal && (
-                  <button
-                    type="button"
-                    onClick={() => { setEnd(''); setError(null); }}
-                    className="text-xs text-slate-400 hover:text-red-500 transition-colors"
-                  >
-                    指定なし
-                  </button>
-                )}
               </div>
-              {isAllDay ? (
-                <input
-                  type="date"
-                  readOnly={isIcal}
-                  value={end ? end.split('T')[0] : ''}
-                  onChange={e => {
-                    setEnd(e.target.value ? `${e.target.value}T23:59` : '');
-                    setError(null);
-                  }}
-                  className={`w-full px-3.5 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors text-sm ${
-                    isIcal ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-slate-50 focus:bg-white'
-                  }`}
-                />
-              ) : (
-                <div className="flex items-center gap-1.5">
+
+              {/* 終了日時 */}
+              <div className="pt-3 border-t border-slate-200/70">
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-bold text-slate-700">
+                    終了日時 <span className="text-slate-400 font-normal text-[11px]">(任意)</span>
+                  </label>
+                  {end && !isIcal && (
+                    <button
+                      type="button"
+                      onClick={() => { setEnd(''); setError(null); }}
+                      className="text-[11px] font-semibold text-rose-500 hover:text-rose-600 transition-colors"
+                    >
+                      指定なし（クリア）
+                    </button>
+                  )}
+                </div>
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                   <input
                     type="date"
                     readOnly={isIcal}
@@ -745,57 +776,60 @@ export function EventModal({
                       if (!d) {
                         setEnd('');
                       } else {
-                        const h = end ? (end.split('T')[1]?.split(':')[0] || '18') : '18';
+                        const h = end ? (end.split('T')[1]?.split(':')[0] || '10') : '10';
                         const m = end ? roundTo5Minutes(end.split('T')[1]?.split(':')[1] || '00') : '00';
                         setEnd(`${d}T${h}:${m}`);
                       }
                       setError(null);
                     }}
-                    className={`flex-1 min-w-[120px] px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors text-sm ${
-                      isIcal ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-slate-50 focus:bg-white'
+                    className={`flex-1 min-w-0 px-3.5 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors text-sm font-medium shadow-2xs ${
+                      isIcal ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'hover:border-slate-300'
                     }`}
                   />
-                  <select
-                    disabled={isIcal || !end}
-                    value={end ? (end.split('T')[1]?.split(':')[0] || '18') : '18'}
-                    onChange={e => {
-                      const d = (end && end.split('T')[0]) || start.split('T')[0] || extractLocalDateStr(new Date().toISOString());
-                      const h = e.target.value;
-                      const m = end ? roundTo5Minutes(end.split('T')[1]?.split(':')[1] || '00') : '00';
-                      setEnd(`${d}T${h}:${m}`);
-                      setError(null);
-                    }}
-                    className={`px-2 py-2 border border-slate-200 rounded-lg text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer ${
-                      isIcal || !end ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-slate-50 focus:bg-white'
-                    }`}
-                  >
-                    {HOURS.map(h => (
-                      <option key={h} value={h}>{h}時</option>
-                    ))}
-                  </select>
-                  <span className="text-slate-400 font-bold">:</span>
-                  <select
-                    disabled={isIcal || !end}
-                    value={end ? roundTo5Minutes(end.split('T')[1]?.split(':')[1] || '00') : '00'}
-                    onChange={e => {
-                      const d = (end && end.split('T')[0]) || start.split('T')[0] || extractLocalDateStr(new Date().toISOString());
-                      const h = end ? (end.split('T')[1]?.split(':')[0] || '18') : '18';
-                      const m = e.target.value;
-                      setEnd(`${d}T${h}:${m}`);
-                      setError(null);
-                    }}
-                    className={`px-2 py-2 border border-slate-200 rounded-lg text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer ${
-                      isIcal || !end ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-slate-50 focus:bg-white'
-                    }`}
-                  >
-                    {MINUTES.map(m => (
-                      <option key={m} value={m}>{m}分</option>
-                    ))}
-                  </select>
+                  <div className={`flex items-center gap-1.5 shrink-0 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 shadow-2xs ${!end ? 'opacity-60' : ''}`}>
+                    <Clock className="w-4 h-4 text-slate-400 shrink-0 ml-0.5" />
+                    <select
+                      disabled={isIcal || !end}
+                      value={end ? (end.split('T')[1]?.split(':')[0] || '10') : '10'}
+                      onChange={e => {
+                        const d = (end && end.split('T')[0]) || start.split('T')[0] || extractLocalDateStr(new Date().toISOString());
+                        const h = e.target.value;
+                        const m = end ? roundTo5Minutes(end.split('T')[1]?.split(':')[1] || '00') : '00';
+                        setEnd(`${d}T${h}:${m}`);
+                        setError(null);
+                      }}
+                      className={`px-1.5 py-0.5 bg-transparent text-sm font-bold text-slate-800 focus:outline-none cursor-pointer ${
+                        isIcal || !end ? 'text-slate-400 cursor-not-allowed' : ''
+                      }`}
+                    >
+                      {HOURS.map(h => (
+                        <option key={h} value={h}>{h}時</option>
+                      ))}
+                    </select>
+                    <span className="text-slate-400 font-bold">:</span>
+                    <select
+                      disabled={isIcal || !end}
+                      value={end ? roundTo5Minutes(end.split('T')[1]?.split(':')[1] || '00') : '00'}
+                      onChange={e => {
+                        const d = (end && end.split('T')[0]) || start.split('T')[0] || extractLocalDateStr(new Date().toISOString());
+                        const h = end ? (end.split('T')[1]?.split(':')[0] || '10') : '10';
+                        const m = e.target.value;
+                        setEnd(`${d}T${h}:${m}`);
+                        setError(null);
+                      }}
+                      className={`px-1.5 py-0.5 bg-transparent text-sm font-bold text-slate-800 focus:outline-none cursor-pointer ${
+                        isIcal || !end ? 'text-slate-400 cursor-not-allowed' : ''
+                      }`}
+                    >
+                      {MINUTES.map(m => (
+                        <option key={m} value={m}>{m}分</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
-              )}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* ========================================== */}
           {/* 繰り返し（定期予定）設定トグル & オプション */}

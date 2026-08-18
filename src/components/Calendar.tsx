@@ -256,7 +256,8 @@ export function Calendar({
     setEditingEvent(null);
     setSelectedInitialDate(dateStr);
     setSelectedEndDate(endDateStr || dateStr);
-    setSelectedIsAllDay(isAllDay !== undefined ? isAllDay : (endDateStr && endDateStr !== dateStr ? true : undefined));
+    const isMultiDay = (dateStr && endDateStr && dateStr !== endDateStr);
+    setSelectedIsAllDay(isAllDay !== undefined ? isAllDay : (isMultiDay ? true : false));
     setPreselectedAttendees(initialAttendees);
     setIsModalOpen(true);
   };
@@ -413,7 +414,8 @@ export function Calendar({
         setIsSelectingRange(false);
         const range = getSelectionRange();
         if (range) {
-          openAddModalWithDate(range.start, selectionAttendees, range.end, true);
+          const isMultiDay = range.start !== range.end;
+          openAddModalWithDate(range.start, selectionAttendees, range.end, isMultiDay);
         }
         setSelectionStart(null);
         setSelectionEnd(null);
@@ -1155,7 +1157,7 @@ export function Calendar({
                               </div>
                               <button
                                 type="button"
-                                onClick={(e) => { e.stopPropagation(); openAddModalWithDate(cellDateStr!); }}
+                                onClick={(e) => { e.stopPropagation(); openAddModalWithDate(cellDateStr!, undefined, cellDateStr!, false); }}
                                 className="opacity-0 group-hover:opacity-100 p-0.5 text-indigo-600 hover:bg-indigo-100 rounded transition-all"
                                 title="この日に予定を追加"
                               >

@@ -1644,12 +1644,19 @@ export default function App() {
       return;
     }
 
+    const isExpandedInstance = eventId.includes('_');
     const targetEvent = events.find(e => e.id === eventId);
-    const hasRecurrence = targetEvent && (targetEvent.recurrence?.frequency !== 'none' || targetEvent.recurrenceParentId || targetEvent.instanceDate);
+    const parentId = targetEvent?.recurrenceParentId || (isExpandedInstance ? eventId.split('_')[0] : eventId);
+    const parentEvent = events.find(e => e.id === parentId);
+    const targetDate = instanceDate || targetEvent?.instanceDate || (isExpandedInstance ? eventId.split('_')[1] : (targetEvent?.start ? targetEvent.start.split('T')[0] : undefined));
+
+    const hasRecurrence = isExpandedInstance ||
+      !!(targetEvent && (targetEvent.recurrence?.frequency !== 'none' || targetEvent.recurrenceParentId || targetEvent.instanceDate)) ||
+      !!(parentEvent && parentEvent.recurrence?.frequency !== 'none');
 
     const performDelete = async () => {
       const originalEvents = [...events];
-      const plan = planRecurrenceDelete(events, eventId, scope, instanceDate || targetEvent?.instanceDate);
+      const plan = planRecurrenceDelete(events, eventId, scope, targetDate);
       setEvents(plan.updatedEvents);
 
       try {
@@ -1658,10 +1665,18 @@ export default function App() {
           plan.toSave.map(ev => saveEventToApi(ev, false))
         );
 
-        // 2. 削除対象を削除
+        // 2. 削除対象を削除 (仮想IDや一時IDを正規化し、重複除去)
+        const realDeleteIds = Array.from(new Set(
+          plan.toDelete
+            .map(delId => delId.includes('_') ? delId.split('_')[0] : delId)
+            .filter(delId => delId && !delId.startsWith('e-temp-'))
+        ));
+
         await Promise.all(
-          plan.toDelete.map(delId =>
-            fetch(`${API_BASE_URL}/events/${delId}`, { method: 'DELETE' }).catch(() => {})
+          realDeleteIds.map(delId =>
+            fetch(`${API_BASE_URL}/events/${delId}`, { method: 'DELETE' }).catch((err) => {
+              console.warn(`[Delete Event API] Failed to delete event id ${delId}:`, err);
+            })
           )
         );
 
