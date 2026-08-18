@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { API_BASE_URL } from './config/api';
 import { getAvatarUrl, sanitizeAvatarUrlForSave } from './utils/avatar';
 import { Header } from './components/Header';
@@ -93,6 +93,10 @@ export default function App() {
   const [fetchErrors, setFetchErrors] = useState<Record<string, string>>({});
   const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  // チャット同期・エラー制御用Ref
+  const chatConsecutiveErrorsRef = useRef<number>(0);
+  const isChatRefetchingRef = useRef<boolean>(false);
 
   // コンテンツディープリンク用のターゲットID状態
   const [targetTopicId, setTargetTopicId] = useState<string | undefined>(undefined);
@@ -253,7 +257,10 @@ export default function App() {
       const offRes = await fetch(`${API_BASE_URL}/masters/offices`);
       if (offRes.ok) {
         const data = await offRes.json();
-        if (Array.isArray(data)) setOffices(data);
+        if (Array.isArray(data)) {
+          setOffices(data);
+          setFetchErrors(prev => { if (!prev.offices) return prev; const next = { ...prev }; delete next.offices; return next; });
+        }
       } else {
         const errMsg = await parseError(offRes, '拠点マスタ');
         setFetchErrors(prev => ({ ...prev, offices: errMsg }));
@@ -264,7 +271,10 @@ export default function App() {
       const divRes = await fetch(`${API_BASE_URL}/masters/divisions`);
       if (divRes.ok) {
         const data = await divRes.json();
-        if (Array.isArray(data)) setDivisions(data);
+        if (Array.isArray(data)) {
+          setDivisions(data);
+          setFetchErrors(prev => { if (!prev.divisions) return prev; const next = { ...prev }; delete next.divisions; return next; });
+        }
       } else {
         const errMsg = await parseError(divRes, '部署マスタ');
         setFetchErrors(prev => ({ ...prev, divisions: errMsg }));
@@ -275,7 +285,10 @@ export default function App() {
       const posRes = await fetch(`${API_BASE_URL}/masters/positions`);
       if (posRes.ok) {
         const data = await posRes.json();
-        if (Array.isArray(data)) setPositions(data);
+        if (Array.isArray(data)) {
+          setPositions(data);
+          setFetchErrors(prev => { if (!prev.positions) return prev; const next = { ...prev }; delete next.positions; return next; });
+        }
       } else {
         const errMsg = await parseError(posRes, '役職マスタ');
         setFetchErrors(prev => ({ ...prev, positions: errMsg }));
@@ -286,7 +299,10 @@ export default function App() {
       const itemRes = await fetch(`${API_BASE_URL}/masters/item-masters`);
       if (itemRes.ok) {
         const data = await itemRes.json();
-        if (Array.isArray(data)) setItemMasters(data);
+        if (Array.isArray(data)) {
+          setItemMasters(data);
+          setFetchErrors(prev => { if (!prev.items) return prev; const next = { ...prev }; delete next.items; return next; });
+        }
       } else {
         const errMsg = await parseError(itemRes, '品目マスタ');
         setFetchErrors(prev => ({ ...prev, items: errMsg }));
@@ -297,7 +313,10 @@ export default function App() {
       const flowRes = await fetch(`${API_BASE_URL}/masters/approval-flows`);
       if (flowRes.ok) {
         const data = await flowRes.json();
-        if (Array.isArray(data)) setApprovalFlows(data);
+        if (Array.isArray(data)) {
+          setApprovalFlows(data);
+          setFetchErrors(prev => { if (!prev.flows) return prev; const next = { ...prev }; delete next.flows; return next; });
+        }
       } else {
         const errMsg = await parseError(flowRes, '承認フロー');
         setFetchErrors(prev => ({ ...prev, flows: errMsg }));
@@ -326,6 +345,7 @@ export default function App() {
         const mapped = data.map(p => mapPostFromApi(p, currentUsers));
         setPosts(mapped);
         setPostsError(null);
+        setFetchErrors(prev => { if (!prev.posts) return prev; const next = { ...prev }; delete next.posts; return next; });
       } else {
         throw new Error('Received posts data is not an array');
       }
@@ -352,6 +372,7 @@ export default function App() {
       if (Array.isArray(data)) {
         const processedUsers = data.map((u: any) => mapUserFromApi(u));
         setUsersList(processedUsers);
+        setFetchErrors(prev => { if (!prev.users) return prev; const next = { ...prev }; delete next.users; return next; });
 
         // Synchronize logged-in user with the latest data from the database
         const savedUserId = localStorage.getItem('logged_in_user_id');
@@ -437,6 +458,7 @@ export default function App() {
           };
         });
         setEvents(mapped);
+        setFetchErrors(prev => { if (!prev.events) return prev; const next = { ...prev }; delete next.events; return next; });
       }
     } catch (err: any) {
       console.warn('Failed to load events from API:', err);
@@ -500,6 +522,7 @@ export default function App() {
         } catch (_) {}
 
         setApplications(mapped.filter((app: any) => !deletedIds.includes(app.id)));
+        setFetchErrors(prev => { if (!prev.workflows) return prev; const next = { ...prev }; delete next.workflows; return next; });
       }
     } catch (err: any) {
       console.warn('Failed to load workflows from API:', err);
@@ -559,6 +582,7 @@ export default function App() {
           };
         });
         setTopics(mapped);
+        setFetchErrors(prev => { if (!prev.bulletins) return prev; const next = { ...prev }; delete next.bulletins; return next; });
       }
     } catch (err: any) {
       console.warn('Failed to load bulletins from API:', err);
@@ -566,7 +590,10 @@ export default function App() {
     }
   };
 
-  const refetchChatRooms = async (currentUsers = usersList) => {
+  const refetchChatRooms = async (currentUsers = usersList, isBackground = false) => {
+    if (isChatRefetchingRef.current) return;
+    isChatRefetchingRef.current = true;
+
     try {
       const response = await fetch(`${API_BASE_URL}/chats`, {
         headers: { 'Accept': 'application/json' }
@@ -613,10 +640,29 @@ export default function App() {
             return room.participants.some((p: any) => String(p.id) === String(userState.id));
           });
         setChatRooms(mapped);
+
+        // 成功時はエラー状態とカウンターをリセット
+        chatConsecutiveErrorsRef.current = 0;
+        setFetchErrors(prev => {
+          if (!prev.chats) return prev;
+          const next = { ...prev };
+          delete next.chats;
+          return next;
+        });
       }
     } catch (err: any) {
-      console.warn('Failed to load chat rooms from API:', err);
-      setFetchErrors(prev => ({ ...prev, chats: `チャット取得エラー: ${err?.message || '接続エラー'}` }));
+      chatConsecutiveErrorsRef.current += 1;
+      if (!isBackground) {
+        console.warn('Failed to load chat rooms from API:', err);
+        setFetchErrors(prev => ({ ...prev, chats: `チャット取得エラー: ${err?.message || '接続エラー'}` }));
+      } else {
+        // バックグラウンド同期時（APIサーバー再起動等）は画面全体を覆う赤色エラーバナーを出さず抑制
+        if (chatConsecutiveErrorsRef.current === 1 || chatConsecutiveErrorsRef.current % 10 === 0) {
+          console.warn(`[Chat Polling] バックグラウンド接続待機中 (試行回数: ${chatConsecutiveErrorsRef.current}):`, err?.message);
+        }
+      }
+    } finally {
+      isChatRefetchingRef.current = false;
     }
   };
 
@@ -743,6 +789,7 @@ export default function App() {
         });
 
         setMemos(mapped);
+        setFetchErrors(prev => { if (!prev.memos) return prev; const next = { ...prev }; delete next.memos; return next; });
       }
     } catch (err: any) {
       console.warn('Failed to load memos from API:', err);
@@ -796,6 +843,7 @@ export default function App() {
           };
         });
         setReports(mapped);
+        setFetchErrors(prev => { if (!prev.reports) return prev; const next = { ...prev }; delete next.reports; return next; });
       }
     } catch (err: any) {
       console.warn('Failed to load reports from API:', err);
@@ -811,7 +859,7 @@ export default function App() {
       refetchEvents(latestUsers),
       refetchApplications(latestUsers),
       refetchTopics(latestUsers),
-      refetchChatRooms(latestUsers),
+      refetchChatRooms(latestUsers, false),
       refetchMemos(latestUsers),
       refetchReports(latestUsers),
     ]);
@@ -826,16 +874,68 @@ export default function App() {
     });
   }, [isAuthenticated]);
 
-  // チャットルームのリアルタイム自動更新
+  // チャットルームの自動更新（タブに応じた動的インターバル制御）
   useEffect(() => {
     if (!isAuthenticated) return;
-    
-    const interval = setInterval(() => {
-      refetchChatRooms();
-    }, 3000);
 
-    return () => clearInterval(interval);
-  }, [isAuthenticated, usersList]);
+    let timeoutId: any = null;
+    let isCancelled = false;
+
+    // チャット画面を開いたときは即時に最新データをフェッチしてリアルタイム性を確保
+    if (activeTab === 'chat') {
+      refetchChatRooms(usersList, true);
+    }
+
+    const scheduleNextPoll = () => {
+      if (isCancelled) return;
+
+      const isChatTab = activeTab === 'chat';
+      const isDocumentHidden = typeof document !== 'undefined' && document.hidden;
+
+      // チャットタブ閲覧時は高リアルタイム性 (2.5秒)
+      // マイページや他タブ閲覧時は負荷軽減・サーバー再起動時のエラー抑制のため間隔を延長 (45秒)
+      let baseDelay = isChatTab ? 2500 : 45000;
+      if (isDocumentHidden) {
+        baseDelay = isChatTab ? 15000 : 60000;
+      }
+
+      // サーバー再起動中などの連続エラー時はバックオフを適用してリクエスト過多を抑制
+      const consecutiveErrors = chatConsecutiveErrorsRef.current;
+      let delay = baseDelay;
+      if (consecutiveErrors > 0) {
+        if (isChatTab) {
+          delay = Math.min(30000, 2500 * Math.pow(1.5, Math.min(consecutiveErrors, 6)));
+        } else {
+          delay = Math.min(90000, 45000 + consecutiveErrors * 5000);
+        }
+      }
+
+      timeoutId = setTimeout(async () => {
+        if (isCancelled) return;
+        await refetchChatRooms(usersList, true);
+        scheduleNextPoll();
+      }, delay);
+    };
+
+    scheduleNextPoll();
+
+    // ウィンドウ復帰時・タブアクティブ時の即時同期イベント
+    const handleVisibilityOrFocus = () => {
+      if (document.visibilityState === 'visible' && activeTab === 'chat') {
+        refetchChatRooms(usersList, true);
+      }
+    };
+
+    window.addEventListener('focus', handleVisibilityOrFocus);
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+
+    return () => {
+      isCancelled = true;
+      if (timeoutId) clearTimeout(timeoutId);
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+    };
+  }, [isAuthenticated, activeTab, usersList]);
 
   // Board Handlers
   const handleAddTopic = async (topicData: Omit<BoardTopic, 'id' | 'createdAt' | 'views' | 'commentsCount'>) => {
