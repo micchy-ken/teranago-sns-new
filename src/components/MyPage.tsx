@@ -79,6 +79,7 @@ import {
 import { TopicDetailModal } from './TopicDetailModal';
 import { EventModal } from './EventModal';
 import { TopicCreateModal } from './TopicCreateModal';
+import { MyPageSectionCard } from './MyPageSectionCard';
 
 interface MyPageProps {
   user: User;
@@ -576,79 +577,40 @@ export function MyPage({
     }
   };
 
-  const renderHeaderControls = (index: number) => {
-    const isFirst = index === 0;
-    const isLast = index === sectionOrder.length - 1;
-    return (
-      <div className="flex items-center gap-0.5 shrink-0 bg-slate-100/90 p-1 rounded-lg border border-slate-200" onClick={(e) => e.stopPropagation()}>
-        <button
-          type="button"
-          onClick={() => moveSection(index, 'up')}
-          disabled={isFirst}
-          title="上に移動"
-          className="p-1 rounded hover:bg-slate-200 text-slate-600 disabled:opacity-25 transition-colors cursor-pointer"
-        >
-          <ArrowUp className="w-3.5 h-3.5" />
-        </button>
-        <button
-          type="button"
-          onClick={() => moveSection(index, 'down')}
-          disabled={isLast}
-          title="下に移動"
-          className="p-1 rounded hover:bg-slate-200 text-slate-600 disabled:opacity-25 transition-colors cursor-pointer"
-        >
-          <ArrowDown className="w-3.5 h-3.5" />
-        </button>
-        <div
-          title="ドラッグして順序入れ替え"
-          className="p-1 cursor-grab active:cursor-grabbing text-slate-400 hover:text-slate-600"
-        >
-          <GripVertical className="w-4 h-4" />
-        </div>
-      </div>
-    );
-  };
+  const renderSectionCard = (sectionId: string, index: number) => {
+    const isFullWidth = sectionId === 'chats';
+    const isDragging = draggedIndex === index;
 
-  const renderSectionContent = (sectionId: string, index: number) => {
     switch (sectionId) {
       case 'events':
         return (
-          <section id="my-events-section" className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-full">
-            <div className="p-4 border-b border-slate-100 bg-slate-50/80 flex items-center justify-between gap-2 flex-wrap sm:flex-nowrap">
-              <div className="flex items-center gap-2">
-                <div className="p-1.5 bg-amber-500 text-white rounded-lg shadow-2xs">
-                  <CalendarIcon className="w-4 h-4" />
-                </div>
-                <h2 className="text-sm font-extrabold text-slate-900">参加スケジュール（本日以降1週間）</h2>
-                {unreadEvents.length > 0 && (
-                  <span className="px-2 py-0.5 bg-rose-500 text-white text-[10px] font-black rounded-full">
-                    未確認 {unreadEvents.length}
-                  </span>
-                )}
-              </div>
-
-              <div className="flex items-center gap-2 shrink-0">
-                {renderHeaderControls(index)}
-                <button
-                  type="button"
-                  onClick={() => setIsEventModalOpen(true)}
-                  className="text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  予定追加
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onChangeTab('calendar')}
-                  className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 hover:underline cursor-pointer"
-                >
-                  カレンダーへ
-                  <ArrowUpRight className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-
-            <div className="p-4 flex-1 space-y-3">
+          <MyPageSectionCard
+            key="events"
+            id="events"
+            title="スケジュール"
+            icon={CalendarIcon}
+            iconBgColor="bg-amber-500 hover:bg-amber-600"
+            badgeCount={unreadEvents.length}
+            badgeLabel="未確認"
+            badgeBgColor="bg-rose-500"
+            onNavigate={() => onChangeTab('calendar')}
+            actionButton={
+              <button
+                type="button"
+                onClick={() => setIsEventModalOpen(true)}
+                className="text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                予定追加
+              </button>
+            }
+            isFullWidth={isFullWidth}
+            isDragging={isDragging}
+            onDragStart={(e) => handleDragStart(e, index)}
+            onDragOver={(e) => handleDragOver(e, index)}
+            onDrop={(e) => handleDrop(e, index)}
+          >
+            <div className="space-y-3">
               {myEvents.length > 0 ? (
                 myEvents.map((evt) => {
                   const isUnread = !readEventIds.includes(evt.id);
@@ -728,47 +690,38 @@ export function MyPage({
                 </div>
               )}
             </div>
-          </section>
+          </MyPageSectionCard>
         );
 
       case 'topics':
         return (
-          <section id="my-topics-section" className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-full">
-            <div className="p-4 border-b border-slate-100 bg-slate-50/80 flex items-center justify-between gap-2 flex-wrap sm:flex-nowrap">
-              <div className="flex items-center gap-2">
-                <div className="p-1.5 bg-indigo-600 text-white rounded-lg shadow-2xs">
-                  <Monitor className="w-4 h-4" />
-                </div>
-                <h2 className="text-sm font-extrabold text-slate-900">対象掲示板（直近）</h2>
-                {unreadTopics.length > 0 && (
-                  <span className="px-2 py-0.5 bg-indigo-600 text-white text-[10px] font-black rounded-full">
-                    未読 {unreadTopics.length}
-                  </span>
-                )}
-              </div>
-
-              <div className="flex items-center gap-2 shrink-0">
-                {renderHeaderControls(index)}
-                <button
-                  type="button"
-                  onClick={() => setIsCreateTopicModalOpen(true)}
-                  className="text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  新規投稿
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onChangeTab('board')}
-                  className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 hover:underline cursor-pointer"
-                >
-                  掲示板一覧へ
-                  <ArrowUpRight className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-
-            <div className="p-4 flex-1 space-y-3">
+          <MyPageSectionCard
+            key="topics"
+            id="topics"
+            title="掲示板"
+            icon={Monitor}
+            iconBgColor="bg-indigo-600 hover:bg-indigo-700"
+            badgeCount={unreadTopics.length}
+            badgeLabel="未読"
+            badgeBgColor="bg-indigo-600"
+            onNavigate={() => onChangeTab('board')}
+            actionButton={
+              <button
+                type="button"
+                onClick={() => setIsCreateTopicModalOpen(true)}
+                className="text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                新規投稿
+              </button>
+            }
+            isFullWidth={isFullWidth}
+            isDragging={isDragging}
+            onDragStart={(e) => handleDragStart(e, index)}
+            onDragOver={(e) => handleDragOver(e, index)}
+            onDrop={(e) => handleDrop(e, index)}
+          >
+            <div className="space-y-3">
               {myTopics.length > 0 ? (
                 myTopics.slice(0, 5).map((topic) => {
                   const unread = isTopicUnread(topic, user, readTopicIds);
@@ -832,39 +785,28 @@ export function MyPage({
                 </div>
               )}
             </div>
-          </section>
+          </MyPageSectionCard>
         );
 
       case 'memos':
         return (
-          <section id="my-memos-section" className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-full">
-            <div className="p-4 border-b border-slate-100 bg-slate-50/80 flex items-center justify-between gap-2 flex-wrap sm:flex-nowrap">
-              <div className="flex items-center gap-2">
-                <div className="p-1.5 bg-rose-500 text-white rounded-lg shadow-2xs">
-                  <Phone className="w-4 h-4" />
-                </div>
-                <h2 className="text-sm font-extrabold text-slate-900">自分宛ての伝言メモ</h2>
-                {unreadMemos.length > 0 && (
-                  <span className="px-2 py-0.5 bg-rose-500 text-white text-[10px] font-black rounded-full">
-                    未対応 {unreadMemos.length}
-                  </span>
-                )}
-              </div>
-
-              <div className="flex items-center gap-2 shrink-0">
-                {renderHeaderControls(index)}
-                <button
-                  type="button"
-                  onClick={() => onChangeTab('memo')}
-                  className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 hover:underline cursor-pointer"
-                >
-                  伝言メモ一覧へ
-                  <ArrowUpRight className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-
-            <div className="p-4 flex-1 space-y-3">
+          <MyPageSectionCard
+            key="memos"
+            id="memos"
+            title="伝言メモ"
+            icon={Phone}
+            iconBgColor="bg-rose-500 hover:bg-rose-600"
+            badgeCount={unreadMemos.length}
+            badgeLabel="未対応"
+            badgeBgColor="bg-rose-500"
+            onNavigate={() => onChangeTab('memo')}
+            isFullWidth={isFullWidth}
+            isDragging={isDragging}
+            onDragStart={(e) => handleDragStart(e, index)}
+            onDragOver={(e) => handleDragOver(e, index)}
+            onDrop={(e) => handleDrop(e, index)}
+          >
+            <div className="space-y-3">
               {myMemos.length > 0 ? (
                 myMemos.map((memo) => {
                   const isUnread = isMemoUnread(memo, user, readMemoIds);
@@ -932,39 +874,28 @@ export function MyPage({
                 </div>
               )}
             </div>
-          </section>
+          </MyPageSectionCard>
         );
 
       case 'workflow':
         return (
-          <section id="my-workflow-section" className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-full">
-            <div className="p-4 border-b border-slate-100 bg-slate-50/80 flex items-center justify-between gap-2 flex-wrap sm:flex-nowrap">
-              <div className="flex items-center gap-2">
-                <div className="p-1.5 bg-purple-600 text-white rounded-lg shadow-2xs">
-                  <FileText className="w-4 h-4" />
-                </div>
-                <h2 className="text-sm font-extrabold text-slate-900">関係ワークフロー</h2>
-                {pendingApprovals.length > 0 && (
-                  <span className="px-2 py-0.5 bg-purple-600 text-white text-[10px] font-black rounded-full">
-                    要承認 {pendingApprovals.length}
-                  </span>
-                )}
-              </div>
-
-              <div className="flex items-center gap-2 shrink-0">
-                {renderHeaderControls(index)}
-                <button
-                  type="button"
-                  onClick={() => onChangeTab('workflow')}
-                  className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 hover:underline cursor-pointer"
-                >
-                  ワークフロー一覧へ
-                  <ArrowUpRight className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-
-            <div className="p-4 flex-1 space-y-3">
+          <MyPageSectionCard
+            key="workflow"
+            id="workflow"
+            title="ワークフロー"
+            icon={FileText}
+            iconBgColor="bg-purple-600 hover:bg-purple-700"
+            badgeCount={pendingApprovals.length}
+            badgeLabel="要承認"
+            badgeBgColor="bg-purple-600"
+            onNavigate={() => onChangeTab('workflow')}
+            isFullWidth={isFullWidth}
+            isDragging={isDragging}
+            onDragStart={(e) => handleDragStart(e, index)}
+            onDragOver={(e) => handleDragOver(e, index)}
+            onDrop={(e) => handleDrop(e, index)}
+          >
+            <div className="space-y-3">
               {myApplications.length > 0 ? (
                 myApplications.slice(0, 5).map((app) => {
                   const isMyApproval = (app.approver?.id === user?.id || app.approver?.name === user?.name) && app.status === 'pending';
@@ -1042,40 +973,29 @@ export function MyPage({
                 </div>
               )}
             </div>
-          </section>
+          </MyPageSectionCard>
         );
 
       case 'chats':
       default:
         return (
-          <section id="my-chats-section" className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-full">
-            <div className="p-4 border-b border-slate-100 bg-slate-50/80 flex items-center justify-between gap-2 flex-wrap sm:flex-nowrap">
-              <div className="flex items-center gap-2">
-                <div className="p-1.5 bg-blue-600 text-white rounded-lg shadow-2xs">
-                  <MessageSquare className="w-4 h-4" />
-                </div>
-                <h2 className="text-sm font-extrabold text-slate-900">参加チャットルーム（新着・未読）</h2>
-                {unreadChatRooms.length > 0 && (
-                  <span className="px-2 py-0.5 bg-blue-600 text-white text-[10px] font-black rounded-full">
-                    未読 {unreadChatRooms.length}
-                  </span>
-                )}
-              </div>
-
-              <div className="flex items-center gap-2 shrink-0">
-                {renderHeaderControls(index)}
-                <button
-                  type="button"
-                  onClick={() => onChangeTab('chat')}
-                  className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 hover:underline cursor-pointer"
-                >
-                  チャット画面へ
-                  <ArrowUpRight className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-
-            <div className="p-4 flex-1 grid grid-cols-1 md:grid-cols-2 gap-3">
+          <MyPageSectionCard
+            key="chats"
+            id="chats"
+            title="チャットルーム"
+            icon={MessageSquare}
+            iconBgColor="bg-blue-600 hover:bg-blue-700"
+            badgeCount={unreadChatRooms.length}
+            badgeLabel="未読"
+            badgeBgColor="bg-blue-600"
+            onNavigate={() => onChangeTab('chat')}
+            isFullWidth={isFullWidth}
+            isDragging={isDragging}
+            onDragStart={(e) => handleDragStart(e, index)}
+            onDragOver={(e) => handleDragOver(e, index)}
+            onDrop={(e) => handleDrop(e, index)}
+          >
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {myChatRooms.length > 0 ? (
                 myChatRooms.slice(0, 6).map((room) => {
                   const isUnread = isChatUnread(room, user, readChatTimestamps);
@@ -1130,56 +1050,14 @@ export function MyPage({
                 </div>
               )}
             </div>
-          </section>
+          </MyPageSectionCard>
         );
     }
   };
 
   return (
     <div className="flex-1 overflow-y-auto bg-slate-50/50 rounded-xl border border-slate-200 h-[calc(100vh-8rem)] p-3 sm:p-6 space-y-4 sm:space-y-6">
-      {/* ユーザープロフィール概要カード */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-3 sm:gap-4 min-w-0">
-          <img
-            src={getAvatarUrl(user?.avatarUrl)}
-            alt={user?.name || 'ユーザー'}
-            className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-indigo-100 border-2 border-indigo-200 object-cover shadow-2xs shrink-0"
-          />
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-base sm:text-lg font-black text-slate-900 truncate">
-                {user?.name}
-              </h1>
-              {user?.kanaName && (
-                <span className="text-xs text-slate-400 font-normal">
-                  ({user.kanaName})
-                </span>
-              )}
-              {user?.isAdmin && (
-                <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 text-[10px] font-extrabold rounded">
-                  管理者
-                </span>
-              )}
-            </div>
-            <div className="text-xs text-slate-500 mt-1 flex items-center gap-1.5 flex-wrap">
-              <span>{user?.office || '未設定'}</span>
-              <span className="text-slate-300">/</span>
-              <span>{user?.division || '未設定'}</span>
-              <span className="text-slate-300">/</span>
-              <span className="font-semibold text-slate-700">{user?.position || '一般'}</span>
-            </div>
-          </div>
-        </div>
 
-        <button
-          type="button"
-          onClick={handleOpenSettings}
-          className="w-full sm:w-auto px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold text-xs rounded-xl shadow-xs hover:shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer shrink-0"
-        >
-          <Settings className="w-4 h-4" />
-          <span>個人設定 (iCal・通知・プロフィール)</span>
-        </button>
-      </div>
 
       {/* 5つの未読通知サマリーカード（スマホで左右2列にコンパクト配置） */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 sm:gap-3.5">
@@ -1339,12 +1217,12 @@ export function MyPage({
         </div>
       </div>
 
-      {/* メインセクション（D&D・上下ボタンで順序変更可能） */}
+      {/* メインセクション（D&Dで順序変更可能） */}
       <div className="space-y-3">
         <div className="flex items-center justify-between px-1 text-xs text-slate-500">
           <div className="flex items-center gap-1.5 font-bold text-slate-700">
             <SlidersHorizontal className="w-4 h-4 text-indigo-600" />
-            <span>マイページ画面配置（D&Dまたは各ヘッダーの上下ボタンで並び替え可能）</span>
+            <span>マイページ画面配置（D&Dで並び替え可能）</span>
           </div>
           <button
             type="button"
@@ -1357,23 +1235,7 @@ export function MyPage({
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {sectionOrder.map((sectionId, index) => {
-            const isFullWidth = sectionId === 'chats';
-            return (
-              <div
-                key={sectionId}
-                draggable
-                onDragStart={(e) => handleDragStart(e, index)}
-                onDragOver={(e) => handleDragOver(e, index)}
-                onDrop={(e) => handleDrop(e, index)}
-                className={`transition-all ${isFullWidth ? 'lg:col-span-2' : 'lg:col-span-1'} ${
-                  draggedIndex === index ? 'opacity-40 scale-[0.99] border-2 border-dashed border-indigo-400 rounded-2xl' : ''
-                }`}
-              >
-                {renderSectionContent(sectionId, index)}
-              </div>
-            );
-          })}
+          {sectionOrder.map((sectionId, index) => renderSectionCard(sectionId, index))}
         </div>
       </div>
 
