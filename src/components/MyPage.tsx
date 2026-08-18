@@ -995,7 +995,7 @@ export function MyPage({
             onDragOver={(e) => handleDragOver(e, index)}
             onDrop={(e) => handleDrop(e, index)}
           >
-            <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+            <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 2xl:grid-cols-2">
               {myChatRooms.length > 0 ? (
                 myChatRooms.slice(0, 8).map((room) => {
                   const isUnread = isChatUnread(room, user, readChatTimestamps);
@@ -1234,7 +1234,7 @@ export function MyPage({
           </button>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
           {sectionOrder.map((sectionId, index) => renderSectionCard(sectionId, index))}
         </div>
       </div>
