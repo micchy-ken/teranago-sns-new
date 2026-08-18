@@ -1004,6 +1004,7 @@ app.post('/api/users', async (req, res) => {
         .input('mobilePhone', sql.NVarChar, u.mobilePhone || '')
         .input('icalUrl', sql.NVarChar, u.icalUrl || '')
         .input('supervisorId', sql.VarChar, u.supervisorId || null)
+        .input('preferences', sql.NVarChar, typeof u.preferences === 'object' ? JSON.stringify(u.preferences) : (u.preferences || null))
         .query\`
           UPDATE dbo.Users 
           SET loginId = @loginId,
@@ -1024,7 +1025,8 @@ app.post('/api/users', async (req, res) => {
               phoneExtension = @phoneExtension,
               mobilePhone = @mobilePhone,
               icalUrl = @icalUrl,
-              supervisorId = @supervisorId
+              supervisorId = @supervisorId,
+              preferences = @preferences
           WHERE id = @id
         \`;
     } else {
@@ -1049,12 +1051,27 @@ app.post('/api/users', async (req, res) => {
         .input('mobilePhone', sql.NVarChar, u.mobilePhone || '')
         .input('icalUrl', sql.NVarChar, u.icalUrl || '')
         .input('supervisorId', sql.VarChar, u.supervisorId || null)
+        .input('preferences', sql.NVarChar, typeof u.preferences === 'object' ? JSON.stringify(u.preferences) : (u.preferences || null))
         .query\`
-          INSERT INTO dbo.Users (id, loginId, password, name, kanaName, department, office, division, position, role, isAdmin, avatarUrl, email, mobileEmail, phone, phoneOutside, phoneExtension, mobilePhone, icalUrl, supervisorId)
-          VALUES (@id, @loginId, @password, @name, @kanaName, @department, @office, @division, @position, @role, @isAdmin, @avatarUrl, @email, @mobileEmail, @phone, @phoneOutside, @phoneExtension, @mobilePhone, @icalUrl, @supervisorId)
+          INSERT INTO dbo.Users (id, loginId, password, name, kanaName, department, office, division, position, role, isAdmin, avatarUrl, email, mobileEmail, phone, phoneOutside, phoneExtension, mobilePhone, icalUrl, supervisorId, preferences)
+          VALUES (@id, @loginId, @password, @name, @kanaName, @department, @office, @division, @position, @role, @isAdmin, @avatarUrl, @email, @mobileEmail, @phone, @phoneOutside, @phoneExtension, @mobilePhone, @icalUrl, @supervisorId, @preferences)
         \`;
     }
     res.json({ id: userId, message: 'ユーザー保存成功' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/users/:id/preferences', async (req, res) => {
+  try {
+    const userId = req.params.id;
+    const preferences = req.body;
+    const pool = await getPool();
+    const prefStr = typeof preferences === 'object' ? JSON.stringify(preferences) : preferences;
+    await pool.request()
+      .input('id', sql.VarChar, userId)
+      .input('preferences', sql.NVarChar, prefStr)
+      .query('UPDATE dbo.Users SET preferences = @preferences WHERE id = @id');
+    res.json({ success: true, message: '個人設定・マイページ並び順を保存しました。' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

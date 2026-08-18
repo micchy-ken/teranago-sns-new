@@ -1,3 +1,8 @@
+export interface UserPreferences {
+  mypageSectionOrder?: string[];
+  [key: string]: any;
+}
+
 export interface User {
   id: string;
   loginId?: string;
@@ -19,6 +24,7 @@ export interface User {
   mobilePhone?: string;    // 電話番号（携帯）
   icalUrl?: string;        // 外部iCal(ICS) URL連携
   supervisorId?: string;   // 上長（承認者）ユーザーID
+  preferences?: UserPreferences; // マイページ並び順・各種個人設定 (JSON)
 }
 
 export type OfficeType = 'headquarter' | 'branch' | 'sales_office' | 'other';

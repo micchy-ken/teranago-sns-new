@@ -69,7 +69,12 @@ import {
   Loader2,
   Info,
   Wrench,
-  AlertTriangle
+  AlertTriangle,
+  GripVertical,
+  ArrowUp,
+  ArrowDown,
+  RotateCcw,
+  SlidersHorizontal
 } from 'lucide-react';
 import { TopicDetailModal } from './TopicDetailModal';
 import { EventModal } from './EventModal';
@@ -173,6 +178,75 @@ export function MyPage({
   useEffect(() => {
     refreshPushStatus();
   }, [user?.id]);
+
+  // D&D並び替え状態管理
+  const DEFAULT_SECTION_ORDER = ['events', 'topics', 'memos', 'workflow', 'chats'];
+  const savedOrder = user?.preferences?.mypageSectionOrder;
+  const [sectionOrder, setSectionOrder] = useState<string[]>(() => {
+    if (Array.isArray(savedOrder) && savedOrder.length > 0) {
+      const valid = savedOrder.filter(id => DEFAULT_SECTION_ORDER.includes(id));
+      const missing = DEFAULT_SECTION_ORDER.filter(id => !valid.includes(id));
+      return [...valid, ...missing];
+    }
+    return DEFAULT_SECTION_ORDER;
+  });
+
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (Array.isArray(user?.preferences?.mypageSectionOrder) && user.preferences.mypageSectionOrder.length > 0) {
+      const valid = user.preferences.mypageSectionOrder.filter(id => DEFAULT_SECTION_ORDER.includes(id));
+      const missing = DEFAULT_SECTION_ORDER.filter(id => !valid.includes(id));
+      setSectionOrder([...valid, ...missing]);
+    }
+  }, [user?.preferences?.mypageSectionOrder]);
+
+  const handleSaveOrder = (newOrder: string[]) => {
+    setSectionOrder(newOrder);
+    if (onUpdateUser) {
+      const updatedUser: User = {
+        ...user,
+        preferences: {
+          ...(user.preferences || {}),
+          mypageSectionOrder: newOrder,
+        },
+      };
+      onUpdateUser(updatedUser);
+    }
+  };
+
+  const moveSection = (index: number, direction: 'up' | 'down') => {
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= sectionOrder.length) return;
+    const newOrder = [...sectionOrder];
+    const [movedItem] = newOrder.splice(index, 1);
+    newOrder.splice(targetIndex, 0, movedItem);
+    handleSaveOrder(newOrder);
+  };
+
+  const handleResetOrder = () => {
+    handleSaveOrder(DEFAULT_SECTION_ORDER);
+  };
+
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    setDraggedIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
+
+  const handleDrop = (e: React.DragEvent, dropIndex: number) => {
+    e.preventDefault();
+    if (draggedIndex === null || draggedIndex === dropIndex) return;
+    const newOrder = [...sectionOrder];
+    const [draggedItem] = newOrder.splice(draggedIndex, 1);
+    newOrder.splice(dropIndex, 0, draggedItem);
+    setDraggedIndex(null);
+    handleSaveOrder(newOrder);
+  };
 
   const handleRunDiagnostics = async () => {
     setDiagLoading(true);
@@ -502,6 +576,565 @@ export function MyPage({
     }
   };
 
+  const renderHeaderControls = (index: number) => {
+    const isFirst = index === 0;
+    const isLast = index === sectionOrder.length - 1;
+    return (
+      <div className="flex items-center gap-0.5 shrink-0 bg-slate-100/90 p-1 rounded-lg border border-slate-200" onClick={(e) => e.stopPropagation()}>
+        <button
+          type="button"
+          onClick={() => moveSection(index, 'up')}
+          disabled={isFirst}
+          title="上に移動"
+          className="p-1 rounded hover:bg-slate-200 text-slate-600 disabled:opacity-25 transition-colors cursor-pointer"
+        >
+          <ArrowUp className="w-3.5 h-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={() => moveSection(index, 'down')}
+          disabled={isLast}
+          title="下に移動"
+          className="p-1 rounded hover:bg-slate-200 text-slate-600 disabled:opacity-25 transition-colors cursor-pointer"
+        >
+          <ArrowDown className="w-3.5 h-3.5" />
+        </button>
+        <div
+          title="ドラッグして順序入れ替え"
+          className="p-1 cursor-grab active:cursor-grabbing text-slate-400 hover:text-slate-600"
+        >
+          <GripVertical className="w-4 h-4" />
+        </div>
+      </div>
+    );
+  };
+
+  const renderSectionContent = (sectionId: string, index: number) => {
+    switch (sectionId) {
+      case 'events':
+        return (
+          <section id="my-events-section" className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-full">
+            <div className="p-4 border-b border-slate-100 bg-slate-50/80 flex items-center justify-between gap-2 flex-wrap sm:flex-nowrap">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 bg-amber-500 text-white rounded-lg shadow-2xs">
+                  <CalendarIcon className="w-4 h-4" />
+                </div>
+                <h2 className="text-sm font-extrabold text-slate-900">参加スケジュール（本日以降1週間）</h2>
+                {unreadEvents.length > 0 && (
+                  <span className="px-2 py-0.5 bg-rose-500 text-white text-[10px] font-black rounded-full">
+                    未確認 {unreadEvents.length}
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                {renderHeaderControls(index)}
+                <button
+                  type="button"
+                  onClick={() => setIsEventModalOpen(true)}
+                  className="text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  予定追加
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onChangeTab('calendar')}
+                  className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 hover:underline cursor-pointer"
+                >
+                  カレンダーへ
+                  <ArrowUpRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-4 flex-1 space-y-3">
+              {myEvents.length > 0 ? (
+                myEvents.map((evt) => {
+                  const isUnread = !readEventIds.includes(evt.id);
+                  const eventDate = new Date(evt.start);
+
+                  return (
+                    <div
+                      key={evt.id}
+                      onClick={() => {
+                        if (onNavigateToContent) {
+                          onNavigateToContent({ tab: 'calendar', eventId: evt.id });
+                        } else {
+                          setSelectedEvent(evt);
+                        }
+                        markEventAsRead(evt.id);
+                      }}
+                      className={`p-3.5 rounded-xl border transition-all cursor-pointer flex items-start gap-3 relative ${
+                        isUnread
+                          ? 'bg-amber-50/40 border-amber-300 hover:border-amber-400 shadow-xs'
+                          : 'bg-white border-slate-200 hover:border-indigo-300 hover:bg-slate-50/50'
+                      }`}
+                    >
+                      {isUnread && (
+                        <span className="absolute top-3 right-3 px-2 py-0.5 bg-rose-500 text-white text-[9px] font-black rounded-full shadow-2xs">
+                          NEW 未確認
+                        </span>
+                      )}
+
+                      <div className="bg-slate-100 text-slate-800 p-2.5 rounded-xl text-center min-w-[56px] shrink-0 border border-slate-200">
+                        <div className="text-[10px] font-extrabold text-indigo-600 uppercase">
+                          {eventDate.toLocaleDateString('ja-JP', { weekday: 'short' })}
+                        </div>
+                        <div className="text-base font-black leading-tight">
+                          {eventDate.getDate()}
+                        </div>
+                      </div>
+
+                      <div className="flex-1 min-w-0 pr-12">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className={`px-2 py-0.5 text-[10px] font-bold rounded ${
+                            evt.type === 'personal' ? 'bg-emerald-100 text-emerald-700' :
+                            evt.type === 'construction' ? 'bg-amber-100 text-amber-700' :
+                            evt.type === 'inspection' ? 'bg-indigo-100 text-indigo-700' :
+                            evt.type === 'replacement' ? 'bg-cyan-100 text-cyan-700' :
+                            evt.type === 'repair' ? 'bg-rose-100 text-rose-700' :
+                            evt.type === 'visitor' ? 'bg-orange-100 text-orange-700' : 'bg-sky-100 text-sky-700'
+                          }`}>
+                            {
+                              evt.type === 'personal' ? '個人' :
+                              evt.type === 'construction' ? '工事' :
+                              evt.type === 'inspection' ? '点検' :
+                              evt.type === 'replacement' ? '取替' :
+                              evt.type === 'repair' ? '修理' :
+                              evt.type === 'visitor' ? '来客' : '出張'
+                            }
+                          </span>
+                          <span className="text-xs font-mono text-slate-500">
+                            {eventDate.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+
+                        <h3 className="text-sm font-bold text-slate-900 truncate">{evt.title}</h3>
+
+                        {evt.location && (
+                          <p className="text-xs text-slate-500 flex items-center gap-1 mt-1 truncate">
+                            <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
+                            {evt.location}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="p-8 text-center text-slate-400 text-xs">
+                  本日以降1週間の参加予定はありません
+                </div>
+              )}
+            </div>
+          </section>
+        );
+
+      case 'topics':
+        return (
+          <section id="my-topics-section" className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-full">
+            <div className="p-4 border-b border-slate-100 bg-slate-50/80 flex items-center justify-between gap-2 flex-wrap sm:flex-nowrap">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 bg-indigo-600 text-white rounded-lg shadow-2xs">
+                  <Monitor className="w-4 h-4" />
+                </div>
+                <h2 className="text-sm font-extrabold text-slate-900">対象掲示板（直近）</h2>
+                {unreadTopics.length > 0 && (
+                  <span className="px-2 py-0.5 bg-indigo-600 text-white text-[10px] font-black rounded-full">
+                    未読 {unreadTopics.length}
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                {renderHeaderControls(index)}
+                <button
+                  type="button"
+                  onClick={() => setIsCreateTopicModalOpen(true)}
+                  className="text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  新規投稿
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onChangeTab('board')}
+                  className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 hover:underline cursor-pointer"
+                >
+                  掲示板一覧へ
+                  <ArrowUpRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-4 flex-1 space-y-3">
+              {myTopics.length > 0 ? (
+                myTopics.slice(0, 5).map((topic) => {
+                  const unread = isTopicUnread(topic, user, readTopicIds);
+
+                  return (
+                    <div
+                      key={topic.id}
+                      onClick={() => {
+                        markTopicAsReadUtil(user?.id, topic.id);
+                        if (onNavigateToContent) {
+                          onNavigateToContent({ tab: 'board', topicId: topic.id });
+                        } else {
+                          setSelectedTopic(topic);
+                        }
+                        if (onUpdateTopic && unread) {
+                          const newViewers = [...(topic.viewers || []), { user, viewedAt: new Date().toISOString() }];
+                          onUpdateTopic({ ...topic, viewers: newViewers });
+                        }
+                      }}
+                      className={`p-3.5 rounded-xl border transition-all cursor-pointer flex items-start justify-between gap-3 relative ${
+                        unread
+                          ? 'bg-indigo-50/40 border-indigo-300 hover:border-indigo-400 shadow-xs'
+                          : 'bg-white border-slate-200 hover:border-indigo-300 hover:bg-slate-50/50'
+                      }`}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          {unread ? (
+                            <span className="px-2 py-0.5 bg-rose-500 text-white font-black text-[9px] rounded-full">
+                              未読
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 bg-slate-100 text-slate-500 font-bold text-[9px] rounded-full">
+                              既読
+                            </span>
+                          )}
+
+                          <span className="text-[10px] font-bold bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded">
+                            {topic.office || '全社'} / {topic.division || '全部署'}
+                          </span>
+
+                          <span className="text-[10px] text-slate-400">
+                            {new Date(topic.createdAt).toLocaleDateString('ja-JP')}
+                          </span>
+                        </div>
+
+                        <h3 className="text-sm font-bold text-slate-900 line-clamp-1">{topic.title}</h3>
+                        <p className="text-xs text-slate-500 line-clamp-1 mt-0.5">{topic.content}</p>
+                      </div>
+
+                      <div className="flex items-center gap-1 text-slate-400 text-xs shrink-0 pt-1">
+                        <MessageSquare className="w-3.5 h-3.5" />
+                        <span>{topic.commentsCount || 0}</span>
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="p-8 text-center text-slate-400 text-xs">
+                  対象の掲示板はありません
+                </div>
+              )}
+            </div>
+          </section>
+        );
+
+      case 'memos':
+        return (
+          <section id="my-memos-section" className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-full">
+            <div className="p-4 border-b border-slate-100 bg-slate-50/80 flex items-center justify-between gap-2 flex-wrap sm:flex-nowrap">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 bg-rose-500 text-white rounded-lg shadow-2xs">
+                  <Phone className="w-4 h-4" />
+                </div>
+                <h2 className="text-sm font-extrabold text-slate-900">自分宛ての伝言メモ</h2>
+                {unreadMemos.length > 0 && (
+                  <span className="px-2 py-0.5 bg-rose-500 text-white text-[10px] font-black rounded-full">
+                    未対応 {unreadMemos.length}
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                {renderHeaderControls(index)}
+                <button
+                  type="button"
+                  onClick={() => onChangeTab('memo')}
+                  className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 hover:underline cursor-pointer"
+                >
+                  伝言メモ一覧へ
+                  <ArrowUpRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-4 flex-1 space-y-3">
+              {myMemos.length > 0 ? (
+                myMemos.map((memo) => {
+                  const isUnread = isMemoUnread(memo, user, readMemoIds);
+
+                  return (
+                    <div
+                      key={memo.id}
+                      onClick={() => {
+                        markMemoAsReadUtil(user?.id, memo.id);
+                        if (onNavigateToContent) {
+                          onNavigateToContent({ tab: 'memo', memoId: memo.id });
+                        }
+                      }}
+                      className={`p-3.5 rounded-xl border transition-all flex flex-col gap-2 cursor-pointer hover:border-rose-400 ${
+                        isUnread
+                          ? 'bg-rose-50/40 border-rose-300 shadow-xs'
+                          : 'bg-white border-slate-200 opacity-80'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          {isUnread ? (
+                            <span className="px-2 py-0.5 bg-rose-500 text-white font-black text-[10px] rounded-full flex items-center gap-1">
+                              <Clock className="w-3 h-3" /> 未対応
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 bg-slate-100 text-slate-600 font-bold text-[10px] rounded-full flex items-center gap-1">
+                              <Check className="w-3 h-3 text-emerald-600" /> 対応完了
+                            </span>
+                          )}
+                          <span className="text-xs font-bold text-slate-900">
+                            {memo.fromName} 様 {memo.fromCompany && <span className="text-slate-500 font-normal">({memo.fromCompany})</span>}
+                          </span>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleMemoStatus(memo.id);
+                          }}
+                          className={`relative z-10 cursor-pointer px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all border ${
+                            isUnread
+                              ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700 hover:shadow-xs'
+                              : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
+                          }`}
+                        >
+                          {isUnread ? '確認済にする' : '未対応に戻す'}
+                        </button>
+                      </div>
+
+                      <div className="bg-white/80 p-2.5 rounded-lg border border-slate-100 text-xs text-slate-700 whitespace-pre-wrap leading-relaxed">
+                        {memo.content}
+                      </div>
+
+                      <div className="text-[10px] text-slate-400 text-right">
+                        {new Date(memo.createdAt).toLocaleString('ja-JP')}
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="p-8 text-center text-slate-400 text-xs">
+                  自分宛ての伝言メモはありません
+                </div>
+              )}
+            </div>
+          </section>
+        );
+
+      case 'workflow':
+        return (
+          <section id="my-workflow-section" className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-full">
+            <div className="p-4 border-b border-slate-100 bg-slate-50/80 flex items-center justify-between gap-2 flex-wrap sm:flex-nowrap">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 bg-purple-600 text-white rounded-lg shadow-2xs">
+                  <FileText className="w-4 h-4" />
+                </div>
+                <h2 className="text-sm font-extrabold text-slate-900">関係ワークフロー</h2>
+                {pendingApprovals.length > 0 && (
+                  <span className="px-2 py-0.5 bg-purple-600 text-white text-[10px] font-black rounded-full">
+                    要承認 {pendingApprovals.length}
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                {renderHeaderControls(index)}
+                <button
+                  type="button"
+                  onClick={() => onChangeTab('workflow')}
+                  className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 hover:underline cursor-pointer"
+                >
+                  ワークフロー一覧へ
+                  <ArrowUpRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-4 flex-1 space-y-3">
+              {myApplications.length > 0 ? (
+                myApplications.slice(0, 5).map((app) => {
+                  const isMyApproval = (app.approver?.id === user?.id || app.approver?.name === user?.name) && app.status === 'pending';
+
+                  return (
+                    <div
+                      key={app.id}
+                      onClick={() => {
+                        if (onNavigateToContent) {
+                          onNavigateToContent({ tab: 'workflow', applicationId: app.id });
+                        } else {
+                          onChangeTab('workflow');
+                        }
+                      }}
+                      className={`p-3.5 rounded-xl border transition-all flex flex-col gap-2 cursor-pointer hover:border-purple-400 ${
+                        isMyApproval
+                          ? 'bg-purple-50/50 border-purple-300 shadow-xs'
+                          : 'bg-white border-slate-200'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {app.status === 'approved' && (
+                            <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-extrabold rounded">
+                              承認済
+                            </span>
+                          )}
+                          {app.status === 'rejected' && (
+                            <span className="px-2 py-0.5 bg-rose-100 text-rose-800 text-[10px] font-extrabold rounded">
+                              却下
+                            </span>
+                          )}
+                          {app.status === 'pending' && (
+                            <span className="px-2 py-0.5 bg-amber-100 text-amber-800 text-[10px] font-extrabold rounded">
+                              申請中
+                            </span>
+                          )}
+
+                          <span className="text-xs font-extrabold text-slate-900">{app.title}</span>
+                        </div>
+
+                        {isMyApproval && (
+                          <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              type="button"
+                              onClick={() => handleWorkflowAction(app.id, 'approved')}
+                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold rounded shadow-2xs flex items-center gap-0.5 cursor-pointer"
+                            >
+                              <CheckCircle2 className="w-3 h-3" /> 承認
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleWorkflowAction(app.id, 'rejected')}
+                              className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-bold rounded shadow-2xs flex items-center gap-0.5 cursor-pointer"
+                            >
+                              <XCircle className="w-3 h-3" /> 却下
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      <p className="text-xs text-slate-500 line-clamp-1">{app.description}</p>
+
+                      <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-100">
+                        <span>申請者: {app.applicant?.name || '不明'}</span>
+                        <span>承認者: {app.approver?.name || '未指定'}</span>
+                        <span>{new Date(app.createdAt).toLocaleDateString('ja-JP')}</span>
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="p-8 text-center text-slate-400 text-xs">
+                  関係するワークフローはありません
+                </div>
+              )}
+            </div>
+          </section>
+        );
+
+      case 'chats':
+      default:
+        return (
+          <section id="my-chats-section" className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-full">
+            <div className="p-4 border-b border-slate-100 bg-slate-50/80 flex items-center justify-between gap-2 flex-wrap sm:flex-nowrap">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 bg-blue-600 text-white rounded-lg shadow-2xs">
+                  <MessageSquare className="w-4 h-4" />
+                </div>
+                <h2 className="text-sm font-extrabold text-slate-900">参加チャットルーム（新着・未読）</h2>
+                {unreadChatRooms.length > 0 && (
+                  <span className="px-2 py-0.5 bg-blue-600 text-white text-[10px] font-black rounded-full">
+                    未読 {unreadChatRooms.length}
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                {renderHeaderControls(index)}
+                <button
+                  type="button"
+                  onClick={() => onChangeTab('chat')}
+                  className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 hover:underline cursor-pointer"
+                >
+                  チャット画面へ
+                  <ArrowUpRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-4 flex-1 grid grid-cols-1 md:grid-cols-2 gap-3">
+              {myChatRooms.length > 0 ? (
+                myChatRooms.slice(0, 6).map((room) => {
+                  const isUnread = isChatUnread(room, user, readChatTimestamps);
+                  const lastMsg = room.messages && room.messages.length > 0 ? room.messages[room.messages.length - 1] : null;
+
+                  return (
+                    <div
+                      key={room.id}
+                      onClick={() => {
+                        markChatRoomAsReadUtil(user?.id, room.id);
+                        if (onNavigateToContent) {
+                          onNavigateToContent({ tab: 'chat', chatRoomId: room.id });
+                        } else {
+                          onChangeTab('chat');
+                        }
+                      }}
+                      className={`p-3.5 rounded-xl border transition-all cursor-pointer flex flex-col gap-2 ${
+                        isUnread
+                          ? 'bg-blue-50/50 border-blue-300 shadow-xs hover:border-blue-400'
+                          : 'bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50/50'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-extrabold text-slate-900 line-clamp-1">
+                          {room.name || (lastMsg ? lastMsg.sender?.name : 'チャットルーム')}
+                        </span>
+                        {isUnread && (
+                          <span className="px-2 py-0.5 bg-blue-600 text-white text-[9px] font-black rounded-full shrink-0">
+                            NEW 未読
+                          </span>
+                        )}
+                      </div>
+
+                      {lastMsg ? (
+                        <p className="text-xs text-slate-600 line-clamp-2 bg-slate-50/80 p-2 rounded-lg border border-slate-100">
+                          <span className="font-semibold text-slate-800">{lastMsg.sender?.name}: </span>
+                          {lastMsg.content}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-slate-400 italic">メッセージはありません</p>
+                      )}
+
+                      <div className="text-[10px] text-slate-400 text-right">
+                        {lastMsg?.createdAt ? new Date(lastMsg.createdAt).toLocaleString('ja-JP') : ''}
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="p-8 text-center text-slate-400 text-xs col-span-full">
+                  参加しているチャットルームはありません
+                </div>
+              )}
+            </div>
+          </section>
+        );
+    }
+  };
+
   return (
     <div className="flex-1 overflow-y-auto bg-slate-50/50 rounded-xl border border-slate-200 h-[calc(100vh-8rem)] p-3 sm:p-6 space-y-4 sm:space-y-6">
       {/* ユーザープロフィール概要カード */}
@@ -706,500 +1339,42 @@ export function MyPage({
         </div>
       </div>
 
-      {/* メイングリッド (2列レイアウト) */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        
-        {/* 1. 自分が参加の直近スケジュール */}
-        <section id="my-events-section" className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-          <div className="p-4 border-b border-slate-100 bg-slate-50/80 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="p-1.5 bg-amber-500 text-white rounded-lg shadow-2xs">
-                <CalendarIcon className="w-4 h-4" />
-              </div>
-              <h2 className="text-sm font-extrabold text-slate-900">参加スケジュール（本日以降1週間）</h2>
-              {unreadEvents.length > 0 && (
-                <span className="px-2 py-0.5 bg-rose-500 text-white text-[10px] font-black rounded-full">
-                  未確認 {unreadEvents.length}
-                </span>
-              )}
-            </div>
+      {/* メインセクション（D&D・上下ボタンで順序変更可能） */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between px-1 text-xs text-slate-500">
+          <div className="flex items-center gap-1.5 font-bold text-slate-700">
+            <SlidersHorizontal className="w-4 h-4 text-indigo-600" />
+            <span>マイページ画面配置（D&Dまたは各ヘッダーの上下ボタンで並び替え可能）</span>
+          </div>
+          <button
+            type="button"
+            onClick={handleResetOrder}
+            className="flex items-center gap-1 px-2.5 py-1 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer text-xs font-semibold border border-slate-200 bg-white shadow-2xs"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>並び順リセット</span>
+          </button>
+        </div>
 
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => setIsEventModalOpen(true)}
-                className="text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {sectionOrder.map((sectionId, index) => {
+            const isFullWidth = sectionId === 'chats';
+            return (
+              <div
+                key={sectionId}
+                draggable
+                onDragStart={(e) => handleDragStart(e, index)}
+                onDragOver={(e) => handleDragOver(e, index)}
+                onDrop={(e) => handleDrop(e, index)}
+                className={`transition-all ${isFullWidth ? 'lg:col-span-2' : 'lg:col-span-1'} ${
+                  draggedIndex === index ? 'opacity-40 scale-[0.99] border-2 border-dashed border-indigo-400 rounded-2xl' : ''
+                }`}
               >
-                <Plus className="w-3.5 h-3.5" />
-                予定追加
-              </button>
-              <button
-                onClick={() => onChangeTab('calendar')}
-                className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 hover:underline"
-              >
-                カレンダーへ
-                <ArrowUpRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-
-          <div className="p-4 flex-1 space-y-3">
-            {myEvents.length > 0 ? (
-              myEvents.map((evt) => {
-                const isUnread = !readEventIds.includes(evt.id);
-                const eventDate = new Date(evt.start);
-
-                return (
-                  <div
-                    key={evt.id}
-                    onClick={() => {
-                      if (onNavigateToContent) {
-                        onNavigateToContent({ tab: 'calendar', eventId: evt.id });
-                      } else {
-                        setSelectedEvent(evt);
-                      }
-                      markEventAsRead(evt.id);
-                    }}
-                    className={`p-3.5 rounded-xl border transition-all cursor-pointer flex items-start gap-3 relative ${
-                      isUnread
-                        ? 'bg-amber-50/40 border-amber-300 hover:border-amber-400 shadow-xs'
-                        : 'bg-white border-slate-200 hover:border-indigo-300 hover:bg-slate-50/50'
-                    }`}
-                  >
-                    {isUnread && (
-                      <span className="absolute top-3 right-3 px-2 py-0.5 bg-rose-500 text-white text-[9px] font-black rounded-full shadow-2xs">
-                        NEW 未確認
-                      </span>
-                    )}
-
-                    <div className="bg-slate-100 text-slate-800 p-2.5 rounded-xl text-center min-w-[56px] shrink-0 border border-slate-200">
-                      <div className="text-[10px] font-extrabold text-indigo-600 uppercase">
-                        {eventDate.toLocaleDateString('ja-JP', { weekday: 'short' })}
-                      </div>
-                      <div className="text-base font-black leading-tight">
-                        {eventDate.getDate()}
-                      </div>
-                    </div>
-
-                    <div className="flex-1 min-w-0 pr-12">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className={`px-2 py-0.5 text-[10px] font-bold rounded ${
-                          evt.type === 'personal' ? 'bg-emerald-100 text-emerald-700' :
-                          evt.type === 'construction' ? 'bg-amber-100 text-amber-700' :
-                          evt.type === 'inspection' ? 'bg-indigo-100 text-indigo-700' :
-                          evt.type === 'replacement' ? 'bg-cyan-100 text-cyan-700' :
-                          evt.type === 'repair' ? 'bg-rose-100 text-rose-700' :
-                          evt.type === 'visitor' ? 'bg-orange-100 text-orange-700' : 'bg-sky-100 text-sky-700'
-                        }`}>
-                          {
-                            evt.type === 'personal' ? '個人' :
-                            evt.type === 'construction' ? '工事' :
-                            evt.type === 'inspection' ? '点検' :
-                            evt.type === 'replacement' ? '取替' :
-                            evt.type === 'repair' ? '修理' :
-                            evt.type === 'visitor' ? '来客' : '出張'
-                          }
-                        </span>
-                        <span className="text-xs font-mono text-slate-500">
-                          {eventDate.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}
-                        </span>
-                      </div>
-
-                      <h3 className="text-sm font-bold text-slate-900 truncate">{evt.title}</h3>
-
-                      {evt.location && (
-                        <p className="text-xs text-slate-500 flex items-center gap-1 mt-1 truncate">
-                          <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
-                          {evt.location}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                );
-              })
-            ) : (
-              <div className="p-8 text-center text-slate-400 text-xs">
-                本日以降1週間の参加予定はありません
+                {renderSectionContent(sectionId, index)}
               </div>
-            )}
-          </div>
-        </section>
-
-        {/* 2. 自分が対象になっている掲示板 */}
-        <section id="my-topics-section" className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-          <div className="p-4 border-b border-slate-100 bg-slate-50/80 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="p-1.5 bg-indigo-600 text-white rounded-lg shadow-2xs">
-                <Monitor className="w-4 h-4" />
-              </div>
-              <h2 className="text-sm font-extrabold text-slate-900">対象掲示板（直近）</h2>
-              {unreadTopics.length > 0 && (
-                <span className="px-2 py-0.5 bg-indigo-600 text-white text-[10px] font-black rounded-full">
-                  未読 {unreadTopics.length}
-                </span>
-              )}
-            </div>
-
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => setIsCreateTopicModalOpen(true)}
-                className="text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                新規投稿
-              </button>
-              <button
-                onClick={() => onChangeTab('board')}
-                className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 hover:underline"
-              >
-                掲示板一覧へ
-                <ArrowUpRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-
-          <div className="p-4 flex-1 space-y-3">
-            {myTopics.length > 0 ? (
-              myTopics.slice(0, 5).map((topic) => {
-                const unread = isTopicUnread(topic, user, readTopicIds);
-
-                return (
-                  <div
-                    key={topic.id}
-                    onClick={() => {
-                      markTopicAsReadUtil(user?.id, topic.id);
-                      if (onNavigateToContent) {
-                        onNavigateToContent({ tab: 'board', topicId: topic.id });
-                      } else {
-                        setSelectedTopic(topic);
-                      }
-                      // トピック既読化処理
-                      if (onUpdateTopic && unread) {
-                        const newViewers = [...(topic.viewers || []), { user, viewedAt: new Date().toISOString() }];
-                        onUpdateTopic({ ...topic, viewers: newViewers });
-                      }
-                    }}
-                    className={`p-3.5 rounded-xl border transition-all cursor-pointer flex items-start justify-between gap-3 relative ${
-                      unread
-                        ? 'bg-indigo-50/40 border-indigo-300 hover:border-indigo-400 shadow-xs'
-                        : 'bg-white border-slate-200 hover:border-indigo-300 hover:bg-slate-50/50'
-                    }`}
-                  >
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1 flex-wrap">
-                        {unread ? (
-                          <span className="px-2 py-0.5 bg-rose-500 text-white font-black text-[9px] rounded-full">
-                            未読
-                          </span>
-                        ) : (
-                          <span className="px-2 py-0.5 bg-slate-100 text-slate-500 font-bold text-[9px] rounded-full">
-                            既読
-                          </span>
-                        )}
-
-                        <span className="text-[10px] font-bold bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded">
-                          {topic.office || '全社'} / {topic.division || '全部署'}
-                        </span>
-
-                        <span className="text-[10px] text-slate-400">
-                          {new Date(topic.createdAt).toLocaleDateString('ja-JP')}
-                        </span>
-                      </div>
-
-                      <h3 className="text-sm font-bold text-slate-900 line-clamp-1">{topic.title}</h3>
-                      <p className="text-xs text-slate-500 line-clamp-1 mt-0.5">{topic.content}</p>
-                    </div>
-
-                    <div className="flex items-center gap-1 text-slate-400 text-xs shrink-0 pt-1">
-                      <MessageSquare className="w-3.5 h-3.5" />
-                      <span>{topic.commentsCount || 0}</span>
-                    </div>
-                  </div>
-                );
-              })
-            ) : (
-              <div className="p-8 text-center text-slate-400 text-xs">
-                対象の掲示板はありません
-              </div>
-            )}
-          </div>
-        </section>
-
-        {/* 3. 自分に対する伝言メモ */}
-        <section id="my-memos-section" className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-          <div className="p-4 border-b border-slate-100 bg-slate-50/80 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="p-1.5 bg-rose-500 text-white rounded-lg shadow-2xs">
-                <Phone className="w-4 h-4" />
-              </div>
-              <h2 className="text-sm font-extrabold text-slate-900">自分宛ての伝言メモ</h2>
-              {unreadMemos.length > 0 && (
-                <span className="px-2 py-0.5 bg-rose-500 text-white text-[10px] font-black rounded-full">
-                  未対応 {unreadMemos.length}
-                </span>
-              )}
-            </div>
-
-            <button
-              onClick={() => onChangeTab('memo')}
-              className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 hover:underline"
-            >
-              伝言メモ一覧へ
-              <ArrowUpRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          <div className="p-4 flex-1 space-y-3">
-            {myMemos.length > 0 ? (
-              myMemos.map((memo) => {
-                const isUnread = isMemoUnread(memo, user, readMemoIds);
-
-                return (
-                  <div
-                    key={memo.id}
-                    onClick={() => {
-                      markMemoAsReadUtil(user?.id, memo.id);
-                      if (onNavigateToContent) {
-                        onNavigateToContent({ tab: 'memo', memoId: memo.id });
-                      }
-                    }}
-                    className={`p-3.5 rounded-xl border transition-all flex flex-col gap-2 cursor-pointer hover:border-rose-400 ${
-                      isUnread
-                        ? 'bg-rose-50/40 border-rose-300 shadow-xs'
-                        : 'bg-white border-slate-200 opacity-80'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        {isUnread ? (
-                          <span className="px-2 py-0.5 bg-rose-500 text-white font-black text-[10px] rounded-full flex items-center gap-1">
-                            <Clock className="w-3 h-3" /> 未対応
-                          </span>
-                        ) : (
-                          <span className="px-2 py-0.5 bg-slate-100 text-slate-600 font-bold text-[10px] rounded-full flex items-center gap-1">
-                            <Check className="w-3 h-3 text-emerald-600" /> 対応完了
-                          </span>
-                        )}
-                        <span className="text-xs font-bold text-slate-900">
-                          {memo.fromName} 様 {memo.fromCompany && <span className="text-slate-500 font-normal">({memo.fromCompany})</span>}
-                        </span>
-                      </div>
-
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleToggleMemoStatus(memo.id);
-                        }}
-                        className={`relative z-10 cursor-pointer px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all border ${
-                          isUnread
-                            ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700 hover:shadow-xs'
-                            : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
-                        }`}
-                      >
-                        {isUnread ? '確認済にする' : '未対応に戻す'}
-                      </button>
-                    </div>
-
-                    <div className="bg-white/80 p-2.5 rounded-lg border border-slate-100 text-xs text-slate-700 whitespace-pre-wrap leading-relaxed">
-                      {memo.content}
-                    </div>
-
-                    <div className="text-[10px] text-slate-400 text-right">
-                      {new Date(memo.createdAt).toLocaleString('ja-JP')}
-                    </div>
-                  </div>
-                );
-              })
-            ) : (
-              <div className="p-8 text-center text-slate-400 text-xs">
-                自分宛ての伝言メモはありません
-              </div>
-            )}
-          </div>
-        </section>
-
-        {/* 4. ワークフロー（申請・承認） */}
-        <section id="my-workflow-section" className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-          <div className="p-4 border-b border-slate-100 bg-slate-50/80 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="p-1.5 bg-purple-600 text-white rounded-lg shadow-2xs">
-                <FileText className="w-4 h-4" />
-              </div>
-              <h2 className="text-sm font-extrabold text-slate-900">関係ワークフロー</h2>
-              {pendingApprovals.length > 0 && (
-                <span className="px-2 py-0.5 bg-purple-600 text-white text-[10px] font-black rounded-full">
-                  要承認 {pendingApprovals.length}
-                </span>
-              )}
-            </div>
-
-            <button
-              onClick={() => onChangeTab('workflow')}
-              className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 hover:underline"
-            >
-              ワークフロー一覧へ
-              <ArrowUpRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          <div className="p-4 flex-1 space-y-3">
-            {myApplications.length > 0 ? (
-              myApplications.slice(0, 5).map((app) => {
-                const isMyApproval = (app.approver?.id === user?.id || app.approver?.name === user?.name) && app.status === 'pending';
-
-                return (
-                  <div
-                    key={app.id}
-                    onClick={() => {
-                      if (onNavigateToContent) {
-                        onNavigateToContent({ tab: 'workflow', applicationId: app.id });
-                      } else {
-                        onChangeTab('workflow');
-                      }
-                    }}
-                    className={`p-3.5 rounded-xl border transition-all flex flex-col gap-2 cursor-pointer hover:border-purple-400 ${
-                      isMyApproval
-                        ? 'bg-purple-50/50 border-purple-300 shadow-xs'
-                        : 'bg-white border-slate-200'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        {app.status === 'approved' && (
-                          <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-extrabold rounded">
-                            承認済
-                          </span>
-                        )}
-                        {app.status === 'rejected' && (
-                          <span className="px-2 py-0.5 bg-rose-100 text-rose-800 text-[10px] font-extrabold rounded">
-                            却下
-                          </span>
-                        )}
-                        {app.status === 'pending' && (
-                          <span className="px-2 py-0.5 bg-amber-100 text-amber-800 text-[10px] font-extrabold rounded">
-                            申請中
-                          </span>
-                        )}
-
-                        <span className="text-xs font-extrabold text-slate-900">{app.title}</span>
-                      </div>
-
-                      {isMyApproval && (
-                        <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                          <button
-                            onClick={() => handleWorkflowAction(app.id, 'approved')}
-                            className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold rounded shadow-2xs flex items-center gap-0.5"
-                          >
-                            <CheckCircle2 className="w-3 h-3" /> 承認
-                          </button>
-                          <button
-                            onClick={() => handleWorkflowAction(app.id, 'rejected')}
-                            className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-bold rounded shadow-2xs flex items-center gap-0.5"
-                          >
-                            <XCircle className="w-3 h-3" /> 却下
-                          </button>
-                        </div>
-                      )}
-                    </div>
-
-                    <p className="text-xs text-slate-500 line-clamp-1">{app.description}</p>
-
-                    <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-100">
-                      <span>申請者: {app.applicant?.name || '不明'}</span>
-                      <span>承認者: {app.approver?.name || '未指定'}</span>
-                      <span>{new Date(app.createdAt).toLocaleDateString('ja-JP')}</span>
-                    </div>
-                  </div>
-                );
-              })
-            ) : (
-              <div className="p-8 text-center text-slate-400 text-xs">
-                関係するワークフローはありません
-              </div>
-            )}
-          </div>
-        </section>
-
-        {/* 5. 参加チャットルーム */}
-        <section id="my-chats-section" className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col lg:col-span-2">
-          <div className="p-4 border-b border-slate-100 bg-slate-50/80 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="p-1.5 bg-blue-600 text-white rounded-lg shadow-2xs">
-                <MessageSquare className="w-4 h-4" />
-              </div>
-              <h2 className="text-sm font-extrabold text-slate-900">参加チャットルーム（新着・未読）</h2>
-              {unreadChatRooms.length > 0 && (
-                <span className="px-2 py-0.5 bg-blue-600 text-white text-[10px] font-black rounded-full">
-                  未読 {unreadChatRooms.length}
-                </span>
-              )}
-            </div>
-
-            <button
-              onClick={() => onChangeTab('chat')}
-              className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 hover:underline cursor-pointer"
-            >
-              チャット画面へ
-              <ArrowUpRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          <div className="p-4 flex-1 grid grid-cols-1 md:grid-cols-2 gap-3">
-            {myChatRooms.length > 0 ? (
-              myChatRooms.slice(0, 6).map((room) => {
-                const isUnread = isChatUnread(room, user, readChatTimestamps);
-                const lastMsg = room.messages && room.messages.length > 0 ? room.messages[room.messages.length - 1] : null;
-
-                return (
-                  <div
-                    key={room.id}
-                    onClick={() => {
-                      markChatRoomAsReadUtil(user?.id, room.id);
-                      if (onNavigateToContent) {
-                        onNavigateToContent({ tab: 'chat', chatRoomId: room.id });
-                      } else {
-                        onChangeTab('chat');
-                      }
-                    }}
-                    className={`p-3.5 rounded-xl border transition-all cursor-pointer flex flex-col gap-2 ${
-                      isUnread
-                        ? 'bg-blue-50/50 border-blue-300 shadow-xs hover:border-blue-400'
-                        : 'bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50/50'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-extrabold text-slate-900 line-clamp-1">
-                        {room.name || (lastMsg ? lastMsg.sender?.name : 'チャットルーム')}
-                      </span>
-                      {isUnread && (
-                        <span className="px-2 py-0.5 bg-blue-600 text-white text-[9px] font-black rounded-full shrink-0">
-                          NEW 未読
-                        </span>
-                      )}
-                    </div>
-
-                    {lastMsg ? (
-                      <p className="text-xs text-slate-600 line-clamp-2 bg-slate-50/80 p-2 rounded-lg border border-slate-100">
-                        <span className="font-semibold text-slate-800">{lastMsg.sender?.name}: </span>
-                        {lastMsg.content}
-                      </p>
-                    ) : (
-                      <p className="text-xs text-slate-400 italic">メッセージはありません</p>
-                    )}
-
-                    <div className="text-[10px] text-slate-400 text-right">
-                      {lastMsg?.createdAt ? new Date(lastMsg.createdAt).toLocaleString('ja-JP') : ''}
-                    </div>
-                  </div>
-                );
-              })
-            ) : (
-              <div className="p-8 text-center text-slate-400 text-xs col-span-full">
-                参加しているチャットルームはありません
-              </div>
-            )}
-          </div>
-        </section>
-
+            );
+          })}
+        </div>
       </div>
 
       {/* スケジュール詳細モーダル */}

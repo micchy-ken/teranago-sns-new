@@ -34,6 +34,15 @@ const mapUserFromApi = (apiUser: any): User => {
   const deptFromParts = [office, division, position].filter(Boolean).join(' ');
   const department = (apiUser.department && typeof apiUser.department === 'string' && apiUser.department.trim() !== '') ? apiUser.department : (deptFromParts || '未設定');
 
+  let preferences = apiUser.preferences;
+  if (typeof preferences === 'string') {
+    try {
+      preferences = JSON.parse(preferences);
+    } catch (_) {
+      preferences = undefined;
+    }
+  }
+
   return {
     ...apiUser,
     id: String(apiUser.id),
@@ -45,6 +54,7 @@ const mapUserFromApi = (apiUser: any): User => {
     position,
     role: isAdmin ? 'admin' : 'user',
     isAdmin: isAdmin,
+    preferences: preferences || apiUser.preferences,
   };
 };
 
