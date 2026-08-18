@@ -3,7 +3,6 @@ import { PostForm } from './PostForm';
 import { Post, CalendarEvent, BoardTopic, OfficeMaster, DivisionMaster, User } from '../types';
 import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
 import { AppTab } from './Sidebar';
-import { expandRecurringEvents } from '../utils/recurrenceUtils';
 import { 
   Calendar, 
   Clock, 
@@ -131,14 +130,9 @@ export function Timeline({
       });
     }
 
-    // 2. スケジュールイベント（繰り返し予定を現在日時前後で展開し、削除・除外された日を反映）
+    // 2. スケジュールイベント（繰り返し登録時は最初の登録のみ表示、個別更新された予定も表示）
     if (showEvents && events && Array.isArray(events)) {
-      const now = new Date();
-      const timelineRangeStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      const timelineRangeEnd = new Date(now.getFullYear(), now.getMonth() + 2, 0);
-      const expandedTimelineEvents = expandRecurringEvents(events, timelineRangeStart, timelineRangeEnd);
-
-      expandedTimelineEvents.forEach((e) => {
+      events.forEach((e) => {
         items.push({
           type: 'event',
           id: `event-${e.id}`,
