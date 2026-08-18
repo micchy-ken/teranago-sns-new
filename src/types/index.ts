@@ -59,6 +59,23 @@ export interface Post {
 
 export type EventType = 'personal' | 'construction' | 'inspection' | 'replacement' | 'repair' | 'visitor' | 'business_trip';
 
+export type RecurrenceFrequency = 'none' | 'daily' | 'weekly' | 'monthly' | 'yearly';
+export type RecurrenceMonthlyType = 'same_day' | 'day_of_week'; // 同日 (例: 毎月15日) または 第X曜日 (例: 毎月第2火曜日)
+
+export interface RecurrenceRule {
+  frequency: RecurrenceFrequency;     // 'daily' | 'weekly' | 'monthly' | 'yearly'
+  interval?: number;                  // 1 (毎週, 毎月など)
+  daysOfWeek?: number[];              // 0: 日, 1: 月, 2: 火, 3: 水, 4: 木, 5: 金, 6: 土 (毎週で複数曜日選択可)
+  monthlyType?: RecurrenceMonthlyType; // 'same_day' | 'day_of_week'
+  monthDay?: number;                  // 毎月の特定日 (1~31)
+  weekOfMonth?: number;               // 毎月の第何週 (1~5)
+  dayOfWeek?: number;                 // 第何週の何曜日 (0~6)
+  
+  endType: 'never' | 'until_date' | 'count'; // 'never': 期限なし, 'until_date': 終了日指定, 'count': 回数指定
+  endDate?: string;                   // 終了日 (YYYY-MM-DD)
+  count?: number;                     // 繰り返し回数 (例: 10)
+}
+
 export interface CalendarEvent {
   id: string;
   title: string;
@@ -75,6 +92,13 @@ export interface CalendarEvent {
   memo?: string;
   isGoogleSynced: boolean;
   isIcal?: boolean; // iCal連携イベントフラグ
+
+  // 繰り返し設定
+  recurrence?: RecurrenceRule;
+  recurrenceParentId?: string;     // 繰り返しシリーズの親イベントID（個別変更インスタンスの場合）
+  recurrenceOriginalDate?: string; // 個別変更された元のインスタンス日付 (YYYY-MM-DD)
+  recurrenceExceptions?: string[]; // 除外されたインスタンスの日付一覧 (YYYY-MM-DD[])
+  instanceDate?: string;           // 展開されたインスタンスの日付 (YYYY-MM-DD)
 }
 
 export type ApplicationType = 'business_trip' | 'inventory_issue' | 'purchase_order' | 'other';

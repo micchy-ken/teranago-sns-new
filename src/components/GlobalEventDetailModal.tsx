@@ -1,7 +1,8 @@
 import React from 'react';
-import { X, Calendar as CalendarIcon, Clock, MapPin, ExternalLink, FileText, Users, Building2, Tag, Edit2, Paperclip } from 'lucide-react';
+import { X, Calendar as CalendarIcon, Clock, MapPin, ExternalLink, FileText, Users, Building2, Tag, Edit2, Paperclip, Repeat } from 'lucide-react';
 import { CalendarEvent, EventType, User } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
+import { getRecurrenceLabel, isRecurringEvent } from '../utils/recurrenceUtils';
 
 interface GlobalEventDetailModalProps {
   isOpen: boolean;
@@ -104,6 +105,16 @@ export function GlobalEventDetailModal({
                 )}
               </div>
             </div>
+
+            {/* Recurrence Info */}
+            {isRecurringEvent(event) && event.recurrence && event.recurrence.frequency !== 'none' && (
+              <div className="flex items-center gap-2.5 text-sm text-indigo-700 border-t border-slate-200/60 pt-3">
+                <Repeat className="w-4.5 h-4.5 text-indigo-500 shrink-0" />
+                <span className="font-semibold bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded text-xs">
+                  {getRecurrenceLabel(event.recurrence)}
+                </span>
+              </div>
+            )}
 
             {/* Location */}
             {event.location && (

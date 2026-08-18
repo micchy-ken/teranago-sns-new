@@ -214,7 +214,11 @@ BEGIN
         location NVARCHAR(255) NULL,
         office NVARCHAR(100) NULL,
         division NVARCHAR(100) NULL,
-        attachments NVARCHAR(MAX) NULL
+        attachments NVARCHAR(MAX) NULL,
+        recurrence NVARCHAR(MAX) NULL,
+        recurrenceParentId VARCHAR(50) NULL,
+        recurrenceOriginalDate VARCHAR(50) NULL,
+        recurrenceExceptions NVARCHAR(MAX) NULL
     );
 END
 ELSE
@@ -228,6 +232,10 @@ BEGIN
     IF COL_LENGTH('dbo.Events', 'office') IS NULL ALTER TABLE dbo.Events ADD office NVARCHAR(100) NULL;
     IF COL_LENGTH('dbo.Events', 'division') IS NULL ALTER TABLE dbo.Events ADD division NVARCHAR(100) NULL;
     IF COL_LENGTH('dbo.Events', 'attachments') IS NULL ALTER TABLE dbo.Events ADD attachments NVARCHAR(MAX) NULL;
+    IF COL_LENGTH('dbo.Events', 'recurrence') IS NULL ALTER TABLE dbo.Events ADD recurrence NVARCHAR(MAX) NULL;
+    IF COL_LENGTH('dbo.Events', 'recurrenceParentId') IS NULL ALTER TABLE dbo.Events ADD recurrenceParentId VARCHAR(50) NULL;
+    IF COL_LENGTH('dbo.Events', 'recurrenceOriginalDate') IS NULL ALTER TABLE dbo.Events ADD recurrenceOriginalDate VARCHAR(50) NULL;
+    IF COL_LENGTH('dbo.Events', 'recurrenceExceptions') IS NULL ALTER TABLE dbo.Events ADD recurrenceExceptions NVARCHAR(MAX) NULL;
 END
 GO
 

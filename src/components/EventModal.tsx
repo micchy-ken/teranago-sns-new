@@ -1,16 +1,26 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, RefreshCw, Trash2, AlertCircle, Link as LinkIcon, Building2, Users, Paperclip, Plus, Check, UserCheck, Copy, Loader2 } from 'lucide-react';
-import { EventType, CalendarEvent, OfficeMaster, DivisionMaster, User, AttachmentFile } from '../types';
+import { X, RefreshCw, Trash2, AlertCircle, Link as LinkIcon, Building2, Users, Paperclip, Plus, Check, UserCheck, Copy, Loader2, Repeat } from 'lucide-react';
+import { EventType, CalendarEvent, OfficeMaster, DivisionMaster, User, AttachmentFile, RecurrenceRule, RecurrenceFrequency, RecurrenceMonthlyType } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
 import { uploadMultipleFiles } from '../utils/fileUpload';
 import { FilePreviewModal } from './FilePreviewModal';
 import { getLocalDateStr } from '../utils/dateUtils';
+import { calculateWeekOfMonth, isRecurringEvent, getRecurrenceLabel } from '../utils/recurrenceUtils';
+import { RecurrenceActionModal, RecurrenceActionScope } from './RecurrenceActionModal';
 
-interface EventModalProps {
+export interface EventModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (event: Omit<CalendarEvent, 'id'> | CalendarEvent) => void;
-  onDelete?: (eventId: string) => void;
+  onSave: (
+    event: Omit<CalendarEvent, 'id'> | CalendarEvent,
+    scope?: RecurrenceActionScope,
+    originalInstanceDate?: string
+  ) => void;
+  onDelete?: (
+    eventId: string,
+    scope?: RecurrenceActionScope,
+    instanceDate?: string
+  ) => void;
   editingEvent?: CalendarEvent | null;
   defaultInitialDate?: string; // YYYY-MM-DD or YYYY-MM-DDTHH:mm
   defaultEndDate?: string;     // YYYY-MM-DD or YYYY-MM-DDTHH:mm
@@ -64,6 +74,16 @@ const roundTo5Minutes = (minStr?: string) => {
   return String(rounded).padStart(2, '0');
 };
 
+const WEEKDAY_LABELS = [
+  { day: 0, label: '日' },
+  { day: 1, label: '月' },
+  { day: 2, label: '火' },
+  { day: 3, label: '水' },
+  { day: 4, label: '木' },
+  { day: 5, label: '金' },
+  { day: 6, label: '土' },
+];
+
 export function EventModal({
   isOpen,
   onClose,
@@ -93,6 +113,25 @@ export function EventModal({
   const [attachments, setAttachments] = useState<AttachmentFile[]>([]);
   const [error, setError] = useState<string | null>(null);
 
+  // 繰り返し設定ステート
+  const [isRecurring, setIsRecurring] = useState(false);
+  const [recurrenceFreq, setRecurrenceFreq] = useState<RecurrenceFrequency>('weekly');
+  const [selectedDaysOfWeek, setSelectedDaysOfWeek] = useState<number[]>([1]); // 毎週の曜日
+  const [monthlyType, setMonthlyType] = useState<RecurrenceMonthlyType>('same_day');
+  const [monthDay, setMonthDay] = useState<number>(1);
+  const [weekOfMonth, setWeekOfMonth] = useState<number>(1);
+  const [dayOfWeek, setDayOfWeek] = useState<number>(1);
+  const [recurrenceEndType, setRecurrenceEndType] = useState<'never' | 'until_date' | 'count'>('never');
+  const [recurrenceEndDate, setRecurrenceEndDate] = useState<string>('');
+  const [recurrenceCount, setRecurrenceCount] = useState<number>(10);
+
+  // 定期予定変更・削除確認ダイアログ
+  const [actionModalState, setActionModalState] = useState<{
+    isOpen: boolean;
+    mode: 'edit' | 'delete';
+    pendingPayload?: any;
+  }>({ isOpen: false, mode: 'edit' });
+
   // アップロード・プレビュー状態
   const [isUploading, setIsUploading] = useState(false);
   const [previewFile, setPreviewFile] = useState<AttachmentFile | null>(null);
@@ -100,15 +139,34 @@ export function EventModal({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const officeNames = Array.from(new Set(offices.map(o => o.name)));
-  const divisionNames = Array.from(new Set(divisions.map(d => d.name)));
-
   const [currentEditingEvent, setCurrentEditingEvent] = useState<CalendarEvent | null>(editingEvent || null);
   const isIcal = currentEditingEvent ? currentEditingEvent.isIcal === true : false;
+  const isCurrentlyRecurring = isRecurringEvent(editingEvent);
 
   useEffect(() => {
     setCurrentEditingEvent(editingEvent || null);
   }, [editingEvent]);
+
+  // 開始日時が変更されたときに、曜日の初期値を自動追従
+  useEffect(() => {
+    if (!start) return;
+    const startDatePart = start.split('T')[0];
+    if (startDatePart) {
+      const d = new Date(startDatePart);
+      if (!isNaN(d.getTime())) {
+        const dow = d.getDay();
+        const { weekOfMonth: wom } = calculateWeekOfMonth(d);
+        setDayOfWeek(dow);
+        setWeekOfMonth(wom);
+        setMonthDay(d.getDate());
+
+        // 新規作成で繰り返しをONにしたばかりの場合、開始日の曜日をデフォルトで選択
+        if (!editingEvent && selectedDaysOfWeek.length === 0) {
+          setSelectedDaysOfWeek([dow]);
+        }
+      }
+    }
+  }, [start, editingEvent]);
 
   const handleCopyAndAdd = () => {
     const newTitle = title.includes('(コピー)') ? title : `${title} (コピー)`;
@@ -116,6 +174,7 @@ export function EventModal({
     setCurrentEditingEvent(null); // IDを解除して新規追加扱いにする
     setError('内容を複製しました。日時やタイトルなどを確認し「保存する」を押してください。');
   };
+
   useEffect(() => {
     if (isOpen) {
       setError(null);
@@ -152,6 +211,33 @@ export function EventModal({
         setIsGoogleSynced(!!editingEvent.isGoogleSynced);
         setSelectedAttendees(editingEvent.attendees || []);
         setAttachments(editingEvent.attachments || []);
+
+        // 繰り返し設定の復元
+        if (editingEvent.recurrence && editingEvent.recurrence.frequency !== 'none') {
+          setIsRecurring(true);
+          setRecurrenceFreq(editingEvent.recurrence.frequency || 'weekly');
+          setSelectedDaysOfWeek(editingEvent.recurrence.daysOfWeek || [new Date(startDateStr).getDay()]);
+          setMonthlyType(editingEvent.recurrence.monthlyType || 'same_day');
+          setMonthDay(editingEvent.recurrence.monthDay || new Date(startDateStr).getDate());
+          setWeekOfMonth(editingEvent.recurrence.weekOfMonth || 1);
+          setDayOfWeek(editingEvent.recurrence.dayOfWeek !== undefined ? editingEvent.recurrence.dayOfWeek : new Date(startDateStr).getDay());
+          setRecurrenceEndType(editingEvent.recurrence.endType || 'never');
+          setRecurrenceEndDate(editingEvent.recurrence.endDate || '');
+          setRecurrenceCount(editingEvent.recurrence.count || 10);
+        } else if (editingEvent.recurrenceParentId) {
+          // 個別インスタンス
+          setIsRecurring(true);
+          setRecurrenceFreq('weekly');
+          setSelectedDaysOfWeek([new Date(startDateStr).getDay()]);
+          setRecurrenceEndType('never');
+        } else {
+          setIsRecurring(false);
+          setRecurrenceFreq('weekly');
+          setSelectedDaysOfWeek([new Date(startDateStr).getDay()]);
+          setRecurrenceEndType('never');
+          setRecurrenceEndDate('');
+          setRecurrenceCount(10);
+        }
       } else {
         setTitle('');
         setType('personal');
@@ -170,7 +256,7 @@ export function EventModal({
         setIsGoogleSynced(false);
         setAttachments([]);
 
-        // 参加者の初期設定：指定された初期参加者がいればそれ、なければログインユーザーをデフォルトに
+        // 参加者の初期設定
         if (defaultAttendees && defaultAttendees.length > 0) {
           setSelectedAttendees(defaultAttendees);
         } else if (currentUser) {
@@ -201,6 +287,25 @@ export function EventModal({
             setEnd('');
           }
         }
+
+        // 繰り返し初期値
+        setIsRecurring(false);
+        setRecurrenceFreq('weekly');
+        const startD = new Date(initStartStr);
+        const dow = isNaN(startD.getTime()) ? 1 : startD.getDay();
+        setSelectedDaysOfWeek([dow]);
+        setMonthlyType('same_day');
+        setMonthDay(isNaN(startD.getTime()) ? 1 : startD.getDate());
+        const { weekOfMonth: wom } = calculateWeekOfMonth(startD);
+        setWeekOfMonth(wom);
+        setDayOfWeek(dow);
+        setRecurrenceEndType('never');
+        
+        // 終了日初期値（3ヶ月後）
+        const threeMonthsLater = new Date(startD);
+        threeMonthsLater.setMonth(threeMonthsLater.getMonth() + 3);
+        setRecurrenceEndDate(getLocalDateStr(threeMonthsLater.toISOString()));
+        setRecurrenceCount(10);
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -213,6 +318,16 @@ export function EventModal({
       setSelectedAttendees(selectedAttendees.filter(u => u.id !== user.id));
     } else {
       setSelectedAttendees([...selectedAttendees, user]);
+    }
+  };
+
+  const toggleWeekday = (day: number) => {
+    if (selectedDaysOfWeek.includes(day)) {
+      if (selectedDaysOfWeek.length > 1) {
+        setSelectedDaysOfWeek(selectedDaysOfWeek.filter(d => d !== day));
+      }
+    } else {
+      setSelectedDaysOfWeek([...selectedDaysOfWeek, day].sort((a, b) => a - b));
     }
   };
 
@@ -238,12 +353,39 @@ export function EventModal({
     setAttachments(attachments.filter(a => a.id !== id));
   };
 
+  const buildRecurrenceRule = (): RecurrenceRule | undefined => {
+    if (!isRecurring) return undefined;
+
+    return {
+      frequency: recurrenceFreq,
+      interval: 1,
+      daysOfWeek: recurrenceFreq === 'weekly' ? selectedDaysOfWeek : undefined,
+      monthlyType: recurrenceFreq === 'monthly' ? monthlyType : undefined,
+      monthDay: recurrenceFreq === 'monthly' && monthlyType === 'same_day' ? monthDay : undefined,
+      weekOfMonth: recurrenceFreq === 'monthly' && monthlyType === 'day_of_week' ? weekOfMonth : undefined,
+      dayOfWeek: recurrenceFreq === 'monthly' && monthlyType === 'day_of_week' ? dayOfWeek : undefined,
+      endType: recurrenceEndType,
+      endDate: recurrenceEndType === 'until_date' ? recurrenceEndDate : undefined,
+      count: recurrenceEndType === 'count' ? Number(recurrenceCount) || 1 : undefined,
+    };
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
     if (!title || !title.trim() || !start) {
       setError('タイトルと開始日時は必須です。');
+      return;
+    }
+
+    if (isRecurring && recurrenceFreq === 'weekly' && selectedDaysOfWeek.length === 0) {
+      setError('毎週繰り返す曜日を少なくとも1つ選択してください。');
+      return;
+    }
+
+    if (isRecurring && recurrenceEndType === 'until_date' && !recurrenceEndDate) {
+      setError('繰り返しの終了日を指定してください。');
       return;
     }
 
@@ -283,41 +425,81 @@ export function EventModal({
       }
     }
 
+    const recurrenceObj = buildRecurrenceRule();
+
+    const eventPayload = {
+      title: (title || '').trim(),
+      type,
+      start: startIso,
+      end: endIso,
+      isAllDay,
+      office,
+      division,
+      location,
+      memo,
+      isGoogleSynced: false,
+      attendees: selectedAttendees,
+      attachments,
+      recurrence: recurrenceObj,
+    };
+
+    // 既存の繰り返し予定を編集する場合、適用範囲選択モーダルを表示
+    if (editingEvent && isCurrentlyRecurring) {
+      setActionModalState({
+        isOpen: true,
+        mode: 'edit',
+        pendingPayload: {
+          ...editingEvent,
+          ...eventPayload,
+        },
+      });
+      return;
+    }
+
     if (currentEditingEvent) {
       onSave({
         ...currentEditingEvent,
-        title: (title || '').trim(),
-        type,
-        start: startIso,
-        end: endIso,
-        isAllDay,
-        location,
-        memo,
-        isGoogleSynced: false,
-        attendees: selectedAttendees,
-        attachments,
+        ...eventPayload,
       });
     } else {
-      onSave({
-        title: (title || '').trim(),
-        type,
-        start: startIso,
-        end: endIso,
-        isAllDay,
-        location,
-        memo,
-        isGoogleSynced: false,
-        attendees: selectedAttendees,
-        attachments,
-      });
+      onSave(eventPayload);
     }
 
     onClose();
   };
 
-  const handleDelete = () => {
-    if (editingEvent && onDelete) {
-      onDelete(editingEvent.id);
+  // 削除ボタン押下時のハンドラ
+  const handleDeleteClick = () => {
+    if (!editingEvent || !onDelete) return;
+
+    if (isCurrentlyRecurring) {
+      setActionModalState({
+        isOpen: true,
+        mode: 'delete',
+      });
+      return;
+    }
+
+    onDelete(editingEvent.id);
+    onClose();
+  };
+
+  // 繰り返しアクション決定ハンドラ
+  const handleConfirmRecurrenceAction = (scope: RecurrenceActionScope) => {
+    const { mode, pendingPayload } = actionModalState;
+    setActionModalState({ isOpen: false, mode: 'edit' });
+
+    const originalDate = editingEvent?.instanceDate || (editingEvent?.start ? extractLocalDateStr(editingEvent.start) : undefined);
+
+    if (mode === 'edit') {
+      if (pendingPayload) {
+        onSave(pendingPayload, scope, originalDate);
+      }
+      onClose();
+    } else if (mode === 'delete') {
+      if (editingEvent && onDelete) {
+        onDelete(editingEvent.id, scope, originalDate);
+      }
       onClose();
     }
   };
@@ -332,9 +514,17 @@ export function EventModal({
         className="bg-white rounded-2xl shadow-2xl w-full max-w-lg my-8 max-h-[90vh] overflow-y-auto ring-1 ring-slate-900/5"
       >
         <div className="flex items-center justify-between p-5 border-b border-slate-100">
-          <h2 className="text-lg font-bold text-slate-800">
-            {currentEditingEvent ? '予定を編集' : '予定を追加'}
-          </h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-bold text-slate-800">
+              {currentEditingEvent ? '予定を編集' : '予定を追加'}
+            </h2>
+            {isCurrentlyRecurring && (
+              <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 flex items-center gap-1">
+                <Repeat className="w-3 h-3" />
+                定期予定
+              </span>
+            )}
+          </div>
           <button onClick={onClose} className="p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 rounded-full transition-colors">
             <X className="w-5 h-5" />
           </button>
@@ -595,6 +785,240 @@ export function EventModal({
             </div>
           </div>
 
+          {/* ========================================== */}
+          {/* 繰り返し（定期予定）設定トグル & オプション */}
+          {/* ========================================== */}
+          <div className="border border-slate-200 rounded-xl p-4 bg-slate-50/50 space-y-3.5 transition-all">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Repeat className={`w-4 h-4 ${isRecurring ? 'text-indigo-600' : 'text-slate-400'}`} />
+                <span className="text-sm font-bold text-slate-800">繰り返し設定</span>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  disabled={isIcal}
+                  checked={isRecurring}
+                  onChange={e => {
+                    setIsRecurring(e.target.checked);
+                    setError(null);
+                  }}
+                  className="sr-only peer"
+                />
+                <div className="w-10 h-5.5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4.5 after:w-4.5 after:transition-all peer-checked:bg-indigo-600"></div>
+              </label>
+            </div>
+
+            {isRecurring && (
+              <div className="pt-2 space-y-4 border-t border-slate-200/80 animate-in fade-in-50 duration-200">
+                {/* 頻度選択 */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">繰り返す頻度</label>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {[
+                      { id: 'weekly', label: '毎週' },
+                      { id: 'monthly', label: '毎月' },
+                      { id: 'daily', label: '毎日' },
+                      { id: 'yearly', label: '毎年' },
+                    ].map(item => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setRecurrenceFreq(item.id as RecurrenceFrequency)}
+                        className={`py-1.5 text-xs font-bold rounded-lg border transition-all ${
+                          recurrenceFreq === item.id
+                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 毎週の場合: 曜日選択（複数選択可） */}
+                {recurrenceFreq === 'weekly' && (
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                      繰り返す曜日 <span className="text-slate-400 font-normal">(複数選択可)</span>
+                    </label>
+                    <div className="flex gap-1.5">
+                      {WEEKDAY_LABELS.map(({ day, label }) => {
+                        const isSelected = selectedDaysOfWeek.includes(day);
+                        const isWeekend = day === 0 || day === 6;
+                        return (
+                          <button
+                            key={day}
+                            type="button"
+                            onClick={() => toggleWeekday(day)}
+                            className={`flex-1 py-2 text-xs font-bold rounded-lg border transition-all ${
+                              isSelected
+                                ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                                : `bg-white border-slate-200 hover:bg-slate-100 ${
+                                    isWeekend ? (day === 0 ? 'text-rose-600' : 'text-sky-600') : 'text-slate-700'
+                                  }`
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* 毎月の場合: 同日 or 第N曜日 */}
+                {recurrenceFreq === 'monthly' && (
+                  <div className="space-y-2">
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">毎月の指定方法</label>
+                    <div className="space-y-2 bg-white p-3 rounded-lg border border-slate-200">
+                      {/* 同日 */}
+                      <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="monthly_type"
+                          checked={monthlyType === 'same_day'}
+                          onChange={() => setMonthlyType('same_day')}
+                          className="text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <span className="font-semibold">毎月</span>
+                        <select
+                          value={monthDay}
+                          onChange={e => {
+                            setMonthDay(Number(e.target.value));
+                            setMonthlyType('same_day');
+                          }}
+                          className="px-2 py-1 border border-slate-200 rounded text-xs bg-slate-50 font-medium"
+                        >
+                          {Array.from({ length: 31 }, (_, i) => i + 1).map(d => (
+                            <option key={d} value={d}>{d}日</option>
+                          ))}
+                        </select>
+                        <span>に繰り返す</span>
+                      </label>
+
+                      {/* 第N曜日 */}
+                      <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="monthly_type"
+                          checked={monthlyType === 'day_of_week'}
+                          onChange={() => setMonthlyType('day_of_week')}
+                          className="text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <span className="font-semibold">毎月</span>
+                        <select
+                          value={weekOfMonth}
+                          onChange={e => {
+                            setWeekOfMonth(Number(e.target.value));
+                            setMonthlyType('day_of_week');
+                          }}
+                          className="px-2 py-1 border border-slate-200 rounded text-xs bg-slate-50 font-medium"
+                        >
+                          <option value={1}>第1</option>
+                          <option value={2}>第2</option>
+                          <option value={3}>第3</option>
+                          <option value={4}>第4</option>
+                          <option value={5}>第5</option>
+                        </select>
+                        <select
+                          value={dayOfWeek}
+                          onChange={e => {
+                            setDayOfWeek(Number(e.target.value));
+                            setMonthlyType('day_of_week');
+                          }}
+                          className="px-2 py-1 border border-slate-200 rounded text-xs bg-slate-50 font-medium"
+                        >
+                          {WEEKDAY_LABELS.map(({ day, label }) => (
+                            <option key={day} value={day}>{label}曜日</option>
+                          ))}
+                        </select>
+                        <span>に繰り返す</span>
+                      </label>
+                    </div>
+                  </div>
+                )}
+
+                {/* 期限の設定 */}
+                <div className="space-y-2 pt-1 border-t border-slate-200/60">
+                  <label className="block text-xs font-semibold text-slate-700">繰り返しの期限（終了条件）</label>
+                  <div className="space-y-2">
+                    {/* 期限なし */}
+                    <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="recurrence_end_type"
+                        checked={recurrenceEndType === 'never'}
+                        onChange={() => setRecurrenceEndType('never')}
+                        className="text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <span>期限なし（継続的に繰り返す）</span>
+                    </label>
+
+                    {/* 終了日指定 */}
+                    <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="recurrence_end_type"
+                        checked={recurrenceEndType === 'until_date'}
+                        onChange={() => setRecurrenceEndType('until_date')}
+                        className="text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <span>終了日を指定:</span>
+                      <input
+                        type="date"
+                        value={recurrenceEndDate}
+                        disabled={recurrenceEndType !== 'until_date'}
+                        onChange={e => {
+                          setRecurrenceEndDate(e.target.value);
+                          setRecurrenceEndType('until_date');
+                          setError(null);
+                        }}
+                        className="px-2.5 py-1 border border-slate-200 rounded-lg text-xs bg-white focus:ring-2 focus:ring-indigo-500 disabled:bg-slate-100 disabled:text-slate-400"
+                      />
+                      <span>まで</span>
+                    </label>
+
+                    {/* 回数指定 */}
+                    <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="recurrence_end_type"
+                        checked={recurrenceEndType === 'count'}
+                        onChange={() => setRecurrenceEndType('count')}
+                        className="text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <span>回数を指定:</span>
+                      <input
+                        type="number"
+                        min="1"
+                        max="365"
+                        value={recurrenceCount}
+                        disabled={recurrenceEndType !== 'count'}
+                        onChange={e => {
+                          setRecurrenceCount(Number(e.target.value));
+                          setRecurrenceEndType('count');
+                          setError(null);
+                        }}
+                        className="w-16 px-2.5 py-1 border border-slate-200 rounded-lg text-xs bg-white text-center focus:ring-2 focus:ring-indigo-500 disabled:bg-slate-100 disabled:text-slate-400"
+                      />
+                      <span>回繰り返したら終了</span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* プレビューテキスト */}
+                <div className="p-2.5 bg-indigo-50/80 border border-indigo-100 rounded-lg text-xs text-indigo-900 font-medium flex items-center gap-2">
+                  <Repeat className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                  <span>
+                    設定内容: <strong>{getRecurrenceLabel(buildRecurrenceRule()) || '繰り返しなし'}</strong>
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* 参加者の選択 */}
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center justify-between">
@@ -784,7 +1208,7 @@ export function EventModal({
                 <button
                   type="button"
                   disabled={isUploading}
-                  onClick={handleDelete}
+                  onClick={handleDeleteClick}
                   className="flex items-center gap-1.5 px-3 py-2.5 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-lg transition-colors disabled:opacity-50"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
@@ -818,6 +1242,15 @@ export function EventModal({
         isOpen={isPreviewOpen}
         onClose={() => setIsPreviewOpen(false)}
         file={previewFile}
+      />
+
+      {/* 定期予定の変更・削除確認ダイアログ */}
+      <RecurrenceActionModal
+        isOpen={actionModalState.isOpen}
+        mode={actionModalState.mode}
+        instanceDate={editingEvent?.instanceDate || (editingEvent?.start ? extractLocalDateStr(editingEvent.start) : undefined)}
+        onClose={() => setActionModalState({ isOpen: false, mode: 'edit' })}
+        onConfirm={handleConfirmRecurrenceAction}
       />
     </div>
   );

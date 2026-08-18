@@ -1,7 +1,7 @@
 export const RECOMMEND_SERVER_JS = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年8月5日 18:00 (接続性＆耐障害性・自動パス解決強化)
+ * 最終更新日時 (最終アップデート): 2026年8月18日 (カレンダー繰り返し予定・定期予定対応版)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -128,6 +128,13 @@ async function getPool() {
       console.log('✅ Checked/Added adminIdsJson column to dbo.ChatRooms');
     } catch (e) {
       console.warn('⚠️ Failed to alter ChatRooms table:', e.message);
+    }
+    // Check and add recurrence columns to dbo.Events
+    try {
+      await globalPool.request().query("IF COL_LENGTH('dbo.Events', 'recurrence') IS NULL ALTER TABLE dbo.Events ADD recurrence NVARCHAR(MAX) NULL; IF COL_LENGTH('dbo.Events', 'recurrenceParentId') IS NULL ALTER TABLE dbo.Events ADD recurrenceParentId VARCHAR(50) NULL; IF COL_LENGTH('dbo.Events', 'recurrenceOriginalDate') IS NULL ALTER TABLE dbo.Events ADD recurrenceOriginalDate VARCHAR(50) NULL; IF COL_LENGTH('dbo.Events', 'recurrenceExceptions') IS NULL ALTER TABLE dbo.Events ADD recurrenceExceptions NVARCHAR(MAX) NULL;");
+      console.log('✅ Checked/Added recurrence columns to dbo.Events');
+    } catch (e) {
+      console.warn('⚠️ Failed to alter Events table:', e.message);
     }
     return globalPool;
   } catch (err) {
@@ -1186,7 +1193,11 @@ app.get('/api/events', async (req, res) => {
       location: row.location || '',
       office: row.office || '',
       division: row.division || '',
-      attachments: safeParseJSON(row.attachments, [])
+      attachments: safeParseJSON(row.attachments, []),
+      recurrence: safeParseJSON(row.recurrence, null),
+      recurrenceParentId: row.recurrenceParentId || null,
+      recurrenceOriginalDate: row.recurrenceOriginalDate || null,
+      recurrenceExceptions: safeParseJSON(row.recurrenceExceptions, [])
     }));
     res.json(events);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -1194,7 +1205,24 @@ app.get('/api/events', async (req, res) => {
 
 app.post('/api/events', async (req, res) => {
   try {
-    const { title, startAt, endAt, isAllDay, category, description, location, office, division, attendees, memo, attachments } = req.body;
+    const {
+      title,
+      startAt,
+      endAt,
+      isAllDay,
+      category,
+      description,
+      location,
+      office,
+      division,
+      attendees,
+      memo,
+      attachments,
+      recurrence,
+      recurrenceParentId,
+      recurrenceOriginalDate,
+      recurrenceExceptions
+    } = req.body;
     const pool = await getPool();
     const id = req.body.id || \`e-\${Date.now()}\`;
     
@@ -1215,6 +1243,8 @@ app.post('/api/events', async (req, res) => {
     const validEnd = parseDate(endAt, validStart);
 
     const attachStr = attachments ? (typeof attachments === 'object' ? JSON.stringify(attachments) : attachments) : null;
+    const recurrenceStr = recurrence ? (typeof recurrence === 'object' ? JSON.stringify(recurrence) : recurrence) : null;
+    const exceptionsStr = recurrenceExceptions ? (typeof recurrenceExceptions === 'object' ? JSON.stringify(recurrenceExceptions) : recurrenceExceptions) : null;
 
     await pool.request()
       .input('id', sql.VarChar, String(id))
@@ -1228,9 +1258,21 @@ app.post('/api/events', async (req, res) => {
       .input('office', sql.NVarChar, office || '')
       .input('division', sql.NVarChar, division || '')
       .input('attachments', sql.NVarChar, attachStr)
+      .input('recurrence', sql.NVarChar, recurrenceStr)
+      .input('recurrenceParentId', sql.VarChar, recurrenceParentId || null)
+      .input('recurrenceOriginalDate', sql.VarChar, recurrenceOriginalDate || null)
+      .input('recurrenceExceptions', sql.NVarChar, exceptionsStr)
       .query\`
-        INSERT INTO dbo.Events (id, title, startAt, endAt, isAllDay, category, description, location, office, division, attachments) 
-        VALUES (@id, @title, @startAt, @endAt, @isAllDay, @category, @description, @location, @office, @division, @attachments)
+        INSERT INTO dbo.Events (
+          id, title, startAt, endAt, isAllDay, category, description, 
+          location, office, division, attachments,
+          recurrence, recurrenceParentId, recurrenceOriginalDate, recurrenceExceptions
+        ) 
+        VALUES (
+          @id, @title, @startAt, @endAt, @isAllDay, @category, @description, 
+          @location, @office, @division, @attachments,
+          @recurrence, @recurrenceParentId, @recurrenceOriginalDate, @recurrenceExceptions
+        )
       \`;
     res.status(201).json({ id, message: '予定登録完了' });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -1238,7 +1280,24 @@ app.post('/api/events', async (req, res) => {
 
 app.put('/api/events/:id', async (req, res) => {
   try {
-    const { title, startAt, endAt, isAllDay, category, description, location, office, division, attendees, memo, attachments } = req.body;
+    const {
+      title,
+      startAt,
+      endAt,
+      isAllDay,
+      category,
+      description,
+      location,
+      office,
+      division,
+      attendees,
+      memo,
+      attachments,
+      recurrence,
+      recurrenceParentId,
+      recurrenceOriginalDate,
+      recurrenceExceptions
+    } = req.body;
     const pool = await getPool();
     const id = req.params.id;
 
@@ -1259,6 +1318,8 @@ app.put('/api/events/:id', async (req, res) => {
     const validEnd = parseDate(endAt, validStart);
 
     const attachStr = attachments ? (typeof attachments === 'object' ? JSON.stringify(attachments) : attachments) : null;
+    const recurrenceStr = recurrence !== undefined ? (typeof recurrence === 'object' && recurrence !== null ? JSON.stringify(recurrence) : recurrence) : null;
+    const exceptionsStr = recurrenceExceptions !== undefined ? (typeof recurrenceExceptions === 'object' && recurrenceExceptions !== null ? JSON.stringify(recurrenceExceptions) : recurrenceExceptions) : null;
 
     await pool.request()
       .input('id', sql.VarChar, String(id))
@@ -1272,11 +1333,17 @@ app.put('/api/events/:id', async (req, res) => {
       .input('office', sql.NVarChar, office || '')
       .input('division', sql.NVarChar, division || '')
       .input('attachments', sql.NVarChar, attachStr)
+      .input('recurrence', sql.NVarChar, recurrenceStr)
+      .input('recurrenceParentId', sql.VarChar, recurrenceParentId || null)
+      .input('recurrenceOriginalDate', sql.VarChar, recurrenceOriginalDate || null)
+      .input('recurrenceExceptions', sql.NVarChar, exceptionsStr)
       .query\`
         UPDATE dbo.Events 
         SET title = @title, startAt = @startAt, endAt = @endAt, isAllDay = @isAllDay, 
             category = @category, description = @description, location = @location, 
-            office = @office, division = @division, attachments = @attachments
+            office = @office, division = @division, attachments = @attachments,
+            recurrence = @recurrence, recurrenceParentId = @recurrenceParentId,
+            recurrenceOriginalDate = @recurrenceOriginalDate, recurrenceExceptions = @recurrenceExceptions
         WHERE id = @id
       \`;
     res.json({ message: '予定更新完了' });

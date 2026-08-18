@@ -8,12 +8,14 @@ import { renderWithClickableLinks } from '../utils/linkify';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { getLocalDateStr } from '../utils/dateUtils';
 import { triggerPushNotification } from '../utils/pushNotifications';
+import { expandRecurringEvents } from '../utils/recurrenceUtils';
+import { RecurrenceActionScope } from './RecurrenceActionModal';
 
 interface CalendarProps {
   events: CalendarEvent[];
   onAddEvent: (event: Omit<CalendarEvent, 'id'>) => void;
-  onUpdateEvent?: (event: CalendarEvent) => void;
-  onDeleteEvent?: (eventId: string) => void;
+  onUpdateEvent?: (event: CalendarEvent, scope?: RecurrenceActionScope, originalInstanceDate?: string) => void;
+  onDeleteEvent?: (eventId: string, scope?: RecurrenceActionScope, instanceDate?: string) => void;
   currentUser?: User;
   allUsers?: User[];
   offices?: OfficeMaster[];
@@ -152,11 +154,19 @@ export function Calendar({
 
   const combinedEvents = [...events, ...icalEvents];
 
+  // 表示期間の前後を含む展開用日付範囲（前後3ヶ月）
+  const viewRangeStart = new Date(currentDate.getFullYear(), currentDate.getMonth() - 2, 1);
+  const viewRangeEnd = new Date(currentDate.getFullYear(), currentDate.getMonth() + 3, 0);
+
+  const expandedEvents = React.useMemo(() => {
+    return expandRecurringEvents(combinedEvents, viewRangeStart, viewRangeEnd);
+  }, [combinedEvents, currentDate]);
+
   const processedInitialEventIdRef = React.useRef<string | null>(null);
 
   useEffect(() => {
     if (initialEventId && processedInitialEventIdRef.current !== initialEventId) {
-      const targetEv = combinedEvents.find(e => e.id === initialEventId);
+      const targetEv = expandedEvents.find(e => e.id === initialEventId || e.recurrenceParentId === initialEventId);
       if (targetEv) {
         processedInitialEventIdRef.current = initialEventId;
         setEditingEvent(targetEv);
@@ -166,10 +176,10 @@ export function Calendar({
         }
       }
     }
-  }, [initialEventId, combinedEvents]);
+  }, [initialEventId, expandedEvents]);
   
   // イベントのフィルタリング処理
-  const filteredEvents = combinedEvents.filter(e => {
+  const filteredEvents = expandedEvents.filter(e => {
     if (e.isIcal) return true;
 
     if (selectedTypeFilter !== 'all' && e.type !== selectedTypeFilter) {
@@ -419,9 +429,13 @@ export function Calendar({
     setIsModalOpen(true);
   };
 
-  const handleSaveEvent = (eventData: Omit<CalendarEvent, 'id'> | CalendarEvent) => {
+  const handleSaveEvent = (
+    eventData: Omit<CalendarEvent, 'id'> | CalendarEvent,
+    scope?: RecurrenceActionScope,
+    originalInstanceDate?: string
+  ) => {
     if ('id' in eventData && eventData.id) {
-      onUpdateEvent?.(eventData as CalendarEvent);
+      onUpdateEvent?.(eventData as CalendarEvent, scope, originalInstanceDate);
     } else {
       onAddEvent(eventData as Omit<CalendarEvent, 'id'>);
     }

@@ -22,6 +22,8 @@ import { TopicDetailModal } from './components/TopicDetailModal';
 import { GlobalEventDetailModal } from './components/GlobalEventDetailModal';
 import { GlobalMemoDetailModal } from './components/GlobalMemoDetailModal';
 import { filterStepsForApplicant, resolveApproverForStep, getSupervisorAtLevel } from './utils/workflowHelpers';
+import { planRecurrenceSave, planRecurrenceDelete } from './utils/recurrenceUtils';
+import { RecurrenceActionScope } from './components/RecurrenceActionModal';
 
 // Helper to map and sanitize API user objects to match frontend types safely
 const mapUserFromApi = (apiUser: any): User => {
@@ -424,7 +426,11 @@ export default function App() {
             attachments: (e.attachments || e.attachmentsJson) 
               ? (typeof (e.attachments || e.attachmentsJson) === 'string' && (e.attachments || e.attachmentsJson).startsWith('[') ? JSON.parse(e.attachments || e.attachmentsJson) : (e.attachments || e.attachmentsJson)) 
               : (detailsObj.attachments || []),
-            attendees: mappedAttendees
+            attendees: mappedAttendees,
+            recurrence: e.recurrence || detailsObj.recurrence || undefined,
+            recurrenceParentId: e.recurrenceParentId || detailsObj.recurrenceParentId || undefined,
+            recurrenceOriginalDate: e.recurrenceOriginalDate || detailsObj.recurrenceOriginalDate || undefined,
+            recurrenceExceptions: e.recurrenceExceptions || detailsObj.recurrenceExceptions || undefined,
           };
         });
         setEvents(mapped);
@@ -1495,6 +1501,50 @@ export default function App() {
     });
   };
 
+  // Helper to persist event to API
+  const saveEventToApi = async (ev: CalendarEvent, isNew = false) => {
+    const payload = {
+      title: ev.title,
+      startAt: ev.start,
+      endAt: ev.end,
+      isAllDay: ev.isAllDay ? 1 : 0,
+      category: ev.type,
+      office: ev.office || '全社',
+      division: ev.division || '全部署',
+      location: ev.location || '',
+      attendees: ev.attendees || [],
+      memo: ev.memo || '',
+      attachments: ev.attachments || [],
+      recurrence: ev.recurrence || null,
+      recurrenceParentId: ev.recurrenceParentId || null,
+      recurrenceOriginalDate: ev.recurrenceOriginalDate || null,
+      recurrenceExceptions: ev.recurrenceExceptions || [],
+      details: JSON.stringify({
+        viewers: (ev as any).viewers || [],
+        memo: ev.memo || '',
+        attachments: ev.attachments || [],
+        recurrence: ev.recurrence || null,
+        recurrenceParentId: ev.recurrenceParentId || null,
+        recurrenceOriginalDate: ev.recurrenceOriginalDate || null,
+        recurrenceExceptions: ev.recurrenceExceptions || [],
+      })
+    };
+
+    if (isNew || !ev.id || ev.id.startsWith('e-temp-') || ev.id.startsWith('e-recur-split-') || ev.id.startsWith('e-ovr-')) {
+      return fetch(`${API_BASE_URL}/events`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    } else {
+      return fetch(`${API_BASE_URL}/events/${ev.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    }
+  };
+
   // Handle new event creation
   const handleAddEvent = async (eventData: Omit<CalendarEvent, 'id'>) => {
     const tempId = `e-temp-${Date.now()}`;
@@ -1528,24 +1578,8 @@ export default function App() {
     }
 
     try {
-      const response = await fetch(`${API_BASE_URL}/events`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: eventData.title,
-          startAt: eventData.start,
-          endAt: eventData.end,
-          isAllDay: eventData.isAllDay ? 1 : 0,
-          category: eventData.type,
-          office: eventData.office || '全社',
-          division: eventData.division || '全部署',
-          location: eventData.location || '',
-          attendees: eventData.attendees || [],
-          memo: eventData.memo || '',
-          attachments: eventData.attachments || [],
-        })
-      });
-      if (response.ok) {
+      const response = await saveEventToApi(newEvent, true);
+      if (response && response.ok) {
         const data = await response.json();
         if (data && data.id && isSelfAttending && userState?.id) {
           markEventAsRead(userState.id, data.id);
@@ -1558,46 +1592,34 @@ export default function App() {
   };
 
   // Handle event update
-  const handleUpdateEvent = async (updatedEvent: CalendarEvent) => {
-    // 楽観的UIアップデート: 画面上の状態を即時に反映
+  const handleUpdateEvent = async (
+    updatedEvent: CalendarEvent,
+    scope: RecurrenceActionScope = 'all',
+    originalInstanceDate?: string
+  ) => {
     const originalEvents = [...events];
-    setEvents(prev => prev.map(e => e.id === updatedEvent.id ? updatedEvent : e));
+
+    // 繰り返しスコープに応じた分割・更新プランを生成
+    const plan = planRecurrenceSave(events, updatedEvent, scope, originalInstanceDate || updatedEvent.instanceDate);
+    setEvents(plan.updatedEvents);
     window.dispatchEvent(new CustomEvent('notifications_updated'));
 
     try {
-      const response = await fetch(`${API_BASE_URL}/events/${updatedEvent.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: updatedEvent.title,
-          startAt: updatedEvent.start,
-          endAt: updatedEvent.end,
-          isAllDay: updatedEvent.isAllDay ? 1 : 0,
-          category: updatedEvent.type,
-          office: updatedEvent.office || '全社',
-          division: updatedEvent.division || '全部署',
-          location: updatedEvent.location || '',
-          attendees: updatedEvent.attendees || [],
-          memo: updatedEvent.memo || '',
-          viewers: (updatedEvent as any).viewers || [],
-          attachments: updatedEvent.attachments || [],
-          details: JSON.stringify({
-            viewers: (updatedEvent as any).viewers || [],
-            memo: updatedEvent.memo || '',
-            attachments: updatedEvent.attachments || [],
-          })
-        })
-      });
-      if (response.ok) {
-        // バックグラウンドでサーバー側の最新情報と同期
-        await refetchEvents();
-      } else {
-        // 失敗した場合は元の状態にロールバック
-        setEvents(originalEvents);
-      }
+      // 1. 更新/新規作成対象を保存
+      await Promise.all(
+        plan.toSave.map(ev => saveEventToApi(ev, !originalEvents.some(oe => oe.id === ev.id)))
+      );
+
+      // 2. 削除対象を削除
+      await Promise.all(
+        plan.toDelete.map(delId =>
+          fetch(`${API_BASE_URL}/events/${delId}`, { method: 'DELETE' }).catch(() => {})
+        )
+      );
+
+      await refetchEvents();
     } catch (err) {
       console.error('Failed to update event via API, rolling back:', err);
-      // 失敗した場合は元の状態にロールバック
       setEvents(originalEvents);
     } finally {
       window.dispatchEvent(new CustomEvent('notifications_updated'));
@@ -1605,29 +1627,58 @@ export default function App() {
   };
 
   // Handle event deletion
-  const handleDeleteEvent = async (eventId: string) => {
-    if (eventId.startsWith('e-temp-')) return;
-    setConfirmModal({
-      isOpen: true,
-      title: '予定の削除',
-      message: 'この予定を削除してもよろしいですか？',
-      type: 'danger',
-      confirmText: '削除する',
-      cancelText: 'キャンセル',
-      onConfirm: async () => {
-        setEvents(events.filter(e => e.id !== eventId));
-        try {
-          const response = await fetch(`${API_BASE_URL}/events/${eventId}`, {
-            method: 'DELETE'
-          });
-          if (response.ok) {
-            await refetchEvents();
-          }
-        } catch (err) {
-          console.error('Failed to delete event via API:', err);
-        }
+  const handleDeleteEvent = async (
+    eventId: string,
+    scope: RecurrenceActionScope = 'all',
+    instanceDate?: string
+  ) => {
+    if (eventId.startsWith('e-temp-')) {
+      setEvents(events.filter(e => e.id !== eventId));
+      return;
+    }
+
+    const targetEvent = events.find(e => e.id === eventId);
+    const hasRecurrence = targetEvent && (targetEvent.recurrence?.frequency !== 'none' || targetEvent.recurrenceParentId || targetEvent.instanceDate);
+
+    const performDelete = async () => {
+      const originalEvents = [...events];
+      const plan = planRecurrenceDelete(events, eventId, scope, instanceDate || targetEvent?.instanceDate);
+      setEvents(plan.updatedEvents);
+
+      try {
+        // 1. 親などの更新対象を保存 (exceptions 追加や endDate 短縮)
+        await Promise.all(
+          plan.toSave.map(ev => saveEventToApi(ev, false))
+        );
+
+        // 2. 削除対象を削除
+        await Promise.all(
+          plan.toDelete.map(delId =>
+            fetch(`${API_BASE_URL}/events/${delId}`, { method: 'DELETE' }).catch(() => {})
+          )
+        );
+
+        await refetchEvents();
+      } catch (err) {
+        console.error('Failed to delete event via API, rolling back:', err);
+        setEvents(originalEvents);
       }
-    });
+    };
+
+    if (scope !== 'all' || !hasRecurrence) {
+      // モーダルで既に確認済み、または単発予定
+      await performDelete();
+    } else {
+      setConfirmModal({
+        isOpen: true,
+        title: '予定の削除',
+        message: 'この予定を削除してもよろしいですか？',
+        type: 'danger',
+        confirmText: '削除する',
+        cancelText: 'キャンセル',
+        onConfirm: performDelete
+      });
+    }
   };
 
   // 承認フロー マスター管理
