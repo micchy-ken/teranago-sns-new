@@ -3,6 +3,7 @@ import { Search, Bell, Menu, Phone, FileText, Monitor, Calendar as CalendarIcon,
 import { User, Memo, WorkflowApplication, BoardTopic, CalendarEvent, ChatRoom, Post } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
 import { AppTab } from './Sidebar';
+import { expandRecurringEvents } from '../utils/recurrenceUtils';
 import {
   getUnreadNotifications,
   getReadEventIds,
@@ -164,20 +165,27 @@ export function Header({
     });
 
     // 2. スケジュール (Calendar Events)
-    events.forEach((evt) => {
+    const searchStart = new Date();
+    searchStart.setMonth(searchStart.getMonth() - 6);
+    const searchEnd = new Date();
+    searchEnd.setMonth(searchEnd.getMonth() + 12);
+    const expandedSearchEvents = expandRecurringEvents(events, searchStart, searchEnd);
+
+    expandedSearchEvents.forEach((evt) => {
       const matchTitle = evt.title?.toLowerCase().includes(q);
       const matchLocation = evt.location?.toLowerCase().includes(q);
       const matchMemo = evt.memo?.toLowerCase().includes(q);
 
       if (matchTitle || matchLocation || matchMemo) {
+        const datePart = evt.start ? evt.start.split('T')[0] : '';
         results.push({
           id: `event-${evt.id}`,
           type: 'event',
           typeName: 'スケジュール',
           title: evt.title,
-          snippet: `${evt.start ? evt.start.split('T')[0] : ''}${evt.location ? ` @ ${evt.location}` : ''}${evt.memo ? ` - ${evt.memo.slice(0, 60)}` : ''}`,
+          snippet: `${datePart}${evt.location ? ` @ ${evt.location}` : ''}${evt.memo ? ` - ${evt.memo.slice(0, 60)}` : ''}`,
           badgeText: evt.type || '予定',
-          dateStr: evt.start ? evt.start.split('T')[0] : '',
+          dateStr: datePart,
           tab: 'calendar',
           originalData: evt,
         });

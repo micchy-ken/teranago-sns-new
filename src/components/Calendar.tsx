@@ -166,7 +166,19 @@ export function Calendar({
 
   useEffect(() => {
     if (initialEventId && processedInitialEventIdRef.current !== initialEventId) {
-      const targetEv = expandedEvents.find(e => e.id === initialEventId || e.recurrenceParentId === initialEventId);
+      let targetEv = expandedEvents.find(e => e.id === initialEventId);
+      if (!targetEv) {
+        const matchingInstances = expandedEvents.filter(e => e.recurrenceParentId === initialEventId || e.id === initialEventId);
+        if (matchingInstances.length > 0) {
+          const nowMs = Date.now();
+          matchingInstances.sort((a, b) => {
+            const diffA = Math.abs(new Date(a.start).getTime() - nowMs);
+            const diffB = Math.abs(new Date(b.start).getTime() - nowMs);
+            return diffA - diffB;
+          });
+          targetEv = matchingInstances[0];
+        }
+      }
       if (targetEv) {
         processedInitialEventIdRef.current = initialEventId;
         setEditingEvent(targetEv);

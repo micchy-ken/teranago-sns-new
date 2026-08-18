@@ -431,13 +431,19 @@ export function planRecurrenceSave(
   let currentEvents = [...allEvents];
 
   // 親イベントIDの特定
-  const parentId = eventData.recurrenceParentId || (eventData.id && !eventData.id.includes('_') ? eventData.id : undefined);
+  const rawId = eventData.id || '';
+  const isExpandedId = rawId.includes('_');
+  const parentId = eventData.recurrenceParentId || (isExpandedId ? rawId.split('_')[0] : (rawId && !rawId.startsWith('e-ovr-') ? rawId : undefined));
   const parentEvent = parentId ? currentEvents.find(e => e.id === parentId) : null;
-  const targetDate = instanceDate || (eventData.start ? getLocalDateStr(eventData.start) : undefined);
+  
+  // 元のインスタンス日付と新しい日付の特定
+  const origDate = (eventData as any).recurrenceOriginalDate || (eventData as any).instanceDate || instanceDate || (isExpandedId ? rawId.split('_')[1] : undefined);
+  const newDate = eventData.start ? getLocalDateStr(eventData.start) : origDate;
+  const targetDate = origDate || newDate;
 
   if (!parentEvent || scope === 'all' || !targetDate) {
     // 1. 全ての予定を変更 (親予定そのものを更新)
-    const targetId = parentId || eventData.id || `e-recur-${Date.now()}`;
+    const targetId = parentId || (rawId && !isExpandedId ? rawId : `e-recur-${Date.now()}`);
     const updatedParent: CalendarEvent = {
       ...(parentEvent || {}),
       ...eventData,
@@ -458,9 +464,13 @@ export function planRecurrenceSave(
 
   if (scope === 'this_only') {
     // 2. このスケジュールのみ変更
-    // ① 親イベントの recurrenceExceptions に対象日付を追加
-    const existingExceptions = parentEvent.recurrenceExceptions || [];
-    const updatedExceptions = Array.from(new Set([...existingExceptions, targetDate]));
+    // ① 親イベントの recurrenceExceptions に対象日付（元の発生日および新しい日付）を追加
+    const existingExceptions = safeParseExceptions(parentEvent.recurrenceExceptions);
+    const updatedExceptions = Array.from(new Set([
+      ...existingExceptions,
+      ...(origDate ? [origDate] : []),
+      ...(targetDate ? [targetDate] : [])
+    ]));
     const updatedParent: CalendarEvent = {
       ...parentEvent,
       recurrenceExceptions: updatedExceptions,
@@ -468,18 +478,35 @@ export function planRecurrenceSave(
     currentEvents = currentEvents.map(e => e.id === parentEvent.id ? updatedParent : e);
     toSave.push(updatedParent);
 
-    // ② この日専用の単発イベント（オーバーライド）を作成
-    const overrideId = `e-ovr-${parentEvent.id}-${targetDate.replace(/-/g, '')}`;
+    // ② この日専用の単発イベント（オーバーライド）を作成または更新
+    // 既存のオーバーライドイベントを検索
+    const existingOvr = allEvents.find(e =>
+      e.recurrenceParentId === parentEvent.id &&
+      (e.recurrenceOriginalDate === origDate || e.instanceDate === origDate || e.id === rawId)
+    );
+
+    let overrideId = existingOvr?.id;
+    if (!overrideId && rawId && !isExpandedId) {
+      overrideId = rawId;
+    }
+    if (!overrideId) {
+      overrideId = `e-ovr-${parentEvent.id}-${(origDate || newDate || '').replace(/-/g, '')}`;
+    }
+
     const overrideEvent: CalendarEvent = {
       ...eventData,
       id: overrideId,
       recurrence: undefined, // 単発化
       recurrenceParentId: parentEvent.id,
-      recurrenceOriginalDate: targetDate,
-      instanceDate: targetDate,
+      recurrenceOriginalDate: origDate || targetDate,
+      instanceDate: newDate || targetDate,
     };
 
-    currentEvents = currentEvents.filter(e => e.id !== overrideId);
+    if (rawId && rawId !== overrideId && !isExpandedId) {
+      toDelete.push(rawId);
+    }
+
+    currentEvents = currentEvents.filter(e => e.id !== overrideId && e.id !== rawId);
     currentEvents.push(overrideEvent);
     toSave.push(overrideEvent);
 

@@ -22,7 +22,7 @@ import { TopicDetailModal } from './components/TopicDetailModal';
 import { GlobalEventDetailModal } from './components/GlobalEventDetailModal';
 import { GlobalMemoDetailModal } from './components/GlobalMemoDetailModal';
 import { filterStepsForApplicant, resolveApproverForStep, getSupervisorAtLevel } from './utils/workflowHelpers';
-import { planRecurrenceSave, planRecurrenceDelete, safeParseRecurrence, safeParseExceptions } from './utils/recurrenceUtils';
+import { planRecurrenceSave, planRecurrenceDelete, safeParseRecurrence, safeParseExceptions, expandRecurringEvents } from './utils/recurrenceUtils';
 import { RecurrenceActionScope } from './components/RecurrenceActionModal';
 
 // Helper to map and sanitize API user objects to match frontend types safely
@@ -130,7 +130,13 @@ export default function App() {
   }) => {
     // スケジュール（eventId）
     if (target.eventId) {
-      const found = events.find(e => e.id === target.eventId);
+      const searchStart = new Date();
+      searchStart.setMonth(searchStart.getMonth() - 6);
+      const searchEnd = new Date();
+      searchEnd.setMonth(searchEnd.getMonth() + 12);
+      const expanded = expandRecurringEvents(events, searchStart, searchEnd);
+
+      const found = expanded.find(e => e.id === target.eventId || e.recurrenceParentId === target.eventId);
       if (found) {
         setGlobalSelectedEvent(found);
         return; // 画面遷移せずにポップアップ
@@ -1671,7 +1677,8 @@ export default function App() {
       details: JSON.stringify(descObj)
     };
 
-    if (isNew || !ev.id || ev.id.startsWith('e-temp-') || ev.id.startsWith('e-recur-split-') || ev.id.startsWith('e-ovr-')) {
+    const isTempId = !ev.id || ev.id.startsWith('e-temp-') || ev.id.startsWith('e-recur-split-');
+    if (isNew || isTempId) {
       return fetch(`${API_BASE_URL}/events`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
