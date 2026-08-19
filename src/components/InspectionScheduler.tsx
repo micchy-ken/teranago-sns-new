@@ -98,7 +98,7 @@ export function InspectionScheduler({
 
   // 検索・フィルター
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'placed' | 'hidden' | 'carried_over'>('pending');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'placed' | 'registered' | 'hidden' | 'carried_over'>('pending');
 
   // メンバー登録時の部署フィルター（デフォルト：保守メンバーのみ）
   const [onlyMaintenanceMembers, setOnlyMaintenanceMembers] = useState<boolean>(true);
@@ -556,6 +556,7 @@ export function InspectionScheduler({
   // ------------------------------------------
   const pendingItems = items.filter((i) => i.status === 'pending');
   const placedItems = items.filter((i) => i.status === 'placed');
+  const registeredItems = items.filter((i) => i.status === 'registered');
   const hiddenItems = items.filter((i) => i.status === 'hidden');
   const carriedOverItems = items.filter((i) => i.status === 'carried_over');
 
@@ -817,11 +818,22 @@ export function InspectionScheduler({
     );
   };
 
-  // 確定登録（CalendarEventへ変換・反映）
+  // 確定解除（未確定・仮配置に戻す）
+  const handleUnregisterItem = (itemId: string) => {
+    setItems((prev) =>
+      prev.map((i) =>
+        i.id === itemId
+          ? { ...i, status: 'placed', isConfirmed: false }
+          : i
+      )
+    );
+  };
+
+  // 確定登録（CalendarEventへ変換・反映し、該当アイテムをregisteredとして下書き保存）
   const handleFinalConfirmRegistration = () => {
     const itemsToRegister = items.filter((i) => i.status === 'placed' && i.assignedDate);
     if (itemsToRegister.length === 0) {
-      alert('カレンダーに仮配置された点検予定がありません。');
+      alert('カレンダーに仮配置された未確定の点検予定がありません。');
       return;
     }
 
@@ -844,8 +856,9 @@ export function InspectionScheduler({
         item.conditions ? `【条件/警告】${item.conditions}` : '',
       ].filter(Boolean);
 
+      const eventId = `evt_insp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
       const newEvent: CalendarEvent = {
-        id: `evt_insp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        id: eventId,
         title: `[${item.workName || '点検'}] ${item.siteName}`,
         start: startIso,
         end: endIso,
@@ -872,6 +885,23 @@ export function InspectionScheduler({
     });
 
     onAddEvents(createdEvents);
+
+    // 確定されたアイテムのステータスを 'registered' に変更し、次回以降の重複追加を防止
+    const registeredIds = new Set(itemsToRegister.map((i) => i.id));
+    const updatedItems = items.map((i) => {
+      if (registeredIds.has(i.id)) {
+        return {
+          ...i,
+          status: 'registered' as const,
+          isConfirmed: true,
+          draftSavedAt: new Date().toISOString(),
+        };
+      }
+      return i;
+    });
+
+    setItems(updatedItems);
+    saveDraftDirect(targetYearMonth, updatedItems, 'assign_date');
     setCompletedCount(createdEvents.length);
     setCurrentStep('completed');
   };
@@ -1433,7 +1463,7 @@ export function InspectionScheduler({
                   <button
                     onClick={() => setStatusFilter('pending')}
                     className={`px-2.5 py-1 rounded-lg border cursor-pointer whitespace-nowrap ${
-                      statusFilter === 'pending' ? 'bg-amber-500 text-white border-amber-500' : 'bg-slate-50 text-slate-600 border-slate-200'
+                      statusFilter === 'pending' ? 'bg-amber-500 text-white border-amber-500 shadow-xs' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
                     }`}
                   >
                     未配置 ({pendingItems.length})
@@ -1441,15 +1471,24 @@ export function InspectionScheduler({
                   <button
                     onClick={() => setStatusFilter('placed')}
                     className={`px-2.5 py-1 rounded-lg border cursor-pointer whitespace-nowrap ${
-                      statusFilter === 'placed' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-slate-50 text-slate-600 border-slate-200'
+                      statusFilter === 'placed' ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
                     }`}
                   >
-                    仮配置 ({placedItems.length})
+                    仮配置中 ({placedItems.length})
+                  </button>
+                  <button
+                    onClick={() => setStatusFilter('registered')}
+                    className={`px-2.5 py-1 rounded-lg border cursor-pointer whitespace-nowrap flex items-center gap-1 ${
+                      statusFilter === 'registered' ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs' : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+                    }`}
+                  >
+                    <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+                    確定済 ({registeredItems.length})
                   </button>
                   <button
                     onClick={() => setStatusFilter('carried_over')}
                     className={`px-2.5 py-1 rounded-lg border cursor-pointer whitespace-nowrap ${
-                      statusFilter === 'carried_over' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-slate-50 text-slate-600 border-slate-200'
+                      statusFilter === 'carried_over' ? 'bg-purple-600 text-white border-purple-600 shadow-xs' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
                     }`}
                   >
                     繰越 ({carriedOverItems.length})
@@ -1457,10 +1496,18 @@ export function InspectionScheduler({
                   <button
                     onClick={() => setStatusFilter('hidden')}
                     className={`px-2.5 py-1 rounded-lg border cursor-pointer whitespace-nowrap ${
-                      statusFilter === 'hidden' ? 'bg-slate-600 text-white border-slate-600' : 'bg-slate-50 text-slate-600 border-slate-200'
+                      statusFilter === 'hidden' ? 'bg-slate-600 text-white border-slate-600 shadow-xs' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
                     }`}
                   >
                     削除 ({hiddenItems.length})
+                  </button>
+                  <button
+                    onClick={() => setStatusFilter('all')}
+                    className={`px-2.5 py-1 rounded-lg border cursor-pointer whitespace-nowrap ${
+                      statusFilter === 'all' ? 'bg-slate-800 text-white border-slate-800 shadow-xs' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    すべて ({items.length})
                   </button>
                 </div>
               </div>
@@ -1566,15 +1613,31 @@ export function InspectionScheduler({
 
                         {item.status === 'placed' && (
                           <div className="w-full flex items-center justify-between gap-1 flex-wrap">
-                            <span className="text-emerald-800 font-bold flex items-center gap-1 bg-emerald-100/70 px-2 py-0.5 rounded text-[11px]">
-                              <Check className="w-3 h-3 text-emerald-600" />
-                              {item.assignedDate?.slice(5)} ({item.assignedStartTime})
+                            <span className="text-indigo-800 font-bold flex items-center gap-1 bg-indigo-50 px-2 py-0.5 rounded text-[11px] border border-indigo-100">
+                              <CalendarIcon className="w-3 h-3 text-indigo-600" />
+                              仮: {item.assignedDate?.slice(5)} ({item.assignedStartTime})
                             </span>
                             <button
                               onClick={() => handleRemoveFromCalendar(item.id)}
                               className="text-rose-600 hover:text-rose-800 cursor-pointer underline"
                             >
-                              リストに戻す
+                              未配置に戻す
+                            </button>
+                          </div>
+                        )}
+
+                        {item.status === 'registered' && (
+                          <div className="w-full flex items-center justify-between gap-1 flex-wrap">
+                            <span className="text-emerald-900 font-bold flex items-center gap-1 bg-emerald-100 px-2 py-0.5 rounded text-[11px] border border-emerald-300">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                              確定済: {item.assignedDate?.slice(5)} ({item.assignedStartTime})
+                            </span>
+                            <button
+                              onClick={() => handleUnregisterItem(item.id)}
+                              className="text-slate-500 hover:text-rose-600 cursor-pointer text-[10px]"
+                              title="カレンダー確定を解除して仮配置に戻します"
+                            >
+                              確定解除
                             </button>
                           </div>
                         )}
@@ -2048,40 +2111,57 @@ export function InspectionScheduler({
             </p>
           </div>
 
-          <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl text-left text-xs text-slate-600 space-y-1">
+          <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl text-left text-xs text-slate-600 space-y-1.5">
             <div className="flex items-center justify-between">
               <span>登録先年月:</span>
               <span className="font-bold text-slate-900">{targetYearMonth}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span>スケジュール区分:</span>
-              <span className="font-bold text-indigo-600">点検</span>
+              <span>今回確定登録分:</span>
+              <span className="font-bold text-emerald-600">＋ {completedCount} 件</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>累計確定済件数:</span>
+              <span className="font-bold text-slate-900">{registeredItems.length} 件</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>残りの未配置件数:</span>
+              <span className="font-bold text-amber-600">{pendingItems.length} 件</span>
             </div>
             <div className="flex items-center justify-between">
               <span>翌月繰越件数:</span>
-              <span className="font-bold text-slate-900">{carriedOverItems.length}件</span>
+              <span className="font-bold text-slate-900">{carriedOverItems.length} 件</span>
             </div>
           </div>
 
-          <div className="flex items-center justify-center gap-3 pt-2">
+          <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+            {pendingItems.length > 0 && (
+              <button
+                onClick={() => setCurrentStep('assign_date')}
+                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-md shadow-indigo-200 transition-all cursor-pointer flex items-center gap-2"
+              >
+                <CalendarIcon className="w-4 h-4" />
+                残りの点検（未配置 {pendingItems.length}件）の配置を続ける
+              </button>
+            )}
+            {onNavigateToCalendar && (
+              <button
+                onClick={onNavigateToCalendar}
+                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md shadow-emerald-200 transition-all cursor-pointer flex items-center gap-2"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                カレンダー画面で確認する
+              </button>
+            )}
             <button
               onClick={() => {
                 setItems([]);
                 setCurrentStep('import');
               }}
-              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+              className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-colors cursor-pointer"
             >
-              続けて別のファイルを取り込む
+              別のファイルを取り込む
             </button>
-            {onNavigateToCalendar && (
-              <button
-                onClick={onNavigateToCalendar}
-                className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all cursor-pointer flex items-center gap-2"
-              >
-                <CalendarIcon className="w-4 h-4" />
-                カレンダー画面で確認する
-              </button>
-            )}
           </div>
         </div>
       )}

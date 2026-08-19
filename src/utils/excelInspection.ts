@@ -23,7 +23,7 @@ export interface InspectionItem {
   excelPersonName?: string; // エクセル内の「担当者名」 (鶴見茂樹など)
   conditions?: string;     // 指定条件・警告内容など
 
-  status: 'pending' | 'placed' | 'carried_over' | 'hidden';
+  status: 'pending' | 'placed' | 'carried_over' | 'hidden' | 'registered';
   carriedOverFrom?: string; // 繰越元年月 (例: '2026-07')
   draftSavedAt?: string;    // 下書き保存日時 (ISO string)
 
