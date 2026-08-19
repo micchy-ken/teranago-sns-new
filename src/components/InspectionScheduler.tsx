@@ -37,7 +37,14 @@ import {
   Save,
   RotateCcw,
   CloudCheck,
-  History
+  History,
+  Server,
+  HardDrive,
+  AlertTriangle,
+  Info,
+  Wifi,
+  WifiOff,
+  HelpCircle
 } from 'lucide-react';
 import { User, CalendarEvent } from '../types';
 import {
@@ -75,7 +82,11 @@ export function InspectionScheduler({
   const [dragOverItemId, setDragOverItemId] = useState<string | null>(null);
 
   // 自動保存・下書き状態管理
+  type SyncDestination = 'server' | 'local_only';
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [syncDestination, setSyncDestination] = useState<SyncDestination>('server');
+  const [syncDetailNote, setSyncDetailNote] = useState<string>('');
+  const [showSyncInfoModal, setShowSyncInfoModal] = useState<boolean>(false);
   const [lastSavedTime, setLastSavedTime] = useState<string | null>(null);
   const [isLoadingDraft, setIsLoadingDraft] = useState<boolean>(false);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
@@ -129,22 +140,28 @@ export function InspectionScheduler({
 
     try {
       // 1. APIから下書きを取得
-      const resDraft = await fetch(`${API_BASE_URL}/inspection/drafts?targetYearMonth=${ym}`);
       let loadedItems: InspectionItem[] = [];
       let loadedTime: string | null = null;
+      let fromServer = false;
 
-      if (resDraft.ok) {
-        const draftData = await resDraft.json();
-        if (Array.isArray(draftData.items) && draftData.items.length > 0) {
-          loadedItems = draftData.items;
-          if (draftData.lastSavedAt) {
-            loadedTime = new Date(draftData.lastSavedAt).toLocaleTimeString('ja-JP', {
-              hour: '2-digit',
-              minute: '2-digit',
-              second: '2-digit',
-            });
+      try {
+        const resDraft = await fetch(`${API_BASE_URL}/inspection/drafts?targetYearMonth=${ym}`);
+        if (resDraft.ok) {
+          const draftData = await resDraft.json();
+          if (Array.isArray(draftData.items) && draftData.items.length > 0) {
+            loadedItems = draftData.items;
+            fromServer = true;
+            if (draftData.lastSavedAt) {
+              loadedTime = new Date(draftData.lastSavedAt).toLocaleTimeString('ja-JP', {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+              });
+            }
           }
         }
+      } catch (netErr) {
+        console.warn('Draft server fetch failed:', netErr);
       }
 
       // 2. サーバーにない場合、ローカルストレージを確認
@@ -155,46 +172,58 @@ export function InspectionScheduler({
             const parsed = JSON.parse(localSaved);
             if (Array.isArray(parsed) && parsed.length > 0) {
               loadedItems = parsed;
+              fromServer = false;
             }
           }
         } catch (_) {}
       }
 
       // 3. 前月からの「翌月繰越」アイテムを確認
-      const resCarry = await fetch(`${API_BASE_URL}/inspection/carry-overs?targetYearMonth=${ym}`);
-      if (resCarry.ok) {
-        const carryData = await resCarry.json();
-        if (carryData.carriedOverCount > 0 && Array.isArray(carryData.carriedOverItems)) {
-          // 既存のリストに未登録の繰越案件があればマージ
-          const existingJobNos = new Set(loadedItems.map(i => i.jobNo));
-          const newCarried = carryData.carriedOverItems.filter((i: any) => !existingJobNos.has(i.jobNo));
+      try {
+        const resCarry = await fetch(`${API_BASE_URL}/inspection/carry-overs?targetYearMonth=${ym}`);
+        if (resCarry.ok) {
+          const carryData = await resCarry.json();
+          if (carryData.carriedOverCount > 0 && Array.isArray(carryData.carriedOverItems)) {
+            // 既存のリストに未登録の繰越案件があればマージ
+            const existingJobNos = new Set(loadedItems.map(i => i.jobNo));
+            const newCarried = carryData.carriedOverItems.filter((i: any) => !existingJobNos.has(i.jobNo));
 
-          if (newCarried.length > 0) {
-            loadedItems = [...loadedItems, ...newCarried];
-            setCarriedOverBanner({
-              prevMonth: carryData.prevMonth,
-              count: newCarried.length,
-            });
+            if (newCarried.length > 0) {
+              loadedItems = [...loadedItems, ...newCarried];
+              setCarriedOverBanner({
+                prevMonth: carryData.prevMonth,
+                count: newCarried.length,
+              });
+            }
+          } else {
+            setCarriedOverBanner(null);
           }
-        } else {
-          setCarriedOverBanner(null);
         }
-      }
+      } catch (_) {}
 
       setItems(loadedItems);
       lastSavedJsonRef.current = JSON.stringify(loadedItems);
       if (loadedItems.length > 0) {
         setSaveStatus('saved');
+        setSyncDestination(fromServer ? 'server' : 'local_only');
+        setSyncDetailNote(
+          fromServer
+            ? 'サーバー（API/NAS）から下書きを読み込みました'
+            : 'このブラウザのローカル一時保存から復元しました（サーバー未接続）'
+        );
         setLastSavedTime(loadedTime || new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
         if (isInitialMountRef.current) {
           setCurrentStep('assign_date');
         }
       } else {
         setSaveStatus('idle');
+        setSyncDestination('server');
+        setSyncDetailNote('');
       }
     } catch (err) {
       console.warn('Failed to load inspection draft:', err);
       setSaveStatus('error');
+      setSyncDestination('local_only');
     } finally {
       setIsLoadingDraft(false);
       setIsSyncing(false);
@@ -223,8 +252,13 @@ export function InspectionScheduler({
     setSaveStatus('saving');
 
     autoSaveTimerRef.current = setTimeout(async () => {
+      // 1. ローカルストレージに常に即座バックアップ
       try {
-        // 1. APIに保存
+        localStorage.setItem(`inspection_draft_${targetYearMonth}`, currentJson);
+      } catch (_) {}
+
+      try {
+        // 2. サーバーAPIに保存
         const res = await fetch(`${API_BASE_URL}/inspection/drafts`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -236,29 +270,36 @@ export function InspectionScheduler({
           }),
         });
 
-        // 2. ローカルストレージにもバックアップ保存
-        try {
-          localStorage.setItem(`inspection_draft_${targetYearMonth}`, currentJson);
-        } catch (_) {}
+        const nowFormatted = new Date().toLocaleTimeString('ja-JP', {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+        });
 
         if (res.ok) {
           const data = await res.json();
           lastSavedJsonRef.current = currentJson;
           setSaveStatus('saved');
+          setSyncDestination('server');
+          setSyncDetailNote('サーバー（API/NAS）と正常に同期されています');
           setLastSavedTime(
-            new Date(data.lastSavedAt || new Date()).toLocaleTimeString('ja-JP', {
-              hour: '2-digit',
-              minute: '2-digit',
-              second: '2-digit',
-            })
+            data.lastSavedAt
+              ? new Date(data.lastSavedAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+              : nowFormatted
           );
         } else {
-          setSaveStatus('saved'); // ローカルに保存済み
-          setLastSavedTime(new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+          lastSavedJsonRef.current = currentJson;
+          setSaveStatus('saved');
+          setSyncDestination('local_only');
+          setSyncDetailNote(`サーバー未応答 (HTTP ${res.status}): このブラウザ内のみ保存中`);
+          setLastSavedTime(nowFormatted);
         }
-      } catch (e) {
-        console.warn('Auto-save network error, saved to local cache:', e);
+      } catch (e: any) {
+        console.warn('Auto-save server error, saved to local cache:', e);
+        lastSavedJsonRef.current = currentJson;
         setSaveStatus('saved');
+        setSyncDestination('local_only');
+        setSyncDetailNote('サーバーAPI未接続: このブラウザ内のみ保存中');
         setLastSavedTime(new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
       }
     }, 500);
@@ -832,35 +873,60 @@ export function InspectionScheduler({
               </button>
             </div>
 
-            {/* 自動保存ステータスバッジ */}
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border font-medium text-[11px] bg-slate-50 border-slate-200">
+            {/* 自動保存・同期ステータスバッジ（クリックで詳細表示） */}
+            <button
+              type="button"
+              onClick={() => setShowSyncInfoModal(true)}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border font-medium text-[11px] transition-all cursor-pointer shadow-2xs ${
+                saveStatus === 'saving'
+                  ? 'bg-amber-50 text-amber-800 border-amber-300 ring-1 ring-amber-400/30'
+                  : syncDestination === 'server'
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100/80 ring-1 ring-emerald-400/20'
+                  : 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100 ring-1 ring-amber-400/40'
+              }`}
+              title="クリックして保存・同期の詳細を確認"
+            >
               {saveStatus === 'saving' && (
                 <>
                   <Loader2 className="w-3.5 h-3.5 text-amber-600 animate-spin" />
-                  <span className="text-amber-700 font-bold">自動保存中...</span>
+                  <span className="font-bold">自動保存中...</span>
                 </>
               )}
-              {saveStatus === 'saved' && (
+              {saveStatus === 'saved' && syncDestination === 'server' && (
                 <>
-                  <CloudCheck className="w-3.5 h-3.5 text-emerald-600" />
-                  <span className="text-emerald-700 font-bold">
-                    自動保存済み {lastSavedTime && `(${lastSavedTime})`}
+                  <Server className="w-3.5 h-3.5 text-emerald-600" />
+                  <span className="font-bold text-emerald-900">サーバー同期済 🟢</span>
+                  <span className="text-emerald-700 font-normal hidden sm:inline">
+                    {lastSavedTime && `(${lastSavedTime})`}
+                  </span>
+                </>
+              )}
+              {saveStatus === 'saved' && syncDestination === 'local_only' && (
+                <>
+                  <HardDrive className="w-3.5 h-3.5 text-amber-600" />
+                  <span className="font-bold text-amber-900">ローカル保存中（サーバー未接続） 🟠</span>
+                  <span className="text-amber-800 font-normal hidden sm:inline">
+                    {lastSavedTime && `(${lastSavedTime})`}
+                  </span>
+                  <span className="px-1.5 py-0.5 bg-amber-200 text-amber-900 text-[10px] font-bold rounded">
+                    ブラウザ内のみ
                   </span>
                 </>
               )}
               {saveStatus === 'idle' && (
                 <>
                   <Save className="w-3.5 h-3.5 text-slate-400" />
-                  <span className="text-slate-500">変更時に自動保存されます</span>
+                  <span className="text-slate-500">変更時に自動保存</span>
                 </>
               )}
               {saveStatus === 'error' && (
                 <>
                   <AlertCircle className="w-3.5 h-3.5 text-rose-500" />
-                  <span className="text-rose-600 font-bold">ローカルキャッシュ保存中</span>
+                  <span className="text-rose-600 font-bold">ローカルキャッシュのみ</span>
                 </>
               )}
-            </div>
+              <HelpCircle className="w-3.5 h-3.5 text-slate-400 ml-0.5" />
+            </button>
           </div>
 
           {/* アクションボタン: サーバー同期 & 下書きクリア */}
@@ -889,6 +955,47 @@ export function InspectionScheduler({
           </div>
         </div>
       </div>
+
+      {/* ローカル保存モード時の注意・案内バナー */}
+      {syncDestination === 'local_only' && items.length > 0 && (
+        <div className="bg-amber-50 border border-amber-300 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-2xs animate-in fade-in slide-in-from-top-2">
+          <div className="flex items-start sm:items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center font-bold shrink-0 shadow-xs">
+              <HardDrive className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="font-bold text-amber-950 text-sm flex items-center gap-2">
+                <span>⚠️ 現在【このブラウザ内（ローカル）】にのみ下書きが保存されています</span>
+                <span className="px-2 py-0.5 bg-amber-200 text-amber-900 rounded-full text-[10px] font-bold">
+                  サーバー未同期
+                </span>
+              </div>
+              <p className="text-amber-800 text-xs mt-0.5">
+                自社サーバーのAPI（/api/inspection/drafts）が応答していないため、別PCやシークレットタブには共有されません。
+                （ブラウザを閉じてもこのPCの同じブラウザでは作業継続可能です）
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+            <button
+              type="button"
+              onClick={handleManualSync}
+              disabled={isSyncing}
+              className="px-3 py-1.5 bg-white hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-xl font-bold transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+              <span>サーバーへ再接続</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowSyncInfoModal(true)}
+              className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold transition-colors cursor-pointer shadow-xs"
+            >
+              詳細・同期設定
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 繰越案件引き継ぎ通知バナー */}
       {carriedOverBanner && (
@@ -1931,6 +2038,129 @@ export function InspectionScheduler({
                 className="px-4 py-1.5 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg cursor-pointer"
               >
                 この日時で配置
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 同期ステータス・設定詳細モーダル */}
+      {showSyncInfoModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 sm:p-7 max-w-lg w-full shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150 border border-slate-200">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className={`w-9 h-9 rounded-2xl flex items-center justify-center font-bold text-white shadow-xs ${
+                  syncDestination === 'server' ? 'bg-emerald-600' : 'bg-amber-500'
+                }`}>
+                  {syncDestination === 'server' ? <Server className="w-5 h-5" /> : <HardDrive className="w-5 h-5" />}
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900">
+                    下書きの保存・同期ステータス
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    点検スケジューラーの自動保存先と同期状況
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowSyncInfoModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* 現在の保存状態カード */}
+            <div className={`p-4 rounded-2xl border ${
+              syncDestination === 'server'
+                ? 'bg-emerald-50/80 border-emerald-200 text-emerald-950'
+                : 'bg-amber-50/80 border-amber-200 text-amber-950'
+            }`}>
+              <div className="flex items-center gap-2 font-bold text-sm">
+                <span>現在の保存先:</span>
+                <span className={`px-2.5 py-0.5 rounded-full text-xs font-black ${
+                  syncDestination === 'server'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'bg-amber-500 text-white shadow-xs'
+                }`}>
+                  {syncDestination === 'server' ? '🟢 サーバー同期中（正常）' : '🟠 ブラウザ内ローカル保存（サーバー未接続）'}
+                </span>
+              </div>
+              <p className="text-xs mt-2 leading-relaxed">
+                {syncDestination === 'server' ? (
+                  '自社サーバー（NAS/SQL）とリアルタイムに同期されています。他の管理者のPCや別ブラウザ、シークレットタブでも即座に同じ下書き作業を再開・共有できます。'
+                ) : (
+                  '自社サーバーのAPI（/api/inspection/drafts）が応答していないため、現在の作業内容は【このブラウザ内（localStorage）】にのみ保存されています。ブラウザを閉じてもこのPCの同じブラウザであれば復元されますが、別PCやシークレットタブには共有されません。'
+                )}
+              </p>
+            </div>
+
+            {/* 詳細プロパティ一覧 */}
+            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-2.5 text-xs text-slate-700">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500">点検対象年月:</span>
+                <span className="font-bold text-slate-900">{targetYearMonth}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500">作業中案件数:</span>
+                <span className="font-bold text-slate-900">
+                  全 {items.length} 件（配置済: {placedItems.length}件 / 未配置: {pendingItems.length}件 / 繰越: {carriedOverItems.length}件）
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500">最終保存時刻:</span>
+                <span className="font-bold text-slate-900">{lastSavedTime || '未保存'}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500">最終操作ユーザー:</span>
+                <span className="font-bold text-slate-900">{currentUser.name}</span>
+              </div>
+              <div className="flex items-center justify-between pt-1 border-t border-slate-200/60">
+                <span className="text-slate-500">APIエンドポイント:</span>
+                <span className="font-mono text-[11px] text-slate-600 truncate max-w-[220px]">
+                  {API_BASE_URL}/inspection/drafts
+                </span>
+              </div>
+            </div>
+
+            {/* ローカル保存時の解決手順案内 */}
+            {syncDestination === 'local_only' && (
+              <div className="bg-slate-900 text-slate-100 p-4 rounded-2xl text-xs space-y-2">
+                <div className="font-bold text-amber-400 flex items-center gap-1.5">
+                  <Info className="w-4 h-4" />
+                  <span>サーバー同期を有効にする手順</span>
+                </div>
+                <ol className="list-decimal list-inside space-y-1 text-[11px] text-slate-300">
+                  <li>メニューから <strong>「管理者パネル」</strong> ＞ <strong>「システム設定」</strong> を開く</li>
+                  <li><strong>「server.js 推奨コード」</strong> タブで最新コードをコピー</li>
+                  <li>サーバー（NAS / Windows Server）の <code>server.js</code> に貼り付けて Node.js を再起動</li>
+                  <li>下の <strong>「サーバーへ再同期」</strong> ボタンを押す</li>
+                </ol>
+              </div>
+            )}
+
+            {/* アクションボタン */}
+            <div className="flex items-center justify-end gap-2.5 pt-1">
+              <button
+                type="button"
+                onClick={() => setShowSyncInfoModal(false)}
+                className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+              >
+                閉じる
+              </button>
+              <button
+                type="button"
+                disabled={isSyncing || items.length === 0}
+                onClick={async () => {
+                  await loadDraftAndCarryOver(targetYearMonth, true);
+                }}
+                className="px-5 py-2 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition-all cursor-pointer shadow-md shadow-indigo-200 flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                <span>今すぐサーバーへ再同期</span>
               </button>
             </div>
           </div>
