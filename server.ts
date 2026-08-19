@@ -842,6 +842,184 @@ async function startServer() {
     }
   });
 
+  // ==========================================
+  // 点検スケジューラー: 下書き保存・自動保存・翌月繰越 API
+  // ==========================================
+  const inspectionDraftsPath = path.join(dataDir, 'inspection_drafts.json');
+
+  interface StoredInspectionDraft {
+    targetYearMonth: string; // 'YYYY-MM'
+    items: any[];
+    lastSavedAt: string;     // ISO string
+    savedByUserId?: string;
+    savedByUserName?: string;
+  }
+
+  function loadInspectionDrafts(): StoredInspectionDraft[] {
+    if (!fs.existsSync(inspectionDraftsPath)) return [];
+    try {
+      return JSON.parse(fs.readFileSync(inspectionDraftsPath, 'utf8'));
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function saveInspectionDrafts(drafts: StoredInspectionDraft[]) {
+    try {
+      fs.writeFileSync(inspectionDraftsPath, JSON.stringify(drafts, null, 2), 'utf8');
+    } catch (e) {
+      console.error('Failed to save inspection drafts:', e);
+    }
+  }
+
+  function getPreviousYearMonth(yearMonth: string): string {
+    const [y, m] = yearMonth.split('-').map(Number);
+    if (!y || !m) return '';
+    const date = new Date(y, m - 2, 1);
+    const prevY = date.getFullYear();
+    const prevM = String(date.getMonth() + 1).padStart(2, '0');
+    return `${prevY}-${prevM}`;
+  }
+
+  // 指定年月の下書き保存状態取得
+  app.get('/api/inspection/drafts', (req, res) => {
+    try {
+      const targetYearMonth = req.query.targetYearMonth as string;
+      if (!targetYearMonth) {
+        return res.status(400).json({ error: 'targetYearMonth は必須です (例: 2026-08)' });
+      }
+
+      const drafts = loadInspectionDrafts();
+      const draft = drafts.find((d) => d.targetYearMonth === targetYearMonth);
+
+      if (!draft) {
+        return res.json({
+          exists: false,
+          targetYearMonth,
+          items: [],
+          lastSavedAt: null,
+          savedByUserId: null,
+          savedByUserName: null
+        });
+      }
+
+      res.json({
+        exists: true,
+        targetYearMonth: draft.targetYearMonth,
+        items: draft.items || [],
+        lastSavedAt: draft.lastSavedAt,
+        savedByUserId: draft.savedByUserId,
+        savedByUserName: draft.savedByUserName
+      });
+    } catch (err: any) {
+      console.error('Get inspection draft error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 下書き自動保存・一時保存
+  app.post('/api/inspection/drafts', (req, res) => {
+    try {
+      const { targetYearMonth, items, savedByUserId, savedByUserName } = req.body;
+      if (!targetYearMonth || !Array.isArray(items)) {
+        return res.status(400).json({ error: 'targetYearMonth および items 配列は必須です。' });
+      }
+
+      const drafts = loadInspectionDrafts();
+      const nowIso = new Date().toISOString();
+
+      const existingIndex = drafts.findIndex((d) => d.targetYearMonth === targetYearMonth);
+      const newDraft: StoredInspectionDraft = {
+        targetYearMonth,
+        items,
+        lastSavedAt: nowIso,
+        savedByUserId,
+        savedByUserName
+      };
+
+      if (existingIndex >= 0) {
+        drafts[existingIndex] = newDraft;
+      } else {
+        drafts.push(newDraft);
+      }
+
+      saveInspectionDrafts(drafts);
+
+      res.json({
+        success: true,
+        targetYearMonth,
+        itemCount: items.length,
+        lastSavedAt: nowIso
+      });
+    } catch (err: any) {
+      console.error('Save inspection draft error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 指定年月の下書きクリア
+  app.delete('/api/inspection/drafts', (req, res) => {
+    try {
+      const targetYearMonth = (req.query.targetYearMonth || req.body?.targetYearMonth) as string;
+      if (!targetYearMonth) {
+        return res.status(400).json({ error: 'targetYearMonth は必須です' });
+      }
+
+      let drafts = loadInspectionDrafts();
+      drafts = drafts.filter((d) => d.targetYearMonth !== targetYearMonth);
+      saveInspectionDrafts(drafts);
+
+      res.json({ success: true, message: `${targetYearMonth} の下書きをクリアしました。` });
+    } catch (err: any) {
+      console.error('Delete inspection draft error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 前月からの「翌月繰越 (carried_over)」アイテムの自動取得 API
+  app.get('/api/inspection/carry-overs', (req, res) => {
+    try {
+      const targetYearMonth = req.query.targetYearMonth as string;
+      if (!targetYearMonth) {
+        return res.status(400).json({ error: 'targetYearMonth は必須です' });
+      }
+
+      const prevMonth = getPreviousYearMonth(targetYearMonth);
+      if (!prevMonth) {
+        return res.json({ prevMonth: '', carriedOverItems: [] });
+      }
+
+      const drafts = loadInspectionDrafts();
+      const prevDraft = drafts.find((d) => d.targetYearMonth === prevMonth);
+
+      if (!prevDraft || !Array.isArray(prevDraft.items)) {
+        return res.json({ prevMonth, carriedOverItems: [] });
+      }
+
+      // 前月のアイテムのうち status が 'carried_over' のものを抽出
+      const carriedOverItems = prevDraft.items.filter((item: any) => item.status === 'carried_over');
+
+      res.json({
+        currentMonth: targetYearMonth,
+        prevMonth,
+        carriedOverCount: carriedOverItems.length,
+        carriedOverItems: carriedOverItems.map((item: any) => ({
+          ...item,
+          // 当月用としてステータスを pending にリセットし、繰越元年月を記録
+          status: 'pending',
+          targetYearMonth: targetYearMonth,
+          carriedOverFrom: prevMonth,
+          assignedDate: undefined,
+          assignedStartTime: undefined,
+          assignedEndTime: undefined
+        }))
+      });
+    } catch (err: any) {
+      console.error('Get carry-over items error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // Vite開発用ミドルウェア または プロダクション静的ファイルサーブ
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({

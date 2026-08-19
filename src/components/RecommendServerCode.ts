@@ -1214,7 +1214,10 @@ app.get('/api/events', async (req, res) => {
       recurrence: safeParseJSON(row.recurrence, null),
       recurrenceParentId: row.recurrenceParentId || null,
       recurrenceOriginalDate: row.recurrenceOriginalDate || null,
-      recurrenceExceptions: safeParseJSON(row.recurrenceExceptions, [])
+      recurrenceExceptions: safeParseJSON(row.recurrenceExceptions, []),
+      status: row.status || 'published',
+      targetYearMonth: row.targetYearMonth || null,
+      draftSavedAt: row.draftSavedAt || null
     }));
     res.json(events);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -1372,6 +1375,119 @@ app.delete('/api/events/:id', async (req, res) => {
     const pool = await getPool();
     await pool.request().input('id', sql.VarChar, String(req.params.id)).query('DELETE FROM dbo.Events WHERE id = @id');
     res.json({ message: '削除完了' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ------------------------------------------
+// 4-B. Inspection Drafts & Carry-overs (月間点検スケジューラー 下書き・翌月繰越管理)
+// ------------------------------------------
+const inspectionDraftsFile = path.join(process.cwd(), 'data', 'inspection-drafts.json');
+const loadInspectionDraftsData = () => {
+  if (fs.existsSync(inspectionDraftsFile)) {
+    try {
+      return JSON.parse(fs.readFileSync(inspectionDraftsFile, 'utf8'));
+    } catch (e) {
+      return [];
+    }
+  }
+  return [];
+};
+const saveInspectionDraftsData = (drafts) => {
+  const dir = path.dirname(inspectionDraftsFile);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(inspectionDraftsFile, JSON.stringify(drafts, null, 2), 'utf8');
+};
+
+app.get('/api/inspection/drafts', (req, res) => {
+  try {
+    const targetYearMonth = req.query.targetYearMonth;
+    if (!targetYearMonth) {
+      return res.status(400).json({ error: 'targetYearMonth は必須です' });
+    }
+    const drafts = loadInspectionDraftsData();
+    const draft = drafts.find(d => d.targetYearMonth === targetYearMonth);
+    if (!draft) {
+      return res.json({ targetYearMonth, items: [], lastSavedAt: null, currentStep: 'assign_date' });
+    }
+    res.json(draft);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/inspection/drafts', (req, res) => {
+  try {
+    const { targetYearMonth, items, currentStep, lastSavedAt } = req.body;
+    if (!targetYearMonth || !Array.isArray(items)) {
+      return res.status(400).json({ error: 'targetYearMonth および items は必須です' });
+    }
+    const drafts = loadInspectionDraftsData();
+    const existingIndex = drafts.findIndex(d => d.targetYearMonth === targetYearMonth);
+    const nowIso = lastSavedAt || new Date().toISOString();
+    const draftPayload = {
+      targetYearMonth,
+      items,
+      currentStep: currentStep || 'assign_date',
+      lastSavedAt: nowIso,
+      updatedBy: req.body.updatedBy || 'system'
+    };
+    if (existingIndex >= 0) {
+      drafts[existingIndex] = draftPayload;
+    } else {
+      drafts.push(draftPayload);
+    }
+    saveInspectionDraftsData(drafts);
+    res.json({ success: true, targetYearMonth, itemCount: items.length, lastSavedAt: nowIso });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/inspection/drafts', (req, res) => {
+  try {
+    const targetYearMonth = req.query.targetYearMonth || req.body?.targetYearMonth;
+    if (!targetYearMonth) {
+      return res.status(400).json({ error: 'targetYearMonth は必須です' });
+    }
+    let drafts = loadInspectionDraftsData();
+    drafts = drafts.filter(d => d.targetYearMonth !== targetYearMonth);
+    saveInspectionDraftsData(drafts);
+    res.json({ success: true, message: \`\${targetYearMonth} の下書きをクリアしました。\` });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/inspection/carry-overs', (req, res) => {
+  try {
+    const targetYearMonth = req.query.targetYearMonth;
+    if (!targetYearMonth) {
+      return res.status(400).json({ error: 'targetYearMonth は必須です' });
+    }
+    const [yearStr, monthStr] = targetYearMonth.split('-');
+    const year = parseInt(yearStr, 10);
+    const month = parseInt(monthStr, 10);
+    let prevYear = year;
+    let prevMonthNum = month - 1;
+    if (prevMonthNum === 0) {
+      prevMonthNum = 12;
+      prevYear -= 1;
+    }
+    const prevMonth = \`\${prevYear}-\${String(prevMonthNum).padStart(2, '0')}\`;
+    const drafts = loadInspectionDraftsData();
+    const prevDraft = drafts.find(d => d.targetYearMonth === prevMonth);
+    if (!prevDraft || !Array.isArray(prevDraft.items)) {
+      return res.json({ prevMonth, carriedOverItems: [] });
+    }
+    const carriedOverItems = prevDraft.items.filter(item => item.status === 'carried_over');
+    res.json({
+      currentMonth: targetYearMonth,
+      prevMonth,
+      carriedOverCount: carriedOverItems.length,
+      carriedOverItems: carriedOverItems.map(item => ({
+        ...item,
+        status: 'pending',
+        targetYearMonth: targetYearMonth,
+        carriedOverFrom: prevMonth,
+        assignedDate: undefined,
+        assignedStartTime: undefined,
+        assignedEndTime: undefined
+      }))
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

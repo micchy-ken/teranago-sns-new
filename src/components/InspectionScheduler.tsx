@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   FileSpreadsheet,
   Upload,
@@ -27,10 +27,17 @@ import {
   UserCheck,
   ChevronUp,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   GripVertical,
   CalendarDays,
   Filter,
-  Search
+  Search,
+  Loader2,
+  Save,
+  RotateCcw,
+  CloudCheck,
+  History
 } from 'lucide-react';
 import { User, CalendarEvent } from '../types';
 import {
@@ -41,6 +48,7 @@ import {
 } from '../utils/excelInspection';
 import { getAvatarUrl } from '../utils/avatar';
 import { markEventAsRead } from '../utils/notifications';
+import { API_BASE_URL } from '../config/api';
 
 interface InspectionSchedulerProps {
   allUsers: User[];
@@ -66,6 +74,16 @@ export function InspectionScheduler({
   const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
   const [dragOverItemId, setDragOverItemId] = useState<string | null>(null);
 
+  // 自動保存・下書き状態管理
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [lastSavedTime, setLastSavedTime] = useState<string | null>(null);
+  const [isLoadingDraft, setIsLoadingDraft] = useState<boolean>(false);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [carriedOverBanner, setCarriedOverBanner] = useState<{ prevMonth: string; count: number } | null>(null);
+  const isInitialMountRef = useRef<boolean>(true);
+  const lastSavedJsonRef = useRef<string>('');
+  const autoSaveTimerRef = useRef<any>(null);
+
   // 検索・フィルター
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'placed' | 'hidden' | 'carried_over'>('pending');
@@ -84,6 +102,195 @@ export function InspectionScheduler({
   const [step1Search, setStep1Search] = useState<string>('');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // ==========================================
+  // 前月 / 翌月 計算ヘルパー
+  // ==========================================
+  const getPrevMonth = (ym: string) => {
+    const [y, m] = ym.split('-').map(Number);
+    if (!y || !m) return '';
+    const d = new Date(y, m - 2, 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  };
+
+  const getNextMonth = (ym: string) => {
+    const [y, m] = ym.split('-').map(Number);
+    if (!y || !m) return '';
+    const d = new Date(y, m, 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  };
+
+  // ==========================================
+  // 下書きロード & 前月繰越自動引き継ぎ処理
+  // ==========================================
+  const loadDraftAndCarryOver = useCallback(async (ym: string, isManualSync = false) => {
+    if (isManualSync) setIsSyncing(true);
+    else setIsLoadingDraft(true);
+
+    try {
+      // 1. APIから下書きを取得
+      const resDraft = await fetch(`${API_BASE_URL}/inspection/drafts?targetYearMonth=${ym}`);
+      let loadedItems: InspectionItem[] = [];
+      let loadedTime: string | null = null;
+
+      if (resDraft.ok) {
+        const draftData = await resDraft.json();
+        if (draftData.exists && Array.isArray(draftData.items) && draftData.items.length > 0) {
+          loadedItems = draftData.items;
+          if (draftData.lastSavedAt) {
+            loadedTime = new Date(draftData.lastSavedAt).toLocaleTimeString('ja-JP', {
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit',
+            });
+          }
+        }
+      }
+
+      // 2. サーバーにない場合、ローカルストレージを確認
+      if (loadedItems.length === 0) {
+        try {
+          const localSaved = localStorage.getItem(`inspection_draft_${ym}`);
+          if (localSaved) {
+            const parsed = JSON.parse(localSaved);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              loadedItems = parsed;
+            }
+          }
+        } catch (_) {}
+      }
+
+      // 3. 前月からの「翌月繰越」アイテムを確認
+      const resCarry = await fetch(`${API_BASE_URL}/inspection/carry-overs?targetYearMonth=${ym}`);
+      if (resCarry.ok) {
+        const carryData = await resCarry.json();
+        if (carryData.carriedOverCount > 0 && Array.isArray(carryData.carriedOverItems)) {
+          // 既存のリストに未登録の繰越案件があればマージ
+          const existingJobNos = new Set(loadedItems.map(i => i.jobNo));
+          const newCarried = carryData.carriedOverItems.filter((i: any) => !existingJobNos.has(i.jobNo));
+
+          if (newCarried.length > 0) {
+            loadedItems = [...loadedItems, ...newCarried];
+            setCarriedOverBanner({
+              prevMonth: carryData.prevMonth,
+              count: newCarried.length,
+            });
+          }
+        } else {
+          setCarriedOverBanner(null);
+        }
+      }
+
+      setItems(loadedItems);
+      lastSavedJsonRef.current = JSON.stringify(loadedItems);
+      if (loadedItems.length > 0) {
+        setSaveStatus('saved');
+        setLastSavedTime(loadedTime || new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+      } else {
+        setSaveStatus('idle');
+      }
+    } catch (err) {
+      console.warn('Failed to load inspection draft:', err);
+      setSaveStatus('error');
+    } finally {
+      setIsLoadingDraft(false);
+      setIsSyncing(false);
+      isInitialMountRef.current = false;
+    }
+  }, []);
+
+  // 月変更時・初回マウント時に自動ロード
+  useEffect(() => {
+    loadDraftAndCarryOver(targetYearMonth);
+  }, [targetYearMonth, loadDraftAndCarryOver]);
+
+  // ==========================================
+  // デバウンス自動保存 (Auto-Save)
+  // ==========================================
+  useEffect(() => {
+    if (isInitialMountRef.current || isLoadingDraft) return;
+
+    const currentJson = JSON.stringify(items);
+    if (currentJson === lastSavedJsonRef.current) return;
+
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
+
+    setSaveStatus('saving');
+
+    autoSaveTimerRef.current = setTimeout(async () => {
+      try {
+        // 1. APIに保存
+        const res = await fetch(`${API_BASE_URL}/inspection/drafts`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            targetYearMonth,
+            items,
+            savedByUserId: currentUser.id,
+            savedByUserName: currentUser.name,
+          }),
+        });
+
+        // 2. ローカルストレージにもバックアップ保存
+        try {
+          localStorage.setItem(`inspection_draft_${targetYearMonth}`, currentJson);
+        } catch (_) {}
+
+        if (res.ok) {
+          const data = await res.json();
+          lastSavedJsonRef.current = currentJson;
+          setSaveStatus('saved');
+          setLastSavedTime(
+            new Date(data.lastSavedAt || new Date()).toLocaleTimeString('ja-JP', {
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit',
+            })
+          );
+        } else {
+          setSaveStatus('saved'); // ローカルに保存済み
+          setLastSavedTime(new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+        }
+      } catch (e) {
+        console.warn('Auto-save network error, saved to local cache:', e);
+        setSaveStatus('saved');
+        setLastSavedTime(new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+      }
+    }, 500);
+
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+      }
+    };
+  }, [items, targetYearMonth, isLoadingDraft, currentUser]);
+
+  // 下書きクリア（リセット）
+  const handleClearDraft = async () => {
+    if (items.length === 0) return;
+    if (confirm(`${targetYearMonth} の下書き作業データを初期化しますか？\n（配置・未配置・繰越状態がクリアされます）`)) {
+      try {
+        await fetch(`${API_BASE_URL}/inspection/drafts?targetYearMonth=${targetYearMonth}`, {
+          method: 'DELETE',
+        });
+        localStorage.removeItem(`inspection_draft_${targetYearMonth}`);
+        setItems([]);
+        lastSavedJsonRef.current = JSON.stringify([]);
+        setSaveStatus('idle');
+        setLastSavedTime(null);
+        setCarriedOverBanner(null);
+      } catch (e) {
+        console.error('Failed to clear draft:', e);
+      }
+    }
+  };
+
+  // 手動同期
+  const handleManualSync = () => {
+    loadDraftAndCarryOver(targetYearMonth, true);
+  };
 
   // ==========================================
   // 保守メンバーのフィルタリング
@@ -504,6 +711,9 @@ export function InspectionScheduler({
         attendees: item.assignedUsers && item.assignedUsers.length > 0 ? item.assignedUsers : [currentUser],
         createdBy: currentUser,
         isGoogleSynced: false,
+        status: 'published',
+        targetYearMonth: targetYearMonth,
+        draftSavedAt: new Date().toISOString(),
       };
 
       // 参加者に対して既読処理
@@ -524,7 +734,7 @@ export function InspectionScheduler({
   return (
     <div className="w-full max-w-7xl mx-auto space-y-6 pb-12">
       {/* 画面ヘッダー */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm ring-1 ring-slate-900/5">
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm ring-1 ring-slate-900/5 space-y-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 bg-indigo-600 text-white rounded-2xl flex items-center justify-center shadow-md shadow-indigo-100">
@@ -585,7 +795,125 @@ export function InspectionScheduler({
             </button>
           </div>
         </div>
+
+        {/* サブツールバー: 対象年月切替・自動保存状態・同期・リセット */}
+        <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          {/* 年月セレクター */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center bg-slate-100/80 p-1 rounded-xl border border-slate-200/80">
+              <button
+                type="button"
+                onClick={() => setTargetYearMonth(getPrevMonth(targetYearMonth))}
+                className="p-1 text-slate-600 hover:text-slate-900 hover:bg-white rounded-lg transition-colors cursor-pointer"
+                title={`前月 (${getPrevMonth(targetYearMonth)}) へ`}
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <div className="flex items-center gap-1.5 px-2.5 py-0.5">
+                <CalendarDays className="w-4 h-4 text-indigo-600" />
+                <span className="font-bold text-slate-700">点検対象年月:</span>
+                <input
+                  type="month"
+                  value={targetYearMonth}
+                  onChange={(e) => setTargetYearMonth(e.target.value)}
+                  className="font-black text-indigo-900 bg-transparent border-none focus:outline-none cursor-pointer text-sm"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => setTargetYearMonth(getNextMonth(targetYearMonth))}
+                className="p-1 text-slate-600 hover:text-slate-900 hover:bg-white rounded-lg transition-colors cursor-pointer"
+                title={`翌月 (${getNextMonth(targetYearMonth)}) へ`}
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* 自動保存ステータスバッジ */}
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border font-medium text-[11px] bg-slate-50 border-slate-200">
+              {saveStatus === 'saving' && (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 text-amber-600 animate-spin" />
+                  <span className="text-amber-700 font-bold">自動保存中...</span>
+                </>
+              )}
+              {saveStatus === 'saved' && (
+                <>
+                  <CloudCheck className="w-3.5 h-3.5 text-emerald-600" />
+                  <span className="text-emerald-700 font-bold">
+                    自動保存済み {lastSavedTime && `(${lastSavedTime})`}
+                  </span>
+                </>
+              )}
+              {saveStatus === 'idle' && (
+                <>
+                  <Save className="w-3.5 h-3.5 text-slate-400" />
+                  <span className="text-slate-500">変更時に自動保存されます</span>
+                </>
+              )}
+              {saveStatus === 'error' && (
+                <>
+                  <AlertCircle className="w-3.5 h-3.5 text-rose-500" />
+                  <span className="text-rose-600 font-bold">ローカルキャッシュ保存中</span>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* アクションボタン: サーバー同期 & 下書きクリア */}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleManualSync}
+              disabled={isSyncing}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-colors cursor-pointer disabled:opacity-50"
+              title="サーバーの最新の下書き配置データを取得して同期します"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-indigo-600' : 'text-slate-500'}`} />
+              <span>最新を同期</span>
+            </button>
+            {items.length > 0 && (
+              <button
+                type="button"
+                onClick={handleClearDraft}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold rounded-xl transition-colors border border-rose-200 cursor-pointer"
+                title={`${targetYearMonth} の作業中データをリセットします`}
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-rose-600" />
+                <span>下書きクリア</span>
+              </button>
+            )}
+          </div>
+        </div>
       </div>
+
+      {/* 繰越案件引き継ぎ通知バナー */}
+      {carriedOverBanner && (
+        <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-4 flex items-center justify-between gap-4 text-xs shadow-2xs animate-in fade-in slide-in-from-top-2">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold shadow-xs">
+              <History className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="font-black text-indigo-950 text-sm flex items-center gap-2">
+                前月（{carriedOverBanner.prevMonth}度）からの繰越案件を自動引き継ぎしました
+                <span className="px-2 py-0.5 bg-indigo-200 text-indigo-900 rounded-full text-[11px] font-bold">
+                  {carriedOverBanner.count}件
+                </span>
+              </div>
+              <p className="text-xs text-indigo-700 mt-0.5">
+                前月の点検調整で「翌月へ繰越」に設定された案件が、今月の未配置リストへ自動的に引き継がれました。
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setCarriedOverBanner(null)}
+            className="px-3 py-1.5 text-xs font-bold text-indigo-700 hover:bg-indigo-100 rounded-xl transition-colors cursor-pointer"
+          >
+            閉じる
+          </button>
+        </div>
+      )}
 
       {/* ==========================================
           STEP 1 & 2: EXCEL IMPORT & LIST VIEW
@@ -942,6 +1270,12 @@ export function InspectionScheduler({
                             {item.workName && (
                               <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded">
                                 {item.workName}
+                              </span>
+                            )}
+                            {item.carriedOverFrom && (
+                              <span className="font-bold text-[10px] px-1.5 py-0.5 bg-indigo-100 text-indigo-800 rounded border border-indigo-200 inline-flex items-center gap-1">
+                                <History className="w-2.5 h-2.5" />
+                                前月({item.carriedOverFrom})より繰越
                               </span>
                             )}
                           </div>

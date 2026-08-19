@@ -101,6 +101,11 @@ export interface CalendarEvent {
   isGoogleSynced: boolean;
   isIcal?: boolean; // iCal連携イベントフラグ
 
+  // スケジュール・点検管理ステータス
+  status?: 'pending' | 'draft' | 'published' | 'carried_over' | 'hidden';
+  targetYearMonth?: string; // 点検対象年月 (例: '2026-08')
+  draftSavedAt?: string;    // 下書き・自動保存日時 (ISO string)
+
   // 繰り返し設定
   recurrence?: RecurrenceRule;
   recurrenceParentId?: string;     // 繰り返しシリーズの親イベントID（個別変更インスタンスの場合）

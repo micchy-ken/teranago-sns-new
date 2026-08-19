@@ -218,7 +218,11 @@ BEGIN
         recurrence NVARCHAR(MAX) NULL,
         recurrenceParentId VARCHAR(50) NULL,
         recurrenceOriginalDate VARCHAR(50) NULL,
-        recurrenceExceptions NVARCHAR(MAX) NULL
+        recurrenceExceptions NVARCHAR(MAX) NULL,
+        -- 点検・スケジュール管理 & 一時保存・繰越用追加カラム
+        status VARCHAR(50) DEFAULT 'published',
+        targetYearMonth VARCHAR(7) NULL,
+        draftSavedAt DATETIME2 NULL
     );
 END
 ELSE
@@ -237,6 +241,11 @@ BEGIN
     IF COL_LENGTH('dbo.Events', 'recurrenceOriginalDate') IS NULL ALTER TABLE dbo.Events ADD recurrenceOriginalDate VARCHAR(50) NULL;
     IF COL_LENGTH('dbo.Events', 'recurrenceExceptions') IS NULL ALTER TABLE dbo.Events ADD recurrenceExceptions NVARCHAR(MAX) NULL;
     
+    -- 点検スケジューラー: 下書き保存・月度抽出・自動保存用カラム
+    IF COL_LENGTH('dbo.Events', 'status') IS NULL ALTER TABLE dbo.Events ADD status VARCHAR(50) DEFAULT 'published';
+    IF COL_LENGTH('dbo.Events', 'targetYearMonth') IS NULL ALTER TABLE dbo.Events ADD targetYearMonth VARCHAR(7) NULL;
+    IF COL_LENGTH('dbo.Events', 'draftSavedAt') IS NULL ALTER TABLE dbo.Events ADD draftSavedAt DATETIME2 NULL;
+
     -- isGoogleSynced / isIcal を NULL許容に変更（NOT NULL制約によるINSERTエラー防止）
     IF COL_LENGTH('dbo.Events', 'isGoogleSynced') IS NOT NULL
     BEGIN

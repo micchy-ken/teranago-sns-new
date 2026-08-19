@@ -24,6 +24,8 @@ export interface InspectionItem {
   conditions?: string;     // 指定条件・警告内容など
 
   status: 'pending' | 'placed' | 'carried_over' | 'hidden';
+  carriedOverFrom?: string; // 繰越元年月 (例: '2026-07')
+  draftSavedAt?: string;    // 下書き保存日時 (ISO string)
 
   // 日付・時刻配置 (Step 3 & 4)
   assignedDate?: string;      // YYYY-MM-DD

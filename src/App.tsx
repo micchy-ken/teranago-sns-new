@@ -1674,6 +1674,9 @@ export default function App() {
       recurrenceParentId: ev.recurrenceParentId || null,
       recurrenceOriginalDate: ev.recurrenceOriginalDate || null,
       recurrenceExceptions: ev.recurrenceExceptions || [],
+      status: ev.status || 'published',
+      targetYearMonth: ev.targetYearMonth || null,
+      draftSavedAt: ev.draftSavedAt || null,
       description: JSON.stringify(descObj),
       details: JSON.stringify(descObj)
     };
