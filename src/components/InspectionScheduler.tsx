@@ -29,7 +29,8 @@ import {
   ChevronDown,
   GripVertical,
   CalendarDays,
-  Filter
+  Filter,
+  Search
 } from 'lucide-react';
 import { User, CalendarEvent } from '../types';
 import {
@@ -80,6 +81,7 @@ export function InspectionScheduler({
   // 一括担当者指定用
   const [batchUserIds, setBatchUserIds] = useState<string[]>([]);
   const [completedCount, setCompletedCount] = useState<number>(0);
+  const [step1Search, setStep1Search] = useState<string>('');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -493,7 +495,7 @@ export function InspectionScheduler({
 
       const newEvent: CalendarEvent = {
         id: `evt_insp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-        title: `[点検] ${item.siteName}`,
+        title: `[${item.workName || '点検'}] ${item.siteName}`,
         start: startIso,
         end: endIso,
         type: 'inspection',
@@ -660,7 +662,18 @@ export function InspectionScheduler({
                   </p>
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 flex-wrap">
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="一覧内を検索..."
+                      value={step1Search}
+                      onChange={(e) => setStep1Search(e.target.value)}
+                      className="pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 w-48"
+                    />
+                  </div>
+
                   <div className="flex items-center gap-1 text-xs text-slate-600 bg-slate-100 px-3 py-1.5 rounded-lg">
                     <CalendarIcon className="w-3.5 h-3.5 text-slate-500" />
                     点検月:
@@ -673,7 +686,7 @@ export function InspectionScheduler({
                   </div>
                   <button
                     onClick={() => setCurrentStep('assign_date')}
-                    className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-sm transition-all flex items-center gap-2 cursor-pointer"
+                    className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-sm transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap"
                   >
                     日付登録画面へ進む (Step 3)
                     <ArrowRight className="w-4 h-4" />
@@ -682,53 +695,72 @@ export function InspectionScheduler({
               </div>
 
               {/* プレビューテーブル */}
-              <div className="overflow-x-auto max-h-96">
-                <table className="w-full text-left text-xs">
+              <div className="overflow-x-auto border border-slate-200 rounded-xl max-h-[60vh] shadow-2xs">
+                <table className="w-full min-w-[950px] text-left text-xs table-fixed">
+                  <colgroup>
+                    <col className="w-12" />
+                    <col className="w-28" />
+                    <col className="w-48" />
+                    <col className="w-28" />
+                    <col className="w-56" />
+                    <col className="w-16" />
+                    <col className="w-auto" />
+                  </colgroup>
                   <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold sticky top-0 z-10">
                     <tr>
-                      <th className="py-2.5 px-3">#</th>
-                      <th className="py-2.5 px-3">作業No</th>
-                      <th className="py-2.5 px-3">現場コード / 現場名</th>
-                      <th className="py-2.5 px-3">作業名 (区分)</th>
-                      <th className="py-2.5 px-3">地区 / 住所</th>
-                      <th className="py-2.5 px-3 text-center">台数</th>
-                      <th className="py-2.5 px-3">客先規則 / 注意事項</th>
-                      <th className="py-2.5 px-3">エクセル担当者</th>
+                      <th className="py-2.5 px-3 whitespace-nowrap text-center">#</th>
+                      <th className="py-2.5 px-3 whitespace-nowrap">作業No</th>
+                      <th className="py-2.5 px-3 whitespace-nowrap">現場名 / コード</th>
+                      <th className="py-2.5 px-3 whitespace-nowrap text-center">作業名 (区分)</th>
+                      <th className="py-2.5 px-3 whitespace-nowrap">地区 / 住所</th>
+                      <th className="py-2.5 px-3 whitespace-nowrap text-center">台数</th>
+                      <th className="py-2.5 px-3 whitespace-nowrap">客先規則 / 注意事項</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 text-slate-800">
-                    {items.map((item, idx) => (
+                  <tbody className="divide-y divide-slate-100 text-slate-800 bg-white">
+                    {items
+                      .filter((item) => {
+                        if (!step1Search.trim()) return true;
+                        const q = step1Search.toLowerCase();
+                        return (
+                          item.siteName.toLowerCase().includes(q) ||
+                          item.jobNo.toLowerCase().includes(q) ||
+                          item.address.toLowerCase().includes(q) ||
+                          item.customerRules.toLowerCase().includes(q) ||
+                          (item.siteCode ? item.siteCode.toLowerCase().includes(q) : false) ||
+                          (item.workName ? item.workName.toLowerCase().includes(q) : false)
+                        );
+                      })
+                      .map((item, idx) => (
                       <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="py-2.5 px-3 font-mono text-slate-400">{idx + 1}</td>
-                        <td className="py-2.5 px-3 font-mono font-bold text-indigo-600">{item.jobNo}</td>
-                        <td className="py-2.5 px-3">
-                          <div className="font-bold text-slate-900">{item.siteName}</div>
+                        <td className="py-2.5 px-3 font-mono text-slate-400 text-center whitespace-nowrap">{idx + 1}</td>
+                        <td className="py-2.5 px-3 font-mono font-bold text-indigo-600 whitespace-nowrap">{item.jobNo}</td>
+                        <td className="py-2.5 px-3 min-w-0">
+                          <div className="font-bold text-slate-900 truncate" title={item.siteName}>{item.siteName}</div>
                           {item.siteCode && (
-                            <span className="text-[10px] text-slate-400 font-mono">コード: {item.siteCode}</span>
+                            <span className="text-[10px] text-slate-400 font-mono block">コード: {item.siteCode}</span>
                           )}
                         </td>
-                        <td className="py-2.5 px-3">
-                          <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded font-semibold text-[11px]">
+                        <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                          <span className={`px-2 py-0.5 rounded font-bold text-[11px] whitespace-nowrap inline-block ${
+                            item.workName === '点検'
+                              ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                              : item.workName === 'スポット'
+                              ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                              : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                          }`}>
                             {item.workName || '点検'}{item.workCategory ? ` (${item.workCategory})` : ''}
                           </span>
                         </td>
-                        <td className="py-2.5 px-3">
-                          <div className="text-slate-800 font-medium max-w-xs truncate">{item.address}</div>
-                          {item.area && <div className="text-[10px] text-slate-400">{item.area}</div>}
+                        <td className="py-2.5 px-3 min-w-0">
+                          <div className="text-slate-800 font-medium truncate" title={item.address}>{item.address}</div>
+                          {item.area && <div className="text-[10px] text-slate-400 truncate">{item.area}</div>}
                         </td>
-                        <td className="py-2.5 px-3 text-center font-bold">{item.quantity}</td>
-                        <td className="py-2.5 px-3 text-slate-500 max-w-xs truncate">{item.customerRules}</td>
-                        <td className="py-2.5 px-3">
-                          {item.assignedUsers && item.assignedUsers.length > 0 ? (
-                            <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full font-bold text-[10px]">
-                              {item.assignedUsers.map((u) => u.name).join(', ')}
-                            </span>
-                          ) : item.excelPersonName ? (
-                            <span className="px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-full text-[10px]">
-                              {item.excelPersonName}
-                            </span>
-                          ) : (
-                            <span className="text-slate-400 text-[10px]">未割当</span>
+                        <td className="py-2.5 px-3 text-center font-bold whitespace-nowrap">{item.quantity}</td>
+                        <td className="py-2.5 px-3 min-w-0">
+                          <div className="text-slate-600 truncate" title={item.customerRules}>{item.customerRules || '-'}</div>
+                          {item.conditions && (
+                            <div className="text-[10px] text-amber-700 truncate mt-0.5" title={item.conditions}>{item.conditions}</div>
                           )}
                         </td>
                       </tr>
@@ -1342,19 +1374,25 @@ export function InspectionScheduler({
           </div>
 
           {/* 点検予定ごとのメンバー個別指定テーブル */}
-          <div className="overflow-x-auto max-h-[60vh]">
-            <table className="w-full text-left text-xs">
+          <div className="overflow-x-auto border border-slate-200 rounded-xl max-h-[60vh] shadow-2xs">
+            <table className="w-full min-w-[1000px] text-left text-xs table-fixed">
+              <colgroup>
+                <col className="w-32" />
+                <col className="w-28" />
+                <col className="w-52" />
+                <col className="w-56" />
+                <col className="w-auto" />
+              </colgroup>
               <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold sticky top-0 z-10">
                 <tr>
-                  <th className="py-2.5 px-3">日時</th>
-                  <th className="py-2.5 px-3">作業No</th>
-                  <th className="py-2.5 px-3">現場名</th>
-                  <th className="py-2.5 px-3">場所 / 規則</th>
-                  <th className="py-2.5 px-3">エクセル担当者</th>
-                  <th className="py-2.5 px-3">カレンダー参加メンバー (保守)</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap">日時</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap">作業No</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap">現場名 (台数・作業名)</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap">場所 / 客先規則</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap">カレンダー参加メンバー (保守)</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-800">
+              <tbody className="divide-y divide-slate-100 text-slate-800 bg-white">
                 {placedItems.map((item) => (
                   <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
                     <td className="py-3 px-3 font-bold whitespace-nowrap">
@@ -1363,25 +1401,31 @@ export function InspectionScheduler({
                         {item.assignedStartTime} - {item.assignedEndTime}
                       </div>
                     </td>
-                    <td className="py-3 px-3 font-mono font-bold text-slate-700">{item.jobNo}</td>
-                    <td className="py-3 px-3">
-                      <div className="font-bold text-slate-900">{item.siteName}</div>
-                      <div className="text-[11px] text-slate-500 font-semibold">{item.quantity}台</div>
-                    </td>
-                    <td className="py-3 px-3 max-w-xs">
-                      <div className="text-slate-700 truncate">{item.address}</div>
-                      <div className="text-[10px] text-amber-700 truncate">{item.customerRules}</div>
-                    </td>
-                    <td className="py-3 px-3">
-                      {item.excelPersonName ? (
-                        <span className="px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-full text-[10px] font-semibold">
-                          {item.excelPersonName}
+                    <td className="py-3 px-3 font-mono font-bold text-slate-700 whitespace-nowrap">{item.jobNo}</td>
+                    <td className="py-3 px-3 min-w-0">
+                      <div className="font-bold text-slate-900 truncate" title={item.siteName}>{item.siteName}</div>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="text-[10px] text-slate-500 font-semibold whitespace-nowrap">{item.quantity}台</span>
+                        <span className={`text-[10px] px-1.5 py-0.2 rounded font-bold whitespace-nowrap inline-block ${
+                          item.workName === '点検'
+                            ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                            : item.workName === 'スポット'
+                            ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                            : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                        }`}>
+                          {item.workName || '点検'}
                         </span>
-                      ) : (
-                        <span className="text-slate-400 text-[10px]">-</span>
+                      </div>
+                    </td>
+                    <td className="py-3 px-3 min-w-0">
+                      <div className="text-slate-700 truncate font-medium" title={item.address}>{item.address}</div>
+                      {item.customerRules && (
+                        <div className="text-[10px] text-amber-800 bg-amber-50/80 px-1.5 py-0.5 rounded mt-0.5 truncate font-medium border border-amber-100" title={item.customerRules}>
+                          規則: {item.customerRules}
+                        </div>
                       )}
                     </td>
-                    <td className="py-3 px-3">
+                    <td className="py-3 px-3 min-w-0">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         {selectableUsers.map((u) => {
                           const isAssigned = (item.assignedUsers || []).some((au) => au.id === u.id);

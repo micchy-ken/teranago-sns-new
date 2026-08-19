@@ -89,6 +89,23 @@ function formatExcelDate(cellVal: any): string | undefined {
   return undefined;
 }
 
+/** 作業区分に基づいて作業名を確定する（1: 点検, 2: スポット, 3: 修理） */
+export function resolveWorkName(workCategory?: string | number, rawWorkName?: string): string {
+  const cat = String(workCategory ?? '').trim();
+  if (cat === '1' || cat.startsWith('1')) return '点検';
+  if (cat === '2' || cat.startsWith('2')) return 'スポット';
+  if (cat === '3' || cat.startsWith('3')) return '修理';
+
+  if (rawWorkName) {
+    const raw = rawWorkName.trim();
+    if (raw === '1' || raw.startsWith('1') || raw === '点検' || raw.includes('点検') || raw === '自動ドア') return '点検';
+    if (raw === '2' || raw.startsWith('2') || raw === 'スポット' || raw.includes('スポット')) return 'スポット';
+    if (raw === '3' || raw.startsWith('3') || raw === '修理' || raw.includes('修理')) return '修理';
+    return raw;
+  }
+  return '点検';
+}
+
 /** Excelファイルを読み込んで InspectionItem 配列を生成する */
 export function parseInspectionExcel(
   fileBuffer: ArrayBuffer,
@@ -133,27 +150,34 @@ export function parseInspectionExcel(
 
     const headers = (rawData[headerRowIndex] as any[]).map((h) => String(h || '').trim());
     
-    // 各項目の列インデックスを特定
-    const findCol = (keywords: string[]): number => {
-      return headers.findIndex((h) => keywords.some((kw) => h === kw || h.includes(kw)));
+    // 各項目の列インデックスを特定 (完全一致優先、次に部分一致)
+    const findCol = (exactKeywords: string[], includeKeywords: string[] = []): number => {
+      // 1. 完全一致
+      const exactIndex = headers.findIndex((h) => exactKeywords.some((kw) => h === kw));
+      if (exactIndex !== -1) return exactIndex;
+      // 2. 部分一致 (厳密なキーワードのみ)
+      if (includeKeywords.length > 0) {
+        return headers.findIndex((h) => includeKeywords.some((kw) => h.includes(kw)));
+      }
+      return -1;
     };
 
-    const jobNoCol = findCol(['作業No', '作業番号']);
-    const dateCol = findCol(['点検日']);
-    const workCatCol = findCol(['作業区分']);
-    const workNameCol = findCol(['作業名']);
-    const contractNoCol = findCol(['契約No']);
-    const siteCodeCol = findCol(['現場コード']);
-    const siteCol = findCol(['現場名', '現場']);
-    const areaCol = findCol(['地区']);
-    const addrCol = findCol(['住所', '所在地']);
-    const qtyCol = findCol(['台数', '数量']);
-    const rulesCol = findCol(['客先規則', '規則']);
-    const cond1Col = findCol(['指定条件1']);
-    const cond2Col = findCol(['指定条件2']);
-    const warnCol = findCol(['警告内容']);
-    const deptCol = findCol(['部門', '部門名']);
-    const personCol = findCol(['担当者名', '担当者']);
+    const jobNoCol = findCol(['作業No', '作業番号', '作業NO', '作業№', '作業コード'], ['作業No', '作業番号', '作業NO']);
+    const dateCol = findCol(['点検日', '作業日', '予定日', '実施日'], ['点検日']);
+    const workCatCol = findCol(['作業区分', '区分'], ['作業区分']);
+    const workNameCol = findCol(['作業名', '作業種別', '作業内容'], ['作業名']);
+    const contractNoCol = findCol(['契約No', '契約番号', '契約NO', '契約CD'], ['契約No', '契約番号']);
+    const siteCodeCol = findCol(['現場コード', '現場CD', '現場番号'], ['現場コード', '現場CD']);
+    const siteCol = findCol(['現場名', '現場名称', '物件名', '現場名/物件名'], ['現場名', '現場名称', '物件名']); // '現場' 単体での部分一致は現場コードと誤認するため除外
+    const areaCol = findCol(['地区', 'エリア', '地域'], ['地区']);
+    const addrCol = findCol(['住所', '所在地', '現場住所'], ['住所', '所在地']);
+    const qtyCol = findCol(['台数', '数量', '台数等'], ['台数', '数量']);
+    const rulesCol = findCol(['客先規則', '規則', '注意事項'], ['客先規則', '規則']);
+    const cond1Col = findCol(['指定条件1', '条件1'], ['指定条件1']);
+    const cond2Col = findCol(['指定条件2', '条件2'], ['指定条件2']);
+    const warnCol = findCol(['警告内容', '警告'], ['警告内容']);
+    const deptCol = findCol(['部門', '部門名', '部署'], ['部門名', '部門']);
+    const personCol = findCol(['担当者名', '担当者'], ['担当者名', '担当者']);
 
     const items: InspectionItem[] = [];
 
@@ -163,19 +187,23 @@ export function parseInspectionExcel(
       if (!row || row.length === 0) continue;
 
       const jobNo = jobNoCol !== -1 && row[jobNoCol] !== undefined ? String(row[jobNoCol]).trim() : '';
-      const siteName = siteCol !== -1 && row[siteCol] !== undefined ? String(row[siteCol]).trim() : '';
+      const rawSiteName = siteCol !== -1 && row[siteCol] !== undefined ? String(row[siteCol]).trim() : '';
+      const rawSiteCode = siteCodeCol !== -1 && row[siteCodeCol] !== undefined ? String(row[siteCodeCol]).trim() : '';
       const address = addrCol !== -1 && row[addrCol] !== undefined ? String(row[addrCol]).trim() : '';
       const quantity = qtyCol !== -1 && row[qtyCol] !== undefined ? String(row[qtyCol]).trim() : '1';
       const customerRules = rulesCol !== -1 && row[rulesCol] !== undefined ? String(row[rulesCol]).trim() : '';
 
       // 空行スキップ（現場名も作業Noもない行）
-      if (!siteName && !jobNo) continue;
+      if (!rawSiteName && !rawSiteCode && !jobNo) continue;
 
       const initialDate = dateCol !== -1 ? formatExcelDate(row[dateCol]) : undefined;
       const workCategory = workCatCol !== -1 && row[workCatCol] !== undefined ? String(row[workCatCol]).trim() : undefined;
-      const workName = workNameCol !== -1 && row[workNameCol] !== undefined ? String(row[workNameCol]).trim() : undefined;
+      const rawWorkName = workNameCol !== -1 && row[workNameCol] !== undefined ? String(row[workNameCol]).trim() : undefined;
+      const workName = resolveWorkName(workCategory, rawWorkName);
+
       const contractNo = contractNoCol !== -1 && row[contractNoCol] !== undefined ? String(row[contractNoCol]).trim() : undefined;
-      const siteCode = siteCodeCol !== -1 && row[siteCodeCol] !== undefined ? String(row[siteCodeCol]).trim() : undefined;
+      const siteCode = rawSiteCode || undefined;
+      const siteName = rawSiteName || (rawSiteCode ? `現場(${rawSiteCode})` : `現場 ${r}`);
       const area = areaCol !== -1 && row[areaCol] !== undefined ? String(row[areaCol]).trim() : undefined;
       const department = deptCol !== -1 && row[deptCol] !== undefined ? String(row[deptCol]).trim() : undefined;
       const excelPersonName = personCol !== -1 && row[personCol] !== undefined ? String(row[personCol]).trim() : undefined;
@@ -202,7 +230,7 @@ export function parseInspectionExcel(
       items.push({
         id: `insp_${Date.now()}_${r}_${Math.random().toString(36).substring(2, 7)}`,
         targetYearMonth,
-        siteName: siteName || (siteCode ? `現場(${siteCode})` : `現場 ${r}`),
+        siteName,
         address: address || '住所未設定',
         jobNo: jobNo || `W-${1000 + r}`,
         quantity: quantity || 1,
@@ -295,13 +323,13 @@ export function generateSampleInspectionExcel(targetYearMonth: string = '2026-08
 export function generateDemoInspectionItems(targetYearMonth: string = '2026-08', allUsers: User[] = []): InspectionItem[] {
   const sampleRows = [
     { jobNo: '01287504', siteName: '●ボヌール六条南', siteCode: '015150', contractNo: '00001505', workCategory: '2', workName: 'スポット', area: '岐阜県岐阜市', address: '岐阜県岐阜市六条南1丁目8-11', quantity: '1', customerRules: 'スポット 点検先(いつも21,000円)', department: '名古屋支店', excelPersonName: '鶴見茂樹' },
-    { jobNo: '01287505', siteName: 'サンプレミアム', siteCode: '013925', contractNo: '00000971', workCategory: '1', workName: '自動ドア', area: '岐阜県岐阜市', address: '岐阜県岐阜市吉野町4丁目21番地', quantity: '1', customerRules: 'かんぜん委託(今月行って下さい)', department: '名古屋支店', excelPersonName: '鶴見茂樹' },
-    { jobNo: '01287508', siteName: '岐阜スカイウイング３７', siteCode: '112211', contractNo: '00001262', workCategory: '1', workName: '自動ドア', area: '岐阜県岐阜市', address: '岐阜県岐阜市吉野町6丁目31', quantity: '3', customerRules: '作業届2か所に送る(現地・ハイ)', department: '名古屋支店', excelPersonName: '鶴見茂樹' },
-    { jobNo: '01287506', siteName: '岐阜スカイウイング３７', siteCode: '112211', contractNo: '00001174', workCategory: '1', workName: '自動ドア', area: '岐阜県岐阜市', address: '岐阜県岐阜市吉野町6丁目31', quantity: '4', customerRules: '貼紙FAX', department: '名古屋支店', excelPersonName: '鶴見茂樹' },
-    { jobNo: '01287510', siteName: '名駅セントラルタワー', siteCode: '016520', contractNo: '00001880', workCategory: '1', workName: '自動ドア', area: '愛知県名古屋市', address: '愛知県名古屋市中村区名駅1-1-4', quantity: '12', customerRules: 'ヘルメット着用、17時撤収厳守', department: '名古屋支店', excelPersonName: '山田太郎' },
-    { jobNo: '01287512', siteName: '栄スクエアモール', siteCode: '017830', contractNo: '00002100', workCategory: '1', workName: '自動ドア', area: '愛知県名古屋市', address: '愛知県名古屋市中区栄3-5-1', quantity: '8', customerRules: '入館時防災センターにて手続き必要', department: '名古屋支店', excelPersonName: '鈴木一郎' },
+    { jobNo: '01287505', siteName: 'サンプレミアム', siteCode: '013925', contractNo: '00000971', workCategory: '1', workName: '点検', area: '岐阜県岐阜市', address: '岐阜県岐阜市吉野町4丁目21番地', quantity: '1', customerRules: 'かんぜん委託(今月行って下さい)', department: '名古屋支店', excelPersonName: '鶴見茂樹' },
+    { jobNo: '01287508', siteName: '岐阜スカイウイング３７', siteCode: '112211', contractNo: '00001262', workCategory: '1', workName: '点検', area: '岐阜県岐阜市', address: '岐阜県岐阜市吉野町6丁目31', quantity: '3', customerRules: '作業届2か所に送る(現地・ハイ)', department: '名古屋支店', excelPersonName: '鶴見茂樹' },
+    { jobNo: '01287506', siteName: '岐阜スカイウイング３７', siteCode: '112211', contractNo: '00001174', workCategory: '1', workName: '点検', area: '岐阜県岐阜市', address: '岐阜県岐阜市吉野町6丁目31', quantity: '4', customerRules: '貼紙FAX', department: '名古屋支店', excelPersonName: '鶴見茂樹' },
+    { jobNo: '01287510', siteName: '名駅セントラルタワー', siteCode: '016520', contractNo: '00001880', workCategory: '1', workName: '点検', area: '愛知県名古屋市', address: '愛知県名古屋市中村区名駅1-1-4', quantity: '12', customerRules: 'ヘルメット着用、17時撤収厳守', department: '名古屋支店', excelPersonName: '山田太郎' },
+    { jobNo: '01287512', siteName: '栄スクエアモール', siteCode: '017830', contractNo: '00002100', workCategory: '1', workName: '点検', area: '愛知県名古屋市', address: '愛知県名古屋市中区栄3-5-1', quantity: '8', customerRules: '入館時防災センターにて手続き必要', department: '名古屋支店', excelPersonName: '鈴木一郎' },
     { jobNo: '01287515', siteName: '伏見ファーストプラザ', siteCode: '018900', contractNo: '00002340', workCategory: '2', workName: 'スポット', area: '愛知県名古屋市', address: '愛知県名古屋市中区錦2-12-8', quantity: '5', customerRules: 'エレベーター使用時養生必須', department: '名古屋支店', excelPersonName: '鶴見茂樹' },
-    { jobNo: '01287518', siteName: '千種ガーデンハイツ', siteCode: '019440', contractNo: '00002560', workCategory: '1', workName: '自動ドア', area: '愛知県名古屋市', address: '愛知県名古屋市千種区葵3-15-22', quantity: '16', customerRules: '住人に事前チラシ配布済み', department: '名古屋支店', excelPersonName: '山田太郎' },
+    { jobNo: '01287518', siteName: '千種ガーデンハイツ', siteCode: '019440', contractNo: '00002560', workCategory: '3', workName: '修理', area: '愛知県名古屋市', address: '愛知県名古屋市千種区葵3-15-22', quantity: '16', customerRules: '住人に事前チラシ配布済み', department: '名古屋支店', excelPersonName: '山田太郎' },
   ];
 
   return sampleRows.map((item, idx) => {
