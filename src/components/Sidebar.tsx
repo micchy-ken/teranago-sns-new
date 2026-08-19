@@ -3,7 +3,7 @@ import { Hash, Home, Bookmark, User, Calendar as CalendarIcon, FileText, Message
 import { Post, User as UserType } from '../types';
 import { RECOMMEND_SERVER_JS } from './RecommendServerCode';
 
-export type AppTab = 'timeline' | 'calendar' | 'workflow' | 'board' | 'chat' | 'memo' | 'daily_report' | 'files' | 'mypage' | 'admin';
+export type AppTab = 'timeline' | 'calendar' | 'inspection_scheduler' | 'workflow' | 'board' | 'chat' | 'memo' | 'daily_report' | 'files' | 'mypage' | 'admin';
 
 interface SidebarProps {
   posts: Post[];
@@ -96,6 +96,17 @@ export function Sidebar({ posts, selectedTag, onSelectTag, activeTab, onChangeTa
         >
           <CalendarIcon className="w-4 h-4" />
           カレンダー
+        </button>
+        <button
+          onClick={() => onChangeTab('inspection_scheduler')}
+          className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${
+            activeTab === 'inspection_scheduler'
+              ? 'bg-indigo-50 text-indigo-700 shadow-2xs'
+              : 'text-slate-600 hover:bg-slate-50'
+          }`}
+        >
+          <ClipboardList className="w-4 h-4 text-indigo-600" />
+          点検予定管理
         </button>
         <button
           onClick={() => onChangeTab('workflow')}

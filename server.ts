@@ -723,6 +723,87 @@ async function startServer() {
     }
   });
 
+  // 既読状態保存管理
+  const readStatusesPath = path.join(dataDir, 'read-statuses.json');
+  interface StoredReadStatus {
+    userId: string;
+    targetType: 'event' | 'topic' | 'memo' | 'workflow' | 'chat';
+    targetId: string;
+    readAt: string;
+  }
+
+  function loadReadStatuses(): StoredReadStatus[] {
+    if (!fs.existsSync(readStatusesPath)) return [];
+    try {
+      return JSON.parse(fs.readFileSync(readStatusesPath, 'utf8'));
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function saveReadStatuses(items: StoredReadStatus[]) {
+    try {
+      fs.writeFileSync(readStatusesPath, JSON.stringify(items, null, 2), 'utf8');
+    } catch (e) {
+      console.error('Failed to save read statuses:', e);
+    }
+  }
+
+  app.get('/api/read-statuses/:userId', (req, res) => {
+    try {
+      const { userId } = req.params;
+      const items = loadReadStatuses();
+      const userItems = items.filter((item) => item.userId === userId);
+
+      const readMap: { event: string[]; topic: string[]; memo: string[]; workflow: string[]; chat: string[] } = {
+        event: [],
+        topic: [],
+        memo: [],
+        workflow: [],
+        chat: [],
+      };
+
+      userItems.forEach((row) => {
+        if (readMap[row.targetType]) {
+          readMap[row.targetType].push(row.targetId);
+        }
+      });
+
+      res.json(readMap);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/read-statuses', (req, res) => {
+    try {
+      const { userId, targetType, targetId, isRead } = req.body;
+      if (!userId || !targetType || !targetId) {
+        return res.status(400).json({ error: 'パラメータが不足しています' });
+      }
+
+      let items = loadReadStatuses();
+      if (isRead !== false) {
+        const exists = items.some((i) => i.userId === userId && i.targetType === targetType && i.targetId === targetId);
+        if (!exists) {
+          items.push({
+            userId,
+            targetType,
+            targetId,
+            readAt: new Date().toISOString(),
+          });
+          saveReadStatuses(items);
+        }
+      } else {
+        items = items.filter((i) => !(i.userId === userId && i.targetType === targetType && i.targetId === targetId));
+        saveReadStatuses(items);
+      }
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.delete('/api/external-files', (req, res) => {
     try {
       const targetRelPath = req.query.path;

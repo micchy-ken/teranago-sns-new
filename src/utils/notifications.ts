@@ -45,11 +45,11 @@ export async function syncUserReadStatusesFromServer(userId: string) {
     const data: { event?: string[]; topic?: string[]; memo?: string[]; workflow?: string[]; chat?: string[] } = await res.json();
     if (!data) return;
 
-    // サーバーから取得したデータだけでインメモリキャッシュを完全に上書き
-    memoryReadEventIds[userId] = data.event || [];
-    memoryReadTopicIds[userId] = data.topic || [];
-    memoryReadMemoIds[userId] = data.memo || [];
-    memoryReadWorkflowIds[userId] = data.workflow || [];
+    // サーバーから取得したデータでインメモリキャッシュを同期
+    if (Array.isArray(data.event)) memoryReadEventIds[userId] = data.event;
+    if (Array.isArray(data.topic)) memoryReadTopicIds[userId] = data.topic;
+    if (Array.isArray(data.memo)) memoryReadMemoIds[userId] = data.memo;
+    if (Array.isArray(data.workflow)) memoryReadWorkflowIds[userId] = data.workflow;
     
     const chatTimestamps: Record<string, string> = {};
     if (Array.isArray(data.chat)) {
@@ -325,8 +325,20 @@ export function isMemoUnread(m: Memo, user: User, readMemoIds: string[] = getRea
 /** 5. ワークフロー承認依頼の未承認(処理前)判定 */
 export function isWorkflowPending(app: WorkflowApplication, user: User): boolean {
   if (!user || !app) return false;
+  if (app.status !== 'pending') return false;
+
   const isApprover = app.approver?.id === user.id || app.approver?.name === user.name;
-  return isApprover && app.status === 'pending';
+  if (isApprover) return true;
+
+  if (app.stepsConfig && app.stepsConfig.length > 0) {
+    const currentStepIdx = (app.currentStepIndex || 1) - 1;
+    const step = app.stepsConfig[currentStepIdx];
+    if (step && step.approverType === 'specific_user' && step.specificUserId === user.id) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 /** 6. ワークフロー承認依頼の未読(ベルマーク通知対象)判定 */

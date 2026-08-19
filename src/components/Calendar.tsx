@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { CalendarEvent, EventType, User, OfficeMaster, DivisionMaster, Memo, RequirementType, MemoUserRecipientStatus } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
-import { ChevronLeft, ChevronRight, List as ListIcon, Calendar as CalendarIcon, Plus, MapPin, Video, AlignLeft, RefreshCw, Clock, Link as LinkIcon, Loader2, Building2, Users, Paperclip, MessageSquare, Phone, X, Monitor, Maximize2, Minimize2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, List as ListIcon, Calendar as CalendarIcon, Plus, MapPin, Video, AlignLeft, RefreshCw, Clock, Link as LinkIcon, Loader2, Building2, Users, Paperclip, MessageSquare, Phone, X, Monitor, Maximize2, Minimize2, FileSpreadsheet } from 'lucide-react';
 import { EventModal } from './EventModal';
 import { renderWithClickableLinks } from '../utils/linkify';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
@@ -23,6 +23,7 @@ interface CalendarProps {
   memos?: Memo[];
   onUpdateMemos?: (updatedMemos: Memo[]) => void;
   onRefetchEvents?: () => void;
+  onNavigateToInspectionScheduler?: () => void;
 }
 
 type ViewMode = 'month' | 'week' | 'day' | 'list';
@@ -60,6 +61,7 @@ export function Calendar({
   memos = [],
   onUpdateMemos,
   onRefetchEvents,
+  onNavigateToInspectionScheduler,
 }: CalendarProps) {
   const [view, setView] = useState<ViewMode>('month');
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -1182,6 +1184,18 @@ export function Calendar({
             </button>
           )}
           
+          {onNavigateToInspectionScheduler && (
+            <button
+              type="button"
+              onClick={onNavigateToInspectionScheduler}
+              className="flex items-center justify-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 text-xs font-bold rounded-lg transition-colors shadow-2xs cursor-pointer shrink-0"
+              title="Excelから毎月の点検予定を一括取込・仮配置・メンバー登録"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-indigo-600" />
+              <span className="hidden sm:inline">点検予定一括登録</span>
+            </button>
+          )}
+
           <button onClick={() => openAddModalWithDate()} className="flex items-center justify-center gap-1 sm:gap-1.5 px-3 sm:px-4 py-1.5 sm:py-2 bg-indigo-600 text-white text-xs sm:text-sm font-semibold rounded-lg hover:bg-indigo-700 transition-colors shadow-sm ml-auto sm:ml-0 shrink-0">
             <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4"/>
             <span className="hidden sm:inline">予定追加</span>

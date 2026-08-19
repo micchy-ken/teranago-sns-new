@@ -10,6 +10,7 @@ import { Board } from './components/Board';
 import { Chat } from './components/Chat';
 import { MemoList } from './components/MemoList';
 import { DailyReportView } from './components/DailyReport';
+import { InspectionScheduler } from './components/InspectionScheduler';
 import { MyPage } from './components/MyPage';
 import { AdminPanel } from './components/AdminPanel';
 import { LoginScreen } from './components/LoginScreen';
@@ -2797,6 +2798,20 @@ export default function App() {
             memos={memos}
             onUpdateMemos={handleUpdateMemos}
             onRefetchEvents={refetchEvents}
+            onNavigateToInspectionScheduler={() => setActiveTab('inspection_scheduler')}
+          />
+        )}
+        {activeTab === 'inspection_scheduler' && (
+          <InspectionScheduler
+            allUsers={usersList}
+            currentUser={userState}
+            onAddEvents={(newEvents) => {
+              newEvents.forEach((evt) => {
+                const { id, ...eventData } = evt;
+                handleAddEvent(eventData);
+              });
+            }}
+            onNavigateToCalendar={() => setActiveTab('calendar')}
           />
         )}
         {activeTab === 'workflow' && (
