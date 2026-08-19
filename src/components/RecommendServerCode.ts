@@ -31,7 +31,8 @@ dotenv.config();
 
 const app = express();
 app.use(cors({ origin: '*' }));
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // =========================================================
 // リバースプロキシ自動パス解決ミドルウェア (Synology NAS / Nginx 等の 404 対策)
@@ -1379,7 +1380,7 @@ app.delete('/api/events/:id', async (req, res) => {
 });
 
 // ------------------------------------------
-// 4-B. Inspection Drafts & Carry-overs (月間点検スケジューラー 下書き・翌月繰越管理)
+// 4-B. Inspection Drafts & Carry-overs (月間点検スケジューラー 下書き・翌月繰越管理: SQL Server + File 二重冗長化)
 // ------------------------------------------
 const inspectionDraftsFile = path.join(process.cwd(), 'data', 'inspection-drafts.json');
 const loadInspectionDraftsData = () => {
@@ -1398,82 +1399,213 @@ const saveInspectionDraftsData = (drafts) => {
   fs.writeFileSync(inspectionDraftsFile, JSON.stringify(drafts, null, 2), 'utf8');
 };
 
-app.get('/api/inspection/drafts', (req, res) => {
+// SQL Server の dbo.InspectionDrafts 自動初期化
+const ensureInspectionDraftsTable = async (pool) => {
   try {
-    const targetYearMonth = req.query.targetYearMonth;
-    if (!targetYearMonth) {
-      return res.status(400).json({ error: 'targetYearMonth は必須です' });
+    await pool.request().query(\`
+      IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'InspectionDrafts' AND schema_id = SCHEMA_ID('dbo'))
+      BEGIN
+        CREATE TABLE dbo.InspectionDrafts (
+          targetYearMonth VARCHAR(10) NOT NULL PRIMARY KEY,
+          itemsJson NVARCHAR(MAX) NOT NULL,
+          currentStep VARCHAR(50) NULL,
+          lastSavedAt DATETIME2 NOT NULL DEFAULT GETDATE(),
+          savedByUserId VARCHAR(50) NULL,
+          savedByUserName NVARCHAR(100) NULL,
+          updatedBy NVARCHAR(100) NULL
+        );
+      END
+    \`);
+  } catch (e) {
+    console.warn('[SQL] InspectionDrafts table auto-init notice:', e.message);
+  }
+};
+
+app.get(['/api/inspection/drafts', '/api/inspection/drafts/:targetYearMonth'], async (req, res) => {
+  try {
+    const targetYearMonth = req.params.targetYearMonth || req.query.targetYearMonth || req.headers['x-target-year-month'] || (req.body && req.body.targetYearMonth) || new Date().toISOString().slice(0, 7);
+    
+    // 1. まず SQL Server から検索
+    try {
+      const pool = await getPool();
+      await ensureInspectionDraftsTable(pool);
+      const sqlRes = await pool.request()
+        .input('targetYearMonth', sql.VarChar, String(targetYearMonth))
+        .query('SELECT * FROM dbo.InspectionDrafts WHERE targetYearMonth = @targetYearMonth');
+      
+      if (sqlRes.recordset && sqlRes.recordset.length > 0) {
+        const row = sqlRes.recordset[0];
+        let items = [];
+        try { items = JSON.parse(row.itemsJson); } catch (_) { items = []; }
+        return res.json({
+          exists: true,
+          targetYearMonth: row.targetYearMonth,
+          items: Array.isArray(items) ? items : [],
+          currentStep: row.currentStep || 'assign_date',
+          lastSavedAt: row.lastSavedAt,
+          savedByUserId: row.savedByUserId,
+          savedByUserName: row.savedByUserName,
+          storage: 'sql'
+        });
+      }
+    } catch (sqlErr) {
+      console.warn('[SQL] Draft fetch notice, checking JSON file fallback:', sqlErr.message);
     }
+
+    // 2. SQL になければローカルJSONファイルから検索
     const drafts = loadInspectionDraftsData();
     const draft = drafts.find(d => d.targetYearMonth === targetYearMonth);
     if (!draft) {
-      return res.json({ targetYearMonth, items: [], lastSavedAt: null, currentStep: 'assign_date' });
+      return res.json({ exists: false, targetYearMonth, items: [], lastSavedAt: null, currentStep: 'assign_date', storage: 'none' });
     }
-    res.json(draft);
+    res.json({ exists: true, ...draft, storage: 'file' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/api/inspection/drafts', (req, res) => {
+app.post(['/api/inspection/drafts', '/api/inspection/drafts/:targetYearMonth'], async (req, res) => {
   try {
-    const { targetYearMonth, items, currentStep, lastSavedAt } = req.body;
-    if (!targetYearMonth || !Array.isArray(items)) {
-      return res.status(400).json({ error: 'targetYearMonth および items は必須です' });
+    const targetYearMonth = req.body?.targetYearMonth || req.params?.targetYearMonth || req.query?.targetYearMonth || req.headers['x-target-year-month'] || new Date().toISOString().slice(0, 7);
+    const items = Array.isArray(req.body?.items) ? req.body.items : [];
+    const currentStep = req.body?.currentStep || 'assign_date';
+    const nowIso = req.body?.lastSavedAt || new Date().toISOString();
+    const savedByUserId = req.body?.savedByUserId || null;
+    const savedByUserName = req.body?.savedByUserName || null;
+    const updatedBy = req.body?.savedByUserName || req.body?.updatedBy || 'system';
+    const itemsJson = JSON.stringify(items);
+
+    let savedToSql = false;
+
+    // 1. SQL Server に UPSERT 保存
+    try {
+      const pool = await getPool();
+      await ensureInspectionDraftsTable(pool);
+      await pool.request()
+        .input('targetYearMonth', sql.VarChar, String(targetYearMonth))
+        .input('itemsJson', sql.NVarChar(sql.MAX), itemsJson)
+        .input('currentStep', sql.VarChar, currentStep)
+        .input('savedByUserId', sql.VarChar, savedByUserId)
+        .input('savedByUserName', sql.NVarChar, savedByUserName)
+        .input('updatedBy', sql.NVarChar, updatedBy)
+        .query(\`
+          IF EXISTS (SELECT 1 FROM dbo.InspectionDrafts WHERE targetYearMonth = @targetYearMonth)
+          BEGIN
+            UPDATE dbo.InspectionDrafts
+            SET itemsJson = @itemsJson, currentStep = @currentStep, lastSavedAt = GETDATE(),
+                savedByUserId = @savedByUserId, savedByUserName = @savedByUserName, updatedBy = @updatedBy
+            WHERE targetYearMonth = @targetYearMonth
+          END
+          ELSE
+          BEGIN
+            INSERT INTO dbo.InspectionDrafts (targetYearMonth, itemsJson, currentStep, lastSavedAt, savedByUserId, savedByUserName, updatedBy)
+            VALUES (@targetYearMonth, @itemsJson, @currentStep, GETDATE(), @savedByUserId, @savedByUserName, @updatedBy)
+          END
+        \`);
+      savedToSql = true;
+    } catch (sqlErr) {
+      console.warn('[SQL] Draft save notice, backup to JSON file:', sqlErr.message);
     }
-    const drafts = loadInspectionDraftsData();
-    const existingIndex = drafts.findIndex(d => d.targetYearMonth === targetYearMonth);
-    const nowIso = lastSavedAt || new Date().toISOString();
-    const draftPayload = {
+
+    // 2. ローカルJSONファイルにもバックアップ保存 (二重冗長)
+    try {
+      const drafts = loadInspectionDraftsData();
+      const existingIndex = drafts.findIndex(d => d.targetYearMonth === targetYearMonth);
+      const draftPayload = {
+        targetYearMonth,
+        items,
+        currentStep,
+        lastSavedAt: nowIso,
+        savedByUserId,
+        savedByUserName,
+        updatedBy
+      };
+      if (existingIndex >= 0) {
+        drafts[existingIndex] = draftPayload;
+      } else {
+        drafts.push(draftPayload);
+      }
+      saveInspectionDraftsData(drafts);
+    } catch (_) {}
+
+    res.json({
+      success: true,
       targetYearMonth,
-      items,
-      currentStep: currentStep || 'assign_date',
+      itemCount: items.length,
       lastSavedAt: nowIso,
-      updatedBy: req.body.updatedBy || 'system'
-    };
-    if (existingIndex >= 0) {
-      drafts[existingIndex] = draftPayload;
-    } else {
-      drafts.push(draftPayload);
-    }
-    saveInspectionDraftsData(drafts);
-    res.json({ success: true, targetYearMonth, itemCount: items.length, lastSavedAt: nowIso });
+      savedByUserName,
+      storage: savedToSql ? 'sql' : 'file'
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.delete('/api/inspection/drafts', (req, res) => {
+app.delete(['/api/inspection/drafts', '/api/inspection/drafts/:targetYearMonth'], async (req, res) => {
   try {
-    const targetYearMonth = req.query.targetYearMonth || req.body?.targetYearMonth;
+    const targetYearMonth = req.params.targetYearMonth || req.query.targetYearMonth || req.headers['x-target-year-month'] || req.body?.targetYearMonth;
     if (!targetYearMonth) {
-      return res.status(400).json({ error: 'targetYearMonth は必須です' });
+      return res.json({ success: true, message: '対象年月なし' });
     }
-    let drafts = loadInspectionDraftsData();
-    drafts = drafts.filter(d => d.targetYearMonth !== targetYearMonth);
-    saveInspectionDraftsData(drafts);
+
+    // 1. SQL Server から削除
+    try {
+      const pool = await getPool();
+      await ensureInspectionDraftsTable(pool);
+      await pool.request()
+        .input('targetYearMonth', sql.VarChar, String(targetYearMonth))
+        .query('DELETE FROM dbo.InspectionDrafts WHERE targetYearMonth = @targetYearMonth');
+    } catch (_) {}
+
+    // 2. JSONファイルから削除
+    try {
+      let drafts = loadInspectionDraftsData();
+      drafts = drafts.filter(d => d.targetYearMonth !== targetYearMonth);
+      saveInspectionDraftsData(drafts);
+    } catch (_) {}
+
     res.json({ success: true, message: \`\${targetYearMonth} の下書きをクリアしました。\` });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/api/inspection/carry-overs', (req, res) => {
+app.get(['/api/inspection/carry-overs', '/api/inspection/carry-overs/:targetYearMonth'], async (req, res) => {
   try {
-    const targetYearMonth = req.query.targetYearMonth;
-    if (!targetYearMonth) {
-      return res.status(400).json({ error: 'targetYearMonth は必須です' });
-    }
-    const [yearStr, monthStr] = targetYearMonth.split('-');
-    const year = parseInt(yearStr, 10);
-    const month = parseInt(monthStr, 10);
+    const targetYearMonth = req.params.targetYearMonth || req.query.targetYearMonth || req.headers['x-target-year-month'] || (req.body && req.body.targetYearMonth) || new Date().toISOString().slice(0, 7);
+    const [yearStr, monthStr] = String(targetYearMonth).split('-');
+    const year = parseInt(yearStr, 10) || new Date().getFullYear();
+    const month = parseInt(monthStr, 10) || (new Date().getMonth() + 1);
     let prevYear = year;
     let prevMonthNum = month - 1;
-    if (prevMonthNum === 0) {
+    if (prevMonthNum <= 0) {
       prevMonthNum = 12;
       prevYear -= 1;
     }
     const prevMonth = \`\${prevYear}-\${String(prevMonthNum).padStart(2, '0')}\`;
-    const drafts = loadInspectionDraftsData();
-    const prevDraft = drafts.find(d => d.targetYearMonth === prevMonth);
-    if (!prevDraft || !Array.isArray(prevDraft.items)) {
-      return res.json({ prevMonth, carriedOverItems: [] });
+
+    let prevItems = null;
+
+    // 1. SQL Server から前月下書きを検索
+    try {
+      const pool = await getPool();
+      await ensureInspectionDraftsTable(pool);
+      const sqlRes = await pool.request()
+        .input('targetYearMonth', sql.VarChar, String(prevMonth))
+        .query('SELECT itemsJson FROM dbo.InspectionDrafts WHERE targetYearMonth = @targetYearMonth');
+      if (sqlRes.recordset && sqlRes.recordset.length > 0) {
+        try { prevItems = JSON.parse(sqlRes.recordset[0].itemsJson); } catch (_) { prevItems = null; }
+      }
+    } catch (_) {}
+
+    // 2. JSONファイルから検索
+    if (!prevItems) {
+      const drafts = loadInspectionDraftsData();
+      const prevDraft = drafts.find(d => d.targetYearMonth === prevMonth);
+      if (prevDraft && Array.isArray(prevDraft.items)) {
+        prevItems = prevDraft.items;
+      }
     }
-    const carriedOverItems = prevDraft.items.filter(item => item.status === 'carried_over');
+
+    if (!Array.isArray(prevItems)) {
+      return res.json({ currentMonth: targetYearMonth, prevMonth, carriedOverCount: 0, carriedOverItems: [] });
+    }
+
+    const carriedOverItems = prevItems.filter(item => item.status === 'carried_over');
     res.json({
       currentMonth: targetYearMonth,
       prevMonth,

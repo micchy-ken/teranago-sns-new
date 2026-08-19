@@ -92,6 +92,7 @@ export function InspectionScheduler({
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [carriedOverBanner, setCarriedOverBanner] = useState<{ prevMonth: string; count: number } | null>(null);
   const isInitialMountRef = useRef<boolean>(true);
+  const isImportingRef = useRef<boolean>(false);
   const lastSavedJsonRef = useRef<string>('');
   const autoSaveTimerRef = useRef<any>(null);
 
@@ -135,6 +136,7 @@ export function InspectionScheduler({
   // 下書きロード & 前月繰越自動引き継ぎ処理
   // ==========================================
   const loadDraftAndCarryOver = useCallback(async (ym: string, isManualSync = false) => {
+    if (isImportingRef.current) return;
     if (isManualSync) setIsSyncing(true);
     else setIsLoadingDraft(true);
 
@@ -143,14 +145,21 @@ export function InspectionScheduler({
       let loadedItems: InspectionItem[] = [];
       let loadedTime: string | null = null;
       let fromServer = false;
+      let storageType = 'file';
 
       try {
-        const resDraft = await fetch(`${API_BASE_URL}/inspection/drafts?targetYearMonth=${ym}`);
+        const resDraft = await fetch(`${API_BASE_URL}/inspection/drafts?targetYearMonth=${encodeURIComponent(ym)}`, {
+          headers: {
+            'Accept': 'application/json',
+            'X-Target-Year-Month': ym
+          }
+        });
         if (resDraft.ok) {
           const draftData = await resDraft.json();
           if (Array.isArray(draftData.items) && draftData.items.length > 0) {
             loadedItems = draftData.items;
             fromServer = true;
+            storageType = draftData.storage || 'server';
             if (draftData.lastSavedAt) {
               loadedTime = new Date(draftData.lastSavedAt).toLocaleTimeString('ja-JP', {
                 hour: '2-digit',
@@ -180,7 +189,12 @@ export function InspectionScheduler({
 
       // 3. 前月からの「翌月繰越」アイテムを確認
       try {
-        const resCarry = await fetch(`${API_BASE_URL}/inspection/carry-overs?targetYearMonth=${ym}`);
+        const resCarry = await fetch(`${API_BASE_URL}/inspection/carry-overs?targetYearMonth=${encodeURIComponent(ym)}`, {
+          headers: {
+            'Accept': 'application/json',
+            'X-Target-Year-Month': ym
+          }
+        });
         if (resCarry.ok) {
           const carryData = await resCarry.json();
           if (carryData.carriedOverCount > 0 && Array.isArray(carryData.carriedOverItems)) {
@@ -201,6 +215,9 @@ export function InspectionScheduler({
         }
       } catch (_) {}
 
+      // もしインポート中フラグが立っていたら上書きをスキップ
+      if (isImportingRef.current) return;
+
       setItems(loadedItems);
       lastSavedJsonRef.current = JSON.stringify(loadedItems);
       if (loadedItems.length > 0) {
@@ -208,7 +225,7 @@ export function InspectionScheduler({
         setSyncDestination(fromServer ? 'server' : 'local_only');
         setSyncDetailNote(
           fromServer
-            ? 'サーバー（API/NAS）から下書きを読み込みました'
+            ? (storageType === 'sql' ? 'SQL Serverデータベースから下書きを読み込みました' : 'サーバー（API/NAS）から下書きを読み込みました')
             : 'このブラウザのローカル一時保存から復元しました（サーバー未接続）'
         );
         setLastSavedTime(loadedTime || new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
@@ -230,6 +247,64 @@ export function InspectionScheduler({
       isInitialMountRef.current = false;
     }
   }, []);
+
+  // 即座にサーバーへ直接永続保存する関数
+  const saveDraftDirect = async (ym: string, itemsToSave: InspectionItem[], step?: StepType) => {
+    setSaveStatus('saving');
+    const jsonStr = JSON.stringify(itemsToSave);
+    try {
+      localStorage.setItem(`inspection_draft_${ym}`, jsonStr);
+    } catch (_) {}
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/inspection/drafts?targetYearMonth=${encodeURIComponent(ym)}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'X-Target-Year-Month': ym
+        },
+        body: JSON.stringify({
+          targetYearMonth: ym,
+          items: itemsToSave,
+          currentStep: step || currentStep,
+          savedByUserId: currentUser.id,
+          savedByUserName: currentUser.name,
+        }),
+      });
+
+      const nowFormatted = new Date().toLocaleTimeString('ja-JP', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        lastSavedJsonRef.current = jsonStr;
+        setSaveStatus('saved');
+        setSyncDestination('server');
+        setSyncDetailNote(data.storage === 'sql' ? 'SQL Serverデータベースに正常に保存・同期されました' : 'サーバー（API/NAS）に正常に保存・同期されました');
+        setLastSavedTime(
+          data.lastSavedAt
+            ? new Date(data.lastSavedAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+            : nowFormatted
+        );
+      } else {
+        lastSavedJsonRef.current = jsonStr;
+        setSaveStatus('saved');
+        setSyncDestination('local_only');
+        setSyncDetailNote(`サーバー未応答 (HTTP ${res.status}): ローカル一時保存`);
+        setLastSavedTime(nowFormatted);
+      }
+    } catch (e: any) {
+      lastSavedJsonRef.current = jsonStr;
+      setSaveStatus('saved');
+      setSyncDestination('local_only');
+      setSyncDetailNote('サーバーAPI未接続: ローカル一時保存');
+      setLastSavedTime(new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+    }
+  };
 
   // 月変更時・初回マウント時に自動ロード
   useEffect(() => {
@@ -259,14 +334,19 @@ export function InspectionScheduler({
 
       try {
         // 2. サーバーAPIに保存
-        const res = await fetch(`${API_BASE_URL}/inspection/drafts`, {
+        const res = await fetch(`${API_BASE_URL}/inspection/drafts?targetYearMonth=${encodeURIComponent(targetYearMonth)}`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'X-Target-Year-Month': targetYearMonth
+          },
           body: JSON.stringify({
             targetYearMonth,
             items,
             savedByUserId: currentUser.id,
             savedByUserName: currentUser.name,
+            currentStep,
           }),
         });
 
@@ -309,15 +389,20 @@ export function InspectionScheduler({
         clearTimeout(autoSaveTimerRef.current);
       }
     };
-  }, [items, targetYearMonth, isLoadingDraft, currentUser]);
+  }, [items, targetYearMonth, isLoadingDraft, currentUser, currentStep]);
 
   // 下書きクリア（リセット）
   const handleClearDraft = async () => {
     if (items.length === 0) return;
     if (confirm(`${targetYearMonth} の下書き作業データを初期化しますか？\n（配置・未配置・繰越状態がクリアされます）`)) {
       try {
-        await fetch(`${API_BASE_URL}/inspection/drafts?targetYearMonth=${targetYearMonth}`, {
+        await fetch(`${API_BASE_URL}/inspection/drafts?targetYearMonth=${encodeURIComponent(targetYearMonth)}`, {
           method: 'DELETE',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Target-Year-Month': targetYearMonth
+          },
+          body: JSON.stringify({ targetYearMonth })
         });
         localStorage.removeItem(`inspection_draft_${targetYearMonth}`);
         setItems([]);
@@ -420,7 +505,7 @@ export function InspectionScheduler({
   // ------------------------------------------
   const handleFileUpload = (file: File) => {
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       const buffer = e.target?.result as ArrayBuffer;
       if (!buffer) return;
 
@@ -430,10 +515,19 @@ export function InspectionScheduler({
         return;
       }
 
-      if (result.targetYearMonth) {
+      const ym = result.targetYearMonth || targetYearMonth;
+      isImportingRef.current = true;
+      if (result.targetYearMonth && result.targetYearMonth !== targetYearMonth) {
         setTargetYearMonth(result.targetYearMonth);
       }
       setItems(result.items);
+      setCurrentStep('assign_date');
+
+      // 即座にサーバー（SQL/ファイル）に直接永続保存
+      await saveDraftDirect(ym, result.items, 'assign_date');
+      setTimeout(() => {
+        isImportingRef.current = false;
+      }, 1200);
     };
     reader.readAsArrayBuffer(file);
   };
@@ -446,9 +540,15 @@ export function InspectionScheduler({
   };
 
   // デモデータ読み込み (実データ形式)
-  const handleLoadDemoData = () => {
+  const handleLoadDemoData = async () => {
     const demoItems = generateDemoInspectionItems(targetYearMonth, allUsers);
+    isImportingRef.current = true;
     setItems(demoItems);
+    setCurrentStep('assign_date');
+    await saveDraftDirect(targetYearMonth, demoItems, 'assign_date');
+    setTimeout(() => {
+      isImportingRef.current = false;
+    }, 1200);
   };
 
   // ------------------------------------------
