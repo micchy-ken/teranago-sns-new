@@ -1,40 +1,39 @@
 import React, { useState, useRef } from 'react';
-import { 
-  FileSpreadsheet, 
-  Upload, 
-  Download, 
-  Calendar as CalendarIcon, 
-  Clock, 
-  Users, 
-  CheckCircle2, 
-  ArrowRight, 
-  ArrowLeft, 
-  RefreshCw, 
-  Search, 
-  Trash2, 
-  EyeOff, 
-  ChevronRight, 
-  Sparkles, 
-  Building2, 
-  MapPin, 
-  ClipboardList, 
-  Tag, 
-  Plus, 
-  X, 
-  HelpCircle,
-  FileCheck,
+import {
+  FileSpreadsheet,
+  Upload,
+  Calendar as CalendarIcon,
+  Users,
+  CheckCircle2,
+  AlertCircle,
+  Clock,
+  MapPin,
+  FileText,
+  ArrowRight,
+  ArrowLeft,
+  RefreshCw,
+  EyeOff,
+  CornerDownRight,
   Check,
-  ArrowUpRight,
-  Filter,
+  Plus,
+  Trash2,
+  FileCheck,
+  ClipboardList,
+  Sparkles,
+  ExternalLink,
+  Layers,
+  Tag,
+  Building,
   UserCheck
 } from 'lucide-react';
 import { User, CalendarEvent } from '../types';
-import { 
-  InspectionItem, 
-  parseInspectionExcel, 
-  generateSampleInspectionExcel, 
-  generateDemoInspectionItems 
+import {
+  InspectionItem,
+  parseInspectionExcel,
+  generateSampleInspectionExcel,
+  generateDemoInspectionItems
 } from '../utils/excelInspection';
+import { getAvatarUrl } from '../utils/avatar';
 import { markEventAsRead } from '../utils/notifications';
 
 interface InspectionSchedulerProps {
@@ -54,8 +53,8 @@ export function InspectionScheduler({
 }: InspectionSchedulerProps) {
   const [currentStep, setCurrentStep] = useState<StepType>('import');
 
-  // Excel / アイテム状態
-  const [targetYearMonth, setTargetYearMonth] = useState<string>('2026-09');
+  // Excel / アイテム状態 (デフォルトは 2026-08)
+  const [targetYearMonth, setTargetYearMonth] = useState<string>('2026-08');
   const [items, setItems] = useState<InspectionItem[]>([]);
   const [dragOverDate, setDragOverDate] = useState<string | null>(null);
   const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
@@ -121,7 +120,7 @@ export function InspectionScheduler({
       const buffer = e.target?.result as ArrayBuffer;
       if (!buffer) return;
 
-      const result = parseInspectionExcel(buffer);
+      const result = parseInspectionExcel(buffer, allUsers);
       if (result.error) {
         alert(result.error);
         return;
@@ -142,9 +141,9 @@ export function InspectionScheduler({
     }
   };
 
-  // デモデータ読み込み
+  // デモデータ読み込み (実データ形式)
   const handleLoadDemoData = () => {
-    const demoItems = generateDemoInspectionItems(targetYearMonth);
+    const demoItems = generateDemoInspectionItems(targetYearMonth, allUsers);
     setItems(demoItems);
   };
 
@@ -166,7 +165,9 @@ export function InspectionScheduler({
       const matchAddr = item.address.toLowerCase().includes(q);
       const matchJob = item.jobNo.toLowerCase().includes(q);
       const matchRules = item.customerRules.toLowerCase().includes(q);
-      return matchSite || matchAddr || matchJob || matchRules;
+      const matchSiteCode = item.siteCode ? item.siteCode.toLowerCase().includes(q) : false;
+      const matchPerson = item.excelPersonName ? item.excelPersonName.toLowerCase().includes(q) : false;
+      return matchSite || matchAddr || matchJob || matchRules || matchSiteCode || matchPerson;
     }
     return true;
   });
@@ -175,25 +176,16 @@ export function InspectionScheduler({
   // D&D & 日付配置ロジック
   // ------------------------------------------
   const handleAssignItemToDate = (itemId: string, dateKey: string, customTime?: string) => {
-    // 同一日に既に配置されている件数をカウントして時間を自動連番化
     const existingSameDayItems = items.filter((i) => i.assignedDate === dateKey && i.id !== itemId);
     const orderIndex = existingSameDayItems.length;
 
-    // デフォルト: 9:00開始、1時間刻み
-    let startTime = '09:00';
-    let endTime = '10:00';
+    let startH = 9 + orderIndex;
+    if (startH >= 18) startH = 17; // 17時上限
 
-    if (customTime) {
-      startTime = customTime;
-      const [h, m] = customTime.split(':').map(Number);
-      const endH = (h + 1).toString().padStart(2, '0');
-      endTime = `${endH}:${String(m).padStart(2, '0')}`;
-    } else {
-      const startHour = 9 + orderIndex;
-      const endHour = startHour + 1;
-      startTime = `${String(startHour).padStart(2, '0')}:00`;
-      endTime = `${String(endHour).padStart(2, '0')}:00`;
-    }
+    const startTime = customTime || `${String(startH).padStart(2, '0')}:00`;
+    const endTime = customTime
+      ? `${String(parseInt(customTime.split(':')[0], 10) + 1).padStart(2, '0')}:${customTime.split(':')[1]}`
+      : `${String(startH + 1).padStart(2, '0')}:00`;
 
     setItems((prev) =>
       prev.map((i) => {
@@ -211,7 +203,46 @@ export function InspectionScheduler({
     );
   };
 
-  // カレンダーからリストに戻す
+  // エクセル内の点検日情報を使って一括仮配置する便利機能
+  const handleAutoPlaceFromExcelDates = () => {
+    const itemsWithDate = items.filter((i) => i.status === 'pending' && i.initialDate);
+    if (itemsWithDate.length === 0) {
+      alert('エクセル内に点検日が記載された未配置アイテムがありません。');
+      return;
+    }
+
+    setItems((prev) => {
+      // 日付ごとのカウンター
+      const dateCounters: Record<string, number> = {};
+      
+      // すでに配置済みのアイテムをカウント
+      prev.filter((i) => i.status === 'placed' && i.assignedDate).forEach((i) => {
+        dateCounters[i.assignedDate!] = (dateCounters[i.assignedDate!] || 0) + 1;
+      });
+
+      return prev.map((item) => {
+        if (item.status === 'pending' && item.initialDate) {
+          const dKey = item.initialDate;
+          const currentCount = dateCounters[dKey] || 0;
+          dateCounters[dKey] = currentCount + 1;
+
+          let startH = 9 + currentCount;
+          if (startH >= 18) startH = 17;
+
+          return {
+            ...item,
+            status: 'placed',
+            assignedDate: dKey,
+            assignedStartTime: `${String(startH).padStart(2, '0')}:00`,
+            assignedEndTime: `${String(startH + 1).padStart(2, '0')}:00`,
+          };
+        }
+        return item;
+      });
+    });
+  };
+
+  // カレンダーから削除（未配置に戻す）
   const handleRemoveFromCalendar = (itemId: string) => {
     setItems((prev) =>
       prev.map((i) => {
@@ -229,14 +260,14 @@ export function InspectionScheduler({
     );
   };
 
-  // 翌月に繰り越す
+  // 翌月繰り越し
   const handleCarryOverItem = (itemId: string) => {
     setItems((prev) =>
       prev.map((i) => (i.id === itemId ? { ...i, status: 'carried_over' } : i))
     );
   };
 
-  // 一時的に削除（非表示）
+  // 一時削除（非表示リスト）
   const handleHideItem = (itemId: string) => {
     setItems((prev) =>
       prev.map((i) => (i.id === itemId ? { ...i, status: 'hidden' } : i))
@@ -321,12 +352,18 @@ export function InspectionScheduler({
       const startIso = `${item.assignedDate}T${startTime}:00`;
       const endIso = `${item.assignedDate}T${endTime}:00`;
 
-      // 内容に作業No、台数、客先規則を記録
-      const memoText = [
+      // 内容に実エクセルの各項目を整理して格納
+      const memoLines = [
         `【作業No】${item.jobNo || '未設定'}`,
-        `【台数】${item.quantity || '未設定'}`,
+        item.siteCode ? `【現場コード】${item.siteCode}` : '',
+        `【台数】${item.quantity}台`,
+        item.workName ? `【作業名】${item.workName}${item.workCategory ? ` (区分: ${item.workCategory})` : ''}` : '',
+        item.contractNo ? `【契約No】${item.contractNo}` : '',
+        item.area ? `【地区】${item.area}` : '',
         `【客先規則】${item.customerRules || 'なし'}`,
-      ].join('\n');
+        item.department ? `【部門】${item.department}` : '',
+        item.conditions ? `【条件/警告】${item.conditions}` : '',
+      ].filter(Boolean);
 
       const newEvent: CalendarEvent = {
         id: `evt_insp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
@@ -335,14 +372,14 @@ export function InspectionScheduler({
         end: endIso,
         type: 'inspection',
         location: item.address,
-        memo: memoText,
-        attendees: item.assignedUsers || [currentUser],
+        memo: memoLines.join('\n'),
+        attendees: item.assignedUsers && item.assignedUsers.length > 0 ? item.assignedUsers : [currentUser],
         createdBy: currentUser,
         isGoogleSynced: false,
       };
 
       // 参加者に対して既読処理
-      if (item.assignedUsers) {
+      if (item.assignedUsers && item.assignedUsers.length > 0) {
         item.assignedUsers.forEach((u) => markEventAsRead(u.id, newEvent.id));
       } else {
         markEventAsRead(currentUser.id, newEvent.id);
@@ -358,152 +395,128 @@ export function InspectionScheduler({
 
   return (
     <div className="w-full max-w-7xl mx-auto space-y-6 pb-12">
-      {/* 画面ヘッダー & ステッパー */}
+      {/* 画面ヘッダー */}
       <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm ring-1 ring-slate-900/5">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-slate-100">
-          <div>
-            <div className="flex items-center gap-2 text-xs font-bold text-indigo-600 uppercase tracking-wider mb-1">
-              <ClipboardList className="w-4 h-4" />
-              Inspection Schedule Manager
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 bg-indigo-600 text-white rounded-2xl flex items-center justify-center shadow-md shadow-indigo-100">
+              <FileSpreadsheet className="w-6 h-6" />
             </div>
-            <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight flex items-center gap-2">
-              点検予定一括登録・管理
-              <span className="px-2.5 py-0.5 bg-indigo-50 text-indigo-700 text-xs font-bold rounded-full border border-indigo-200">
-                {targetYearMonth}度
-              </span>
-            </h1>
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-xl font-black text-slate-900">点検予定一括登録・管理</h1>
+                <span className="px-2.5 py-0.5 bg-indigo-50 text-indigo-700 text-xs font-bold rounded-full border border-indigo-200">
+                  月間点検スケジューラー
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 mt-1">
+                月間300〜600件の点検エクセルを取り込み、D&Dで日付配置・メンバー割り当てを行いカレンダーに一括反映します。
+              </p>
+            </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          {/* ステップナビゲーター */}
+          <div className="flex items-center gap-1.5 sm:gap-2 bg-slate-50 p-1.5 rounded-xl border border-slate-200 self-start md:self-auto overflow-x-auto text-xs font-bold">
             <button
-              onClick={() => generateSampleInspectionExcel(targetYearMonth)}
-              className="px-3.5 py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold text-xs rounded-xl border border-slate-200 transition-colors flex items-center gap-2 cursor-pointer"
-              title="実データ形式のサンプルExcelをダウンロード"
+              onClick={() => setCurrentStep('import')}
+              className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+                currentStep === 'import'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'text-slate-600 hover:bg-slate-200/60'
+              }`}
             >
-              <Download className="w-4 h-4 text-slate-500" />
-              サンプルExcel取得
+              <span>1. 取込・確認</span>
             </button>
+
+            <span className="text-slate-300">→</span>
+
             <button
-              onClick={handleLoadDemoData}
-              className="px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs rounded-xl border border-indigo-200 transition-colors flex items-center gap-2 cursor-pointer"
+              disabled={items.length === 0}
+              onClick={() => setCurrentStep('assign_date')}
+              className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                currentStep === 'assign_date'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'text-slate-600 hover:bg-slate-200/60'
+              }`}
             >
-              <Sparkles className="w-4 h-4 text-indigo-600" />
-              デモデータ読込
+              <span>2. 日付仮配置 (D&D)</span>
             </button>
-          </div>
-        </div>
 
-        {/* 5ステップナビゲーション */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-6">
-          <button
-            onClick={() => setCurrentStep('import')}
-            className={`p-3 rounded-xl border text-left transition-all flex items-center gap-3 cursor-pointer ${
-              currentStep === 'import'
-                ? 'bg-indigo-600 text-white border-indigo-600 shadow-md ring-2 ring-indigo-200'
-                : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700'
-            }`}
-          >
-            <div className={`p-2 rounded-lg ${currentStep === 'import' ? 'bg-white/20' : 'bg-white border border-slate-200'}`}>
-              <FileSpreadsheet className="w-4 h-4" />
-            </div>
-            <div>
-              <div className="text-[10px] font-extrabold opacity-80 uppercase">Step 1 & 2</div>
-              <div className="text-xs font-black">Excel取り込み</div>
-            </div>
-          </button>
+            <span className="text-slate-300">→</span>
 
-          <button
-            disabled={items.length === 0}
-            onClick={() => setCurrentStep('assign_date')}
-            className={`p-3 rounded-xl border text-left transition-all flex items-center gap-3 ${
-              items.length === 0 ? 'opacity-40 cursor-not-allowed border-slate-200 bg-slate-50' : 'cursor-pointer'
-            } ${
-              currentStep === 'assign_date'
-                ? 'bg-indigo-600 text-white border-indigo-600 shadow-md ring-2 ring-indigo-200'
-                : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700'
-            }`}
-          >
-            <div className={`p-2 rounded-lg ${currentStep === 'assign_date' ? 'bg-white/20' : 'bg-white border border-slate-200'}`}>
-              <CalendarIcon className="w-4 h-4" />
-            </div>
-            <div>
-              <div className="text-[10px] font-extrabold opacity-80 uppercase">Step 3 & 4</div>
-              <div className="text-xs font-black">日付・D&D登録</div>
-            </div>
-          </button>
-
-          <button
-            disabled={placedItems.length === 0}
-            onClick={() => setCurrentStep('assign_member')}
-            className={`p-3 rounded-xl border text-left transition-all flex items-center gap-3 ${
-              placedItems.length === 0 ? 'opacity-40 cursor-not-allowed border-slate-200 bg-slate-50' : 'cursor-pointer'
-            } ${
-              currentStep === 'assign_member'
-                ? 'bg-indigo-600 text-white border-indigo-600 shadow-md ring-2 ring-indigo-200'
-                : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700'
-            }`}
-          >
-            <div className={`p-2 rounded-lg ${currentStep === 'assign_member' ? 'bg-white/20' : 'bg-white border border-slate-200'}`}>
-              <Users className="w-4 h-4" />
-            </div>
-            <div>
-              <div className="text-[10px] font-extrabold opacity-80 uppercase">Step 5</div>
-              <div className="text-xs font-black">メンバー登録</div>
-            </div>
-          </button>
-
-          <div
-            className={`p-3 rounded-xl border text-left flex items-center gap-3 ${
-              currentStep === 'completed'
-                ? 'bg-emerald-600 text-white border-emerald-600 shadow-md'
-                : 'bg-slate-50 border-slate-200 text-slate-400'
-            }`}
-          >
-            <div className={`p-2 rounded-lg ${currentStep === 'completed' ? 'bg-white/20' : 'bg-white border border-slate-200'}`}>
-              <CheckCircle2 className="w-4 h-4" />
-            </div>
-            <div>
-              <div className="text-[10px] font-extrabold opacity-80 uppercase">Final</div>
-              <div className="text-xs font-black">スケジュール反映</div>
-            </div>
+            <button
+              disabled={placedItems.length === 0}
+              onClick={() => setCurrentStep('assign_member')}
+              className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                currentStep === 'assign_member'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'text-slate-600 hover:bg-slate-200/60'
+              }`}
+            >
+              <span>3. メンバー登録</span>
+            </button>
           </div>
         </div>
       </div>
 
       {/* ==========================================
-          STEP 1 & 2: EXCEL IMPORT & PREVIEW
+          STEP 1 & 2: EXCEL IMPORT & LIST VIEW
           ========================================== */}
       {currentStep === 'import' && (
         <div className="space-y-6">
-          {/* ファイルドロップエリア */}
-          <div
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={handleDropFile}
-            onClick={() => fileInputRef.current?.click()}
-            className="border-2 border-dashed border-indigo-300 hover:border-indigo-500 bg-indigo-50/30 hover:bg-indigo-50/60 rounded-2xl p-8 sm:p-12 text-center transition-all cursor-pointer flex flex-col items-center justify-center gap-4 group shadow-2xs"
-          >
-            <input
-              type="file"
-              ref={fileInputRef}
-              accept=".xlsx,.xls,.csv"
-              className="hidden"
-              onChange={(e) => e.target.files?.[0] && handleFileUpload(e.target.files[0])}
-            />
-            <div className="p-4 bg-white rounded-2xl shadow-sm group-hover:scale-110 transition-transform border border-indigo-100">
-              <Upload className="w-8 h-8 text-indigo-600" />
+          {/* 取込カード */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-sm ring-1 ring-slate-900/5 flex flex-col items-center justify-center text-center space-y-4">
+            <div className="flex items-center justify-center gap-3">
+              <button
+                type="button"
+                onClick={handleLoadDemoData}
+                className="flex items-center gap-2 px-4 py-2 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer"
+              >
+                <Sparkles className="w-4 h-4 text-amber-600" />
+                実フォーマットのデモデータ読込
+              </button>
+              <button
+                type="button"
+                onClick={() => generateSampleInspectionExcel(targetYearMonth)}
+                className="flex items-center gap-2 px-4 py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-indigo-600" />
+                実フォーマットExcel(26列)をDL
+              </button>
             </div>
-            <div>
-              <h3 className="text-lg font-bold text-slate-900">
-                点検予定のエクセルファイルをドラッグ＆ドロップ
-              </h3>
+
+            <div
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={handleDropFile}
+              onClick={() => fileInputRef.current?.click()}
+              className="w-full max-w-2xl border-2 border-dashed border-indigo-200 hover:border-indigo-500 bg-indigo-50/20 hover:bg-indigo-50/50 rounded-2xl p-8 flex flex-col items-center justify-center cursor-pointer transition-all group"
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.xls"
+                className="hidden"
+                onChange={(e) => {
+                  if (e.target.files && e.target.files[0]) {
+                    handleFileUpload(e.target.files[0]);
+                  }
+                }}
+              />
+              <div className="w-14 h-14 bg-indigo-100 text-indigo-600 rounded-2xl flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+                <Upload className="w-7 h-7" />
+              </div>
+              <p className="text-sm font-bold text-slate-800">
+                点検予定エクセルファイルをここにドラッグ＆ドロップ
+              </p>
               <p className="text-xs text-slate-500 mt-1">
-                またはクリックしてファイルを選択 (.xlsx / .xls) ── C1セルから対象年月を自動読み込みします
+                またはクリックしてファイルを選択 (.xlsx / .xls) ── C1セル（またはヘッダー）から「点検月（2026/08等）」を自動認識します
               </p>
             </div>
-            <div className="flex items-center gap-4 text-xs font-semibold text-slate-600 pt-2">
-              <span className="px-2.5 py-1 bg-white rounded-lg border border-slate-200">現場名 → スケジュール件名</span>
-              <span className="px-2.5 py-1 bg-white rounded-lg border border-slate-200">住所 → 開催場所</span>
-              <span className="px-2.5 py-1 bg-white rounded-lg border border-slate-200">作業No・台数・規則 → 内容</span>
+            <div className="flex flex-wrap items-center justify-center gap-2 text-[11px] font-semibold text-slate-600 pt-2">
+              <span className="px-2.5 py-1 bg-slate-50 rounded-lg border border-slate-200">現場名 → 件名</span>
+              <span className="px-2.5 py-1 bg-slate-50 rounded-lg border border-slate-200">住所 → 場所</span>
+              <span className="px-2.5 py-1 bg-slate-50 rounded-lg border border-slate-200">作業No・台数・客先規則・現場コード・作業名 → 内容</span>
+              <span className="px-2.5 py-1 bg-slate-50 rounded-lg border border-slate-200">担当者名 → ユーザー自動マッチング</span>
             </div>
           </div>
 
@@ -524,7 +537,7 @@ export function InspectionScheduler({
                 <div className="flex items-center gap-3">
                   <div className="flex items-center gap-1 text-xs text-slate-600 bg-slate-100 px-3 py-1.5 rounded-lg">
                     <CalendarIcon className="w-3.5 h-3.5 text-slate-500" />
-                    対象年月:
+                    点検月:
                     <input
                       type="month"
                       value={targetYearMonth}
@@ -542,18 +555,19 @@ export function InspectionScheduler({
                 </div>
               </div>
 
-              {/* プレビューテーブル */}
+              {/* プレビューテーブル (実フォーマット準拠) */}
               <div className="overflow-x-auto max-h-96">
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold sticky top-0 z-10">
                     <tr>
                       <th className="py-2.5 px-3">#</th>
                       <th className="py-2.5 px-3">作業No</th>
-                      <th className="py-2.5 px-3">現場名（件名）</th>
-                      <th className="py-2.5 px-3">住所（場所）</th>
-                      <th className="py-2.5 px-3">台数</th>
+                      <th className="py-2.5 px-3">現場コード / 現場名</th>
+                      <th className="py-2.5 px-3">作業名 (区分)</th>
+                      <th className="py-2.5 px-3">地区 / 住所</th>
+                      <th className="py-2.5 px-3 text-center">台数</th>
                       <th className="py-2.5 px-3">客先規則 / 注意事項</th>
-                      <th className="py-2.5 px-3">ステータス</th>
+                      <th className="py-2.5 px-3">エクセル担当者</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-slate-800">
@@ -561,14 +575,35 @@ export function InspectionScheduler({
                       <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
                         <td className="py-2.5 px-3 font-mono text-slate-400">{idx + 1}</td>
                         <td className="py-2.5 px-3 font-mono font-bold text-indigo-600">{item.jobNo}</td>
-                        <td className="py-2.5 px-3 font-bold text-slate-900">{item.siteName}</td>
-                        <td className="py-2.5 px-3 text-slate-600 max-w-xs truncate">{item.address}</td>
-                        <td className="py-2.5 px-3 font-semibold">{item.quantity}</td>
+                        <td className="py-2.5 px-3">
+                          <div className="font-bold text-slate-900">{item.siteName}</div>
+                          {item.siteCode && (
+                            <span className="text-[10px] text-slate-400 font-mono">コード: {item.siteCode}</span>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded font-semibold text-[11px]">
+                            {item.workName || '点検'}{item.workCategory ? ` (${item.workCategory})` : ''}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <div className="text-slate-800 font-medium max-w-xs truncate">{item.address}</div>
+                          {item.area && <div className="text-[10px] text-slate-400">{item.area}</div>}
+                        </td>
+                        <td className="py-2.5 px-3 text-center font-bold">{item.quantity}</td>
                         <td className="py-2.5 px-3 text-slate-500 max-w-xs truncate">{item.customerRules}</td>
                         <td className="py-2.5 px-3">
-                          <span className="px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-full font-bold text-[10px]">
-                            未配置（日付未定）
-                          </span>
+                          {item.assignedUsers && item.assignedUsers.length > 0 ? (
+                            <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full font-bold text-[10px]">
+                              {item.assignedUsers.map((u) => u.name).join(', ')}
+                            </span>
+                          ) : item.excelPersonName ? (
+                            <span className="px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-full text-[10px]">
+                              {item.excelPersonName}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400 text-[10px]">未割当</span>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -587,7 +622,7 @@ export function InspectionScheduler({
         <div className="space-y-4">
           {/* コントロールツールバー */}
           <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm ring-1 ring-slate-900/5 flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xs font-bold text-slate-500">集計状況:</span>
               <span className="px-2.5 py-1 bg-amber-100 text-amber-800 rounded-lg text-xs font-bold border border-amber-200">
                 未配置: {pendingItems.length}件
@@ -607,7 +642,17 @@ export function InspectionScheduler({
               )}
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              {pendingItems.some((i) => i.initialDate) && (
+                <button
+                  onClick={handleAutoPlaceFromExcelDates}
+                  className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs rounded-xl transition-colors border border-indigo-200 flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                  title="エクセルに記載された点検日に沿って仮配置します"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                  エクセル記載日で一括仮配置
+                </button>
+              )}
               {pendingItems.length > 0 && (
                 <>
                   <button
@@ -651,20 +696,17 @@ export function InspectionScheduler({
                 </span>
               </div>
 
-              {/* 検索 & フィルター */}
+              {/* 検索 & フィルタタブ */}
               <div className="space-y-2">
-                <div className="relative">
-                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="現場名・住所・作業Noで検索..."
-                    className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                  />
-                </div>
+                <input
+                  type="text"
+                  placeholder="現場名・作業No・住所・規則等で検索..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
 
-                <div className="flex items-center gap-1 overflow-x-auto pb-1 text-[11px] font-bold">
+                <div className="flex items-center gap-1 overflow-x-auto text-[11px] font-bold pb-1">
                   <button
                     onClick={() => setStatusFilter('pending')}
                     className={`px-2.5 py-1 rounded-lg border cursor-pointer whitespace-nowrap ${
@@ -727,14 +769,24 @@ export function InspectionScheduler({
                       }`}
                     >
                       <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <div className="flex items-center gap-1.5 mb-1">
+                        <div className="w-full">
+                          <div className="flex items-center gap-1.5 mb-1 flex-wrap">
                             <span className="font-mono text-[10px] font-black px-1.5 py-0.5 bg-slate-100 text-slate-700 rounded">
                               {item.jobNo}
                             </span>
                             <span className="font-semibold text-[10px] px-1.5 py-0.5 bg-indigo-50 text-indigo-700 rounded border border-indigo-100">
-                              {item.quantity}
+                              {item.quantity}台
                             </span>
+                            {item.workName && (
+                              <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded">
+                                {item.workName}
+                              </span>
+                            )}
+                            {item.excelPersonName && (
+                              <span className="text-[10px] px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded border border-blue-100">
+                                担当: {item.excelPersonName}
+                              </span>
+                            )}
                           </div>
                           <h4 className="text-xs font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">
                             {item.siteName}
@@ -743,6 +795,11 @@ export function InspectionScheduler({
                             <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
                             <span className="truncate">{item.address}</span>
                           </p>
+                          {item.customerRules && (
+                            <p className="text-[10px] text-amber-700 bg-amber-50/60 px-1.5 py-0.5 rounded mt-1 truncate">
+                              規則: {item.customerRules}
+                            </p>
+                          )}
                         </div>
                       </div>
 
@@ -753,7 +810,7 @@ export function InspectionScheduler({
                             <button
                               onClick={() => {
                                 setManualModalItem(item);
-                                setManualDate(`${targetYearMonth}-01`);
+                                setManualDate(item.initialDate || `${targetYearMonth}-01`);
                               }}
                               className="text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer"
                             >
@@ -895,13 +952,16 @@ export function InspectionScheduler({
                               className="p-3 bg-white rounded-xl border border-emerald-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2"
                             >
                               <div className="flex items-center gap-3">
-                                <span className="px-2 py-1 bg-emerald-100 text-emerald-800 text-xs font-mono font-black rounded-lg">
+                                <span className="px-2 py-1 bg-emerald-100 text-emerald-800 text-xs font-mono font-black rounded-lg shrink-0">
                                   {placed.assignedStartTime} - {placed.assignedEndTime}
                                 </span>
                                 <div>
-                                  <div className="text-xs font-bold text-slate-900 flex items-center gap-2">
+                                  <div className="text-xs font-bold text-slate-900 flex items-center gap-2 flex-wrap">
                                     {placed.siteName}
                                     <span className="text-[10px] font-mono text-slate-500">({placed.jobNo})</span>
+                                    <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded">
+                                      {placed.quantity}台
+                                    </span>
                                   </div>
                                   <div className="text-[11px] text-slate-500 truncate max-w-sm">
                                     {placed.address}
@@ -953,131 +1013,188 @@ export function InspectionScheduler({
                 className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-colors cursor-pointer flex items-center gap-1.5"
               >
                 <ArrowLeft className="w-4 h-4" />
-                日付調整に戻る
+                日付登録に戻る
               </button>
+
               <button
                 onClick={handleFinalConfirmRegistration}
-                className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl shadow-md transition-all flex items-center gap-2 cursor-pointer"
+                className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl shadow-md shadow-emerald-200 transition-all flex items-center gap-2 cursor-pointer"
               >
                 <CheckCircle2 className="w-4 h-4" />
-                確定登録する（スケジュールに一括反映）
+                カレンダーに確定登録する ({placedItems.length}件)
               </button>
             </div>
           </div>
 
-          {/* メンバー一括指定バー */}
-          <div className="bg-indigo-50/60 rounded-xl p-4 border border-indigo-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          {/* 一括担当者設定ツールバー */}
+          <div className="bg-indigo-50/50 border border-indigo-100 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="flex items-center gap-2">
-              <UserCheck className="w-4 h-4 text-indigo-600" />
-              <span className="text-xs font-bold text-slate-800">全点検予定に共通メンバーを一括割り当て:</span>
+              <Users className="w-4 h-4 text-indigo-600 shrink-0" />
+              <span className="text-xs font-bold text-indigo-900">
+                全配置予定への一括メンバー割り当て:
+              </span>
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
-              {allUsers.slice(0, 6).map((u) => {
+              {allUsers.map((u) => {
                 const isSelected = batchUserIds.includes(u.id);
                 return (
                   <button
                     key={u.id}
+                    type="button"
                     onClick={() => {
-                      if (isSelected) setBatchUserIds(batchUserIds.filter((id) => id !== u.id));
-                      else setBatchUserIds([...batchUserIds, u.id]);
+                      setBatchUserIds((prev) =>
+                        prev.includes(u.id) ? prev.filter((id) => id !== u.id) : [...prev, u.id]
+                      );
                     }}
-                    className={`px-2.5 py-1 text-xs font-bold rounded-lg border transition-all cursor-pointer ${
-                      isSelected ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs' : 'bg-white text-slate-700 border-slate-200'
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold transition-all cursor-pointer ${
+                      isSelected
+                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
                     }`}
                   >
-                    {u.name}
+                    <img
+                      src={getAvatarUrl(u.avatarUrl)}
+                      alt={u.name}
+                      className="w-4 h-4 rounded-full"
+                    />
+                    <span>{u.name}</span>
                   </button>
                 );
               })}
+
               <button
+                type="button"
                 onClick={handleApplyBatchUsers}
-                className="px-3 py-1 bg-indigo-600 text-white font-bold text-xs rounded-lg shadow-2xs cursor-pointer hover:bg-indigo-700"
+                disabled={batchUserIds.length === 0}
+                className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all shadow-2xs cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ml-2"
               >
-                一括適用
+                全予定に適用
               </button>
             </div>
           </div>
 
-          {/* 仮配置された点検予定リスト */}
-          <div className="space-y-3">
-            {placedItems.map((item) => (
-              <div
-                key={item.id}
-                className="p-4 bg-slate-50/60 rounded-2xl border border-slate-200 flex flex-col lg:flex-row lg:items-center justify-between gap-4"
-              >
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="px-2 py-0.5 bg-indigo-600 text-white font-mono text-xs font-bold rounded-md">
-                      {item.assignedDate} ({item.assignedStartTime} - {item.assignedEndTime})
-                    </span>
-                    <span className="font-mono text-xs text-slate-500 font-bold">{item.jobNo}</span>
-                  </div>
-                  <h4 className="text-sm font-black text-slate-900">{item.siteName}</h4>
-                  <p className="text-xs text-slate-600 flex items-center gap-1">
-                    <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                    {item.address}
-                  </p>
-                </div>
-
-                {/* 個別メンバー選択ボタン */}
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-xs font-bold text-slate-500">担当メンバー:</span>
-                  {allUsers.map((user) => {
-                    const isAssigned = item.assignedUsers?.some((u) => u.id === user.id);
-                    return (
-                      <button
-                        key={user.id}
-                        onClick={() => handleToggleUserAssignment(item.id, user.id)}
-                        className={`px-2.5 py-1 text-xs font-bold rounded-lg border transition-all cursor-pointer ${
-                          isAssigned
-                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
-                            : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
-                        }`}
-                      >
-                        {user.name}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
+          {/* 点検予定ごとのメンバー個別指定テーブル */}
+          <div className="overflow-x-auto max-h-[60vh]">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold sticky top-0 z-10">
+                <tr>
+                  <th className="py-2.5 px-3">日時</th>
+                  <th className="py-2.5 px-3">作業No</th>
+                  <th className="py-2.5 px-3">現場名</th>
+                  <th className="py-2.5 px-3">場所 / 規則</th>
+                  <th className="py-2.5 px-3">エクセル担当者</th>
+                  <th className="py-2.5 px-3">カレンダー参加メンバー</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-800">
+                {placedItems.map((item) => (
+                  <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
+                    <td className="py-3 px-3 font-bold whitespace-nowrap">
+                      <div className="text-slate-900">{item.assignedDate}</div>
+                      <div className="text-indigo-600 font-mono text-[11px]">
+                        {item.assignedStartTime} - {item.assignedEndTime}
+                      </div>
+                    </td>
+                    <td className="py-3 px-3 font-mono font-bold text-slate-700">{item.jobNo}</td>
+                    <td className="py-3 px-3">
+                      <div className="font-bold text-slate-900">{item.siteName}</div>
+                      <div className="text-[11px] text-slate-500 font-semibold">{item.quantity}台</div>
+                    </td>
+                    <td className="py-3 px-3 max-w-xs">
+                      <div className="text-slate-700 truncate">{item.address}</div>
+                      <div className="text-[10px] text-amber-700 truncate">{item.customerRules}</div>
+                    </td>
+                    <td className="py-3 px-3">
+                      {item.excelPersonName ? (
+                        <span className="px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-full text-[10px] font-semibold">
+                          {item.excelPersonName}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 text-[10px]">-</span>
+                      )}
+                    </td>
+                    <td className="py-3 px-3">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {allUsers.map((u) => {
+                          const isAssigned = (item.assignedUsers || []).some((au) => au.id === u.id);
+                          return (
+                            <button
+                              key={u.id}
+                              type="button"
+                              onClick={() => handleToggleUserAssignment(item.id, u.id)}
+                              className={`flex items-center gap-1 px-2 py-0.5 rounded-lg border text-[11px] font-semibold transition-colors cursor-pointer ${
+                                isAssigned
+                                  ? 'bg-emerald-600 text-white border-emerald-600'
+                                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                              }`}
+                            >
+                              <img
+                                src={getAvatarUrl(u.avatarUrl)}
+                                alt={u.name}
+                                className="w-3.5 h-3.5 rounded-full"
+                              />
+                              <span>{u.name}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
 
       {/* ==========================================
-          COMPLETED STEP
+          STEP COMPLETED: SUCCESS SUMMARY
           ========================================== */}
       {currentStep === 'completed' && (
-        <div className="bg-white rounded-2xl border border-slate-200 p-8 sm:p-12 shadow-sm text-center space-y-6">
-          <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto shadow-sm border border-emerald-200">
+        <div className="bg-white rounded-2xl border border-slate-200 p-12 shadow-sm ring-1 ring-slate-900/5 text-center space-y-6 max-w-xl mx-auto">
+          <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto shadow-inner">
             <CheckCircle2 className="w-10 h-10" />
           </div>
 
-          <div>
-            <h2 className="text-2xl font-black text-slate-900">
-              点検スケジュールの登録が完了しました！
+          <div className="space-y-2">
+            <h2 className="text-xl font-black text-slate-900">
+              点検予定の確定登録が完了しました！
             </h2>
-            <p className="text-sm text-slate-600 mt-2">
-              合計 <strong>{completedCount} 件</strong> の点検スケジュールを各メンバーのカレンダーに自動同期・既読登録いたしました。
+            <p className="text-xs text-slate-500">
+              合計 <strong>{completedCount}件</strong> の点検スケジュールがカレンダーに既読状態で登録されました。
             </p>
           </div>
 
-          <div className="flex items-center justify-center gap-4 pt-4">
+          <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl text-left text-xs text-slate-600 space-y-1">
+            <div className="flex items-center justify-between">
+              <span>登録先年月:</span>
+              <span className="font-bold text-slate-900">{targetYearMonth}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>スケジュール区分:</span>
+              <span className="font-bold text-indigo-600">点検</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>翌月繰越件数:</span>
+              <span className="font-bold text-slate-900">{carriedOverItems.length}件</span>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-center gap-3 pt-2">
             <button
               onClick={() => {
                 setItems([]);
                 setCurrentStep('import');
               }}
-              className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-colors cursor-pointer"
+              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-colors cursor-pointer"
             >
               続けて別のファイルを取り込む
             </button>
             {onNavigateToCalendar && (
               <button
                 onClick={onNavigateToCalendar}
-                className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-2 cursor-pointer"
+                className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all cursor-pointer flex items-center gap-2"
               >
                 <CalendarIcon className="w-4 h-4" />
                 カレンダー画面で確認する
@@ -1089,58 +1206,57 @@ export function InspectionScheduler({
 
       {/* 手動日時指定モーダル */}
       {manualModalItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-              <h3 className="font-bold text-slate-900 text-sm">日時指定配置</h3>
-              <button onClick={() => setManualModalItem(null)} className="text-slate-400 hover:text-slate-600">
-                <X className="w-4 h-4" />
-              </button>
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <h3 className="text-sm font-bold text-slate-900">
+              点検予定の日時指定配置
+            </h3>
+            <div className="text-xs text-slate-600 bg-slate-50 p-2.5 rounded-lg">
+              <div className="font-bold text-slate-900">{manualModalItem.siteName}</div>
+              <div className="text-[11px] text-slate-500">{manualModalItem.address}</div>
             </div>
-
-            <p className="text-xs text-slate-600 font-bold">
-              {manualModalItem.siteName} ({manualModalItem.jobNo})
-            </p>
 
             <div className="space-y-3 text-xs">
               <div>
-                <label className="block text-slate-500 font-bold mb-1">配置日</label>
+                <label className="block font-bold text-slate-700 mb-1">配置日付</label>
                 <input
                   type="date"
                   value={manualDate}
                   onChange={(e) => setManualDate(e.target.value)}
-                  className="w-full p-2 border border-slate-200 rounded-xl"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-slate-800"
                 />
               </div>
 
               <div>
-                <label className="block text-slate-500 font-bold mb-1">開始時間</label>
+                <label className="block font-bold text-slate-700 mb-1">開始時刻</label>
                 <input
                   type="time"
                   value={manualTime}
                   onChange={(e) => setManualTime(e.target.value)}
-                  className="w-full p-2 border border-slate-200 rounded-xl"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-slate-800"
                 />
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 pt-2">
+            <div className="flex items-center justify-end gap-2 pt-2">
               <button
+                type="button"
                 onClick={() => setManualModalItem(null)}
-                className="px-4 py-2 text-xs font-bold text-slate-600 bg-slate-100 rounded-xl"
+                className="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
               >
                 キャンセル
               </button>
               <button
+                type="button"
                 onClick={() => {
                   if (manualDate) {
                     handleAssignItemToDate(manualModalItem.id, manualDate, manualTime);
-                    setManualModalItem(null);
                   }
+                  setManualModalItem(null);
                 }}
-                className="px-4 py-2 text-xs font-bold text-white bg-indigo-600 rounded-xl"
+                className="px-4 py-1.5 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg cursor-pointer"
               >
-                配置する
+                この日時で配置
               </button>
             </div>
           </div>
