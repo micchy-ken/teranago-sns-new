@@ -24,7 +24,12 @@ import {
   Layers,
   Tag,
   Building,
-  UserCheck
+  UserCheck,
+  ChevronUp,
+  ChevronDown,
+  GripVertical,
+  CalendarDays,
+  Filter
 } from 'lucide-react';
 import { User, CalendarEvent } from '../types';
 import {
@@ -53,17 +58,25 @@ export function InspectionScheduler({
 }: InspectionSchedulerProps) {
   const [currentStep, setCurrentStep] = useState<StepType>('import');
 
-  // Excel / アイテム状態 (デフォルトは 2026-08)
+  // Excel / アイテム状態 (デフォルト 2026-08)
   const [targetYearMonth, setTargetYearMonth] = useState<string>('2026-08');
   const [items, setItems] = useState<InspectionItem[]>([]);
   const [dragOverDate, setDragOverDate] = useState<string | null>(null);
   const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
+  const [dragOverItemId, setDragOverItemId] = useState<string | null>(null);
 
   // 検索・フィルター
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'placed' | 'hidden' | 'carried_over'>('pending');
 
-  // 日付一括設定用モーダル
+  // メンバー登録時の部署フィルター（デフォルト：保守メンバーのみ）
+  const [onlyMaintenanceMembers, setOnlyMaintenanceMembers] = useState<boolean>(true);
+
+  // 日付移動用モーダル
+  const [shiftDateModalItem, setShiftDateModalItem] = useState<InspectionItem | null>(null);
+  const [newTargetDate, setNewTargetDate] = useState<string>('');
+
+  // 日時指定手動モーダル
   const [manualModalItem, setManualModalItem] = useState<InspectionItem | null>(null);
   const [manualDate, setManualDate] = useState<string>('');
   const [manualTime, setManualTime] = useState<string>('09:00');
@@ -73,6 +86,20 @@ export function InspectionScheduler({
   const [completedCount, setCompletedCount] = useState<number>(0);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // ==========================================
+  // 保守メンバーのフィルタリング
+  // ==========================================
+  const maintenanceUsers = allUsers.filter((u) => {
+    const div = (u.division || '').trim();
+    const dept = (u.department || '').trim();
+    return div.includes('保守') || dept.includes('保守');
+  });
+
+  // メンバー登録画面で表示するユーザー一覧
+  const selectableUsers = onlyMaintenanceMembers && maintenanceUsers.length > 0
+    ? maintenanceUsers
+    : allUsers;
 
   // ==========================================
   // カレンダーの日付リスト生成 (対象年月の1日〜末日)
@@ -110,6 +137,34 @@ export function InspectionScheduler({
   };
 
   const monthDays = getDaysInMonthList(targetYearMonth);
+
+  // ------------------------------------------
+  // 指定日の配置アイテムの時間再計算ヘルパー (9:00から1時間刻み)
+  // ------------------------------------------
+  const recalculateTimesForDateList = (
+    currentItems: InspectionItem[],
+    dateKey: string,
+    orderedSameDayItems?: InspectionItem[]
+  ): InspectionItem[] => {
+    const sameDay = orderedSameDayItems || currentItems.filter((i) => i.status === 'placed' && i.assignedDate === dateKey);
+    const otherItems = currentItems.filter((i) => !(i.status === 'placed' && i.assignedDate === dateKey));
+
+    const updatedSameDay = sameDay.map((item, idx) => {
+      let startH = 9 + idx;
+      if (startH >= 18) startH = 17; // 17時上限
+      const startStr = `${String(startH).padStart(2, '0')}:00`;
+      const endStr = `${String(startH + 1).padStart(2, '0')}:00`;
+      return {
+        ...item,
+        status: 'placed' as const,
+        assignedDate: dateKey,
+        assignedStartTime: startStr,
+        assignedEndTime: endStr,
+      };
+    });
+
+    return [...otherItems, ...updatedSameDay];
+  };
 
   // ------------------------------------------
   // Excel ファイル読込処理
@@ -173,34 +228,101 @@ export function InspectionScheduler({
   });
 
   // ------------------------------------------
-  // D&D & 日付配置ロジック
+  // D&D 日付配置 & 再配置（別日付への移動）
   // ------------------------------------------
-  const handleAssignItemToDate = (itemId: string, dateKey: string, customTime?: string) => {
-    const existingSameDayItems = items.filter((i) => i.assignedDate === dateKey && i.id !== itemId);
-    const orderIndex = existingSameDayItems.length;
+  const handleAssignItemToDate = (itemId: string, newDateKey: string) => {
+    const targetItem = items.find((i) => i.id === itemId);
+    if (!targetItem) return;
 
-    let startH = 9 + orderIndex;
-    if (startH >= 18) startH = 17; // 17時上限
+    const oldDateKey = targetItem.status === 'placed' ? targetItem.assignedDate : undefined;
 
-    const startTime = customTime || `${String(startH).padStart(2, '0')}:00`;
-    const endTime = customTime
-      ? `${String(parseInt(customTime.split(':')[0], 10) + 1).padStart(2, '0')}:${customTime.split(':')[1]}`
-      : `${String(startH + 1).padStart(2, '0')}:00`;
+    setItems((prev) => {
+      // 既存の targetItem を更新
+      const itemToMove = {
+        ...targetItem,
+        status: 'placed' as const,
+        assignedDate: newDateKey,
+      };
 
-    setItems((prev) =>
-      prev.map((i) => {
-        if (i.id === itemId) {
-          return {
-            ...i,
-            status: 'placed',
-            assignedDate: dateKey,
-            assignedStartTime: startTime,
-            assignedEndTime: endTime,
-          };
-        }
-        return i;
-      })
-    );
+      let updatedList = prev.filter((i) => i.id !== itemId);
+      const targetDayItems = updatedList.filter((i) => i.status === 'placed' && i.assignedDate === newDateKey);
+      
+      // 末尾に追加
+      const newTargetDayItems = [...targetDayItems, itemToMove];
+
+      // 新しい日付の時間を再計算
+      updatedList = recalculateTimesForDateList(updatedList, newDateKey, newTargetDayItems);
+
+      // 古い日付があれば古い日付の時間も繰り上げ再計算
+      if (oldDateKey && oldDateKey !== newDateKey) {
+        updatedList = recalculateTimesForDateList(updatedList, oldDateKey);
+      }
+
+      return updatedList;
+    });
+  };
+
+  // ------------------------------------------
+  // 同一日内での順序入れ替え (上へ / 下へ)
+  // ------------------------------------------
+  const handleMoveItemOrder = (itemId: string, direction: 'up' | 'down') => {
+    const targetItem = items.find((i) => i.id === itemId);
+    if (!targetItem || !targetItem.assignedDate) return;
+
+    const dateKey = targetItem.assignedDate;
+    const sameDayItems = items.filter((i) => i.status === 'placed' && i.assignedDate === dateKey);
+    const currentIndex = sameDayItems.findIndex((i) => i.id === itemId);
+    if (currentIndex === -1) return;
+
+    const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+    if (targetIndex < 0 || targetIndex >= sameDayItems.length) return;
+
+    // スワップ
+    const reorderedSameDay = [...sameDayItems];
+    const temp = reorderedSameDay[currentIndex];
+    reorderedSameDay[currentIndex] = reorderedSameDay[targetIndex];
+    reorderedSameDay[targetIndex] = temp;
+
+    // 時間再計算
+    setItems((prev) => recalculateTimesForDateList(prev, dateKey, reorderedSameDay));
+  };
+
+  // ------------------------------------------
+  // ドラッグ＆ドロップによる特定アイテムの前への割り込み配置
+  // ------------------------------------------
+  const handleDropOnItem = (droppedItemId: string, targetItemId: string) => {
+    if (droppedItemId === targetItemId) return;
+    const droppedItem = items.find((i) => i.id === droppedItemId);
+    const targetItem = items.find((i) => i.id === targetItemId);
+    if (!droppedItem || !targetItem || !targetItem.assignedDate) return;
+
+    const newDateKey = targetItem.assignedDate;
+    const oldDateKey = droppedItem.status === 'placed' ? droppedItem.assignedDate : undefined;
+
+    setItems((prev) => {
+      const remaining = prev.filter((i) => i.id !== droppedItemId);
+      const sameDayItems = remaining.filter((i) => i.status === 'placed' && i.assignedDate === newDateKey);
+
+      const targetIdx = sameDayItems.findIndex((i) => i.id === targetItemId);
+      const insertIdx = targetIdx !== -1 ? targetIdx : sameDayItems.length;
+
+      const itemToInsert: InspectionItem = {
+        ...droppedItem,
+        status: 'placed',
+        assignedDate: newDateKey,
+      };
+
+      const newSameDay = [...sameDayItems];
+      newSameDay.splice(insertIdx, 0, itemToInsert);
+
+      let updated = recalculateTimesForDateList(remaining, newDateKey, newSameDay);
+
+      if (oldDateKey && oldDateKey !== newDateKey) {
+        updated = recalculateTimesForDateList(updated, oldDateKey);
+      }
+
+      return updated;
+    });
   };
 
   // エクセル内の点検日情報を使って一括仮配置する便利機能
@@ -212,52 +334,60 @@ export function InspectionScheduler({
     }
 
     setItems((prev) => {
-      // 日付ごとのカウンター
+      let updated = [...prev];
       const dateCounters: Record<string, number> = {};
       
-      // すでに配置済みのアイテムをカウント
-      prev.filter((i) => i.status === 'placed' && i.assignedDate).forEach((i) => {
+      updated.filter((i) => i.status === 'placed' && i.assignedDate).forEach((i) => {
         dateCounters[i.assignedDate!] = (dateCounters[i.assignedDate!] || 0) + 1;
       });
 
-      return prev.map((item) => {
+      const datesToRecalculate = new Set<string>();
+
+      updated = updated.map((item) => {
         if (item.status === 'pending' && item.initialDate) {
           const dKey = item.initialDate;
-          const currentCount = dateCounters[dKey] || 0;
-          dateCounters[dKey] = currentCount + 1;
-
-          let startH = 9 + currentCount;
-          if (startH >= 18) startH = 17;
-
+          datesToRecalculate.add(dKey);
           return {
             ...item,
-            status: 'placed',
+            status: 'placed' as const,
             assignedDate: dKey,
-            assignedStartTime: `${String(startH).padStart(2, '0')}:00`,
-            assignedEndTime: `${String(startH + 1).padStart(2, '0')}:00`,
           };
         }
         return item;
       });
+
+      datesToRecalculate.forEach((dKey) => {
+        updated = recalculateTimesForDateList(updated, dKey);
+      });
+
+      return updated;
     });
   };
 
   // カレンダーから削除（未配置に戻す）
   const handleRemoveFromCalendar = (itemId: string) => {
-    setItems((prev) =>
-      prev.map((i) => {
+    const targetItem = items.find((i) => i.id === itemId);
+    const oldDateKey = targetItem?.assignedDate;
+
+    setItems((prev) => {
+      let updated = prev.map((i) => {
         if (i.id === itemId) {
           return {
             ...i,
-            status: 'pending',
+            status: 'pending' as const,
             assignedDate: undefined,
             assignedStartTime: undefined,
             assignedEndTime: undefined,
           };
         }
         return i;
-      })
-    );
+      });
+
+      if (oldDateKey) {
+        updated = recalculateTimesForDateList(updated, oldDateKey);
+      }
+      return updated;
+    });
   };
 
   // 翌月繰り越し
@@ -410,7 +540,7 @@ export function InspectionScheduler({
                 </span>
               </div>
               <p className="text-xs text-slate-500 mt-1">
-                月間300〜600件の点検エクセルを取り込み、D&Dで日付配置・メンバー割り当てを行いカレンダーに一括反映します。
+                月間300〜600件の点検エクセルを取り込み、D&Dで日付配置・順序調整・メンバー割り当てを行いカレンダーに一括反映します。
               </p>
             </div>
           </div>
@@ -439,7 +569,7 @@ export function InspectionScheduler({
                   : 'text-slate-600 hover:bg-slate-200/60'
               }`}
             >
-              <span>2. 日付仮配置 (D&D)</span>
+              <span>2. 日付仮配置・再配置 (D&D)</span>
             </button>
 
             <span className="text-slate-300">→</span>
@@ -453,7 +583,7 @@ export function InspectionScheduler({
                   : 'text-slate-600 hover:bg-slate-200/60'
               }`}
             >
-              <span>3. メンバー登録</span>
+              <span>3. メンバー登録 (保守)</span>
             </button>
           </div>
         </div>
@@ -516,7 +646,7 @@ export function InspectionScheduler({
               <span className="px-2.5 py-1 bg-slate-50 rounded-lg border border-slate-200">現場名 → 件名</span>
               <span className="px-2.5 py-1 bg-slate-50 rounded-lg border border-slate-200">住所 → 場所</span>
               <span className="px-2.5 py-1 bg-slate-50 rounded-lg border border-slate-200">作業No・台数・客先規則・現場コード・作業名 → 内容</span>
-              <span className="px-2.5 py-1 bg-slate-50 rounded-lg border border-slate-200">担当者名 → ユーザー自動マッチング</span>
+              <span className="px-2.5 py-1 bg-slate-50 rounded-lg border border-slate-200">担当者名 → 保守メンバー自動マッチング</span>
             </div>
           </div>
 
@@ -555,7 +685,7 @@ export function InspectionScheduler({
                 </div>
               </div>
 
-              {/* プレビューテーブル (実フォーマット準拠) */}
+              {/* プレビューテーブル */}
               <div className="overflow-x-auto max-h-96">
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold sticky top-0 z-10">
@@ -757,7 +887,11 @@ export function InspectionScheduler({
                         e.dataTransfer.setData('text/plain', item.id);
                         setDraggedItemId(item.id);
                       }}
-                      onDragEnd={() => setDraggedItemId(null)}
+                      onDragEnd={() => {
+                        setDraggedItemId(null);
+                        setDragOverDate(null);
+                        setDragOverItemId(null);
+                      }}
                       className={`p-3.5 rounded-xl border transition-all relative group cursor-grab active:cursor-grabbing ${
                         item.status === 'pending'
                           ? 'bg-white border-slate-200 hover:border-indigo-400 hover:shadow-sm'
@@ -837,11 +971,18 @@ export function InspectionScheduler({
                         )}
 
                         {item.status === 'placed' && (
-                          <div className="w-full flex items-center justify-between">
-                            <span className="text-emerald-700 font-bold flex items-center gap-1">
-                              <Check className="w-3 h-3" />
-                              {item.assignedDate} ({item.assignedStartTime})
-                            </span>
+                          <div className="w-full flex items-center justify-between gap-1 flex-wrap">
+                            <button
+                              onClick={() => {
+                                setShiftDateModalItem(item);
+                                setNewTargetDate(item.assignedDate || `${targetYearMonth}-01`);
+                              }}
+                              className="text-emerald-800 hover:text-emerald-950 font-bold flex items-center gap-1 cursor-pointer bg-emerald-100/70 hover:bg-emerald-200 px-1.5 py-0.5 rounded"
+                              title="日付を変更する"
+                            >
+                              <CalendarDays className="w-3 h-3" />
+                              {item.assignedDate?.slice(5)} ({item.assignedStartTime})
+                            </button>
                             <button
                               onClick={() => handleRemoveFromCalendar(item.id)}
                               className="text-rose-600 hover:text-rose-800 cursor-pointer underline"
@@ -872,10 +1013,10 @@ export function InspectionScheduler({
                 <div>
                   <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
                     <CalendarIcon className="w-5 h-5 text-indigo-600" />
-                    {targetYearMonth}度 日付順カレンダー (仮配置ゾーン)
+                    {targetYearMonth}度 日付順カレンダー (仮配置・再配置ゾーン)
                   </h3>
-                  <p className="text-xs text-slate-500">
-                    左リストから日付ブロックへドラッグ＆ドロップしてください。9:00から1時間毎に順次登録されます。
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    左リストからドロップして新規配置。配置後も<strong>「別日付へのD&D移動」</strong>や<strong>「▲▼ボタン・D&Dでの順序入れ替え（時間の自動調整）」</strong>が可能です。
                   </p>
                 </div>
               </div>
@@ -894,13 +1035,21 @@ export function InspectionScheduler({
                       key={day.dateKey}
                       onDragOver={(e) => {
                         e.preventDefault();
+                        e.stopPropagation();
                         setDragOverDate(day.dateKey);
                       }}
-                      onDragLeave={() => setDragOverDate(null)}
+                      onDragLeave={(e) => {
+                        e.preventDefault();
+                        if (dragOverDate === day.dateKey) {
+                          setDragOverDate(null);
+                        }
+                      }}
                       onDrop={(e) => {
                         e.preventDefault();
+                        e.stopPropagation();
                         setDragOverDate(null);
-                        const itemId = e.dataTransfer.getData('text/plain');
+                        setDragOverItemId(null);
+                        const itemId = e.dataTransfer.getData('text/plain') || draggedItemId;
                         if (itemId) {
                           handleAssignItemToDate(itemId, day.dateKey);
                         }
@@ -935,7 +1084,7 @@ export function InspectionScheduler({
                         </div>
 
                         <span className="text-[10px] text-slate-400 font-bold">
-                          D&Dドロップ領域
+                          D&Dドロップ領域 (別日付からの移動も可能)
                         </span>
                       </div>
 
@@ -943,42 +1092,139 @@ export function InspectionScheduler({
                       <div className="mt-2.5 space-y-2">
                         {dayPlacedItems.length === 0 ? (
                           <div className="py-2 text-center text-xs text-slate-400 border border-dashed border-slate-200 rounded-xl">
-                            ドラッグしてここにドロップ
+                            ドラッグしてここにドロップ (9:00〜仮配置)
                           </div>
                         ) : (
-                          dayPlacedItems.map((placed) => (
-                            <div
-                              key={placed.id}
-                              className="p-3 bg-white rounded-xl border border-emerald-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2"
-                            >
-                              <div className="flex items-center gap-3">
-                                <span className="px-2 py-1 bg-emerald-100 text-emerald-800 text-xs font-mono font-black rounded-lg shrink-0">
-                                  {placed.assignedStartTime} - {placed.assignedEndTime}
-                                </span>
-                                <div>
-                                  <div className="text-xs font-bold text-slate-900 flex items-center gap-2 flex-wrap">
-                                    {placed.siteName}
-                                    <span className="text-[10px] font-mono text-slate-500">({placed.jobNo})</span>
-                                    <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded">
-                                      {placed.quantity}台
-                                    </span>
+                          dayPlacedItems.map((placed, idx) => {
+                            const isItemDragOver = dragOverItemId === placed.id;
+
+                            return (
+                              <div
+                                key={placed.id}
+                                draggable={true}
+                                onDragStart={(e) => {
+                                  e.stopPropagation();
+                                  e.dataTransfer.setData('text/plain', placed.id);
+                                  setDraggedItemId(placed.id);
+                                }}
+                                onDragEnd={() => {
+                                  setDraggedItemId(null);
+                                  setDragOverDate(null);
+                                  setDragOverItemId(null);
+                                }}
+                                onDragOver={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setDragOverItemId(placed.id);
+                                }}
+                                onDragLeave={(e) => {
+                                  e.preventDefault();
+                                  if (dragOverItemId === placed.id) {
+                                    setDragOverItemId(null);
+                                  }
+                                }}
+                                onDrop={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setDragOverDate(null);
+                                  setDragOverItemId(null);
+                                  const sourceItemId = e.dataTransfer.getData('text/plain') || draggedItemId;
+                                  if (sourceItemId) {
+                                    handleDropOnItem(sourceItemId, placed.id);
+                                  }
+                                }}
+                                className={`p-3 bg-white rounded-xl border shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 transition-all cursor-grab active:cursor-grabbing group ${
+                                  isItemDragOver
+                                    ? 'border-indigo-500 ring-2 ring-indigo-200 bg-indigo-50/50'
+                                    : 'border-emerald-200 hover:border-emerald-400'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                                  {/* ドラッグハンドル */}
+                                  <div className="text-slate-300 group-hover:text-slate-500 cursor-grab shrink-0" title="ドラッグして順序や日付を変更">
+                                    <GripVertical className="w-4 h-4" />
                                   </div>
-                                  <div className="text-[11px] text-slate-500 truncate max-w-sm">
-                                    {placed.address}
+
+                                  {/* 時間バッジ */}
+                                  <span className="px-2 py-1 bg-emerald-100 text-emerald-800 text-xs font-mono font-black rounded-lg shrink-0">
+                                    {placed.assignedStartTime} - {placed.assignedEndTime}
+                                  </span>
+
+                                  {/* 現場名・情報 */}
+                                  <div className="min-w-0 flex-1">
+                                    <div className="text-xs font-bold text-slate-900 flex items-center gap-2 flex-wrap">
+                                      <span className="truncate">{placed.siteName}</span>
+                                      <span className="text-[10px] font-mono text-slate-500">({placed.jobNo})</span>
+                                      <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded shrink-0">
+                                        {placed.quantity}台
+                                      </span>
+                                      {placed.workName && (
+                                        <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded shrink-0">
+                                          {placed.workName}
+                                        </span>
+                                      )}
+                                      {placed.excelPersonName && (
+                                        <span className="text-[10px] px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded border border-blue-100 shrink-0">
+                                          担当: {placed.excelPersonName}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="text-[11px] text-slate-500 truncate mt-0.5">
+                                      {placed.address}
+                                    </div>
                                   </div>
                                 </div>
-                              </div>
 
-                              <div className="flex items-center gap-2 self-end sm:self-center">
-                                <button
-                                  onClick={() => handleRemoveFromCalendar(placed.id)}
-                                  className="px-2.5 py-1 text-[11px] font-bold text-rose-600 hover:bg-rose-50 border border-rose-200 rounded-lg transition-colors cursor-pointer"
-                                >
-                                  リストに戻す
-                                </button>
+                                {/* 操作ボタングループ (順序変更 ▲▼, 日付変更, リストに戻す) */}
+                                <div className="flex items-center gap-1.5 self-end sm:self-center shrink-0">
+                                  {/* 順序変更ボタン (▲ / ▼) */}
+                                  <div className="flex items-center bg-slate-100 rounded-lg p-0.5 border border-slate-200">
+                                    <button
+                                      type="button"
+                                      disabled={idx === 0}
+                                      onClick={() => handleMoveItemOrder(placed.id, 'up')}
+                                      className="p-1 hover:bg-white text-slate-600 hover:text-indigo-600 rounded disabled:opacity-30 disabled:hover:bg-transparent cursor-pointer transition-colors"
+                                      title="時間を1つ繰り上げ（前へ移動）"
+                                    >
+                                      <ChevronUp className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={idx === dayPlacedItems.length - 1}
+                                      onClick={() => handleMoveItemOrder(placed.id, 'down')}
+                                      className="p-1 hover:bg-white text-slate-600 hover:text-indigo-600 rounded disabled:opacity-30 disabled:hover:bg-transparent cursor-pointer transition-colors"
+                                      title="時間を1つ繰り下げ（後ろへ移動）"
+                                    >
+                                      <ChevronDown className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+
+                                  {/* 日付変更ボタン */}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setShiftDateModalItem(placed);
+                                      setNewTargetDate(placed.assignedDate || day.dateKey);
+                                    }}
+                                    className="px-2 py-1 text-[11px] font-bold text-indigo-600 hover:bg-indigo-50 border border-indigo-200 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
+                                    title="別の日付へ変更"
+                                  >
+                                    <CalendarDays className="w-3 h-3" />
+                                    日付変更
+                                  </button>
+
+                                  {/* リストに戻す */}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveFromCalendar(placed.id)}
+                                    className="px-2 py-1 text-[11px] font-bold text-rose-600 hover:bg-rose-50 border border-rose-200 rounded-lg transition-colors cursor-pointer"
+                                  >
+                                    リストに戻す
+                                  </button>
+                                </div>
                               </div>
-                            </div>
-                          ))
+                            );
+                          })
                         )}
                       </div>
                     </div>
@@ -998,10 +1244,16 @@ export function InspectionScheduler({
         <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm ring-1 ring-slate-900/5 space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
             <div>
-              <h2 className="text-lg font-black text-slate-900 flex items-center gap-2">
-                <Users className="w-5 h-5 text-indigo-600" />
-                メンバー登録・確定画面 (Step 5)
-              </h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg font-black text-slate-900 flex items-center gap-2">
+                  <Users className="w-5 h-5 text-indigo-600" />
+                  メンバー登録・確定画面 (Step 5)
+                </h2>
+                <span className="px-2.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-xs font-bold flex items-center gap-1">
+                  <UserCheck className="w-3.5 h-3.5" />
+                  部署「保守」メンバー表示
+                </span>
+              </div>
               <p className="text-xs text-slate-500 mt-0.5">
                 仮配置した {placedItems.length} 件の点検予定に担当メンバーを割り当ててカレンダーに確定反映します。
               </p>
@@ -1026,51 +1278,95 @@ export function InspectionScheduler({
             </div>
           </div>
 
-          {/* 一括担当者設定ツールバー */}
-          <div className="bg-indigo-50/50 border border-indigo-100 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="flex items-center gap-2">
-              <Users className="w-4 h-4 text-indigo-600 shrink-0" />
-              <span className="text-xs font-bold text-indigo-900">
-                全配置予定への一括メンバー割り当て:
-              </span>
+          {/* 部署フィルター切り替えバー & 一括担当者設定ツールバー */}
+          <div className="bg-indigo-50/50 border border-indigo-100 rounded-xl p-4 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-indigo-100/70">
+              <div className="flex items-center gap-2">
+                <Filter className="w-4 h-4 text-indigo-600" />
+                <span className="text-xs font-bold text-indigo-950">表示対象メンバー:</span>
+                <span className="text-xs text-slate-600 font-semibold">
+                  {onlyMaintenanceMembers ? `「保守」部署のみ (${selectableUsers.length}名)` : `全部署 (${selectableUsers.length}名)`}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-1 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setOnlyMaintenanceMembers(true)}
+                  className={`px-2.5 py-1 rounded-lg border font-bold cursor-pointer transition-all ${
+                    onlyMaintenanceMembers
+                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  ✓ 保守部署のみ
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOnlyMaintenanceMembers(false)}
+                  className={`px-2.5 py-1 rounded-lg border font-bold cursor-pointer transition-all ${
+                    !onlyMaintenanceMembers
+                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  全メンバー表示
+                </button>
+              </div>
             </div>
 
-            <div className="flex items-center gap-2 flex-wrap">
-              {allUsers.map((u) => {
-                const isSelected = batchUserIds.includes(u.id);
-                return (
-                  <button
-                    key={u.id}
-                    type="button"
-                    onClick={() => {
-                      setBatchUserIds((prev) =>
-                        prev.includes(u.id) ? prev.filter((id) => id !== u.id) : [...prev, u.id]
-                      );
-                    }}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold transition-all cursor-pointer ${
-                      isSelected
-                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
-                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                    }`}
-                  >
-                    <img
-                      src={getAvatarUrl(u.avatarUrl)}
-                      alt={u.name}
-                      className="w-4 h-4 rounded-full"
-                    />
-                    <span>{u.name}</span>
-                  </button>
-                );
-              })}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <Users className="w-4 h-4 text-indigo-600 shrink-0" />
+                <span className="text-xs font-bold text-indigo-900">
+                  全配置予定への一括メンバー割り当て:
+                </span>
+              </div>
 
-              <button
-                type="button"
-                onClick={handleApplyBatchUsers}
-                disabled={batchUserIds.length === 0}
-                className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all shadow-2xs cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ml-2"
-              >
-                全予定に適用
-              </button>
+              <div className="flex items-center gap-2 flex-wrap">
+                {selectableUsers.map((u) => {
+                  const isSelected = batchUserIds.includes(u.id);
+                  return (
+                    <button
+                      key={u.id}
+                      type="button"
+                      onClick={() => {
+                        setBatchUserIds((prev) =>
+                          prev.includes(u.id) ? prev.filter((id) => id !== u.id) : [...prev, u.id]
+                        );
+                      }}
+                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold transition-all cursor-pointer ${
+                        isSelected
+                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
+                          : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                      }`}
+                    >
+                      <img
+                        src={getAvatarUrl(u.avatarUrl)}
+                        alt={u.name}
+                        className="w-4 h-4 rounded-full"
+                      />
+                      <span>{u.name}</span>
+                      {u.division && (
+                        <span className={`text-[10px] px-1 py-0.2 rounded font-normal ${
+                          isSelected ? 'bg-indigo-700 text-white' : 'bg-slate-100 text-slate-500'
+                        }`}>
+                          {u.division}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+
+                <button
+                  type="button"
+                  onClick={handleApplyBatchUsers}
+                  disabled={batchUserIds.length === 0}
+                  className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all shadow-2xs cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ml-2"
+                >
+                  全予定に適用
+                </button>
+              </div>
             </div>
           </div>
 
@@ -1084,7 +1380,7 @@ export function InspectionScheduler({
                   <th className="py-2.5 px-3">現場名</th>
                   <th className="py-2.5 px-3">場所 / 規則</th>
                   <th className="py-2.5 px-3">エクセル担当者</th>
-                  <th className="py-2.5 px-3">カレンダー参加メンバー</th>
+                  <th className="py-2.5 px-3">カレンダー参加メンバー (保守)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-slate-800">
@@ -1116,7 +1412,7 @@ export function InspectionScheduler({
                     </td>
                     <td className="py-3 px-3">
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        {allUsers.map((u) => {
+                        {selectableUsers.map((u) => {
                           const isAssigned = (item.assignedUsers || []).some((au) => au.id === u.id);
                           return (
                             <button
@@ -1204,6 +1500,62 @@ export function InspectionScheduler({
         </div>
       )}
 
+      {/* 日付変更モーダル */}
+      {shiftDateModalItem && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+              <CalendarDays className="w-4 h-4 text-indigo-600" />
+              点検日の変更
+            </h3>
+            <div className="text-xs text-slate-600 bg-slate-50 p-2.5 rounded-lg">
+              <div className="font-bold text-slate-900">{shiftDateModalItem.siteName}</div>
+              <div className="text-[11px] text-slate-500">{shiftDateModalItem.address}</div>
+              <div className="text-[11px] font-mono text-indigo-600 mt-1">
+                現在の日時: {shiftDateModalItem.assignedDate} ({shiftDateModalItem.assignedStartTime} - {shiftDateModalItem.assignedEndTime})
+              </div>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">新しい配置日</label>
+                <input
+                  type="date"
+                  value={newTargetDate}
+                  onChange={(e) => setNewTargetDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-slate-800"
+                />
+              </div>
+              <p className="text-[11px] text-slate-500">
+                ※移動先の日付の末尾に追加され、9:00からの時間枠が自動計算されます。
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShiftDateModalItem(null)}
+                className="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (newTargetDate && newTargetDate !== shiftDateModalItem.assignedDate) {
+                    handleAssignItemToDate(shiftDateModalItem.id, newTargetDate);
+                  }
+                  setShiftDateModalItem(null);
+                }}
+                className="px-4 py-1.5 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg cursor-pointer"
+              >
+                日付を変更
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 手動日時指定モーダル */}
       {manualModalItem && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
@@ -1250,7 +1602,7 @@ export function InspectionScheduler({
                 type="button"
                 onClick={() => {
                   if (manualDate) {
-                    handleAssignItemToDate(manualModalItem.id, manualDate, manualTime);
+                    handleAssignItemToDate(manualModalItem.id, manualDate);
                   }
                   setManualModalItem(null);
                 }}

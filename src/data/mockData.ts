@@ -139,7 +139,39 @@ export const user5: User = {
   supervisorId: 'u4', // 上長：田中部長
 };
 
-export const allUsers: User[] = [currentUser, approverUser, user2, user3, user5];
+export const user6: User = {
+  id: 'u6',
+  loginId: 'tsurumi',
+  password: 'password',
+  name: '鶴見 茂樹',
+  office: '名古屋',
+  division: '保守',
+  department: '名古屋支店 保守',
+  avatarUrl: 'https://i.pravatar.cc/150?u=u6',
+  isAdmin: false,
+  role: 'user',
+  email: 'tsurumi@teranago.co.jp',
+  phone: '052-555-0192',
+  supervisorId: 'u1',
+};
+
+export const user7: User = {
+  id: 'u7',
+  loginId: 'kato',
+  password: 'password',
+  name: '加藤 技師',
+  office: '名古屋',
+  division: '保守',
+  department: '名古屋支店 保守',
+  avatarUrl: 'https://i.pravatar.cc/150?u=u7',
+  isAdmin: false,
+  role: 'user',
+  email: 'kato@teranago.co.jp',
+  phone: '052-555-0192',
+  supervisorId: 'u1',
+};
+
+export const allUsers: User[] = [currentUser, approverUser, user2, user3, user5, user6, user7];
 
 const today = new Date();
 today.setHours(0, 0, 0, 0);
