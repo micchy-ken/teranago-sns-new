@@ -72,10 +72,6 @@ export function InspectionScheduler({
   // メンバー登録時の部署フィルター（デフォルト：保守メンバーのみ）
   const [onlyMaintenanceMembers, setOnlyMaintenanceMembers] = useState<boolean>(true);
 
-  // 日付移動用モーダル
-  const [shiftDateModalItem, setShiftDateModalItem] = useState<InspectionItem | null>(null);
-  const [newTargetDate, setNewTargetDate] = useState<string>('');
-
   // 日時指定手動モーダル
   const [manualModalItem, setManualModalItem] = useState<InspectionItem | null>(null);
   const [manualDate, setManualDate] = useState<string>('');
@@ -916,11 +912,6 @@ export function InspectionScheduler({
                                 {item.workName}
                               </span>
                             )}
-                            {item.excelPersonName && (
-                              <span className="text-[10px] px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded border border-blue-100">
-                                担当: {item.excelPersonName}
-                              </span>
-                            )}
                           </div>
                           <h4 className="text-xs font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">
                             {item.siteName}
@@ -930,9 +921,9 @@ export function InspectionScheduler({
                             <span className="truncate">{item.address}</span>
                           </p>
                           {item.customerRules && (
-                            <p className="text-[10px] text-amber-700 bg-amber-50/60 px-1.5 py-0.5 rounded mt-1 truncate">
-                              規則: {item.customerRules}
-                            </p>
+                            <div className="text-[10px] text-amber-800 bg-amber-50/90 border border-amber-200/80 px-1.5 py-0.5 rounded mt-1 truncate font-medium">
+                              <span className="font-bold text-amber-900">客先規則:</span> {item.customerRules}
+                            </div>
                           )}
                         </div>
                       </div>
@@ -972,17 +963,10 @@ export function InspectionScheduler({
 
                         {item.status === 'placed' && (
                           <div className="w-full flex items-center justify-between gap-1 flex-wrap">
-                            <button
-                              onClick={() => {
-                                setShiftDateModalItem(item);
-                                setNewTargetDate(item.assignedDate || `${targetYearMonth}-01`);
-                              }}
-                              className="text-emerald-800 hover:text-emerald-950 font-bold flex items-center gap-1 cursor-pointer bg-emerald-100/70 hover:bg-emerald-200 px-1.5 py-0.5 rounded"
-                              title="日付を変更する"
-                            >
-                              <CalendarDays className="w-3 h-3" />
+                            <span className="text-emerald-800 font-bold flex items-center gap-1 bg-emerald-100/70 px-2 py-0.5 rounded text-[11px]">
+                              <Check className="w-3 h-3 text-emerald-600" />
                               {item.assignedDate?.slice(5)} ({item.assignedStartTime})
-                            </button>
+                            </span>
                             <button
                               onClick={() => handleRemoveFromCalendar(item.id)}
                               className="text-rose-600 hover:text-rose-800 cursor-pointer underline"
@@ -1163,19 +1147,20 @@ export function InspectionScheduler({
                                           {placed.workName}
                                         </span>
                                       )}
-                                      {placed.excelPersonName && (
-                                        <span className="text-[10px] px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded border border-blue-100 shrink-0">
-                                          担当: {placed.excelPersonName}
-                                        </span>
-                                      )}
                                     </div>
                                     <div className="text-[11px] text-slate-500 truncate mt-0.5">
                                       {placed.address}
                                     </div>
+                                    {placed.customerRules && (
+                                      <div className="text-[10px] text-amber-800 bg-amber-50/90 border border-amber-200/80 px-1.5 py-0.5 rounded mt-1 truncate max-w-lg font-medium flex items-center gap-1">
+                                        <span className="font-bold text-amber-900 shrink-0">客先規則:</span>
+                                        <span className="truncate">{placed.customerRules}</span>
+                                      </div>
+                                    )}
                                   </div>
                                 </div>
 
-                                {/* 操作ボタングループ (順序変更 ▲▼, 日付変更, リストに戻す) */}
+                                {/* 操作ボタングループ (順序変更 ▲▼, リストに戻す) */}
                                 <div className="flex items-center gap-1.5 self-end sm:self-center shrink-0">
                                   {/* 順序変更ボタン (▲ / ▼) */}
                                   <div className="flex items-center bg-slate-100 rounded-lg p-0.5 border border-slate-200">
@@ -1198,20 +1183,6 @@ export function InspectionScheduler({
                                       <ChevronDown className="w-3.5 h-3.5" />
                                     </button>
                                   </div>
-
-                                  {/* 日付変更ボタン */}
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setShiftDateModalItem(placed);
-                                      setNewTargetDate(placed.assignedDate || day.dateKey);
-                                    }}
-                                    className="px-2 py-1 text-[11px] font-bold text-indigo-600 hover:bg-indigo-50 border border-indigo-200 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
-                                    title="別の日付へ変更"
-                                  >
-                                    <CalendarDays className="w-3 h-3" />
-                                    日付変更
-                                  </button>
 
                                   {/* リストに戻す */}
                                   <button
@@ -1496,62 +1467,6 @@ export function InspectionScheduler({
                 カレンダー画面で確認する
               </button>
             )}
-          </div>
-        </div>
-      )}
-
-      {/* 日付変更モーダル */}
-      {shiftDateModalItem && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
-            <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-              <CalendarDays className="w-4 h-4 text-indigo-600" />
-              点検日の変更
-            </h3>
-            <div className="text-xs text-slate-600 bg-slate-50 p-2.5 rounded-lg">
-              <div className="font-bold text-slate-900">{shiftDateModalItem.siteName}</div>
-              <div className="text-[11px] text-slate-500">{shiftDateModalItem.address}</div>
-              <div className="text-[11px] font-mono text-indigo-600 mt-1">
-                現在の日時: {shiftDateModalItem.assignedDate} ({shiftDateModalItem.assignedStartTime} - {shiftDateModalItem.assignedEndTime})
-              </div>
-            </div>
-
-            <div className="space-y-3 text-xs">
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">新しい配置日</label>
-                <input
-                  type="date"
-                  value={newTargetDate}
-                  onChange={(e) => setNewTargetDate(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-slate-800"
-                />
-              </div>
-              <p className="text-[11px] text-slate-500">
-                ※移動先の日付の末尾に追加され、9:00からの時間枠が自動計算されます。
-              </p>
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setShiftDateModalItem(null)}
-                className="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
-              >
-                キャンセル
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (newTargetDate && newTargetDate !== shiftDateModalItem.assignedDate) {
-                    handleAssignItemToDate(shiftDateModalItem.id, newTargetDate);
-                  }
-                  setShiftDateModalItem(null);
-                }}
-                className="px-4 py-1.5 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg cursor-pointer"
-              >
-                日付を変更
-              </button>
-            </div>
           </div>
         </div>
       )}
