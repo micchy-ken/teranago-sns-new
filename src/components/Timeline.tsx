@@ -26,7 +26,7 @@ import {
   Trash2,
   MessageSquare
 } from 'lucide-react';
-import { formatRelativeTime } from '../utils';
+import { formatRelativeTime, formatEventScheduleBadge } from '../utils';
 import { API_BASE_URL } from '../config/api';
 
 interface TimelineProps {
@@ -130,13 +130,38 @@ export function Timeline({
       });
     }
 
-    // 2. スケジュールイベント（繰り返し登録時は最初の登録のみ表示、個別更新された予定も表示）
+    // 2. スケジュールイベント（登録日時・更新日時順で表示）
     if (showEvents && events && Array.isArray(events)) {
       events.forEach((e) => {
+        // イベントの登録・更新日時を正確に判定
+        const raw = e as any;
+        let registeredDate = raw.updatedAt || raw.createdAt || raw.draftSavedAt;
+        
+        // IDにタイムスタンプが含まれる場合の抽出 (例: evt_insp_1724050000000_abc)
+        if (!registeredDate && e.id) {
+          const match = e.id.match(/(\d{13})/);
+          if (match && match[1]) {
+            const t = parseInt(match[1], 10);
+            if (!isNaN(t) && t > 1600000000000 && t < 2500000000000) {
+              registeredDate = new Date(t).toISOString();
+            }
+          }
+        }
+
+        // 過去の予定で登録日時がない場合は開始日時、未来の予定の場合は登録時（または現在）
+        if (!registeredDate) {
+          const startT = new Date(e.start).getTime();
+          if (!isNaN(startT) && startT <= Date.now()) {
+            registeredDate = e.start;
+          } else {
+            registeredDate = new Date().toISOString();
+          }
+        }
+
         items.push({
           type: 'event',
           id: `event-${e.id}`,
-          date: e.start,
+          date: registeredDate,
           data: e,
         });
       });
@@ -154,10 +179,10 @@ export function Timeline({
       });
     }
 
-    // 降順ソート (登録・更新の最新順)
+    // 降順ソート (登録日時・更新日時の最新順)
     const getItemTimestamp = (item: TimelineFeedItem) => {
       const data = item.data as any;
-      const timeStr = data.updatedAt || data.createdAt || data.start || item.date;
+      const timeStr = item.date || data.updatedAt || data.createdAt;
       const t = new Date(timeStr).getTime();
       return isNaN(t) ? 0 : t;
     };
@@ -434,7 +459,7 @@ export function Timeline({
                     onClick={() => setSelectedDetailItem(item)}
                     className="bg-white rounded-xl border border-amber-200/90 hover:border-amber-300 p-3 shadow-2xs hover:shadow-xs transition-all flex flex-col gap-1.5 cursor-pointer group"
                   >
-                    {/* 1行目: 種別バッジ + 顔アイコン + 名前 */}
+                    {/* 1行目: 種別バッジ + 作成・担当者 + 登録日時 (相対時間) */}
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2 min-w-0">
                         <span className="px-2 py-0.5 bg-amber-50 text-amber-700 font-extrabold text-[11px] rounded shrink-0 flex items-center gap-1 border border-amber-200">
@@ -460,12 +485,21 @@ export function Timeline({
                           </div>
                         )}
                       </div>
-                      <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-amber-600 group-hover:translate-x-0.5 transition-all shrink-0" />
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="text-[11px] text-slate-400 font-medium whitespace-nowrap" title="登録・更新日時">
+                          {formatRelativeTime(item.date)}
+                        </span>
+                        <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-amber-600 group-hover:translate-x-0.5 transition-all shrink-0" />
+                      </div>
                     </div>
 
-                    {/* 2行目: 内容、日時 */}
-                    <div className="flex items-center justify-between gap-3 text-xs pl-0.5">
-                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                    {/* 2行目: 予定の日付・時刻バッジ + タイトル + 場所 */}
+                    <div className="flex items-center justify-between gap-3 text-xs pl-0.5 mt-0.5">
+                      <div className="flex items-center gap-2 min-w-0 flex-1 flex-wrap sm:flex-nowrap">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-100 text-amber-900 font-bold text-[11px] shrink-0 border border-amber-300/70">
+                          <Clock className="w-3 h-3 text-amber-700" />
+                          {formatEventScheduleBadge(event.start, event.end, event.isAllDay)}
+                        </span>
                         <span className="font-semibold text-slate-900 truncate min-w-0">
                           {event.title}
                         </span>
@@ -475,9 +509,6 @@ export function Timeline({
                           </span>
                         )}
                       </div>
-                      <span className="text-[11px] text-slate-400 font-medium whitespace-nowrap shrink-0">
-                        {formatRelativeTime(event.start)}
-                      </span>
                     </div>
                   </div>
                 );
@@ -667,13 +698,22 @@ export function Timeline({
                   <div className="space-y-4">
                     <div>
                       <h3 className="font-bold text-slate-900 text-lg">{event.title}</h3>
-                      <span className="text-xs text-slate-400">{formatRelativeTime(event.start)} に追加</span>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="text-xs text-slate-400">
+                          登録: {formatRelativeTime(selectedDetailItem.date)}
+                        </span>
+                        {event.targetYearMonth && (
+                          <span className="px-1.5 py-0.5 bg-slate-100 text-slate-600 text-[10px] font-bold rounded">
+                            {event.targetYearMonth}度
+                          </span>
+                        )}
+                      </div>
                     </div>
 
-                    <div className="bg-amber-50/60 rounded-xl p-4 border border-amber-100 space-y-2 text-xs">
-                      <div className="flex items-center gap-2 font-bold text-slate-800">
-                        <Clock className="w-4 h-4 text-amber-600 shrink-0" />
-                        <span>日時: {new Date(event.start).toLocaleString('ja-JP')}</span>
+                    <div className="bg-amber-50/60 rounded-xl p-4 border border-amber-100 space-y-2.5 text-xs">
+                      <div className="flex items-center gap-2 font-bold text-amber-950 bg-amber-100/70 px-2.5 py-1.5 rounded-lg border border-amber-200/80">
+                        <Clock className="w-4 h-4 text-amber-700 shrink-0" />
+                        <span>予定日時: {formatEventScheduleBadge(event.start, event.end, event.isAllDay)}</span>
                       </div>
                       {event.location && (
                         <div className="flex items-center gap-2 text-slate-700">

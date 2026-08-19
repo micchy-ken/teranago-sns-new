@@ -858,6 +858,7 @@ export function InspectionScheduler({
         status: 'published',
         targetYearMonth: targetYearMonth,
         draftSavedAt: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
       };
 
       // 参加者に対して既読処理

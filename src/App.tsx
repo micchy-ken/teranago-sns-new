@@ -31,7 +31,7 @@ const mapUserFromApi = (apiUser: any): User => {
   const isAdmin = apiUser.isAdmin === true || apiUser.role === 'admin';
   const office = apiUser.office || undefined;
   const division = apiUser.division || undefined;
-  const position = apiUser.position || undefined;
+  const position = (apiUser.position && apiUser.position !== '一般') ? apiUser.position : undefined;
   const deptFromParts = [office, division, position].filter(Boolean).join(' ');
   const department = (apiUser.department && typeof apiUser.department === 'string' && apiUser.department.trim() !== '') ? apiUser.department : (deptFromParts || '未設定');
 
@@ -311,7 +311,7 @@ export default function App() {
       if (posRes.ok) {
         const data = await posRes.json();
         if (Array.isArray(data)) {
-          setPositions(data);
+          setPositions(data.filter((p: any) => p && p.name !== '一般'));
           setFetchErrors(prev => { if (!prev.positions) return prev; const next = { ...prev }; delete next.positions; return next; });
         }
       } else {
@@ -480,6 +480,9 @@ export default function App() {
             recurrenceParentId: e.recurrenceParentId || detailsObj.recurrenceParentId || undefined,
             recurrenceOriginalDate: e.recurrenceOriginalDate || detailsObj.recurrenceOriginalDate || undefined,
             recurrenceExceptions: parsedExceptions,
+            createdAt: e.createdAt || detailsObj.createdAt || e.created_at || undefined,
+            updatedAt: e.updatedAt || detailsObj.updatedAt || e.updated_at || undefined,
+            draftSavedAt: e.draftSavedAt || detailsObj.draftSavedAt || undefined,
           };
         });
         setEvents(mapped);

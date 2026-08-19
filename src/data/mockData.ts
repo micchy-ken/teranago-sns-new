@@ -51,7 +51,6 @@ export const initialPositions: PositionMaster[] = [
   { id: 'pos-3', name: '課長', code: 'POS-MGR', description: '課・チームの運用管理責任者' },
   { id: 'pos-4', name: '課長補佐', code: 'POS-AMGR', description: '課長の補佐及びプロジェクト進行管理' },
   { id: 'pos-5', name: '主任', code: 'POS-LEAD', description: '業務リーダー・若手指導' },
-  { id: 'pos-6', name: '一般', code: 'POS-STAFF', description: '一般社員・実務担当' },
 ];
 
 export const currentUser: User = {

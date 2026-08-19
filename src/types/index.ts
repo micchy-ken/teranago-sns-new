@@ -48,7 +48,7 @@ export interface DivisionMaster {
 
 export interface PositionMaster {
   id: string;
-  name: string; // 代表取締役, 部長, 課長, 課長補佐, 主任, 一般など
+  name: string; // 代表取締役, 部長, 課長, 課長補佐, 主任など（未選択時は役職なし/空欄）
   code: string;
   description?: string;
 }
@@ -105,6 +105,10 @@ export interface CalendarEvent {
   status?: 'pending' | 'draft' | 'published' | 'carried_over' | 'hidden';
   targetYearMonth?: string; // 点検対象年月 (例: '2026-08')
   draftSavedAt?: string;    // 下書き・自動保存日時 (ISO string)
+
+  // 作成・更新日時
+  createdAt?: string; // 登録日時 (ISO string)
+  updatedAt?: string; // 更新日時 (ISO string)
 
   // 繰り返し設定
   recurrence?: RecurrenceRule;

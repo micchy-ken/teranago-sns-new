@@ -223,7 +223,7 @@ export function AdminPanel({
     password: 'test',
     office: '',
     division: '',
-    position: positions[0]?.name || '課長補佐',
+    position: '',
     avatarUrl: '',
     email: '',
     mobileEmail: '',
@@ -323,7 +323,7 @@ export function AdminPanel({
       password: 'test',
       office: '',
       division: '',
-      position: positions[0]?.name || '課長補佐',
+      position: '',
       avatarUrl: '',
       email: '',
       mobileEmail: '',
@@ -346,7 +346,7 @@ export function AdminPanel({
       password: user.password || 'test',
       office: user.office || '',
       division: user.division || '',
-      position: user.position || positions[0]?.name || '課長補佐',
+      position: user.position || '',
       avatarUrl: user.avatarUrl || '',
       email: user.email || '',
       mobileEmail: user.mobileEmail || '',
@@ -375,7 +375,7 @@ export function AdminPanel({
       return;
     }
 
-    const deptString = `${userFormData.office || ''} ${userFormData.division || ''} ${userFormData.position || ''}`.trim();
+    const deptString = [userFormData.office, userFormData.division, userFormData.position].filter(Boolean).join(' ');
     const finalLoginId = (userFormData.loginId || '').trim() || `user_${Date.now().toString().slice(-4)}`;
 
     if (editingUser) {
@@ -664,7 +664,7 @@ export function AdminPanel({
     {
       tableName: 'dbo.PositionMaster',
       isNew: true,
-      description: '役職マスタです。メンバー登録時に設定する役職（社長、部長、課長、一般等）を保持します。',
+      description: '役職マスタです。メンバー登録時に設定する役職（代表取締役、部長、課長等）を保持します。未設定時は空欄として扱われます。',
       columns: [
         { name: 'id', type: 'VARCHAR(50)', constraint: 'PRIMARY KEY', desc: '役職ID', isNew: true },
         { name: 'name', type: 'NVARCHAR(100)', constraint: 'NOT NULL', desc: '役職名', isNew: true },
@@ -1651,10 +1651,10 @@ export function AdminPanel({
               <div>
                 <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
                   <Briefcase className="w-5 h-5 text-indigo-600" />
-                  役職マスター（社長・部長・課長・課長補佐・主任・一般 等）一覧
+                  役職マスター（代表取締役・部長・課長・課長補佐・主任 等）一覧
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  全社共通の役職定義です。ここで登録された役職がメンバー登録や名刺プロフィールに反映されます。
+                  全社共通の役職定義です。メンバー登録時は「（役職なし / 空欄）」の選択も可能です。
                 </p>
               </div>
 
@@ -2664,15 +2664,15 @@ END;`}
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    役職マスター <span className="text-red-500">*</span>
+                    役職マスター <span className="text-slate-400 font-normal text-[10px]">（任意 / 未設定時は空欄）</span>
                   </label>
                   <select
-                    value={userFormData.position}
+                    value={userFormData.position || ''}
                     onChange={(e) => setUserFormData({ ...userFormData, position: e.target.value })}
                     className="w-full px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-lg text-xs font-bold text-indigo-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
                   >
-                    <option value="課長補佐">課長補佐</option>
-                    {positions.map((pos) => (
+                    <option value="">（役職なし / 空欄）</option>
+                    {positions.filter(pos => pos.name !== '一般').map((pos) => (
                       <option key={pos.id} value={pos.name}>
                         {pos.name}
                       </option>
@@ -2685,7 +2685,7 @@ END;`}
               <div className="p-3 bg-indigo-50 rounded-xl border border-indigo-100 flex items-center justify-between text-xs">
                 <span className="text-slate-600 font-medium">登録表記プレビュー:</span>
                 <span className="font-extrabold text-indigo-900 text-xs bg-white px-3 py-1 rounded-lg border border-indigo-200 shadow-2xs">
-                  {userFormData.office} / {userFormData.division} / {userFormData.position}
+                  {[userFormData.office || '拠点未設定', userFormData.division || '部署未設定', userFormData.position].filter(Boolean).join(' / ')}
                 </span>
               </div>
 
@@ -3020,7 +3020,7 @@ END;`}
                 <input
                   type="text"
                   required
-                  placeholder="例: 社長, 部長, 課長, 課長補佐, 主任, 一般"
+                  placeholder="例: 代表取締役, 部長, 課長, 課長補佐, 主任"
                   value={positionFormData.name}
                   onChange={(e) => setPositionFormData({ ...positionFormData, name: e.target.value })}
                   className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-bold text-indigo-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"

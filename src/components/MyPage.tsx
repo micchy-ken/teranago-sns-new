@@ -423,7 +423,11 @@ export function MyPage({
       return;
     }
     if (onUpdateUser) {
-      onUpdateUser(settingsForm);
+      const deptString = [settingsForm.office, settingsForm.division, settingsForm.position].filter(Boolean).join(' ');
+      onUpdateUser({
+        ...settingsForm,
+        department: deptString,
+      });
     }
     handleCloseSettings();
   };
@@ -1551,14 +1555,16 @@ export function MyPage({
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">役職</label>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      役職 <span className="text-slate-400 font-normal text-[10px]">（任意 / 未設定時は空欄）</span>
+                    </label>
                     <select
                       value={settingsForm.position || ''}
                       onChange={(e) => setSettingsForm({ ...settingsForm, position: e.target.value })}
                       className="w-full px-2.5 py-2 bg-indigo-50 border border-indigo-200 rounded-lg text-xs font-bold text-indigo-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
                     >
-                      <option value="課長補佐">課長補佐</option>
-                      {positions.map((pos) => (
+                      <option value="">（役職なし / 空欄）</option>
+                      {positions.filter(pos => pos.name !== '一般').map((pos) => (
                         <option key={pos.id} value={pos.name}>
                           {pos.name}
                         </option>
