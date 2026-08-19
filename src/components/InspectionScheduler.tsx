@@ -135,7 +135,7 @@ export function InspectionScheduler({
 
       if (resDraft.ok) {
         const draftData = await resDraft.json();
-        if (draftData.exists && Array.isArray(draftData.items) && draftData.items.length > 0) {
+        if (Array.isArray(draftData.items) && draftData.items.length > 0) {
           loadedItems = draftData.items;
           if (draftData.lastSavedAt) {
             loadedTime = new Date(draftData.lastSavedAt).toLocaleTimeString('ja-JP', {
@@ -186,6 +186,9 @@ export function InspectionScheduler({
       if (loadedItems.length > 0) {
         setSaveStatus('saved');
         setLastSavedTime(loadedTime || new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+        if (isInitialMountRef.current) {
+          setCurrentStep('assign_date');
+        }
       } else {
         setSaveStatus('idle');
       }
@@ -920,6 +923,32 @@ export function InspectionScheduler({
           ========================================== */}
       {currentStep === 'import' && (
         <div className="space-y-6">
+          {items.length > 0 && (
+            <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-2xs">
+              <div className="flex items-center gap-3 text-left">
+                <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold shrink-0 shadow-xs">
+                  <CheckCircle2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-emerald-950 text-sm">
+                    {targetYearMonth} の作業中データ（{items.length}件）が読み込まれています
+                  </h4>
+                  <p className="text-xs text-emerald-700 mt-0.5">
+                    配置中: {placedItems.length}件 / 未配置: {pendingItems.length}件 / 繰越: {carriedOverItems.length}件
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCurrentStep('assign_date')}
+                className="w-full sm:w-auto px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md shadow-emerald-200 flex items-center justify-center gap-2 transition-all cursor-pointer"
+              >
+                <span>日付配置画面を再開する</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
           {/* 取込カード */}
           <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-sm ring-1 ring-slate-900/5 flex flex-col items-center justify-center text-center space-y-4">
             <div className="flex items-center justify-center gap-3">
