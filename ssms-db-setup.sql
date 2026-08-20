@@ -527,30 +527,72 @@ END
 GO
 
 -- ------------------------------------------
--- 10. DailyReports Table
+-- 10. WorkReports & DailyReports Table (日報・週報)
 -- ------------------------------------------
-IF OBJECT_ID('dbo.DailyReports', 'U') IS NULL
+IF OBJECT_ID('dbo.WorkReports', 'U') IS NULL
 BEGIN
-    CREATE TABLE dbo.DailyReports (
+    CREATE TABLE dbo.WorkReports (
         id VARCHAR(50) PRIMARY KEY,
         authorId VARCHAR(50) NOT NULL,
-        reportDate DATE NOT NULL,
-        content NVARCHAR(MAX) NULL,
-        createdAt DATETIME DEFAULT GETDATE(),
+        reportType VARCHAR(20) DEFAULT 'weekly', -- 'daily' | 'weekly'
+        reportDate DATE NULL,
+        weekStartDate DATE NULL,
+        weekLabel NVARCHAR(100) NULL,
+        department NVARCHAR(100) NULL,
         tasks NVARCHAR(MAX) NULL,
         results NVARCHAR(MAX) NULL,
         issues NVARCHAR(MAX) NULL,
-        tomorrowPlan NVARCHAR(MAX) NULL
+        ongoingProjects NVARCHAR(MAX) NULL,
+        tomorrowPlan NVARCHAR(MAX) NULL,
+        supervisorId VARCHAR(50) NULL,
+        status VARCHAR(20) DEFAULT 'submitted', -- 'draft' | 'submitted' | 'reviewed'
+        feedbackComment NVARCHAR(MAX) NULL,
+        submittedAt DATETIME NULL,
+        reviewedAt DATETIME NULL,
+        createdAt DATETIME DEFAULT GETDATE(),
+        updatedAt DATETIME DEFAULT GETDATE()
     );
 END
 ELSE
 BEGIN
-    IF COL_LENGTH('dbo.DailyReports', 'content') IS NULL ALTER TABLE dbo.DailyReports ADD content NVARCHAR(MAX) NULL;
-    IF COL_LENGTH('dbo.DailyReports', 'reportDate') IS NULL ALTER TABLE dbo.DailyReports ADD reportDate DATE NULL;
-    IF COL_LENGTH('dbo.DailyReports', 'tasks') IS NULL ALTER TABLE dbo.DailyReports ADD tasks NVARCHAR(MAX) NULL;
-    IF COL_LENGTH('dbo.DailyReports', 'results') IS NULL ALTER TABLE dbo.DailyReports ADD results NVARCHAR(MAX) NULL;
-    IF COL_LENGTH('dbo.DailyReports', 'issues') IS NULL ALTER TABLE dbo.DailyReports ADD issues NVARCHAR(MAX) NULL;
-    IF COL_LENGTH('dbo.DailyReports', 'tomorrowPlan') IS NULL ALTER TABLE dbo.DailyReports ADD tomorrowPlan NVARCHAR(MAX) NULL;
+    IF COL_LENGTH('dbo.WorkReports', 'reportType') IS NULL ALTER TABLE dbo.WorkReports ADD reportType VARCHAR(20) DEFAULT 'weekly';
+    IF COL_LENGTH('dbo.WorkReports', 'reportDate') IS NULL ALTER TABLE dbo.WorkReports ADD reportDate DATE NULL;
+    IF COL_LENGTH('dbo.WorkReports', 'weekStartDate') IS NULL ALTER TABLE dbo.WorkReports ADD weekStartDate DATE NULL;
+    IF COL_LENGTH('dbo.WorkReports', 'weekLabel') IS NULL ALTER TABLE dbo.WorkReports ADD weekLabel NVARCHAR(100) NULL;
+    IF COL_LENGTH('dbo.WorkReports', 'department') IS NULL ALTER TABLE dbo.WorkReports ADD department NVARCHAR(100) NULL;
+    IF COL_LENGTH('dbo.WorkReports', 'tasks') IS NULL ALTER TABLE dbo.WorkReports ADD tasks NVARCHAR(MAX) NULL;
+    IF COL_LENGTH('dbo.WorkReports', 'results') IS NULL ALTER TABLE dbo.WorkReports ADD results NVARCHAR(MAX) NULL;
+    IF COL_LENGTH('dbo.WorkReports', 'issues') IS NULL ALTER TABLE dbo.WorkReports ADD issues NVARCHAR(MAX) NULL;
+    IF COL_LENGTH('dbo.WorkReports', 'ongoingProjects') IS NULL ALTER TABLE dbo.WorkReports ADD ongoingProjects NVARCHAR(MAX) NULL;
+    IF COL_LENGTH('dbo.WorkReports', 'tomorrowPlan') IS NULL ALTER TABLE dbo.WorkReports ADD tomorrowPlan NVARCHAR(MAX) NULL;
+    IF COL_LENGTH('dbo.WorkReports', 'supervisorId') IS NULL ALTER TABLE dbo.WorkReports ADD supervisorId VARCHAR(50) NULL;
+    IF COL_LENGTH('dbo.WorkReports', 'status') IS NULL ALTER TABLE dbo.WorkReports ADD status VARCHAR(20) DEFAULT 'submitted';
+    IF COL_LENGTH('dbo.WorkReports', 'feedbackComment') IS NULL ALTER TABLE dbo.WorkReports ADD feedbackComment NVARCHAR(MAX) NULL;
+    IF COL_LENGTH('dbo.WorkReports', 'submittedAt') IS NULL ALTER TABLE dbo.WorkReports ADD submittedAt DATETIME NULL;
+    IF COL_LENGTH('dbo.WorkReports', 'reviewedAt') IS NULL ALTER TABLE dbo.WorkReports ADD reviewedAt DATETIME NULL;
+    IF COL_LENGTH('dbo.WorkReports', 'createdAt') IS NULL ALTER TABLE dbo.WorkReports ADD createdAt DATETIME DEFAULT GETDATE();
+    IF COL_LENGTH('dbo.WorkReports', 'updatedAt') IS NULL ALTER TABLE dbo.WorkReports ADD updatedAt DATETIME DEFAULT GETDATE();
+END
+GO
+
+-- Backward compatibility synonym for DailyReports
+IF OBJECT_ID('dbo.DailyReports', 'U') IS NULL AND NOT EXISTS (SELECT * FROM sys.synonyms WHERE name = 'DailyReports' AND schema_id = SCHEMA_ID('dbo'))
+BEGIN
+    CREATE SYNONYM dbo.DailyReports FOR dbo.WorkReports;
+END
+ELSE IF OBJECT_ID('dbo.DailyReports', 'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH('dbo.DailyReports', 'reportType') IS NULL ALTER TABLE dbo.DailyReports ADD reportType VARCHAR(20) DEFAULT 'weekly';
+    IF COL_LENGTH('dbo.DailyReports', 'weekStartDate') IS NULL ALTER TABLE dbo.DailyReports ADD weekStartDate DATE NULL;
+    IF COL_LENGTH('dbo.DailyReports', 'weekLabel') IS NULL ALTER TABLE dbo.DailyReports ADD weekLabel NVARCHAR(100) NULL;
+    IF COL_LENGTH('dbo.DailyReports', 'department') IS NULL ALTER TABLE dbo.DailyReports ADD department NVARCHAR(100) NULL;
+    IF COL_LENGTH('dbo.DailyReports', 'ongoingProjects') IS NULL ALTER TABLE dbo.DailyReports ADD ongoingProjects NVARCHAR(MAX) NULL;
+    IF COL_LENGTH('dbo.DailyReports', 'supervisorId') IS NULL ALTER TABLE dbo.DailyReports ADD supervisorId VARCHAR(50) NULL;
+    IF COL_LENGTH('dbo.DailyReports', 'status') IS NULL ALTER TABLE dbo.DailyReports ADD status VARCHAR(20) DEFAULT 'submitted';
+    IF COL_LENGTH('dbo.DailyReports', 'feedbackComment') IS NULL ALTER TABLE dbo.DailyReports ADD feedbackComment NVARCHAR(MAX) NULL;
+    IF COL_LENGTH('dbo.DailyReports', 'submittedAt') IS NULL ALTER TABLE dbo.DailyReports ADD submittedAt DATETIME NULL;
+    IF COL_LENGTH('dbo.DailyReports', 'reviewedAt') IS NULL ALTER TABLE dbo.DailyReports ADD reviewedAt DATETIME NULL;
+    IF COL_LENGTH('dbo.DailyReports', 'updatedAt') IS NULL ALTER TABLE dbo.DailyReports ADD updatedAt DATETIME DEFAULT GETDATE();
 END
 GO
 
@@ -679,11 +721,13 @@ BEGIN
 END
 GO
 
--- DailyReports Seed
-IF NOT EXISTS (SELECT 1 FROM dbo.DailyReports WHERE id = 'r-1')
+-- WorkReports & DailyReports Seed (日報・週報)
+IF NOT EXISTS (SELECT 1 FROM dbo.WorkReports WHERE id = 'r-weekly-1')
 BEGIN
-    INSERT INTO dbo.DailyReports (id, authorId, reportDate, content, createdAt, tasks, results, issues, tomorrowPlan) VALUES 
-    ('r-1', 'u1', CAST(GETDATE() AS DATE), N'1. 新機能UIデザインのプロトタイプ構築\n2. React-Routerを使用した画面遷移の実装\n3. APIフェッチのエラーハンドリング調整', GETDATE(), N'1. 新機能UIデザインのプロトタイプ構築\n2. React-Routerを使用した画面遷移の実装', N'UIプロトタイプがほぼ完成し、チーム内に展開した。', N'一部のIE対応互換性コードでエラーがあったが、Polyfillを追加して解決。', N'1. フィードバックを元にしたUIの修正\n2. SQL Server接続の調整');
+    INSERT INTO dbo.WorkReports (id, authorId, reportType, reportDate, weekStartDate, weekLabel, department, tasks, results, issues, ongoingProjects, tomorrowPlan, supervisorId, status, feedbackComment, submittedAt, reviewedAt, createdAt, updatedAt) VALUES 
+    ('r-weekly-1', 'u1', 'weekly', NULL, '2026-08-17', N'2026年8月17日週', N'総務', N'・ポータルサイトの新機能（カレンダー15分単位リサイズ、日報・週報機能）の設計・開発\n・全社アカウント権限マスタの整備\n・次期オフィス環境改善の社内アンケート集計', N'社内スケジュール調整工数を大幅に削減できるカレンダー機能の刷新を完了。週報機能のプロトタイプを関係部署へ共有しました。', N'夏季休暇期間中の緊急連絡網およびプッシュ通知の配信テストが一部拠点（浜松）で未実施のため、来週初頭にフォローが必要です。', N'・社内ポータルSSMS連携データベーススキーマの最適化\n・9月度防災訓練の計画策定（管理部と共同）', N'来週月曜の定例会議にて週報・日報運用ルールの説明を実施予定。', 'u4', 'submitted', NULL, DATEADD(HOUR, -2, GETDATE()), NULL, DATEADD(HOUR, -3, GETDATE()), DATEADD(HOUR, -2, GETDATE())),
+    ('r-daily-sales-1', 'u3', 'daily', '2026-08-19', '2026-08-17', N'2026年8月17日週', N'営業', N'・静岡市内A社様 新規設備リニューアル提案（訪問）\n・B建設様 案件見積書の作成・提出\n・既存顧客フォロー電話（5件）', N'A社様より9月着工案件の内諾を獲得（概算320万円）。見積仕様書の最終確認段階へ進行。', N'競合他社の価格提示が予想より低いため、メンテナンス保守体制の付加価値提案で差別化を図る必要あり。', N'・静岡駅前再開発ビル 自動ドア改修プロジェクト（入札準備中）\n・C病院 定期保守契約更新交渉', N'明日は午前中にB建設様へ最終図面の提出、午後浜松営業所にて合同商談。', 'u4', 'reviewed', N'A社の内諾獲得素晴らしい。差別化提案の資料で不明点あればいつでも相談してください。', DATEADD(HOUR, -24, GETDATE()), DATEADD(HOUR, -22, GETDATE()), DATEADD(HOUR, -25, GETDATE()), DATEADD(HOUR, -22, GETDATE())),
+    ('r-daily-maint-1', 'u6', 'daily', '2026-08-19', '2026-08-17', N'2026年8月17日週', N'保守', N'・名古屋駅前商業施設 定期保守点検（4台完了）\n・栄ビル 非常停止センサーの感度調整および部品交換\n・点検報告書の電子承認回覧', N'栄ビルのセンサー誤作動を早期に特定・即日部品交換完了し、トラブルを未然に防止。', N'一部消耗部品（Vベルト）の在庫が少なくなっているため、資材発注の申請が必要です。', N'・来月度 定期点検スケジューラーの事前日程調整（対象18件）\n・保守員向け安全衛生研修の受講準備', N'名駅西口ビルの月次定期点検（終日）および資材出庫依頼の起票。', 'u1', 'submitted', NULL, DATEADD(HOUR, -18, GETDATE()), NULL, DATEADD(HOUR, -19, GETDATE()), DATEADD(HOUR, -18, GETDATE()));
 END
 GO
 

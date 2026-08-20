@@ -827,9 +827,14 @@ export default function App() {
 
   const refetchReports = async (currentUsers = usersList) => {
     try {
-      let response = await fetch(`${API_BASE_URL}/daily-reports`, {
+      let response = await fetch(`${API_BASE_URL}/work-reports`, {
         headers: { 'Accept': 'application/json' }
       });
+      if (!response.ok) {
+        response = await fetch(`${API_BASE_URL}/daily-reports`, {
+          headers: { 'Accept': 'application/json' }
+        });
+      }
       if (!response.ok) {
         response = await fetch(`${API_BASE_URL}/reports`, {
           headers: { 'Accept': 'application/json' }
@@ -840,11 +845,21 @@ export default function App() {
       }
       const data = await response.json();
       if (Array.isArray(data)) {
-        const mapped = data.map((r: any) => {
+        let deletedReportIds: string[] = [];
+        try {
+          const stored = localStorage.getItem('deleted_report_ids');
+          if (stored) deletedReportIds = JSON.parse(stored);
+        } catch (_) {}
+
+        const mapped = data
+          .filter((r: any) => !deletedReportIds.includes(String(r.id)))
+          .map((r: any) => {
           const authorUser = currentUsers.find(u => u.id === r.authorId) || r.author || userState;
+          const supervisorUser = r.supervisorId ? (currentUsers.find(u => u.id === r.supervisorId) || r.supervisor) : undefined;
           let parsedTasks = r.tasks || '';
           let parsedResults = r.results || '';
           let parsedIssues = r.issues || '';
+          let parsedOngoing = r.ongoingProjects || '';
           let parsedTomorrow = r.tomorrowPlan || '';
           if (r.content && (!r.tasks || !r.results)) {
             if (r.content.startsWith('{')) {
@@ -853,6 +868,7 @@ export default function App() {
                 parsedTasks = p.tasks || parsedTasks;
                 parsedResults = p.results || parsedResults;
                 parsedIssues = p.issues || parsedIssues;
+                parsedOngoing = p.ongoingProjects || parsedOngoing;
                 parsedTomorrow = p.tomorrowPlan || parsedTomorrow;
               } catch (_) {}
             } else {
@@ -862,11 +878,22 @@ export default function App() {
           return {
             id: String(r.id),
             author: authorUser,
+            reportType: r.reportType || (r.weekStartDate ? 'weekly' : 'daily'),
             date: r.date || r.reportDate || (r.createdAt ? String(r.createdAt).substring(0, 10) : ''),
+            weekStartDate: r.weekStartDate,
+            weekLabel: r.weekLabel,
+            department: r.department || authorUser?.department || '',
             tasks: parsedTasks,
             results: parsedResults,
             issues: parsedIssues,
+            ongoingProjects: parsedOngoing,
             tomorrowPlan: parsedTomorrow,
+            supervisorId: r.supervisorId,
+            supervisor: supervisorUser,
+            status: r.status || 'submitted',
+            feedbackComment: r.feedbackComment || '',
+            submittedAt: r.submittedAt,
+            reviewedAt: r.reviewedAt,
             createdAt: r.createdAt || new Date().toISOString()
           };
         });
@@ -875,7 +902,7 @@ export default function App() {
       }
     } catch (err: any) {
       console.warn('Failed to load reports from API:', err);
-      setFetchErrors(prev => ({ ...prev, reports: `日報取得エラー: ${err?.message || '接続エラー'}` }));
+      setFetchErrors(prev => ({ ...prev, reports: `日報・週報取得エラー: ${err?.message || '接続エラー'}` }));
     }
   };
 
@@ -2576,51 +2603,71 @@ export default function App() {
   };
 
   const handleAddReport = async (reportData: {
-    date: string;
+    reportType?: any;
+    date?: string;
+    weekStartDate?: string;
+    weekLabel?: string;
+    department?: string;
     tasks: string;
     results: string;
     issues: string;
-    tomorrowPlan: string;
+    ongoingProjects?: string;
+    tomorrowPlan?: string;
+    supervisorId?: string;
+    status?: any;
   }) => {
-    const tempId = `r-temp-${Date.now()}`;
+    const tempId = `rep_${Date.now()}`;
+    const targetSupervisor = reportData.supervisorId ? usersList.find(u => u.id === reportData.supervisorId) : undefined;
     const newReport: DailyReport = {
       id: tempId,
       author: userState,
-      date: reportData.date,
+      reportType: reportData.reportType || 'weekly',
+      date: reportData.date || new Date().toISOString().split('T')[0],
+      weekStartDate: reportData.weekStartDate,
+      weekLabel: reportData.weekLabel,
+      department: reportData.department || userState.department || '総務',
       tasks: reportData.tasks,
       results: reportData.results,
       issues: reportData.issues,
-      tomorrowPlan: reportData.tomorrowPlan,
+      ongoingProjects: reportData.ongoingProjects || '',
+      tomorrowPlan: reportData.tomorrowPlan || '',
+      supervisorId: reportData.supervisorId,
+      supervisor: targetSupervisor,
+      status: reportData.status || 'submitted',
+      submittedAt: reportData.status === 'submitted' ? new Date().toISOString() : undefined,
       createdAt: new Date().toISOString(),
     };
     setReports([newReport, ...reports]);
 
     try {
-      let response = await fetch(`${API_BASE_URL}/daily-reports`, {
+      const payload = {
+        id: tempId,
+        authorId: userState.id,
+        reportType: reportData.reportType || 'weekly',
+        reportDate: reportData.date,
+        date: reportData.date,
+        weekStartDate: reportData.weekStartDate,
+        weekLabel: reportData.weekLabel,
+        department: reportData.department || userState.department || '総務',
+        tasks: reportData.tasks,
+        results: reportData.results,
+        issues: reportData.issues,
+        ongoingProjects: reportData.ongoingProjects,
+        tomorrowPlan: reportData.tomorrowPlan,
+        supervisorId: reportData.supervisorId,
+        status: reportData.status || 'submitted',
+      };
+
+      let response = await fetch(`${API_BASE_URL}/work-reports`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          authorId: userState.id,
-          reportDate: reportData.date,
-          content: reportData.tasks || '日報',
-          tasks: reportData.tasks,
-          results: reportData.results,
-          issues: reportData.issues,
-          tomorrowPlan: reportData.tomorrowPlan,
-        })
+        body: JSON.stringify(payload)
       });
       if (!response.ok) {
-        response = await fetch(`${API_BASE_URL}/reports`, {
+        response = await fetch(`${API_BASE_URL}/daily-reports`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            authorId: userState.id,
-            reportDate: reportData.date,
-            tasks: reportData.tasks,
-            results: reportData.results,
-            issues: reportData.issues,
-            tomorrowPlan: reportData.tomorrowPlan,
-          })
+          body: JSON.stringify(payload)
         });
       }
       if (response.ok) {
@@ -2628,6 +2675,85 @@ export default function App() {
       }
     } catch (err) {
       console.error('Failed to save report via API, keeping locally:', err);
+    }
+  };
+
+  const handleUpdateReport = async (id: string, reportData: Partial<DailyReport>) => {
+    setReports(prev => prev.map(r => r.id === id ? { ...r, ...reportData } : r));
+    try {
+      let response = await fetch(`${API_BASE_URL}/work-reports/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(reportData)
+      });
+      if (!response.ok) {
+        response = await fetch(`${API_BASE_URL}/daily-reports/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(reportData)
+        });
+      }
+      if (response.ok) {
+        await refetchReports();
+      }
+    } catch (err) {
+      console.error('Failed to update report via API:', err);
+    }
+  };
+
+  const handleReviewReport = async (id: string, feedbackComment?: string) => {
+    setReports(prev => prev.map(r => r.id === id ? { ...r, status: 'reviewed', feedbackComment, reviewedAt: new Date().toISOString() } : r));
+    try {
+      let response = await fetch(`${API_BASE_URL}/work-reports/${id}/review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ feedbackComment })
+      });
+      if (!response.ok) {
+        response = await fetch(`${API_BASE_URL}/daily-reports/${id}/review`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ feedbackComment })
+        });
+      }
+      if (response.ok) {
+        await refetchReports();
+      }
+    } catch (err) {
+      console.error('Failed to review report via API:', err);
+    }
+  };
+
+  const handleDeleteReport = async (id: string) => {
+    setReports(prev => prev.filter(r => r.id !== id));
+    try {
+      const stored = localStorage.getItem('deleted_report_ids');
+      const list = stored ? JSON.parse(stored) : [];
+      if (!list.includes(id)) {
+        list.push(id);
+        localStorage.setItem('deleted_report_ids', JSON.stringify(list));
+      }
+    } catch (_) {}
+
+    try {
+      let response = await fetch(`${API_BASE_URL}/work-reports/${id}`, {
+        method: 'DELETE'
+      });
+      if (!response.ok) {
+        response = await fetch(`${API_BASE_URL}/daily-reports/${id}`, {
+          method: 'DELETE'
+        });
+      }
+      if (!response.ok) {
+        response = await fetch(`${API_BASE_URL}/reports/${id}`, {
+          method: 'DELETE'
+        });
+      }
+      if (response.ok) {
+        await refetchReports();
+      }
+    } catch (err) {
+      console.error('Failed to delete report via API:', err);
     }
   };
 
@@ -2876,7 +3002,13 @@ export default function App() {
           <DailyReportView 
             reports={reports} 
             onAddReport={handleAddReport}
+            onUpdateReport={handleUpdateReport}
+            onReviewReport={handleReviewReport}
+            onDeleteReport={handleDeleteReport}
             currentUser={userState}
+            allUsers={usersList}
+            divisions={divisions}
+            refetchReports={refetchReports}
           />
         )}
         {activeTab === 'files' && (

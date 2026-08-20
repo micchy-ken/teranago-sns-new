@@ -161,7 +161,7 @@ export function Sidebar({ posts, selectedTag, onSelectTag, activeTab, onChangeTa
           }`}
         >
           <ClipboardList className="w-4 h-4" />
-          日報
+          週報
         </button>
         <button
           onClick={() => onChangeTab('files')}

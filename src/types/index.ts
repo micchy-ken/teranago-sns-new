@@ -324,14 +324,31 @@ export interface Memo {
   recipientStatuses: MemoUserRecipientStatus[];
 }
 
+export type WorkReportType = 'daily' | 'weekly';
+export type WorkReportStatus = 'draft' | 'submitted' | 'reviewed';
+
 export interface DailyReport {
   id: string;
   author: User;
-  date: string; // ISO string
-  tasks: string;
-  results: string;
-  issues: string;
-  tomorrowPlan: string;
+  reportType?: WorkReportType; // 'daily' | 'weekly'
+  date?: string; // ISO string or YYYY-MM-DD
+  weekStartDate?: string; // e.g. '2026-08-17'
+  weekLabel?: string; // e.g. '2026年8月17日週'
+  department?: string; // 部署 (例: '営業', '工務', '保守', '汎用')
+  tasks: string; // 今週の業務内容 / 本日の業務内容
+  results: string; // 成果・気づき
+  issues: string; // 課題・問題点
+  ongoingProjects?: string; // 継続案件
+  tomorrowPlan?: string; // 明日の予定 / 次週予定
+  supervisorId?: string; // 提出先上長ユーザーID
+  supervisor?: User; // 提出先上長
+  status?: WorkReportStatus; // 'draft' | 'submitted' | 'reviewed'
+  submittedAt?: string; // 提出日時
+  reviewedAt?: string; // 上長確認日時
+  feedbackComment?: string; // 上長コメント・フィードバック
   createdAt: string; // ISO string
+  updatedAt?: string;
 }
+
+export type WorkReport = DailyReport;
 

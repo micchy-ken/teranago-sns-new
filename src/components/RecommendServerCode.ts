@@ -2812,16 +2812,18 @@ app.post('/api/read-statuses', async (req, res) => {
 
 
 // ------------------------------------------
-// 9. Daily Reports (日報)
+// 9. Work Reports & Daily Reports (日報・週報)
 // ------------------------------------------
 const handleGetDailyReports = async (req, res) => {
   try {
     const pool = await getPool();
     const result = await pool.request().query\`
-      SELECT r.*, u.name AS authorName, u.department AS authorDepartment, u.avatarUrl AS authorAvatarUrl
-      FROM dbo.DailyReports r
+      SELECT r.*, u.name AS authorName, u.department AS authorDepartment, u.avatarUrl AS authorAvatarUrl,
+             s.name AS supervisorName
+      FROM dbo.WorkReports r
       LEFT JOIN dbo.Users u ON r.authorId = u.id
-      ORDER BY r.createdAt DESC
+      LEFT JOIN dbo.Users s ON r.supervisorId = s.id
+      ORDER BY COALESCE(r.date, r.weekStartDate, r.reportDate, r.createdAt) DESC
     \`;
     const reports = (result.recordset || []).map(row => ({
       id: String(row.id),
@@ -2832,48 +2834,110 @@ const handleGetDailyReports = async (req, res) => {
         department: row.authorDepartment || '',
         avatarUrl: row.authorAvatarUrl || ''
       },
-      reportDate: row.reportDate,
-      date: row.reportDate,
-      content: row.content || '',
+      reportType: row.reportType || (row.weekStartDate ? 'weekly' : 'daily'),
+      reportDate: row.reportDate || row.date,
+      date: row.date || row.reportDate,
+      weekStartDate: row.weekStartDate,
+      weekLabel: row.weekLabel,
+      department: row.department || row.authorDepartment || '',
       tasks: row.tasks || row.content || '',
       results: row.results || '',
       issues: row.issues || '',
+      ongoingProjects: row.ongoingProjects || '',
       tomorrowPlan: row.tomorrowPlan || '',
+      supervisorId: row.supervisorId,
+      supervisor: row.supervisorId ? { id: row.supervisorId, name: row.supervisorName || '' } : undefined,
+      status: row.status || 'submitted',
+      feedbackComment: row.feedbackComment || '',
+      submittedAt: row.submittedAt,
+      reviewedAt: row.reviewedAt,
       createdAt: row.createdAt
     }));
     res.json(reports);
   } catch (err) { res.status(500).json({ error: err.message }); }
 };
 
+app.get('/api/work-reports', handleGetDailyReports);
 app.get('/api/daily-reports', handleGetDailyReports);
 app.get('/api/reports', handleGetDailyReports);
 
 const handlePostDailyReport = async (req, res) => {
   try {
-    const { authorId, reportDate, content, tasks, results, issues, tomorrowPlan } = req.body;
+    const { authorId, reportType, reportDate, date, weekStartDate, weekLabel, department, content, tasks, results, issues, ongoingProjects, tomorrowPlan, supervisorId, status, isSubmitting } = req.body;
     const pool = await getPool();
-    const id = req.body.id || \`r-\${Date.now()}\`;
-    const formattedDate = reportDate ? new Date(reportDate) : new Date();
+    const id = req.body.id || \`rep_\${Date.now()}\`;
+    const formattedDate = (date || reportDate) ? new Date(date || reportDate) : null;
+    const formattedWeekDate = weekStartDate ? new Date(weekStartDate) : null;
+    const repType = reportType || (weekStartDate ? 'weekly' : 'daily');
+    const repStatus = status || (isSubmitting ? 'submitted' : 'draft');
+    const now = new Date();
 
     await pool.request()
       .input('id', sql.VarChar, String(id))
       .input('authorId', sql.VarChar, authorId || 'u1')
+      .input('reportType', sql.VarChar, repType)
       .input('reportDate', sql.Date, formattedDate)
-      .input('content', content || tasks || '')
-      .input('tasks', sql.NVarChar, tasks || '')
+      .input('weekStartDate', sql.Date, formattedWeekDate)
+      .input('weekLabel', sql.NVarChar, weekLabel || '')
+      .input('department', sql.NVarChar, department || '')
+      .input('tasks', sql.NVarChar, tasks || content || '')
       .input('results', sql.NVarChar, results || '')
       .input('issues', sql.NVarChar, issues || '')
+      .input('ongoingProjects', sql.NVarChar, ongoingProjects || '')
       .input('tomorrowPlan', sql.NVarChar, tomorrowPlan || '')
+      .input('supervisorId', sql.VarChar, supervisorId || null)
+      .input('status', sql.VarChar, repStatus)
+      .input('submittedAt', sql.DateTime, repStatus === 'submitted' ? now : null)
       .query\`
-        INSERT INTO dbo.DailyReports (id, authorId, reportDate, content, createdAt, tasks, results, issues, tomorrowPlan) 
-        VALUES (@id, @authorId, @reportDate, @content, GETDATE(), @tasks, @results, @issues, @tomorrowPlan)
+        MERGE dbo.WorkReports AS target
+        USING (SELECT @id AS id) AS source
+        ON (target.id = source.id)
+        WHEN MATCHED THEN
+          UPDATE SET reportType = @reportType, reportDate = @reportDate, weekStartDate = @weekStartDate,
+                     weekLabel = @weekLabel, department = @department, tasks = @tasks, results = @results,
+                     issues = @issues, ongoingProjects = @ongoingProjects, tomorrowPlan = @tomorrowPlan,
+                     supervisorId = @supervisorId, status = @status,
+                     submittedAt = CASE WHEN @status = 'submitted' AND target.submittedAt IS NULL THEN @submittedAt ELSE target.submittedAt END,
+                     updatedAt = GETDATE()
+        WHEN NOT MATCHED THEN
+          INSERT (id, authorId, reportType, reportDate, weekStartDate, weekLabel, department, tasks, results, issues, ongoingProjects, tomorrowPlan, supervisorId, status, submittedAt, createdAt, updatedAt)
+          VALUES (@id, @authorId, @reportType, @reportDate, @weekStartDate, @weekLabel, @department, @tasks, @results, @issues, @ongoingProjects, @tomorrowPlan, @supervisorId, @status, @submittedAt, GETDATE(), GETDATE());
       \`;
-    res.status(201).json({ id, message: '日報作成完了' });
+    res.status(201).json({ id, message: '日報・週報保存完了' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 };
 
+app.post('/api/work-reports', handlePostDailyReport);
 app.post('/api/daily-reports', handlePostDailyReport);
 app.post('/api/reports', handlePostDailyReport);
+app.put('/api/work-reports/:id', handlePostDailyReport);
+app.put('/api/daily-reports/:id', handlePostDailyReport);
+
+// 上長確認・レビュー API
+app.post(['/api/work-reports/:id/review', '/api/daily-reports/:id/review'], async (req, res) => {
+  try {
+    const { feedbackComment } = req.body;
+    const pool = await getPool();
+    await pool.request()
+      .input('id', sql.VarChar, String(req.params.id))
+      .input('feedbackComment', sql.NVarChar, feedbackComment || '')
+      .query\`
+        UPDATE dbo.WorkReports 
+        SET status = 'reviewed', feedbackComment = @feedbackComment, reviewedAt = GETDATE(), updatedAt = GETDATE()
+        WHERE id = @id
+      \`;
+    res.json({ message: '確認・レビュー完了' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// 削除 API
+app.delete(['/api/work-reports/:id', '/api/daily-reports/:id', '/api/reports/:id'], async (req, res) => {
+  try {
+    const pool = await getPool();
+    await pool.request().input('id', sql.VarChar, String(req.params.id)).query('DELETE FROM dbo.WorkReports WHERE id = @id');
+    res.json({ message: '削除完了' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
 
 // ==========================================
