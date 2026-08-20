@@ -1032,6 +1032,9 @@ export function Calendar({
     if (!e.end) return `${startTimeStr}〜`;
     const endDate = new Date(e.end);
     const endTimeStr = endDate.toLocaleTimeString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit' });
+    if (isSameDay(startDate, endDate) && startTimeStr === endTimeStr) {
+      return `${startTimeStr}〜`;
+    }
     return `${startTimeStr}〜${endTimeStr}`;
   };
 

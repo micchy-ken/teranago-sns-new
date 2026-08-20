@@ -66,6 +66,51 @@ const extractLocalDateStr = (isoOrDateStr?: string) => {
 const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
 const MINUTES = Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, '0'));
 
+// 現在の時刻を30分刻みで丸めた (例: 14:00〜14:14 -> 14:00, 14:15〜14:44 -> 14:30, 14:45〜14:59 -> 15:00)
+const getRounded30MinTime = (date: Date = new Date()): { hours: string; minutes: string } => {
+  const d = new Date(date);
+  const minutes = d.getMinutes();
+  const roundedMin = Math.round(minutes / 30) * 30;
+  d.setMinutes(roundedMin, 0, 0);
+
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return {
+    hours: pad(d.getHours()),
+    minutes: pad(d.getMinutes()),
+  };
+};
+
+// local ISO 文字列 ('YYYY-MM-DDTHH:mm') に分数を加算
+const addMinutesToLocalDatetime = (localDatetimeStr: string, minutesToAdd: number): string => {
+  if (!localDatetimeStr || !localDatetimeStr.includes('T')) return '';
+  const [datePart, timePart] = localDatetimeStr.split('T');
+  const [h, m] = (timePart || '00:00').split(':').map(Number);
+  const [year, month, day] = datePart.split('-').map(Number);
+  if (isNaN(year) || isNaN(month) || isNaN(day) || isNaN(h) || isNaN(m)) return '';
+
+  const d = new Date(year, month - 1, day, h, m + minutesToAdd);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
+// 2つの 'YYYY-MM-DDTHH:mm' 間の差分（分単位）を計算
+const getMinutesDifference = (startStr: string, endStr: string): number | null => {
+  if (!startStr || !endStr || !startStr.includes('T') || !endStr.includes('T')) return null;
+  const [sDate, sTime] = startStr.split('T');
+  const [eDate, eTime] = endStr.split('T');
+  const [sY, sM, sD] = sDate.split('-').map(Number);
+  const [sH, sMin] = sTime.split(':').map(Number);
+  const [eY, eM, eD] = eDate.split('-').map(Number);
+  const [eH, eMin] = eTime.split(':').map(Number);
+
+  const startDate = new Date(sY, sM - 1, sD, sH, sMin);
+  const endDate = new Date(eY, eM - 1, eD, eH, eMin);
+
+  const diffMs = endDate.getTime() - startDate.getTime();
+  if (isNaN(diffMs)) return null;
+  return Math.round(diffMs / (60 * 1000));
+};
+
 const roundTo5Minutes = (minStr?: string) => {
   if (!minStr) return '00';
   const m = parseInt(minStr, 10) || 0;
@@ -112,6 +157,10 @@ export function EventModal({
   const [selectedAttendees, setSelectedAttendees] = useState<User[]>([]);
   const [attachments, setAttachments] = useState<AttachmentFile[]>([]);
   const [error, setError] = useState<string | null>(null);
+
+  // 予定の所要時間（分単位）を保持するステート（初期値30分）
+  // 終了日時が「指定なし（クリア）」の場合は null
+  const [durationMinutes, setDurationMinutes] = useState<number | null>(30);
 
   // 繰り返し設定ステート
   const [isRecurring, setIsRecurring] = useState(false);
@@ -202,10 +251,18 @@ export function EventModal({
         if (isAllDayEv) {
           startLocal = `${startDateStr}T00:00`;
           endLocal = `${endDateStr}T23:59`;
+          setDurationMinutes(null);
         } else {
           startLocal = toLocalDatetimeInput(editingEvent.start);
-          const effectiveEndIso = editingEvent.end || editingEvent.start;
-          endLocal = toLocalDatetimeInput(effectiveEndIso);
+          const isSameExactTime = editingEvent.end && new Date(editingEvent.start).getTime() === new Date(editingEvent.end).getTime();
+          if (editingEvent.end && !isSameExactTime) {
+            endLocal = toLocalDatetimeInput(editingEvent.end);
+            const diff = getMinutesDifference(startLocal, endLocal);
+            setDurationMinutes(diff && diff > 0 ? diff : 30);
+          } else {
+            endLocal = '';
+            setDurationMinutes(null); // 指定なし
+          }
         }
 
         const isMultiDay = !!(startDateStr && endDateStr && startDateStr !== endDateStr);
@@ -277,29 +334,37 @@ export function EventModal({
         if (useAllDay) {
           setStart(`${initStartStr}T00:00`);
           setEnd(`${initEndStr}T23:59`);
+          setDurationMinutes(null);
         } else {
+          let startLocal = '';
           if (defaultInitialDate) {
-            setStart(defaultInitialDate.includes('T') ? defaultInitialDate : `${defaultInitialDate}T09:00`);
-          } else {
-            const now = new Date();
-            const year = now.getFullYear();
-            const month = String(now.getMonth() + 1).padStart(2, '0');
-            const day = String(now.getDate()).padStart(2, '0');
-            const hours = String(now.getHours()).padStart(2, '0');
-            setStart(`${year}-${month}-${day}T${hours}:00`);
-          }
-
-          if (defaultEndDate) {
-            if (defaultEndDate.includes('T')) {
-              setEnd(defaultEndDate);
-            } else if (defaultEndDate === initStartStr) {
-              setEnd(`${defaultEndDate}T10:00`);
+            if (defaultInitialDate.includes('T')) {
+              startLocal = toLocalDatetimeInput(defaultInitialDate);
             } else {
-              setEnd(`${defaultEndDate}T18:00`);
+              // 日付のみ渡された場合 (カレンダーマス目クリック等): その日付 + 現在時刻の30分丸め
+              const { hours, minutes } = getRounded30MinTime(new Date());
+              startLocal = `${defaultInitialDate}T${hours}:${minutes}`;
             }
           } else {
-            setEnd(initStartStr ? `${initStartStr}T10:00` : '');
+            const now = new Date();
+            const { hours, minutes } = getRounded30MinTime(now);
+            const todayStr = extractLocalDateStr(now.toISOString());
+            startLocal = `${todayStr}T${hours}:${minutes}`;
           }
+
+          let endLocal = '';
+          if (defaultEndDate && defaultEndDate.includes('T')) {
+            endLocal = toLocalDatetimeInput(defaultEndDate);
+            const diff = getMinutesDifference(startLocal, endLocal);
+            setDurationMinutes(diff && diff > 0 ? diff : 30);
+          } else {
+            // スケジュール追加時、終日でなければ終了日時は自動的に30分とする
+            endLocal = addMinutesToLocalDatetime(startLocal, 30);
+            setDurationMinutes(30);
+          }
+
+          setStart(startLocal);
+          setEnd(endLocal);
         }
 
         // 繰り返し初期値
@@ -324,6 +389,60 @@ export function EventModal({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, editingEvent]);
+
+  // 開始日時変更ハンドラー (所要時間 durationMinutes があれば自動で終了日時を追従)
+  const handleStartChange = (newStart: string) => {
+    setStart(newStart);
+    setError(null);
+
+    if (!isAllDay && newStart && end && durationMinutes !== null && durationMinutes > 0) {
+      const updatedEnd = addMinutesToLocalDatetime(newStart, durationMinutes);
+      if (updatedEnd) {
+        setEnd(updatedEnd);
+      }
+    }
+  };
+
+  // 終了日時変更ハンドラー (所要時間を再計算して保管)
+  const handleEndChange = (newEnd: string) => {
+    setEnd(newEnd);
+    setError(null);
+
+    if (!newEnd) {
+      // 終了日時クリア（指定なし）
+      setDurationMinutes(null);
+    } else if (!isAllDay && start) {
+      const diff = getMinutesDifference(start, newEnd);
+      if (diff !== null && diff > 0) {
+        setDurationMinutes(diff);
+      } else {
+        setDurationMinutes(diff !== null ? Math.max(0, diff) : null);
+      }
+    }
+  };
+
+  // 終日トグルハンドラー
+  const handleAllDayToggle = (checked: boolean) => {
+    setIsAllDay(checked);
+    setError(null);
+
+    if (checked) {
+      const startDatePart = start.split('T')[0] || extractLocalDateStr(new Date().toISOString());
+      const endDatePart = end ? (end.split('T')[0] || startDatePart) : startDatePart;
+      setStart(`${startDatePart}T00:00`);
+      setEnd(`${endDatePart}T23:59`);
+      setDurationMinutes(null);
+    } else {
+      // 終日OFF: デフォルトで現在の時間を30分刻みで丸めた時間を開始時間、終了時間は+30分
+      const baseDatePart = start.split('T')[0] || extractLocalDateStr(new Date().toISOString());
+      const { hours, minutes } = getRounded30MinTime(new Date());
+      const newStart = `${baseDatePart}T${hours}:${minutes}`;
+      const newEnd = addMinutesToLocalDatetime(newStart, 30);
+      setStart(newStart);
+      setEnd(newEnd);
+      setDurationMinutes(30);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -653,7 +772,7 @@ export function EventModal({
               id="isAllDay"
               disabled={isIcal}
               checked={isAllDay}
-              onChange={e => { setIsAllDay(e.target.checked); setError(null); }}
+              onChange={e => handleAllDayToggle(e.target.checked)}
               className={`w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 ${
                 isIcal ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
               }`}
@@ -677,8 +796,15 @@ export function EventModal({
                   readOnly={isIcal}
                   value={start.split('T')[0] || ''}
                   onChange={e => {
-                    setStart(e.target.value ? `${e.target.value}T00:00` : '');
+                    const newStartDate = e.target.value;
+                    setStart(newStartDate ? `${newStartDate}T00:00` : '');
                     setError(null);
+                    if (newStartDate && end) {
+                      const endDatePart = end.split('T')[0];
+                      if (endDatePart && endDatePart < newStartDate) {
+                        setEnd(`${newStartDate}T23:59`);
+                      }
+                    }
                   }}
                   className={`w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors text-sm font-medium shadow-2xs ${
                     isIcal ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'hover:border-slate-300'
@@ -731,8 +857,7 @@ export function EventModal({
                       const d = e.target.value;
                       const h = start.split('T')[1]?.split(':')[0] || '09';
                       const m = roundTo5Minutes(start.split('T')[1]?.split(':')[1] || '00');
-                      setStart(d ? `${d}T${h}:${m}` : '');
-                      setError(null);
+                      handleStartChange(d ? `${d}T${h}:${m}` : '');
                     }}
                     className={`flex-1 min-w-0 px-3.5 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors text-sm font-medium shadow-2xs ${
                       isIcal ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'hover:border-slate-300'
@@ -747,8 +872,7 @@ export function EventModal({
                         const d = start.split('T')[0] || extractLocalDateStr(new Date().toISOString());
                         const h = e.target.value;
                         const m = roundTo5Minutes(start.split('T')[1]?.split(':')[1] || '00');
-                        setStart(`${d}T${h}:${m}`);
-                        setError(null);
+                        handleStartChange(`${d}T${h}:${m}`);
                       }}
                       className={`px-1.5 py-0.5 bg-transparent text-sm font-bold text-slate-800 focus:outline-none cursor-pointer ${
                         isIcal ? 'text-slate-400 cursor-not-allowed' : ''
@@ -766,8 +890,7 @@ export function EventModal({
                         const d = start.split('T')[0] || extractLocalDateStr(new Date().toISOString());
                         const h = start.split('T')[1]?.split(':')[0] || '09';
                         const m = e.target.value;
-                        setStart(`${d}T${h}:${m}`);
-                        setError(null);
+                        handleStartChange(`${d}T${h}:${m}`);
                       }}
                       className={`px-1.5 py-0.5 bg-transparent text-sm font-bold text-slate-800 focus:outline-none cursor-pointer ${
                         isIcal ? 'text-slate-400 cursor-not-allowed' : ''
@@ -790,7 +913,7 @@ export function EventModal({
                   {end && !isIcal && (
                     <button
                       type="button"
-                      onClick={() => { setEnd(''); setError(null); }}
+                      onClick={() => handleEndChange('')}
                       className="text-[11px] font-semibold text-rose-500 hover:text-rose-600 transition-colors"
                     >
                       指定なし（クリア）
@@ -805,13 +928,12 @@ export function EventModal({
                     onChange={e => {
                       const d = e.target.value;
                       if (!d) {
-                        setEnd('');
+                        handleEndChange('');
                       } else {
                         const h = end ? (end.split('T')[1]?.split(':')[0] || '10') : '10';
                         const m = end ? roundTo5Minutes(end.split('T')[1]?.split(':')[1] || '00') : '00';
-                        setEnd(`${d}T${h}:${m}`);
+                        handleEndChange(`${d}T${h}:${m}`);
                       }
-                      setError(null);
                     }}
                     className={`flex-1 min-w-0 px-3.5 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors text-sm font-medium shadow-2xs ${
                       isIcal ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'hover:border-slate-300'
@@ -826,8 +948,7 @@ export function EventModal({
                         const d = (end && end.split('T')[0]) || start.split('T')[0] || extractLocalDateStr(new Date().toISOString());
                         const h = e.target.value;
                         const m = end ? roundTo5Minutes(end.split('T')[1]?.split(':')[1] || '00') : '00';
-                        setEnd(`${d}T${h}:${m}`);
-                        setError(null);
+                        handleEndChange(`${d}T${h}:${m}`);
                       }}
                       className={`px-1.5 py-0.5 bg-transparent text-sm font-bold text-slate-800 focus:outline-none cursor-pointer ${
                         isIcal || !end ? 'text-slate-400 cursor-not-allowed' : ''
@@ -845,8 +966,7 @@ export function EventModal({
                         const d = (end && end.split('T')[0]) || start.split('T')[0] || extractLocalDateStr(new Date().toISOString());
                         const h = end ? (end.split('T')[1]?.split(':')[0] || '10') : '10';
                         const m = e.target.value;
-                        setEnd(`${d}T${h}:${m}`);
-                        setError(null);
+                        handleEndChange(`${d}T${h}:${m}`);
                       }}
                       className={`px-1.5 py-0.5 bg-transparent text-sm font-bold text-slate-800 focus:outline-none cursor-pointer ${
                         isIcal || !end ? 'text-slate-400 cursor-not-allowed' : ''

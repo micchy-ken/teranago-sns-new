@@ -44,7 +44,8 @@ import {
   Info,
   Wifi,
   WifiOff,
-  HelpCircle
+  HelpCircle,
+  Lock
 } from 'lucide-react';
 import { User, CalendarEvent } from '../types';
 import {
@@ -99,6 +100,9 @@ export function InspectionScheduler({
   // 検索・フィルター
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'placed' | 'registered' | 'hidden' | 'carried_over'>('pending');
+
+  // 仮配置ゾーンでの確定済みスケジュール表示切替（チェックマークで非表示化可能）
+  const [showRegisteredInCalendar, setShowRegisteredInCalendar] = useState<boolean>(true);
 
   // メンバー登録時の部署フィルター（デフォルト：保守メンバーのみ）
   const [onlyMaintenanceMembers, setOnlyMaintenanceMembers] = useState<boolean>(true);
@@ -818,17 +822,6 @@ export function InspectionScheduler({
     );
   };
 
-  // 確定解除（未確定・仮配置に戻す）
-  const handleUnregisterItem = (itemId: string) => {
-    setItems((prev) =>
-      prev.map((i) =>
-        i.id === itemId
-          ? { ...i, status: 'placed', isConfirmed: false }
-          : i
-      )
-    );
-  };
-
   // 確定登録（CalendarEventへ変換・反映し、該当アイテムをregisteredとして下書き保存）
   const handleFinalConfirmRegistration = () => {
     const itemsToRegister = items.filter((i) => i.status === 'placed' && i.assignedDate);
@@ -1383,6 +1376,12 @@ export function InspectionScheduler({
               <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 rounded-lg text-xs font-bold border border-emerald-200">
                 仮配置済み: {placedItems.length}件
               </span>
+              {registeredItems.length > 0 && (
+                <span className="px-2.5 py-1 bg-teal-50 text-teal-800 rounded-lg text-xs font-bold border border-teal-200 flex items-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-teal-600" />
+                  確定済: {registeredItems.length}件
+                </span>
+              )}
               {carriedOverItems.length > 0 && (
                 <span className="px-2.5 py-1 bg-indigo-100 text-indigo-800 rounded-lg text-xs font-bold border border-indigo-200">
                   翌月繰越: {carriedOverItems.length}件
@@ -1632,13 +1631,6 @@ export function InspectionScheduler({
                               <CheckCircle2 className="w-3 h-3 text-emerald-600" />
                               確定済: {item.assignedDate?.slice(5)} ({item.assignedStartTime})
                             </span>
-                            <button
-                              onClick={() => handleUnregisterItem(item.id)}
-                              className="text-slate-500 hover:text-rose-600 cursor-pointer text-[10px]"
-                              title="カレンダー確定を解除して仮配置に戻します"
-                            >
-                              確定解除
-                            </button>
                           </div>
                         )}
 
@@ -1659,7 +1651,7 @@ export function InspectionScheduler({
 
             {/* 右カラム: カレンダー（縦一列・日付順） (8 cols) */}
             <div className="lg:col-span-8 bg-white rounded-2xl border border-slate-200 p-4 shadow-sm ring-1 ring-slate-900/5 space-y-4">
-              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-3">
                 <div>
                   <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
                     <CalendarIcon className="w-5 h-5 text-indigo-600" />
@@ -1669,6 +1661,23 @@ export function InspectionScheduler({
                     左リストからドロップして新規配置。配置後も<strong>「別日付へのD&D移動」</strong>や<strong>「▲▼ボタン・D&Dでの順序入れ替え（時間の自動調整）」</strong>が可能です。
                   </p>
                 </div>
+
+                {/* チェックマーク: 確定済みスケジュールの表示/非表示 */}
+                <label
+                  className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl cursor-pointer select-none transition-colors text-xs font-bold text-slate-700 shrink-0 shadow-2xs"
+                  title="チェックを外すと、確定済みの点検予定を非表示にして未確定の仮配置のみに絞り込めます"
+                >
+                  <input
+                    type="checkbox"
+                    checked={showRegisteredInCalendar}
+                    onChange={(e) => setShowRegisteredInCalendar(e.target.checked)}
+                    className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 cursor-pointer"
+                  />
+                  <span className="flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    確定済み予定を表示 ({registeredItems.length}件)
+                  </span>
+                </label>
               </div>
 
               {/* 縦一列の日付ブロック */}
@@ -1677,8 +1686,14 @@ export function InspectionScheduler({
                   const dayPlacedItems = items.filter(
                     (i) => i.status === 'placed' && i.assignedDate === day.dateKey
                   );
+                  const dayRegisteredItems = showRegisteredInCalendar
+                    ? items.filter(
+                        (i) => i.status === 'registered' && i.assignedDate === day.dateKey
+                      )
+                    : [];
 
                   const isHovered = dragOverDate === day.dateKey;
+                  const hasAnyItem = dayPlacedItems.length > 0 || dayRegisteredItems.length > 0;
 
                   return (
                     <div
@@ -1714,8 +1729,8 @@ export function InspectionScheduler({
                           : 'bg-slate-50/50 border-slate-200'
                       }`}
                     >
-                      <div className="flex items-center justify-between pb-2 border-b border-slate-200/60">
-                        <div className="flex items-center gap-2">
+                      <div className="flex items-center justify-between pb-2 border-b border-slate-200/60 flex-wrap gap-1">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span
                             className={`px-2.5 py-0.5 rounded-lg font-black text-xs ${
                               day.isSunday
@@ -1729,8 +1744,14 @@ export function InspectionScheduler({
                           </span>
 
                           <span className="text-xs font-bold text-slate-500">
-                            {dayPlacedItems.length > 0 ? `${dayPlacedItems.length}件 配置済み` : '未配置'}
+                            {dayPlacedItems.length > 0 ? `${dayPlacedItems.length}件 仮配置` : (!hasAnyItem ? '未配置' : '')}
                           </span>
+                          {dayRegisteredItems.length > 0 && (
+                            <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200/80 rounded-md text-[11px] font-bold flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                              {dayRegisteredItems.length}件 確定済
+                            </span>
+                          )}
                         </div>
 
                         <span className="text-[10px] text-slate-400 font-bold">
@@ -1738,130 +1759,191 @@ export function InspectionScheduler({
                         </span>
                       </div>
 
-                      {/* 配置済みアイテム一覧 */}
+                      {/* 配置済み & 確定済みアイテム一覧 */}
                       <div className="mt-2.5 space-y-2">
-                        {dayPlacedItems.length === 0 ? (
+                        {!hasAnyItem ? (
                           <div className="py-2 text-center text-xs text-slate-400 border border-dashed border-slate-200 rounded-xl">
                             ドラッグしてここにドロップ (9:00〜仮配置)
                           </div>
                         ) : (
-                          dayPlacedItems.map((placed, idx) => {
-                            const isItemDragOver = dragOverItemId === placed.id;
+                          <>
+                            {/* 1. 仮配置中の点検予定 (移動・順序入れ替え・削除可能) */}
+                            {dayPlacedItems.map((placed, idx) => {
+                              const isItemDragOver = dragOverItemId === placed.id;
 
-                            return (
-                              <div
-                                key={placed.id}
-                                draggable={true}
-                                onDragStart={(e) => {
-                                  e.stopPropagation();
-                                  e.dataTransfer.setData('text/plain', placed.id);
-                                  setDraggedItemId(placed.id);
-                                }}
-                                onDragEnd={() => {
-                                  setDraggedItemId(null);
-                                  setDragOverDate(null);
-                                  setDragOverItemId(null);
-                                }}
-                                onDragOver={(e) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  setDragOverItemId(placed.id);
-                                }}
-                                onDragLeave={(e) => {
-                                  e.preventDefault();
-                                  if (dragOverItemId === placed.id) {
+                              return (
+                                <div
+                                  key={placed.id}
+                                  draggable={true}
+                                  onDragStart={(e) => {
+                                    e.stopPropagation();
+                                    e.dataTransfer.setData('text/plain', placed.id);
+                                    setDraggedItemId(placed.id);
+                                  }}
+                                  onDragEnd={() => {
+                                    setDraggedItemId(null);
+                                    setDragOverDate(null);
                                     setDragOverItemId(null);
-                                  }
-                                }}
-                                onDrop={(e) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  setDragOverDate(null);
-                                  setDragOverItemId(null);
-                                  const sourceItemId = e.dataTransfer.getData('text/plain') || draggedItemId;
-                                  if (sourceItemId) {
-                                    handleDropOnItem(sourceItemId, placed.id);
-                                  }
-                                }}
-                                className={`p-3 bg-white rounded-xl border shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 transition-all cursor-grab active:cursor-grabbing group ${
-                                  isItemDragOver
-                                    ? 'border-indigo-500 ring-2 ring-indigo-200 bg-indigo-50/50'
-                                    : 'border-emerald-200 hover:border-emerald-400'
-                                }`}
+                                  }}
+                                  onDragOver={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    setDragOverItemId(placed.id);
+                                  }}
+                                  onDragLeave={(e) => {
+                                    e.preventDefault();
+                                    if (dragOverItemId === placed.id) {
+                                      setDragOverItemId(null);
+                                    }
+                                  }}
+                                  onDrop={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    setDragOverDate(null);
+                                    setDragOverItemId(null);
+                                    const sourceItemId = e.dataTransfer.getData('text/plain') || draggedItemId;
+                                    if (sourceItemId) {
+                                      handleDropOnItem(sourceItemId, placed.id);
+                                    }
+                                  }}
+                                  className={`p-3 bg-white rounded-xl border shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 transition-all cursor-grab active:cursor-grabbing group ${
+                                    isItemDragOver
+                                      ? 'border-indigo-500 ring-2 ring-indigo-200 bg-indigo-50/50'
+                                      : 'border-emerald-200 hover:border-emerald-400'
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                                    {/* ドラッグハンドル */}
+                                    <div className="text-slate-300 group-hover:text-slate-500 cursor-grab shrink-0" title="ドラッグして順序や日付を変更">
+                                      <GripVertical className="w-4 h-4" />
+                                    </div>
+
+                                    {/* 時間バッジ */}
+                                    <span className="px-2 py-1 bg-emerald-100 text-emerald-800 text-xs font-mono font-black rounded-lg shrink-0">
+                                      {placed.assignedStartTime} - {placed.assignedEndTime}
+                                    </span>
+
+                                    {/* 現場名・情報 */}
+                                    <div className="min-w-0 flex-1">
+                                      <div className="text-xs font-bold text-slate-900 flex items-center gap-2 flex-wrap">
+                                        <span className="truncate">{placed.siteName}</span>
+                                        <span className="text-[10px] font-mono text-slate-500">({placed.jobNo})</span>
+                                        <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded shrink-0">
+                                          {placed.quantity}台
+                                        </span>
+                                        {placed.workName && (
+                                          <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded shrink-0">
+                                            {placed.workName}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="text-[11px] text-slate-500 truncate mt-0.5">
+                                        {placed.address}
+                                      </div>
+                                      {placed.customerRules && (
+                                        <div className="text-[10px] text-amber-800 bg-amber-50/90 border border-amber-200/80 px-1.5 py-0.5 rounded mt-1 truncate max-w-lg font-medium flex items-center gap-1">
+                                          <span className="font-bold text-amber-900 shrink-0">客先規則:</span>
+                                          <span className="truncate">{placed.customerRules}</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {/* 操作ボタングループ (順序変更 ▲▼, リストに戻す) */}
+                                  <div className="flex items-center gap-1.5 self-end sm:self-center shrink-0">
+                                    {/* 順序変更ボタン (▲ / ▼) */}
+                                    <div className="flex items-center bg-slate-100 rounded-lg p-0.5 border border-slate-200">
+                                      <button
+                                        type="button"
+                                        disabled={idx === 0}
+                                        onClick={() => handleMoveItemOrder(placed.id, 'up')}
+                                        className="p-1 hover:bg-white text-slate-600 hover:text-indigo-600 rounded disabled:opacity-30 disabled:hover:bg-transparent cursor-pointer transition-colors"
+                                        title="時間を1つ繰り上げ（前へ移動）"
+                                      >
+                                        <ChevronUp className="w-3.5 h-3.5" />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={idx === dayPlacedItems.length - 1}
+                                        onClick={() => handleMoveItemOrder(placed.id, 'down')}
+                                        className="p-1 hover:bg-white text-slate-600 hover:text-indigo-600 rounded disabled:opacity-30 disabled:hover:bg-transparent cursor-pointer transition-colors"
+                                        title="時間を1つ繰り下げ（後ろへ移動）"
+                                      >
+                                        <ChevronDown className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+
+                                    {/* リストに戻す */}
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveFromCalendar(placed.id)}
+                                      className="px-2 py-1 text-[11px] font-bold text-rose-600 hover:bg-rose-50 border border-rose-200 rounded-lg transition-colors cursor-pointer"
+                                    >
+                                      リストに戻す
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+
+                            {/* 2. 確定済みの点検予定 (薄く表示・ロック状態で移動/削除不可) */}
+                            {dayRegisteredItems.map((reg) => (
+                              <div
+                                key={reg.id}
+                                className="p-3 bg-slate-100/80 border border-slate-200/90 rounded-xl shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 opacity-65 hover:opacity-90 transition-opacity select-none"
                               >
                                 <div className="flex items-center gap-2.5 flex-1 min-w-0">
-                                  {/* ドラッグハンドル */}
-                                  <div className="text-slate-300 group-hover:text-slate-500 cursor-grab shrink-0" title="ドラッグして順序や日付を変更">
-                                    <GripVertical className="w-4 h-4" />
+                                  {/* ロックアイコン */}
+                                  <div className="text-slate-400 shrink-0" title="確定済み（移動・削除不可）">
+                                    <Lock className="w-3.5 h-3.5" />
                                   </div>
 
                                   {/* 時間バッジ */}
-                                  <span className="px-2 py-1 bg-emerald-100 text-emerald-800 text-xs font-mono font-black rounded-lg shrink-0">
-                                    {placed.assignedStartTime} - {placed.assignedEndTime}
+                                  <span className="px-2 py-1 bg-slate-200/90 text-slate-700 text-xs font-mono font-bold rounded-lg shrink-0">
+                                    {reg.assignedStartTime || '09:00'} - {reg.assignedEndTime || '10:00'}
+                                  </span>
+
+                                  {/* 確定済バッジ */}
+                                  <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded flex items-center gap-1 shrink-0 border border-emerald-200">
+                                    <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                    確定済
                                   </span>
 
                                   {/* 現場名・情報 */}
                                   <div className="min-w-0 flex-1">
-                                    <div className="text-xs font-bold text-slate-900 flex items-center gap-2 flex-wrap">
-                                      <span className="truncate">{placed.siteName}</span>
-                                      <span className="text-[10px] font-mono text-slate-500">({placed.jobNo})</span>
-                                      <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded shrink-0">
-                                        {placed.quantity}台
+                                    <div className="text-xs font-semibold text-slate-800 flex items-center gap-2 flex-wrap">
+                                      <span className="truncate">{reg.siteName}</span>
+                                      <span className="text-[10px] font-mono text-slate-400">({reg.jobNo})</span>
+                                      <span className="text-[10px] px-1.5 py-0.5 bg-slate-200/60 text-slate-600 rounded shrink-0">
+                                        {reg.quantity}台
                                       </span>
-                                      {placed.workName && (
-                                        <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded shrink-0">
-                                          {placed.workName}
+                                      {reg.workName && (
+                                        <span className="text-[10px] px-1.5 py-0.5 bg-slate-200/60 text-slate-600 rounded shrink-0">
+                                          {reg.workName}
                                         </span>
                                       )}
                                     </div>
                                     <div className="text-[11px] text-slate-500 truncate mt-0.5">
-                                      {placed.address}
+                                      {reg.address}
                                     </div>
-                                    {placed.customerRules && (
-                                      <div className="text-[10px] text-amber-800 bg-amber-50/90 border border-amber-200/80 px-1.5 py-0.5 rounded mt-1 truncate max-w-lg font-medium flex items-center gap-1">
-                                        <span className="font-bold text-amber-900 shrink-0">客先規則:</span>
-                                        <span className="truncate">{placed.customerRules}</span>
+                                    {reg.assignedUsers && reg.assignedUsers.length > 0 && (
+                                      <div className="flex items-center gap-1.5 text-[10px] text-slate-600 mt-1 flex-wrap">
+                                        <span className="font-bold text-slate-400">担当:</span>
+                                        {reg.assignedUsers.map((u) => (
+                                          <span
+                                            key={u.id}
+                                            className="px-1.5 py-0.2 bg-white border border-slate-200 rounded text-slate-700 font-medium"
+                                          >
+                                            {u.name}
+                                          </span>
+                                        ))}
                                       </div>
                                     )}
                                   </div>
                                 </div>
-
-                                {/* 操作ボタングループ (順序変更 ▲▼, リストに戻す) */}
-                                <div className="flex items-center gap-1.5 self-end sm:self-center shrink-0">
-                                  {/* 順序変更ボタン (▲ / ▼) */}
-                                  <div className="flex items-center bg-slate-100 rounded-lg p-0.5 border border-slate-200">
-                                    <button
-                                      type="button"
-                                      disabled={idx === 0}
-                                      onClick={() => handleMoveItemOrder(placed.id, 'up')}
-                                      className="p-1 hover:bg-white text-slate-600 hover:text-indigo-600 rounded disabled:opacity-30 disabled:hover:bg-transparent cursor-pointer transition-colors"
-                                      title="時間を1つ繰り上げ（前へ移動）"
-                                    >
-                                      <ChevronUp className="w-3.5 h-3.5" />
-                                    </button>
-                                    <button
-                                      type="button"
-                                      disabled={idx === dayPlacedItems.length - 1}
-                                      onClick={() => handleMoveItemOrder(placed.id, 'down')}
-                                      className="p-1 hover:bg-white text-slate-600 hover:text-indigo-600 rounded disabled:opacity-30 disabled:hover:bg-transparent cursor-pointer transition-colors"
-                                      title="時間を1つ繰り下げ（後ろへ移動）"
-                                    >
-                                      <ChevronDown className="w-3.5 h-3.5" />
-                                    </button>
-                                  </div>
-
-                                  {/* リストに戻す */}
-                                  <button
-                                    type="button"
-                                    onClick={() => handleRemoveFromCalendar(placed.id)}
-                                    className="px-2 py-1 text-[11px] font-bold text-rose-600 hover:bg-rose-50 border border-rose-200 rounded-lg transition-colors cursor-pointer"
-                                  >
-                                    リストに戻す
-                                  </button>
-                                </div>
                               </div>
-                            );
-                          })
+                            ))}
+                          </>
                         )}
                       </div>
                     </div>

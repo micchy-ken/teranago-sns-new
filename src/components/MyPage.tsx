@@ -1659,9 +1659,9 @@ export function MyPage({
                 <div className="p-3.5 bg-amber-50/60 rounded-xl border border-amber-200 space-y-3">
                   <div className="flex items-start justify-between gap-2">
                     <div>
-                      <h4 className="text-xs font-bold text-amber-900">iCal形式 外部連携URL</h4>
+                      <h4 className="text-xs font-bold text-amber-900">iCal形式 外部連携URL（個人専用カレンダー）</h4>
                       <p className="text-[11px] text-amber-700 leading-relaxed mt-0.5">
-                        GoogleカレンダーやiPhone・Outlook等にこのURLを登録すると、社内スケジュールが自動同期されます。
+                        GoogleカレンダーやiPhone・Outlook等にこのURLを登録すると、<strong>ご自身が参加者・担当者として含まれる予定のみ</strong>が自動同期されます（代理投稿した別メンバーの作業等は除外されます）。
                       </p>
                     </div>
                     <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded shrink-0">

@@ -1018,6 +1018,64 @@ async function startServer() {
     }
   });
 
+  // ==========================================
+  // iCal (ICS) カレンダー外部連携 API
+  // ==========================================
+  app.get(['/api/ical', '/api/ical/'], (req, res) => {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(`
+      <div style="font-family: sans-serif; padding: 24px; max-width: 600px; margin: auto; line-height: 1.6;">
+        <h2 style="color: #4f46e5; border-bottom: 2px solid #e5e7eb; padding-bottom: 8px;">iCalカレンダー同期機能</h2>
+        <p>このエンドポイントは、各ユーザー専用のiCal形式カレンダーを提供します。</p>
+        <div style="background-color: #f3f4f6; padding: 16px; border-radius: 8px; font-family: monospace; font-size: 14px; margin: 16px 0;">
+          <strong>URLフォーマット:</strong><br>
+          /api/ical/user_【ユーザーID】_calendar.ics
+        </div>
+        <p><strong>例 (u1の場合):</strong><br>
+          <a href="/api/ical/user_u1_calendar.ics" style="color: #2563eb; text-decoration: underline;">/api/ical/user_u1_calendar.ics</a>
+        </p>
+        <p style="color: #6b7280; font-size: 13px; margin-top: 24px; border-top: 1px solid #e5e7eb; padding-top: 16px;">
+          ※GoogleカレンダーやOutlook、Mac標準カレンダーなどの「URLで追加」機能に上記URLを設定することで同期が可能です。
+        </p>
+      </div>
+    `);
+  });
+
+  app.get('/api/ical/user_:userId_calendar.ics', (req, res) => {
+    try {
+      let rawUserId = (req.params as any).userId || (req.params as any).userId_calendar || '';
+      if (rawUserId.endsWith('_calendar')) {
+        rawUserId = rawUserId.substring(0, rawUserId.length - '_calendar'.length);
+      }
+      const userId = rawUserId;
+
+      const formatToUtc = (dateObj: Date | string) => {
+        const d = new Date(dateObj);
+        if (isNaN(d.getTime())) return '';
+        const pad = (n: number) => String(n).padStart(2, '0');
+        const yyyy = d.getUTCFullYear();
+        const mm = pad(d.getUTCMonth() + 1);
+        const dd = pad(d.getUTCDate());
+        const hh = pad(d.getUTCHours());
+        const min = pad(d.getUTCMinutes());
+        const ss = pad(d.getUTCSeconds());
+        return `${yyyy}${mm}${dd}T${hh}${min}${ss}Z`;
+      };
+
+      const nowStr = formatToUtc(new Date());
+
+      let icsContent = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Company SNS Calendar//JA\r\nCALSCALE:GREGORIAN\r\nMETHOD:PUBLISH\r\nX-WR-CALNAME:社内カレンダー同期\r\nX-WR-TIMEZONE:Asia/Tokyo\r\n";
+      icsContent += "END:VCALENDAR\r\n";
+
+      res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+      res.setHeader('Content-Disposition', 'inline; filename="user_' + userId + '_calendar.ics"');
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate, proxy-revalidate');
+      res.send(icsContent);
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
   // Vite開発用ミドルウェア または プロダクション静的ファイルサーブ
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({

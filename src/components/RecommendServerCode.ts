@@ -3164,16 +3164,16 @@ app.get('/api/ical/user_:userId_calendar.ics', async (req, res) => {
 
     const pool = await getPool();
 
-    // ユーザー情報を取得して所属拠点・部署を調べる
-    let userOffice = '全社';
-    let userDivision = '全部署';
+    // ユーザー情報を取得
+    let userName = '';
+    let userEmail = '';
     try {
       const userRes = await pool.request()
         .input('userId', sql.VarChar, userId)
-        .query('SELECT office, division FROM dbo.Users WHERE id = @userId');
+        .query('SELECT name, email, office, division FROM dbo.Users WHERE id = @userId');
       if (userRes.recordset && userRes.recordset.length > 0) {
-        userOffice = userRes.recordset[0].office || '全社';
-        userDivision = userRes.recordset[0].division || '全部署';
+        userName = userRes.recordset[0].name || '';
+        userEmail = userRes.recordset[0].email || '';
       }
     } catch (_) {}
 
@@ -3181,41 +3181,47 @@ app.get('/api/ical/user_:userId_calendar.ics', async (req, res) => {
     const result = await pool.request()
       .query('SELECT * FROM dbo.Events ORDER BY startAt ASC');
 
-    // ユーザーに関係あるイベントだけフィルタリング
+    // 【重要】個人専用カレンダー: 自分が参加者（attendees）に含まれている予定のみを厳格に抽出
+    // ※自分が代理作成・投稿しただけで自身が参加しない予定や、別メンバーの作業予定は除外されます
     const filteredEvents = (result.recordset || []).filter(evt => {
-      // 1. office / division フィルタ
-      const eventOffice = evt.office || '全社';
-      const eventDivision = evt.division || '全部署';
+      let isAttendee = false;
 
-      const isOfficeMatch = eventOffice === '全社' || eventOffice === '全拠点' || eventOffice === userOffice;
-      const isDivisionMatch = eventDivision === '全部署' || eventDivision === userDivision;
-
-      if (isOfficeMatch && isDivisionMatch) {
-        return true;
-      }
-
-      // 2. 参加者(attendees) フィルタ
-      let attendees = [];
-      if (evt.description && typeof evt.description === 'string' && evt.description.startsWith('{')) {
+      // description JSON または attendees カラムから参加者一覧を取得
+      let descObj = null;
+      if (evt.description && typeof evt.description === 'string' && evt.description.trim().startsWith('{')) {
         try {
-          const detailsObj = JSON.parse(evt.description);
-          const rawAttendees = evt.attendees || detailsObj.attendees || [];
-          if (Array.isArray(rawAttendees)) {
-            attendees = rawAttendees.map((att) => (typeof att === 'object' && att !== null) ? String(att.id) : String(att));
-          } else if (typeof rawAttendees === 'string') {
-            const parsedAtt = JSON.parse(rawAttendees);
-            if (Array.isArray(parsedAtt)) {
-              attendees = parsedAtt.map((att) => (typeof att === 'object' && att !== null) ? String(att.id) : String(att));
-            }
-          }
+          descObj = JSON.parse(evt.description);
         } catch (_) {}
       }
 
-      if (attendees.includes(userId)) {
-        return true;
+      const rawAttendees = evt.attendees || (descObj && descObj.attendees) || [];
+      let parsedAttendeesList = [];
+      if (Array.isArray(rawAttendees)) {
+        parsedAttendeesList = rawAttendees;
+      } else if (typeof rawAttendees === 'string') {
+        try {
+          const parsed = JSON.parse(rawAttendees);
+          if (Array.isArray(parsed)) parsedAttendeesList = parsed;
+        } catch (_) {}
       }
 
-      return false;
+      if (parsedAttendeesList.length > 0) {
+        isAttendee = parsedAttendeesList.some((att) => {
+          if (!att) return false;
+          if (typeof att === 'object') {
+            const attId = String(att.id || '');
+            const attName = String(att.name || '');
+            const attEmail = String(att.email || '');
+            return attId === String(userId) ||
+                   (userName && attName === userName) ||
+                   (userEmail && attEmail === userEmail);
+          }
+          const attStr = String(att);
+          return attStr === String(userId) || (userName && attStr === userName);
+        });
+      }
+
+      return isAttendee;
     });
 
     // UTC (末尾に Z) フォーマットヘルパー (ミリ秒を含まない YYYYMMDDTHHMMSSZ)
