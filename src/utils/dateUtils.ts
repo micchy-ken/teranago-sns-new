@@ -98,6 +98,41 @@ export function formatTimeJST(
 }
 
 /**
+ * local ISO 文字列 ('YYYY-MM-DDTHH:mm') に分数を加算
+ */
+export function addMinutesToLocalDatetime(localDatetimeStr: string, minutesToAdd: number): string {
+  if (!localDatetimeStr || !localDatetimeStr.includes('T')) return '';
+  const [datePart, timePart] = localDatetimeStr.split('T');
+  const [h, m] = (timePart || '00:00').split(':').map(Number);
+  const [year, month, day] = datePart.split('-').map(Number);
+  if (isNaN(year) || isNaN(month) || isNaN(day) || isNaN(h) || isNaN(m)) return '';
+
+  const d = new Date(year, month - 1, day, h, m + minutesToAdd);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/**
+ * 2つの 'YYYY-MM-DDTHH:mm' 間の差分（分単位）を計算
+ */
+export function getMinutesDifference(startStr: string, endStr: string): number | null {
+  if (!startStr || !endStr || !startStr.includes('T') || !endStr.includes('T')) return null;
+  const [sDate, sTime] = startStr.split('T');
+  const [eDate, eTime] = endStr.split('T');
+  const [sY, sM, sD] = sDate.split('-').map(Number);
+  const [sH, sMin] = sTime.split(':').map(Number);
+  const [eY, eM, eD] = eDate.split('-').map(Number);
+  const [eH, eMin] = eTime.split(':').map(Number);
+
+  const startDate = new Date(sY, sM - 1, sD, sH, sMin);
+  const endDate = new Date(eY, eM - 1, eD, eH, eMin);
+
+  const diffMs = endDate.getTime() - startDate.getTime();
+  if (isNaN(diffMs)) return null;
+  return Math.round(diffMs / (60 * 1000));
+}
+
+/**
  * JST で時刻部分（例: 08:30:00）のみを正確に取得
  */
 export function formatTimePartJST(dateInput: Date | string | number | null | undefined): string {

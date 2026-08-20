@@ -158,9 +158,8 @@ export function EventModal({
   const [attachments, setAttachments] = useState<AttachmentFile[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  // 予定の所要時間（分単位）を保持するステート（初期値30分）
-  // 終了日時が「指定なし（クリア）」の場合は null
-  const [durationMinutes, setDurationMinutes] = useState<number | null>(30);
+  // 予定の所要時間（分単位）を保持するステート（初期値60分）
+  const [durationMinutes, setDurationMinutes] = useState<number | null>(60);
 
   // 繰り返し設定ステート
   const [isRecurring, setIsRecurring] = useState(false);
@@ -258,10 +257,10 @@ export function EventModal({
           if (editingEvent.end && !isSameExactTime) {
             endLocal = toLocalDatetimeInput(editingEvent.end);
             const diff = getMinutesDifference(startLocal, endLocal);
-            setDurationMinutes(diff && diff > 0 ? diff : 30);
+            setDurationMinutes(diff && diff > 0 ? diff : 60);
           } else {
-            endLocal = '';
-            setDurationMinutes(null); // 指定なし
+            endLocal = addMinutesToLocalDatetime(startLocal, 60);
+            setDurationMinutes(60);
           }
         }
 
@@ -353,14 +352,14 @@ export function EventModal({
           }
 
           let endLocal = '';
-          if (defaultEndDate && defaultEndDate.includes('T')) {
+          if (defaultEndDate && defaultEndDate.includes('T') && defaultEndDate !== defaultInitialDate) {
             endLocal = toLocalDatetimeInput(defaultEndDate);
             const diff = getMinutesDifference(startLocal, endLocal);
-            setDurationMinutes(diff && diff > 0 ? diff : 30);
+            setDurationMinutes(diff && diff > 0 ? diff : 60);
           } else {
-            // スケジュール追加時、終日でなければ終了日時は自動的に30分とする
-            endLocal = addMinutesToLocalDatetime(startLocal, 30);
-            setDurationMinutes(30);
+            // スケジュール追加時、終日でなければ終了日時は自動的に60分とする
+            endLocal = addMinutesToLocalDatetime(startLocal, 60);
+            setDurationMinutes(60);
           }
 
           setStart(startLocal);
@@ -395,8 +394,9 @@ export function EventModal({
     setStart(newStart);
     setError(null);
 
-    if (!isAllDay && newStart && end && durationMinutes !== null && durationMinutes > 0) {
-      const updatedEnd = addMinutesToLocalDatetime(newStart, durationMinutes);
+    if (!isAllDay && newStart) {
+      const duration = durationMinutes || 60;
+      const updatedEnd = addMinutesToLocalDatetime(newStart, duration);
       if (updatedEnd) {
         setEnd(updatedEnd);
       }
@@ -408,15 +408,12 @@ export function EventModal({
     setEnd(newEnd);
     setError(null);
 
-    if (!newEnd) {
-      // 終了日時クリア（指定なし）
-      setDurationMinutes(null);
-    } else if (!isAllDay && start) {
+    if (!isAllDay && start && newEnd) {
       const diff = getMinutesDifference(start, newEnd);
       if (diff !== null && diff > 0) {
         setDurationMinutes(diff);
       } else {
-        setDurationMinutes(diff !== null ? Math.max(0, diff) : null);
+        setDurationMinutes(diff !== null ? Math.max(0, diff) : 60);
       }
     }
   };
@@ -433,14 +430,14 @@ export function EventModal({
       setEnd(`${endDatePart}T23:59`);
       setDurationMinutes(null);
     } else {
-      // 終日OFF: デフォルトで現在の時間を30分刻みで丸めた時間を開始時間、終了時間は+30分
+      // 終日OFF: デフォルトで現在の時間を30分刻みで丸めた時間を開始時間、終了時間は+60分
       const baseDatePart = start.split('T')[0] || extractLocalDateStr(new Date().toISOString());
       const { hours, minutes } = getRounded30MinTime(new Date());
       const newStart = `${baseDatePart}T${hours}:${minutes}`;
-      const newEnd = addMinutesToLocalDatetime(newStart, 30);
+      const newEnd = addMinutesToLocalDatetime(newStart, 60);
       setStart(newStart);
       setEnd(newEnd);
-      setDurationMinutes(30);
+      setDurationMinutes(60);
     }
   };
 
@@ -581,10 +578,9 @@ export function EventModal({
     } else {
       const formattedStart = start.includes('+') || start.endsWith('Z') ? start : `${start}:00+09:00`;
       startIso = new Date(formattedStart).toISOString();
-      if (end) {
-        const formattedEnd = end.includes('+') || end.endsWith('Z') ? end : `${end}:00+09:00`;
-        endIso = new Date(formattedEnd).toISOString();
-      }
+      const resolvedEnd = end || addMinutesToLocalDatetime(start, durationMinutes || 60);
+      const formattedEnd = resolvedEnd.includes('+') || resolvedEnd.endsWith('Z') ? resolvedEnd : `${resolvedEnd}:00+09:00`;
+      endIso = new Date(formattedEnd).toISOString();
     }
 
     const recurrenceObj = buildRecurrenceRule();
@@ -812,24 +808,13 @@ export function EventModal({
                 />
               </div>
               <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-xs font-bold text-slate-700">
-                    終了日 <span className="text-slate-400 font-normal text-[11px]">(任意)</span>
-                  </label>
-                  {end && !isIcal && (
-                    <button
-                      type="button"
-                      onClick={() => { setEnd(''); setError(null); }}
-                      className="text-[11px] font-semibold text-rose-500 hover:text-rose-600 transition-colors"
-                    >
-                      クリア
-                    </button>
-                  )}
-                </div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  終了日
+                </label>
                 <input
                   type="date"
                   readOnly={isIcal}
-                  value={end ? end.split('T')[0] : ''}
+                  value={end ? end.split('T')[0] : (start ? start.split('T')[0] : '')}
                   onChange={e => {
                     setEnd(e.target.value ? `${e.target.value}T23:59` : '');
                     setError(null);
@@ -906,43 +891,30 @@ export function EventModal({
 
               {/* 終了日時 */}
               <div className="pt-3 border-t border-slate-200/70">
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-xs font-bold text-slate-700">
-                    終了日時 <span className="text-slate-400 font-normal text-[11px]">(任意)</span>
-                  </label>
-                  {end && !isIcal && (
-                    <button
-                      type="button"
-                      onClick={() => handleEndChange('')}
-                      className="text-[11px] font-semibold text-rose-500 hover:text-rose-600 transition-colors"
-                    >
-                      指定なし（クリア）
-                    </button>
-                  )}
-                </div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  終了日時 <span className="text-red-500">*</span>
+                </label>
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                   <input
                     type="date"
+                    required
                     readOnly={isIcal}
                     value={end ? end.split('T')[0] : ''}
                     onChange={e => {
                       const d = e.target.value;
-                      if (!d) {
-                        handleEndChange('');
-                      } else {
-                        const h = end ? (end.split('T')[1]?.split(':')[0] || '10') : '10';
-                        const m = end ? roundTo5Minutes(end.split('T')[1]?.split(':')[1] || '00') : '00';
-                        handleEndChange(`${d}T${h}:${m}`);
-                      }
+                      if (!d) return;
+                      const h = end ? (end.split('T')[1]?.split(':')[0] || '10') : '10';
+                      const m = end ? roundTo5Minutes(end.split('T')[1]?.split(':')[1] || '00') : '00';
+                      handleEndChange(`${d}T${h}:${m}`);
                     }}
                     className={`flex-1 min-w-0 px-3.5 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors text-sm font-medium shadow-2xs ${
                       isIcal ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'hover:border-slate-300'
                     }`}
                   />
-                  <div className={`flex items-center gap-1.5 shrink-0 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 shadow-2xs ${!end ? 'opacity-60' : ''}`}>
+                  <div className="flex items-center gap-1.5 shrink-0 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 shadow-2xs">
                     <Clock className="w-4 h-4 text-slate-400 shrink-0 ml-0.5" />
                     <select
-                      disabled={isIcal || !end}
+                      disabled={isIcal}
                       value={end ? (end.split('T')[1]?.split(':')[0] || '10') : '10'}
                       onChange={e => {
                         const d = (end && end.split('T')[0]) || start.split('T')[0] || extractLocalDateStr(new Date().toISOString());
@@ -951,7 +923,7 @@ export function EventModal({
                         handleEndChange(`${d}T${h}:${m}`);
                       }}
                       className={`px-1.5 py-0.5 bg-transparent text-sm font-bold text-slate-800 focus:outline-none cursor-pointer ${
-                        isIcal || !end ? 'text-slate-400 cursor-not-allowed' : ''
+                        isIcal ? 'text-slate-400 cursor-not-allowed' : ''
                       }`}
                     >
                       {HOURS.map(h => (
@@ -960,7 +932,7 @@ export function EventModal({
                     </select>
                     <span className="text-slate-400 font-bold">:</span>
                     <select
-                      disabled={isIcal || !end}
+                      disabled={isIcal}
                       value={end ? roundTo5Minutes(end.split('T')[1]?.split(':')[1] || '00') : '00'}
                       onChange={e => {
                         const d = (end && end.split('T')[0]) || start.split('T')[0] || extractLocalDateStr(new Date().toISOString());
@@ -969,7 +941,7 @@ export function EventModal({
                         handleEndChange(`${d}T${h}:${m}`);
                       }}
                       className={`px-1.5 py-0.5 bg-transparent text-sm font-bold text-slate-800 focus:outline-none cursor-pointer ${
-                        isIcal || !end ? 'text-slate-400 cursor-not-allowed' : ''
+                        isIcal ? 'text-slate-400 cursor-not-allowed' : ''
                       }`}
                     >
                       {MINUTES.map(m => (

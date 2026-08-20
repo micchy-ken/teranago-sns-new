@@ -5,7 +5,7 @@ import { ChevronLeft, ChevronRight, List as ListIcon, Calendar as CalendarIcon, 
 import { EventModal } from './EventModal';
 import { renderWithClickableLinks } from '../utils/linkify';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
-import { getLocalDateStr } from '../utils/dateUtils';
+import { getLocalDateStr, addMinutesToLocalDatetime } from '../utils/dateUtils';
 import { triggerPushNotification } from '../utils/pushNotifications';
 import { expandRecurringEvents } from '../utils/recurrenceUtils';
 import { RecurrenceActionScope } from './RecurrenceActionModal';
@@ -187,10 +187,134 @@ export function Calendar({
   const [customRequirementText, setCustomRequirementText] = useState('');
   const [content, setContent] = useState('');
 
+  // チームタイムラインの各時間枠（実測X軸座標・幅）の管理
+  const [hourLayouts, setHourLayouts] = useState<Record<number, { left: number; width: number }>>({});
+  const [timelineTotalWidth, setTimelineTotalWidth] = useState<number>(0);
+  const hoursHeaderRef = React.useRef<HTMLDivElement>(null);
+
+  const measureHourLayouts = useCallback(() => {
+    if (!hoursHeaderRef.current) return;
+    const container = hoursHeaderRef.current;
+    const containerRect = container.getBoundingClientRect();
+    const containerLeft = containerRect.left;
+    const totalW = container.clientWidth || container.scrollWidth;
+
+    const elements = container.querySelectorAll<HTMLElement>('[data-hour]');
+    const layouts: Record<number, { left: number; width: number }> = {};
+
+    elements.forEach((el) => {
+      const hStr = el.getAttribute('data-hour');
+      if (hStr !== null) {
+        const h = Number(hStr);
+        const elRect = el.getBoundingClientRect();
+        layouts[h] = {
+          left: Math.round((elRect.left - containerLeft) * 10) / 10,
+          width: Math.round(elRect.width * 10) / 10,
+        };
+      }
+    });
+
+    if (Object.keys(layouts).length > 0) {
+      setHourLayouts(layouts);
+      setTimelineTotalWidth(totalW);
+    }
+  }, []);
+
+  useEffect(() => {
+    measureHourLayouts();
+    if (!hoursHeaderRef.current) return;
+
+    const ro = new ResizeObserver(() => {
+      measureHourLayouts();
+    });
+    ro.observe(hoursHeaderRef.current);
+
+    window.addEventListener('resize', measureHourLayouts);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', measureHourLayouts);
+    };
+  }, [measureHourLayouts, currentDate, events, calendarMode, view, isSignageMode]);
+
+  // レンダリング直後の追従測定
+  useEffect(() => {
+    const rafId = requestAnimationFrame(() => {
+      measureHourLayouts();
+    });
+    return () => cancelAnimationFrame(rafId);
+  }, [measureHourLayouts, currentDate, calendarMode, view, isSignageMode]);
+
   // Drag and drop state
   const [draggedEventId, setDraggedEventId] = useState<string | null>(null);
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
   const [draggedFromMemberId, setDraggedFromMemberId] = useState<string | null>(null);
+
+  // リサイズ（ドラッグによる時間延長・短縮）状態
+  const [resizingEvent, setResizingEvent] = useState<{
+    event: CalendarEvent;
+    direction: 'horizontal' | 'vertical';
+    initialStartX: number;
+    initialStartY: number;
+    initialEndMs: number;
+    currentEndMs: number;
+    slotWidthPx?: number;
+    slotHeightPx?: number;
+    dateStr?: string;
+  } | null>(null);
+
+  // リサイズ操作中のマウス移動 & マウスアップのグローバルリスナー
+  useEffect(() => {
+    if (!resizingEvent) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const deltaX = e.clientX - resizingEvent.initialStartX;
+      const deltaY = e.clientY - resizingEvent.initialStartY;
+      const startMs = new Date(resizingEvent.event.start).getTime();
+
+      let deltaMinutes = 0;
+      if (resizingEvent.direction === 'horizontal') {
+        const slotWidth = resizingEvent.slotWidthPx && resizingEvent.slotWidthPx > 0 ? resizingEvent.slotWidthPx : 100;
+        // 1スロット(60分) あたりのピクセル幅から計算
+        const rawMinutes = (deltaX / slotWidth) * 60;
+        // 15分単位にスナップ
+        deltaMinutes = Math.round(rawMinutes / 15) * 15;
+      } else {
+        const slotHeight = resizingEvent.slotHeightPx && resizingEvent.slotHeightPx > 0 ? resizingEvent.slotHeightPx : 50;
+        // 1スロット(60分) あたりのピクセル高さから計算
+        const rawMinutes = (deltaY / slotHeight) * 60;
+        // 15分単位にスナップ
+        deltaMinutes = Math.round(rawMinutes / 15) * 15;
+      }
+
+      // 新しい終了時間（ミリ秒）
+      let newEndMs = resizingEvent.initialEndMs + deltaMinutes * 60 * 1000;
+      // 最小所要時間は15分
+      const minEndMs = startMs + 15 * 60 * 1000;
+      if (newEndMs < minEndMs) {
+        newEndMs = minEndMs;
+      }
+
+      setResizingEvent(prev => prev ? { ...prev, currentEndMs: newEndMs } : null);
+    };
+
+    const handleMouseUp = () => {
+      if (resizingEvent && resizingEvent.currentEndMs !== resizingEvent.initialEndMs) {
+        const newEndIso = new Date(resizingEvent.currentEndMs).toISOString();
+        onUpdateEvent?.({
+          ...resizingEvent.event,
+          end: newEndIso,
+        });
+      }
+      setResizingEvent(null);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [resizingEvent, onUpdateEvent]);
 
   const officeNames = Array.from(new Set(offices.map(o => o.name)));
   const divisionNames = Array.from(new Set(divisions.map(d => d.name)));
@@ -306,8 +430,12 @@ export function Calendar({
   ) => {
     setEditingEvent(null);
     setSelectedInitialDate(dateStr);
-    setSelectedEndDate(endDateStr || dateStr);
-    const isMultiDay = (dateStr && endDateStr && dateStr !== endDateStr);
+    let calculatedEnd = endDateStr;
+    if (!calculatedEnd && dateStr && dateStr.includes('T')) {
+      calculatedEnd = addMinutesToLocalDatetime(dateStr, 60);
+    }
+    setSelectedEndDate(calculatedEnd || dateStr);
+    const isMultiDay = (dateStr && calculatedEnd && dateStr.split('T')[0] !== calculatedEnd.split('T')[0]);
     setSelectedIsAllDay(isAllDay !== undefined ? isAllDay : (isMultiDay ? true : false));
     setPreselectedAttendees(initialAttendees);
     setIsModalOpen(true);
@@ -439,104 +567,6 @@ export function Calendar({
         isMultiDay: true,
         containerClass: 'rounded-none border-x-0 relative z-20 font-bold text-white shadow-2xs -mx-2.5 px-2.5',
         showTitle: isWeekFirstDay,
-      };
-    }
-  };
-
-  const getMultiHourStyle = (e: CalendarEvent, currentHour: number, minHour: number, maxHour: number) => {
-    if (e.isAllDay) {
-      return {
-        isMultiHour: true,
-        containerClass: currentHour === minHour
-          ? 'rounded-l-lg rounded-r-none border-r-0 relative z-20 font-medium -mr-2 pr-2.5 ml-0.5'
-          : currentHour === maxHour
-          ? 'rounded-r-lg rounded-l-none border-l-0 relative z-20 font-medium -ml-2 pl-2.5 mr-0.5'
-          : 'rounded-none border-x-0 relative z-20 font-medium -mx-2 px-2',
-        showTitle: currentHour === minHour,
-        customStyle: undefined as React.CSSProperties | undefined,
-      };
-    }
-
-    const sDate = new Date(e.start);
-    const startHourSlot = Math.max(minHour, sDate.getHours());
-    const startMin = sDate.getMinutes();
-
-    const endD = e.end ? new Date(e.end) : sDate;
-    const rawEndHour = endD.getHours();
-    const endMin = endD.getMinutes();
-
-    let calculatedEndSlot = rawEndHour;
-    if (endMin === 0 && rawEndHour > startHourSlot) {
-      calculatedEndSlot = rawEndHour - 1;
-    }
-    const endHourSlot = Math.min(maxHour, Math.max(startHourSlot, calculatedEndSlot));
-
-    if (startHourSlot === endHourSlot) {
-      // 単一時間枠内 (例: 16:30〜17:00, 16:30〜16:45 など)
-      let customStyle: React.CSSProperties | undefined = undefined;
-      if (startMin > 0 && startMin < 60) {
-        const leftPercent = Math.max(10, Math.min(75, Math.round((startMin / 60) * 100)));
-        const endPercent = (endMin === 0 && rawEndHour > startHourSlot)
-          ? 100
-          : endMin > 0
-          ? Math.min(100, Math.round((endMin / 60) * 100))
-          : 100;
-        const widthPercent = Math.max(20, endPercent - leftPercent);
-        customStyle = {
-          marginLeft: `${leftPercent}%`,
-          width: `${widthPercent}%`,
-        };
-      }
-
-      return {
-        isMultiHour: false,
-        containerClass: 'rounded-lg shadow-2xs font-medium',
-        showTitle: true,
-        customStyle,
-      };
-    }
-
-    const isStartHour = currentHour === startHourSlot;
-    const isEndHour = currentHour === endHourSlot;
-
-    if (isStartHour) {
-      // 開始時刻の「分」（例: 16:30 の場合は 30分 = 50%）に応じて開始位置を右へオフセット
-      let startStyle: React.CSSProperties | undefined = undefined;
-      if (startMin > 0 && startMin < 60) {
-        const leftPercent = Math.max(10, Math.min(75, Math.round((startMin / 60) * 100)));
-        const widthPercent = 100 - leftPercent;
-        startStyle = {
-          marginLeft: `${leftPercent}%`,
-          width: `calc(${widthPercent}% + 8px)`,
-        };
-      }
-
-      return {
-        isMultiHour: true,
-        containerClass: 'rounded-l-lg rounded-r-none border-r-0 relative z-20 font-medium -mr-2 pr-2.5',
-        showTitle: true,
-        customStyle: startStyle,
-      };
-    } else if (isEndHour) {
-      // 終了時刻の「分」（例: 11:30 の場合は 30分 = 50%）に応じて枠幅を調整
-      let widthStyle: React.CSSProperties | undefined = undefined;
-      if (endMin > 0 && endMin < 60) {
-        const percent = Math.max(25, Math.min(95, Math.round((endMin / 60) * 100)));
-        widthStyle = { width: `calc(${percent}% + 8px)` };
-      }
-
-      return {
-        isMultiHour: true,
-        containerClass: 'rounded-r-lg rounded-l-none border-l-0 relative z-20 font-medium -ml-2 pl-2.5 mr-auto',
-        showTitle: false,
-        customStyle: widthStyle,
-      };
-    } else {
-      return {
-        isMultiHour: true,
-        containerClass: 'rounded-none border-x-0 relative z-20 font-medium -mx-2 px-2',
-        showTitle: false,
-        customStyle: undefined as React.CSSProperties | undefined,
       };
     }
   };
@@ -888,6 +918,16 @@ export function Calendar({
   const renderTeamDayView = () => {
     const dateStr = getLocalDateStr(currentDate);
 
+    // 終了時間のないスケジュールも必ず開始+60分として扱うヘルパー
+    const getEventSpan = (e: CalendarEvent) => {
+      const sDate = new Date(e.start);
+      let eDate = e.end ? new Date(e.end) : new Date(sDate.getTime() + 60 * 60 * 1000);
+      if (isNaN(eDate.getTime()) || eDate.getTime() <= sDate.getTime()) {
+        eDate = new Date(sDate.getTime() + 60 * 60 * 1000);
+      }
+      return { sDate, eDate };
+    };
+
     // 当日のチームメンバー関連イベント
     const dayRelevantEvents = filteredEvents.filter(e => {
       const eStart = new Date(e.start);
@@ -901,19 +941,14 @@ export function Calendar({
 
     dayRelevantEvents.forEach(e => {
       if (e.isAllDay) return;
-      const sDate = new Date(e.start);
+      const { sDate, eDate } = getEventSpan(e);
       if (!isNaN(sDate.getTime()) && sDate.getHours() < minHour) {
         minHour = Math.max(0, sDate.getHours());
       }
-      if (e.end) {
-        const endD = new Date(e.end);
-        if (!isNaN(endD.getTime())) {
-          let endH = endD.getHours();
-          if (endD.getMinutes() > 0) endH = Math.min(23, endH);
-          if (endH > maxHour) maxHour = Math.min(23, endH);
-        }
-      } else if (!isNaN(sDate.getTime()) && sDate.getHours() > maxHour) {
-        maxHour = Math.min(23, sDate.getHours());
+      if (!isNaN(eDate.getTime())) {
+        let endH = eDate.getHours();
+        if (eDate.getMinutes() > 0) endH = Math.min(23, endH);
+        if (endH > maxHour) maxHour = Math.min(23, endH);
       }
     });
 
@@ -922,12 +957,11 @@ export function Calendar({
     // 2. チームの誰かが予定を持っている時間帯（Active Hours）を特定
     const activeHoursSet = new Set<number>();
     dayRelevantEvents.forEach(e => {
-      if (e.isAllDay) {
-        return;
-      }
-      const sH = new Date(e.start).getHours();
-      let eH = e.end ? new Date(e.end).getHours() : sH;
-      const eMin = e.end ? new Date(e.end).getMinutes() : 0;
+      if (e.isAllDay) return;
+      const { sDate, eDate } = getEventSpan(e);
+      const sH = sDate.getHours();
+      let eH = eDate.getHours();
+      const eMin = eDate.getMinutes();
       if (eMin === 0 && eH > sH) {
         eH = eH - 1;
       }
@@ -938,179 +972,286 @@ export function Calendar({
       }
     });
 
-    // 3. グリッド列のテンプレート設定（縦軸は全メンバー行で完全一致維持）
-    // メンバー列: 150px〜200px
-    // 予定あり時間: minmax(110px, 1.8fr) （広く見やすい）
-    // 予定なし時間（チーム全員空き）: minmax(46px, 0.45fr) （縦軸を維持しつつスリムに圧縮）
-    const memberCol = isSignageMode ? '160px' : 'minmax(140px, 180px)';
-    const gridStyle = {
+    // 3. グリッド列のテンプレート設定（予定あり時間は見やすく広く、予定なし時間はスリムに伸縮）
+    const memberColWidth = isSignageMode ? '160px' : '170px';
+    const hoursGridStyle: React.CSSProperties = {
       display: 'grid',
-      gridTemplateColumns: `${memberCol} ${hours
+      gridTemplateColumns: hours
         .map(h => (activeHoursSet.has(h) ? 'minmax(110px, 1.8fr)' : 'minmax(46px, 0.45fr)'))
-        .join(' ')}`,
+        .join(' '),
+    };
+
+    // 4. 実測された各時間列のX軸座標（px）から正確なピクセル位置を取得
+    const getXPositionFromDate = (date: Date): number => {
+      const h = date.getHours();
+      const m = date.getMinutes();
+      const s = date.getSeconds();
+
+      if (h < minHour) return 0;
+      if (h > maxHour) {
+        const lastLayout = hourLayouts[maxHour];
+        return lastLayout ? lastLayout.left + lastLayout.width : (timelineTotalWidth || 1000);
+      }
+
+      const layout = hourLayouts[h];
+      if (layout && layout.width > 0) {
+        const frac = (m + s / 60) / 60;
+        return layout.left + frac * layout.width;
+      }
+
+      // フォールバック計算
+      const totalSlots = hours.length;
+      const fallbackTotal = timelineTotalWidth > 0 ? timelineTotalWidth : 1000;
+      const slotWidth = fallbackTotal / totalSlots;
+      return (h - minHour + m / 60) * slotWidth;
     };
 
     return (
       <div className="min-w-full h-full overflow-auto divide-y divide-slate-200 bg-white flex flex-col">
         {/* Table Header */}
-        <div
-          style={gridStyle}
-          className="bg-slate-50 text-slate-700 text-xs font-bold shrink-0 sticky top-0 z-20 border-b border-slate-200 shadow-2xs"
-        >
-          <div className="p-2 sm:p-2.5 border-r border-slate-200 flex items-center justify-center sticky left-0 z-30 bg-slate-50 text-[11px] sm:text-xs">
+        <div className="flex bg-slate-50 text-slate-700 text-xs font-bold shrink-0 sticky top-0 z-30 border-b border-slate-200 shadow-2xs">
+          <div
+            style={{ width: memberColWidth, minWidth: memberColWidth }}
+            className="p-2 sm:p-2.5 border-r border-slate-200 flex items-center justify-center sticky left-0 z-40 bg-slate-50 text-[11px] sm:text-xs shrink-0"
+          >
             メンバー
           </div>
-          {hours.map((hour) => {
-            const isActive = activeHoursSet.has(hour);
-            return (
-              <div
-                key={hour}
-                className={`p-2 sm:p-2.5 text-center border-r border-slate-200 last:border-r-0 font-extrabold flex flex-col items-center justify-center transition-colors ${
-                  isActive
-                    ? 'bg-slate-50 text-slate-800 text-[11px] sm:text-xs'
-                    : 'bg-slate-100/60 text-slate-400 text-[10px]'
-                }`}
-                title={isActive ? `${hour}:00 (予定あり)` : `${hour}:00 (チーム予定なし)`}
-              >
-                <span>{String(hour).padStart(2, '0')}:00</span>
-              </div>
-            );
-          })}
+          <div ref={hoursHeaderRef} style={hoursGridStyle} className="flex-1">
+            {hours.map((hour) => {
+              const isActive = activeHoursSet.has(hour);
+              return (
+                <div
+                  key={hour}
+                  data-hour={hour}
+                  className={`p-2 sm:p-2.5 text-center border-r border-slate-200 last:border-r-0 font-extrabold flex flex-col items-center justify-center transition-colors ${
+                    isActive
+                      ? 'bg-slate-50 text-slate-800 text-[11px] sm:text-xs'
+                      : 'bg-slate-100/60 text-slate-400 text-[10px]'
+                  }`}
+                  title={isActive ? `${hour}:00 (予定あり)` : `${hour}:00 (チーム予定なし)`}
+                >
+                  <span>{String(hour).padStart(2, '0')}:00</span>
+                </div>
+              );
+            })}
+          </div>
         </div>
 
         {/* Table Body */}
         <div className="flex-1 divide-y divide-slate-200 bg-white">
-          {teamMembers.map((member) => (
-            <div
-              key={member.id}
-              style={gridStyle}
-              className="min-h-[80px] sm:min-h-[92px] group hover:bg-slate-50/30 transition-colors"
-            >
-              {/* Member Column */}
-              <div className="p-2 sm:p-2.5 border-r border-slate-200 bg-white flex flex-col justify-center shrink-0 sticky left-0 z-10 shadow-xs sm:shadow-none">
-                <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0">
-                  <img
-                    src={getAvatarUrl(member.avatarUrl)}
-                    alt={member.name}
-                    className="w-7 h-7 sm:w-8 sm:h-8 rounded-full border border-slate-200 shrink-0"
-                    referrerPolicy="no-referrer"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <p className="font-extrabold text-[11px] sm:text-xs text-slate-800 truncate">{member.name}</p>
-                    <p className="text-[9px] sm:text-[10px] text-slate-500 font-medium mt-0.5 truncate">
-                      {member.office}・{member.division}
-                    </p>
+          {teamMembers.map((member) => {
+            // 当該メンバーの当日イベント一覧
+            const memberDayEvents = filteredEvents.filter(e => {
+              const eStart = new Date(e.start);
+              if (!isSameDay(eStart, currentDate) && !isEventOccurringOnDate(e, dateStr)) return false;
+              return e.attendees?.some(a => a && (a.id === member.id || String(a.id) === String(member.id) || a.name === member.name));
+            });
+
+            // 予定の実測X軸絶対座標・レーン配置計算
+            const sortedEvents = sortEvents(memberDayEvents);
+            const placedEvents: { event: CalendarEvent; lane: number; leftPx: number; widthPx: number }[] = [];
+            const laneEndPxList: number[] = [];
+
+            sortedEvents.forEach((e) => {
+              let leftPx = 0;
+              let widthPx = timelineTotalWidth || 1000;
+              if (!e.isAllDay) {
+                const { sDate, eDate } = getEventSpan(e);
+                
+                // 当日の範囲内にクランプ
+                const isStartBeforeMin = (sDate.getHours() + sDate.getMinutes() / 60) < minHour || !isSameDay(sDate, currentDate);
+                const endHourFloat = eDate.getHours() + eDate.getMinutes() / 60;
+                const isEndAfterMax = endHourFloat >= (maxHour + 1) || !isSameDay(eDate, currentDate);
+
+                const startX = isStartBeforeMin ? 0 : getXPositionFromDate(sDate);
+                const endX = isEndAfterMax
+                  ? (hourLayouts[maxHour] ? hourLayouts[maxHour].left + hourLayouts[maxHour].width : (timelineTotalWidth || 1000))
+                  : getXPositionFromDate(eDate);
+
+                leftPx = Math.max(0, startX);
+                widthPx = Math.max(28, endX - startX);
+              }
+
+              // 空いているレーン（縦の段）を検索
+              let targetLane = -1;
+              for (let l = 0; l < laneEndPxList.length; l++) {
+                if (leftPx >= laneEndPxList[l] - 4) {
+                  targetLane = l;
+                  laneEndPxList[l] = leftPx + widthPx;
+                  break;
+                }
+              }
+              if (targetLane === -1) {
+                targetLane = laneEndPxList.length;
+                laneEndPxList.push(leftPx + widthPx);
+              }
+
+              placedEvents.push({ event: e, lane: targetLane, leftPx, widthPx });
+            });
+
+            const totalLanes = Math.max(1, laneEndPxList.length);
+            const lanePitch = 48;
+            const rowHeightPx = totalLanes === 1 ? 84 : Math.max(84, 12 + totalLanes * lanePitch + 12);
+
+            return (
+              <div
+                key={member.id}
+                style={{ minHeight: `${rowHeightPx}px` }}
+                className="flex group hover:bg-slate-50/30 transition-colors relative"
+              >
+                {/* Member Column */}
+                <div
+                  style={{ width: memberColWidth, minWidth: memberColWidth }}
+                  className="p-2 sm:p-2.5 border-r border-slate-200 bg-white flex flex-col justify-center shrink-0 sticky left-0 z-20 shadow-xs sm:shadow-none"
+                >
+                  <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0">
+                    <img
+                      src={getAvatarUrl(member.avatarUrl)}
+                      alt={member.name}
+                      className="w-7 h-7 sm:w-8 sm:h-8 rounded-full border border-slate-200 shrink-0"
+                      referrerPolicy="no-referrer"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="font-extrabold text-[11px] sm:text-xs text-slate-800 truncate">{member.name}</p>
+                      <p className="text-[9px] sm:text-[10px] text-slate-500 font-medium mt-0.5 truncate">
+                        {member.office}・{member.division}
+                      </p>
+                    </div>
                   </div>
+
+                  {/* デジタルサイネージモード時は伝言メモボタンを非表示 */}
+                  {!isSignageMode && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setMemoTargetUser(member);
+                        setIsMemoModalOpen(true);
+                      }}
+                      className="mt-1.5 w-full flex items-center justify-center gap-1 px-1.5 py-1 bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-indigo-600 text-[9px] sm:text-[10px] font-extrabold rounded-lg border border-slate-200 transition-all cursor-pointer shadow-2xs"
+                    >
+                      <Phone className="w-2.5 h-2.5 text-indigo-500 shrink-0" />
+                      <span className="truncate">伝言メモ</span>
+                    </button>
+                  )}
                 </div>
 
-                {/* デジタルサイネージモード時は伝言メモボタンを非表示 */}
-                {!isSignageMode && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setMemoTargetUser(member);
-                      setIsMemoModalOpen(true);
-                    }}
-                    className="mt-1.5 w-full flex items-center justify-center gap-1 px-1.5 py-1 bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-indigo-600 text-[9px] sm:text-[10px] font-extrabold rounded-lg border border-slate-200 transition-all cursor-pointer shadow-2xs"
-                  >
-                    <Phone className="w-2.5 h-2.5 text-indigo-500 shrink-0" />
-                    <span className="truncate">伝言メモ</span>
-                  </button>
-                )}
-              </div>
+                {/* Timeline Canvas Container */}
+                <div className="flex-1 relative min-w-0">
+                  {/* Layer 1: Background Grid (クリック追加・ドラッグ＆ドロップ受け入れ) */}
+                  <div style={hoursGridStyle} className="absolute inset-0 h-full w-full">
+                    {hours.map((hour) => {
+                      const datetimeStr = `${dateStr}T${String(hour).padStart(2, '0')}:00`;
+                      const isActive = activeHoursSet.has(hour);
+                      const cellKey = `team-day-${member.id}-${hour}`;
+                      const isDragOver = dragOverKey === cellKey;
 
-              {/* Hour Columns */}
-              {hours.map((hour) => {
-                const datetimeStr = `${dateStr}T${String(hour).padStart(2, '0')}:00`;
-                const isActive = activeHoursSet.has(hour);
-
-                const hourEvents = filteredEvents.filter(e => {
-                  const eStart = new Date(e.start);
-                  const eEnd = e.end ? new Date(e.end) : eStart;
-                  if (!isSameDay(eStart, currentDate) && !isEventOccurringOnDate(e, dateStr)) return false;
-                  if (!e.attendees?.some(a => a && (a.id === member.id || String(a.id) === String(member.id) || a.name === member.name))) return false;
-                  
-                  const startHour = eStart.getHours();
-                  const endHour = eEnd.getHours();
-                  
-                  if (e.isAllDay) return true;
-                  if (e.end) {
-                    if (startHour === endHour) {
-                      return startHour === hour;
-                    }
-                    const endMinutes = eEnd.getMinutes();
-                    if (endMinutes === 0) {
-                      return startHour <= hour && endHour > hour;
-                    }
-                    return startHour <= hour && endHour >= hour;
-                  } else {
-                    return startHour === hour;
-                  }
-                });
-
-                const cellKey = `team-day-${member.id}-${hour}`;
-                const isDragOver = dragOverKey === cellKey;
-
-                return (
-                  <div
-                    key={hour}
-                    onClick={() => openAddModalWithDate(datetimeStr, [member])}
-                    onDragOver={(e) => handleDragOver(e, cellKey)}
-                    onDragLeave={handleDragLeave}
-                    onDrop={(e) => handleDrop(e, dateStr, hour, member.id)}
-                    className={`p-1 border-r border-slate-200 last:border-r-0 flex flex-col gap-1 min-h-[80px] sm:min-h-[92px] cursor-pointer transition-colors ${
-                      isDragOver
-                        ? 'bg-indigo-100/70 ring-2 ring-indigo-400'
-                        : isActive
-                        ? 'hover:bg-indigo-50/20'
-                        : 'bg-slate-50/40 hover:bg-indigo-50/20'
-                    }`}
-                  >
-                    {hourEvents.length > 0 ? (
-                      sortEvents(hourEvents).map(e => {
-                        const multiHourProps = getMultiHourStyle(e, hour, minHour, maxHour);
-                        return (
-                          <div
-                            key={e.id}
-                            draggable
-                            onDragStart={(eDrag) => handleDragStart(eDrag, e.id, member.id)}
-                            onClick={(evt) => handleEventClick(evt, e)}
-                            style={multiHourProps.customStyle}
-                            className={`border transition-all select-none cursor-pointer ${getEventStyle(e)} ${multiHourProps.containerClass} ${
-                              multiHourProps.isMultiHour
-                                ? 'h-[48px] px-2 py-1 flex flex-col justify-center overflow-hidden'
-                                : 'min-h-[44px] p-2 rounded-md overflow-hidden flex flex-col justify-center shadow-2xs'
-                            }`}
-                            title={`${e.title} (${formatEventTime(e)})${e.location ? `\n場所: ${e.location}` : ''}${e.memo ? `\nメモ: ${e.memo}` : ''}`}
-                          >
-                            {multiHourProps.isMultiHour ? (
-                              multiHourProps.showTitle ? (
-                                <div className="min-w-0 max-w-full overflow-hidden">
-                                  <div className="font-medium text-xs sm:text-sm text-slate-800 leading-snug line-clamp-2">
-                                    {e.title}
-                                  </div>
-                                </div>
-                              ) : (
-                                <div className="h-full flex items-center opacity-0 select-none">&nbsp;</div>
-                              )
-                            ) : (
-                              <div className="font-medium text-xs sm:text-sm text-slate-800 leading-tight line-clamp-2">
-                                {e.title}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })
-                    ) : (
-                      <div className="flex-1 flex items-center justify-center text-slate-300 text-[9px] font-bold opacity-0 group-hover:opacity-100 transition-opacity">
-                        +
-                      </div>
-                    )}
+                      return (
+                        <div
+                          key={hour}
+                          onClick={() => openAddModalWithDate(datetimeStr, [member])}
+                          onDragOver={(e) => handleDragOver(e, cellKey)}
+                          onDragLeave={handleDragLeave}
+                          onDrop={(e) => handleDrop(e, dateStr, hour, member.id)}
+                          className={`border-r border-slate-200 last:border-r-0 h-full cursor-pointer transition-colors ${
+                            isDragOver
+                              ? 'bg-indigo-100/70 ring-2 ring-indigo-400'
+                              : isActive
+                              ? 'hover:bg-indigo-50/20'
+                              : 'bg-slate-50/40 hover:bg-indigo-50/20'
+                          }`}
+                        />
+                      );
+                    })}
                   </div>
-                );
-              })}
-            </div>
-          ))}
+
+                  {/* Layer 2: Events Absolute Overlay (実測X軸座標に正確配置された単一ブロック) */}
+                  <div className="absolute inset-0 pointer-events-none p-1 overflow-hidden">
+                    {placedEvents.map(({ event: e, lane, leftPx, widthPx }) => {
+                      const isSingle = totalLanes === 1;
+                      const topPx = isSingle ? 16 : 8 + lane * lanePitch;
+                      const heightPx = isSingle ? 50 : 42;
+
+                      // 現在リサイズ中かどうかの判定
+                      const isBeingResized = resizingEvent?.event.id === e.id && resizingEvent?.direction === 'horizontal';
+                      let displayWidthPx = widthPx;
+                      let displayTimeString = formatEventTime(e);
+
+                      if (isBeingResized && resizingEvent) {
+                        const sDate = new Date(e.start);
+                        const currEnd = new Date(resizingEvent.currentEndMs);
+                        const endX = getXPositionFromDate(currEnd);
+                        displayWidthPx = Math.max(28, endX - leftPx);
+                        const sH = String(sDate.getHours()).padStart(2, '0');
+                        const sM = String(sDate.getMinutes()).padStart(2, '0');
+                        const eH = String(currEnd.getHours()).padStart(2, '0');
+                        const eM = String(currEnd.getMinutes()).padStart(2, '0');
+                        displayTimeString = `${sH}:${sM} ～ ${eH}:${eM}`;
+                      }
+
+                      // 時間スロット幅（1時間あたりのピクセル幅）
+                      const currentStartH = new Date(e.start).getHours();
+                      const activeSlotLayout = hourLayouts[currentStartH] || hourLayouts[minHour];
+                      const slotW = activeSlotLayout?.width || 100;
+
+                      return (
+                        <div
+                          key={e.id}
+                          draggable={!e.isIcal && !isBeingResized}
+                          onDragStart={(eDrag) => handleDragStart(eDrag, e.id, member.id)}
+                          onClick={(evt) => handleEventClick(evt, e)}
+                          style={{
+                            left: `${leftPx + 2}px`,
+                            width: `${Math.max(24, displayWidthPx - 4)}px`,
+                            top: `${topPx}px`,
+                            height: `${heightPx}px`,
+                            zIndex: isBeingResized ? 50 : 10,
+                          }}
+                          className={`absolute group/card border rounded-lg shadow-xs hover:shadow-md transition-all select-none cursor-pointer px-2 py-1 flex flex-col justify-center overflow-visible pointer-events-auto hover:brightness-95 ${getEventStyle(e)} ${
+                            isBeingResized ? 'ring-2 ring-indigo-500 shadow-lg brightness-95' : ''
+                          }`}
+                          title={`${e.isIcal ? '[iCal] ' : ''}${e.title} (${displayTimeString})${e.location ? `\n場所: ${e.location}` : ''}${e.memo ? `\nメモ: ${e.memo}` : ''}`}
+                        >
+                          <div className="font-medium text-[11px] sm:text-xs text-slate-800 truncate leading-tight select-none pointer-events-none">
+                            {e.isIcal ? `[iCal] ${e.title}` : e.title}
+                          </div>
+                          {displayWidthPx > 50 && (
+                            <div className="text-[9px] sm:text-[10px] text-slate-500 font-medium truncate leading-tight mt-0.5 opacity-90 pointer-events-none">
+                              {displayTimeString}{e.location ? ` • ${e.location}` : ''}
+                            </div>
+                          )}
+
+                          {/* 横方向リサイズハンドル（右端を引っ張って15分単位で延長・短縮） */}
+                          {!e.isIcal && (
+                            <div
+                              onMouseDown={(evt) => {
+                                evt.stopPropagation();
+                                evt.preventDefault();
+                                const currentEnd = e.end ? new Date(e.end).getTime() : new Date(e.start).getTime() + 60 * 60 * 1000;
+                                setResizingEvent({
+                                  event: e,
+                                  direction: 'horizontal',
+                                  initialStartX: evt.clientX,
+                                  initialStartY: evt.clientY,
+                                  initialEndMs: currentEnd,
+                                  currentEndMs: currentEnd,
+                                  slotWidthPx: slotW,
+                                  dateStr,
+                                });
+                              }}
+                              className="absolute right-0 top-0 bottom-0 w-3 hover:w-3.5 cursor-ew-resize flex items-center justify-center opacity-0 group-hover/card:opacity-100 transition-opacity z-20 group/handle"
+                              title="右端をドラッグして終了時刻を15分単位で変更"
+                            >
+                              <div className="w-1 h-4.5 bg-slate-400/80 group-hover/handle:bg-indigo-600 rounded-full shadow-2xs transition-colors" />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
     );
@@ -1301,12 +1442,11 @@ export function Calendar({
     if (e.isAllDay) return '終日';
     const startDate = new Date(e.start);
     const startTimeStr = startDate.toLocaleTimeString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit' });
-    if (!e.end) return `${startTimeStr}〜`;
-    const endDate = new Date(e.end);
-    const endTimeStr = endDate.toLocaleTimeString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit' });
-    if (isSameDay(startDate, endDate) && startTimeStr === endTimeStr) {
-      return `${startTimeStr}〜`;
+    let endDate = e.end ? new Date(e.end) : new Date(startDate.getTime() + 60 * 60 * 1000);
+    if (isNaN(endDate.getTime()) || (isSameDay(startDate, endDate) && startTimeStr === endDate.toLocaleTimeString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit' }))) {
+      endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
     }
+    const endTimeStr = endDate.toLocaleTimeString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit' });
     return `${startTimeStr}〜${endTimeStr}`;
   };
 
@@ -1323,15 +1463,11 @@ export function Calendar({
       if (!isNaN(s.getTime()) && s.getHours() < minH) {
         minH = Math.max(0, s.getHours());
       }
-      if (e.end) {
-        const endD = new Date(e.end);
-        if (!isNaN(endD.getTime())) {
-          let endH = endD.getHours();
-          if (endD.getMinutes() > 0) endH = Math.min(23, endH);
-          if (endH > maxH) maxH = Math.min(23, endH);
-        }
-      } else if (!isNaN(s.getTime()) && s.getHours() > maxH) {
-        maxH = Math.min(23, s.getHours());
+      const endD = e.end ? new Date(e.end) : new Date(s.getTime() + 60 * 60 * 1000);
+      if (!isNaN(endD.getTime())) {
+        let endH = endD.getHours();
+        if (endD.getMinutes() > 0) endH = Math.min(23, endH);
+        if (endH > maxH) maxH = Math.min(23, endH);
       }
     });
     return Array.from({ length: maxH - minH + 1 }, (_, i) => i + minH);
@@ -1746,19 +1882,60 @@ export function Calendar({
                                     : 'hover:bg-indigo-50/30'
                                 }`}
                               >
-                                {slotEvents.map(e => (
-                                  <div
-                                    key={e.id}
-                                    draggable={!e.isIcal}
-                                    onDragStart={(eDrag) => handleDragStart(eDrag, e.id)}
-                                    onClick={eClick => handleEventClick(eClick, e)}
-                                    className={`text-[10px] sm:text-[11px] p-1 sm:p-1.5 rounded border font-medium mb-1 shadow-xs cursor-pointer transition-all ${getEventStyle(e)}`}
-                                    title={`${e.isIcal ? '[iCal] ' : ''}${e.title} (${formatEventTime(e)})`}
-                                  >
-                                    <div className="font-bold truncate">{e.isIcal ? `[iCal] ${e.title}` : e.title}</div>
-                                    <div className="text-[8px] sm:text-[9px] opacity-80">{formatEventTime(e)}</div>
-                                  </div>
-                                ))}
+                                {slotEvents.map(e => {
+                                  const isBeingResized = resizingEvent?.event.id === e.id && resizingEvent?.direction === 'vertical';
+                                  let displayTimeString = formatEventTime(e);
+                                  if (isBeingResized && resizingEvent) {
+                                    const sDate = new Date(e.start);
+                                    const currEnd = new Date(resizingEvent.currentEndMs);
+                                    const sH = String(sDate.getHours()).padStart(2, '0');
+                                    const sM = String(sDate.getMinutes()).padStart(2, '0');
+                                    const eH = String(currEnd.getHours()).padStart(2, '0');
+                                    const eM = String(currEnd.getMinutes()).padStart(2, '0');
+                                    displayTimeString = `${sH}:${sM} ～ ${eH}:${eM}`;
+                                  }
+
+                                  return (
+                                    <div
+                                      key={e.id}
+                                      draggable={!e.isIcal && !isBeingResized}
+                                      onDragStart={(eDrag) => handleDragStart(eDrag, e.id)}
+                                      onClick={eClick => handleEventClick(eClick, e)}
+                                      className={`group/wkcard text-[10px] sm:text-[11px] p-1 sm:p-1.5 pb-2 rounded border font-medium mb-1 shadow-xs cursor-pointer transition-all relative ${getEventStyle(e)} ${
+                                        isBeingResized ? 'ring-2 ring-indigo-500 shadow-md brightness-95' : ''
+                                      }`}
+                                      title={`${e.isIcal ? '[iCal] ' : ''}${e.title} (${displayTimeString})`}
+                                    >
+                                      <div className="font-bold truncate pointer-events-none">{e.isIcal ? `[iCal] ${e.title}` : e.title}</div>
+                                      <div className="text-[8px] sm:text-[9px] opacity-80 pointer-events-none">{displayTimeString}</div>
+
+                                      {/* 縦方向リサイズハンドル（下端を引っ張って15分単位で延長・短縮） */}
+                                      {!e.isIcal && (
+                                        <div
+                                          onMouseDown={(evt) => {
+                                            evt.stopPropagation();
+                                            evt.preventDefault();
+                                            const currentEnd = e.end ? new Date(e.end).getTime() : new Date(e.start).getTime() + 60 * 60 * 1000;
+                                            setResizingEvent({
+                                              event: e,
+                                              direction: 'vertical',
+                                              initialStartX: evt.clientX,
+                                              initialStartY: evt.clientY,
+                                              initialEndMs: currentEnd,
+                                              currentEndMs: currentEnd,
+                                              slotHeightPx: 50,
+                                              dateStr,
+                                            });
+                                          }}
+                                          className="absolute bottom-0 left-0 right-0 h-2.5 hover:h-3 cursor-ns-resize flex items-center justify-center opacity-0 group-hover/wkcard:opacity-100 transition-opacity z-20 group/handle"
+                                          title="下端をドラッグして終了時刻を15分単位で変更"
+                                        >
+                                          <div className="w-5 h-1 bg-slate-400/80 group-hover/handle:bg-indigo-600 rounded-full shadow-2xs transition-colors" />
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
                               </div>
                             );
                           })}
@@ -1867,28 +2044,70 @@ export function Calendar({
                         <div className="w-12 sm:w-16 shrink-0 text-[11px] sm:text-xs font-semibold text-slate-400 pt-0.5">{hourFormatted}</div>
                         <div className="flex-1 min-h-[32px] space-y-1.5 sm:space-y-2">
                           {dayEvents.length > 0 ? (
-                            dayEvents.map(e => (
-                              <div
-                                key={e.id}
-                                draggable
-                                onDragStart={(eDrag) => handleDragStart(eDrag, e.id)}
-                                onClick={eClick => handleEventClick(eClick, e)}
-                                className={`p-2.5 sm:p-3 rounded-lg border flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-2 shadow-xs cursor-pointer transition-all ${getEventStyle(e)}`}
-                                title="クリックで詳細"
-                              >
-                                <div className="min-w-0">
-                                  <div className="font-extrabold text-sm sm:text-base text-slate-900 leading-snug">{e.title}</div>
-                                  {e.memo && (
-                                    <div className="text-[11px] sm:text-xs text-slate-700 mt-1 bg-white/50 p-1.5 rounded border border-slate-200/50">
-                                      {renderWithClickableLinks(e.memo)}
+                            dayEvents.map(e => {
+                              const isBeingResized = resizingEvent?.event.id === e.id && resizingEvent?.direction === 'vertical';
+                              let displayTimeString = formatEventTime(e);
+                              if (isBeingResized && resizingEvent) {
+                                const sDate = new Date(e.start);
+                                const currEnd = new Date(resizingEvent.currentEndMs);
+                                const sH = String(sDate.getHours()).padStart(2, '0');
+                                const sM = String(sDate.getMinutes()).padStart(2, '0');
+                                const eH = String(currEnd.getHours()).padStart(2, '0');
+                                const eM = String(currEnd.getMinutes()).padStart(2, '0');
+                                displayTimeString = `${sH}:${sM} ～ ${eH}:${eM}`;
+                              }
+
+                              return (
+                                <div
+                                  key={e.id}
+                                  draggable={!e.isIcal && !isBeingResized}
+                                  onDragStart={(eDrag) => handleDragStart(eDrag, e.id)}
+                                  onClick={eClick => handleEventClick(eClick, e)}
+                                  className={`group/daycard p-2.5 sm:p-3 pb-3.5 rounded-lg border flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-2 shadow-xs cursor-pointer transition-all relative ${getEventStyle(e)} ${
+                                    isBeingResized ? 'ring-2 ring-indigo-500 shadow-md brightness-95' : ''
+                                  }`}
+                                  title="クリックで詳細"
+                                >
+                                  <div className="min-w-0 pointer-events-none">
+                                    <div className="font-extrabold text-sm sm:text-base text-slate-900 leading-snug">{e.title}</div>
+                                    <div className="text-[11px] sm:text-xs font-semibold text-slate-600 mt-0.5">{displayTimeString}</div>
+                                    {e.memo && (
+                                      <div className="text-[11px] sm:text-xs text-slate-700 mt-1 bg-white/50 p-1.5 rounded border border-slate-200/50">
+                                        {renderWithClickableLinks(e.memo)}
+                                      </div>
+                                    )}
+                                  </div>
+                                  <span className="text-[9px] sm:text-[10px] px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-md font-bold border bg-white/80 self-start sm:self-center shrink-0 pointer-events-none">
+                                    {typeLabels[e.type]}
+                                  </span>
+
+                                  {/* 縦方向リサイズハンドル（下端を引っ張って15分単位で延長・短縮） */}
+                                  {!e.isIcal && (
+                                    <div
+                                      onMouseDown={(evt) => {
+                                        evt.stopPropagation();
+                                        evt.preventDefault();
+                                        const currentEnd = e.end ? new Date(e.end).getTime() : new Date(e.start).getTime() + 60 * 60 * 1000;
+                                        setResizingEvent({
+                                          event: e,
+                                          direction: 'vertical',
+                                          initialStartX: evt.clientX,
+                                          initialStartY: evt.clientY,
+                                          initialEndMs: currentEnd,
+                                          currentEndMs: currentEnd,
+                                          slotHeightPx: 60,
+                                          dateStr,
+                                        });
+                                      }}
+                                      className="absolute bottom-0 left-0 right-0 h-3 hover:h-3.5 cursor-ns-resize flex items-center justify-center opacity-0 group-hover/daycard:opacity-100 transition-opacity z-20 group/handle"
+                                      title="下端をドラッグして終了時刻を15分単位で変更"
+                                    >
+                                      <div className="w-8 h-1 bg-slate-400/80 group-hover/handle:bg-indigo-600 rounded-full shadow-2xs transition-colors" />
                                     </div>
                                   )}
                                 </div>
-                                <span className="text-[9px] sm:text-[10px] px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-md font-bold border bg-white/80 self-start sm:self-center shrink-0">
-                                  {typeLabels[e.type]}
-                                </span>
-                              </div>
-                            ))
+                              );
+                            })
                           ) : (
                             <div className="text-xs text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity pt-0.5 flex items-center gap-1">
                               <Plus className="w-3.5 h-3.5"/> <span className="hidden sm:inline">クリックして{hourFormatted}に予定を追加</span>
