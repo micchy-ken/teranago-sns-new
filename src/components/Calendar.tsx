@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { CalendarEvent, EventType, User, OfficeMaster, DivisionMaster, Memo, RequirementType, MemoUserRecipientStatus } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
 import { ChevronLeft, ChevronRight, List as ListIcon, Calendar as CalendarIcon, Plus, MapPin, Video, AlignLeft, RefreshCw, Clock, Link as LinkIcon, Loader2, Building2, Users, Paperclip, MessageSquare, Phone, X, Monitor, Maximize2, Minimize2, FileSpreadsheet } from 'lucide-react';
@@ -443,6 +443,76 @@ export function Calendar({
     }
   };
 
+  const getMultiHourStyle = (e: CalendarEvent, currentHour: number, minHour: number, maxHour: number) => {
+    if (e.isAllDay) {
+      return {
+        isMultiHour: true,
+        containerClass: currentHour === minHour
+          ? 'rounded-l-lg rounded-r-none border-r-0 relative z-20 font-medium shadow-xs -mr-1.5 pr-2.5 ml-0.5'
+          : currentHour === maxHour
+          ? 'rounded-r-lg rounded-l-none border-l-0 relative z-20 font-medium shadow-xs -ml-1.5 pl-2.5 mr-0.5'
+          : 'rounded-none border-x-0 relative z-20 font-medium shadow-2xs -mx-1.5 px-1.5',
+        showTitle: currentHour === minHour,
+        customStyle: undefined as React.CSSProperties | undefined,
+      };
+    }
+
+    const sDate = new Date(e.start);
+    const startHourSlot = Math.max(minHour, sDate.getHours());
+
+    const endD = e.end ? new Date(e.end) : sDate;
+    const rawEndHour = endD.getHours();
+    const endMin = endD.getMinutes();
+
+    let calculatedEndSlot = rawEndHour;
+    if (endMin === 0 && rawEndHour > startHourSlot) {
+      calculatedEndSlot = rawEndHour - 1;
+    }
+    const endHourSlot = Math.min(maxHour, Math.max(startHourSlot, calculatedEndSlot));
+
+    if (startHourSlot === endHourSlot) {
+      return {
+        isMultiHour: false,
+        containerClass: 'rounded-lg shadow-2xs font-medium',
+        showTitle: true,
+        customStyle: undefined as React.CSSProperties | undefined,
+      };
+    }
+
+    const isStartHour = currentHour === startHourSlot;
+    const isEndHour = currentHour === endHourSlot;
+
+    if (isStartHour) {
+      return {
+        isMultiHour: true,
+        containerClass: 'rounded-l-lg rounded-r-none border-r-0 relative z-20 font-medium shadow-xs -mr-1.5 pr-2.5 ml-0.5',
+        showTitle: true,
+        customStyle: undefined as React.CSSProperties | undefined,
+      };
+    } else if (isEndHour) {
+      // 終了時刻の「分」（例: 11:30 の場合は 30分 = 50%）に応じて枠幅を調整
+      let widthStyle: React.CSSProperties | undefined = undefined;
+      if (endMin > 0 && endMin < 60) {
+        const percent = Math.max(25, Math.min(95, Math.round((endMin / 60) * 100)));
+        widthStyle = { width: `calc(${percent}% + 6px)` };
+      }
+
+      return {
+        isMultiHour: true,
+        containerClass: 'rounded-r-lg rounded-l-none border-l-0 relative z-20 font-medium shadow-xs -ml-1.5 pl-2.5 mr-auto',
+        showTitle: false,
+        customStyle: widthStyle,
+      };
+    } else {
+      return {
+        isMultiHour: true,
+        containerClass: 'rounded-none border-x-0 relative z-20 font-medium shadow-2xs -mx-1.5 px-1.5',
+        showTitle: false,
+        customStyle: undefined as React.CSSProperties | undefined,
+      };
+    }
+  };
+
   const handleCellMouseDown = (e: React.MouseEvent, dateStr: string, attendees?: User[]) => {
     if (e.button !== 0) return;
     setIsSelectingRange(true);
@@ -603,22 +673,63 @@ export function Calendar({
   const renderTeamWeekView = () => {
     const dates = getWeekDates(currentDate);
     const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
+
+    // 各曜日にチームメンバーの予定があるか確認
+    const dayHasEvents = dates.map(date => {
+      const dateStr = getLocalDateStr(date);
+      return filteredEvents.some(e => {
+        if (!isEventOccurringOnDate(e, dateStr)) return false;
+        return e.attendees?.some(a => a && teamMembers.some(m => m.id === a.id || String(m.id) === String(a.id) || m.name === a.name));
+      });
+    });
+
+    // 縦軸を全行で完全一致させるグリッドスタイル
+    // - メンバー列: 140px〜180px
+    // - 平日 (月〜金) または 予定のある土日: minmax(110px, 1fr) (均等幅を維持)
+    // - 予定のない土日のみ: minmax(46px, 0.45fr) (縮める)
+    const memberCol = isSignageMode ? '160px' : 'minmax(140px, 180px)';
+    const teamWeekGridStyle = {
+      display: 'grid',
+      gridTemplateColumns: `${memberCol} ${dates.map((date, idx) => {
+        const isWeekend = date.getDay() === 0 || date.getDay() === 6;
+        const hasEv = dayHasEvents[idx];
+        if (isWeekend && !hasEv) {
+          return 'minmax(46px, 0.45fr)';
+        }
+        return 'minmax(110px, 1fr)';
+      }).join(' ')}`,
+    };
     
     return (
-      <div className="min-w-[720px] sm:min-w-[1000px] h-full flex flex-col divide-y divide-slate-200">
+      <div className="min-w-full h-full overflow-auto divide-y divide-slate-200 bg-white flex flex-col">
         {/* Table Header */}
-        <div className="grid grid-cols-[140px_repeat(7,1fr)] sm:grid-cols-[200px_repeat(7,1fr)] md:grid-cols-[220px_repeat(7,1fr)] bg-slate-50 text-slate-700 text-xs font-bold shrink-0 sticky top-0 z-10 border-b border-slate-200">
-          <div className="p-2 sm:p-3 border-r border-slate-200 flex items-center justify-center sticky left-0 z-20 bg-slate-50 text-[11px] sm:text-xs">メンバー</div>
+        <div
+          style={teamWeekGridStyle}
+          className="bg-slate-50 text-slate-700 text-xs font-bold shrink-0 sticky top-0 z-20 border-b border-slate-200 shadow-2xs"
+        >
+          <div className="p-2 sm:p-3 border-r border-slate-200 flex items-center justify-center sticky left-0 z-30 bg-slate-50 text-[11px] sm:text-xs">
+            メンバー
+          </div>
           {dates.map((date, idx) => {
             const isTodayDate = isSameDay(date, new Date());
+            const isWeekend = date.getDay() === 0 || date.getDay() === 6;
+            const hasEv = dayHasEvents[idx];
+            const isShrunk = isWeekend && !hasEv;
             const weekendColor = date.getDay() === 0 ? 'text-rose-600' : date.getDay() === 6 ? 'text-blue-600' : 'text-slate-700';
             
             return (
               <div 
                 key={idx} 
-                className={`p-2 sm:p-3 text-center border-r border-slate-200 last:border-r-0 flex flex-col items-center justify-center gap-0.5 ${isTodayDate ? 'bg-indigo-50/70 border-b-2 border-b-indigo-500' : ''}`}
+                className={`p-2 sm:p-3 text-center border-r border-slate-200 last:border-r-0 flex flex-col items-center justify-center gap-0.5 transition-colors ${
+                  isTodayDate
+                    ? 'bg-indigo-50/70 border-b-2 border-b-indigo-500'
+                    : isShrunk
+                    ? 'bg-slate-100/60 text-slate-400'
+                    : ''
+                }`}
+                title={isShrunk ? `${date.getMonth() + 1}/${date.getDate()} (${dayNames[date.getDay()]}) - 予定なし` : undefined}
               >
-                <span className={`${weekendColor} font-extrabold text-[11px] sm:text-xs`}>
+                <span className={`${isShrunk ? 'text-slate-400 font-medium' : weekendColor} font-extrabold text-[11px] sm:text-xs truncate`}>
                   {date.getMonth() + 1}/{date.getDate()} ({dayNames[date.getDay()]})
                 </span>
                 {isTodayDate && <span className="text-[9px] sm:text-[10px] bg-indigo-600 text-white font-semibold px-1 sm:px-1.5 py-0.5 rounded-full scale-90">今日</span>}
@@ -628,9 +739,13 @@ export function Calendar({
         </div>
 
         {/* Table Body */}
-        <div className="flex-1 overflow-y-auto divide-y divide-slate-200 bg-white">
+        <div className="flex-1 divide-y divide-slate-200 bg-white">
           {teamMembers.map((member) => (
-            <div key={member.id} className="grid grid-cols-[140px_repeat(7,1fr)] sm:grid-cols-[200px_repeat(7,1fr)] md:grid-cols-[220px_repeat(7,1fr)] min-h-[95px] sm:min-h-[110px] group hover:bg-slate-50/30 transition-colors">
+            <div
+              key={member.id}
+              style={teamWeekGridStyle}
+              className="min-h-[95px] sm:min-h-[110px] group hover:bg-slate-50/30 transition-colors"
+            >
               {/* Member Column */}
               <div className="p-2 sm:p-3 border-r border-slate-200 bg-white flex flex-col justify-between shrink-0 sticky left-0 z-10 shadow-xs sm:shadow-none">
                 <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0">
@@ -646,22 +761,28 @@ export function Calendar({
                   </div>
                 </div>
 
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setMemoTargetUser(member);
-                    setIsMemoModalOpen(true);
-                  }}
-                  className="mt-1.5 sm:mt-2 w-full flex items-center justify-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 py-1 sm:py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-indigo-600 text-[9px] sm:text-[10px] font-extrabold rounded-lg border border-slate-200 transition-all cursor-pointer shadow-2xs"
-                >
-                  <Phone className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-indigo-500 shrink-0" />
-                  <span className="truncate">伝言メモ</span>
-                </button>
+                {!isSignageMode && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setMemoTargetUser(member);
+                      setIsMemoModalOpen(true);
+                    }}
+                    className="mt-1.5 sm:mt-2 w-full flex items-center justify-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 py-1 sm:py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-indigo-600 text-[9px] sm:text-[10px] font-extrabold rounded-lg border border-slate-200 transition-all cursor-pointer shadow-2xs"
+                  >
+                    <Phone className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-indigo-500 shrink-0" />
+                    <span className="truncate">伝言メモ</span>
+                  </button>
+                )}
               </div>
 
               {/* Day Columns */}
               {dates.map((date, idx) => {
                 const dateStr = getLocalDateStr(date);
+                const isWeekend = date.getDay() === 0 || date.getDay() === 6;
+                const hasEv = dayHasEvents[idx];
+                const isShrunk = isWeekend && !hasEv;
+
                 const dayEvents = filteredEvents.filter(e => {
                   return isEventOccurringOnDate(e, dateStr) && e.attendees?.some(a => a && (a.id === member.id || String(a.id) === String(member.id) || a.name === member.name));
                 });
@@ -679,7 +800,13 @@ export function Calendar({
                     onDragLeave={handleDragLeave}
                     onDrop={(e) => handleDrop(e, dateStr, undefined, member.id)}
                     className={`p-1.5 sm:p-2 border-r border-slate-200 last:border-r-0 flex flex-col gap-1 sm:gap-1.5 min-h-[95px] sm:min-h-[115px] cursor-pointer relative transition-colors select-none ${
-                      isSelectedRange ? 'bg-indigo-100/90 ring-2 ring-indigo-500/70 z-10' : isDragOver ? 'bg-indigo-100/70 ring-2 ring-indigo-400' : 'hover:bg-indigo-50/20'
+                      isSelectedRange
+                        ? 'bg-indigo-100/90 ring-2 ring-indigo-500/70 z-10'
+                        : isDragOver
+                        ? 'bg-indigo-100/70 ring-2 ring-indigo-400'
+                        : isShrunk
+                        ? 'bg-slate-50/40 hover:bg-indigo-50/20'
+                        : 'hover:bg-indigo-50/20'
                     }`}
                   >
                     {dayEvents.length > 0 ? (
@@ -731,61 +858,148 @@ export function Calendar({
 
   // チーム日表示のレンダリング
   const renderTeamDayView = () => {
-    const hours = Array.from({ length: 13 }, (_, i) => i + 8);
-    
+    const dateStr = getLocalDateStr(currentDate);
+
+    // 当日のチームメンバー関連イベント
+    const dayRelevantEvents = filteredEvents.filter(e => {
+      const eStart = new Date(e.start);
+      if (!isSameDay(eStart, currentDate) && !isEventOccurringOnDate(e, dateStr)) return false;
+      return e.attendees?.some(a => a && teamMembers.some(m => m.id === a.id || String(m.id) === String(a.id) || m.name === a.name));
+    });
+
+    // 1. 時間範囲のフレキシブル算出 (基本は 8:00〜20:00、時間外の予定があれば自動拡張)
+    let minHour = 8;
+    let maxHour = 20;
+
+    dayRelevantEvents.forEach(e => {
+      if (e.isAllDay) return;
+      const sDate = new Date(e.start);
+      if (!isNaN(sDate.getTime()) && sDate.getHours() < minHour) {
+        minHour = Math.max(0, sDate.getHours());
+      }
+      if (e.end) {
+        const endD = new Date(e.end);
+        if (!isNaN(endD.getTime())) {
+          let endH = endD.getHours();
+          if (endD.getMinutes() > 0) endH = Math.min(23, endH);
+          if (endH > maxHour) maxHour = Math.min(23, endH);
+        }
+      } else if (!isNaN(sDate.getTime()) && sDate.getHours() > maxHour) {
+        maxHour = Math.min(23, sDate.getHours());
+      }
+    });
+
+    const hours = Array.from({ length: maxHour - minHour + 1 }, (_, i) => i + minHour);
+
+    // 2. チームの誰かが予定を持っている時間帯（Active Hours）を特定
+    const activeHoursSet = new Set<number>();
+    dayRelevantEvents.forEach(e => {
+      if (e.isAllDay) {
+        return;
+      }
+      const sH = new Date(e.start).getHours();
+      let eH = e.end ? new Date(e.end).getHours() : sH;
+      const eMin = e.end ? new Date(e.end).getMinutes() : 0;
+      if (eMin === 0 && eH > sH) {
+        eH = eH - 1;
+      }
+      for (let h = sH; h <= eH; h++) {
+        if (h >= minHour && h <= maxHour) {
+          activeHoursSet.add(h);
+        }
+      }
+    });
+
+    // 3. グリッド列のテンプレート設定（縦軸は全メンバー行で完全一致維持）
+    // メンバー列: 150px〜200px
+    // 予定あり時間: minmax(110px, 1.8fr) （広く見やすい）
+    // 予定なし時間（チーム全員空き）: minmax(46px, 0.45fr) （縦軸を維持しつつスリムに圧縮）
+    const memberCol = isSignageMode ? '160px' : 'minmax(140px, 180px)';
+    const gridStyle = {
+      display: 'grid',
+      gridTemplateColumns: `${memberCol} ${hours
+        .map(h => (activeHoursSet.has(h) ? 'minmax(110px, 1.8fr)' : 'minmax(46px, 0.45fr)'))
+        .join(' ')}`,
+    };
+
     return (
-      <div className="min-w-[850px] sm:min-w-[1200px] h-full flex flex-col divide-y divide-slate-200">
+      <div className="min-w-full h-full overflow-auto divide-y divide-slate-200 bg-white flex flex-col">
         {/* Table Header */}
-        <div className="grid grid-cols-[140px_repeat(13,1fr)] sm:grid-cols-[200px_repeat(13,1fr)] md:grid-cols-[220px_repeat(13,1fr)] bg-slate-50 text-slate-700 text-xs font-bold shrink-0 sticky top-0 z-10 border-b border-slate-200">
-          <div className="p-2 sm:p-3 border-r border-slate-200 flex items-center justify-center sticky left-0 z-20 bg-slate-50 text-[11px] sm:text-xs">メンバー</div>
-          {hours.map((hour) => (
-            <div key={hour} className="p-2 sm:p-3 text-center border-r border-slate-200 last:border-r-0 font-extrabold flex flex-col items-center justify-center text-[10px] sm:text-xs">
-              <span>{String(hour).padStart(2, '0')}:00</span>
-            </div>
-          ))}
+        <div
+          style={gridStyle}
+          className="bg-slate-50 text-slate-700 text-xs font-bold shrink-0 sticky top-0 z-20 border-b border-slate-200 shadow-2xs"
+        >
+          <div className="p-2 sm:p-2.5 border-r border-slate-200 flex items-center justify-center sticky left-0 z-30 bg-slate-50 text-[11px] sm:text-xs">
+            メンバー
+          </div>
+          {hours.map((hour) => {
+            const isActive = activeHoursSet.has(hour);
+            return (
+              <div
+                key={hour}
+                className={`p-2 sm:p-2.5 text-center border-r border-slate-200 last:border-r-0 font-extrabold flex flex-col items-center justify-center transition-colors ${
+                  isActive
+                    ? 'bg-slate-50 text-slate-800 text-[11px] sm:text-xs'
+                    : 'bg-slate-100/60 text-slate-400 text-[10px]'
+                }`}
+                title={isActive ? `${hour}:00 (予定あり)` : `${hour}:00 (チーム予定なし)`}
+              >
+                <span>{String(hour).padStart(2, '0')}:00</span>
+              </div>
+            );
+          })}
         </div>
 
         {/* Table Body */}
-        <div className="flex-1 overflow-y-auto divide-y divide-slate-200 bg-white">
+        <div className="flex-1 divide-y divide-slate-200 bg-white">
           {teamMembers.map((member) => (
-            <div key={member.id} className="grid grid-cols-[140px_repeat(13,1fr)] sm:grid-cols-[200px_repeat(13,1fr)] md:grid-cols-[220px_repeat(13,1fr)] min-h-[95px] sm:min-h-[110px] group hover:bg-slate-50/30 transition-colors">
+            <div
+              key={member.id}
+              style={gridStyle}
+              className="min-h-[80px] sm:min-h-[92px] group hover:bg-slate-50/30 transition-colors"
+            >
               {/* Member Column */}
-              <div className="p-2 sm:p-3 border-r border-slate-200 bg-white flex flex-col justify-between shrink-0 sticky left-0 z-10 shadow-xs sm:shadow-none">
+              <div className="p-2 sm:p-2.5 border-r border-slate-200 bg-white flex flex-col justify-center shrink-0 sticky left-0 z-10 shadow-xs sm:shadow-none">
                 <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0">
                   <img
                     src={getAvatarUrl(member.avatarUrl)}
                     alt={member.name}
-                    className="w-6 h-6 sm:w-8 sm:h-8 rounded-full border border-slate-200 shrink-0"
+                    className="w-7 h-7 sm:w-8 sm:h-8 rounded-full border border-slate-200 shrink-0"
                     referrerPolicy="no-referrer"
                   />
                   <div className="min-w-0 flex-1">
                     <p className="font-extrabold text-[11px] sm:text-xs text-slate-800 truncate">{member.name}</p>
-                    <p className="text-[9px] sm:text-[10px] text-slate-500 font-medium mt-0.5 truncate">{member.office}・{member.division}</p>
+                    <p className="text-[9px] sm:text-[10px] text-slate-500 font-medium mt-0.5 truncate">
+                      {member.office}・{member.division}
+                    </p>
                   </div>
                 </div>
 
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setMemoTargetUser(member);
-                    setIsMemoModalOpen(true);
-                  }}
-                  className="mt-1.5 sm:mt-2 w-full flex items-center justify-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 py-1 sm:py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-indigo-600 text-[9px] sm:text-[10px] font-extrabold rounded-lg border border-slate-200 transition-all cursor-pointer shadow-2xs"
-                >
-                  <Phone className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-indigo-500 shrink-0" />
-                  <span className="truncate">伝言メモ</span>
-                </button>
+                {/* デジタルサイネージモード時は伝言メモボタンを非表示 */}
+                {!isSignageMode && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setMemoTargetUser(member);
+                      setIsMemoModalOpen(true);
+                    }}
+                    className="mt-1.5 w-full flex items-center justify-center gap-1 px-1.5 py-1 bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-indigo-600 text-[9px] sm:text-[10px] font-extrabold rounded-lg border border-slate-200 transition-all cursor-pointer shadow-2xs"
+                  >
+                    <Phone className="w-2.5 h-2.5 text-indigo-500 shrink-0" />
+                    <span className="truncate">伝言メモ</span>
+                  </button>
+                )}
               </div>
 
               {/* Hour Columns */}
               {hours.map((hour) => {
-                const dateStr = getLocalDateStr(currentDate);
                 const datetimeStr = `${dateStr}T${String(hour).padStart(2, '0')}:00`;
+                const isActive = activeHoursSet.has(hour);
 
                 const hourEvents = filteredEvents.filter(e => {
                   const eStart = new Date(e.start);
                   const eEnd = e.end ? new Date(e.end) : eStart;
-                  if (!isSameDay(eStart, currentDate)) return false;
+                  if (!isSameDay(eStart, currentDate) && !isEventOccurringOnDate(e, dateStr)) return false;
                   if (!e.attendees?.some(a => a && (a.id === member.id || String(a.id) === String(member.id) || a.name === member.name))) return false;
                   
                   const startHour = eStart.getHours();
@@ -796,7 +1010,11 @@ export function Calendar({
                     if (startHour === endHour) {
                       return startHour === hour;
                     }
-                    return startHour <= hour && endHour > hour;
+                    const endMinutes = eEnd.getMinutes();
+                    if (endMinutes === 0) {
+                      return startHour <= hour && endHour > hour;
+                    }
+                    return startHour <= hour && endHour >= hour;
                   } else {
                     return startHour === hour;
                   }
@@ -812,23 +1030,49 @@ export function Calendar({
                     onDragOver={(e) => handleDragOver(e, cellKey)}
                     onDragLeave={handleDragLeave}
                     onDrop={(e) => handleDrop(e, dateStr, hour, member.id)}
-                    className={`p-1 border-r border-slate-200 last:border-r-0 flex flex-col gap-1 min-h-[95px] sm:min-h-[115px] cursor-pointer transition-colors ${
-                      isDragOver ? 'bg-indigo-100/70 ring-2 ring-indigo-400' : 'hover:bg-indigo-50/20'
+                    className={`p-1 border-r border-slate-200 last:border-r-0 flex flex-col gap-1 min-h-[80px] sm:min-h-[92px] cursor-pointer transition-colors ${
+                      isDragOver
+                        ? 'bg-indigo-100/70 ring-2 ring-indigo-400'
+                        : isActive
+                        ? 'hover:bg-indigo-50/20'
+                        : 'bg-slate-50/40 hover:bg-indigo-50/20'
                     }`}
                   >
                     {hourEvents.length > 0 ? (
-                      hourEvents.map(e => (
-                        <div
-                          key={e.id}
-                          draggable
-                          onDragStart={(eDrag) => handleDragStart(eDrag, e.id, member.id)}
-                          onClick={(evt) => handleEventClick(evt, e)}
-                          className={`p-1 rounded-md border text-[9px] font-bold leading-tight transition-all hover:shadow-xs shadow-2xs truncate select-none ${getEventStyle(e)}`}
-                          title={`${e.title} (${formatEventTime(e)})`}
-                        >
-                          <div className="truncate font-extrabold">{e.title}</div>
-                        </div>
-                      ))
+                      sortEvents(hourEvents).map(e => {
+                        const multiHourProps = getMultiHourStyle(e, hour, minHour, maxHour);
+                        return (
+                          <div
+                            key={e.id}
+                            draggable
+                            onDragStart={(eDrag) => handleDragStart(eDrag, e.id, member.id)}
+                            onClick={(evt) => handleEventClick(evt, e)}
+                            style={multiHourProps.customStyle}
+                            className={`border transition-all hover:shadow-xs shadow-2xs select-none cursor-pointer ${getEventStyle(e)} ${multiHourProps.containerClass} ${
+                              multiHourProps.isMultiHour
+                                ? 'p-2 flex flex-col justify-center min-h-[48px]'
+                                : 'p-2 rounded-md overflow-hidden min-h-[44px] flex flex-col justify-center'
+                            }`}
+                            title={`${e.title} (${formatEventTime(e)})${e.location ? `\n場所: ${e.location}` : ''}${e.memo ? `\nメモ: ${e.memo}` : ''}`}
+                          >
+                            {multiHourProps.isMultiHour ? (
+                              multiHourProps.showTitle ? (
+                                <div className="min-w-0 max-w-full">
+                                  <div className="font-medium text-xs sm:text-sm text-slate-800 leading-tight line-clamp-2">
+                                    {e.title}
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="min-h-[30px] flex items-center opacity-0 select-none">&nbsp;</div>
+                              )
+                            ) : (
+                              <div className="font-medium text-xs sm:text-sm text-slate-800 leading-tight line-clamp-2">
+                                {e.title}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
                     ) : (
                       <div className="flex-1 flex items-center justify-center text-slate-300 text-[9px] font-bold opacity-0 group-hover:opacity-100 transition-opacity">
                         +
@@ -1042,7 +1286,28 @@ export function Calendar({
     return getLocalDateStr(d1) === getLocalDateStr(d2);
   };
 
-  const hoursList = Array.from({ length: 15 }, (_, i) => i + 8); // 8:00 to 22:00
+  const hoursList = useMemo(() => {
+    let minH = 8;
+    let maxH = 20;
+    filteredEvents.forEach(e => {
+      if (e.isAllDay) return;
+      const s = new Date(e.start);
+      if (!isNaN(s.getTime()) && s.getHours() < minH) {
+        minH = Math.max(0, s.getHours());
+      }
+      if (e.end) {
+        const endD = new Date(e.end);
+        if (!isNaN(endD.getTime())) {
+          let endH = endD.getHours();
+          if (endD.getMinutes() > 0) endH = Math.min(23, endH);
+          if (endH > maxH) maxH = Math.min(23, endH);
+        }
+      } else if (!isNaN(s.getTime()) && s.getHours() > maxH) {
+        maxH = Math.min(23, s.getHours());
+      }
+    });
+    return Array.from({ length: maxH - minH + 1 }, (_, i) => i + minH);
+  }, [filteredEvents]);
 
   return (
     <div className="flex-1 bg-white rounded-xl border border-slate-200 shadow-sm ring-1 ring-slate-900/5 overflow-hidden flex flex-col min-h-[550px] h-[calc(100vh-6.5rem)] sm:h-[calc(100vh-7.5rem)] lg:h-[calc(100vh-8rem)]">
@@ -1286,133 +1551,196 @@ export function Calendar({
             )}
 
             {/* 2. WEEK VIEW */}
-            {view === 'week' && (
-              <div className="min-w-[720px] sm:min-w-[800px] h-full flex flex-col">
-                {/* Week Header */}
-                <div className="grid grid-cols-[60px_repeat(7,1fr)] sm:grid-cols-8 border-b border-slate-200 bg-slate-50 shrink-0 sticky top-0 z-20">
-                  <div className="py-2.5 sm:py-3 px-1 sm:px-2 text-center text-[11px] sm:text-xs font-bold text-slate-400 border-r border-slate-200 sticky left-0 z-20 bg-slate-50">時間</div>
-                  {weekDays.map((d, idx) => {
-                    const isToday = isSameDay(d, new Date());
-                    const dayName = ['日', '月', '火', '水', '木', '金', '土'][d.getDay()];
-                    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-                    const isSelectedRange = isDateInSelectionRange(dateStr);
-                    return (
-                      <div
-                        key={idx}
-                        onMouseDown={(e) => handleCellMouseDown(e, dateStr)}
-                        onMouseEnter={() => handleCellMouseEnter(dateStr)}
-                        className={`py-1.5 sm:py-2 px-1 text-center border-r border-slate-200 cursor-pointer select-none transition-colors ${
-                          isSelectedRange ? 'bg-indigo-100/90 ring-2 ring-indigo-500/70 z-10' : isToday ? 'bg-indigo-50/60' : 'hover:bg-indigo-50/40'
-                        }`}
-                      >
-                        <div className={`text-[11px] sm:text-xs font-semibold ${idx === 0 ? 'text-red-500' : idx === 6 ? 'text-blue-500' : 'text-slate-500'}`}>{dayName}</div>
-                        <div className={`text-xs sm:text-sm font-bold mt-0.5 inline-flex items-center justify-center w-6 h-6 sm:w-7 sm:h-7 rounded-full ${isToday ? 'bg-indigo-600 text-white' : 'text-slate-800'}`}>
-                          {d.getDate()}
+            {view === 'week' && (() => {
+              const personalWeekHasEvents = weekDays.map(d => {
+                const dateStr = getLocalDateStr(d);
+                return filteredEvents.some(e => isEventOccurringOnDate(e, dateStr));
+              });
+
+              const personalWeekGridStyle = {
+                display: 'grid',
+                gridTemplateColumns: `60px ${weekDays.map((d, idx) => {
+                  const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+                  const hasEv = personalWeekHasEvents[idx];
+                  if (isWeekend && !hasEv) {
+                    return 'minmax(46px, 0.45fr)';
+                  }
+                  return 'minmax(110px, 1fr)';
+                }).join(' ')}`,
+              };
+
+              return (
+                <div className="min-w-full h-full overflow-auto flex flex-col bg-white">
+                  {/* Week Header */}
+                  <div
+                    style={personalWeekGridStyle}
+                    className="border-b border-slate-200 bg-slate-50 shrink-0 sticky top-0 z-20 shadow-2xs"
+                  >
+                    <div className="py-2.5 sm:py-3 px-1 sm:px-2 text-center text-[11px] sm:text-xs font-bold text-slate-400 border-r border-slate-200 sticky left-0 z-30 bg-slate-50">
+                      時間
+                    </div>
+                    {weekDays.map((d, idx) => {
+                      const isToday = isSameDay(d, new Date());
+                      const dayName = ['日', '月', '火', '水', '木', '金', '土'][d.getDay()];
+                      const dateStr = getLocalDateStr(d);
+                      const isSelectedRange = isDateInSelectionRange(dateStr);
+                      const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+                      const hasEv = personalWeekHasEvents[idx];
+                      const isShrunk = isWeekend && !hasEv;
+
+                      return (
+                        <div
+                          key={idx}
+                          onMouseDown={(e) => handleCellMouseDown(e, dateStr)}
+                          onMouseEnter={() => handleCellMouseEnter(dateStr)}
+                          className={`py-1.5 sm:py-2 px-1 text-center border-r border-slate-200 cursor-pointer select-none transition-colors ${
+                            isSelectedRange
+                              ? 'bg-indigo-100/90 ring-2 ring-indigo-500/70 z-10'
+                              : isToday
+                              ? 'bg-indigo-50/60'
+                              : isShrunk
+                              ? 'bg-slate-100/60'
+                              : 'hover:bg-indigo-50/40'
+                          }`}
+                        >
+                          <div className={`text-[11px] sm:text-xs font-semibold ${isShrunk ? 'text-slate-400' : idx === 0 ? 'text-red-500' : idx === 6 ? 'text-blue-500' : 'text-slate-500'}`}>
+                            {dayName}
+                          </div>
+                          <div className={`text-xs sm:text-sm font-bold mt-0.5 inline-flex items-center justify-center w-6 h-6 sm:w-7 sm:h-7 rounded-full ${isToday ? 'bg-indigo-600 text-white' : isShrunk ? 'text-slate-400' : 'text-slate-800'}`}>
+                            {d.getDate()}
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                      );
+                    })}
+                  </div>
 
-                {/* All-Day Events row */}
-                <div className="grid grid-cols-[60px_repeat(7,1fr)] sm:grid-cols-8 border-b border-slate-200 bg-slate-50/50 shrink-0">
-                  <div className="py-2 px-1 sm:px-2 text-center text-[10px] sm:text-[11px] font-bold text-slate-500 border-r border-slate-200 flex items-center justify-center sticky left-0 z-10 bg-slate-50/95 shadow-xs sm:shadow-none">終日</div>
-                  {weekDays.map((d, idx) => {
-                    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-                    const allDayEvs = filteredEvents.filter(e => (e.isAllDay || getLocalDateStr(e.start) !== getLocalDateStr(e.end)) && isEventOccurringOnDate(e, dateStr));
-                    const slotKey = `week-allday-${idx}`;
-                    const isDragOver = dragOverKey === slotKey;
-                    const isSelectedRange = isDateInSelectionRange(dateStr);
+                  {/* All-Day Events row */}
+                  <div
+                    style={personalWeekGridStyle}
+                    className="border-b border-slate-200 bg-slate-50/50 shrink-0"
+                  >
+                    <div className="py-2 px-1 sm:px-2 text-center text-[10px] sm:text-[11px] font-bold text-slate-500 border-r border-slate-200 flex items-center justify-center sticky left-0 z-10 bg-slate-50/95 shadow-xs sm:shadow-none">
+                      終日
+                    </div>
+                    {weekDays.map((d, idx) => {
+                      const dateStr = getLocalDateStr(d);
+                      const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+                      const hasEv = personalWeekHasEvents[idx];
+                      const isShrunk = isWeekend && !hasEv;
 
-                    return (
-                      <div
-                        key={idx}
-                        onMouseDown={(e) => handleCellMouseDown(e, dateStr)}
-                        onMouseEnter={() => handleCellMouseEnter(dateStr)}
-                        onDragOver={(e) => handleDragOver(e, slotKey)}
-                        onDragLeave={handleDragLeave}
-                        onDrop={(e) => handleDrop(e, dateStr)}
-                        className={`p-1 border-r border-slate-200 min-h-[36px] sm:min-h-[40px] cursor-pointer space-y-1 transition-colors select-none ${
-                          isSelectedRange ? 'bg-indigo-100/90 ring-2 ring-indigo-500/70 z-10' : isDragOver ? 'bg-indigo-100/70 ring-2 ring-indigo-400' : 'hover:bg-indigo-50/30'
-                        }`}
-                      >
-                        {sortEvents(allDayEvs).map(e => {
-                          const multiProps = getMultiDayStyle(e, dateStr);
-                          return (
-                            <div
-                              key={e.id}
-                              draggable={!e.isIcal}
-                              onDragStart={(eDrag) => handleDragStart(eDrag, e.id)}
-                              onClick={eClick => handleEventClick(eClick, e)}
-                              className={`text-[9px] sm:text-[10px] py-0.5 px-1 sm:px-1.5 border font-semibold cursor-pointer transition-all flex items-center h-5 sm:h-5.5 select-none truncate ${getEventStyle(e, true)} ${multiProps.containerClass}`}
-                              title={e.title}
-                            >
-                              <span className="truncate font-bold tracking-tight">
-                                {multiProps.showTitle ? (e.isIcal ? `[iCal] ${e.title}` : e.title) : '\u00A0'}
-                              </span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    );
-                  })}
-                </div>
+                      const allDayEvs = filteredEvents.filter(e => (e.isAllDay || getLocalDateStr(e.start) !== getLocalDateStr(e.end)) && isEventOccurringOnDate(e, dateStr));
+                      const slotKey = `week-allday-${idx}`;
+                      const isDragOver = dragOverKey === slotKey;
+                      const isSelectedRange = isDateInSelectionRange(dateStr);
 
-                {/* Hourly Grid */}
-                <div className="flex-1 overflow-y-auto">
-                  {hoursList.map(h => {
-                    const hourFormatted = `${String(h).padStart(2, '0')}:00`;
-                    return (
-                      <div key={h} className="grid grid-cols-[60px_repeat(7,1fr)] sm:grid-cols-8 border-b border-slate-100 min-h-[45px] sm:min-h-[50px]">
-                        <div className="py-2 px-1 sm:px-2 text-center text-[10px] sm:text-xs font-medium text-slate-400 border-r border-slate-200 bg-slate-50/95 sticky left-0 z-10 shadow-xs sm:shadow-none flex items-center justify-center">
-                          {hourFormatted}
+                      return (
+                        <div
+                          key={idx}
+                          onMouseDown={(e) => handleCellMouseDown(e, dateStr)}
+                          onMouseEnter={() => handleCellMouseEnter(dateStr)}
+                          onDragOver={(e) => handleDragOver(e, slotKey)}
+                          onDragLeave={handleDragLeave}
+                          onDrop={(e) => handleDrop(e, dateStr)}
+                          className={`p-1 border-r border-slate-200 min-h-[36px] sm:min-h-[40px] cursor-pointer space-y-1 transition-colors select-none ${
+                            isSelectedRange
+                              ? 'bg-indigo-100/90 ring-2 ring-indigo-500/70 z-10'
+                              : isDragOver
+                              ? 'bg-indigo-100/70 ring-2 ring-indigo-400'
+                              : isShrunk
+                              ? 'bg-slate-50/40 hover:bg-indigo-50/20'
+                              : 'hover:bg-indigo-50/30'
+                          }`}
+                        >
+                          {sortEvents(allDayEvs).map(e => {
+                            const multiProps = getMultiDayStyle(e, dateStr);
+                            return (
+                              <div
+                                key={e.id}
+                                draggable={!e.isIcal}
+                                onDragStart={(eDrag) => handleDragStart(eDrag, e.id)}
+                                onClick={eClick => handleEventClick(eClick, e)}
+                                className={`text-[9px] sm:text-[10px] py-0.5 px-1 sm:px-1.5 border font-semibold cursor-pointer transition-all flex items-center h-5 sm:h-5.5 select-none truncate ${getEventStyle(e, true)} ${multiProps.containerClass}`}
+                                title={e.title}
+                              >
+                                <span className="truncate font-bold tracking-tight">
+                                  {multiProps.showTitle ? (e.isIcal ? `[iCal] ${e.title}` : e.title) : '\u00A0'}
+                                </span>
+                              </div>
+                            );
+                          })}
                         </div>
-                        {weekDays.map((d, idx) => {
-                          const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-                          const slotDateTimeStr = `${dateStr}T${String(h).padStart(2, '0')}:00`;
-                          const slotKey = `week-slot-${idx}-${h}`;
-                          const isDragOver = dragOverKey === slotKey;
-                          
-                          const slotEvents = filteredEvents.filter(e => {
-                            if (e.isAllDay) return false;
-                            if (getLocalDateStr(e.start) !== dateStr) return false;
-                            const eventHour = new Date(e.start).getHours();
-                            return eventHour === h;
-                          });
+                      );
+                    })}
+                  </div>
 
-                          return (
-                            <div
-                              key={idx}
-                              onClick={() => openAddModalWithDate(slotDateTimeStr)}
-                              onDragOver={(e) => handleDragOver(e, slotKey)}
-                              onDragLeave={handleDragLeave}
-                              onDrop={(e) => handleDrop(e, dateStr, h)}
-                              className={`border-r border-slate-100 p-0.5 sm:p-1 cursor-pointer transition-colors relative group ${
-                                isDragOver ? 'bg-indigo-100/70 ring-2 ring-indigo-400' : 'hover:bg-indigo-50/30'
-                              }`}
-                            >
-                              {slotEvents.map(e => (
-                                <div
-                                  key={e.id}
-                                  draggable={!e.isIcal}
-                                  onDragStart={(eDrag) => handleDragStart(eDrag, e.id)}
-                                  onClick={eClick => handleEventClick(eClick, e)}
-                                  className={`text-[10px] sm:text-[11px] p-1 sm:p-1.5 rounded border font-medium mb-1 shadow-xs cursor-pointer transition-all ${getEventStyle(e)}`}
-                                  title={`${e.isIcal ? '[iCal] ' : ''}${e.title} (${formatEventTime(e)})`}
-                                >
-                                  <div className="font-bold truncate">{e.isIcal ? `[iCal] ${e.title}` : e.title}</div>
-                                  <div className="text-[8px] sm:text-[9px] opacity-80">{formatEventTime(e)}</div>
-                                </div>
-                              ))}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    );
-                  })}
+                  {/* Hourly Grid */}
+                  <div className="flex-1">
+                    {hoursList.map(h => {
+                      const hourFormatted = `${String(h).padStart(2, '0')}:00`;
+                      return (
+                        <div
+                          key={h}
+                          style={personalWeekGridStyle}
+                          className="border-b border-slate-100 min-h-[45px] sm:min-h-[50px]"
+                        >
+                          <div className="py-2 px-1 sm:px-2 text-center text-[10px] sm:text-xs font-medium text-slate-400 border-r border-slate-200 bg-slate-50/95 sticky left-0 z-10 shadow-xs sm:shadow-none flex items-center justify-center">
+                            {hourFormatted}
+                          </div>
+                          {weekDays.map((d, idx) => {
+                            const dateStr = getLocalDateStr(d);
+                            const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+                            const hasEv = personalWeekHasEvents[idx];
+                            const isShrunk = isWeekend && !hasEv;
+
+                            const slotDateTimeStr = `${dateStr}T${String(h).padStart(2, '0')}:00`;
+                            const slotKey = `week-slot-${idx}-${h}`;
+                            const isDragOver = dragOverKey === slotKey;
+                            
+                            const slotEvents = filteredEvents.filter(e => {
+                              if (e.isAllDay) return false;
+                              if (getLocalDateStr(e.start) !== dateStr) return false;
+                              const eventHour = new Date(e.start).getHours();
+                              return eventHour === h;
+                            });
+
+                            return (
+                              <div
+                                key={idx}
+                                onClick={() => openAddModalWithDate(slotDateTimeStr)}
+                                onDragOver={(e) => handleDragOver(e, slotKey)}
+                                onDragLeave={handleDragLeave}
+                                onDrop={(e) => handleDrop(e, dateStr, h)}
+                                className={`border-r border-slate-100 p-0.5 sm:p-1 cursor-pointer transition-colors relative group ${
+                                  isDragOver
+                                    ? 'bg-indigo-100/70 ring-2 ring-indigo-400'
+                                    : isShrunk
+                                    ? 'bg-slate-50/30 hover:bg-indigo-50/20'
+                                    : 'hover:bg-indigo-50/30'
+                                }`}
+                              >
+                                {slotEvents.map(e => (
+                                  <div
+                                    key={e.id}
+                                    draggable={!e.isIcal}
+                                    onDragStart={(eDrag) => handleDragStart(eDrag, e.id)}
+                                    onClick={eClick => handleEventClick(eClick, e)}
+                                    className={`text-[10px] sm:text-[11px] p-1 sm:p-1.5 rounded border font-medium mb-1 shadow-xs cursor-pointer transition-all ${getEventStyle(e)}`}
+                                    title={`${e.isIcal ? '[iCal] ' : ''}${e.title} (${formatEventTime(e)})`}
+                                  >
+                                    <div className="font-bold truncate">{e.isIcal ? `[iCal] ${e.title}` : e.title}</div>
+                                    <div className="text-[8px] sm:text-[9px] opacity-80">{formatEventTime(e)}</div>
+                                  </div>
+                                ))}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* 3. DAY VIEW */}
             {view === 'day' && (
@@ -1521,8 +1849,7 @@ export function Calendar({
                                 title="クリックで詳細"
                               >
                                 <div className="min-w-0">
-                                  <div className="font-bold text-xs sm:text-sm text-slate-900 truncate">{e.title}</div>
-                                  <div className="text-[11px] sm:text-xs font-medium text-slate-600 mt-0.5">{formatEventTime(e)} {e.location ? `• ${e.location}` : ''}</div>
+                                  <div className="font-extrabold text-sm sm:text-base text-slate-900 leading-snug">{e.title}</div>
                                   {e.memo && (
                                     <div className="text-[11px] sm:text-xs text-slate-700 mt-1 bg-white/50 p-1.5 rounded border border-slate-200/50">
                                       {renderWithClickableLinks(e.memo)}
@@ -1579,7 +1906,6 @@ export function Calendar({
                           </div>
                         )}
                         <div className="flex flex-wrap gap-2.5 sm:gap-4 text-xs text-slate-500 mt-2 font-medium items-center">
-                          {e.location && <div className="flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0"/> <span className="truncate">{e.location}</span></div>}
                           {e.attendees && e.attendees.length > 0 && (
                             <div className="flex items-center gap-1.5">
                               <Users className="w-3.5 h-3.5 text-slate-400 shrink-0" />
