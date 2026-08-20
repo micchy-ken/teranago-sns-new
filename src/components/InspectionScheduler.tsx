@@ -852,7 +852,7 @@ export function InspectionScheduler({
       const eventId = `evt_insp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
       const newEvent: CalendarEvent = {
         id: eventId,
-        title: `[${item.workName || '点検'}] ${item.siteName}`,
+        title: item.siteName,
         start: startIso,
         end: endIso,
         type: 'inspection',

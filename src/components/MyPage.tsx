@@ -1105,25 +1105,30 @@ export function MyPage({
     <div className="flex-1 overflow-y-auto bg-slate-50/50 rounded-xl border border-slate-200 h-[calc(100vh-8rem)] p-3 sm:p-6 space-y-4 sm:space-y-6">
 
 
-      {/* 5つの未読通知サマリーカード（スマホで左右2列にコンパクト配置） */}
+      {/* 5つの未読通知サマリーカード（クリックで各機能ページへ直接遷移） */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 sm:gap-3.5">
         {/* スケジュール */}
         <div
-          onClick={() => {
-            const el = document.getElementById('my-events-section');
-            if (el) el.scrollIntoView({ behavior: 'smooth' });
-          }}
-          className={`flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3.5 rounded-xl border shadow-xs transition-all cursor-pointer hover:shadow-md ${
+          onClick={() => onChangeTab?.('calendar')}
+          className={`flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3.5 rounded-xl border shadow-xs transition-all cursor-pointer hover:shadow-md hover:border-amber-400 group ${
             unreadEvents.length > 0
               ? 'bg-amber-50/70 border-amber-300 text-amber-950'
               : 'bg-white border-slate-200 text-slate-800'
           }`}
+          title="スケジュール画面へ移動"
         >
-          <div className="p-1.5 sm:p-2 bg-amber-100 text-amber-700 rounded-lg shrink-0">
+          <div
+            onClick={(e) => {
+              e.stopPropagation();
+              onChangeTab?.('calendar');
+            }}
+            className="p-1.5 sm:p-2 bg-amber-100 group-hover:bg-amber-200 text-amber-700 rounded-lg shrink-0 transition-transform group-hover:scale-105 active:scale-95 cursor-pointer shadow-2xs"
+            title="スケジュール画面を開く"
+          >
             <CalendarIcon className="w-4 h-4 sm:w-5 sm:h-5" />
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-[11px] sm:text-xs font-bold text-slate-600 truncate">スケジュール</div>
+            <div className="text-[11px] sm:text-xs font-bold text-slate-600 group-hover:text-amber-800 transition-colors truncate">スケジュール</div>
             <div className="mt-0.5 sm:mt-1">
               {unreadEvents.length > 0 ? (
                 <span className="inline-flex items-center px-2 py-0.5 bg-rose-500 text-white font-extrabold text-[10px] sm:text-[11px] rounded-full animate-pulse shadow-2xs">
@@ -1140,21 +1145,26 @@ export function MyPage({
 
         {/* 掲示板 */}
         <div
-          onClick={() => {
-            const el = document.getElementById('my-topics-section');
-            if (el) el.scrollIntoView({ behavior: 'smooth' });
-          }}
-          className={`flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3.5 rounded-xl border shadow-xs transition-all cursor-pointer hover:shadow-md ${
+          onClick={() => onChangeTab?.('board')}
+          className={`flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3.5 rounded-xl border shadow-xs transition-all cursor-pointer hover:shadow-md hover:border-indigo-400 group ${
             unreadTopics.length > 0
               ? 'bg-indigo-50/70 border-indigo-300 text-indigo-950'
               : 'bg-white border-slate-200 text-slate-800'
           }`}
+          title="掲示板画面へ移動"
         >
-          <div className="p-1.5 sm:p-2 bg-indigo-100 text-indigo-700 rounded-lg shrink-0">
+          <div
+            onClick={(e) => {
+              e.stopPropagation();
+              onChangeTab?.('board');
+            }}
+            className="p-1.5 sm:p-2 bg-indigo-100 group-hover:bg-indigo-200 text-indigo-700 rounded-lg shrink-0 transition-transform group-hover:scale-105 active:scale-95 cursor-pointer shadow-2xs"
+            title="掲示板画面を開く"
+          >
             <Monitor className="w-4 h-4 sm:w-5 sm:h-5" />
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-[11px] sm:text-xs font-bold text-slate-600 truncate">掲示板</div>
+            <div className="text-[11px] sm:text-xs font-bold text-slate-600 group-hover:text-indigo-800 transition-colors truncate">掲示板</div>
             <div className="mt-0.5 sm:mt-1">
               {unreadTopics.length > 0 ? (
                 <span className="inline-flex items-center px-2 py-0.5 bg-indigo-600 text-white font-extrabold text-[10px] sm:text-[11px] rounded-full shadow-2xs">
@@ -1171,21 +1181,26 @@ export function MyPage({
 
         {/* 伝言メモ */}
         <div
-          onClick={() => {
-            const el = document.getElementById('my-memos-section');
-            if (el) el.scrollIntoView({ behavior: 'smooth' });
-          }}
-          className={`flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3.5 rounded-xl border shadow-xs transition-all cursor-pointer hover:shadow-md ${
+          onClick={() => onChangeTab?.('memo')}
+          className={`flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3.5 rounded-xl border shadow-xs transition-all cursor-pointer hover:shadow-md hover:border-rose-400 group ${
             unreadMemos.length > 0
               ? 'bg-rose-50/70 border-rose-300 text-rose-950'
               : 'bg-white border-slate-200 text-slate-800'
           }`}
+          title="伝言メモ画面へ移動"
         >
-          <div className="p-1.5 sm:p-2 bg-rose-100 text-rose-700 rounded-lg shrink-0">
+          <div
+            onClick={(e) => {
+              e.stopPropagation();
+              onChangeTab?.('memo');
+            }}
+            className="p-1.5 sm:p-2 bg-rose-100 group-hover:bg-rose-200 text-rose-700 rounded-lg shrink-0 transition-transform group-hover:scale-105 active:scale-95 cursor-pointer shadow-2xs"
+            title="伝言メモ画面を開く"
+          >
             <Phone className="w-4 h-4 sm:w-5 sm:h-5" />
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-[11px] sm:text-xs font-bold text-slate-600 truncate">伝言メモ</div>
+            <div className="text-[11px] sm:text-xs font-bold text-slate-600 group-hover:text-rose-800 transition-colors truncate">伝言メモ</div>
             <div className="mt-0.5 sm:mt-1">
               {unreadMemos.length > 0 ? (
                 <span className="inline-flex items-center px-2 py-0.5 bg-rose-600 text-white font-extrabold text-[10px] sm:text-[11px] rounded-full shadow-2xs">
@@ -1202,21 +1217,26 @@ export function MyPage({
 
         {/* ワークフロー */}
         <div
-          onClick={() => {
-            const el = document.getElementById('my-workflow-section');
-            if (el) el.scrollIntoView({ behavior: 'smooth' });
-          }}
-          className={`flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3.5 rounded-xl border shadow-xs transition-all cursor-pointer hover:shadow-md ${
+          onClick={() => onChangeTab?.('workflow')}
+          className={`flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3.5 rounded-xl border shadow-xs transition-all cursor-pointer hover:shadow-md hover:border-purple-400 group ${
             pendingApprovals.length > 0
               ? 'bg-purple-50/70 border-purple-300 text-purple-950'
               : 'bg-white border-slate-200 text-slate-800'
           }`}
+          title="ワークフロー画面へ移動"
         >
-          <div className="p-1.5 sm:p-2 bg-purple-100 text-purple-700 rounded-lg shrink-0">
+          <div
+            onClick={(e) => {
+              e.stopPropagation();
+              onChangeTab?.('workflow');
+            }}
+            className="p-1.5 sm:p-2 bg-purple-100 group-hover:bg-purple-200 text-purple-700 rounded-lg shrink-0 transition-transform group-hover:scale-105 active:scale-95 cursor-pointer shadow-2xs"
+            title="ワークフロー画面を開く"
+          >
             <FileText className="w-4 h-4 sm:w-5 sm:h-5" />
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-[11px] sm:text-xs font-bold text-slate-600 truncate">ワークフロー</div>
+            <div className="text-[11px] sm:text-xs font-bold text-slate-600 group-hover:text-purple-800 transition-colors truncate">ワークフロー</div>
             <div className="mt-0.5 sm:mt-1">
               {pendingApprovals.length > 0 ? (
                 <span className="inline-flex items-center px-2 py-0.5 bg-purple-600 text-white font-extrabold text-[10px] sm:text-[11px] rounded-full shadow-2xs">
@@ -1233,21 +1253,26 @@ export function MyPage({
 
         {/* チャット */}
         <div
-          onClick={() => {
-            const el = document.getElementById('my-chats-section');
-            if (el) el.scrollIntoView({ behavior: 'smooth' });
-          }}
-          className={`col-span-2 sm:col-span-1 flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3.5 rounded-xl border shadow-xs transition-all cursor-pointer hover:shadow-md ${
+          onClick={() => onChangeTab?.('chat')}
+          className={`col-span-2 sm:col-span-1 flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3.5 rounded-xl border shadow-xs transition-all cursor-pointer hover:shadow-md hover:border-blue-400 group ${
             unreadChatRooms.length > 0
               ? 'bg-blue-50/70 border-blue-300 text-blue-950'
               : 'bg-white border-slate-200 text-slate-800'
           }`}
+          title="チャットルーム画面へ移動"
         >
-          <div className="p-1.5 sm:p-2 bg-blue-100 text-blue-700 rounded-lg shrink-0">
+          <div
+            onClick={(e) => {
+              e.stopPropagation();
+              onChangeTab?.('chat');
+            }}
+            className="p-1.5 sm:p-2 bg-blue-100 group-hover:bg-blue-200 text-blue-700 rounded-lg shrink-0 transition-transform group-hover:scale-105 active:scale-95 cursor-pointer shadow-2xs"
+            title="チャットルーム画面を開く"
+          >
             <MessageSquare className="w-4 h-4 sm:w-5 sm:h-5" />
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-[11px] sm:text-xs font-bold text-slate-600 truncate">チャットルーム</div>
+            <div className="text-[11px] sm:text-xs font-bold text-slate-600 group-hover:text-blue-800 transition-colors truncate">チャットルーム</div>
             <div className="mt-0.5 sm:mt-1">
               {unreadChatRooms.length > 0 ? (
                 <span className="inline-flex items-center px-2 py-0.5 bg-blue-600 text-white font-extrabold text-[10px] sm:text-[11px] rounded-full shadow-2xs">

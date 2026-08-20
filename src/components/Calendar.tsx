@@ -448,10 +448,10 @@ export function Calendar({
       return {
         isMultiHour: true,
         containerClass: currentHour === minHour
-          ? 'rounded-l-lg rounded-r-none border-r-0 relative z-20 font-medium shadow-xs -mr-1.5 pr-2.5 ml-0.5'
+          ? 'rounded-l-lg rounded-r-none border-r-0 relative z-20 font-medium -mr-2 pr-2.5 ml-0.5'
           : currentHour === maxHour
-          ? 'rounded-r-lg rounded-l-none border-l-0 relative z-20 font-medium shadow-xs -ml-1.5 pl-2.5 mr-0.5'
-          : 'rounded-none border-x-0 relative z-20 font-medium shadow-2xs -mx-1.5 px-1.5',
+          ? 'rounded-r-lg rounded-l-none border-l-0 relative z-20 font-medium -ml-2 pl-2.5 mr-0.5'
+          : 'rounded-none border-x-0 relative z-20 font-medium -mx-2 px-2',
         showTitle: currentHour === minHour,
         customStyle: undefined as React.CSSProperties | undefined,
       };
@@ -459,6 +459,7 @@ export function Calendar({
 
     const sDate = new Date(e.start);
     const startHourSlot = Math.max(minHour, sDate.getHours());
+    const startMin = sDate.getMinutes();
 
     const endD = e.end ? new Date(e.end) : sDate;
     const rawEndHour = endD.getHours();
@@ -471,11 +472,27 @@ export function Calendar({
     const endHourSlot = Math.min(maxHour, Math.max(startHourSlot, calculatedEndSlot));
 
     if (startHourSlot === endHourSlot) {
+      // 単一時間枠内 (例: 16:30〜17:00, 16:30〜16:45 など)
+      let customStyle: React.CSSProperties | undefined = undefined;
+      if (startMin > 0 && startMin < 60) {
+        const leftPercent = Math.max(10, Math.min(75, Math.round((startMin / 60) * 100)));
+        const endPercent = (endMin === 0 && rawEndHour > startHourSlot)
+          ? 100
+          : endMin > 0
+          ? Math.min(100, Math.round((endMin / 60) * 100))
+          : 100;
+        const widthPercent = Math.max(20, endPercent - leftPercent);
+        customStyle = {
+          marginLeft: `${leftPercent}%`,
+          width: `${widthPercent}%`,
+        };
+      }
+
       return {
         isMultiHour: false,
         containerClass: 'rounded-lg shadow-2xs font-medium',
         showTitle: true,
-        customStyle: undefined as React.CSSProperties | undefined,
+        customStyle,
       };
     }
 
@@ -483,30 +500,41 @@ export function Calendar({
     const isEndHour = currentHour === endHourSlot;
 
     if (isStartHour) {
+      // 開始時刻の「分」（例: 16:30 の場合は 30分 = 50%）に応じて開始位置を右へオフセット
+      let startStyle: React.CSSProperties | undefined = undefined;
+      if (startMin > 0 && startMin < 60) {
+        const leftPercent = Math.max(10, Math.min(75, Math.round((startMin / 60) * 100)));
+        const widthPercent = 100 - leftPercent;
+        startStyle = {
+          marginLeft: `${leftPercent}%`,
+          width: `calc(${widthPercent}% + 8px)`,
+        };
+      }
+
       return {
         isMultiHour: true,
-        containerClass: 'rounded-l-lg rounded-r-none border-r-0 relative z-20 font-medium shadow-xs -mr-1.5 pr-2.5 ml-0.5',
+        containerClass: 'rounded-l-lg rounded-r-none border-r-0 relative z-20 font-medium -mr-2 pr-2.5',
         showTitle: true,
-        customStyle: undefined as React.CSSProperties | undefined,
+        customStyle: startStyle,
       };
     } else if (isEndHour) {
       // 終了時刻の「分」（例: 11:30 の場合は 30分 = 50%）に応じて枠幅を調整
       let widthStyle: React.CSSProperties | undefined = undefined;
       if (endMin > 0 && endMin < 60) {
         const percent = Math.max(25, Math.min(95, Math.round((endMin / 60) * 100)));
-        widthStyle = { width: `calc(${percent}% + 6px)` };
+        widthStyle = { width: `calc(${percent}% + 8px)` };
       }
 
       return {
         isMultiHour: true,
-        containerClass: 'rounded-r-lg rounded-l-none border-l-0 relative z-20 font-medium shadow-xs -ml-1.5 pl-2.5 mr-auto',
+        containerClass: 'rounded-r-lg rounded-l-none border-l-0 relative z-20 font-medium -ml-2 pl-2.5 mr-auto',
         showTitle: false,
         customStyle: widthStyle,
       };
     } else {
       return {
         isMultiHour: true,
-        containerClass: 'rounded-none border-x-0 relative z-20 font-medium shadow-2xs -mx-1.5 px-1.5',
+        containerClass: 'rounded-none border-x-0 relative z-20 font-medium -mx-2 px-2',
         showTitle: false,
         customStyle: undefined as React.CSSProperties | undefined,
       };
@@ -1048,22 +1076,22 @@ export function Calendar({
                             onDragStart={(eDrag) => handleDragStart(eDrag, e.id, member.id)}
                             onClick={(evt) => handleEventClick(evt, e)}
                             style={multiHourProps.customStyle}
-                            className={`border transition-all hover:shadow-xs shadow-2xs select-none cursor-pointer ${getEventStyle(e)} ${multiHourProps.containerClass} ${
+                            className={`border transition-all select-none cursor-pointer ${getEventStyle(e)} ${multiHourProps.containerClass} ${
                               multiHourProps.isMultiHour
-                                ? 'p-2 flex flex-col justify-center min-h-[48px]'
-                                : 'p-2 rounded-md overflow-hidden min-h-[44px] flex flex-col justify-center'
+                                ? 'h-[48px] px-2 py-1 flex flex-col justify-center overflow-hidden'
+                                : 'min-h-[44px] p-2 rounded-md overflow-hidden flex flex-col justify-center shadow-2xs'
                             }`}
                             title={`${e.title} (${formatEventTime(e)})${e.location ? `\n場所: ${e.location}` : ''}${e.memo ? `\nメモ: ${e.memo}` : ''}`}
                           >
                             {multiHourProps.isMultiHour ? (
                               multiHourProps.showTitle ? (
-                                <div className="min-w-0 max-w-full">
-                                  <div className="font-medium text-xs sm:text-sm text-slate-800 leading-tight line-clamp-2">
+                                <div className="min-w-0 max-w-full overflow-hidden">
+                                  <div className="font-medium text-xs sm:text-sm text-slate-800 leading-snug line-clamp-2">
                                     {e.title}
                                   </div>
                                 </div>
                               ) : (
-                                <div className="min-h-[30px] flex items-center opacity-0 select-none">&nbsp;</div>
+                                <div className="h-full flex items-center opacity-0 select-none">&nbsp;</div>
                               )
                             ) : (
                               <div className="font-medium text-xs sm:text-sm text-slate-800 leading-tight line-clamp-2">
