@@ -48,6 +48,11 @@ export function Sidebar({ posts, selectedTag, onSelectTag, activeTab, onChangeTa
 
   const containerClassName = `relative ${className || "bg-white rounded-xl border border-slate-200 p-6 flex flex-col gap-8 shrink-0 shadow-sm ring-1 ring-slate-900/5 sticky top-24"}`;
 
+  const isMaintenanceUser = 
+    (currentUser?.department && currentUser.department.includes('保守')) || 
+    (currentUser?.division && currentUser.division.includes('保守'));
+  const reportLabel = isMaintenanceUser ? '保守日報' : '週報';
+
   return (
     <div className={containerClassName}>
       {onCollapse && (
@@ -161,7 +166,7 @@ export function Sidebar({ posts, selectedTag, onSelectTag, activeTab, onChangeTa
           }`}
         >
           <ClipboardList className="w-4 h-4" />
-          週報
+          {reportLabel}
         </button>
         <button
           onClick={() => onChangeTab('files')}

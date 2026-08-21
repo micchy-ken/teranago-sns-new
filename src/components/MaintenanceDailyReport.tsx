@@ -380,11 +380,19 @@ export function MaintenanceDailyReportView({
       return;
     }
 
-    // 選択日付に合致するカレンダーイベントの抽出
+    // 選択日付および自分が参加メンバー/作成者になっているカレンダーイベントの抽出
     const targetDateStr = reportDate.split('T')[0];
     const dayEvents = calendarEvents.filter(ev => {
       const evStart = ev.start ? ev.start.split('T')[0] : '';
-      return evStart === targetDateStr;
+      if (evStart !== targetDateStr) return false;
+
+      // 自分が参加メンバー(attendees)または作成者(createdBy)に含まれているかチェック
+      const isAttendee = ev.attendees && ev.attendees.some(a => 
+        a.id === currentUser.id || (a.name && currentUser.name && a.name.trim() === currentUser.name.trim())
+      );
+      const isCreator = ev.createdById === currentUser.id || ev.createdBy?.id === currentUser.id || ev.createdBy?.name === currentUser.name;
+
+      return isAttendee || isCreator;
     });
 
     if (dayEvents.length === 0) {
