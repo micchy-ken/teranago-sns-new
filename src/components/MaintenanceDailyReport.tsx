@@ -31,6 +31,47 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { getAvatarUrl } from '../utils/avatar';
+import { getLocalDateStr } from '../utils/dateUtils';
+import { expandRecurringEvents } from '../utils/recurrenceUtils';
+
+// JST (日本標準時) 基準で YYYY-MM-DD を判定
+function getEventDateStrJST(dateInput: string | Date | undefined): string {
+  if (!dateInput) return '';
+  if (typeof dateInput === 'string') {
+    if (dateInput.includes('T') && !dateInput.includes('Z') && !dateInput.includes('+')) {
+      return dateInput.split('T')[0];
+    }
+  }
+  return getLocalDateStr(dateInput);
+}
+
+// JST (日本標準時) 基準で HH:mm を判定
+function getEventTimeStrJST(dateInput: string | Date | undefined): string {
+  if (!dateInput) return '09:00';
+  if (typeof dateInput === 'string') {
+    if (dateInput.includes('T') && !dateInput.includes('Z') && !dateInput.includes('+')) {
+      return dateInput.split('T')[1].substring(0, 5);
+    }
+  }
+  const d = typeof dateInput === 'string' ? new Date(dateInput) : dateInput;
+  if (!d || isNaN(d.getTime())) {
+    if (typeof dateInput === 'string' && dateInput.includes('T')) {
+      return dateInput.split('T')[1].substring(0, 5);
+    }
+    return '09:00';
+  }
+  const formatter = new Intl.DateTimeFormat('ja-JP', {
+    timeZone: 'Asia/Tokyo',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+  const parts = formatter.formatToParts(d);
+  let hour = parts.find(p => p.type === 'hour')?.value || '00';
+  let minute = parts.find(p => p.type === 'minute')?.value || '00';
+  if (hour === '24') hour = '00';
+  return `${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`;
+}
 
 interface MaintenanceDailyReportProps {
   report?: DailyReport | null;
@@ -380,11 +421,22 @@ export function MaintenanceDailyReportView({
       return;
     }
 
-    // 選択日付および自分が参加メンバー/作成者になっているカレンダーイベントの抽出
     const targetDateStr = reportDate.split('T')[0];
-    const dayEvents = calendarEvents.filter(ev => {
-      const evStart = ev.start ? ev.start.split('T')[0] : '';
-      if (evStart !== targetDateStr) return false;
+    const [y, m, d] = targetDateStr.split('-').map(Number);
+    const viewStart = new Date(y, m - 1, d, 0, 0, 0);
+    const viewEnd = new Date(y, m - 1, d, 23, 59, 59);
+
+    // 対象日付範囲で繰り返しイベント（定期点検・毎朝業務等）を展開
+    const expanded = expandRecurringEvents(
+      calendarEvents,
+      viewStart,
+      viewEnd
+    );
+
+    // 選択日付および自分が参加メンバー/作成者になっているカレンダーイベントの抽出 (JST基準)
+    const dayEvents = expanded.filter(ev => {
+      const evStartLocalDate = getEventDateStrJST(ev.start);
+      if (evStartLocalDate !== targetDateStr) return false;
 
       // 自分が参加メンバー(attendees)または作成者(createdBy)に含まれているかチェック
       const isAttendee = ev.attendees && ev.attendees.some(a => 
@@ -514,11 +566,11 @@ export function MaintenanceDailyReportView({
       return;
     }
 
-    // イベントからの自動セット
+    // イベントからの自動セット (JST基準で正確な開始・終了時刻と作業時間を抽出)
     const newRows = createEmptyMainRows();
     dayEvents.slice(0, 10).forEach((ev, idx) => {
-      const startT = ev.start && ev.start.includes('T') ? ev.start.split('T')[1].substring(0, 5) : '09:00';
-      const endT = ev.end && ev.end.includes('T') ? ev.end.split('T')[1].substring(0, 5) : '10:00';
+      const startT = getEventTimeStrJST(ev.start);
+      const endT = getEventTimeStrJST(ev.end);
       
       // 内容の推定
       let contentType = '修理';
@@ -541,6 +593,22 @@ export function MaintenanceDailyReportView({
         oncallValue = 115;
       }
 
+      // 自分以外の参加メンバー抽出
+      const otherAttendees = (ev.attendees || []).filter(a => {
+        if (!a) return false;
+        if (a.id && currentUser.id && a.id === currentUser.id) return false;
+        if (a.name && currentUser.name && a.name.trim() === currentUser.name.trim()) return false;
+        return true;
+      });
+
+      // 人数算出（attendeesが存在すればその件数、なければ1人）
+      const totalPeople = (ev.attendees && ev.attendees.length > 0) ? ev.attendees.length : 1;
+
+      // 1人（本人だけ）の場合は同行者不要（空文字）。2人以上の場合は自分以外のメンバーを表示
+      const coworkersStr = (totalPeople >= 2 && otherAttendees.length > 0)
+        ? otherAttendees.map(a => a.name).filter(Boolean).join(', ')
+        : '';
+
       newRows[idx] = {
         id: `row-${idx + 1}`,
         directGo: idx === 0,
@@ -548,8 +616,8 @@ export function MaintenanceDailyReportView({
         siteName: ev.title || '現場名未設定',
         workDescription: ev.memo || ev.type || '保守作業',
         district: ev.location || ev.office || '本社地区',
-        peopleCount: (ev.attendees && ev.attendees.length) || 1,
-        coworkers: (ev.attendees || []).map(a => a.name).join(', '),
+        peopleCount: totalPeople,
+        coworkers: coworkersStr,
         startTime: startT,
         endTime: endT,
         contentType,
