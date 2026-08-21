@@ -16,6 +16,17 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   return outputArray;
 }
 
+function arrayBuffersEqual(a: ArrayBuffer | null, b: ArrayBuffer | null): boolean {
+  if (!a || !b) return false;
+  if (a.byteLength !== b.byteLength) return false;
+  const viewA = new Uint8Array(a);
+  const viewB = new Uint8Array(b);
+  for (let i = 0; i < viewA.length; i++) {
+    if (viewA[i] !== viewB[i]) return false;
+  }
+  return true;
+}
+
 function withTimeout<T>(promise: Promise<T>, ms: number, errorMessage: string): Promise<T> {
   let timer: any;
   const timeoutPromise = new Promise<never>((_, reject) => {
@@ -261,11 +272,21 @@ export async function subscribeToPushNotifications(
       throw new Error('Service Worker (/sw.js) の起動準備に失敗しました。ページを再読み込みしてお試しください。');
     }
 
-    // 既存の購読があれば再取得、なければ新規作成
+    // 既存の購読があれば再取得（キー不一致があれば再登録）、なければ新規作成
     onProgress?.('📍 [5/5] 暗号化キーの生成と通知エンドポイント登録中...');
+    const convertedVapidKey = urlBase64ToUint8Array(publicKey);
     let subscription = await registration.pushManager.getSubscription().catch(() => null);
+
+    if (subscription) {
+      const existingAppKey = subscription.options?.applicationServerKey;
+      if (existingAppKey && !arrayBuffersEqual(existingAppKey, convertedVapidKey.buffer)) {
+        console.log('[Push] Unsubscribing outdated subscription with mismatched VAPID key...');
+        await subscription.unsubscribe().catch(() => null);
+        subscription = null;
+      }
+    }
+
     if (!subscription) {
-      const convertedVapidKey = urlBase64ToUint8Array(publicKey);
       subscription = await withTimeout(
         registration.pushManager.subscribe({
           userVisibleOnly: true,
