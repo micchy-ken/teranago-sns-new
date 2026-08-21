@@ -3080,6 +3080,8 @@ export default function App() {
             autoOpenSettings={autoOpenSettings}
             onCloseSettings={() => setAutoOpenSettings(false)}
             onAddEvent={handleAddEvent}
+            onUpdateEvent={handleUpdateEvent}
+            onDeleteEvent={handleDeleteEvent}
             onAddTopic={handleAddTopic}
             onAddApplication={handleAddApplication}
             approvalFlows={approvalFlows}

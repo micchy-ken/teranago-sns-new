@@ -81,6 +81,7 @@ import {
 } from 'lucide-react';
 import { TopicDetailModal } from './TopicDetailModal';
 import { EventModal } from './EventModal';
+import { GlobalEventDetailModal } from './GlobalEventDetailModal';
 import { TopicCreateModal } from './TopicCreateModal';
 import { ApplicationModal } from './ApplicationModal';
 import { MemoCreateModal } from './MemoCreateModal';
@@ -112,6 +113,8 @@ interface MyPageProps {
   onUpdateTopic?: (updatedTopic: BoardTopic) => void;
   onUpdateApplication?: (updatedApp: WorkflowApplication) => void;
   onAddEvent?: (eventData: Omit<CalendarEvent, 'id'>) => Promise<void> | void;
+  onUpdateEvent?: (event: CalendarEvent) => Promise<void> | void;
+  onDeleteEvent?: (eventId: string) => Promise<void> | void;
   onAddTopic?: (topicData: Omit<BoardTopic, 'id' | 'createdAt' | 'views' | 'commentsCount'>) => Promise<void> | void;
   onAddApplication?: (application: Omit<WorkflowApplication, 'id' | 'createdAt' | 'status'> & { status?: ApplicationStatus }) => Promise<void> | void;
   approvalFlows?: ApprovalFlowRule[];
@@ -139,6 +142,8 @@ export function MyPage({
   onUpdateTopic,
   onUpdateApplication,
   onAddEvent,
+  onUpdateEvent,
+  onDeleteEvent,
   onAddTopic,
   onAddApplication,
   approvalFlows = [],
@@ -168,6 +173,8 @@ export function MyPage({
   // モーダル管理
   const [selectedTopic, setSelectedTopic] = useState<BoardTopic | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
+  const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
+  const [isCopyMode, setIsCopyMode] = useState<boolean>(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isEventModalOpen, setIsEventModalOpen] = useState(false);
   const [isCreateTopicModalOpen, setIsCreateTopicModalOpen] = useState(false);
@@ -1312,56 +1319,38 @@ export function MyPage({
 
       {/* スケジュール詳細モーダル */}
       {selectedEvent && (
-        <div
-          onClick={() => setSelectedEvent(null)}
-          className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-50 p-4 backdrop-blur-xs"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden p-6 space-y-4"
-          >
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <span className="text-xs font-bold text-amber-700 bg-amber-50 px-2.5 py-1 rounded-md border border-amber-200">
-                スケジュール詳細
-              </span>
-              <button
-                onClick={() => setSelectedEvent(null)}
-                className="p-1 text-slate-400 hover:bg-slate-100 rounded-full transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div>
-              <h3 className="text-lg font-bold text-slate-900">{selectedEvent.title}</h3>
-              <p className="text-xs text-slate-500 mt-1">
-                {new Date(selectedEvent.start).toLocaleString('ja-JP')}
-              </p>
-            </div>
-
-            {selectedEvent.location && (
-              <div className="text-xs text-slate-700 flex items-center gap-2 bg-slate-50 p-3 rounded-xl border border-slate-100">
-                <MapPin className="w-4 h-4 text-indigo-500 shrink-0" />
-                <span>場所: {selectedEvent.location}</span>
-              </div>
-            )}
-
-            {selectedEvent.memo && (
-              <div className="text-xs text-slate-600 bg-slate-50 p-3 rounded-xl border border-slate-100 leading-relaxed whitespace-pre-wrap">
-                {selectedEvent.memo}
-              </div>
-            )}
-
-            <div className="flex justify-end pt-2">
-              <button
-                onClick={() => setSelectedEvent(null)}
-                className="px-4 py-2 bg-slate-800 text-white text-xs font-bold rounded-xl hover:bg-slate-900 transition-colors"
-              >
-                閉じる
-              </button>
-            </div>
-          </div>
-        </div>
+        <GlobalEventDetailModal
+          isOpen={!!selectedEvent}
+          event={selectedEvent}
+          onClose={() => setSelectedEvent(null)}
+          onEdit={(evt) => {
+            setSelectedEvent(null);
+            setEditingEvent(evt);
+            setIsCopyMode(false);
+            setIsEventModalOpen(true);
+          }}
+          onCopyAndAdd={(evt) => {
+            setSelectedEvent(null);
+            setEditingEvent(evt);
+            setIsCopyMode(true);
+            setIsEventModalOpen(true);
+          }}
+          onDelete={(evt) => {
+            if (onDeleteEvent) {
+              onDeleteEvent(evt.id);
+            }
+            setSelectedEvent(null);
+          }}
+          onEditInCalendar={(eventId) => {
+            setSelectedEvent(null);
+            if (onNavigateToContent) {
+              onNavigateToContent({ tab: 'calendar', eventId });
+            } else {
+              onChangeTab('calendar');
+            }
+          }}
+          currentUser={user}
+        />
       )}
 
       {/* 掲示板トピック詳細モーダル */}
@@ -1378,16 +1367,29 @@ export function MyPage({
         />
       )}
 
-      {/* スケジュール新規作成モーダル */}
+      {/* スケジュール新規作成・編集モーダル */}
       <EventModal
         isOpen={isEventModalOpen}
-        onClose={() => setIsEventModalOpen(false)}
+        onClose={() => {
+          setIsEventModalOpen(false);
+          setEditingEvent(null);
+          setIsCopyMode(false);
+        }}
         onSave={async (eventData) => {
-          if (onAddEvent) {
-            await onAddEvent(eventData);
+          if ('id' in eventData && eventData.id) {
+            if (onUpdateEvent) {
+              await onUpdateEvent(eventData as CalendarEvent);
+            }
+          } else if (onAddEvent) {
+            await onAddEvent(eventData as Omit<CalendarEvent, 'id'>);
           }
           setIsEventModalOpen(false);
+          setEditingEvent(null);
+          setIsCopyMode(false);
         }}
+        onDelete={onDeleteEvent}
+        editingEvent={editingEvent}
+        isCopyMode={isCopyMode}
         offices={offices}
         divisions={divisions}
         allUsers={allUsers}

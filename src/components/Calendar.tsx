@@ -3,6 +3,7 @@ import { CalendarEvent, EventType, User, OfficeMaster, DivisionMaster, Memo, Req
 import { getAvatarUrl } from '../utils/avatar';
 import { ChevronLeft, ChevronRight, List as ListIcon, Calendar as CalendarIcon, Plus, MapPin, Video, AlignLeft, RefreshCw, Clock, Link as LinkIcon, Loader2, Building2, Users, Paperclip, MessageSquare, Phone, X, Monitor, Maximize2, Minimize2, FileSpreadsheet } from 'lucide-react';
 import { EventModal } from './EventModal';
+import { GlobalEventDetailModal } from './GlobalEventDetailModal';
 import { renderWithClickableLinks } from '../utils/linkify';
 import { renderContentWithLinks } from '../utils/renderContentWithLinks';
 import { UrlPastePopup, useUrlPasteHandler } from './common/UrlPastePopup';
@@ -170,6 +171,8 @@ export function Calendar({
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
+  const [selectedDetailEvent, setSelectedDetailEvent] = useState<CalendarEvent | null>(null);
+  const [isCopyMode, setIsCopyMode] = useState<boolean>(false);
   const [selectedInitialDate, setSelectedInitialDate] = useState<string | undefined>(undefined);
   const [selectedEndDate, setSelectedEndDate] = useState<string | undefined>(undefined);
   const [selectedIsAllDay, setSelectedIsAllDay] = useState<boolean | undefined>(undefined);
@@ -349,8 +352,7 @@ export function Calendar({
       }
       if (targetEv) {
         processedInitialEventIdRef.current = initialEventId;
-        setEditingEvent(targetEv);
-        setIsModalOpen(true);
+        setSelectedDetailEvent(targetEv);
         if (targetEv.start) {
           setCurrentDate(new Date(targetEv.start));
         }
@@ -576,6 +578,7 @@ export function Calendar({
 
   const handleCellMouseDown = (e: React.MouseEvent, dateStr: string, attendees?: User[]) => {
     if (e.button !== 0) return;
+    if ((e.target as HTMLElement).closest('[data-event-card="true"]')) return;
     setIsSelectingRange(true);
     setSelectionStart(dateStr);
     setSelectionEnd(dateStr);
@@ -613,9 +616,8 @@ export function Calendar({
 
   const handleEventClick = (e: React.MouseEvent, event: CalendarEvent) => {
     e.stopPropagation();
-    setEditingEvent(event);
-    setSelectedInitialDate(undefined);
-    setIsModalOpen(true);
+    e.preventDefault();
+    setSelectedDetailEvent(event);
   };
 
   const handleSaveEvent = (
@@ -876,8 +878,10 @@ export function Calendar({
                         return (
                           <div
                             key={e.id}
+                            data-event-card="true"
                             draggable
                             onDragStart={(eDrag) => handleDragStart(eDrag, e.id, member.id)}
+                            onMouseDown={(evt) => evt.stopPropagation()}
                             onClick={(evt) => handleEventClick(evt, e)}
                             className={`border text-[9px] sm:text-[10px] font-bold leading-snug transition-all hover:shadow-xs shadow-2xs truncate select-none ${getEventStyle(e)} ${multiProps.containerClass} ${
                               multiProps.isMultiDay ? 'py-0.5 px-1 sm:px-1.5 flex items-center h-5 sm:h-5.5' : 'p-1 sm:p-1.5'
@@ -1199,8 +1203,10 @@ export function Calendar({
                       return (
                         <div
                           key={e.id}
+                          data-event-card="true"
                           draggable={!e.isIcal && !isBeingResized}
                           onDragStart={(eDrag) => handleDragStart(eDrag, e.id, member.id)}
+                          onMouseDown={(evt) => evt.stopPropagation()}
                           onClick={(evt) => handleEventClick(evt, e)}
                           style={{
                             left: `${leftPx + 2}px`,
@@ -1695,8 +1701,10 @@ export function Calendar({
                                 return (
                                   <div
                                     key={e.id}
+                                    data-event-card="true"
                                     draggable={!e.isIcal}
                                     onDragStart={(eDrag) => handleDragStart(eDrag, e.id)}
+                                    onMouseDown={(eClick) => eClick.stopPropagation()}
                                     onClick={(eClick) => handleEventClick(eClick, e)}
                                     className={`text-[9px] sm:text-[10px] py-0.5 px-1 sm:px-1.5 border font-bold cursor-pointer transition-all flex items-center h-5 sm:h-5.5 select-none truncate ${getEventStyle(e)} ${multiProps.containerClass}`}
                                     title={`${e.isIcal ? '[iCal連携] ' : ''}${e.title} (${formatEventTime(e)})`}
@@ -1823,8 +1831,10 @@ export function Calendar({
                             return (
                               <div
                                 key={e.id}
+                                data-event-card="true"
                                 draggable={!e.isIcal}
                                 onDragStart={(eDrag) => handleDragStart(eDrag, e.id)}
+                                onMouseDown={(eClick) => eClick.stopPropagation()}
                                 onClick={eClick => handleEventClick(eClick, e)}
                                 className={`text-[9px] sm:text-[10px] py-0.5 px-1 sm:px-1.5 border font-semibold cursor-pointer transition-all flex items-center h-5 sm:h-5.5 select-none truncate ${getEventStyle(e, true)} ${multiProps.containerClass}`}
                                 title={e.title}
@@ -1901,8 +1911,10 @@ export function Calendar({
                                   return (
                                     <div
                                       key={e.id}
+                                      data-event-card="true"
                                       draggable={!e.isIcal && !isBeingResized}
                                       onDragStart={(eDrag) => handleDragStart(eDrag, e.id)}
+                                      onMouseDown={(eClick) => eClick.stopPropagation()}
                                       onClick={eClick => handleEventClick(eClick, e)}
                                       className={`group/wkcard text-[10px] sm:text-[11px] p-1 sm:p-1.5 pb-2 rounded border font-medium mb-1 shadow-xs cursor-pointer transition-all relative ${getEventStyle(e)} ${
                                         isBeingResized ? 'ring-2 ring-indigo-500 shadow-md brightness-95' : ''
@@ -1995,8 +2007,10 @@ export function Calendar({
                           return (
                             <div
                               key={e.id}
+                              data-event-card="true"
                               draggable={!e.isIcal}
                               onDragStart={(eDrag) => handleDragStart(eDrag, e.id)}
+                              onMouseDown={(eClick) => eClick.stopPropagation()}
                               onClick={eClick => handleEventClick(eClick, e)}
                               className={`p-2.5 sm:p-3 rounded-lg border font-semibold cursor-pointer transition-all ${getEventStyle(e, true)}`}
                               title="クリックで詳細"
@@ -2063,8 +2077,10 @@ export function Calendar({
                               return (
                                 <div
                                   key={e.id}
+                                  data-event-card="true"
                                   draggable={!e.isIcal && !isBeingResized}
                                   onDragStart={(eDrag) => handleDragStart(eDrag, e.id)}
+                                  onMouseDown={(eClick) => eClick.stopPropagation()}
                                   onClick={eClick => handleEventClick(eClick, e)}
                                   className={`group/daycard p-2.5 sm:p-3 pb-3.5 rounded-lg border flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-2 shadow-xs cursor-pointer transition-all relative ${getEventStyle(e)} ${
                                     isBeingResized ? 'ring-2 ring-indigo-500 shadow-md brightness-95' : ''
@@ -2131,6 +2147,8 @@ export function Calendar({
                   filteredEvents.sort((a,b) => new Date(a.start).getTime() - new Date(b.start).getTime()).map(e => (
                     <div
                       key={e.id}
+                      data-event-card="true"
+                      onMouseDown={(eClick) => eClick.stopPropagation()}
                       onClick={(eClick) => handleEventClick(eClick, e)}
                       className="flex flex-col sm:flex-row gap-3 sm:gap-5 p-3.5 sm:p-5 rounded-xl border border-slate-200 hover:border-indigo-300 transition-all bg-white shadow-xs cursor-pointer hover:shadow-md"
                     >
@@ -2190,12 +2208,40 @@ export function Calendar({
         )}
       </div>
 
+      {selectedDetailEvent && (
+        <GlobalEventDetailModal
+          isOpen={!!selectedDetailEvent}
+          event={selectedDetailEvent}
+          onClose={() => setSelectedDetailEvent(null)}
+          onEdit={(event) => {
+            setSelectedDetailEvent(null);
+            setEditingEvent(event);
+            setIsCopyMode(false);
+            setIsModalOpen(true);
+          }}
+          onCopyAndAdd={(event) => {
+            setSelectedDetailEvent(null);
+            setEditingEvent(event);
+            setIsCopyMode(true);
+            setIsModalOpen(true);
+          }}
+          onDelete={(event) => {
+            if (onDeleteEvent) {
+              onDeleteEvent(event.id);
+            }
+            setSelectedDetailEvent(null);
+          }}
+          currentUser={currentUser}
+        />
+      )}
+
       <EventModal
         isOpen={isModalOpen}
-        onClose={() => { setIsModalOpen(false); setEditingEvent(null); }}
+        onClose={() => { setIsModalOpen(false); setEditingEvent(null); setIsCopyMode(false); }}
         onSave={handleSaveEvent}
         onDelete={onDeleteEvent}
         editingEvent={editingEvent}
+        isCopyMode={isCopyMode}
         defaultInitialDate={selectedInitialDate}
         defaultEndDate={selectedEndDate}
         defaultIsAllDay={selectedIsAllDay}

@@ -23,6 +23,7 @@ export interface EventModalProps {
     instanceDate?: string
   ) => void;
   editingEvent?: CalendarEvent | null;
+  isCopyMode?: boolean;
   defaultInitialDate?: string; // YYYY-MM-DD or YYYY-MM-DDTHH:mm
   defaultEndDate?: string;     // YYYY-MM-DD or YYYY-MM-DDTHH:mm
   defaultIsAllDay?: boolean;
@@ -136,6 +137,7 @@ export function EventModal({
   onSave,
   onDelete,
   editingEvent,
+  isCopyMode,
   defaultInitialDate,
   defaultEndDate,
   defaultIsAllDay,
@@ -190,13 +192,13 @@ export function EventModal({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [currentEditingEvent, setCurrentEditingEvent] = useState<CalendarEvent | null>(editingEvent || null);
+  const [currentEditingEvent, setCurrentEditingEvent] = useState<CalendarEvent | null>(isCopyMode ? null : (editingEvent || null));
   const isIcal = currentEditingEvent ? currentEditingEvent.isIcal === true : false;
   const isCurrentlyRecurring = isRecurringEvent(editingEvent);
 
   useEffect(() => {
-    setCurrentEditingEvent(editingEvent || null);
-  }, [editingEvent]);
+    setCurrentEditingEvent(isCopyMode ? null : (editingEvent || null));
+  }, [editingEvent, isCopyMode]);
 
   // 開始日時が変更されたときに、曜日の初期値を自動追従
   useEffect(() => {
@@ -237,7 +239,15 @@ export function EventModal({
       setError(null);
       setIsUploading(false);
       if (editingEvent) {
-        setTitle(editingEvent.title);
+        if (isCopyMode) {
+          const copyTitle = editingEvent.title.includes('(コピー)') ? editingEvent.title : `${editingEvent.title} (コピー)`;
+          setTitle(copyTitle);
+          setCurrentEditingEvent(null);
+          setError('内容を複製しました。日時やタイトルなどを確認し「保存する」を押してください。');
+        } else {
+          setTitle(editingEvent.title);
+          setCurrentEditingEvent(editingEvent);
+        }
         setType(editingEvent.type);
         setOffice(editingEvent.office || '全社');
         setDivision(editingEvent.division || '全部署');
