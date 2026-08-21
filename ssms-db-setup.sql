@@ -532,46 +532,92 @@ GO
 IF OBJECT_ID('dbo.WorkReports', 'U') IS NULL
 BEGIN
     CREATE TABLE dbo.WorkReports (
-        id VARCHAR(50) PRIMARY KEY,
-        authorId VARCHAR(50) NOT NULL,
-        reportType VARCHAR(20) DEFAULT 'weekly', -- 'daily' | 'weekly'
-        reportDate DATE NULL,
-        weekStartDate DATE NULL,
-        weekLabel NVARCHAR(100) NULL,
-        department NVARCHAR(100) NULL,
+        id NVARCHAR(100) PRIMARY KEY,
+        author_id NVARCHAR(100) NOT NULL,
+        supervisor_id NVARCHAR(100) NULL,
+        week_start_date DATE NULL,
+        week_label NVARCHAR(100) NULL,
         tasks NVARCHAR(MAX) NULL,
-        results NVARCHAR(MAX) NULL,
+        achievements NVARCHAR(MAX) NULL,
         issues NVARCHAR(MAX) NULL,
-        ongoingProjects NVARCHAR(MAX) NULL,
-        tomorrowPlan NVARCHAR(MAX) NULL,
-        supervisorId VARCHAR(50) NULL,
-        status VARCHAR(20) DEFAULT 'submitted', -- 'draft' | 'submitted' | 'reviewed'
-        feedbackComment NVARCHAR(MAX) NULL,
-        submittedAt DATETIME NULL,
-        reviewedAt DATETIME NULL,
-        createdAt DATETIME DEFAULT GETDATE(),
-        updatedAt DATETIME DEFAULT GETDATE()
+        continued_items NVARCHAR(MAX) NULL,
+        next_week_plans NVARCHAR(MAX) NULL,
+        status NVARCHAR(50) DEFAULT N'submitted', -- 'draft' | 'submitted' | 'reviewed'
+        review_feedback NVARCHAR(MAX) NULL,
+        reviewed_at DATETIMEOFFSET NULL,
+        createdAt DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET(),
+        updated_at DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET()
     );
 END
 ELSE
 BEGIN
-    IF COL_LENGTH('dbo.WorkReports', 'reportType') IS NULL ALTER TABLE dbo.WorkReports ADD reportType VARCHAR(20) DEFAULT 'weekly';
-    IF COL_LENGTH('dbo.WorkReports', 'reportDate') IS NULL ALTER TABLE dbo.WorkReports ADD reportDate DATE NULL;
-    IF COL_LENGTH('dbo.WorkReports', 'weekStartDate') IS NULL ALTER TABLE dbo.WorkReports ADD weekStartDate DATE NULL;
-    IF COL_LENGTH('dbo.WorkReports', 'weekLabel') IS NULL ALTER TABLE dbo.WorkReports ADD weekLabel NVARCHAR(100) NULL;
-    IF COL_LENGTH('dbo.WorkReports', 'department') IS NULL ALTER TABLE dbo.WorkReports ADD department NVARCHAR(100) NULL;
+    -- ユーザー指定の新カラム定義を追加
+    IF COL_LENGTH('dbo.WorkReports', 'author_id') IS NULL ALTER TABLE dbo.WorkReports ADD author_id NVARCHAR(100) NULL;
+    IF COL_LENGTH('dbo.WorkReports', 'supervisor_id') IS NULL ALTER TABLE dbo.WorkReports ADD supervisor_id NVARCHAR(100) NULL;
+    IF COL_LENGTH('dbo.WorkReports', 'week_start_date') IS NULL ALTER TABLE dbo.WorkReports ADD week_start_date DATE NULL;
+    IF COL_LENGTH('dbo.WorkReports', 'week_label') IS NULL ALTER TABLE dbo.WorkReports ADD week_label NVARCHAR(100) NULL;
     IF COL_LENGTH('dbo.WorkReports', 'tasks') IS NULL ALTER TABLE dbo.WorkReports ADD tasks NVARCHAR(MAX) NULL;
-    IF COL_LENGTH('dbo.WorkReports', 'results') IS NULL ALTER TABLE dbo.WorkReports ADD results NVARCHAR(MAX) NULL;
+    IF COL_LENGTH('dbo.WorkReports', 'achievements') IS NULL ALTER TABLE dbo.WorkReports ADD achievements NVARCHAR(MAX) NULL;
     IF COL_LENGTH('dbo.WorkReports', 'issues') IS NULL ALTER TABLE dbo.WorkReports ADD issues NVARCHAR(MAX) NULL;
-    IF COL_LENGTH('dbo.WorkReports', 'ongoingProjects') IS NULL ALTER TABLE dbo.WorkReports ADD ongoingProjects NVARCHAR(MAX) NULL;
-    IF COL_LENGTH('dbo.WorkReports', 'tomorrowPlan') IS NULL ALTER TABLE dbo.WorkReports ADD tomorrowPlan NVARCHAR(MAX) NULL;
-    IF COL_LENGTH('dbo.WorkReports', 'supervisorId') IS NULL ALTER TABLE dbo.WorkReports ADD supervisorId VARCHAR(50) NULL;
-    IF COL_LENGTH('dbo.WorkReports', 'status') IS NULL ALTER TABLE dbo.WorkReports ADD status VARCHAR(20) DEFAULT 'submitted';
-    IF COL_LENGTH('dbo.WorkReports', 'feedbackComment') IS NULL ALTER TABLE dbo.WorkReports ADD feedbackComment NVARCHAR(MAX) NULL;
-    IF COL_LENGTH('dbo.WorkReports', 'submittedAt') IS NULL ALTER TABLE dbo.WorkReports ADD submittedAt DATETIME NULL;
-    IF COL_LENGTH('dbo.WorkReports', 'reviewedAt') IS NULL ALTER TABLE dbo.WorkReports ADD reviewedAt DATETIME NULL;
-    IF COL_LENGTH('dbo.WorkReports', 'createdAt') IS NULL ALTER TABLE dbo.WorkReports ADD createdAt DATETIME DEFAULT GETDATE();
-    IF COL_LENGTH('dbo.WorkReports', 'updatedAt') IS NULL ALTER TABLE dbo.WorkReports ADD updatedAt DATETIME DEFAULT GETDATE();
+    IF COL_LENGTH('dbo.WorkReports', 'continued_items') IS NULL ALTER TABLE dbo.WorkReports ADD continued_items NVARCHAR(MAX) NULL;
+    IF COL_LENGTH('dbo.WorkReports', 'next_week_plans') IS NULL ALTER TABLE dbo.WorkReports ADD next_week_plans NVARCHAR(MAX) NULL;
+    IF COL_LENGTH('dbo.WorkReports', 'status') IS NULL ALTER TABLE dbo.WorkReports ADD status NVARCHAR(50) DEFAULT N'submitted';
+    IF COL_LENGTH('dbo.WorkReports', 'review_feedback') IS NULL ALTER TABLE dbo.WorkReports ADD review_feedback NVARCHAR(MAX) NULL;
+    IF COL_LENGTH('dbo.WorkReports', 'reviewed_at') IS NULL ALTER TABLE dbo.WorkReports ADD reviewed_at DATETIMEOFFSET NULL;
+    IF COL_LENGTH('dbo.WorkReports', 'createdAt') IS NULL ALTER TABLE dbo.WorkReports ADD createdAt DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET();
+    IF COL_LENGTH('dbo.WorkReports', 'updated_at') IS NULL ALTER TABLE dbo.WorkReports ADD updated_at DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET();
+
+    -- 旧カラム互換・移行用（旧カラムから新カラムへのデータ補完）
+    IF COL_LENGTH('dbo.WorkReports', 'authorId') IS NOT NULL AND COL_LENGTH('dbo.WorkReports', 'author_id') IS NOT NULL
+        EXEC('UPDATE dbo.WorkReports SET author_id = authorId WHERE author_id IS NULL AND authorId IS NOT NULL');
+    IF COL_LENGTH('dbo.WorkReports', 'supervisorId') IS NOT NULL AND COL_LENGTH('dbo.WorkReports', 'supervisor_id') IS NOT NULL
+        EXEC('UPDATE dbo.WorkReports SET supervisor_id = supervisorId WHERE supervisor_id IS NULL AND supervisorId IS NOT NULL');
+    IF COL_LENGTH('dbo.WorkReports', 'weekStartDate') IS NOT NULL AND COL_LENGTH('dbo.WorkReports', 'week_start_date') IS NOT NULL
+        EXEC('UPDATE dbo.WorkReports SET week_start_date = weekStartDate WHERE week_start_date IS NULL AND weekStartDate IS NOT NULL');
+    IF COL_LENGTH('dbo.WorkReports', 'weekLabel') IS NOT NULL AND COL_LENGTH('dbo.WorkReports', 'week_label') IS NOT NULL
+        EXEC('UPDATE dbo.WorkReports SET week_label = weekLabel WHERE week_label IS NULL AND weekLabel IS NOT NULL');
+    IF COL_LENGTH('dbo.WorkReports', 'results') IS NOT NULL AND COL_LENGTH('dbo.WorkReports', 'achievements') IS NOT NULL
+        EXEC('UPDATE dbo.WorkReports SET achievements = results WHERE achievements IS NULL AND results IS NOT NULL');
+    IF COL_LENGTH('dbo.WorkReports', 'ongoingProjects') IS NOT NULL AND COL_LENGTH('dbo.WorkReports', 'continued_items') IS NOT NULL
+        EXEC('UPDATE dbo.WorkReports SET continued_items = ongoingProjects WHERE continued_items IS NULL AND ongoingProjects IS NOT NULL');
+    IF COL_LENGTH('dbo.WorkReports', 'tomorrowPlan') IS NOT NULL AND COL_LENGTH('dbo.WorkReports', 'next_week_plans') IS NOT NULL
+        EXEC('UPDATE dbo.WorkReports SET next_week_plans = tomorrowPlan WHERE next_week_plans IS NULL AND tomorrowPlan IS NOT NULL');
+    IF COL_LENGTH('dbo.WorkReports', 'feedbackComment') IS NOT NULL AND COL_LENGTH('dbo.WorkReports', 'review_feedback') IS NOT NULL
+        EXEC('UPDATE dbo.WorkReports SET review_feedback = feedbackComment WHERE review_feedback IS NULL AND feedbackComment IS NOT NULL');
+    IF COL_LENGTH('dbo.WorkReports', 'reviewedAt') IS NOT NULL AND COL_LENGTH('dbo.WorkReports', 'reviewed_at') IS NOT NULL
+        EXEC('UPDATE dbo.WorkReports SET reviewed_at = reviewedAt WHERE reviewed_at IS NULL AND reviewedAt IS NOT NULL');
+    IF COL_LENGTH('dbo.WorkReports', 'updatedAt') IS NOT NULL AND COL_LENGTH('dbo.WorkReports', 'updated_at') IS NOT NULL
+        EXEC('UPDATE dbo.WorkReports SET updated_at = updatedAt WHERE updated_at IS NULL AND updatedAt IS NOT NULL');
+END
+GO
+
+-- ------------------------------------------
+-- 10b. Notifications Table (通知管理・週報連動)
+-- ------------------------------------------
+IF OBJECT_ID('dbo.notifications', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.notifications (
+        id NVARCHAR(100) PRIMARY KEY,
+        user_id NVARCHAR(100) NOT NULL,
+        sender_id NVARCHAR(100) NULL,
+        type NVARCHAR(50) NOT NULL,
+        title NVARCHAR(255) NOT NULL,
+        contents NVARCHAR(MAX) NULL,
+        target_id NVARCHAR(100) NULL,
+        is_read BIT DEFAULT 0,
+        created_at DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET()
+    );
+END
+ELSE
+BEGIN
+    IF COL_LENGTH('dbo.notifications', 'user_id') IS NULL ALTER TABLE dbo.notifications ADD user_id NVARCHAR(100) NULL;
+    IF COL_LENGTH('dbo.notifications', 'sender_id') IS NULL ALTER TABLE dbo.notifications ADD sender_id NVARCHAR(100) NULL;
+    IF COL_LENGTH('dbo.notifications', 'type') IS NULL ALTER TABLE dbo.notifications ADD type NVARCHAR(50) NULL;
+    IF COL_LENGTH('dbo.notifications', 'title') IS NULL ALTER TABLE dbo.notifications ADD title NVARCHAR(255) NULL;
+    IF COL_LENGTH('dbo.notifications', 'contents') IS NULL ALTER TABLE dbo.notifications ADD contents NVARCHAR(MAX) NULL;
+    IF COL_LENGTH('dbo.notifications', 'target_id') IS NULL ALTER TABLE dbo.notifications ADD target_id NVARCHAR(100) NULL;
+    IF COL_LENGTH('dbo.notifications', 'is_read') IS NULL ALTER TABLE dbo.notifications ADD is_read BIT DEFAULT 0;
+    IF COL_LENGTH('dbo.notifications', 'created_at') IS NULL ALTER TABLE dbo.notifications ADD created_at DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET();
 END
 GO
 
@@ -579,20 +625,6 @@ GO
 IF OBJECT_ID('dbo.DailyReports', 'U') IS NULL AND NOT EXISTS (SELECT * FROM sys.synonyms WHERE name = 'DailyReports' AND schema_id = SCHEMA_ID('dbo'))
 BEGIN
     CREATE SYNONYM dbo.DailyReports FOR dbo.WorkReports;
-END
-ELSE IF OBJECT_ID('dbo.DailyReports', 'U') IS NOT NULL
-BEGIN
-    IF COL_LENGTH('dbo.DailyReports', 'reportType') IS NULL ALTER TABLE dbo.DailyReports ADD reportType VARCHAR(20) DEFAULT 'weekly';
-    IF COL_LENGTH('dbo.DailyReports', 'weekStartDate') IS NULL ALTER TABLE dbo.DailyReports ADD weekStartDate DATE NULL;
-    IF COL_LENGTH('dbo.DailyReports', 'weekLabel') IS NULL ALTER TABLE dbo.DailyReports ADD weekLabel NVARCHAR(100) NULL;
-    IF COL_LENGTH('dbo.DailyReports', 'department') IS NULL ALTER TABLE dbo.DailyReports ADD department NVARCHAR(100) NULL;
-    IF COL_LENGTH('dbo.DailyReports', 'ongoingProjects') IS NULL ALTER TABLE dbo.DailyReports ADD ongoingProjects NVARCHAR(MAX) NULL;
-    IF COL_LENGTH('dbo.DailyReports', 'supervisorId') IS NULL ALTER TABLE dbo.DailyReports ADD supervisorId VARCHAR(50) NULL;
-    IF COL_LENGTH('dbo.DailyReports', 'status') IS NULL ALTER TABLE dbo.DailyReports ADD status VARCHAR(20) DEFAULT 'submitted';
-    IF COL_LENGTH('dbo.DailyReports', 'feedbackComment') IS NULL ALTER TABLE dbo.DailyReports ADD feedbackComment NVARCHAR(MAX) NULL;
-    IF COL_LENGTH('dbo.DailyReports', 'submittedAt') IS NULL ALTER TABLE dbo.DailyReports ADD submittedAt DATETIME NULL;
-    IF COL_LENGTH('dbo.DailyReports', 'reviewedAt') IS NULL ALTER TABLE dbo.DailyReports ADD reviewedAt DATETIME NULL;
-    IF COL_LENGTH('dbo.DailyReports', 'updatedAt') IS NULL ALTER TABLE dbo.DailyReports ADD updatedAt DATETIME DEFAULT GETDATE();
 END
 GO
 
@@ -724,10 +756,13 @@ GO
 -- WorkReports & DailyReports Seed (日報・週報)
 IF NOT EXISTS (SELECT 1 FROM dbo.WorkReports WHERE id = 'r-weekly-1')
 BEGIN
-    INSERT INTO dbo.WorkReports (id, authorId, reportType, reportDate, weekStartDate, weekLabel, department, tasks, results, issues, ongoingProjects, tomorrowPlan, supervisorId, status, feedbackComment, submittedAt, reviewedAt, createdAt, updatedAt) VALUES 
-    ('r-weekly-1', 'u1', 'weekly', NULL, '2026-08-17', N'2026年8月17日週', N'総務', N'・ポータルサイトの新機能（カレンダー15分単位リサイズ、日報・週報機能）の設計・開発\n・全社アカウント権限マスタの整備\n・次期オフィス環境改善の社内アンケート集計', N'社内スケジュール調整工数を大幅に削減できるカレンダー機能の刷新を完了。週報機能のプロトタイプを関係部署へ共有しました。', N'夏季休暇期間中の緊急連絡網およびプッシュ通知の配信テストが一部拠点（浜松）で未実施のため、来週初頭にフォローが必要です。', N'・社内ポータルSSMS連携データベーススキーマの最適化\n・9月度防災訓練の計画策定（管理部と共同）', N'来週月曜の定例会議にて週報・日報運用ルールの説明を実施予定。', 'u4', 'submitted', NULL, DATEADD(HOUR, -2, GETDATE()), NULL, DATEADD(HOUR, -3, GETDATE()), DATEADD(HOUR, -2, GETDATE())),
-    ('r-daily-sales-1', 'u3', 'daily', '2026-08-19', '2026-08-17', N'2026年8月17日週', N'営業', N'・静岡市内A社様 新規設備リニューアル提案（訪問）\n・B建設様 案件見積書の作成・提出\n・既存顧客フォロー電話（5件）', N'A社様より9月着工案件の内諾を獲得（概算320万円）。見積仕様書の最終確認段階へ進行。', N'競合他社の価格提示が予想より低いため、メンテナンス保守体制の付加価値提案で差別化を図る必要あり。', N'・静岡駅前再開発ビル 自動ドア改修プロジェクト（入札準備中）\n・C病院 定期保守契約更新交渉', N'明日は午前中にB建設様へ最終図面の提出、午後浜松営業所にて合同商談。', 'u4', 'reviewed', N'A社の内諾獲得素晴らしい。差別化提案の資料で不明点あればいつでも相談してください。', DATEADD(HOUR, -24, GETDATE()), DATEADD(HOUR, -22, GETDATE()), DATEADD(HOUR, -25, GETDATE()), DATEADD(HOUR, -22, GETDATE())),
-    ('r-daily-maint-1', 'u6', 'daily', '2026-08-19', '2026-08-17', N'2026年8月17日週', N'保守', N'・名古屋駅前商業施設 定期保守点検（4台完了）\n・栄ビル 非常停止センサーの感度調整および部品交換\n・点検報告書の電子承認回覧', N'栄ビルのセンサー誤作動を早期に特定・即日部品交換完了し、トラブルを未然に防止。', N'一部消耗部品（Vベルト）の在庫が少なくなっているため、資材発注の申請が必要です。', N'・来月度 定期点検スケジューラーの事前日程調整（対象18件）\n・保守員向け安全衛生研修の受講準備', N'名駅西口ビルの月次定期点検（終日）および資材出庫依頼の起票。', 'u1', 'submitted', NULL, DATEADD(HOUR, -18, GETDATE()), NULL, DATEADD(HOUR, -19, GETDATE()), DATEADD(HOUR, -18, GETDATE()));
+    IF COL_LENGTH('dbo.WorkReports', 'author_id') IS NOT NULL
+    BEGIN
+        INSERT INTO dbo.WorkReports (id, author_id, supervisor_id, week_start_date, week_label, tasks, achievements, issues, continued_items, next_week_plans, status, review_feedback, reviewed_at, createdAt, updated_at) VALUES 
+        ('r-weekly-1', 'u1', 'u4', '2026-08-17', N'2026年8月17日週', N'・ポータルサイトの新機能（カレンダー15分単位リサイズ、日報・週報機能）の設計・開発\n・全社アカウント権限マスタの整備\n・次期オフィス環境改善の社内アンケート集計', N'社内スケジュール調整工数を大幅に削減できるカレンダー機能の刷新を完了。週報機能のプロトタイプを関係部署へ共有しました。', N'夏季休暇期間中の緊急連絡網およびプッシュ通知の配信テストが一部拠点（浜松）で未実施のため、来週初頭にフォローが必要です。', N'・社内ポータルSSMS連携データベーススキーマの最適化\n・9月度防災訓練の計画策定（管理部と共同）', N'来週月曜の定例会議にて週報・日報運用ルールの説明を実施予定。', 'submitted', NULL, NULL, SYSDATETIMEOFFSET(), SYSDATETIMEOFFSET()),
+        ('r-daily-sales-1', 'u3', 'u4', '2026-08-17', N'2026年8月17日週', N'・静岡市内A社様 新規設備リニューアル提案（訪問）\n・B建設様 案件見積書の作成・提出\n・既存顧客フォロー電話（5件）', N'A社様より9月着工案件の内諾を獲得（概算320万円）。見積仕様書の最終確認段階へ進行。', N'競合他社の価格提示が予想より低いため、メンテナンス保守体制の付加価値提案で差別化を図る必要あり。', N'・静岡駅前再開発ビル 自動ドア改修プロジェクト（入札準備中）\n・C病院 定期保守契約更新交渉', N'明日は午前中にB建設様へ最終図面の提出、午後浜松営業所にて合同商談。', 'reviewed', N'A社の内諾獲得素晴らしい。差別化提案の資料で不明点あればいつでも相談してください。', SYSDATETIMEOFFSET(), SYSDATETIMEOFFSET(), SYSDATETIMEOFFSET()),
+        ('r-daily-maint-1', 'u6', 'u1', '2026-08-17', N'2026年8月17日週', N'・名古屋駅前商業施設 定期保守点検（4台完了）\n・栄ビル 非常停止センサーの感度調整および部品交換\n・点検報告書の電子承認回覧', N'栄ビルのセンサー誤作動を早期に特定・即日部品交換完了し、トラブルを未然に防止。', N'一部消耗部品（Vベルト）の在庫が少なくなっているため、資材発注の申請が必要です。', N'・来月度 定期点検スケジューラーの事前日程調整（対象18件）\n・保守員向け安全衛生研修の受講準備', N'名駅西口ビルの月次定期点検（終日）および資材出庫依頼の起票。', 'submitted', NULL, NULL, SYSDATETIMEOFFSET(), SYSDATETIMEOFFSET());
+    END
 END
 GO
 

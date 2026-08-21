@@ -324,30 +324,62 @@ export interface Memo {
   recipientStatuses: MemoUserRecipientStatus[];
 }
 
+export interface AppNotification {
+  id: string;
+  user_id: string;
+  sender_id?: string;
+  type: string;
+  title: string;
+  contents?: string;
+  target_id?: string;
+  is_read: boolean | number;
+  created_at: string;
+  // UI / Frontend compatibility aliases
+  userId?: string;
+  senderId?: string;
+  senderName?: string;
+  senderAvatar?: string;
+  content?: string;
+  targetId?: string;
+  isRead?: boolean;
+  createdAt?: string;
+}
+
 export type WorkReportType = 'daily' | 'weekly';
 export type WorkReportStatus = 'draft' | 'submitted' | 'reviewed';
 
 export interface DailyReport {
   id: string;
   author: User;
+  author_id?: string;
+  authorId?: string;
   reportType?: WorkReportType; // 'daily' | 'weekly'
   date?: string; // ISO string or YYYY-MM-DD
+  week_start_date?: string; // e.g. '2026-08-17'
   weekStartDate?: string; // e.g. '2026-08-17'
+  week_label?: string; // e.g. '2026年8月17日週'
   weekLabel?: string; // e.g. '2026年8月17日週'
   department?: string; // 部署 (例: '営業', '工務', '保守', '汎用')
   tasks: string; // 今週の業務内容 / 本日の業務内容
-  results: string; // 成果・気づき
-  issues: string; // 課題・問題点
-  ongoingProjects?: string; // 継続案件
-  tomorrowPlan?: string; // 明日の予定 / 次週予定
+  results?: string; // 成果・気づき (互換用)
+  achievements?: string; // 成果・気づき (新カラム)
+  issues?: string; // 課題・問題点
+  ongoingProjects?: string; // 継続案件 (互換用)
+  continued_items?: string; // 継続案件 (新カラム)
+  tomorrowPlan?: string; // 明日の予定 / 次週予定 (互換用)
+  next_week_plans?: string; // 次週予定 (新カラム)
+  supervisor_id?: string; // 提出先上長ユーザーID (新カラム)
   supervisorId?: string; // 提出先上長ユーザーID
   supervisor?: User; // 提出先上長
   status?: WorkReportStatus; // 'draft' | 'submitted' | 'reviewed'
   submittedAt?: string; // 提出日時
+  reviewed_at?: string; // 上長確認日時 (新カラム)
   reviewedAt?: string; // 上長確認日時
-  feedbackComment?: string; // 上長コメント・フィードバック
+  feedbackComment?: string; // 上長コメント・フィードバック (互換用)
+  review_feedback?: string; // 上長コメント・フィードバック (新カラム)
   createdAt: string; // ISO string
-  updatedAt?: string;
+  updated_at?: string; // 更新日時 (新カラム)
+  updatedAt?: string; // 更新日時
 }
 
 export type WorkReport = DailyReport;

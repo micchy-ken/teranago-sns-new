@@ -137,6 +137,77 @@ async function getPool() {
     } catch (e) {
       console.warn('⚠️ Failed to alter Events table:', e.message);
     }
+    // Check and create dbo.notifications table and check dbo.WorkReports new columns
+    try {
+      await globalPool.request().query(\`
+        IF OBJECT_ID('dbo.notifications', 'U') IS NULL
+        BEGIN
+          CREATE TABLE dbo.notifications (
+            id NVARCHAR(100) PRIMARY KEY,
+            user_id NVARCHAR(100) NOT NULL,
+            sender_id NVARCHAR(100) NULL,
+            type NVARCHAR(50) NOT NULL,
+            title NVARCHAR(255) NOT NULL,
+            contents NVARCHAR(MAX) NULL,
+            target_id NVARCHAR(100) NULL,
+            is_read BIT DEFAULT 0,
+            created_at DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET()
+          );
+        END
+        ELSE
+        BEGIN
+          IF COL_LENGTH('dbo.notifications', 'user_id') IS NULL ALTER TABLE dbo.notifications ADD user_id NVARCHAR(100) NULL;
+          IF COL_LENGTH('dbo.notifications', 'sender_id') IS NULL ALTER TABLE dbo.notifications ADD sender_id NVARCHAR(100) NULL;
+          IF COL_LENGTH('dbo.notifications', 'type') IS NULL ALTER TABLE dbo.notifications ADD type NVARCHAR(50) NULL;
+          IF COL_LENGTH('dbo.notifications', 'title') IS NULL ALTER TABLE dbo.notifications ADD title NVARCHAR(255) NULL;
+          IF COL_LENGTH('dbo.notifications', 'contents') IS NULL ALTER TABLE dbo.notifications ADD contents NVARCHAR(MAX) NULL;
+          IF COL_LENGTH('dbo.notifications', 'target_id') IS NULL ALTER TABLE dbo.notifications ADD target_id NVARCHAR(100) NULL;
+          IF COL_LENGTH('dbo.notifications', 'is_read') IS NULL ALTER TABLE dbo.notifications ADD is_read BIT DEFAULT 0;
+          IF COL_LENGTH('dbo.notifications', 'created_at') IS NULL ALTER TABLE dbo.notifications ADD created_at DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET();
+        END
+
+        IF OBJECT_ID('dbo.WorkReports', 'U') IS NULL
+        BEGIN
+          CREATE TABLE dbo.WorkReports (
+            id NVARCHAR(100) PRIMARY KEY,
+            author_id NVARCHAR(100) NOT NULL,
+            supervisor_id NVARCHAR(100) NULL,
+            week_start_date DATE NULL,
+            week_label NVARCHAR(100) NULL,
+            tasks NVARCHAR(MAX) NULL,
+            achievements NVARCHAR(MAX) NULL,
+            issues NVARCHAR(MAX) NULL,
+            continued_items NVARCHAR(MAX) NULL,
+            next_week_plans NVARCHAR(MAX) NULL,
+            status NVARCHAR(50) DEFAULT N'submitted',
+            review_feedback NVARCHAR(MAX) NULL,
+            reviewed_at DATETIMEOFFSET NULL,
+            createdAt DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET(),
+            updated_at DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET()
+          );
+        END
+        ELSE
+        BEGIN
+          IF COL_LENGTH('dbo.WorkReports', 'author_id') IS NULL ALTER TABLE dbo.WorkReports ADD author_id NVARCHAR(100) NULL;
+          IF COL_LENGTH('dbo.WorkReports', 'supervisor_id') IS NULL ALTER TABLE dbo.WorkReports ADD supervisor_id NVARCHAR(100) NULL;
+          IF COL_LENGTH('dbo.WorkReports', 'week_start_date') IS NULL ALTER TABLE dbo.WorkReports ADD week_start_date DATE NULL;
+          IF COL_LENGTH('dbo.WorkReports', 'week_label') IS NULL ALTER TABLE dbo.WorkReports ADD week_label NVARCHAR(100) NULL;
+          IF COL_LENGTH('dbo.WorkReports', 'tasks') IS NULL ALTER TABLE dbo.WorkReports ADD tasks NVARCHAR(MAX) NULL;
+          IF COL_LENGTH('dbo.WorkReports', 'achievements') IS NULL ALTER TABLE dbo.WorkReports ADD achievements NVARCHAR(MAX) NULL;
+          IF COL_LENGTH('dbo.WorkReports', 'issues') IS NULL ALTER TABLE dbo.WorkReports ADD issues NVARCHAR(MAX) NULL;
+          IF COL_LENGTH('dbo.WorkReports', 'continued_items') IS NULL ALTER TABLE dbo.WorkReports ADD continued_items NVARCHAR(MAX) NULL;
+          IF COL_LENGTH('dbo.WorkReports', 'next_week_plans') IS NULL ALTER TABLE dbo.WorkReports ADD next_week_plans NVARCHAR(MAX) NULL;
+          IF COL_LENGTH('dbo.WorkReports', 'status') IS NULL ALTER TABLE dbo.WorkReports ADD status NVARCHAR(50) DEFAULT N'submitted';
+          IF COL_LENGTH('dbo.WorkReports', 'review_feedback') IS NULL ALTER TABLE dbo.WorkReports ADD review_feedback NVARCHAR(MAX) NULL;
+          IF COL_LENGTH('dbo.WorkReports', 'reviewed_at') IS NULL ALTER TABLE dbo.WorkReports ADD reviewed_at DATETIMEOFFSET NULL;
+          IF COL_LENGTH('dbo.WorkReports', 'createdAt') IS NULL ALTER TABLE dbo.WorkReports ADD createdAt DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET();
+          IF COL_LENGTH('dbo.WorkReports', 'updated_at') IS NULL ALTER TABLE dbo.WorkReports ADD updated_at DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET();
+        END
+      \`);
+      console.log('✅ Checked/Updated dbo.notifications and dbo.WorkReports tables in SQL Server');
+    } catch (e) {
+      console.warn('⚠️ Failed to check/alter notifications/WorkReports tables:', e.message);
+    }
     return globalPool;
   } catch (err) {
     globalPool = null;
@@ -2817,42 +2888,89 @@ app.post('/api/read-statuses', async (req, res) => {
 const handleGetDailyReports = async (req, res) => {
   try {
     const pool = await getPool();
-    const result = await pool.request().query\`
-      SELECT r.*, u.name AS authorName, u.department AS authorDepartment, u.avatarUrl AS authorAvatarUrl,
-             s.name AS supervisorName
-      FROM dbo.WorkReports r
-      LEFT JOIN dbo.Users u ON r.authorId = u.id
-      LEFT JOIN dbo.Users s ON r.supervisorId = s.id
-      ORDER BY COALESCE(r.date, r.weekStartDate, r.reportDate, r.createdAt) DESC
-    \`;
-    const reports = (result.recordset || []).map(row => ({
-      id: String(row.id),
-      authorId: row.authorId,
-      author: {
-        id: row.authorId,
-        name: row.authorName || '不明',
-        department: row.authorDepartment || '',
-        avatarUrl: row.authorAvatarUrl || ''
-      },
-      reportType: row.reportType || (row.weekStartDate ? 'weekly' : 'daily'),
-      reportDate: row.reportDate || row.date,
-      date: row.date || row.reportDate,
-      weekStartDate: row.weekStartDate,
-      weekLabel: row.weekLabel,
-      department: row.department || row.authorDepartment || '',
-      tasks: row.tasks || row.content || '',
-      results: row.results || '',
-      issues: row.issues || '',
-      ongoingProjects: row.ongoingProjects || '',
-      tomorrowPlan: row.tomorrowPlan || '',
-      supervisorId: row.supervisorId,
-      supervisor: row.supervisorId ? { id: row.supervisorId, name: row.supervisorName || '' } : undefined,
-      status: row.status || 'submitted',
-      feedbackComment: row.feedbackComment || '',
-      submittedAt: row.submittedAt,
-      reviewedAt: row.reviewedAt,
-      createdAt: row.createdAt
-    }));
+    // スキーマの差異（旧カラム/新カラム）に依存しない安全な全カラム取得
+    const result = await pool.request().query('SELECT * FROM dbo.WorkReports');
+    
+    // ユーザーマスタ取得 (author / supervisor 名引き当て用)
+    const usersMap = new Map();
+    try {
+      const usersRes = await pool.request().query('SELECT id, name, department, avatarUrl FROM dbo.Users');
+      for (const u of (usersRes.recordset || [])) {
+        usersMap.set(String(u.id), u);
+      }
+    } catch (uErr) {
+      console.warn('Users lookup warning in WorkReports:', uErr.message);
+    }
+
+    const reports = (result.recordset || []).map(row => {
+      const authId = String(row.author_id || row.authorId || 'u1');
+      const supId = row.supervisor_id || row.supervisorId ? String(row.supervisor_id || row.supervisorId) : undefined;
+      const rawDate = row.week_start_date || row.weekStartDate || row.reportDate || row.date || row.createdAt;
+      const weekDate = rawDate ? (typeof rawDate === 'string' ? rawDate.slice(0, 10) : new Date(rawDate).toISOString().slice(0, 10)) : undefined;
+      const weekLbl = row.week_label || row.weekLabel || (weekDate ? (weekDate + '週') : undefined);
+      const achieve = row.achievements !== undefined ? row.achievements : (row.results || '');
+      const contItems = row.continued_items !== undefined ? row.continued_items : (row.ongoingProjects || '');
+      const nxtPlans = row.next_week_plans !== undefined ? row.next_week_plans : (row.tomorrowPlan || '');
+      const feed = row.review_feedback !== undefined ? row.review_feedback : (row.feedbackComment || '');
+      const reviewedAt = row.reviewed_at || row.reviewedAt || null;
+      const updatedAt = row.updated_at || row.updatedAt || row.createdAt || null;
+      
+      const authorUser = usersMap.get(authId);
+      const supervisorUser = supId ? usersMap.get(supId) : undefined;
+
+      return {
+        id: String(row.id),
+        // 新カラム
+        author_id: authId,
+        supervisor_id: supId,
+        week_start_date: weekDate,
+        week_label: weekLbl,
+        tasks: row.tasks || row.content || '',
+        achievements: achieve,
+        issues: row.issues || '',
+        continued_items: contItems,
+        next_week_plans: nxtPlans,
+        status: row.status || 'submitted',
+        review_feedback: feed,
+        reviewed_at: reviewedAt,
+        createdAt: row.createdAt,
+        updated_at: updatedAt,
+        // フロントエンド互換プロパティ
+        authorId: authId,
+        author: {
+          id: authId,
+          name: authorUser ? authorUser.name : (row.authorName || '社員'),
+          department: authorUser ? authorUser.department : (row.authorDepartment || row.department || ''),
+          avatarUrl: authorUser ? authorUser.avatarUrl : (row.authorAvatarUrl || '')
+        },
+        authorName: authorUser ? authorUser.name : (row.authorName || '社員'),
+        authorDepartment: authorUser ? authorUser.department : (row.authorDepartment || row.department || ''),
+        supervisorName: supervisorUser ? supervisorUser.name : undefined,
+        reportType: row.reportType || 'weekly',
+        reportDate: weekDate,
+        date: weekDate,
+        weekStartDate: weekDate,
+        weekLabel: weekLbl,
+        department: authorUser ? authorUser.department : (row.department || row.authorDepartment || ''),
+        results: achieve,
+        ongoingProjects: contItems,
+        tomorrowPlan: nxtPlans,
+        supervisorId: supId,
+        supervisor: supervisorUser ? { id: supervisorUser.id, name: supervisorUser.name } : (supId ? { id: supId, name: '' } : undefined),
+        feedbackComment: feed,
+        submittedAt: row.submittedAt || (row.status === 'submitted' ? row.createdAt : undefined),
+        reviewedAt: reviewedAt,
+        updatedAt: updatedAt
+      };
+    });
+
+    // 新しい順にソート
+    reports.sort((a, b) => {
+      const timeA = new Date(a.week_start_date || a.createdAt || 0).getTime();
+      const timeB = new Date(b.week_start_date || b.createdAt || 0).getTime();
+      return timeB - timeA;
+    });
+
     res.json(reports);
   } catch (err) { res.status(500).json({ error: err.message }); }
 };
@@ -2863,47 +2981,127 @@ app.get('/api/reports', handleGetDailyReports);
 
 const handlePostDailyReport = async (req, res) => {
   try {
-    const { authorId, reportType, reportDate, date, weekStartDate, weekLabel, department, content, tasks, results, issues, ongoingProjects, tomorrowPlan, supervisorId, status, isSubmitting } = req.body;
+    const data = req.body || {};
     const pool = await getPool();
-    const id = req.body.id || \`rep_\${Date.now()}\`;
-    const formattedDate = (date || reportDate) ? new Date(date || reportDate) : null;
-    const formattedWeekDate = weekStartDate ? new Date(weekStartDate) : null;
-    const repType = reportType || (weekStartDate ? 'weekly' : 'daily');
-    const repStatus = status || (isSubmitting ? 'submitted' : 'draft');
-    const now = new Date();
+    const id = data.id || \`rep_\${Date.now()}_\${Math.random().toString(36).slice(2, 6)}\`;
+    
+    const author_id = String(data.author_id || data.authorId || (data.author && data.author.id) || 'u1');
+    const supervisor_id = data.supervisor_id || data.supervisorId || (data.supervisor && data.supervisor.id) || null;
+    const rawWeekDate = data.week_start_date || data.weekStartDate || data.date || data.reportDate || new Date().toISOString().slice(0, 10);
+    const formattedWeekDate = rawWeekDate ? new Date(rawWeekDate) : new Date();
+    const week_start_date_str = rawWeekDate ? new Date(rawWeekDate).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
+    const week_label = data.week_label || data.weekLabel || (week_start_date_str ? \`\${week_start_date_str}週\` : '');
+    const tasks = data.tasks || data.content || '';
+    const achievements = data.achievements !== undefined ? data.achievements : (data.results || '');
+    const issues = data.issues || '';
+    const continued_items = data.continued_items !== undefined ? data.continued_items : (data.ongoingProjects || '');
+    const next_week_plans = data.next_week_plans !== undefined ? data.next_week_plans : (data.tomorrowPlan || '');
+    const repStatus = data.status || (data.isSubmitting ? 'submitted' : 'draft');
+    const review_feedback = data.review_feedback !== undefined ? data.review_feedback : (data.feedbackComment || '');
 
-    await pool.request()
-      .input('id', sql.VarChar, String(id))
-      .input('authorId', sql.VarChar, authorId || 'u1')
-      .input('reportType', sql.VarChar, repType)
-      .input('reportDate', sql.Date, formattedDate)
-      .input('weekStartDate', sql.Date, formattedWeekDate)
-      .input('weekLabel', sql.NVarChar, weekLabel || '')
-      .input('department', sql.NVarChar, department || '')
-      .input('tasks', sql.NVarChar, tasks || content || '')
-      .input('results', sql.NVarChar, results || '')
-      .input('issues', sql.NVarChar, issues || '')
-      .input('ongoingProjects', sql.NVarChar, ongoingProjects || '')
-      .input('tomorrowPlan', sql.NVarChar, tomorrowPlan || '')
-      .input('supervisorId', sql.VarChar, supervisorId || null)
-      .input('status', sql.VarChar, repStatus)
-      .input('submittedAt', sql.DateTime, repStatus === 'submitted' ? now : null)
-      .query\`
-        MERGE dbo.WorkReports AS target
-        USING (SELECT @id AS id) AS source
-        ON (target.id = source.id)
-        WHEN MATCHED THEN
-          UPDATE SET reportType = @reportType, reportDate = @reportDate, weekStartDate = @weekStartDate,
-                     weekLabel = @weekLabel, department = @department, tasks = @tasks, results = @results,
-                     issues = @issues, ongoingProjects = @ongoingProjects, tomorrowPlan = @tomorrowPlan,
-                     supervisorId = @supervisorId, status = @status,
-                     submittedAt = CASE WHEN @status = 'submitted' AND target.submittedAt IS NULL THEN @submittedAt ELSE target.submittedAt END,
-                     updatedAt = GETDATE()
-        WHEN NOT MATCHED THEN
-          INSERT (id, authorId, reportType, reportDate, weekStartDate, weekLabel, department, tasks, results, issues, ongoingProjects, tomorrowPlan, supervisorId, status, submittedAt, createdAt, updatedAt)
-          VALUES (@id, @authorId, @reportType, @reportDate, @weekStartDate, @weekLabel, @department, @tasks, @results, @issues, @ongoingProjects, @tomorrowPlan, @supervisorId, @status, @submittedAt, GETDATE(), GETDATE());
-      \`;
-    res.status(201).json({ id, message: '日報・週報保存完了' });
+    // WorkReports カラム一覧を確認して動的にクエリ実行
+    const columnsRes = await pool.request().query("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'WorkReports' AND TABLE_SCHEMA = 'dbo'");
+    const dbCols = (columnsRes.recordset || []).map(r => r.COLUMN_NAME);
+
+    const hasNewCols = dbCols.includes('author_id') && dbCols.includes('week_start_date');
+
+    if (hasNewCols) {
+      await pool.request()
+        .input('id', sql.NVarChar, String(id))
+        .input('author_id', sql.NVarChar, author_id)
+        .input('supervisor_id', sql.NVarChar, supervisor_id)
+        .input('week_start_date', sql.Date, formattedWeekDate)
+        .input('week_label', sql.NVarChar, week_label)
+        .input('tasks', sql.NVarChar, tasks)
+        .input('achievements', sql.NVarChar, achievements)
+        .input('issues', sql.NVarChar, issues)
+        .input('continued_items', sql.NVarChar, continued_items)
+        .input('next_week_plans', sql.NVarChar, next_week_plans)
+        .input('status', sql.NVarChar, repStatus)
+        .input('review_feedback', sql.NVarChar, review_feedback)
+        .query\`
+          MERGE dbo.WorkReports AS target
+          USING (SELECT @id AS id) AS source
+          ON (target.id = source.id)
+          WHEN MATCHED THEN
+            UPDATE SET 
+              author_id = @author_id,
+              supervisor_id = @supervisor_id,
+              week_start_date = @week_start_date,
+              week_label = @week_label,
+              tasks = @tasks,
+              achievements = @achievements,
+              issues = @issues,
+              continued_items = @continued_items,
+              next_week_plans = @next_week_plans,
+              status = @status,
+              review_feedback = @review_feedback,
+              updated_at = SYSDATETIMEOFFSET()
+          WHEN NOT MATCHED THEN
+            INSERT (id, author_id, supervisor_id, week_start_date, week_label, tasks, achievements, issues, continued_items, next_week_plans, status, review_feedback, createdAt, updated_at)
+            VALUES (@id, @author_id, @supervisor_id, @week_start_date, @week_label, @tasks, @achievements, @issues, @continued_items, @next_week_plans, @status, @review_feedback, SYSDATETIMEOFFSET(), SYSDATETIMEOFFSET());
+        \`;
+    } else {
+      await pool.request()
+        .input('id', sql.VarChar, String(id))
+        .input('authorId', sql.VarChar, author_id)
+        .input('weekStartDate', sql.Date, formattedWeekDate)
+        .input('weekLabel', sql.NVarChar, week_label)
+        .input('tasks', sql.NVarChar, tasks)
+        .input('results', sql.NVarChar, achievements)
+        .input('issues', sql.NVarChar, issues)
+        .input('ongoingProjects', sql.NVarChar, continued_items)
+        .input('tomorrowPlan', sql.NVarChar, next_week_plans)
+        .input('supervisorId', sql.VarChar, supervisor_id)
+        .input('status', sql.VarChar, repStatus)
+        .input('feedbackComment', sql.NVarChar, review_feedback)
+        .query\`
+          MERGE dbo.WorkReports AS target
+          USING (SELECT @id AS id) AS source
+          ON (target.id = source.id)
+          WHEN MATCHED THEN
+            UPDATE SET 
+              authorId = @authorId,
+              weekStartDate = @weekStartDate,
+              weekLabel = @weekLabel,
+              tasks = @tasks,
+              results = @results,
+              issues = @issues,
+              ongoingProjects = @ongoingProjects,
+              tomorrowPlan = @tomorrowPlan,
+              supervisorId = @supervisorId,
+              status = @status,
+              feedbackComment = @feedbackComment,
+              updatedAt = GETDATE()
+          WHEN NOT MATCHED THEN
+            INSERT (id, authorId, weekStartDate, weekLabel, tasks, results, issues, ongoingProjects, tomorrowPlan, supervisorId, status, feedbackComment, createdAt, updatedAt)
+            VALUES (@id, @authorId, @weekStartDate, @weekLabel, @tasks, @results, @issues, @ongoingProjects, @tomorrowPlan, @supervisorId, @status, @feedbackComment, GETDATE(), GETDATE());
+        \`;
+    }
+
+    // 週報提出時に上長へ notifications テーブルへの INSERT 自動連携
+    if (repStatus === 'submitted' && supervisor_id && supervisor_id !== author_id) {
+      try {
+        const notifId = \`notif_\${Date.now()}_\${Math.random().toString(36).slice(2, 6)}\`;
+        const authorName = data.authorName || (data.author && data.author.name) || '社員';
+        await pool.request()
+          .input('notifId', sql.NVarChar, notifId)
+          .input('user_id', sql.NVarChar, String(supervisor_id))
+          .input('sender_id', sql.NVarChar, String(author_id))
+          .input('type', sql.NVarChar, 'work_report')
+          .input('title', sql.NVarChar, \`【週報】\${authorName}さんより提出\`)
+          .input('contents', sql.NVarChar, \`\${week_label || '最新'}の週報が提出されました。確認をお願いします。\`)
+          .input('target_id', sql.NVarChar, String(id))
+          .query\`
+            INSERT INTO dbo.notifications (id, user_id, sender_id, type, title, contents, target_id, is_read, created_at)
+            VALUES (@notifId, @user_id, @sender_id, @type, @title, @contents, @target_id, 0, SYSDATETIMEOFFSET())
+          \`;
+      } catch (notifErr) {
+        console.warn('SQL Server notification insert warning:', notifErr.message);
+      }
+    }
+
+    res.status(201).json({ success: true, id, message: '日報・週報保存完了' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 };
 
@@ -2913,20 +3111,69 @@ app.post('/api/reports', handlePostDailyReport);
 app.put('/api/work-reports/:id', handlePostDailyReport);
 app.put('/api/daily-reports/:id', handlePostDailyReport);
 
-// 上長確認・レビュー API
+// 上長確認・レビュー API (dbo.notifications 自動連動)
 app.post(['/api/work-reports/:id/review', '/api/daily-reports/:id/review'], async (req, res) => {
   try {
-    const { feedbackComment } = req.body;
+    const { feedbackComment, review_feedback, reviewerUserId, reviewerName } = req.body || {};
     const pool = await getPool();
-    await pool.request()
-      .input('id', sql.VarChar, String(req.params.id))
-      .input('feedbackComment', sql.NVarChar, feedbackComment || '')
-      .query\`
-        UPDATE dbo.WorkReports 
-        SET status = 'reviewed', feedbackComment = @feedbackComment, reviewedAt = GETDATE(), updatedAt = GETDATE()
-        WHERE id = @id
-      \`;
-    res.json({ message: '確認・レビュー完了' });
+    const comment = review_feedback !== undefined ? review_feedback : (feedbackComment || '');
+    const reportId = String(req.params.id);
+
+    // 更新前のレポート情報（提出者）を取得
+    const repRes = await pool.request()
+      .input('id', sql.NVarChar, reportId)
+      .query('SELECT * FROM dbo.WorkReports WHERE id = @id');
+    
+    const existing = (repRes.recordset && repRes.recordset[0]) || {};
+    const author_id = existing.author_id || existing.authorId;
+    const week_label = existing.week_label || existing.weekLabel || '';
+
+    // カラム構造に合わせて更新
+    const columnsRes = await pool.request().query("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'WorkReports' AND TABLE_SCHEMA = 'dbo'");
+    const dbCols = (columnsRes.recordset || []).map(r => r.COLUMN_NAME);
+
+    if (dbCols.includes('review_feedback')) {
+      await pool.request()
+        .input('id', sql.NVarChar, reportId)
+        .input('review_feedback', sql.NVarChar, comment)
+        .query\`
+          UPDATE dbo.WorkReports 
+          SET status = 'reviewed', review_feedback = @review_feedback, reviewed_at = SYSDATETIMEOFFSET(), updated_at = SYSDATETIMEOFFSET()
+          WHERE id = @id
+        \`;
+    } else {
+      await pool.request()
+        .input('id', sql.VarChar, reportId)
+        .input('feedbackComment', sql.NVarChar, comment)
+        .query\`
+          UPDATE dbo.WorkReports 
+          SET status = 'reviewed', feedbackComment = @feedbackComment, reviewedAt = GETDATE(), updatedAt = GETDATE()
+          WHERE id = @id
+        \`;
+    }
+
+    // 提出者本人へ notifications レコードを INSERT 連動
+    if (author_id) {
+      try {
+        const notifId = \`notif_\${Date.now()}_\${Math.random().toString(36).slice(2, 6)}\`;
+        await pool.request()
+          .input('notifId', sql.NVarChar, notifId)
+          .input('user_id', sql.NVarChar, String(author_id))
+          .input('sender_id', sql.NVarChar, reviewerUserId ? String(reviewerUserId) : null)
+          .input('type', sql.NVarChar, 'work_report_review')
+          .input('title', sql.NVarChar, \`【週報】\${reviewerName || '上長'}が週報を確認しました\`)
+          .input('contents', sql.NVarChar, \`\${week_label}の週報が確認されました。\${comment ? \`コメント: 「\${comment}」\` : ''}\`)
+          .input('target_id', sql.NVarChar, reportId)
+          .query\`
+            INSERT INTO dbo.notifications (id, user_id, sender_id, type, title, contents, target_id, is_read, created_at)
+            VALUES (@notifId, @user_id, @sender_id, @type, @title, @contents, @target_id, 0, SYSDATETIMEOFFSET())
+          \`;
+      } catch (notifErr) {
+        console.warn('SQL Server review notification insert warning:', notifErr.message);
+      }
+    }
+
+    res.json({ success: true, message: '確認・レビュー完了' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -2934,8 +3181,122 @@ app.post(['/api/work-reports/:id/review', '/api/daily-reports/:id/review'], asyn
 app.delete(['/api/work-reports/:id', '/api/daily-reports/:id', '/api/reports/:id'], async (req, res) => {
   try {
     const pool = await getPool();
-    await pool.request().input('id', sql.VarChar, String(req.params.id)).query('DELETE FROM dbo.WorkReports WHERE id = @id');
-    res.json({ message: '削除完了' });
+    await pool.request().input('id', sql.NVarChar, String(req.params.id)).query('DELETE FROM dbo.WorkReports WHERE id = @id');
+    res.json({ success: true, message: '削除完了' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ------------------------------------------
+// 10. Notifications (通知一覧・既読・削除 API)
+// ------------------------------------------
+app.get(['/api/notifications', '/api/notifications/:userId'], async (req, res) => {
+  try {
+    const pool = await getPool();
+    const targetUserId = req.params.userId || req.query.userId || req.query.user_id;
+    let query = \`
+      SELECT n.*, 
+             uSender.name AS senderName, uSender.avatarUrl AS senderAvatarUrl, uSender.department AS senderDepartment
+      FROM dbo.notifications n
+      LEFT JOIN dbo.Users uSender ON n.sender_id = uSender.id
+    \`;
+    const request = pool.request();
+    if (targetUserId) {
+      query += ' WHERE n.user_id = @userId';
+      request.input('userId', sql.NVarChar, String(targetUserId));
+    }
+    query += ' ORDER BY n.is_read ASC, n.created_at DESC';
+    const result = await request.query(query);
+
+    const list = (result.recordset || []).map(row => ({
+      id: String(row.id),
+      user_id: row.user_id,
+      sender_id: row.sender_id,
+      type: row.type,
+      title: row.title,
+      contents: row.contents,
+      target_id: row.target_id,
+      is_read: Boolean(row.is_read),
+      created_at: row.created_at,
+      // 互換用
+      userId: row.user_id,
+      senderId: row.sender_id,
+      senderName: row.senderName,
+      senderAvatar: row.senderAvatarUrl,
+      content: row.contents,
+      targetId: row.target_id,
+      isRead: Boolean(row.is_read),
+      createdAt: row.created_at
+    }));
+
+    res.json(list);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/notifications', async (req, res) => {
+  try {
+    const { user_id, userId, sender_id, senderId, type, title, contents, content, target_id, targetId } = req.body || {};
+    const targetUser = user_id || userId;
+    if (!targetUser) return res.status(400).json({ error: 'user_id is required' });
+
+    const pool = await getPool();
+    const id = \`notif_\${Date.now()}_\${Math.random().toString(36).slice(2, 6)}\`;
+    await pool.request()
+      .input('id', sql.NVarChar, id)
+      .input('user_id', sql.NVarChar, String(targetUser))
+      .input('sender_id', sql.NVarChar, sender_id || senderId || null)
+      .input('type', sql.NVarChar, type || 'system')
+      .input('title', sql.NVarChar, title || '通知')
+      .input('contents', sql.NVarChar, contents || content || '')
+      .input('target_id', sql.NVarChar, target_id || targetId || null)
+      .query\`
+        INSERT INTO dbo.notifications (id, user_id, sender_id, type, title, contents, target_id, is_read, created_at)
+        VALUES (@id, @user_id, @sender_id, @type, @title, @contents, @target_id, 0, SYSDATETIMEOFFSET())
+      \`;
+    res.status(201).json({ success: true, id });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put(['/api/notifications/:id/read', '/api/notifications/:id'], async (req, res) => {
+  try {
+    const pool = await getPool();
+    await pool.request()
+      .input('id', sql.NVarChar, String(req.params.id))
+      .query('UPDATE dbo.notifications SET is_read = 1 WHERE id = @id');
+    res.json({ success: true, message: '既読に更新しました' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.post('/api/notifications/:id/read', async (req, res) => {
+  try {
+    const pool = await getPool();
+    await pool.request()
+      .input('id', sql.NVarChar, String(req.params.id))
+      .query('UPDATE dbo.notifications SET is_read = 1 WHERE id = @id');
+    res.json({ success: true, message: '既読に更新しました' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/notifications/mark-all-read', async (req, res) => {
+  try {
+    const targetUserId = req.body?.user_id || req.body?.userId || req.query.userId;
+    const pool = await getPool();
+    const request = pool.request();
+    let query = 'UPDATE dbo.notifications SET is_read = 1';
+    if (targetUserId) {
+      query += ' WHERE user_id = @userId';
+      request.input('userId', sql.NVarChar, String(targetUserId));
+    }
+    await request.query(query);
+    res.json({ success: true, message: 'すべての通知を既読にしました' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/notifications/:id', async (req, res) => {
+  try {
+    const pool = await getPool();
+    await pool.request()
+      .input('id', sql.NVarChar, String(req.params.id))
+      .query('DELETE FROM dbo.notifications WHERE id = @id');
+    res.json({ success: true, message: '通知を削除しました' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

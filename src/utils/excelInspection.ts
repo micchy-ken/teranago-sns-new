@@ -1,6 +1,269 @@
 import * as XLSX from 'xlsx';
 import { User, CalendarEvent } from '../types';
 
+export type InspectionFaxStatus = 'none' | 'required' | 'sent' | 'confirmed';
+export type InspectionMailStatus = 'none' | 'required' | 'sent' | 'confirmed';
+export type InspectionTelStatus = 'none' | 'required' | 'confirmed';
+export type InspectionPosterType = 'none' | 'direct' | 'mail' | 'fax' | 'post' | 'postal';
+export type InspectionWorkNoticeType = 'none' | 'mail' | 'fax';
+export type InspectionWebEntryType = 'none' | 'required';
+
+export interface InspectionMetaA {
+  remarks?: string;                         // 備考
+  faxStatus?: InspectionFaxStatus;          // Fax (なし/必要/送付済/確定済)
+  mailStatus?: InspectionMailStatus;        // Mail (なし/必要/送付済/確定済)
+  telStatus?: InspectionTelStatus;          // Tel (なし/必要/確認済)
+  posterType?: InspectionPosterType;        // 貼紙 (なし/直接/Mail/Fax/郵送)
+  posterDone?: boolean;                     // 貼紙 済フラグ (false: 未済/赤, true: 済/濃い緑)
+  workNoticeType?: InspectionWorkNoticeType;// 作業届 (なし/Mail/Fax)
+  workNoticeDone?: boolean;                 // 作業届 済フラグ (false: 未済/赤, true: 済/濃い緑)
+  webEntryType?: InspectionWebEntryType;    // WEB入力 (なし/必要)
+  webEntryDone?: boolean;                   // WEB入力 済フラグ (false: 未済/赤, true: 済/濃い緑)
+}
+
+export interface SiteInspectionMasterEntry {
+  jobNo: string;
+  siteCode?: string;
+  siteName?: string;
+  metaA?: InspectionMetaA;
+  lastPlacedStartTime?: string; // 例: '09:00'
+  lastPlacedEndTime?: string;   // 例: '10:00'
+  updatedAt: string;
+}
+
+const MASTER_STORAGE_KEY = 'inspection_site_master_cache';
+
+/** 全現場の最新メタデータ＆仮配置時間マスターキャッシュを取得 */
+export function getAllSiteMasters(): Record<string, SiteInspectionMasterEntry> {
+  try {
+    const raw = localStorage.getItem(MASTER_STORAGE_KEY);
+    if (raw) {
+      return JSON.parse(raw);
+    }
+  } catch (err) {
+    console.warn('Failed to load site master cache:', err);
+  }
+  return {};
+}
+
+/** 現場ごとの最新メタデータ＆仮配置時間マスターを保存・更新する */
+export function saveSiteMasterEntry(
+  jobNo: string,
+  data: {
+    siteCode?: string;
+    siteName?: string;
+    metaA?: InspectionMetaA;
+    lastPlacedStartTime?: string;
+    lastPlacedEndTime?: string;
+  }
+) {
+  if (!jobNo) return;
+  try {
+    const masters = getAllSiteMasters();
+    const existing = masters[jobNo] || { jobNo, updatedAt: new Date().toISOString() };
+
+    const mergedMetaA = data.metaA ? { ...(existing.metaA || {}), ...data.metaA } : existing.metaA;
+
+    masters[jobNo] = {
+      ...existing,
+      siteCode: data.siteCode || existing.siteCode,
+      siteName: data.siteName || existing.siteName,
+      metaA: mergedMetaA,
+      lastPlacedStartTime: data.lastPlacedStartTime !== undefined ? data.lastPlacedStartTime : existing.lastPlacedStartTime,
+      lastPlacedEndTime: data.lastPlacedEndTime !== undefined ? data.lastPlacedEndTime : existing.lastPlacedEndTime,
+      updatedAt: new Date().toISOString(),
+    };
+    localStorage.setItem(MASTER_STORAGE_KEY, JSON.stringify(masters));
+  } catch (err) {
+    console.warn('Failed to save site master entry:', err);
+  }
+}
+
+/**
+ * 過去マスターから新月度アイテムへメタデータ（A）と仮配置時間を引き継ぐ
+ * 【重要ルール】
+ * - 「済」のステータスはコピー時に元に戻り（未済・必要に戻る）、済のままコピーされるケースは絶対にない。
+ * - 備考・貼紙区分・作業届区分・WEB入力区分・仮配置時間はそのまま引き継ぐ。
+ */
+export function applyMasterToItem(item: InspectionItem, master?: SiteInspectionMasterEntry): InspectionItem {
+  const masterEntry = master || (item.jobNo ? getAllSiteMasters()[item.jobNo] : null) || (item.siteCode ? getAllSiteMasters()[item.siteCode] : null);
+  if (!masterEntry) return item;
+
+  const mMeta = masterEntry.metaA;
+  let newMetaA: InspectionMetaA = { ...(item.metaA || {}) };
+
+  if (mMeta) {
+    // 備考はそのまま引き継ぐ
+    if (mMeta.remarks !== undefined && !newMetaA.remarks) {
+      newMetaA.remarks = mMeta.remarks;
+    }
+
+    // Fax: 'sent' or 'confirmed' -> 'required' (赤), 'none' -> 'none'
+    if (mMeta.faxStatus && mMeta.faxStatus !== 'none') {
+      newMetaA.faxStatus = 'required';
+    } else if (mMeta.faxStatus === 'none') {
+      newMetaA.faxStatus = 'none';
+    }
+
+    // Mail: 'sent' or 'confirmed' -> 'required' (赤), 'none' -> 'none'
+    if (mMeta.mailStatus && mMeta.mailStatus !== 'none') {
+      newMetaA.mailStatus = 'required';
+    } else if (mMeta.mailStatus === 'none') {
+      newMetaA.mailStatus = 'none';
+    }
+
+    // Tel: 'confirmed' -> 'required' (赤), 'none' -> 'none'
+    if (mMeta.telStatus && mMeta.telStatus !== 'none') {
+      newMetaA.telStatus = 'required';
+    } else if (mMeta.telStatus === 'none') {
+      newMetaA.telStatus = 'none';
+    }
+
+    // 貼紙区分: 区分はそのまま引き継ぐが、済フラグは常に未済 (false / 赤) に戻す
+    if (mMeta.posterType) {
+      newMetaA.posterType = mMeta.posterType;
+      newMetaA.posterDone = false;
+    }
+
+    // 作業届区分: 区分はそのまま引き継ぐが、済フラグは常に未済 (false / 赤) に戻す
+    if (mMeta.workNoticeType) {
+      newMetaA.workNoticeType = mMeta.workNoticeType;
+      newMetaA.workNoticeDone = false;
+    }
+
+    // WEB入力: 区分はそのまま引き継ぐが、済フラグは常に未済 (false / 赤) に戻す
+    if (mMeta.webEntryType) {
+      newMetaA.webEntryType = mMeta.webEntryType;
+      newMetaA.webEntryDone = false;
+    }
+  }
+
+  // 仮配置時の時間枠を引き継ぐ（未設定の場合）
+  const assignedStartTime = item.assignedStartTime || masterEntry.lastPlacedStartTime;
+  const assignedEndTime = item.assignedEndTime || masterEntry.lastPlacedEndTime;
+
+  return {
+    ...item,
+    metaA: newMetaA,
+    assignedStartTime,
+    assignedEndTime,
+  };
+}
+
+/** アイテム配列全体にマスターを適用する */
+export function batchApplyMasterToItems(items: InspectionItem[]): InspectionItem[] {
+  const masters = getAllSiteMasters();
+  return items.map((item) => applyMasterToItem(item, masters[item.jobNo] || (item.siteCode ? masters[item.siteCode] : undefined)));
+}
+
+/**
+ * 現場アイテムを複製（コピー）するヘルパー
+ * - 単一アイテムの別日への複製、または他月への複製に対応
+ * - 「済」フラグは全て未済（赤）にリセット
+ * - Fax/Mail/Telは 'none' でなければ 'required' (赤) にリセット
+ * - 変更済み時間（マスター登録時間）があればその時間を引き継ぎ、未変更（デフォルト9:00）ならデフォルト時間
+ */
+export function duplicateInspectionItem(
+  sourceItem: InspectionItem,
+  options?: {
+    targetYearMonth?: string;
+    newDate?: string;
+    status?: 'pending' | 'placed';
+  }
+): InspectionItem {
+  const ym = options?.targetYearMonth || sourceItem.targetYearMonth;
+  const masters = getAllSiteMasters();
+  const masterEntry = (sourceItem.jobNo ? masters[sourceItem.jobNo] : null) || (sourceItem.siteCode ? masters[sourceItem.siteCode] : null);
+
+  // メタデータ構築
+  const srcMeta = sourceItem.metaA || {};
+  const masterMeta = masterEntry?.metaA || {};
+
+  const remarks = srcMeta.remarks !== undefined ? srcMeta.remarks : masterMeta.remarks;
+  const posterType = srcMeta.posterType || masterMeta.posterType || 'none';
+  const workNoticeType = srcMeta.workNoticeType || masterMeta.workNoticeType || 'none';
+  const webEntryType = srcMeta.webEntryType || masterMeta.webEntryType || 'none';
+
+  let faxStatus: InspectionFaxStatus = 'none';
+  const rawFax = srcMeta.faxStatus || masterMeta.faxStatus;
+  if (rawFax && rawFax !== 'none') faxStatus = 'required';
+
+  let mailStatus: InspectionMailStatus = 'none';
+  const rawMail = srcMeta.mailStatus || masterMeta.mailStatus;
+  if (rawMail && rawMail !== 'none') mailStatus = 'required';
+
+  let telStatus: InspectionTelStatus = 'none';
+  const rawTel = srcMeta.telStatus || masterMeta.telStatus;
+  if (rawTel && rawTel !== 'none') telStatus = 'required';
+
+  const newMetaA: InspectionMetaA = {
+    remarks,
+    faxStatus,
+    mailStatus,
+    telStatus,
+    posterType,
+    posterDone: false, // 済フラグは常に未済にリセット
+    workNoticeType,
+    workNoticeDone: false,
+    webEntryType,
+    webEntryDone: false,
+  };
+
+  // 時間引き継ぎ:
+  // マスターに記録されたカスタム時間があるか、または元アイテムで時間がカスタマイズされていた場合はそれを引き継ぐ
+  const assignedStartTime = masterEntry?.lastPlacedStartTime || (sourceItem.assignedStartTime && sourceItem.assignedStartTime !== '09:00' ? sourceItem.assignedStartTime : undefined) || '09:00';
+  const assignedEndTime = masterEntry?.lastPlacedEndTime || (sourceItem.assignedEndTime && sourceItem.assignedEndTime !== '10:00' ? sourceItem.assignedEndTime : undefined) || '10:00';
+
+  const newStatus = options?.status !== undefined ? options.status : (options?.newDate ? 'placed' : sourceItem.status);
+
+  return {
+    ...sourceItem,
+    id: `insp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    targetYearMonth: ym,
+    assignedDate: options?.newDate !== undefined ? options.newDate : (options?.targetYearMonth ? undefined : sourceItem.assignedDate),
+    assignedStartTime,
+    assignedEndTime,
+    status: newStatus,
+    metaA: newMetaA,
+    isConfirmed: false,
+    eventId: undefined,
+  };
+}
+
+/**
+ * 過去月・他月の全点検データを新月へ一括コピーする
+ * @param sourceItems コピー元の点検アイテムリスト
+ * @param targetYearMonth コピー先の年月 (例: '2026-09')
+ * @param mode 'unassigned' (全て未配置リストとしてコピー) | 'same_day' (同日付けで仮配置してコピー)
+ */
+export function copyMonthInspectionSchedule(
+  sourceItems: InspectionItem[],
+  targetYearMonth: string,
+  mode: 'unassigned' | 'same_day' = 'unassigned'
+): InspectionItem[] {
+  const [targetYear, targetMonth] = targetYearMonth.split('-').map(Number);
+  const daysInTargetMonth = new Date(targetYear, targetMonth, 0).getDate();
+
+  return sourceItems
+    .filter(item => item.status !== 'hidden')
+    .map(item => {
+      let targetDate: string | undefined = undefined;
+
+      if (mode === 'same_day' && item.assignedDate) {
+        // 同じ「日」をコピー先年月にマップ (例: 2026-07-15 -> 2026-08-15)
+        const dayPart = parseInt(item.assignedDate.split('-')[2], 10) || 1;
+        const clampedDay = Math.min(dayPart, daysInTargetMonth);
+        targetDate = `${targetYear}-${String(targetMonth).padStart(2, '0')}-${String(clampedDay).padStart(2, '0')}`;
+      }
+
+      return duplicateInspectionItem(item, {
+        targetYearMonth,
+        newDate: targetDate,
+        status: targetDate ? 'placed' : 'pending',
+      });
+    });
+}
+
 export interface InspectionItem {
   id: string;
   targetYearMonth: string; // YYYY-MM (e.g., '2026-08')
@@ -22,6 +285,9 @@ export interface InspectionItem {
   department?: string;     // 部門 (名古屋支店など)
   excelPersonName?: string; // エクセル内の「担当者名」 (鶴見茂樹など)
   conditions?: string;     // 指定条件・警告内容など
+
+  // 専用データ (A)
+  metaA?: InspectionMetaA;
 
   status: 'pending' | 'placed' | 'carried_over' | 'hidden' | 'registered';
   carriedOverFrom?: string; // 繰越元年月 (例: '2026-07')
@@ -251,7 +517,10 @@ export function parseInspectionExcel(
       });
     }
 
-    return { targetYearMonth, items };
+    // 過去同一現場コードからの最新メタデータ（A）および仮配置時間の自動引き継ぎ適用
+    const finalItems = batchApplyMasterToItems(items);
+
+    return { targetYearMonth, items: finalItems };
   } catch (err: any) {
     console.error('Failed to parse Excel file:', err);
     return { targetYearMonth: '', items: [], error: 'Excelファイルの読み込みに失敗しました: ' + (err.message || '') };
@@ -341,6 +610,35 @@ export function generateDemoInspectionItems(targetYearMonth: string = '2026-08',
       if (matched.length > 0) assignedUsers = matched;
     }
 
+    // デモ用サンプルメタデータ (A)
+    let sampleMeta: InspectionMetaA | undefined = undefined;
+    if (idx === 0) {
+      sampleMeta = {
+        remarks: '管理人室で鍵受取。作業完了後にサイン必須。',
+        faxStatus: 'sent',
+        posterType: 'direct',
+      };
+    } else if (idx === 1) {
+      sampleMeta = {
+        remarks: '今月中に必ず点検実施のこと。',
+        telStatus: 'required',
+        workNoticeType: 'mail',
+      };
+    } else if (idx === 2) {
+      sampleMeta = {
+        remarks: '作業届2箇所へ送付（現地・ハイ）。',
+        mailStatus: 'required',
+        workNoticeType: 'fax',
+        webEntryType: 'required',
+      };
+    } else if (idx === 3) {
+      sampleMeta = {
+        remarks: '貼紙FAX送付済み。',
+        faxStatus: 'confirmed',
+        posterType: 'fax',
+      };
+    }
+
     return {
       id: `demo_${Date.now()}_${idx}`,
       targetYearMonth,
@@ -356,6 +654,7 @@ export function generateDemoInspectionItems(targetYearMonth: string = '2026-08',
       area: item.area,
       department: item.department,
       excelPersonName: item.excelPersonName,
+      metaA: sampleMeta,
       assignedUsers,
       status: 'pending',
     };

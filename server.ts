@@ -1057,36 +1057,255 @@ async function startServer() {
   });
 
   // ==========================================
+  // 通知 (Notifications) API & ヘルパー
+  // ==========================================
+  const notificationsPath = path.join(dataDir, 'notifications.json');
+
+  interface StoredNotification {
+    id: string;
+    user_id: string; // 通知先ユーザーID
+    sender_id?: string; // 通知元・作成者ユーザーID
+    type: string; // 'work_report' | 'work_report_submit' | 'work_report_review' | 'workflow' | 'memo' | etc.
+    title: string;
+    contents?: string;
+    target_id?: string; // 関連ID (週報ID等)
+    is_read: number; // 0: 未読, 1: 既読 (bit互換)
+    created_at: string; // ISO string / datetimeoffset
+    // 互換用プロパティ
+    userId?: string;
+    senderId?: string;
+    senderName?: string;
+    senderAvatar?: string;
+    content?: string;
+    targetId?: string;
+    isRead?: boolean;
+    createdAt?: string;
+  }
+
+  function loadNotifications(): StoredNotification[] {
+    if (!fs.existsSync(notificationsPath)) {
+      return [];
+    }
+    try {
+      return JSON.parse(fs.readFileSync(notificationsPath, 'utf8'));
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function saveNotifications(items: StoredNotification[]) {
+    try {
+      fs.writeFileSync(notificationsPath, JSON.stringify(items, null, 2), 'utf8');
+    } catch (e) {
+      console.error('Failed to save notifications:', e);
+    }
+  }
+
+  function createNotification(payload: {
+    user_id: string;
+    sender_id?: string;
+    type: string;
+    title: string;
+    contents?: string;
+    target_id?: string;
+    sender_name?: string;
+  }): StoredNotification {
+    const list = loadNotifications();
+    const nowIso = new Date().toISOString();
+    const newNotif: StoredNotification = {
+      id: `notif_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      user_id: String(payload.user_id),
+      sender_id: payload.sender_id ? String(payload.sender_id) : undefined,
+      type: payload.type,
+      title: payload.title,
+      contents: payload.contents || '',
+      target_id: payload.target_id || undefined,
+      is_read: 0,
+      created_at: nowIso,
+      // 互換用
+      userId: String(payload.user_id),
+      senderId: payload.sender_id ? String(payload.sender_id) : undefined,
+      senderName: payload.sender_name,
+      content: payload.contents || '',
+      targetId: payload.target_id || undefined,
+      isRead: false,
+      createdAt: nowIso,
+    };
+    list.unshift(newNotif);
+    saveNotifications(list);
+    return newNotif;
+  }
+
+  // 通知一覧取得 API
+  app.get(['/api/notifications', '/api/notifications/:userId'], (req, res) => {
+    try {
+      let list = loadNotifications();
+      const targetUserId = req.params.userId || req.query.userId || req.query.user_id;
+
+      if (targetUserId) {
+        list = list.filter(n => (n.user_id === String(targetUserId) || n.userId === String(targetUserId)));
+      }
+
+      // 未読優先、作成日時降順
+      list.sort((a, b) => {
+        const timeA = new Date(a.created_at || a.createdAt || 0).getTime();
+        const timeB = new Date(b.created_at || b.createdAt || 0).getTime();
+        return timeB - timeA;
+      });
+
+      res.json(list.map(n => ({
+        ...n,
+        userId: n.user_id || n.userId,
+        senderId: n.sender_id || n.senderId,
+        content: n.contents || n.content,
+        targetId: n.target_id || n.targetId,
+        isRead: Boolean(n.is_read || n.isRead),
+        createdAt: n.created_at || n.createdAt
+      })));
+    } catch (err: any) {
+      console.error('Get notifications error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 通知作成 API
+  app.post('/api/notifications', (req, res) => {
+    try {
+      const data = req.body || {};
+      const user_id = data.user_id || data.userId;
+      if (!user_id) {
+        return res.status(400).json({ error: 'user_id is required' });
+      }
+
+      const notif = createNotification({
+        user_id,
+        sender_id: data.sender_id || data.senderId,
+        type: data.type || 'system',
+        title: data.title || '通知',
+        contents: data.contents || data.content || '',
+        target_id: data.target_id || data.targetId,
+        sender_name: data.sender_name || data.senderName
+      });
+
+      res.status(201).json({ success: true, notification: notif });
+    } catch (err: any) {
+      console.error('Create notification error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 通知既読化 API
+  app.put(['/api/notifications/:id/read', '/api/notifications/:id'], (req, res) => {
+    try {
+      const { id } = req.params;
+      const list = loadNotifications();
+      const idx = list.findIndex(n => n.id === id);
+      if (idx !== -1) {
+        list[idx].is_read = 1;
+        list[idx].isRead = true;
+        saveNotifications(list);
+      }
+      res.json({ success: true, message: '既読に更新しました' });
+    } catch (err: any) {
+      console.error('Mark notification read error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+  app.post('/api/notifications/:id/read', (req, res) => {
+    try {
+      const { id } = req.params;
+      const list = loadNotifications();
+      const idx = list.findIndex(n => n.id === id);
+      if (idx !== -1) {
+        list[idx].is_read = 1;
+        list[idx].isRead = true;
+        saveNotifications(list);
+      }
+      res.json({ success: true, message: '既読に更新しました' });
+    } catch (err: any) {
+      console.error('Mark notification read error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 全件既読化 API
+  app.post('/api/notifications/mark-all-read', (req, res) => {
+    try {
+      const targetUserId = req.body?.user_id || req.body?.userId || req.query.userId;
+      const list = loadNotifications();
+      list.forEach(n => {
+        if (!targetUserId || n.user_id === String(targetUserId) || n.userId === String(targetUserId)) {
+          n.is_read = 1;
+          n.isRead = true;
+        }
+      });
+      saveNotifications(list);
+      res.json({ success: true, message: 'すべての通知を既読にしました' });
+    } catch (err: any) {
+      console.error('Mark all notifications read error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 通知削除 API
+  app.delete('/api/notifications/:id', (req, res) => {
+    try {
+      const { id } = req.params;
+      let list = loadNotifications();
+      const prevCount = list.length;
+      list = list.filter(n => n.id !== id);
+      saveNotifications(list);
+      res.json({ success: true, deleted: prevCount - list.length });
+    } catch (err: any) {
+      console.error('Delete notification error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ==========================================
   // 日報・週報 (Work Reports / Daily Reports) API
   // ==========================================
   const workReportsPath = path.join(dataDir, 'work_reports.json');
 
   interface StoredWorkReport {
     id: string;
-    authorId: string;
+    // 新カラム定義 (WorkReports テーブル仕様)
+    author_id: string;
+    supervisor_id?: string;
+    week_start_date?: string; // YYYY-MM-DD
+    week_label?: string; // e.g. '2026年8月17日週'
+    tasks: string;
+    achievements?: string;
+    issues?: string;
+    continued_items?: string;
+    next_week_plans?: string;
+    status: 'draft' | 'submitted' | 'reviewed';
+    review_feedback?: string;
+    reviewed_at?: string;
+    createdAt: string;
+    updated_at?: string;
+    // 互換性用プロパティ
+    authorId?: string;
     authorName?: string;
     authorDepartment?: string;
     authorAvatarUrl?: string;
     author?: any;
-    reportType: 'daily' | 'weekly';
+    reportType?: 'daily' | 'weekly';
     date?: string; // YYYY-MM-DD
-    weekStartDate?: string; // YYYY-MM-DD
-    weekLabel?: string; // e.g. '2026年8月17日週'
+    reportDate?: string;
+    weekStartDate?: string;
+    weekLabel?: string;
     department?: string;
-    tasks: string;
-    results: string;
-    issues: string;
+    results?: string;
     ongoingProjects?: string;
     tomorrowPlan?: string;
     supervisorId?: string;
     supervisorName?: string;
     supervisor?: any;
-    status: 'draft' | 'submitted' | 'reviewed';
     feedbackComment?: string;
     submittedAt?: string;
     reviewedAt?: string;
-    createdAt: string;
-    updatedAt: string;
+    updatedAt?: string;
   }
 
   function loadWorkReports(): StoredWorkReport[] {
@@ -1094,10 +1313,69 @@ async function startServer() {
       return [];
     }
     try {
-      return JSON.parse(fs.readFileSync(workReportsPath, 'utf8'));
+      const raw = JSON.parse(fs.readFileSync(workReportsPath, 'utf8'));
+      if (!Array.isArray(raw)) return [];
+      return raw.map(r => normalizeWorkReport(r));
     } catch (e) {
       return [];
     }
+  }
+
+  function normalizeWorkReport(r: any): StoredWorkReport {
+    const author_id = r.author_id || r.authorId || (r.author && r.author.id) || 'u1';
+    const supervisor_id = r.supervisor_id || r.supervisorId || (r.supervisor && r.supervisor.id) || undefined;
+    const week_start_date = r.week_start_date || r.weekStartDate || (r.date ? r.date.slice(0, 10) : undefined) || (r.reportDate ? r.reportDate.slice(0, 10) : undefined);
+    const week_label = r.week_label || r.weekLabel || (week_start_date ? `${week_start_date}週` : undefined);
+    const tasks = r.tasks || r.content || '';
+    const achievements = r.achievements !== undefined ? r.achievements : (r.results || '');
+    const issues = r.issues || '';
+    const continued_items = r.continued_items !== undefined ? r.continued_items : (r.ongoingProjects || '');
+    const next_week_plans = r.next_week_plans !== undefined ? r.next_week_plans : (r.tomorrowPlan || '');
+    const status = r.status || 'submitted';
+    const review_feedback = r.review_feedback !== undefined ? r.review_feedback : (r.feedbackComment || '');
+    const reviewed_at = r.reviewed_at || r.reviewedAt || undefined;
+    const createdAt = r.createdAt || r.created_at || new Date().toISOString();
+    const updated_at = r.updated_at || r.updatedAt || r.createdAt || new Date().toISOString();
+
+    return {
+      id: String(r.id),
+      author_id,
+      supervisor_id,
+      week_start_date,
+      week_label,
+      tasks,
+      achievements,
+      issues,
+      continued_items,
+      next_week_plans,
+      status,
+      review_feedback,
+      reviewed_at,
+      createdAt,
+      updated_at,
+      // 互換用
+      authorId: author_id,
+      authorName: r.authorName || (r.author && r.author.name) || undefined,
+      authorDepartment: r.authorDepartment || r.department || (r.author && r.author.department) || undefined,
+      authorAvatarUrl: r.authorAvatarUrl || (r.author && r.author.avatarUrl) || undefined,
+      author: r.author || undefined,
+      reportType: r.reportType || 'weekly',
+      date: r.date || r.reportDate || week_start_date,
+      reportDate: r.reportDate || r.date || week_start_date,
+      weekStartDate: week_start_date,
+      weekLabel: week_label,
+      department: r.department || r.authorDepartment || (r.author && r.author.department) || '',
+      results: achievements,
+      ongoingProjects: continued_items,
+      tomorrowPlan: next_week_plans,
+      supervisorId: supervisor_id,
+      supervisorName: r.supervisorName || (r.supervisor && r.supervisor.name) || undefined,
+      supervisor: r.supervisor || undefined,
+      feedbackComment: review_feedback,
+      submittedAt: r.submittedAt || (status === 'submitted' ? (r.createdAt || createdAt) : undefined),
+      reviewedAt: reviewed_at,
+      updatedAt: updated_at
+    };
   }
 
   function saveWorkReports(items: StoredWorkReport[]) {
@@ -1112,13 +1390,17 @@ async function startServer() {
   app.get(['/api/work-reports', '/api/daily-reports', '/api/reports'], (req, res) => {
     try {
       let reports = loadWorkReports();
-      const { authorId, supervisorId, department, reportType, status, weekStartDate } = req.query;
+      const { authorId, author_id, supervisorId, supervisor_id, department, reportType, status, weekStartDate, week_start_date } = req.query;
 
-      if (authorId) {
-        reports = reports.filter(r => r.authorId === String(authorId));
+      const targetAuthor = author_id || authorId;
+      const targetSupervisor = supervisor_id || supervisorId;
+      const targetWeekStart = week_start_date || weekStartDate;
+
+      if (targetAuthor) {
+        reports = reports.filter(r => r.author_id === String(targetAuthor) || r.authorId === String(targetAuthor));
       }
-      if (supervisorId) {
-        reports = reports.filter(r => r.supervisorId === String(supervisorId));
+      if (targetSupervisor) {
+        reports = reports.filter(r => r.supervisor_id === String(targetSupervisor) || r.supervisorId === String(targetSupervisor));
       }
       if (department) {
         reports = reports.filter(r => r.department === String(department));
@@ -1129,14 +1411,14 @@ async function startServer() {
       if (status) {
         reports = reports.filter(r => r.status === String(status));
       }
-      if (weekStartDate) {
-        reports = reports.filter(r => r.weekStartDate === String(weekStartDate));
+      if (targetWeekStart) {
+        reports = reports.filter(r => r.week_start_date === String(targetWeekStart) || r.weekStartDate === String(targetWeekStart));
       }
 
-      // 新しい順にソート (submittedAt or createdAt desc)
+      // 新しい順にソート (week_start_date or createdAt desc)
       reports.sort((a, b) => {
-        const timeA = new Date(a.date || a.weekStartDate || a.createdAt).getTime();
-        const timeB = new Date(b.date || b.weekStartDate || b.createdAt).getTime();
+        const timeA = new Date(a.week_start_date || a.date || a.createdAt).getTime();
+        const timeB = new Date(b.week_start_date || b.date || b.createdAt).getTime();
         return timeB - timeA;
       });
 
@@ -1147,7 +1429,7 @@ async function startServer() {
     }
   });
 
-  // 日報・週報 作成 / 登録 API
+  // 日報・週報 作成 / 登録 API (新旧カラム両対応 & notifications 連動)
   app.post(['/api/work-reports', '/api/daily-reports', '/api/reports'], async (req, res) => {
     try {
       const data = req.body || {};
@@ -1160,51 +1442,90 @@ async function startServer() {
       const isSubmitting = data.status === 'submitted' || data.isSubmitting;
       const status = data.status || (isSubmitting ? 'submitted' : 'draft');
 
+      const author_id = String(data.author_id || data.authorId || (data.author && data.author.id) || 'u1');
+      const authorName = data.authorName || (data.author && data.author.name) || '社員';
+      const supervisor_id = data.supervisor_id || data.supervisorId || (data.supervisor && data.supervisor.id) || undefined;
+      const week_start_date = data.week_start_date || data.weekStartDate || (data.date ? data.date.slice(0, 10) : undefined) || (data.reportDate ? data.reportDate.slice(0, 10) : undefined) || nowIso.slice(0, 10);
+      const week_label = data.week_label || data.weekLabel || (week_start_date ? `${week_start_date}週` : undefined);
+      const tasks = data.tasks || data.content || '';
+      const achievements = data.achievements !== undefined ? data.achievements : (data.results || '');
+      const issues = data.issues || '';
+      const continued_items = data.continued_items !== undefined ? data.continued_items : (data.ongoingProjects || '');
+      const next_week_plans = data.next_week_plans !== undefined ? data.next_week_plans : (data.tomorrowPlan || '');
+      const review_feedback = data.review_feedback !== undefined ? data.review_feedback : (data.feedbackComment || '');
+      const reviewed_at = data.reviewed_at || data.reviewedAt || undefined;
+      const createdAt = data.createdAt || data.created_at || (existingIdx >= 0 ? reports[existingIdx].createdAt : nowIso);
+      const updated_at = nowIso;
+
       const newReport: StoredWorkReport = {
         id: newId,
-        authorId: String(data.authorId || data.author?.id || 'u1'),
-        authorName: data.authorName || data.author?.name || '匿名',
-        authorDepartment: data.authorDepartment || data.author?.department || '',
-        authorAvatarUrl: data.authorAvatarUrl || data.author?.avatarUrl || '',
+        author_id,
+        supervisor_id,
+        week_start_date,
+        week_label,
+        tasks,
+        achievements,
+        issues,
+        continued_items,
+        next_week_plans,
+        status,
+        review_feedback,
+        reviewed_at,
+        createdAt,
+        updated_at,
+        // 互換用
+        authorId: author_id,
+        authorName,
+        authorDepartment: data.authorDepartment || data.department || (data.author && data.author.department) || '',
+        authorAvatarUrl: data.authorAvatarUrl || (data.author && data.author.avatarUrl) || '',
         author: data.author || undefined,
-        reportType: data.reportType === 'daily' ? 'daily' : 'weekly',
-        date: data.date || data.reportDate || (data.reportType === 'daily' ? nowIso.slice(0, 10) : undefined),
-        weekStartDate: data.weekStartDate || (data.date ? data.date.slice(0, 10) : undefined),
-        weekLabel: data.weekLabel || (data.weekStartDate ? `${data.weekStartDate}週` : undefined),
-        department: data.department || '',
-        tasks: data.tasks || data.content || '',
-        results: data.results || '',
-        issues: data.issues || '',
-        ongoingProjects: data.ongoingProjects || '',
-        tomorrowPlan: data.tomorrowPlan || '',
-        supervisorId: data.supervisorId || data.supervisor?.id || undefined,
-        supervisorName: data.supervisorName || data.supervisor?.name || undefined,
+        reportType: data.reportType || 'weekly',
+        date: data.date || data.reportDate || week_start_date,
+        reportDate: data.reportDate || data.date || week_start_date,
+        weekStartDate: week_start_date,
+        weekLabel: week_label,
+        department: data.department || (data.author && data.author.department) || '',
+        results: achievements,
+        ongoingProjects: continued_items,
+        tomorrowPlan: next_week_plans,
+        supervisorId: supervisor_id,
+        supervisorName: data.supervisorName || (data.supervisor && data.supervisor.name) || undefined,
         supervisor: data.supervisor || undefined,
-        status: status,
-        feedbackComment: data.feedbackComment || '',
+        feedbackComment: review_feedback,
         submittedAt: status === 'submitted' ? (data.submittedAt || nowIso) : undefined,
-        reviewedAt: data.reviewedAt || undefined,
-        createdAt: data.createdAt || nowIso,
-        updatedAt: nowIso
+        reviewedAt: reviewed_at,
+        updatedAt: updated_at
       };
 
       if (existingIdx >= 0) {
-        reports[existingIdx] = { ...reports[existingIdx], ...newReport, updatedAt: nowIso };
+        reports[existingIdx] = newReport;
       } else {
         reports.unshift(newReport);
       }
 
       saveWorkReports(reports);
 
-      // 上長へ提出された場合はPush通知を送信
-      if (status === 'submitted' && newReport.supervisorId) {
+      // 上長へ提出された場合は notifications テーブル・JSON へレコード自動作成 & Push通知
+      if (status === 'submitted' && supervisor_id && supervisor_id !== author_id) {
         try {
-          const typeName = newReport.reportType === 'weekly' ? '週報' : '日報';
-          const periodName = newReport.weekLabel || newReport.date || '最新';
+          createNotification({
+            user_id: supervisor_id,
+            sender_id: author_id,
+            type: 'work_report',
+            title: `【週報】${authorName}さんより提出`,
+            contents: `${week_label || week_start_date || '最新'}の週報が提出されました。確認をお願いします。`,
+            target_id: newId,
+            sender_name: authorName
+          });
+        } catch (notifErr) {
+          console.warn('Failed to auto-create notification:', notifErr);
+        }
+
+        try {
           await sendPushNotificationToUser({
-            targetUserId: newReport.supervisorId,
-            title: `【日報・週報】${newReport.authorName}さんより提出`,
-            body: `${periodName}の${typeName}（${newReport.department || '所属'}）が提出されました。確認をお願いします。`,
+            targetUserId: supervisor_id,
+            title: `【週報】${authorName}さんより提出`,
+            body: `${week_label || week_start_date || '最新'}の週報が提出されました。確認をお願いします。`,
             url: '/?tab=daily_report',
             data: { reportId: newReport.id, tab: 'daily_report' },
             tag: `report_submit_${newReport.id}`
@@ -1237,28 +1558,50 @@ async function startServer() {
       const nextStatus = data.status || prevStatus;
       const nowIso = new Date().toISOString();
 
-      const updatedReport: StoredWorkReport = {
+      const merged = {
         ...reports[idx],
         ...data,
         id,
         status: nextStatus,
+        achievements: data.achievements !== undefined ? data.achievements : (data.results !== undefined ? data.results : reports[idx].achievements),
+        continued_items: data.continued_items !== undefined ? data.continued_items : (data.ongoingProjects !== undefined ? data.ongoingProjects : reports[idx].continued_items),
+        next_week_plans: data.next_week_plans !== undefined ? data.next_week_plans : (data.tomorrowPlan !== undefined ? data.tomorrowPlan : reports[idx].next_week_plans),
+        review_feedback: data.review_feedback !== undefined ? data.review_feedback : (data.feedbackComment !== undefined ? data.feedbackComment : reports[idx].review_feedback),
+        author_id: data.author_id || data.authorId || reports[idx].author_id,
+        supervisor_id: data.supervisor_id !== undefined ? data.supervisor_id : (data.supervisorId !== undefined ? data.supervisorId : reports[idx].supervisor_id),
+        week_start_date: data.week_start_date || data.weekStartDate || reports[idx].week_start_date,
+        week_label: data.week_label || data.weekLabel || reports[idx].week_label,
         submittedAt: nextStatus === 'submitted' && prevStatus !== 'submitted' ? nowIso : (data.submittedAt || reports[idx].submittedAt),
+        updated_at: nowIso,
         updatedAt: nowIso
       };
 
+      const updatedReport = normalizeWorkReport(merged);
       reports[idx] = updatedReport;
       saveWorkReports(reports);
 
-      if (nextStatus === 'submitted' && prevStatus !== 'submitted' && updatedReport.supervisorId) {
-        const typeName = updatedReport.reportType === 'weekly' ? '週報' : '日報';
-        const periodName = updatedReport.weekLabel || updatedReport.date || '最新';
-        await sendPushNotificationToUser({
-          targetUserId: updatedReport.supervisorId,
-          title: `【日報・週報】${updatedReport.authorName}さんより提出`,
-          body: `${periodName}の${typeName}が提出されました。確認をお願いします。`,
-          url: '/?tab=daily_report',
-          data: { reportId: updatedReport.id, tab: 'daily_report' }
-        });
+      if (nextStatus === 'submitted' && prevStatus !== 'submitted' && updatedReport.supervisor_id) {
+        try {
+          createNotification({
+            user_id: updatedReport.supervisor_id,
+            sender_id: updatedReport.author_id,
+            type: 'work_report',
+            title: `【週報】${updatedReport.authorName || '社員'}さんより提出`,
+            contents: `${updatedReport.week_label || updatedReport.week_start_date || '最新'}の週報が提出されました。確認をお願いします。`,
+            target_id: updatedReport.id,
+            sender_name: updatedReport.authorName
+          });
+        } catch (notifErr) {}
+
+        try {
+          await sendPushNotificationToUser({
+            targetUserId: updatedReport.supervisor_id,
+            title: `【週報】${updatedReport.authorName || '社員'}さんより提出`,
+            body: `${updatedReport.week_label || updatedReport.week_start_date || '最新'}の週報が提出されました。確認をお願いします。`,
+            url: '/?tab=daily_report',
+            data: { reportId: updatedReport.id, tab: 'daily_report' }
+          });
+        } catch (pushErr) {}
       }
 
       res.json({ success: true, report: updatedReport });
@@ -1272,7 +1615,7 @@ async function startServer() {
   app.post(['/api/work-reports/:id/submit', '/api/daily-reports/:id/submit', '/api/reports/:id/submit'], async (req, res) => {
     try {
       const { id } = req.params;
-      const { supervisorId, supervisorName } = req.body || {};
+      const { supervisorId, supervisor_id, supervisorName } = req.body || {};
       const reports = loadWorkReports();
       const idx = reports.findIndex(r => r.id === id);
 
@@ -1281,26 +1624,42 @@ async function startServer() {
       }
 
       const nowIso = new Date().toISOString();
+      const targetSupId = supervisor_id || supervisorId || reports[idx].supervisor_id;
       reports[idx].status = 'submitted';
       reports[idx].submittedAt = nowIso;
+      reports[idx].updated_at = nowIso;
       reports[idx].updatedAt = nowIso;
-      if (supervisorId) reports[idx].supervisorId = supervisorId;
+      if (targetSupId) {
+        reports[idx].supervisor_id = targetSupId;
+        reports[idx].supervisorId = targetSupId;
+      }
       if (supervisorName) reports[idx].supervisorName = supervisorName;
 
       saveWorkReports(reports);
 
-      const targetSupId = reports[idx].supervisorId;
       if (targetSupId) {
-        const typeName = reports[idx].reportType === 'weekly' ? '週報' : '日報';
-        const periodName = reports[idx].weekLabel || reports[idx].date || '最新';
-        await sendPushNotificationToUser({
-          targetUserId: targetSupId,
-          title: `【日報・週報】${reports[idx].authorName}さんより提出`,
-          body: `${periodName}の${typeName}が提出されました。確認をお願いします。`,
-          url: '/?tab=daily_report',
-          data: { reportId: reports[idx].id, tab: 'daily_report' },
-          tag: `report_submit_${reports[idx].id}`
-        });
+        try {
+          createNotification({
+            user_id: targetSupId,
+            sender_id: reports[idx].author_id,
+            type: 'work_report',
+            title: `【週報】${reports[idx].authorName || '社員'}さんより提出`,
+            contents: `${reports[idx].week_label || reports[idx].week_start_date || '最新'}の週報が提出されました。確認をお願いします。`,
+            target_id: reports[idx].id,
+            sender_name: reports[idx].authorName
+          });
+        } catch (notifErr) {}
+
+        try {
+          await sendPushNotificationToUser({
+            targetUserId: targetSupId,
+            title: `【週報】${reports[idx].authorName || '社員'}さんより提出`,
+            body: `${reports[idx].week_label || reports[idx].week_start_date || '最新'}の週報が提出されました。確認をお願いします。`,
+            url: '/?tab=daily_report',
+            data: { reportId: reports[idx].id, tab: 'daily_report' },
+            tag: `report_submit_${reports[idx].id}`
+          });
+        } catch (pushErr) {}
       }
 
       res.json({ success: true, report: reports[idx] });
@@ -1310,11 +1669,11 @@ async function startServer() {
     }
   });
 
-  // 上長による確認・承認・フィードバック API
+  // 上長による確認・承認・フィードバック API (notifications 連動)
   app.post(['/api/work-reports/:id/review', '/api/daily-reports/:id/review', '/api/reports/:id/review'], async (req, res) => {
     try {
       const { id } = req.params;
-      const { feedbackComment, reviewerUserId, reviewerName } = req.body || {};
+      const { feedbackComment, review_feedback, reviewerUserId, reviewerName } = req.body || {};
       const reports = loadWorkReports();
       const idx = reports.findIndex(r => r.id === id);
 
@@ -1323,27 +1682,44 @@ async function startServer() {
       }
 
       const nowIso = new Date().toISOString();
+      const comment = review_feedback !== undefined ? review_feedback : (feedbackComment !== undefined ? feedbackComment : '');
       reports[idx].status = 'reviewed';
+      reports[idx].reviewed_at = nowIso;
       reports[idx].reviewedAt = nowIso;
+      reports[idx].review_feedback = comment;
+      reports[idx].feedbackComment = comment;
+      reports[idx].updated_at = nowIso;
       reports[idx].updatedAt = nowIso;
-      if (feedbackComment !== undefined) {
-        reports[idx].feedbackComment = feedbackComment;
-      }
 
       saveWorkReports(reports);
 
-      // 提出者本人へ確認完了の通知を送信
-      if (reports[idx].authorId) {
-        const typeName = reports[idx].reportType === 'weekly' ? '週報' : '日報';
-        const periodName = reports[idx].weekLabel || reports[idx].date || '';
-        await sendPushNotificationToUser({
-          targetUserId: reports[idx].authorId,
-          title: `【日報・週報】${reviewerName || '上長'}が報告を確認しました`,
-          body: `${periodName}の${typeName}が確認されました。${feedbackComment ? `「${feedbackComment}」` : ''}`,
-          url: '/?tab=daily_report',
-          data: { reportId: reports[idx].id, tab: 'daily_report' },
-          tag: `report_reviewed_${reports[idx].id}`
-        });
+      // 提出者本人へ確認完了の通知を notifications に作成 & Push通知
+      if (reports[idx].author_id) {
+        const periodName = reports[idx].week_label || reports[idx].week_start_date || '';
+        try {
+          createNotification({
+            user_id: reports[idx].author_id,
+            sender_id: reviewerUserId || reports[idx].supervisor_id,
+            type: 'work_report_review',
+            title: `【週報】${reviewerName || '上長'}が週報を確認しました`,
+            contents: `${periodName}の週報が確認されました。${comment ? `コメント: 「${comment}」` : ''}`,
+            target_id: reports[idx].id,
+            sender_name: reviewerName || '上長'
+          });
+        } catch (notifErr) {
+          console.warn('Failed to auto-create review notification:', notifErr);
+        }
+
+        try {
+          await sendPushNotificationToUser({
+            targetUserId: reports[idx].author_id,
+            title: `【週報】${reviewerName || '上長'}が週報を確認しました`,
+            body: `${periodName}の週報が確認されました。${comment ? `「${comment}」` : ''}`,
+            url: '/?tab=daily_report',
+            data: { reportId: reports[idx].id, tab: 'daily_report' },
+            tag: `report_reviewed_${reports[idx].id}`
+          });
+        } catch (pushErr) {}
       }
 
       res.json({ success: true, report: reports[idx] });

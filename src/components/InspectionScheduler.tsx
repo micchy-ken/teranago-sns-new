@@ -45,14 +45,35 @@ import {
   Wifi,
   WifiOff,
   HelpCircle,
-  Lock
+  Lock,
+  StickyNote,
+  Mail,
+  Printer,
+  Phone,
+  Globe,
+  FileCheck2,
+  Send,
+  Edit3,
+  Copy
 } from 'lucide-react';
 import { User, CalendarEvent } from '../types';
 import {
   InspectionItem,
+  InspectionMetaA,
+  InspectionFaxStatus,
+  InspectionMailStatus,
+  InspectionTelStatus,
+  InspectionPosterType,
+  InspectionWorkNoticeType,
+  InspectionWebEntryType,
   parseInspectionExcel,
   generateSampleInspectionExcel,
-  generateDemoInspectionItems
+  generateDemoInspectionItems,
+  saveSiteMasterEntry,
+  applyMasterToItem,
+  batchApplyMasterToItems,
+  duplicateInspectionItem,
+  copyMonthInspectionSchedule
 } from '../utils/excelInspection';
 import { getAvatarUrl } from '../utils/avatar';
 import { markEventAsRead } from '../utils/notifications';
@@ -104,6 +125,23 @@ export function InspectionScheduler({
   // 仮配置ゾーンでの確定済みスケジュール表示切替（チェックマークで非表示化可能）
   const [showRegisteredInCalendar, setShowRegisteredInCalendar] = useState<boolean>(true);
 
+  // 左側サイドバー（点検予定リスト）の開閉状態
+  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
+  // 時間変更ポップアップ表示中のアイテムID
+  const [editingTimeItemId, setEditingTimeItemId] = useState<string | null>(null);
+
+  // 備考・メタデータ(A)詳細編集モーダル用状態
+  const [metaModalItem, setMetaModalItem] = useState<InspectionItem | null>(null);
+  const [metaDraft, setMetaDraft] = useState<InspectionMetaA>({
+    remarks: '',
+    faxStatus: 'none',
+    mailStatus: 'none',
+    telStatus: 'none',
+    posterType: 'none',
+    workNoticeType: 'none',
+    webEntryType: 'none',
+  });
+
   // メンバー登録時の部署フィルター（デフォルト：保守メンバーのみ）
   const [onlyMaintenanceMembers, setOnlyMaintenanceMembers] = useState<boolean>(true);
 
@@ -116,6 +154,25 @@ export function InspectionScheduler({
   const [batchUserIds, setBatchUserIds] = useState<string[]>([]);
   const [completedCount, setCompletedCount] = useState<number>(0);
   const [step1Search, setStep1Search] = useState<string>('');
+
+  // 他月からの点検データコピーモーダル用状態
+  const [showCopyMonthModal, setShowCopyMonthModal] = useState<boolean>(false);
+  const [copySourceMonth, setCopySourceMonth] = useState<string>('2026-07');
+  const [copyMode, setCopyMode] = useState<'unassigned' | 'same_day'>('unassigned');
+  const [copyStrategy, setCopyStrategy] = useState<'replace' | 'append'>('replace');
+  const [copySourceLoading, setCopySourceLoading] = useState<boolean>(false);
+  const [copySourceItems, setCopySourceItems] = useState<InspectionItem[]>([]);
+  const [copySuccessToast, setCopySuccessToast] = useState<string | null>(null);
+
+  // Excel取り込み時の確認・不一致・上書き/追加確認モーダル用状態
+  const [pendingExcelImport, setPendingExcelImport] = useState<{
+    fileYearMonth: string;
+    items: InspectionItem[];
+    fileName: string;
+    isMismatch: boolean;
+  } | null>(null);
+  const [excelImportTargetMonthChoice, setExcelImportTargetMonthChoice] = useState<'excel_month' | 'current_selected'>('excel_month');
+  const [excelImportStrategyChoice, setExcelImportStrategyChoice] = useState<'replace' | 'append'>('replace');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -476,8 +533,16 @@ export function InspectionScheduler({
 
   const monthDays = getDaysInMonthList(targetYearMonth);
 
+  // 30分刻みの時間候補リスト
+  const TIME_OPTIONS_30MIN = [
+    '06:00', '06:30', '07:00', '07:30', '08:00', '08:30', '09:00', '09:30',
+    '10:00', '10:30', '11:00', '11:30', '12:00', '12:30', '13:00', '13:30',
+    '14:00', '14:30', '15:00', '15:30', '16:00', '16:30', '17:00', '17:30',
+    '18:00', '18:30', '19:00', '19:30', '20:00', '20:30', '21:00'
+  ];
+
   // ------------------------------------------
-  // 指定日の配置アイテムの時間再計算ヘルパー (9:00から1時間刻み)
+  // 指定日の配置アイテムの時間ヘルパー（全件9:00スタート、個別設定時間を維持）
   // ------------------------------------------
   const recalculateTimesForDateList = (
     currentItems: InspectionItem[],
@@ -487,11 +552,15 @@ export function InspectionScheduler({
     const sameDay = orderedSameDayItems || currentItems.filter((i) => i.status === 'placed' && i.assignedDate === dateKey);
     const otherItems = currentItems.filter((i) => !(i.status === 'placed' && i.assignedDate === dateKey));
 
-    const updatedSameDay = sameDay.map((item, idx) => {
-      let startH = 9 + idx;
-      if (startH >= 18) startH = 17; // 17時上限
-      const startStr = `${String(startH).padStart(2, '0')}:00`;
-      const endStr = `${String(startH + 1).padStart(2, '0')}:00`;
+    const updatedSameDay = sameDay.map((item) => {
+      // 既存の時間が設定されていれば維持、なければすべて9:00〜10:00を初期値とする
+      const startStr = item.assignedStartTime || '09:00';
+      let endStr = item.assignedEndTime;
+      if (!endStr) {
+        const [h, m] = startStr.split(':').map(Number);
+        const endH = Math.min(23, h + 1);
+        endStr = `${String(endH).padStart(2, '0')}:${String(m || 0).padStart(2, '0')}`;
+      }
       return {
         ...item,
         status: 'placed' as const,
@@ -502,6 +571,267 @@ export function InspectionScheduler({
     });
 
     return [...otherItems, ...updatedSameDay];
+  };
+
+  // ------------------------------------------
+  // 時間の30分刻み直接更新ハンドラー
+  // ------------------------------------------
+  const handleUpdateItemTime = (itemId: string, newStart: string, newEnd?: string) => {
+    setItems((prev) =>
+      prev.map((item) => {
+        if (item.id === itemId) {
+          let calculatedEnd = newEnd;
+          if (!calculatedEnd) {
+            const [h, m] = newStart.split(':').map(Number);
+            const endH = Math.min(23, h + 1);
+            calculatedEnd = `${String(endH).padStart(2, '0')}:${String(m || 0).padStart(2, '0')}`;
+          }
+          if (item.jobNo) {
+            saveSiteMasterEntry(item.jobNo, {
+              siteCode: item.siteCode,
+              siteName: item.siteName,
+              metaA: item.metaA,
+              lastPlacedStartTime: newStart,
+              lastPlacedEndTime: calculatedEnd,
+            });
+          }
+          return {
+            ...item,
+            assignedStartTime: newStart,
+            assignedEndTime: calculatedEnd,
+          };
+        }
+        return item;
+      })
+    );
+  };
+
+  // ------------------------------------------
+  // メタデータ (A) のクイック循環・トグル更新ハンドラー
+  // ------------------------------------------
+  // Faxステータス: 必要(赤) -> 送付済(黄) -> 確定済(緑) -> 必要(赤)...
+  const handleCycleFaxStatus = (itemId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setItems((prev) =>
+      prev.map((item) => {
+        if (item.id === itemId) {
+          const current = item.metaA?.faxStatus || 'none';
+          let next: InspectionFaxStatus = 'required';
+          if (current === 'required') next = 'sent';
+          else if (current === 'sent') next = 'confirmed';
+          else if (current === 'confirmed') next = 'required';
+          const newMetaA = {
+            ...item.metaA,
+            faxStatus: next,
+          };
+          if (item.jobNo) {
+            saveSiteMasterEntry(item.jobNo, {
+              siteCode: item.siteCode,
+              siteName: item.siteName,
+              metaA: newMetaA,
+            });
+          }
+          return {
+            ...item,
+            metaA: newMetaA,
+          };
+        }
+        return item;
+      })
+    );
+  };
+
+  // Mailステータス: 必要(赤) -> 送付済(黄) -> 確定済(緑) -> 必要(赤)...
+  const handleCycleMailStatus = (itemId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setItems((prev) =>
+      prev.map((item) => {
+        if (item.id === itemId) {
+          const current = item.metaA?.mailStatus || 'none';
+          let next: InspectionMailStatus = 'required';
+          if (current === 'required') next = 'sent';
+          else if (current === 'sent') next = 'confirmed';
+          else if (current === 'confirmed') next = 'required';
+          const newMetaA = {
+            ...item.metaA,
+            mailStatus: next,
+          };
+          if (item.jobNo) {
+            saveSiteMasterEntry(item.jobNo, {
+              siteCode: item.siteCode,
+              siteName: item.siteName,
+              metaA: newMetaA,
+            });
+          }
+          return {
+            ...item,
+            metaA: newMetaA,
+          };
+        }
+        return item;
+      })
+    );
+  };
+
+  // Telステータス: 必要(赤) -> 確認済(緑) -> 必要(赤)...
+  const handleCycleTelStatus = (itemId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setItems((prev) =>
+      prev.map((item) => {
+        if (item.id === itemId) {
+          const current = item.metaA?.telStatus || 'none';
+          let next: InspectionTelStatus = 'required';
+          if (current === 'required') next = 'confirmed';
+          else if (current === 'confirmed') next = 'required';
+          const newMetaA = {
+            ...item.metaA,
+            telStatus: next,
+          };
+          if (item.jobNo) {
+            saveSiteMasterEntry(item.jobNo, {
+              siteCode: item.siteCode,
+              siteName: item.siteName,
+              metaA: newMetaA,
+            });
+          }
+          return {
+            ...item,
+            metaA: newMetaA,
+          };
+        }
+        return item;
+      })
+    );
+  };
+
+  // 貼紙 済トグル (未済:赤 ⇄ 済:濃い緑)
+  const handleTogglePosterDone = (itemId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setItems((prev) =>
+      prev.map((item) => {
+        if (item.id === itemId) {
+          const nextDone = !item.metaA?.posterDone;
+          const newMetaA = {
+            ...item.metaA,
+            posterDone: nextDone,
+          };
+          if (item.jobNo) {
+            saveSiteMasterEntry(item.jobNo, {
+              siteCode: item.siteCode,
+              siteName: item.siteName,
+              metaA: newMetaA,
+            });
+          }
+          return {
+            ...item,
+            metaA: newMetaA,
+          };
+        }
+        return item;
+      })
+    );
+  };
+
+  // 作業届 済トグル (未済:赤 ⇄ 済:濃い緑)
+  const handleToggleWorkNoticeDone = (itemId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setItems((prev) =>
+      prev.map((item) => {
+        if (item.id === itemId) {
+          const nextDone = !item.metaA?.workNoticeDone;
+          const newMetaA = {
+            ...item.metaA,
+            workNoticeDone: nextDone,
+          };
+          if (item.jobNo) {
+            saveSiteMasterEntry(item.jobNo, {
+              siteCode: item.siteCode,
+              siteName: item.siteName,
+              metaA: newMetaA,
+            });
+          }
+          return {
+            ...item,
+            metaA: newMetaA,
+          };
+        }
+        return item;
+      })
+    );
+  };
+
+  // WEB入力 済トグル (未済:赤 ⇄ 済:濃い緑)
+  const handleToggleWebEntryDone = (itemId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setItems((prev) =>
+      prev.map((item) => {
+        if (item.id === itemId) {
+          const nextDone = !item.metaA?.webEntryDone;
+          const newMetaA = {
+            ...item.metaA,
+            webEntryDone: nextDone,
+          };
+          if (item.jobNo) {
+            saveSiteMasterEntry(item.jobNo, {
+              siteCode: item.siteCode,
+              siteName: item.siteName,
+              metaA: newMetaA,
+            });
+          }
+          return {
+            ...item,
+            metaA: newMetaA,
+          };
+        }
+        return item;
+      })
+    );
+  };
+
+  // 備考・メタデータ詳細モーダルを開く
+  const handleOpenMetaModal = (item: InspectionItem, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setMetaModalItem(item);
+    setMetaDraft({
+      remarks: item.metaA?.remarks || '',
+      faxStatus: item.metaA?.faxStatus || 'none',
+      mailStatus: item.metaA?.mailStatus || 'none',
+      telStatus: item.metaA?.telStatus || 'none',
+      posterType: item.metaA?.posterType || 'none',
+      posterDone: item.metaA?.posterDone || false,
+      workNoticeType: item.metaA?.workNoticeType || 'none',
+      workNoticeDone: item.metaA?.workNoticeDone || false,
+      webEntryType: item.metaA?.webEntryType || 'none',
+      webEntryDone: item.metaA?.webEntryDone || false,
+    });
+  };
+
+  // 備考・メタデータ詳細モーダルを保存
+  const handleSaveMetaModal = () => {
+    if (!metaModalItem) return;
+    const newMetaA = {
+      ...metaModalItem.metaA,
+      ...metaDraft,
+    };
+    if (metaModalItem.jobNo) {
+      saveSiteMasterEntry(metaModalItem.jobNo, {
+        siteCode: metaModalItem.siteCode,
+        siteName: metaModalItem.siteName,
+        metaA: newMetaA,
+      });
+    }
+    setItems((prev) =>
+      prev.map((item) => {
+        if (item.id === metaModalItem.id) {
+          return {
+            ...item,
+            metaA: newMetaA,
+          };
+        }
+        return item;
+      })
+    );
+    setMetaModalItem(null);
   };
 
   // ------------------------------------------
@@ -519,21 +849,76 @@ export function InspectionScheduler({
         return;
       }
 
-      const ym = result.targetYearMonth || targetYearMonth;
-      isImportingRef.current = true;
-      if (result.targetYearMonth && result.targetYearMonth !== targetYearMonth) {
-        setTargetYearMonth(result.targetYearMonth);
-      }
-      setItems(result.items);
-      setCurrentStep('assign_date');
+      const fileYm = result.targetYearMonth || targetYearMonth;
+      const isMismatch = Boolean(result.targetYearMonth && result.targetYearMonth !== targetYearMonth);
 
-      // 即座にサーバー（SQL/ファイル）に直接永続保存
-      await saveDraftDirect(ym, result.items, 'assign_date');
-      setTimeout(() => {
-        isImportingRef.current = false;
-      }, 1200);
+      // モーダルを開いて、年月不一致の確認や既存データとの上書き・追加を選択させる
+      setPendingExcelImport({
+        fileYearMonth: fileYm,
+        items: result.items,
+        fileName: file.name,
+        isMismatch,
+      });
+      setExcelImportTargetMonthChoice(isMismatch ? 'excel_month' : 'current_selected');
+      setExcelImportStrategyChoice('replace');
     };
     reader.readAsArrayBuffer(file);
+  };
+
+  // Excel取り込み確認モーダルで「取り込みを実行」をクリックした時の処理
+  const handleConfirmExcelImport = async () => {
+    if (!pendingExcelImport) return;
+
+    const chosenYm = excelImportTargetMonthChoice === 'excel_month'
+      ? pendingExcelImport.fileYearMonth
+      : targetYearMonth;
+
+    const importedItems = pendingExcelImport.items.map(item => ({
+      ...item,
+      targetYearMonth: chosenYm,
+    }));
+
+    let nextItems: InspectionItem[] = [];
+
+    // もし選択中の画面と取り込み先年月が一致していて、かつ「追加」の場合はマージ
+    if (chosenYm === targetYearMonth && excelImportStrategyChoice === 'append' && items.length > 0) {
+      nextItems = [...items, ...importedItems];
+    } else if (chosenYm !== targetYearMonth) {
+      // 別年月へ取り込む場合、その年月の既存データを一旦チェック
+      let existingTargetMonthItems: InspectionItem[] = [];
+      try {
+        const local = localStorage.getItem(`inspection_draft_${chosenYm}`);
+        if (local) {
+          const parsed = JSON.parse(local);
+          if (Array.isArray(parsed)) existingTargetMonthItems = parsed;
+        }
+      } catch (_) {}
+
+      if (excelImportStrategyChoice === 'append' && existingTargetMonthItems.length > 0) {
+        nextItems = [...existingTargetMonthItems, ...importedItems];
+      } else {
+        nextItems = importedItems;
+      }
+    } else {
+      nextItems = importedItems;
+    }
+
+    isImportingRef.current = true;
+    if (chosenYm !== targetYearMonth) {
+      setTargetYearMonth(chosenYm);
+    }
+    setItems(nextItems);
+    setCurrentStep('assign_date');
+    setPendingExcelImport(null);
+
+    setCopySuccessToast(`「${pendingExcelImport.fileName}」から ${importedItems.length} 件の点検予定を ${chosenYm} に取り込みました`);
+    setTimeout(() => setCopySuccessToast(null), 4000);
+
+    // 即座にサーバー（SQL/ファイル）に直接永続保存
+    await saveDraftDirect(chosenYm, nextItems, 'assign_date');
+    setTimeout(() => {
+      isImportingRef.current = false;
+    }, 1200);
   };
 
   const handleDropFile = (e: React.DragEvent) => {
@@ -556,6 +941,109 @@ export function InspectionScheduler({
   };
 
   // ------------------------------------------
+  // 他月からの点検データコピー処理
+  // ------------------------------------------
+  const fetchCopySourceDraft = useCallback(async (sourceYm: string) => {
+    setCopySourceLoading(true);
+    let loaded: InspectionItem[] = [];
+    try {
+      const res = await fetch(`${API_BASE_URL}/inspection/drafts?targetYearMonth=${encodeURIComponent(sourceYm)}`, {
+        headers: { 'Accept': 'application/json', 'X-Target-Year-Month': sourceYm }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.items) && data.items.length > 0) {
+          loaded = data.items;
+        }
+      }
+    } catch (_) {}
+
+    if (loaded.length === 0) {
+      try {
+        const local = localStorage.getItem(`inspection_draft_${sourceYm}`);
+        if (local) {
+          const parsed = JSON.parse(local);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            loaded = parsed;
+          }
+        }
+      } catch (_) {}
+    }
+
+    // デモ用などで過去月データがない場合のフォールバック（デモデータを仮想ソースとする）
+    if (loaded.length === 0 && (sourceYm === '2026-07' || sourceYm === getPrevMonth(targetYearMonth))) {
+      loaded = generateDemoInspectionItems(sourceYm, allUsers);
+    }
+
+    setCopySourceItems(loaded);
+    setCopySourceLoading(false);
+  }, [targetYearMonth, allUsers]);
+
+  // モーダル表示時に自動ロード
+  useEffect(() => {
+    if (showCopyMonthModal) {
+      fetchCopySourceDraft(copySourceMonth);
+    }
+  }, [showCopyMonthModal, copySourceMonth, fetchCopySourceDraft]);
+
+  const handleOpenCopyMonthModal = (defaultSourceYm?: string) => {
+    const srcYm = defaultSourceYm || getPrevMonth(targetYearMonth) || '2026-07';
+    setCopySourceMonth(srcYm);
+    setShowCopyMonthModal(true);
+  };
+
+  const handleExecuteCopyMonth = async () => {
+    if (copySourceItems.length === 0) {
+      alert(`${copySourceMonth} にコピー可能な点検データが存在しません。`);
+      return;
+    }
+
+    const copied = copyMonthInspectionSchedule(copySourceItems, targetYearMonth, copyMode);
+
+    let nextItems: InspectionItem[] = [];
+    if (copyStrategy === 'replace') {
+      nextItems = copied;
+    } else {
+      nextItems = [...items, ...copied];
+    }
+
+    isImportingRef.current = true;
+    setItems(nextItems);
+    setCurrentStep('assign_date');
+    setShowCopyMonthModal(false);
+    setCopySuccessToast(`${copySourceMonth} から ${copied.length} 件の点検予定をマスター情報付きでコピーしました`);
+    setTimeout(() => setCopySuccessToast(null), 4000);
+
+    // サーバーへ直接保存
+    await saveDraftDirect(targetYearMonth, nextItems, 'assign_date');
+    setTimeout(() => {
+      isImportingRef.current = false;
+    }, 1200);
+  };
+
+  // 単一カードの複製ハンドラー
+  const handleDuplicateItem = (sourceItem: InspectionItem) => {
+    const duplicated = duplicateInspectionItem(sourceItem, {
+      targetYearMonth,
+      newDate: sourceItem.assignedDate,
+      status: sourceItem.status === 'placed' ? 'placed' : 'pending',
+    });
+
+    setItems((prev) => {
+      const idx = prev.findIndex((i) => i.id === sourceItem.id);
+      if (idx !== -1) {
+        const next = [...prev];
+        next.splice(idx + 1, 0, duplicated);
+        return next;
+      }
+      return [...prev, duplicated];
+    });
+
+    setCopySuccessToast(`「${sourceItem.siteName}」を複製しました`);
+    setTimeout(() => setCopySuccessToast(null), 3000);
+  };
+
+  // ------------------------------------------
   // ステータス・カウント集計
   // ------------------------------------------
   const pendingItems = items.filter((i) => i.status === 'pending');
@@ -571,12 +1059,13 @@ export function InspectionScheduler({
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       const matchSite = item.siteName.toLowerCase().includes(q);
+      const matchArea = item.area ? item.area.toLowerCase().includes(q) : false;
       const matchAddr = item.address.toLowerCase().includes(q);
       const matchJob = item.jobNo.toLowerCase().includes(q);
       const matchRules = item.customerRules.toLowerCase().includes(q);
       const matchSiteCode = item.siteCode ? item.siteCode.toLowerCase().includes(q) : false;
       const matchPerson = item.excelPersonName ? item.excelPersonName.toLowerCase().includes(q) : false;
-      return matchSite || matchAddr || matchJob || matchRules || matchSiteCode || matchPerson;
+      return matchSite || matchArea || matchAddr || matchJob || matchRules || matchSiteCode || matchPerson;
     }
     return true;
   });
@@ -1053,8 +1542,17 @@ export function InspectionScheduler({
             </button>
           </div>
 
-          {/* アクションボタン: サーバー同期 & 下書きクリア */}
-          <div className="flex items-center gap-2">
+          {/* アクションボタン: 他月コピー & サーバー同期 & 下書きクリア */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={() => handleOpenCopyMonthModal()}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-xl transition-colors border border-indigo-200 cursor-pointer shadow-2xs"
+              title="他月・前月の点検予定データをマスター情報（時間・メタデータ）付きで一括コピーします"
+            >
+              <Copy className="w-3.5 h-3.5 text-indigo-600" />
+              <span>他月データからコピー</span>
+            </button>
             <button
               type="button"
               onClick={handleManualSync}
@@ -1079,6 +1577,22 @@ export function InspectionScheduler({
           </div>
         </div>
       </div>
+
+      {/* コピー完了・各種トースト通知 */}
+      {copySuccessToast && (
+        <div className="bg-emerald-600 text-white px-4 py-2.5 rounded-xl text-xs font-bold shadow-lg flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-200 shrink-0" />
+            <span>{copySuccessToast}</span>
+          </div>
+          <button
+            onClick={() => setCopySuccessToast(null)}
+            className="text-emerald-200 hover:text-white p-0.5"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* ローカル保存モード時の注意・案内バナー */}
       {syncDestination === 'local_only' && items.length > 0 && (
@@ -1182,7 +1696,7 @@ export function InspectionScheduler({
 
           {/* 取込カード */}
           <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-sm ring-1 ring-slate-900/5 flex flex-col items-center justify-center text-center space-y-4">
-            <div className="flex items-center justify-center gap-3">
+            <div className="flex items-center justify-center gap-3 flex-wrap">
               <button
                 type="button"
                 onClick={handleLoadDemoData}
@@ -1190,6 +1704,14 @@ export function InspectionScheduler({
               >
                 <Sparkles className="w-4 h-4 text-amber-600" />
                 実フォーマットのデモデータ読込
+              </button>
+              <button
+                type="button"
+                onClick={() => handleOpenCopyMonthModal()}
+                className="flex items-center gap-2 px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer"
+              >
+                <Copy className="w-4 h-4 text-indigo-600" />
+                他月・前月データから一括コピー
               </button>
               <button
                 type="button"
@@ -1395,6 +1917,15 @@ export function InspectionScheduler({
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => handleOpenCopyMonthModal()}
+                className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs rounded-xl transition-colors border border-indigo-200 flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                title="他月・前月の点検データをマスター情報付きでコピー"
+              >
+                <Copy className="w-3.5 h-3.5 text-indigo-600" />
+                他月データからコピー
+              </button>
               {pendingItems.some((i) => i.initialDate) && (
                 <button
                   onClick={handleAutoPlaceFromExcelDates}
@@ -1433,233 +1964,466 @@ export function InspectionScheduler({
             </div>
           </div>
 
-          {/* 2カラムレイアウト: 左=リスト / 右=縦一列カレンダー */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          {/* 2カラムレイアウト: 左=リスト (開閉可能) / 右=横並び日付順カレンダー */}
+          <div className="flex flex-col lg:flex-row gap-5 items-start">
             
-            {/* 左カラム: 点検予定リスト (4 cols) */}
-            <div className="lg:col-span-4 bg-white rounded-2xl border border-slate-200 p-4 shadow-sm ring-1 ring-slate-900/5 space-y-4 sticky top-20 max-h-[80vh] flex flex-col">
-              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-                <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                  <ClipboardList className="w-4 h-4 text-indigo-600" />
-                  点検予定リスト
-                </h3>
-                <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">
-                  {filteredListItems.length}件表示
-                </span>
-              </div>
-
-              {/* 検索 & フィルタタブ */}
-              <div className="space-y-2">
-                <input
-                  type="text"
-                  placeholder="現場名・作業No・住所・規則等で検索..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-
-                <div className="flex items-center gap-1 overflow-x-auto text-[11px] font-bold pb-1">
-                  <button
-                    onClick={() => setStatusFilter('pending')}
-                    className={`px-2.5 py-1 rounded-lg border cursor-pointer whitespace-nowrap ${
-                      statusFilter === 'pending' ? 'bg-amber-500 text-white border-amber-500 shadow-xs' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
-                    }`}
-                  >
-                    未配置 ({pendingItems.length})
-                  </button>
-                  <button
-                    onClick={() => setStatusFilter('placed')}
-                    className={`px-2.5 py-1 rounded-lg border cursor-pointer whitespace-nowrap ${
-                      statusFilter === 'placed' ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
-                    }`}
-                  >
-                    仮配置中 ({placedItems.length})
-                  </button>
-                  <button
-                    onClick={() => setStatusFilter('registered')}
-                    className={`px-2.5 py-1 rounded-lg border cursor-pointer whitespace-nowrap flex items-center gap-1 ${
-                      statusFilter === 'registered' ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs' : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
-                    }`}
-                  >
-                    <CheckCircle2 className="w-3 h-3 text-emerald-500" />
-                    確定済 ({registeredItems.length})
-                  </button>
-                  <button
-                    onClick={() => setStatusFilter('carried_over')}
-                    className={`px-2.5 py-1 rounded-lg border cursor-pointer whitespace-nowrap ${
-                      statusFilter === 'carried_over' ? 'bg-purple-600 text-white border-purple-600 shadow-xs' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
-                    }`}
-                  >
-                    繰越 ({carriedOverItems.length})
-                  </button>
-                  <button
-                    onClick={() => setStatusFilter('hidden')}
-                    className={`px-2.5 py-1 rounded-lg border cursor-pointer whitespace-nowrap ${
-                      statusFilter === 'hidden' ? 'bg-slate-600 text-white border-slate-600 shadow-xs' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
-                    }`}
-                  >
-                    削除 ({hiddenItems.length})
-                  </button>
-                  <button
-                    onClick={() => setStatusFilter('all')}
-                    className={`px-2.5 py-1 rounded-lg border cursor-pointer whitespace-nowrap ${
-                      statusFilter === 'all' ? 'bg-slate-800 text-white border-slate-800 shadow-xs' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
-                    }`}
-                  >
-                    すべて ({items.length})
-                  </button>
-                </div>
-              </div>
-
-              {/* ドラッグ可能なカード一覧 */}
-              <div className="overflow-y-auto space-y-3 flex-1 pr-1">
-                {filteredListItems.length === 0 ? (
-                  <div className="text-center py-8 text-slate-400 text-xs">
-                    該当する点検予定がありません
+            {/* 左カラム: 点検予定リスト (開閉可能) */}
+            {isSidebarOpen ? (
+              <div className="w-full lg:w-96 lg:shrink-0 bg-white rounded-2xl border border-slate-200 p-4 shadow-sm ring-1 ring-slate-900/5 space-y-4 sticky top-20 max-h-[82vh] flex flex-col transition-all">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                  <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                    <ClipboardList className="w-4 h-4 text-indigo-600" />
+                    点検予定リスト
+                  </h3>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">
+                      {filteredListItems.length}件表示
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setIsSidebarOpen(false)}
+                      className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg cursor-pointer transition-colors"
+                      title="リストを閉じてカレンダーを全幅表示"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
                   </div>
-                ) : (
-                  filteredListItems.map((item) => (
-                    <div
-                      key={item.id}
-                      draggable={item.status === 'pending' || item.status === 'placed'}
-                      onDragStart={(e) => {
-                        e.dataTransfer.setData('text/plain', item.id);
-                        setDraggedItemId(item.id);
-                      }}
-                      onDragEnd={() => {
-                        setDraggedItemId(null);
-                        setDragOverDate(null);
-                        setDragOverItemId(null);
-                      }}
-                      className={`p-3.5 rounded-xl border transition-all relative group cursor-grab active:cursor-grabbing ${
-                        item.status === 'pending'
-                          ? 'bg-white border-slate-200 hover:border-indigo-400 hover:shadow-sm'
-                          : item.status === 'placed'
-                          ? 'bg-emerald-50/40 border-emerald-300'
-                          : item.status === 'carried_over'
-                          ? 'bg-indigo-50/40 border-indigo-200 opacity-70'
-                          : 'bg-slate-100 border-slate-200 opacity-50'
+                </div>
+
+                {/* 検索 & フィルタタブ */}
+                <div className="space-y-2">
+                  <input
+                    type="text"
+                    placeholder="現場名・作業No・地区・住所・規則等で検索..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+
+                  <div className="flex items-center gap-1 overflow-x-auto text-[11px] font-bold pb-1">
+                    <button
+                      onClick={() => setStatusFilter('pending')}
+                      className={`px-2.5 py-1 rounded-lg border cursor-pointer whitespace-nowrap ${
+                        statusFilter === 'pending' ? 'bg-amber-500 text-white border-amber-500 shadow-xs' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
                       }`}
                     >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="w-full">
-                          <div className="flex items-center gap-1.5 mb-1 flex-wrap">
-                            <span className="font-mono text-[10px] font-black px-1.5 py-0.5 bg-slate-100 text-slate-700 rounded">
-                              {item.jobNo}
-                            </span>
-                            <span className="font-semibold text-[10px] px-1.5 py-0.5 bg-indigo-50 text-indigo-700 rounded border border-indigo-100">
-                              {item.quantity}台
-                            </span>
-                            {item.workName && (
-                              <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded">
-                                {item.workName}
-                              </span>
-                            )}
-                            {item.carriedOverFrom && (
-                              <span className="font-bold text-[10px] px-1.5 py-0.5 bg-indigo-100 text-indigo-800 rounded border border-indigo-200 inline-flex items-center gap-1">
-                                <History className="w-2.5 h-2.5" />
-                                前月({item.carriedOverFrom})より繰越
-                              </span>
-                            )}
-                          </div>
-                          <h4 className="text-xs font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">
-                            {item.siteName}
-                          </h4>
-                          <p className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-1">
-                            <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
-                            <span className="truncate">{item.address}</span>
-                          </p>
-                          {item.customerRules && (
-                            <div className="text-[10px] text-amber-800 bg-amber-50/90 border border-amber-200/80 px-1.5 py-0.5 rounded mt-1 truncate font-medium">
-                              <span className="font-bold text-amber-900">客先規則:</span> {item.customerRules}
+                      未配置 ({pendingItems.length})
+                    </button>
+                    <button
+                      onClick={() => setStatusFilter('placed')}
+                      className={`px-2.5 py-1 rounded-lg border cursor-pointer whitespace-nowrap ${
+                        statusFilter === 'placed' ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      仮配置中 ({placedItems.length})
+                    </button>
+                    <button
+                      onClick={() => setStatusFilter('registered')}
+                      className={`px-2.5 py-1 rounded-lg border cursor-pointer whitespace-nowrap flex items-center gap-1 ${
+                        statusFilter === 'registered' ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs' : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+                      }`}
+                    >
+                      <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+                      確定済 ({registeredItems.length})
+                    </button>
+                    <button
+                      onClick={() => setStatusFilter('carried_over')}
+                      className={`px-2.5 py-1 rounded-lg border cursor-pointer whitespace-nowrap ${
+                        statusFilter === 'carried_over' ? 'bg-purple-600 text-white border-purple-600 shadow-xs' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      繰越 ({carriedOverItems.length})
+                    </button>
+                    <button
+                      onClick={() => setStatusFilter('hidden')}
+                      className={`px-2.5 py-1 rounded-lg border cursor-pointer whitespace-nowrap ${
+                        statusFilter === 'hidden' ? 'bg-slate-600 text-white border-slate-600 shadow-xs' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      削除 ({hiddenItems.length})
+                    </button>
+                    <button
+                      onClick={() => setStatusFilter('all')}
+                      className={`px-2.5 py-1 rounded-lg border cursor-pointer whitespace-nowrap ${
+                        statusFilter === 'all' ? 'bg-slate-800 text-white border-slate-800 shadow-xs' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      すべて ({items.length})
+                    </button>
+                  </div>
+                </div>
+
+                {/* ドラッグ可能なカード一覧 */}
+                <div className="overflow-y-auto space-y-3 flex-1 pr-1">
+                  {filteredListItems.length === 0 ? (
+                    <div className="text-center py-8 text-slate-400 text-xs">
+                      該当する点検予定がありません
+                    </div>
+                  ) : (
+                    filteredListItems.map((item) => {
+                      const isSpot = item.workCategory === '2' || item.workName === 'スポット' || item.workName === 'スポット点検' || (item.workName ? item.workName.includes('スポット') : false);
+                      return (
+                      <div
+                        key={item.id}
+                        draggable={item.status === 'pending' || item.status === 'placed'}
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData('text/plain', item.id);
+                          setDraggedItemId(item.id);
+                        }}
+                        onDragEnd={() => {
+                          setDraggedItemId(null);
+                          setDragOverDate(null);
+                          setDragOverItemId(null);
+                        }}
+                        className={`p-3.5 rounded-xl border transition-all relative group cursor-grab active:cursor-grabbing ${
+                          item.status === 'pending'
+                            ? 'bg-white border-slate-200 hover:border-indigo-400 hover:shadow-sm'
+                            : item.status === 'placed'
+                            ? 'bg-emerald-50/40 border-emerald-300'
+                            : item.status === 'carried_over'
+                            ? 'bg-indigo-50/40 border-indigo-200 opacity-70'
+                            : 'bg-slate-100 border-slate-200 opacity-50'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="w-full">
+                            {/* 上段: 繰越バッジ ＆ 右上ステータスボタン/バッジ */}
+                            <div className="flex items-center justify-between gap-1 mb-1">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                {item.carriedOverFrom && (
+                                  <span className="font-bold text-[10px] px-1.5 py-0.5 bg-indigo-100 text-indigo-800 rounded border border-indigo-200 inline-flex items-center gap-1">
+                                    <History className="w-2.5 h-2.5" />
+                                    前月({item.carriedOverFrom})より繰越
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* 右上: 「なし」以外のステータスボタン（Fax/Mail/Tel）＆済切替ボタン（貼紙/作業届/WEB入力） */}
+                              <div className="flex items-center gap-1 flex-wrap justify-end">
+                                {/* Faxボタン (必要:赤 -> 送付済:黄 -> 確定済:緑) */}
+                                {item.metaA?.faxStatus && item.metaA.faxStatus !== 'none' && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => handleCycleFaxStatus(item.id, e)}
+                                    className={`px-1.5 py-0.5 rounded text-[9px] font-black tracking-tighter cursor-pointer transition-all shadow-2xs ${
+                                      item.metaA.faxStatus === 'required'
+                                        ? 'bg-rose-600 text-white hover:bg-rose-700'
+                                        : item.metaA.faxStatus === 'sent'
+                                        ? 'bg-amber-400 text-slate-950 font-black hover:bg-amber-500'
+                                        : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                                    }`}
+                                    title={`Fax: ${item.metaA.faxStatus === 'required' ? '必要(赤)' : item.metaA.faxStatus === 'sent' ? '送付済(黄)' : '確定済(緑)'} (クリックで切替)`}
+                                  >
+                                    Fax
+                                  </button>
+                                )}
+
+                                {/* Mailボタン (必要:赤 -> 送付済:黄 -> 確定済:緑) */}
+                                {item.metaA?.mailStatus && item.metaA.mailStatus !== 'none' && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => handleCycleMailStatus(item.id, e)}
+                                    className={`px-1.5 py-0.5 rounded text-[9px] font-black tracking-tighter cursor-pointer transition-all shadow-2xs ${
+                                      item.metaA.mailStatus === 'required'
+                                        ? 'bg-rose-600 text-white hover:bg-rose-700'
+                                        : item.metaA.mailStatus === 'sent'
+                                        ? 'bg-amber-400 text-slate-950 font-black hover:bg-amber-500'
+                                        : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                                    }`}
+                                    title={`Mail: ${item.metaA.mailStatus === 'required' ? '必要(赤)' : item.metaA.mailStatus === 'sent' ? '送付済(黄)' : '確定済(緑)'} (クリックで切替)`}
+                                  >
+                                    Mail
+                                  </button>
+                                )}
+
+                                {/* Telボタン (必要:赤 -> 確認済:緑) */}
+                                {item.metaA?.telStatus && item.metaA.telStatus !== 'none' && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => handleCycleTelStatus(item.id, e)}
+                                    className={`px-1.5 py-0.5 rounded text-[9px] font-black tracking-tighter cursor-pointer transition-all shadow-2xs ${
+                                      item.metaA.telStatus === 'required'
+                                        ? 'bg-rose-600 text-white hover:bg-rose-700'
+                                        : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                                    }`}
+                                    title={`Tel: ${item.metaA.telStatus === 'required' ? '必要(赤)' : '確認済(緑)'} (クリックで切替)`}
+                                  >
+                                    Tel
+                                  </button>
+                                )}
+
+                                {/* 貼紙ボタン (貼紙＋区分、クリックで未済:赤 ⇄ 済:濃い緑) */}
+                                {item.metaA?.posterType && item.metaA.posterType !== 'none' && (() => {
+                                  const pType = item.metaA.posterType;
+                                  const label = pType === 'direct' ? '直接' : pType === 'mail' ? 'Mail' : pType === 'fax' ? 'Fax' : '郵送';
+                                  const isDone = Boolean(item.metaA.posterDone);
+                                  return (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => handleTogglePosterDone(item.id, e)}
+                                      className="inline-flex items-center rounded text-[9px] overflow-hidden border border-sky-300 shadow-2xs cursor-pointer select-none hover:opacity-90 transition-all"
+                                      title={`貼紙${label}: ${isDone ? '済(濃緑)' : '未済(赤)'} (クリックで済/未済を切替)`}
+                                    >
+                                      <span className="px-1 py-0.5 bg-sky-100 text-sky-900 font-bold border-r border-sky-300">
+                                        貼紙
+                                      </span>
+                                      <span className={`px-1.5 py-0.5 font-black transition-colors ${
+                                        isDone ? 'bg-emerald-700 text-white' : 'bg-rose-600 text-white'
+                                      }`}>
+                                        {label}
+                                      </span>
+                                    </button>
+                                  );
+                                })()}
+
+                                {/* 作業届ボタン (作業届＋区分、クリックで未済:赤 ⇄ 済:濃い緑) */}
+                                {item.metaA?.workNoticeType && item.metaA.workNoticeType !== 'none' && (() => {
+                                  const label = item.metaA.workNoticeType === 'mail' ? 'Mail' : 'Fax';
+                                  const isDone = Boolean(item.metaA.workNoticeDone);
+                                  return (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => handleToggleWorkNoticeDone(item.id, e)}
+                                      className="inline-flex items-center rounded text-[9px] overflow-hidden border border-indigo-300 shadow-2xs cursor-pointer select-none hover:opacity-90 transition-all"
+                                      title={`作業届${label}: ${isDone ? '済(濃緑)' : '未済(赤)'} (クリックで済/未済を切替)`}
+                                    >
+                                      <span className="px-1 py-0.5 bg-indigo-100 text-indigo-900 font-bold border-r border-indigo-300">
+                                        作業届
+                                      </span>
+                                      <span className={`px-1.5 py-0.5 font-black transition-colors ${
+                                        isDone ? 'bg-emerald-700 text-white' : 'bg-rose-600 text-white'
+                                      }`}>
+                                        {label}
+                                      </span>
+                                    </button>
+                                  );
+                                })()}
+
+                                {/* WEB入力ボタン (WEB＋入力、クリックで未済:赤 ⇄ 済:濃い緑) */}
+                                {item.metaA?.webEntryType && item.metaA.webEntryType !== 'none' && (() => {
+                                  const isDone = Boolean(item.metaA.webEntryDone);
+                                  return (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => handleToggleWebEntryDone(item.id, e)}
+                                      className="inline-flex items-center rounded text-[9px] overflow-hidden border border-purple-300 shadow-2xs cursor-pointer select-none hover:opacity-90 transition-all"
+                                      title={`WEB入力: ${isDone ? '済(濃緑)' : '未済(赤)'} (クリックで済/未済を切替)`}
+                                    >
+                                      <span className="px-1 py-0.5 bg-purple-100 text-purple-900 font-bold border-r border-purple-300">
+                                        WEB
+                                      </span>
+                                      <span className={`px-1.5 py-0.5 font-black transition-colors ${
+                                        isDone ? 'bg-emerald-700 text-white' : 'bg-rose-600 text-white'
+                                      }`}>
+                                        入力
+                                      </span>
+                                    </button>
+                                  );
+                                })()}
+                              </div>
                             </div>
+
+                            <h4 className="text-xs font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">
+                              {item.siteName}
+                            </h4>
+                            
+                            {/* スポット点検（該当時のみ地区の左） ＆ 地区 ＆ 台数（右側） */}
+                            <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-1.5 flex-wrap" title={`地区: ${item.area || '-'} / 住所: ${item.address || '-'}`}>
+                              {isSpot && (
+                                <span className="font-bold text-[10px] px-1.5 py-0.5 bg-amber-100 text-amber-900 border border-amber-300 rounded shrink-0">
+                                  スポット点検
+                                </span>
+                              )}
+                              <span className="flex items-center gap-1 truncate font-medium text-slate-600">
+                                <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
+                                <span className="truncate">{item.area || item.address || '地区未定'}</span>
+                              </span>
+                              <span className="font-semibold text-[10px] px-1.5 py-0.5 bg-indigo-50 text-indigo-700 rounded border border-indigo-100 shrink-0">
+                                {item.quantity}台
+                              </span>
+                            </div>
+                            {item.customerRules && (
+                              <div
+                                className="relative group/rule text-[10px] text-amber-800 bg-amber-50/90 border border-amber-200/80 px-1.5 py-0.5 rounded mt-1 truncate font-medium cursor-help"
+                                title={`客先規則: ${item.customerRules}`}
+                              >
+                                <span className="font-bold text-amber-900">客先規則:</span> {item.customerRules}
+
+                                {/* マウスホバーで全文表示する吹き出し */}
+                                <div className="hidden group-hover/rule:block absolute bottom-full left-0 mb-1.5 z-30 w-64 max-w-xs p-2 bg-slate-900 text-white text-[11px] font-normal rounded-lg shadow-xl whitespace-normal break-words pointer-events-none animate-in fade-in zoom-in-95 duration-100">
+                                  <div className="font-bold text-amber-300 text-[10px] mb-0.5 flex items-center gap-1">
+                                    <span>客先規則（全文）</span>
+                                  </div>
+                                  {item.customerRules}
+                                  <div className="absolute top-full left-4 -mt-1 border-4 border-transparent border-t-slate-900" />
+                                </div>
+                              </div>
+                            )}
+
+                            {/* 付箋風の備考欄 (客先規則の真下に重なるように配置・ホバーで全文表示) */}
+                            <div className="mt-1 flex justify-end">
+                              <div
+                                onClick={(e) => handleOpenMetaModal(item, e)}
+                                className="relative group/note w-full bg-amber-100 hover:bg-amber-200 text-amber-950 px-2 py-1 rounded-md border border-amber-300 shadow-2xs transform rotate-0.5 hover:rotate-0 transition-all cursor-pointer"
+                                title={item.metaA?.remarks ? `備考: ${item.metaA.remarks}` : 'クリックして備考・全ステータス（Fax/Mail/Tell/貼紙/作業届/WEB入力）を変更'}
+                              >
+                                <div className="flex items-center gap-1.5 text-[10px] font-bold text-amber-900 leading-tight">
+                                  <StickyNote className="w-3 h-3 text-amber-700 shrink-0" />
+                                  <span className="truncate">
+                                    {item.metaA?.remarks ? item.metaA.remarks : '＋ 備考・ステータス設定'}
+                                  </span>
+                                </div>
+
+                                {/* マウスホバーで全文表示する吹き出し */}
+                                {item.metaA?.remarks && (
+                                  <div className="hidden group-hover/note:block absolute bottom-full right-0 mb-1.5 z-30 w-64 max-w-xs p-2.5 bg-amber-950 text-amber-50 text-[11px] font-normal rounded-lg shadow-xl whitespace-normal break-words pointer-events-none animate-in fade-in zoom-in-95 duration-100">
+                                    <div className="font-bold text-amber-300 text-[10px] mb-1 flex items-center gap-1 border-b border-amber-800/80 pb-0.5">
+                                      <StickyNote className="w-3 h-3 text-amber-400 shrink-0" />
+                                      <span>備考メモ（全文）</span>
+                                    </div>
+                                    <div className="leading-relaxed whitespace-pre-wrap">{item.metaA.remarks}</div>
+                                    <div className="absolute top-full right-6 -mt-1 border-4 border-transparent border-t-amber-950" />
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* アクションボタン */}
+                        <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] font-bold">
+                          {item.status === 'pending' && (
+                            <>
+                              <button
+                                onClick={() => {
+                                  setManualModalItem(item);
+                                  setManualDate(item.initialDate || `${targetYearMonth}-01`);
+                                }}
+                                className="text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer"
+                              >
+                                <Plus className="w-3 h-3" />
+                                日時指定配置
+                              </button>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleDuplicateItem(item)}
+                                  className="text-indigo-600 hover:text-indigo-800 cursor-pointer flex items-center gap-0.5"
+                                  title="この現場を複製（コピー）"
+                                >
+                                  <Copy className="w-2.5 h-2.5" />
+                                  複製
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleCarryOverItem(item.id)}
+                                  className="text-slate-500 hover:text-slate-800 cursor-pointer"
+                                  title="翌月に繰り越す"
+                                >
+                                  翌月繰越
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleHideItem(item.id)}
+                                  className="text-slate-400 hover:text-rose-600 cursor-pointer"
+                                  title="一時削除する"
+                                >
+                                  削除
+                                </button>
+                              </div>
+                            </>
+                          )}
+
+                          {item.status === 'placed' && (
+                            <div className="w-full flex items-center justify-between gap-1 flex-wrap">
+                              <span className="text-indigo-800 font-bold flex items-center gap-1 bg-indigo-50 px-2 py-0.5 rounded text-[11px] border border-indigo-100">
+                                <CalendarIcon className="w-3 h-3 text-indigo-600" />
+                                仮: {item.assignedDate?.slice(5)} ({item.assignedStartTime})
+                              </span>
+                              <button
+                                onClick={() => handleRemoveFromCalendar(item.id)}
+                                className="text-rose-600 hover:text-rose-800 cursor-pointer underline"
+                              >
+                                未配置に戻す
+                              </button>
+                            </div>
+                          )}
+
+                          {item.status === 'registered' && (
+                            <div className="w-full flex items-center justify-between gap-1 flex-wrap">
+                              <span className="text-emerald-900 font-bold flex items-center gap-1 bg-emerald-100 px-2 py-0.5 rounded text-[11px] border border-emerald-300">
+                                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                確定済: {item.assignedDate?.slice(5)} ({item.assignedStartTime})
+                              </span>
+                            </div>
+                          )}
+
+                          {(item.status === 'hidden' || item.status === 'carried_over') && (
+                            <button
+                              onClick={() => handleRestoreToPending(item.id)}
+                              className="text-indigo-600 hover:text-indigo-800 cursor-pointer font-bold"
+                            >
+                              未配置リストに戻す
+                            </button>
                           )}
                         </div>
                       </div>
-
-                      {/* アクションボタン */}
-                      <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] font-bold">
-                        {item.status === 'pending' && (
-                          <>
-                            <button
-                              onClick={() => {
-                                setManualModalItem(item);
-                                setManualDate(item.initialDate || `${targetYearMonth}-01`);
-                              }}
-                              className="text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer"
-                            >
-                              <Plus className="w-3 h-3" />
-                              日時指定配置
-                            </button>
-                            <div className="flex items-center gap-2">
-                              <button
-                                onClick={() => handleCarryOverItem(item.id)}
-                                className="text-slate-500 hover:text-slate-800 cursor-pointer"
-                                title="翌月に繰り越す"
-                              >
-                                翌月繰越
-                              </button>
-                              <button
-                                onClick={() => handleHideItem(item.id)}
-                                className="text-slate-400 hover:text-rose-600 cursor-pointer"
-                                title="一時削除する"
-                              >
-                                削除
-                              </button>
-                            </div>
-                          </>
-                        )}
-
-                        {item.status === 'placed' && (
-                          <div className="w-full flex items-center justify-between gap-1 flex-wrap">
-                            <span className="text-indigo-800 font-bold flex items-center gap-1 bg-indigo-50 px-2 py-0.5 rounded text-[11px] border border-indigo-100">
-                              <CalendarIcon className="w-3 h-3 text-indigo-600" />
-                              仮: {item.assignedDate?.slice(5)} ({item.assignedStartTime})
-                            </span>
-                            <button
-                              onClick={() => handleRemoveFromCalendar(item.id)}
-                              className="text-rose-600 hover:text-rose-800 cursor-pointer underline"
-                            >
-                              未配置に戻す
-                            </button>
-                          </div>
-                        )}
-
-                        {item.status === 'registered' && (
-                          <div className="w-full flex items-center justify-between gap-1 flex-wrap">
-                            <span className="text-emerald-900 font-bold flex items-center gap-1 bg-emerald-100 px-2 py-0.5 rounded text-[11px] border border-emerald-300">
-                              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                              確定済: {item.assignedDate?.slice(5)} ({item.assignedStartTime})
-                            </span>
-                          </div>
-                        )}
-
-                        {(item.status === 'hidden' || item.status === 'carried_over') && (
-                          <button
-                            onClick={() => handleRestoreToPending(item.id)}
-                            className="text-indigo-600 hover:text-indigo-800 cursor-pointer font-bold"
-                          >
-                            未配置リストに戻す
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))
-                )}
+                    );
+                  })
+                  )}
+                </div>
               </div>
-            </div>
+            ) : (
+              /* 閉じている時の縦ストリップバー */
+              <div className="w-12 shrink-0 bg-white rounded-2xl border border-slate-200 p-2 shadow-sm ring-1 ring-slate-900/5 flex flex-col items-center gap-4 sticky top-20 transition-all">
+                <button
+                  type="button"
+                  onClick={() => setIsSidebarOpen(true)}
+                  className="p-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl cursor-pointer transition-colors shadow-2xs"
+                  title="点検予定リストを展開する"
+                >
+                  <ChevronRight className="w-5 h-5" />
+                </button>
+                <div
+                  onClick={() => setIsSidebarOpen(true)}
+                  className="cursor-pointer flex flex-col items-center gap-2 py-2 text-slate-600 hover:text-indigo-600 transition-colors"
+                  title="クリックして点検予定リストを開く"
+                >
+                  <ClipboardList className="w-4 h-4 text-indigo-600" />
+                  <span className="text-[11px] font-bold [writing-mode:vertical-rl] tracking-widest">
+                    予定リスト ({pendingItems.length})
+                  </span>
+                </div>
+                <span className="text-[10px] font-black text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded-full">
+                  {pendingItems.length}
+                </span>
+              </div>
+            )}
 
-            {/* 右カラム: カレンダー（縦一列・日付順） (8 cols) */}
-            <div className="lg:col-span-8 bg-white rounded-2xl border border-slate-200 p-4 shadow-sm ring-1 ring-slate-900/5 space-y-4">
+            {/* 右カラム: カレンダー（日付は縦並び、予定は右側へ横並び追加） */}
+            <div className="flex-1 min-w-0 bg-white rounded-2xl border border-slate-200 p-4 shadow-sm ring-1 ring-slate-900/5 space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-3">
-                <div>
-                  <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
-                    <CalendarIcon className="w-5 h-5 text-indigo-600" />
-                    {targetYearMonth}度 日付順カレンダー (仮配置・再配置ゾーン)
-                  </h3>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    左リストからドロップして新規配置。配置後も<strong>「別日付へのD&D移動」</strong>や<strong>「▲▼ボタン・D&Dでの順序入れ替え（時間の自動調整）」</strong>が可能です。
-                  </p>
+                <div className="flex items-center gap-3">
+                  {!isSidebarOpen && (
+                    <button
+                      type="button"
+                      onClick={() => setIsSidebarOpen(true)}
+                      className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs rounded-xl flex items-center gap-1.5 border border-indigo-200 transition-colors cursor-pointer"
+                      title="左側の点検予定リストを表示"
+                    >
+                      <ClipboardList className="w-3.5 h-3.5" />
+                      リスト表示 ({pendingItems.length}件)
+                    </button>
+                  )}
+                  <div>
+                    <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
+                      <CalendarIcon className="w-5 h-5 text-indigo-600" />
+                      {targetYearMonth}度 日付順カレンダー (仮配置・再配置ゾーン)
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      日付ごとに予定が右側へ横並びで配置されます。時間は<strong>すべて9:00スタート</strong>、時間バッジをクリックして<strong>30分刻みで直接変更</strong>できます。
+                    </p>
+                  </div>
                 </div>
 
                 {/* チェックマーク: 確定済みスケジュールの表示/非表示 */}
@@ -1680,7 +2444,7 @@ export function InspectionScheduler({
                 </label>
               </div>
 
-              {/* 縦一列の日付ブロック */}
+              {/* 日付行リスト（日付は縦並び、予定は右側へ横並び追加） */}
               <div className="space-y-3 max-h-[75vh] overflow-y-auto pr-1">
                 {monthDays.map((day) => {
                   const dayPlacedItems = items.filter(
@@ -1719,57 +2483,64 @@ export function InspectionScheduler({
                           handleAssignItemToDate(itemId, day.dateKey);
                         }
                       }}
-                      className={`p-3.5 rounded-2xl border transition-all ${
+                      className={`p-3 rounded-2xl border transition-all flex flex-col md:flex-row items-stretch gap-3 ${
                         isHovered
                           ? 'bg-indigo-50 border-indigo-400 ring-2 ring-indigo-300'
                           : day.isSunday
                           ? 'bg-rose-50/20 border-rose-200/80'
                           : day.isSaturday
                           ? 'bg-blue-50/20 border-blue-200/80'
-                          : 'bg-slate-50/50 border-slate-200'
+                          : 'bg-slate-50/40 border-slate-200'
                       }`}
                     >
-                      <div className="flex items-center justify-between pb-2 border-b border-slate-200/60 flex-wrap gap-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span
-                            className={`px-2.5 py-0.5 rounded-lg font-black text-xs ${
-                              day.isSunday
-                                ? 'bg-rose-500 text-white'
-                                : day.isSaturday
-                                ? 'bg-blue-500 text-white'
-                                : 'bg-slate-800 text-white'
-                            }`}
-                          >
-                            {day.monthNumber}/{day.dayNumber} ({day.dayOfWeekStr})
-                          </span>
+                      {/* 左側: 日付固定カラム */}
+                      <div className="w-full md:w-36 md:shrink-0 flex md:flex-col items-center md:items-start justify-between md:justify-center gap-1.5 p-2 bg-white/80 rounded-xl border border-slate-200/80 shadow-2xs">
+                        <span
+                          className={`px-2.5 py-1 rounded-lg font-black text-xs w-full text-center ${
+                            day.isSunday
+                              ? 'bg-rose-500 text-white'
+                              : day.isSaturday
+                              ? 'bg-blue-500 text-white'
+                              : 'bg-slate-800 text-white'
+                          }`}
+                        >
+                          {day.monthNumber}/{day.dayNumber} ({day.dayOfWeekStr})
+                        </span>
 
-                          <span className="text-xs font-bold text-slate-500">
-                            {dayPlacedItems.length > 0 ? `${dayPlacedItems.length}件 仮配置` : (!hasAnyItem ? '未配置' : '')}
-                          </span>
+                        <div className="flex items-center gap-1 flex-wrap">
+                          {dayPlacedItems.length > 0 && (
+                            <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 px-1.5 py-0.5 rounded">
+                              {dayPlacedItems.length}件 仮配置
+                            </span>
+                          )}
                           {dayRegisteredItems.length > 0 && (
-                            <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200/80 rounded-md text-[11px] font-bold flex items-center gap-1">
+                            <span className="px-1.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200/80 rounded text-[10px] font-bold flex items-center gap-1">
                               <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                              {dayRegisteredItems.length}件 確定済
+                              {dayRegisteredItems.length}件 確定
+                            </span>
+                          )}
+                          {!hasAnyItem && (
+                            <span className="text-[10px] font-bold text-slate-400">
+                              未配置
                             </span>
                           )}
                         </div>
-
-                        <span className="text-[10px] text-slate-400 font-bold">
-                          D&Dドロップ領域 (別日付からの移動も可能)
-                        </span>
                       </div>
 
-                      {/* 配置済み & 確定済みアイテム一覧 */}
-                      <div className="mt-2.5 space-y-2">
+                      {/* 右側: 予定カードの横並びゾーン (8/2 □ □ □ □ 折り返さず右に伸びてスクロール) */}
+                      <div className="flex-1 min-w-0 flex items-stretch gap-2.5 min-h-[76px] p-2 bg-slate-50/60 rounded-xl border border-dashed border-slate-200/90 overflow-x-auto">
                         {!hasAnyItem ? (
-                          <div className="py-2 text-center text-xs text-slate-400 border border-dashed border-slate-200 rounded-xl">
+                          <div className="w-full py-4 text-center text-xs text-slate-400 flex items-center justify-center gap-1.5 shrink-0">
+                            <Plus className="w-3.5 h-3.5 text-slate-300" />
                             ドラッグしてここにドロップ (9:00〜仮配置)
                           </div>
                         ) : (
                           <>
-                            {/* 1. 仮配置中の点検予定 (移動・順序入れ替え・削除可能) */}
-                            {dayPlacedItems.map((placed, idx) => {
+                            {/* 1. 仮配置中の点検予定カード (横スクロール・横一列配置) */}
+                            {dayPlacedItems.map((placed) => {
                               const isItemDragOver = dragOverItemId === placed.id;
+                              const isEditingTime = editingTimeItemId === placed.id;
+                              const isSpot = placed.workCategory === '2' || placed.workName === 'スポット' || placed.workName === 'スポット点検' || (placed.workName ? placed.workName.includes('スポット') : false);
 
                               return (
                                 <div
@@ -1806,143 +2577,385 @@ export function InspectionScheduler({
                                       handleDropOnItem(sourceItemId, placed.id);
                                     }
                                   }}
-                                  className={`p-3 bg-white rounded-xl border shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 transition-all cursor-grab active:cursor-grabbing group ${
+                                  className={`w-72 shrink-0 p-3 bg-white rounded-xl border shadow-xs flex flex-col justify-between gap-2 transition-all cursor-grab active:cursor-grabbing group relative ${
                                     isItemDragOver
                                       ? 'border-indigo-500 ring-2 ring-indigo-200 bg-indigo-50/50'
-                                      : 'border-emerald-200 hover:border-emerald-400'
+                                      : 'border-emerald-200 hover:border-emerald-400 hover:shadow-sm'
                                   }`}
                                 >
-                                  <div className="flex items-center gap-2.5 flex-1 min-w-0">
-                                    {/* ドラッグハンドル */}
-                                    <div className="text-slate-300 group-hover:text-slate-500 cursor-grab shrink-0" title="ドラッグして順序や日付を変更">
-                                      <GripVertical className="w-4 h-4" />
-                                    </div>
+                                  {/* カード上部: 左上に時間変更ボタン ＆ 右上にステータスボタン群/解除ボタン */}
+                                  <div>
+                                    <div className="flex items-center justify-between gap-1 mb-1.5 relative">
+                                      {/* 左上: 時間直接変更ボタン (30分刻み) */}
+                                      <div className="relative">
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setEditingTimeItemId(isEditingTime ? null : placed.id);
+                                          }}
+                                          className="px-2 py-0.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-mono font-bold rounded-lg border border-emerald-200 transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                                          title="クリックして時間を直接変更 (30分刻み)"
+                                        >
+                                          <Clock className="w-3 h-3 text-emerald-600" />
+                                          <span>{placed.assignedStartTime || '09:00'} - {placed.assignedEndTime || '10:00'}</span>
+                                          <ChevronDown className="w-3 h-3 text-emerald-600" />
+                                        </button>
 
-                                    {/* 時間バッジ */}
-                                    <span className="px-2 py-1 bg-emerald-100 text-emerald-800 text-xs font-mono font-black rounded-lg shrink-0">
-                                      {placed.assignedStartTime} - {placed.assignedEndTime}
-                                    </span>
+                                        {/* 30分刻みの時間クイック選択ポップオーバー */}
+                                        {isEditingTime && (
+                                          <div
+                                            onClick={(e) => e.stopPropagation()}
+                                            className="absolute left-0 top-full mt-1.5 z-30 bg-white rounded-xl border border-slate-200 shadow-xl p-3 w-64 space-y-2 ring-1 ring-slate-900/10 text-xs animate-in fade-in zoom-in-95 duration-100"
+                                          >
+                                            <div className="flex items-center justify-between pb-1 border-b border-slate-100">
+                                              <span className="font-bold text-slate-800 flex items-center gap-1">
+                                                <Clock className="w-3.5 h-3.5 text-indigo-600" />
+                                                時間変更 (30分刻み)
+                                              </span>
+                                              <button
+                                                type="button"
+                                                onClick={() => setEditingTimeItemId(null)}
+                                                className="text-slate-400 hover:text-slate-600 text-xs font-bold px-1"
+                                              >
+                                                ✕
+                                              </button>
+                                            </div>
 
-                                    {/* 現場名・情報 */}
-                                    <div className="min-w-0 flex-1">
-                                      <div className="text-xs font-bold text-slate-900 flex items-center gap-2 flex-wrap">
-                                        <span className="truncate">{placed.siteName}</span>
-                                        <span className="text-[10px] font-mono text-slate-500">({placed.jobNo})</span>
-                                        <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded shrink-0">
-                                          {placed.quantity}台
-                                        </span>
-                                        {placed.workName && (
-                                          <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded shrink-0">
-                                            {placed.workName}
-                                          </span>
+                                            <div className="grid grid-cols-2 gap-2">
+                                              <div>
+                                                <label className="text-[10px] font-bold text-slate-500 block mb-1">
+                                                  開始時刻
+                                                </label>
+                                                <select
+                                                  value={placed.assignedStartTime || '09:00'}
+                                                  onChange={(e) => {
+                                                    const newStart = e.target.value;
+                                                    handleUpdateItemTime(placed.id, newStart);
+                                                  }}
+                                                  className="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono font-bold focus:ring-2 focus:ring-indigo-500"
+                                                >
+                                                  {TIME_OPTIONS_30MIN.map((t) => (
+                                                    <option key={t} value={t}>
+                                                      {t}
+                                                    </option>
+                                                  ))}
+                                                </select>
+                                              </div>
+
+                                              <div>
+                                                <label className="text-[10px] font-bold text-slate-500 block mb-1">
+                                                  終了時刻
+                                                </label>
+                                                <select
+                                                  value={placed.assignedEndTime || '10:00'}
+                                                  onChange={(e) => {
+                                                    const newEnd = e.target.value;
+                                                    handleUpdateItemTime(placed.id, placed.assignedStartTime || '09:00', newEnd);
+                                                  }}
+                                                  className="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono font-bold focus:ring-2 focus:ring-indigo-500"
+                                                >
+                                                  {TIME_OPTIONS_30MIN.map((t) => (
+                                                    <option key={t} value={t}>
+                                                      {t}
+                                                    </option>
+                                                  ))}
+                                                </select>
+                                              </div>
+                                            </div>
+
+                                            {/* クイックプリセットボタン */}
+                                            <div className="pt-1 border-t border-slate-100 flex items-center justify-between gap-1 flex-wrap">
+                                              {['09:00', '10:30', '13:00', '14:30', '16:00'].map((preset) => (
+                                                <button
+                                                  key={preset}
+                                                  type="button"
+                                                  onClick={() => {
+                                                    handleUpdateItemTime(placed.id, preset);
+                                                    setEditingTimeItemId(null);
+                                                  }}
+                                                  className="px-1.5 py-0.5 bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 font-mono text-[10px] font-bold rounded text-slate-600 transition-colors"
+                                                >
+                                                  {preset}
+                                                </button>
+                                              ))}
+                                            </div>
+                                          </div>
                                         )}
                                       </div>
-                                      <div className="text-[11px] text-slate-500 truncate mt-0.5">
-                                        {placed.address}
-                                      </div>
-                                      {placed.customerRules && (
-                                        <div className="text-[10px] text-amber-800 bg-amber-50/90 border border-amber-200/80 px-1.5 py-0.5 rounded mt-1 truncate max-w-lg font-medium flex items-center gap-1">
-                                          <span className="font-bold text-amber-900 shrink-0">客先規則:</span>
-                                          <span className="truncate">{placed.customerRules}</span>
+
+                                      <div className="flex items-center gap-1">
+                                        {/* 右上: 「なし」以外のステータスボタン（Fax/Mail/Tel）＆済切替ボタン（貼紙/作業届/WEB入力） */}
+                                        <div className="flex items-center gap-1 flex-wrap justify-end">
+                                          {/* Faxボタン (必要:赤 -> 送付済:黄 -> 確定済:緑) */}
+                                          {placed.metaA?.faxStatus && placed.metaA.faxStatus !== 'none' && (
+                                            <button
+                                              type="button"
+                                              onClick={(e) => handleCycleFaxStatus(placed.id, e)}
+                                              className={`px-1.5 py-0.5 rounded text-[9px] font-black tracking-tighter cursor-pointer transition-all shadow-2xs ${
+                                                placed.metaA.faxStatus === 'required'
+                                                  ? 'bg-rose-600 text-white hover:bg-rose-700'
+                                                  : placed.metaA.faxStatus === 'sent'
+                                                  ? 'bg-amber-400 text-slate-950 font-black hover:bg-amber-500'
+                                                  : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                                              }`}
+                                              title={`Fax: ${placed.metaA.faxStatus === 'required' ? '必要(赤)' : placed.metaA.faxStatus === 'sent' ? '送付済(黄)' : '確定済(緑)'} (クリックで切替)`}
+                                            >
+                                              Fax
+                                            </button>
+                                          )}
+
+                                          {/* Mailボタン (必要:赤 -> 送付済:黄 -> 確定済:緑) */}
+                                          {placed.metaA?.mailStatus && placed.metaA.mailStatus !== 'none' && (
+                                            <button
+                                              type="button"
+                                              onClick={(e) => handleCycleMailStatus(placed.id, e)}
+                                              className={`px-1.5 py-0.5 rounded text-[9px] font-black tracking-tighter cursor-pointer transition-all shadow-2xs ${
+                                                placed.metaA.mailStatus === 'required'
+                                                  ? 'bg-rose-600 text-white hover:bg-rose-700'
+                                                  : placed.metaA.mailStatus === 'sent'
+                                                  ? 'bg-amber-400 text-slate-950 font-black hover:bg-amber-500'
+                                                  : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                                              }`}
+                                              title={`Mail: ${placed.metaA.mailStatus === 'required' ? '必要(赤)' : '送付済(黄)'} (クリックで切替)`}
+                                            >
+                                              Mail
+                                            </button>
+                                          )}
+
+                                          {/* Telボタン (必要:赤 -> 確認済:緑) */}
+                                          {placed.metaA?.telStatus && placed.metaA.telStatus !== 'none' && (
+                                            <button
+                                              type="button"
+                                              onClick={(e) => handleCycleTelStatus(placed.id, e)}
+                                              className={`px-1.5 py-0.5 rounded text-[9px] font-black tracking-tighter cursor-pointer transition-all shadow-2xs ${
+                                                placed.metaA.telStatus === 'required'
+                                                  ? 'bg-rose-600 text-white hover:bg-rose-700'
+                                                  : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                                              }`}
+                                              title={`Tel: ${placed.metaA.telStatus === 'required' ? '必要(赤)' : '確認済(緑)'} (クリックで切替)`}
+                                            >
+                                              Tel
+                                            </button>
+                                          )}
+
+                                          {/* 貼紙ボタン (貼紙＋区分、クリックで未済:赤 ⇄ 済:濃い緑) */}
+                                          {placed.metaA?.posterType && placed.metaA.posterType !== 'none' && (() => {
+                                            const pType = placed.metaA.posterType;
+                                            const label = pType === 'direct' ? '直接' : pType === 'mail' ? 'Mail' : pType === 'fax' ? 'Fax' : '郵送';
+                                            const isDone = Boolean(placed.metaA.posterDone);
+                                            return (
+                                              <button
+                                                type="button"
+                                                onClick={(e) => handleTogglePosterDone(placed.id, e)}
+                                                className="inline-flex items-center rounded text-[9px] overflow-hidden border border-sky-300 shadow-2xs cursor-pointer select-none hover:opacity-90 transition-all"
+                                                title={`貼紙${label}: ${isDone ? '済(濃緑)' : '未済(赤)'} (クリックで済/未済を切替)`}
+                                              >
+                                                <span className="px-1 py-0.5 bg-sky-100 text-sky-900 font-bold border-r border-sky-300">
+                                                  貼紙
+                                                </span>
+                                                <span className={`px-1.5 py-0.5 font-black transition-colors ${
+                                                  isDone ? 'bg-emerald-700 text-white' : 'bg-rose-600 text-white'
+                                                }`}>
+                                                  {label}
+                                                </span>
+                                              </button>
+                                            );
+                                          })()}
+
+                                          {/* 作業届ボタン (作業届＋区分、クリックで未済:赤 ⇄ 済:濃い緑) */}
+                                          {placed.metaA?.workNoticeType && placed.metaA.workNoticeType !== 'none' && (() => {
+                                            const label = placed.metaA.workNoticeType === 'mail' ? 'Mail' : 'Fax';
+                                            const isDone = Boolean(placed.metaA.workNoticeDone);
+                                            return (
+                                              <button
+                                                type="button"
+                                                onClick={(e) => handleToggleWorkNoticeDone(placed.id, e)}
+                                                className="inline-flex items-center rounded text-[9px] overflow-hidden border border-indigo-300 shadow-2xs cursor-pointer select-none hover:opacity-90 transition-all"
+                                                title={`作業届${label}: ${isDone ? '済(濃緑)' : '未済(赤)'} (クリックで済/未済を切替)`}
+                                              >
+                                                <span className="px-1 py-0.5 bg-indigo-100 text-indigo-900 font-bold border-r border-indigo-300">
+                                                  作業届
+                                                </span>
+                                                <span className={`px-1.5 py-0.5 font-black transition-colors ${
+                                                  isDone ? 'bg-emerald-700 text-white' : 'bg-rose-600 text-white'
+                                                }`}>
+                                                  {label}
+                                                </span>
+                                              </button>
+                                            );
+                                          })()}
+
+                                          {/* WEB入力ボタン (WEB＋入力、クリックで未済:赤 ⇄ 済:濃い緑) */}
+                                          {placed.metaA?.webEntryType && placed.metaA.webEntryType !== 'none' && (() => {
+                                            const isDone = Boolean(placed.metaA.webEntryDone);
+                                            return (
+                                              <button
+                                                type="button"
+                                                onClick={(e) => handleToggleWebEntryDone(placed.id, e)}
+                                                className="inline-flex items-center rounded text-[9px] overflow-hidden border border-purple-300 shadow-2xs cursor-pointer select-none hover:opacity-90 transition-all"
+                                                title={`WEB入力: ${isDone ? '済(濃緑)' : '未済(赤)'} (クリックで済/未済を切替)`}
+                                              >
+                                                <span className="px-1 py-0.5 bg-purple-100 text-purple-900 font-bold border-r border-purple-300">
+                                                  WEB
+                                                </span>
+                                                <span className={`px-1.5 py-0.5 font-black transition-colors ${
+                                                  isDone ? 'bg-emerald-700 text-white' : 'bg-rose-600 text-white'
+                                                }`}>
+                                                  入力
+                                                </span>
+                                              </button>
+                                            );
+                                          })()}
                                         </div>
+
+                                        {/* 現場カード複製ボタン */}
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleDuplicateItem(placed);
+                                          }}
+                                          className="text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 p-1 rounded-md transition-colors cursor-pointer ml-1"
+                                          title="この現場カードを複製（コピー）"
+                                        >
+                                          <Copy className="w-3.5 h-3.5" />
+                                        </button>
+
+                                        {/* 未配置に戻すクイック解除ボタン */}
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleRemoveFromCalendar(placed.id);
+                                          }}
+                                          className="text-slate-300 hover:text-rose-600 hover:bg-rose-50 p-1 rounded-md transition-colors cursor-pointer"
+                                          title="未配置リストに戻す"
+                                        >
+                                          <RotateCcw className="w-3.5 h-3.5" />
+                                        </button>
+                                      </div>
+                                    </div>
+
+                                    {/* 現場名 */}
+                                    <h4 className="text-xs font-bold text-slate-900 group-hover:text-indigo-600 transition-colors line-clamp-1">
+                                      {placed.siteName}
+                                    </h4>
+
+                                    {/* スポット点検（該当時のみ地区の左） ＆ 地区 ＆ 台数（右側） */}
+                                    <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-1.5 flex-wrap" title={`地区: ${placed.area || '-'} / 住所: ${placed.address || '-'}`}>
+                                      {isSpot && (
+                                        <span className="font-bold text-[10px] px-1.5 py-0.5 bg-amber-100 text-amber-900 border border-amber-300 rounded shrink-0">
+                                          スポット点検
+                                        </span>
                                       )}
-                                    </div>
-                                  </div>
-
-                                  {/* 操作ボタングループ (順序変更 ▲▼, リストに戻す) */}
-                                  <div className="flex items-center gap-1.5 self-end sm:self-center shrink-0">
-                                    {/* 順序変更ボタン (▲ / ▼) */}
-                                    <div className="flex items-center bg-slate-100 rounded-lg p-0.5 border border-slate-200">
-                                      <button
-                                        type="button"
-                                        disabled={idx === 0}
-                                        onClick={() => handleMoveItemOrder(placed.id, 'up')}
-                                        className="p-1 hover:bg-white text-slate-600 hover:text-indigo-600 rounded disabled:opacity-30 disabled:hover:bg-transparent cursor-pointer transition-colors"
-                                        title="時間を1つ繰り上げ（前へ移動）"
-                                      >
-                                        <ChevronUp className="w-3.5 h-3.5" />
-                                      </button>
-                                      <button
-                                        type="button"
-                                        disabled={idx === dayPlacedItems.length - 1}
-                                        onClick={() => handleMoveItemOrder(placed.id, 'down')}
-                                        className="p-1 hover:bg-white text-slate-600 hover:text-indigo-600 rounded disabled:opacity-30 disabled:hover:bg-transparent cursor-pointer transition-colors"
-                                        title="時間を1つ繰り下げ（後ろへ移動）"
-                                      >
-                                        <ChevronDown className="w-3.5 h-3.5" />
-                                      </button>
+                                      <span className="flex items-center gap-1 truncate font-medium text-slate-600">
+                                        <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
+                                        <span className="truncate">{placed.area || placed.address || '地区未定'}</span>
+                                      </span>
+                                      <span className="font-semibold text-[10px] px-1.5 py-0.5 bg-indigo-50 text-indigo-700 rounded border border-indigo-100 shrink-0">
+                                        {placed.quantity}台
+                                      </span>
                                     </div>
 
-                                    {/* リストに戻す */}
-                                    <button
-                                      type="button"
-                                      onClick={() => handleRemoveFromCalendar(placed.id)}
-                                      className="px-2 py-1 text-[11px] font-bold text-rose-600 hover:bg-rose-50 border border-rose-200 rounded-lg transition-colors cursor-pointer"
-                                    >
-                                      リストに戻す
-                                    </button>
+                                    {/* 客先規則 */}
+                                    {placed.customerRules && (
+                                      <div
+                                        className="relative group/rule text-[10px] text-amber-800 bg-amber-50/90 border border-amber-200/80 px-1.5 py-0.5 rounded mt-1 truncate font-medium cursor-help"
+                                        title={`客先規則: ${placed.customerRules}`}
+                                      >
+                                        <span className="font-bold text-amber-900">客先規則:</span> {placed.customerRules}
+
+                                        {/* マウスホバーで全文表示する吹き出し */}
+                                        <div className="hidden group-hover/rule:block absolute bottom-full left-0 mb-1.5 z-30 w-64 max-w-xs p-2 bg-slate-900 text-white text-[11px] font-normal rounded-lg shadow-xl whitespace-normal break-words pointer-events-none animate-in fade-in zoom-in-95 duration-100">
+                                          <div className="font-bold text-amber-300 text-[10px] mb-0.5 flex items-center gap-1">
+                                            <span>客先規則（全文）</span>
+                                          </div>
+                                          {placed.customerRules}
+                                          <div className="absolute top-full left-4 -mt-1 border-4 border-transparent border-t-slate-900" />
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {/* 付箋風の備考欄 (客先規則の真下に重なるように配置・ホバーで全文表示) */}
+                                    <div className="mt-1 flex justify-end">
+                                      <div
+                                        onClick={(e) => handleOpenMetaModal(placed, e)}
+                                        className="relative group/note w-full bg-amber-100 hover:bg-amber-200 text-amber-950 px-2 py-1 rounded-md border border-amber-300 shadow-2xs transform rotate-0.5 hover:rotate-0 transition-all cursor-pointer"
+                                        title={placed.metaA?.remarks ? `備考: ${placed.metaA.remarks}` : 'クリックして備考・全ステータス（Fax/Mail/Tell/貼紙/作業届/WEB入力）を変更'}
+                                      >
+                                        <div className="flex items-center gap-1.5 text-[10px] font-bold text-amber-900 leading-tight">
+                                          <StickyNote className="w-3 h-3 text-amber-700 shrink-0" />
+                                          <span className="truncate">
+                                            {placed.metaA?.remarks ? placed.metaA.remarks : '＋ 備考・ステータス設定'}
+                                          </span>
+                                        </div>
+
+                                        {/* マウスホバーで全文表示する吹き出し */}
+                                        {placed.metaA?.remarks && (
+                                          <div className="hidden group-hover/note:block absolute bottom-full right-0 mb-1.5 z-30 w-64 max-w-xs p-2.5 bg-amber-950 text-amber-50 text-[11px] font-normal rounded-lg shadow-xl whitespace-normal break-words pointer-events-none animate-in fade-in zoom-in-95 duration-100">
+                                            <div className="font-bold text-amber-300 text-[10px] mb-1 flex items-center gap-1 border-b border-amber-800/80 pb-0.5">
+                                              <StickyNote className="w-3 h-3 text-amber-400 shrink-0" />
+                                              <span>備考メモ（全文）</span>
+                                            </div>
+                                            <div className="leading-relaxed whitespace-pre-wrap">{placed.metaA.remarks}</div>
+                                            <div className="absolute top-full right-6 -mt-1 border-4 border-transparent border-t-amber-950" />
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
                                   </div>
                                 </div>
                               );
                             })}
 
-                            {/* 2. 確定済みの点検予定 (薄く表示・ロック状態で移動/削除不可) */}
-                            {dayRegisteredItems.map((reg) => (
+                            {/* 2. 確定済みの点検予定 (薄く表示・ロック状態・横スクロール) */}
+                            {dayRegisteredItems.map((reg) => {
+                              const isSpot = reg.workCategory === '2' || reg.workName === 'スポット' || reg.workName === 'スポット点検' || (reg.workName ? reg.workName.includes('スポット') : false);
+                              return (
                               <div
                                 key={reg.id}
-                                className="p-3 bg-slate-100/80 border border-slate-200/90 rounded-xl shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 opacity-65 hover:opacity-90 transition-opacity select-none"
+                                className="w-72 shrink-0 p-3 bg-slate-100/80 border border-slate-200/90 rounded-xl shadow-2xs flex flex-col justify-between gap-2 opacity-65 hover:opacity-90 transition-opacity select-none"
                               >
-                                <div className="flex items-center gap-2.5 flex-1 min-w-0">
-                                  {/* ロックアイコン */}
-                                  <div className="text-slate-400 shrink-0" title="確定済み（移動・削除不可）">
-                                    <Lock className="w-3.5 h-3.5" />
+                                <div>
+                                  <div className="flex items-center justify-between gap-1 mb-1">
+                                    <span className="px-2 py-0.5 bg-slate-200 text-slate-700 font-mono font-bold rounded text-xs flex items-center gap-1">
+                                      <Lock className="w-3 h-3 text-slate-400" />
+                                      {reg.assignedStartTime || '09:00'} - {reg.assignedEndTime || '10:00'}
+                                    </span>
+                                    <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded flex items-center gap-1 border border-emerald-200">
+                                      <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                      確定済
+                                    </span>
                                   </div>
 
-                                  {/* 時間バッジ */}
-                                  <span className="px-2 py-1 bg-slate-200/90 text-slate-700 text-xs font-mono font-bold rounded-lg shrink-0">
-                                    {reg.assignedStartTime || '09:00'} - {reg.assignedEndTime || '10:00'}
-                                  </span>
-
-                                  {/* 確定済バッジ */}
-                                  <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded flex items-center gap-1 shrink-0 border border-emerald-200">
-                                    <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                                    確定済
-                                  </span>
-
-                                  {/* 現場名・情報 */}
-                                  <div className="min-w-0 flex-1">
-                                    <div className="text-xs font-semibold text-slate-800 flex items-center gap-2 flex-wrap">
-                                      <span className="truncate">{reg.siteName}</span>
-                                      <span className="text-[10px] font-mono text-slate-400">({reg.jobNo})</span>
-                                      <span className="text-[10px] px-1.5 py-0.5 bg-slate-200/60 text-slate-600 rounded shrink-0">
-                                        {reg.quantity}台
+                                  <h4 className="text-xs font-semibold text-slate-800 line-clamp-1">
+                                    {reg.siteName}
+                                  </h4>
+                                  <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-1.5 flex-wrap" title={`地区: ${reg.area || '-'} / 住所: ${reg.address || '-'}`}>
+                                    {isSpot && (
+                                      <span className="font-bold text-[10px] px-1.5 py-0.5 bg-amber-100 text-amber-900 border border-amber-300 rounded shrink-0">
+                                        スポット点検
                                       </span>
-                                      {reg.workName && (
-                                        <span className="text-[10px] px-1.5 py-0.5 bg-slate-200/60 text-slate-600 rounded shrink-0">
-                                          {reg.workName}
-                                        </span>
-                                      )}
-                                    </div>
-                                    <div className="text-[11px] text-slate-500 truncate mt-0.5">
-                                      {reg.address}
-                                    </div>
-                                    {reg.assignedUsers && reg.assignedUsers.length > 0 && (
-                                      <div className="flex items-center gap-1.5 text-[10px] text-slate-600 mt-1 flex-wrap">
-                                        <span className="font-bold text-slate-400">担当:</span>
-                                        {reg.assignedUsers.map((u) => (
-                                          <span
-                                            key={u.id}
-                                            className="px-1.5 py-0.2 bg-white border border-slate-200 rounded text-slate-700 font-medium"
-                                          >
-                                            {u.name}
-                                          </span>
-                                        ))}
-                                      </div>
                                     )}
+                                    <span className="flex items-center gap-1 truncate font-medium text-slate-600">
+                                      <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
+                                      <span className="truncate">{reg.area || reg.address || '地区未定'}</span>
+                                    </span>
+                                    <span className="font-semibold text-[10px] px-1.5 py-0.5 bg-slate-200 text-slate-700 rounded border border-slate-300 shrink-0">
+                                      {reg.quantity}台
+                                    </span>
                                   </div>
                                 </div>
+
+                                {reg.assignedUsers && reg.assignedUsers.length > 0 && (
+                                  <div className="pt-2 border-t border-slate-200/60 flex items-center justify-end text-[10px] text-slate-600 truncate">
+                                    担当: {reg.assignedUsers.map((u) => u.name).join(', ')}
+                                  </div>
+                                )}
                               </div>
-                            ))}
+                            );
+                          })}
                           </>
                         )}
                       </div>
@@ -1951,7 +2964,6 @@ export function InspectionScheduler({
                 })}
               </div>
             </div>
-
           </div>
         </div>
       )}
@@ -2104,7 +3116,7 @@ export function InspectionScheduler({
                   <th className="py-2.5 px-3 whitespace-nowrap">日時</th>
                   <th className="py-2.5 px-3 whitespace-nowrap">作業No</th>
                   <th className="py-2.5 px-3 whitespace-nowrap">現場名 (台数・作業名)</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap">場所 / 客先規則</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap">地区 / 客先規則</th>
                   <th className="py-2.5 px-3 whitespace-nowrap">カレンダー参加メンバー (保守)</th>
                 </tr>
               </thead>
@@ -2134,7 +3146,7 @@ export function InspectionScheduler({
                       </div>
                     </td>
                     <td className="py-3 px-3 min-w-0">
-                      <div className="text-slate-700 truncate font-medium" title={item.address}>{item.address}</div>
+                      <div className="text-slate-700 truncate font-medium" title={item.area ? `${item.area}${item.address ? ` (${item.address})` : ''}` : item.address}>{item.area || item.address || '-'}</div>
                       {item.customerRules && (
                         <div className="text-[10px] text-amber-800 bg-amber-50/80 px-1.5 py-0.5 rounded mt-0.5 truncate font-medium border border-amber-100" title={item.customerRules}>
                           規則: {item.customerRules}
@@ -2257,7 +3269,7 @@ export function InspectionScheduler({
             </h3>
             <div className="text-xs text-slate-600 bg-slate-50 p-2.5 rounded-lg">
               <div className="font-bold text-slate-900">{manualModalItem.siteName}</div>
-              <div className="text-[11px] text-slate-500">{manualModalItem.address}</div>
+              <div className="text-[11px] text-slate-500">{manualModalItem.area || manualModalItem.address}</div>
             </div>
 
             <div className="space-y-3 text-xs">
@@ -2424,6 +3436,715 @@ export function InspectionScheduler({
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
                 <span>今すぐサーバーへ再同期</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 備考・各種ステータス設定モーダル (付箋クリックで開く) */}
+      {metaModalItem && metaDraft && (
+        <div
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setMetaModalItem(null);
+            }
+          }}
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4"
+        >
+          <div className="bg-white rounded-3xl p-6 sm:p-7 max-w-lg w-full shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150 border border-slate-200">
+            {/* モーダルヘッダー */}
+            <div className="flex items-start justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center font-bold shadow-xs">
+                  <StickyNote className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
+                    <span>現場備考・ステータス設定</span>
+                    <span className="font-mono text-xs font-bold px-2 py-0.5 bg-slate-100 text-slate-700 rounded-md">
+                      {metaModalItem.jobNo}
+                    </span>
+                  </h3>
+                  <p className="text-xs font-bold text-slate-600 truncate max-w-sm mt-0.5">
+                    {metaModalItem.siteName}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMetaModalItem(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* 設定フォーム */}
+            <div className="space-y-4 text-xs max-h-[60vh] overflow-y-auto pr-1">
+              {/* 1. 備考欄 (付箋に表示されるテキスト) */}
+              <div>
+                <label className="block font-bold text-slate-800 mb-1 flex items-center gap-1.5">
+                  <Edit3 className="w-3.5 h-3.5 text-amber-600" />
+                  備考（カード右下の付箋に表示）
+                </label>
+                <textarea
+                  rows={2}
+                  value={metaDraft.remarks || ''}
+                  onChange={(e) => setMetaDraft({ ...metaDraft, remarks: e.target.value })}
+                  placeholder="備考を入力（例: 鍵預かり、管理人室へ、午前希望など）"
+                  className="w-full px-3 py-2 bg-amber-50/40 border border-amber-200 rounded-xl text-slate-900 placeholder:text-slate-400 focus:ring-2 focus:ring-amber-500 focus:border-amber-500 font-medium"
+                />
+              </div>
+
+              {/* 2. ステータスボタン系 (クリックで状態が変わる系) */}
+              <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/80 space-y-3">
+                <div className="font-bold text-slate-700 text-[11px] uppercase tracking-wider">
+                  連絡・通知ステータス（右上ボタン表示）
+                </div>
+
+                {/* Faxステータス */}
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                    <Printer className="w-3.5 h-3.5 text-slate-500" />
+                    Faxステータス
+                  </span>
+                  <div className="flex items-center gap-1">
+                    {[
+                      { id: 'none', label: 'なし', bg: 'bg-slate-100 text-slate-600' },
+                      { id: 'required', label: '必要', bg: 'bg-rose-600 text-white' },
+                      { id: 'sent', label: '送付済', bg: 'bg-amber-400 text-slate-900 font-bold' },
+                      { id: 'confirmed', label: '確定済', bg: 'bg-emerald-600 text-white' },
+                    ].map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => setMetaDraft({ ...metaDraft, faxStatus: opt.id as any })}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                          metaDraft.faxStatus === opt.id
+                            ? `${opt.bg} ring-2 ring-indigo-500 shadow-xs`
+                            : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Mailステータス */}
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                    <Mail className="w-3.5 h-3.5 text-slate-500" />
+                    Mailステータス
+                  </span>
+                  <div className="flex items-center gap-1">
+                    {[
+                      { id: 'none', label: 'なし', bg: 'bg-slate-100 text-slate-600' },
+                      { id: 'required', label: '必要', bg: 'bg-rose-600 text-white' },
+                      { id: 'sent', label: '送付済', bg: 'bg-amber-400 text-slate-900 font-bold' },
+                      { id: 'confirmed', label: '確定済', bg: 'bg-emerald-600 text-white' },
+                    ].map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => setMetaDraft({ ...metaDraft, mailStatus: opt.id as any })}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                          metaDraft.mailStatus === opt.id
+                            ? `${opt.bg} ring-2 ring-indigo-500 shadow-xs`
+                            : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Telステータス */}
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                    <Phone className="w-3.5 h-3.5 text-slate-500" />
+                    Telステータス
+                  </span>
+                  <div className="flex items-center gap-1">
+                    {[
+                      { id: 'none', label: 'なし', bg: 'bg-slate-100 text-slate-600' },
+                      { id: 'required', label: '必要', bg: 'bg-rose-600 text-white' },
+                      { id: 'confirmed', label: '確認済', bg: 'bg-emerald-600 text-white' },
+                    ].map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => setMetaDraft({ ...metaDraft, telStatus: opt.id as any })}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                          metaDraft.telStatus === opt.id
+                            ? `${opt.bg} ring-2 ring-indigo-500 shadow-xs`
+                            : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* 3. 書類・手配バッジ系 (貼紙、作業届、WEB入力) */}
+              <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/80 space-y-3">
+                <div className="font-bold text-slate-700 text-[11px] uppercase tracking-wider">
+                  書類・手配区分（右上ボタン表示・「済」切替可能）
+                </div>
+
+                {/* 貼紙 */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                      <Send className="w-3.5 h-3.5 text-slate-500" />
+                      貼紙手配
+                    </span>
+                    <div className="flex items-center gap-1 flex-wrap justify-end">
+                      {[
+                        { id: 'none', label: 'なし' },
+                        { id: 'direct', label: '直接' },
+                        { id: 'mail', label: 'Mail' },
+                        { id: 'fax', label: 'Fax' },
+                        { id: 'postal', label: '郵送' },
+                      ].map((opt) => (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => setMetaDraft({ ...metaDraft, posterType: opt.id as any })}
+                          className={`px-2 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                            metaDraft.posterType === opt.id
+                              ? 'bg-sky-600 text-white shadow-xs'
+                              : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {metaDraft.posterType !== 'none' && (
+                    <div className="flex items-center justify-end gap-2 pr-1">
+                      <span className="text-[11px] text-slate-500 font-bold">実行状態:</span>
+                      <button
+                        type="button"
+                        onClick={() => setMetaDraft({ ...metaDraft, posterDone: !metaDraft.posterDone })}
+                        className={`px-2.5 py-0.5 rounded-md text-[11px] font-black cursor-pointer transition-all ${
+                          metaDraft.posterDone
+                            ? 'bg-emerald-700 text-white ring-1 ring-emerald-800'
+                            : 'bg-rose-600 text-white ring-1 ring-rose-700'
+                        }`}
+                      >
+                        {metaDraft.posterDone ? '✓ 済（完了）' : '未済（要対応）'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* 作業届 */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                      <FileCheck2 className="w-3.5 h-3.5 text-slate-500" />
+                      作業届
+                    </span>
+                    <div className="flex items-center gap-1">
+                      {[
+                        { id: 'none', label: 'なし' },
+                        { id: 'mail', label: 'Mail' },
+                        { id: 'fax', label: 'Fax' },
+                      ].map((opt) => (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => setMetaDraft({ ...metaDraft, workNoticeType: opt.id as any })}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                            metaDraft.workNoticeType === opt.id
+                              ? 'bg-indigo-600 text-white shadow-xs'
+                              : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {metaDraft.workNoticeType !== 'none' && (
+                    <div className="flex items-center justify-end gap-2 pr-1">
+                      <span className="text-[11px] text-slate-500 font-bold">実行状態:</span>
+                      <button
+                        type="button"
+                        onClick={() => setMetaDraft({ ...metaDraft, workNoticeDone: !metaDraft.workNoticeDone })}
+                        className={`px-2.5 py-0.5 rounded-md text-[11px] font-black cursor-pointer transition-all ${
+                          metaDraft.workNoticeDone
+                            ? 'bg-emerald-700 text-white ring-1 ring-emerald-800'
+                            : 'bg-rose-600 text-white ring-1 ring-rose-700'
+                        }`}
+                      >
+                        {metaDraft.workNoticeDone ? '✓ 済（完了）' : '未済（要対応）'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* WEB入力 */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                      <Globe className="w-3.5 h-3.5 text-slate-500" />
+                      WEB入力
+                    </span>
+                    <div className="flex items-center gap-1">
+                      {[
+                        { id: 'none', label: 'なし' },
+                        { id: 'required', label: '必要' },
+                      ].map((opt) => (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => setMetaDraft({ ...metaDraft, webEntryType: opt.id as any })}
+                          className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                            metaDraft.webEntryType === opt.id
+                              ? 'bg-purple-600 text-white shadow-xs'
+                              : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {metaDraft.webEntryType !== 'none' && (
+                    <div className="flex items-center justify-end gap-2 pr-1">
+                      <span className="text-[11px] text-slate-500 font-bold">実行状態:</span>
+                      <button
+                        type="button"
+                        onClick={() => setMetaDraft({ ...metaDraft, webEntryDone: !metaDraft.webEntryDone })}
+                        className={`px-2.5 py-0.5 rounded-md text-[11px] font-black cursor-pointer transition-all ${
+                          metaDraft.webEntryDone
+                            ? 'bg-emerald-700 text-white ring-1 ring-emerald-800'
+                            : 'bg-rose-600 text-white ring-1 ring-rose-700'
+                        }`}
+                      >
+                        {metaDraft.webEntryDone ? '✓ 済（完了）' : '未済（要対応）'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* モーダルフッター */}
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setMetaModalItem(null)}
+                className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveMetaModal}
+                className="px-5 py-2 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition-all cursor-pointer shadow-md shadow-indigo-200 flex items-center gap-1.5"
+              >
+                <Check className="w-3.5 h-3.5" />
+                <span>設定を保存</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==========================================
+          他月の点検データから一括コピーモーダル
+          ========================================== */}
+      {showCopyMonthModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-xl w-full p-6 shadow-2xl space-y-5 border border-slate-200 max-h-[90vh] overflow-y-auto">
+            {/* モーダルヘッダー */}
+            <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold shrink-0">
+                  <Copy className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    他月の点検データから一括コピー
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    過去月の点検予定・現場マスター（時間・書類手配区分）を引き継ぎ、{targetYearMonth} へ取り込みます
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCopyMonthModal(false)}
+                className="text-slate-400 hover:text-slate-700 p-1.5 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* 1. コピー元年月の指定 */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-700 block">
+                ① コピー元（過去・他月）の年月を選択
+              </label>
+              <div className="flex items-center gap-3 flex-wrap">
+                <div className="flex items-center bg-slate-100 p-1.5 rounded-xl border border-slate-200">
+                  <CalendarDays className="w-4 h-4 text-indigo-600 ml-1.5 mr-1" />
+                  <input
+                    type="month"
+                    value={copySourceMonth}
+                    onChange={(e) => setCopySourceMonth(e.target.value)}
+                    className="font-bold text-slate-800 bg-transparent border-none focus:outline-none cursor-pointer text-sm"
+                  />
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setCopySourceMonth(getPrevMonth(targetYearMonth))}
+                    className="px-2.5 py-1.5 bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 rounded-lg text-xs font-bold text-slate-600 transition-colors border border-slate-200"
+                  >
+                    前月 ({getPrevMonth(targetYearMonth)})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCopySourceMonth('2026-07')}
+                    className="px-2.5 py-1.5 bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 rounded-lg text-xs font-bold text-slate-600 transition-colors border border-slate-200"
+                  >
+                    2026-07 (デモ実績)
+                  </button>
+                </div>
+              </div>
+
+              {/* コピー元データ件数プレビュー */}
+              <div className="pt-1">
+                {copySourceLoading ? (
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center gap-2 text-xs text-slate-500 font-medium">
+                    <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
+                    <span>{copySourceMonth} の点検データを検索中...</span>
+                  </div>
+                ) : copySourceItems.length > 0 ? (
+                  <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200 flex items-center justify-between text-xs text-emerald-900 font-bold">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>{copySourceMonth} の点検データ: 合計 {copySourceItems.length} 件</span>
+                    </div>
+                    <div className="text-[11px] text-emerald-700 font-normal">
+                      (仮配置済: {copySourceItems.filter((i) => i.status === 'placed').length}件 / 未配置: {copySourceItems.filter((i) => i.status === 'pending').length}件)
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 flex items-center gap-2 text-xs text-amber-900 font-bold">
+                    <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>{copySourceMonth} には保存済み点検データがありません。別の月を選択してください。</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* 2. コピー後の配置方式 */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-700 block">
+                ② コピー時の配置方法
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setCopyMode('unassigned')}
+                  className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
+                    copyMode === 'unassigned'
+                      ? 'bg-indigo-50 border-indigo-400 ring-2 ring-indigo-400/30'
+                      : 'bg-white border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  <div className="font-bold text-xs text-slate-900 flex items-center justify-between">
+                    <span>すべて未配置リストへ</span>
+                    {copyMode === 'unassigned' && <Check className="w-3.5 h-3.5 text-indigo-600" />}
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1 leading-snug">
+                    全件を左側の「未配置リスト」に格納。今月の日程に合わせてD&Dで順次配置します。
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setCopyMode('same_day')}
+                  className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
+                    copyMode === 'same_day'
+                      ? 'bg-indigo-50 border-indigo-400 ring-2 ring-indigo-400/30'
+                      : 'bg-white border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  <div className="font-bold text-xs text-slate-900 flex items-center justify-between">
+                    <span>同日付けで仮配置</span>
+                    {copyMode === 'same_day' && <Check className="w-3.5 h-3.5 text-indigo-600" />}
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1 leading-snug">
+                    元データで15日配置のものは当月15日へ自動仮配置（未配置のものは未配置のまま）。
+                  </p>
+                </button>
+              </div>
+            </div>
+
+            {/* 3. 取り込み先（当月データ）の扱い */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-700 block">
+                ③ 既存の {targetYearMonth} データとの統合方法
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setCopyStrategy('replace')}
+                  className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
+                    copyStrategy === 'replace'
+                      ? 'bg-indigo-50 border-indigo-400 ring-2 ring-indigo-400/30'
+                      : 'bg-white border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  <div className="font-bold text-xs text-slate-900 flex items-center justify-between">
+                    <span>当月データを上書き（クリア）</span>
+                    {copyStrategy === 'replace' && <Check className="w-3.5 h-3.5 text-indigo-600" />}
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1 leading-snug">
+                    現在の {targetYearMonth} の下書きをリセットし、コピーしたデータで新規開始します（推奨）。
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setCopyStrategy('append')}
+                  className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
+                    copyStrategy === 'append'
+                      ? 'bg-indigo-50 border-indigo-400 ring-2 ring-indigo-400/30'
+                      : 'bg-white border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  <div className="font-bold text-xs text-slate-900 flex items-center justify-between">
+                    <span>現在のデータに追加</span>
+                    {copyStrategy === 'append' && <Check className="w-3.5 h-3.5 text-indigo-600" />}
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1 leading-snug">
+                    既存の作業中データはそのまま残し、末尾にコピーした点検カードを追加します。
+                  </p>
+                </button>
+              </div>
+            </div>
+
+            {/* 4. マスター引き継ぎルールの説明 */}
+            <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 space-y-1.5 text-xs text-slate-600">
+              <div className="font-bold text-slate-800 flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                <span>コピー時のマスター引き継ぎ・初期化ルール</span>
+              </div>
+              <ul className="list-disc list-inside space-y-1 pl-1 text-[11px] text-slate-600 leading-relaxed">
+                <li>
+                  <span className="font-bold text-slate-800">時間枠の引き継ぎ:</span> 初期値（09:00〜10:00）から変更された現場は、マスター記録のカスタム時間を引き継ぎます。デフォルトのままのデータは初期値で配置されます。
+                </li>
+                <li>
+                  <span className="font-bold text-slate-800">書類・手配（貼紙・作業届・WEB入力・備考）:</span> 区分や種別はそのまま引き継がれますが、<span className="font-bold text-rose-700">「済フラグ」は全て未済（赤）にリセット</span>されます。
+                </li>
+                <li>
+                  <span className="font-bold text-slate-800">Fax / Mail / Tel:</span> 過去に設定があった現場は「要対応（赤）」として引き継がれます。
+                </li>
+              </ul>
+            </div>
+
+            {/* モーダルフッター */}
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setShowCopyMonthModal(false)}
+                className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                disabled={copySourceItems.length === 0 || copySourceLoading}
+                onClick={handleExecuteCopyMonth}
+                className="px-5 py-2 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-xl transition-all cursor-pointer shadow-md shadow-indigo-200 flex items-center gap-2"
+              >
+                <Copy className="w-3.5 h-3.5" />
+                <span>
+                  {copySourceItems.length > 0
+                    ? `${copySourceItems.length}件を ${targetYearMonth} へコピー`
+                    : 'コピーを実行'}
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==========================================
+          Excel取込時の確認・不一致・上書き選択モーダル
+          ========================================== */}
+      {pendingExcelImport && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-5 border border-slate-200">
+            {/* ヘッダー */}
+            <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-3.5">
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-2xl flex items-center justify-center font-bold shrink-0 ${
+                  pendingExcelImport.isMismatch ? 'bg-amber-100 text-amber-800' : 'bg-indigo-100 text-indigo-700'
+                }`}>
+                  {pendingExcelImport.isMismatch ? (
+                    <AlertTriangle className="w-5 h-5 text-amber-600" />
+                  ) : (
+                    <FileSpreadsheet className="w-5 h-5 text-indigo-600" />
+                  )}
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    {pendingExcelImport.isMismatch ? '点検年月の確認・取り込み設定' : 'エクセル取り込みの確認'}
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    ファイル: <span className="font-semibold text-slate-700">{pendingExcelImport.fileName}</span>（{pendingExcelImport.items.length}件）
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPendingExcelImport(null)}
+                className="text-slate-400 hover:text-slate-700 p-1.5 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* 不一致アラートバナー */}
+            {pendingExcelImport.isMismatch && (
+              <div className="bg-amber-50 border border-amber-300 rounded-2xl p-3.5 flex items-start gap-3 text-xs text-amber-900">
+                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <div className="font-bold">
+                    選択中の年月とエクセルの年月が一致していません
+                  </div>
+                  <div className="text-[11px] leading-relaxed text-amber-800">
+                    現在画面で選択中: <span className="font-bold bg-amber-200/70 px-1 py-0.5 rounded">{targetYearMonth}</span>
+                    <br />
+                    エクセル内記載の年月: <span className="font-bold bg-amber-200/70 px-1 py-0.5 rounded">{pendingExcelImport.fileYearMonth}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 1. 取り込み先年月の選択（不一致時） */}
+            {pendingExcelImport.isMismatch && (
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-700 block">
+                  ① どちらの年月に取り込みますか？
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setExcelImportTargetMonthChoice('excel_month')}
+                    className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
+                      excelImportTargetMonthChoice === 'excel_month'
+                        ? 'bg-indigo-50 border-indigo-400 ring-2 ring-indigo-400/30'
+                        : 'bg-white border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="font-bold text-xs text-slate-900 flex items-center justify-between">
+                      <span>エクセルの年月 ({pendingExcelImport.fileYearMonth})</span>
+                      {excelImportTargetMonthChoice === 'excel_month' && <Check className="w-3.5 h-3.5 text-indigo-600" />}
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      {pendingExcelImport.fileYearMonth} へ切り替えて取り込みます（推奨）
+                    </p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setExcelImportTargetMonthChoice('current_selected')}
+                    className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
+                      excelImportTargetMonthChoice === 'current_selected'
+                        ? 'bg-indigo-50 border-indigo-400 ring-2 ring-indigo-400/30'
+                        : 'bg-white border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="font-bold text-xs text-slate-900 flex items-center justify-between">
+                      <span>現在選択中 ({targetYearMonth})</span>
+                      {excelImportTargetMonthChoice === 'current_selected' && <Check className="w-3.5 h-3.5 text-indigo-600" />}
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      エクセルの月に関わらず、{targetYearMonth} のデータとして取り込みます
+                    </p>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* 2. 既存データとの統合方法（上書き or 追加） */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-700 block">
+                {pendingExcelImport.isMismatch ? '②' : '①'} 既存の点検データとの統合方法
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setExcelImportStrategyChoice('replace')}
+                  className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
+                    excelImportStrategyChoice === 'replace'
+                      ? 'bg-indigo-50 border-indigo-400 ring-2 ring-indigo-400/30'
+                      : 'bg-white border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  <div className="font-bold text-xs text-slate-900 flex items-center justify-between">
+                    <span>既存データを上書き（全置換）</span>
+                    {excelImportStrategyChoice === 'replace' && <Check className="w-3.5 h-3.5 text-indigo-600" />}
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1 leading-snug">
+                    既存の下書きをクリアし、エクセルの{pendingExcelImport.items.length}件で新規開始します。
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setExcelImportStrategyChoice('append')}
+                  className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
+                    excelImportStrategyChoice === 'append'
+                      ? 'bg-indigo-50 border-indigo-400 ring-2 ring-indigo-400/30'
+                      : 'bg-white border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  <div className="font-bold text-xs text-slate-900 flex items-center justify-between">
+                    <span>現在のデータに追加（マージ）</span>
+                    {excelImportStrategyChoice === 'append' && <Check className="w-3.5 h-3.5 text-indigo-600" />}
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1 leading-snug">
+                    既存の作業中データをそのまま残し、末尾にエクセルの{pendingExcelImport.items.length}件を追加します。
+                  </p>
+                </button>
+              </div>
+            </div>
+
+            {/* ボタン */}
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setPendingExcelImport(null)}
+                className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmExcelImport}
+                className="px-5 py-2 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition-all cursor-pointer shadow-md shadow-indigo-200 flex items-center gap-2"
+              >
+                <Check className="w-4 h-4" />
+                <span>
+                  {excelImportTargetMonthChoice === 'excel_month'
+                    ? `${pendingExcelImport.fileYearMonth} へ取り込み実行`
+                    : `${targetYearMonth} へ取り込み実行`}
+                </span>
               </button>
             </div>
           </div>
