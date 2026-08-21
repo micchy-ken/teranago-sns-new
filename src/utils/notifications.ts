@@ -203,18 +203,32 @@ export function isEventUnread(e: CalendarEvent, user: User, readEventIds: string
   if (!user || !e) return false;
 
   // 1. 作成者（登録者）が自分自身の場合は未読・通知対象外（自分が登録した予定）
-  if (e.createdBy && (e.createdBy.id === user.id || e.createdBy.name === user.name || (e.createdBy as any) === user.id)) {
+  const checkUserMatch = (creatorVal: any) => {
+    if (!creatorVal) return false;
+    if (typeof creatorVal === 'object') {
+      if (creatorVal.id && (creatorVal.id === user.id || String(creatorVal.id) === String(user.id))) return true;
+      if (creatorVal._id && (creatorVal._id === user.id || String(creatorVal._id) === String(user.id))) return true;
+      if (creatorVal.name && creatorVal.name === user.name) return true;
+      if (creatorVal.loginId && user.loginId && creatorVal.loginId === user.loginId) return true;
+    } else if (typeof creatorVal === 'string') {
+      if (creatorVal === user.id || creatorVal === String(user.id) || creatorVal === user.name || (user.loginId && creatorVal === user.loginId)) return true;
+    }
     return false;
-  }
-  if ((e as any).author && ((e as any).author.id === user.id || (e as any).author.name === user.name || (e as any).author === user.id)) {
-    return false;
-  }
-  if ((e as any).createdById && ((e as any).createdById === user.id || String((e as any).createdById) === String(user.id))) {
+  };
+
+  if (checkUserMatch(e.createdBy)) return false;
+  if (checkUserMatch((e as any).createdByUser)) return false;
+  if (checkUserMatch((e as any).author)) return false;
+  if (checkUserMatch((e as any).creator)) return false;
+  if (checkUserMatch((e as any).user)) return false;
+
+  const rawCreatorId = (e as any).createdById || (e as any).userId || (e as any).authorId || (e as any).creatorId;
+  if (rawCreatorId && (rawCreatorId === user.id || String(rawCreatorId) === String(user.id))) {
     return false;
   }
 
   const attendees = e.attendees || [];
-  const isAttendee = attendees.some((a) => a?.id === user.id || a?.name === user.name);
+  const isAttendee = attendees.some((a) => a?.id === user.id || a?.name === user.name || (user.loginId && a?.loginId === user.loginId));
 
   // 2. 自分が参加者に含まれていない場合は通知対象外
   if (!isAttendee) {
@@ -231,7 +245,12 @@ export function isEventUnread(e: CalendarEvent, user: User, readEventIds: string
     return false;
   }
 
-  // 5. Server-side viewers check (サーバー側で閲覧済み)
+  // 5. Google同期予定は未読通知対象外
+  if (e.isGoogleSynced) {
+    return false;
+  }
+
+  // 6. Server-side viewers check (サーバー側で閲覧済み)
   if ((e as any).viewers && Array.isArray((e as any).viewers)) {
     const isViewedOnServer = (e as any).viewers.some((v: any) => 
       v?.userId === user.id || v?.user?.id === user.id || v?.id === user.id || v === user.id || (v?.user?.name && v?.user?.name === user.name)
@@ -239,12 +258,19 @@ export function isEventUnread(e: CalendarEvent, user: User, readEventIds: string
     if (isViewedOnServer) return false;
   }
 
-  // 6. 既読IDチェック（実ID、親ID、インスタンス展開IDのプレフィックスすべて照合）
+  // 7. 既読IDチェック（実ID、親ID、インスタンス展開IDのプレフィックスすべて照合）
   if (readEventIds.includes(e.id)) return false;
   if (e.recurrenceParentId && readEventIds.includes(e.recurrenceParentId)) return false;
-  if (e.id.includes('_')) {
+  if (e.id && e.id.includes('_')) {
     const parentId = e.id.split('_')[0];
     if (readEventIds.includes(parentId)) return false;
+  }
+  if (e.id && e.id.startsWith('e-ovr-')) {
+    const parts = e.id.split('-');
+    if (parts.length >= 3) {
+      const extractedParentId = parts.slice(2, parts.length - 1).join('-');
+      if (extractedParentId && readEventIds.includes(extractedParentId)) return false;
+    }
   }
 
   return true;

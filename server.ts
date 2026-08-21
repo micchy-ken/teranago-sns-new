@@ -770,6 +770,148 @@ async function startServer() {
     readAt: string;
   }
 
+  // ==========================================
+  // OGP (Open Graph Protocol) メタデータ取得 API
+  // ==========================================
+  const ogpCache = new Map<string, { data: any; timestamp: number }>();
+  const OGP_CACHE_TTL = 1000 * 60 * 60; // 1時間キャッシュ
+
+  function decodeHtmlEntities(str: string): string {
+    return str
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#039;/g, "'")
+      .replace(/&#x27;/g, "'")
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(Number(dec)))
+      .trim();
+  }
+
+  app.get('/api/ogp', async (req, res) => {
+    const rawUrl = req.query.url as string;
+    if (!rawUrl || typeof rawUrl !== 'string') {
+      return res.status(400).json({ error: 'URLが必要です' });
+    }
+
+    let targetUrl = rawUrl.trim();
+    if (!/^https?:\/\//i.test(targetUrl)) {
+      targetUrl = 'https://' + targetUrl;
+    }
+
+    // Check cache
+    const cached = ogpCache.get(targetUrl);
+    if (cached && Date.now() - cached.timestamp < OGP_CACHE_TTL) {
+      return res.json(cached.data);
+    }
+
+    try {
+      const parsedUrl = new URL(targetUrl);
+      const hostname = parsedUrl.hostname;
+
+      // Fetch with timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4500);
+
+      const response = await fetch(targetUrl, {
+        signal: controller.signal,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
+        },
+        redirect: 'follow',
+      });
+      clearTimeout(timeoutId);
+
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('text/html') && !contentType.includes('application/xhtml+xml')) {
+        const result = {
+          url: targetUrl,
+          hostname,
+          title: hostname,
+          description: '',
+          image: contentType.startsWith('image/') ? targetUrl : '',
+          siteName: hostname,
+          favicon: `https://www.google.com/s2/favicons?domain=${hostname}&sz=64`,
+        };
+        ogpCache.set(targetUrl, { data: result, timestamp: Date.now() });
+        return res.json(result);
+      }
+
+      const html = await response.text();
+
+      const getMetaContent = (propertyOrName: string) => {
+        const regex1 = new RegExp(`<meta[^>]+(?:property|name)=["']${propertyOrName}["'][^>]+content=["']([^"']*)["']`, 'i');
+        const regex2 = new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]+(?:property|name)=["']${propertyOrName}["']`, 'i');
+        const match = html.match(regex1) || html.match(regex2);
+        return match ? decodeHtmlEntities(match[1]) : '';
+      };
+
+      const titleMatch = html.match(/<title[^>]*>([^<]*)<\/title>/i);
+      const rawTitle = getMetaContent('og:title') || getMetaContent('twitter:title') || (titleMatch ? decodeHtmlEntities(titleMatch[1]) : '') || hostname;
+      const title = rawTitle.replace(/\s+/g, ' ').trim();
+
+      const description = (getMetaContent('og:description') || getMetaContent('twitter:description') || getMetaContent('description') || '').replace(/\s+/g, ' ').trim();
+      
+      let image = getMetaContent('og:image:secure_url') || getMetaContent('og:image') || getMetaContent('twitter:image') || '';
+      if (image && !/^https?:\/\//i.test(image)) {
+        try {
+          image = new URL(image, targetUrl).toString();
+        } catch {
+          // ignore
+        }
+      }
+
+      const siteName = getMetaContent('og:site_name') || hostname;
+
+      let favicon = '';
+      const iconMatch = html.match(/<link[^>]+rel=["'](?:shortcut )?icon["'][^>]+href=["']([^"']*)["']/i) ||
+                         html.match(/<link[^>]+href=["']([^"']*)["'][^>]+rel=["'](?:shortcut )?icon["']/i);
+      if (iconMatch && iconMatch[1]) {
+        try {
+          favicon = new URL(iconMatch[1], targetUrl).toString();
+        } catch {
+          favicon = '';
+        }
+      }
+      if (!favicon) {
+        favicon = `https://www.google.com/s2/favicons?domain=${hostname}&sz=64`;
+      }
+
+      const result = {
+        url: targetUrl,
+        hostname,
+        title,
+        description,
+        image,
+        siteName,
+        favicon,
+      };
+
+      ogpCache.set(targetUrl, { data: result, timestamp: Date.now() });
+      res.json(result);
+    } catch (err: any) {
+      try {
+        const parsedUrl = new URL(targetUrl);
+        const fallback = {
+          url: targetUrl,
+          hostname: parsedUrl.hostname,
+          title: parsedUrl.hostname,
+          description: '',
+          image: '',
+          siteName: parsedUrl.hostname,
+          favicon: `https://www.google.com/s2/favicons?domain=${parsedUrl.hostname}&sz=64`,
+        };
+        ogpCache.set(targetUrl, { data: fallback, timestamp: Date.now() });
+        return res.json(fallback);
+      } catch {
+        return res.status(400).json({ error: '無効なURLです' });
+      }
+    }
+  });
+
   function loadReadStatuses(): StoredReadStatus[] {
     if (!fs.existsSync(readStatusesPath)) return [];
     try {

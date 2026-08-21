@@ -38,6 +38,8 @@ import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { uploadMultipleFiles, uploadFile } from '../utils/fileUpload';
 import { FilePreviewModal } from './FilePreviewModal';
 import { triggerPushNotification } from '../utils/pushNotifications';
+import { renderContentWithLinks } from '../utils/renderContentWithLinks';
+import { UrlPastePopup, useUrlPasteHandler } from './common/UrlPastePopup';
 
 interface ChatProps {
   rooms: ChatRoom[];
@@ -223,6 +225,7 @@ export function Chat({
     }
   }, [activeRoomId, currentUser?.id]);
   const [messageText, setMessageText] = useState('');
+  const chatPasteHandler = useUrlPasteHandler(messageText, setMessageText);
   const [roomFilter, setRoomFilter] = useState<'all' | 'group' | 'dm'>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -1151,7 +1154,7 @@ export function Chat({
                                   : 'bg-white text-slate-800 rounded-tl-xs border border-slate-200'
                               }`}
                             >
-                              {msg.content}
+                              {renderContentWithLinks(msg.content)}
                             </div>
                             
                             {/* チャット添付ファイルリスト */}
@@ -1486,7 +1489,15 @@ export function Chat({
             )}
 
             {/* メッセージ入力フォーム */}
-            <form onSubmit={handleSendMessage} className="flex items-center gap-1.5 sm:gap-2">
+            <form onSubmit={handleSendMessage} className="flex items-center gap-1.5 sm:gap-2 relative">
+              <UrlPastePopup
+                prompt={chatPasteHandler.pastePrompt}
+                onInsertCard={chatPasteHandler.handleInsertCard}
+                onKeepPlain={chatPasteHandler.handleKeepPlain}
+                onClose={chatPasteHandler.closePrompt}
+                positionClass="bottom-full mb-3 left-12"
+              />
+
               <button
                 type="button"
                 disabled={isChatUploading}
@@ -1533,6 +1544,7 @@ export function Chat({
                 type="text"
                 value={messageText}
                 onChange={(e) => setMessageText(e.target.value)}
+                onPaste={chatPasteHandler.handlePaste}
                 placeholder="メッセージを入力... (ファイルをドラッグ＆ドロップ可)"
                 className="flex-1 min-w-0 px-3 sm:px-4 py-2 sm:py-2.5 bg-slate-50 border border-slate-200 rounded-full focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-xs sm:text-sm font-semibold text-slate-800"
               />

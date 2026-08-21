@@ -1,7 +1,7 @@
 export const RECOMMEND_SERVER_JS = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年8月18日 (カレンダー繰り返し予定・定期予定対応版)
+ * 最終更新日時 (最終アップデート): 2026年8月21日 (URLリッチリンクカード・OGPメタデータ取得対応版)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -235,7 +235,146 @@ function safeParseJSON(jsonString, fallbackValue = []) {
 
 // --- API Endpoints ---
 
-app.get('/api/health', (req, res) => res.json({ status: 'ok', timestamp: new Date(), lastUpdated: '2026-08-16 (Web Push通知 & 全体機能連携強化版)' }));
+app.get('/api/health', (req, res) => res.json({ status: 'ok', timestamp: new Date(), lastUpdated: '2026-08-21 (URLリッチリンクカード・OGP取得対応版)' }));
+
+// =========================================================
+// OGP (Open Graph Protocol) メタデータ取得 API
+// =========================================================
+const ogpCache = new Map();
+const OGP_CACHE_TTL = 1000 * 60 * 60; // 1時間キャッシュ
+
+function decodeHtmlEntities(str) {
+  if (!str || typeof str !== 'string') return '';
+  return str
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#039;/g, "'")
+    .replace(/&#x27;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&#(\\d+);/g, (_, dec) => String.fromCharCode(Number(dec)))
+    .trim();
+}
+
+app.get('/api/ogp', async (req, res) => {
+  const rawUrl = req.query.url;
+  if (!rawUrl || typeof rawUrl !== 'string') {
+    return res.status(400).json({ error: 'URLが必要です' });
+  }
+
+  let targetUrl = rawUrl.trim();
+  if (!/^https?:\\/\\//i.test(targetUrl)) {
+    targetUrl = 'https://' + targetUrl;
+  }
+
+  // キャッシュ確認
+  const cached = ogpCache.get(targetUrl);
+  if (cached && Date.now() - cached.timestamp < OGP_CACHE_TTL) {
+    return res.json(cached.data);
+  }
+
+  try {
+    const parsedUrl = new URL(targetUrl);
+    const hostname = parsedUrl.hostname;
+
+    // タイムアウト設定付き fetch
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4500);
+
+    const response = await fetch(targetUrl, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
+      },
+      redirect: 'follow',
+    });
+    clearTimeout(timeoutId);
+
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('text/html') && !contentType.includes('application/xhtml+xml')) {
+      const result = {
+        url: targetUrl,
+        hostname,
+        title: hostname,
+        description: '',
+        image: contentType.startsWith('image/') ? targetUrl : '',
+        siteName: hostname,
+        favicon: \`https://www.google.com/s2/favicons?domain=\${hostname}&sz=64\`,
+      };
+      ogpCache.set(targetUrl, { data: result, timestamp: Date.now() });
+      return res.json(result);
+    }
+
+    const html = await response.text();
+
+    const getMetaContent = (propertyOrName) => {
+      const regex1 = new RegExp(\`<meta[^>]+(?:property|name)=["']\${propertyOrName}["'][^>]+content=["']([^"']*)["']\`, 'i');
+      const regex2 = new RegExp(\`<meta[^>]+content=["']([^"']*)["'][^>]+(?:property|name)=["']\${propertyOrName}["']\`, 'i');
+      const match = html.match(regex1) || html.match(regex2);
+      return match ? decodeHtmlEntities(match[1]) : '';
+    };
+
+    const titleMatch = html.match(/<title[^>]*>([^<]*)<\\/title>/i);
+    const rawTitle = getMetaContent('og:title') || getMetaContent('twitter:title') || (titleMatch ? decodeHtmlEntities(titleMatch[1]) : '') || hostname;
+    const title = rawTitle.replace(/\\s+/g, ' ').trim();
+
+    const description = (getMetaContent('og:description') || getMetaContent('twitter:description') || getMetaContent('description') || '').replace(/\\s+/g, ' ').trim();
+
+    let image = getMetaContent('og:image:secure_url') || getMetaContent('og:image') || getMetaContent('twitter:image') || '';
+    if (image && !/^https?:\\/\\//i.test(image)) {
+      try {
+        image = new URL(image, targetUrl).toString();
+      } catch {
+        // ignore
+      }
+    }
+
+    const siteName = getMetaContent('og:site_name') || hostname;
+
+    let favicon = '';
+    const iconMatch = html.match(/<link[^>]+rel=["'](?:shortcut )?icon["'][^>]+href=["']([^"']*)["']/i) ||
+                      html.match(/<link[^>]+href=["']([^"']*)["'][^>]+rel=["'](?:shortcut )?icon["']/i);
+    if (iconMatch && iconMatch[1]) {
+      try {
+        favicon = new URL(iconMatch[1], targetUrl).toString();
+      } catch {
+        favicon = '';
+      }
+    }
+    if (!favicon) {
+      favicon = \`https://www.google.com/s2/favicons?domain=\${hostname}&sz=64\`;
+    }
+
+    const result = {
+      url: targetUrl,
+      hostname,
+      title,
+      description,
+      image,
+      siteName,
+      favicon,
+    };
+
+    ogpCache.set(targetUrl, { data: result, timestamp: Date.now() });
+    res.json(result);
+  } catch (err) {
+    const hostname = targetUrl.replace(/^https?:\\/\\//i, '').split('/')[0];
+    const fallbackResult = {
+      url: targetUrl,
+      hostname,
+      title: hostname,
+      description: '',
+      image: '',
+      siteName: hostname,
+      favicon: \`https://www.google.com/s2/favicons?domain=\${hostname}&sz=64\`,
+    };
+    ogpCache.set(targetUrl, { data: fallbackResult, timestamp: Date.now() });
+    res.json(fallbackResult);
+  }
+});
 
 // =========================================================
 // Web Push (VAPID) 設定・購読情報管理

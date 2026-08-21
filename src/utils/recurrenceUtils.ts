@@ -224,6 +224,31 @@ export function expandRecurringEvents(
 
     const isAllDay = !!event.isAllDay;
 
+    const pushInstance = (currStr: string) => {
+      const overrideKey = `${event.id}_${currStr}`;
+      if (overrideMap.has(overrideKey)) {
+        const ovr = overrideMap.get(overrideKey)!;
+        result.push({
+          ...event,
+          ...ovr,
+          createdBy: ovr.createdBy || event.createdBy,
+          instanceDate: currStr,
+        });
+      } else {
+        const instEndStr = durationDays > 0 ? addDays(currStr, durationDays) : currStr;
+        result.push({
+          ...event,
+          createdBy: event.createdBy,
+          id: `${event.id}_${currStr}`,
+          recurrenceParentId: event.id,
+          recurrenceOriginalDate: currStr,
+          instanceDate: currStr,
+          start: replaceDateInIso(event.start, currStr, isAllDay) || event.start,
+          end: event.end ? replaceDateInIso(event.end, instEndStr, isAllDay) : undefined,
+        });
+      }
+    };
+
     // 日毎の繰り返し (daily)
     if (recurrence.frequency === 'daily') {
       let currStr = eventStartDateStr;
@@ -235,25 +260,7 @@ export function expandRecurringEvents(
         if (count > maxCount) break;
 
         if (currStr >= viewStartStr && currStr <= viewEndStr && !exceptions.has(currStr)) {
-          const overrideKey = `${event.id}_${currStr}`;
-          if (overrideMap.has(overrideKey)) {
-            const ovr = overrideMap.get(overrideKey)!;
-            result.push({
-              ...ovr,
-              instanceDate: currStr,
-            });
-          } else {
-            const instEndStr = durationDays > 0 ? addDays(currStr, durationDays) : currStr;
-            result.push({
-              ...event,
-              id: `${event.id}_${currStr}`,
-              recurrenceParentId: event.id,
-              recurrenceOriginalDate: currStr,
-              instanceDate: currStr,
-              start: replaceDateInIso(event.start, currStr, isAllDay) || event.start,
-              end: event.end ? replaceDateInIso(event.end, instEndStr, isAllDay) : undefined,
-            });
-          }
+          pushInstance(currStr);
         }
 
         currStr = addDays(currStr, 1);
@@ -274,25 +281,7 @@ export function expandRecurringEvents(
           if (count > maxCount) break;
 
           if (currStr >= viewStartStr && currStr <= viewEndStr && !exceptions.has(currStr)) {
-            const overrideKey = `${event.id}_${currStr}`;
-            if (overrideMap.has(overrideKey)) {
-              const ovr = overrideMap.get(overrideKey)!;
-              result.push({
-                ...ovr,
-                instanceDate: currStr,
-              });
-            } else {
-              const instEndStr = durationDays > 0 ? addDays(currStr, durationDays) : currStr;
-              result.push({
-                ...event,
-                id: `${event.id}_${currStr}`,
-                recurrenceParentId: event.id,
-                recurrenceOriginalDate: currStr,
-                instanceDate: currStr,
-                start: replaceDateInIso(event.start, currStr, isAllDay) || event.start,
-                end: event.end ? replaceDateInIso(event.end, instEndStr, isAllDay) : undefined,
-              });
-            }
+            pushInstance(currStr);
           }
         }
 
@@ -326,25 +315,7 @@ export function expandRecurringEvents(
             if (count > maxCount) break;
 
             if (currStr >= viewStartStr && currStr <= viewEndStr && !exceptions.has(currStr)) {
-              const overrideKey = `${event.id}_${currStr}`;
-              if (overrideMap.has(overrideKey)) {
-                const ovr = overrideMap.get(overrideKey)!;
-                result.push({
-                  ...ovr,
-                  instanceDate: currStr,
-                });
-              } else {
-                const instEndStr = durationDays > 0 ? addDays(currStr, durationDays) : currStr;
-                result.push({
-                  ...event,
-                  id: `${event.id}_${currStr}`,
-                  recurrenceParentId: event.id,
-                  recurrenceOriginalDate: currStr,
-                  instanceDate: currStr,
-                  start: replaceDateInIso(event.start, currStr, isAllDay) || event.start,
-                  end: event.end ? replaceDateInIso(event.end, instEndStr, isAllDay) : undefined,
-                });
-              }
+              pushInstance(currStr);
             }
           }
         }
@@ -375,25 +346,7 @@ export function expandRecurringEvents(
         if (count > maxCount) break;
 
         if (currStr >= viewStartStr && currStr <= viewEndStr && !exceptions.has(currStr)) {
-          const overrideKey = `${event.id}_${currStr}`;
-          if (overrideMap.has(overrideKey)) {
-            const ovr = overrideMap.get(overrideKey)!;
-            result.push({
-              ...ovr,
-              instanceDate: currStr,
-            });
-          } else {
-            const instEndStr = durationDays > 0 ? addDays(currStr, durationDays) : currStr;
-            result.push({
-              ...event,
-              id: `${event.id}_${currStr}`,
-              recurrenceParentId: event.id,
-              recurrenceOriginalDate: currStr,
-              instanceDate: currStr,
-              start: replaceDateInIso(event.start, currStr, isAllDay) || event.start,
-              end: event.end ? replaceDateInIso(event.end, instEndStr, isAllDay) : undefined,
-            });
-          }
+          pushInstance(currStr);
         }
 
         currentYear++;
@@ -447,6 +400,8 @@ export function planRecurrenceSave(
     const updatedParent: CalendarEvent = {
       ...(parentEvent || {}),
       ...eventData,
+      createdBy: eventData.createdBy || parentEvent?.createdBy,
+      createdById: (eventData as any).createdById || eventData.createdBy?.id || parentEvent?.createdBy?.id,
       id: targetId,
       recurrenceParentId: undefined,
       recurrenceOriginalDate: undefined,
@@ -494,7 +449,10 @@ export function planRecurrenceSave(
     }
 
     const overrideEvent: CalendarEvent = {
+      ...parentEvent,
       ...eventData,
+      createdBy: eventData.createdBy || parentEvent.createdBy,
+      createdById: (eventData as any).createdById || eventData.createdBy?.id || parentEvent.createdBy?.id,
       id: overrideId,
       recurrence: undefined, // 単発化
       recurrenceParentId: parentEvent.id,
@@ -531,7 +489,10 @@ export function planRecurrenceSave(
     // ② 対象日を開始日とする新しい繰り返しイベントを作成
     const newRecurrenceId = `e-recur-split-${Date.now()}`;
     const newRecurrenceEvent: CalendarEvent = {
+      ...parentEvent,
       ...eventData,
+      createdBy: eventData.createdBy || parentEvent.createdBy,
+      createdById: (eventData as any).createdById || eventData.createdBy?.id || parentEvent.createdBy?.id,
       id: newRecurrenceId,
       recurrenceParentId: undefined,
       recurrenceOriginalDate: undefined,

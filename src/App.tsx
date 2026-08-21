@@ -459,6 +459,21 @@ export default function App() {
           const parsedRecurrence = safeParseRecurrence(e.recurrence || detailsObj.recurrence);
           const parsedExceptions = safeParseExceptions(e.recurrenceExceptions || detailsObj.recurrenceExceptions);
 
+          const rawCreatedBy = e.createdBy || detailsObj.createdBy || e.created_by || detailsObj.created_by || detailsObj.createdByUser || detailsObj.author || (e as any).user;
+          let mappedCreatedBy: any = undefined;
+          if (rawCreatedBy) {
+            if (typeof rawCreatedBy === 'object' && rawCreatedBy !== null && rawCreatedBy.id) {
+              mappedCreatedBy = rawCreatedBy;
+            } else {
+              const found = activeUsers.find(u => u.id === rawCreatedBy || u.id === String(rawCreatedBy) || u.name === rawCreatedBy || u.loginId === rawCreatedBy);
+              mappedCreatedBy = found || { id: String(rawCreatedBy), name: String(rawCreatedBy), avatarUrl: '', office: '', division: '', department: '', role: 'user' };
+            }
+          } else if (e.userId || detailsObj.userId || e.authorId || detailsObj.authorId || (e as any).createdById || detailsObj.createdById) {
+            const cId = e.userId || detailsObj.userId || e.authorId || detailsObj.authorId || (e as any).createdById || detailsObj.createdById;
+            const found = activeUsers.find(u => u.id === cId || u.id === String(cId));
+            if (found) mappedCreatedBy = found;
+          }
+
           return {
             id: String(e.id),
             title: e.title || '予定',
@@ -476,6 +491,8 @@ export default function App() {
               ? (typeof (e.attachments || e.attachmentsJson) === 'string' && (e.attachments || e.attachmentsJson).startsWith('[') ? JSON.parse(e.attachments || e.attachmentsJson) : (e.attachments || e.attachmentsJson)) 
               : (detailsObj.attachments || []),
             attendees: mappedAttendees,
+            createdBy: mappedCreatedBy || detailsObj.createdBy || (e.createdById ? { id: e.createdById, name: '' } : undefined),
+            createdById: mappedCreatedBy?.id || detailsObj.createdById || e.createdById || e.userId || detailsObj.userId || undefined,
             recurrence: parsedRecurrence,
             recurrenceParentId: e.recurrenceParentId || detailsObj.recurrenceParentId || undefined,
             recurrenceOriginalDate: e.recurrenceOriginalDate || detailsObj.recurrenceOriginalDate || undefined,
@@ -1677,6 +1694,7 @@ export default function App() {
 
   // Helper to persist event to API
   const saveEventToApi = async (ev: CalendarEvent, isNew = false) => {
+    const createdByData = ev.createdBy || userState;
     const descObj = {
       attendees: ev.attendees || [],
       viewers: (ev as any).viewers || [],
@@ -1686,6 +1704,8 @@ export default function App() {
       recurrenceParentId: ev.recurrenceParentId || null,
       recurrenceOriginalDate: ev.recurrenceOriginalDate || null,
       recurrenceExceptions: ev.recurrenceExceptions || [],
+      createdBy: createdByData,
+      createdById: createdByData?.id,
     };
 
     const payload = {
@@ -1707,6 +1727,9 @@ export default function App() {
       status: ev.status || 'published',
       targetYearMonth: ev.targetYearMonth || null,
       draftSavedAt: ev.draftSavedAt || null,
+      createdBy: createdByData,
+      createdById: createdByData?.id,
+      userId: createdByData?.id,
       description: JSON.stringify(descObj),
       details: JSON.stringify(descObj)
     };
@@ -1737,11 +1760,7 @@ export default function App() {
     };
     setEvents([...events, newEvent]);
 
-    const isSelfAttending = eventData.attendees && eventData.attendees.some(
-      u => u.id === userState.id || u.name === userState.name
-    );
-
-    if (isSelfAttending && userState?.id) {
+    if (userState?.id) {
       markEventAsRead(userState.id, tempId);
     }
 
@@ -1764,7 +1783,7 @@ export default function App() {
       const response = await saveEventToApi(newEvent, true);
       if (response && response.ok) {
         const data = await response.json();
-        if (data && data.id && isSelfAttending && userState?.id) {
+        if (data && data.id && userState?.id) {
           markEventAsRead(userState.id, data.id);
         }
         await refetchEvents();
@@ -1785,6 +1804,12 @@ export default function App() {
     // 繰り返しスコープに応じた分割・更新プランを生成
     const plan = planRecurrenceSave(events, updatedEvent, scope, originalInstanceDate || updatedEvent.instanceDate);
     setEvents(plan.updatedEvents);
+    if (userState?.id) {
+      plan.toSave.forEach(ev => {
+        markEventAsRead(userState.id, ev.id);
+        if (ev.recurrenceParentId) markEventAsRead(userState.id, ev.recurrenceParentId);
+      });
+    }
     window.dispatchEvent(new CustomEvent('notifications_updated'));
 
     try {
@@ -2681,16 +2706,27 @@ export default function App() {
   const handleUpdateReport = async (id: string, reportData: Partial<DailyReport>) => {
     setReports(prev => prev.map(r => r.id === id ? { ...r, ...reportData } : r));
     try {
+      const payload = {
+        ...reportData,
+        id,
+        author_id: (reportData.author && reportData.author.id) || userState.id,
+        supervisor_id: reportData.supervisorId || (reportData.supervisor && reportData.supervisor.id),
+        week_start_date: reportData.weekStartDate,
+        week_label: reportData.weekLabel,
+        achievements: reportData.results !== undefined ? reportData.results : (reportData as any).achievements,
+        continued_items: reportData.ongoingProjects !== undefined ? reportData.ongoingProjects : (reportData as any).continued_items,
+        next_week_plans: reportData.tomorrowPlan !== undefined ? reportData.tomorrowPlan : (reportData as any).next_week_plans,
+      };
       let response = await fetch(`${API_BASE_URL}/work-reports/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(reportData)
+        body: JSON.stringify(payload)
       });
       if (!response.ok) {
         response = await fetch(`${API_BASE_URL}/daily-reports/${id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(reportData)
+          body: JSON.stringify(payload)
         });
       }
       if (response.ok) {

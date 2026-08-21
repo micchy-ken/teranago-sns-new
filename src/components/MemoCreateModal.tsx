@@ -4,6 +4,7 @@ import { getAvatarUrl } from '../utils/avatar';
 import { API_BASE_URL } from '../config/api';
 import { triggerPushNotification } from '../utils/pushNotifications';
 import { X, Phone, Building2, Users, Plus, Check } from 'lucide-react';
+import { UrlPastePopup, useUrlPasteHandler } from './common/UrlPastePopup';
 
 export interface MemoCreateModalProps {
   isOpen: boolean;
@@ -43,6 +44,7 @@ export function MemoCreateModal({
   const [requirementType, setRequirementType] = useState<RequirementType>('phone_called');
   const [customRequirementText, setCustomRequirementText] = useState('');
   const [content, setContent] = useState('');
+  const memoPasteHandler = useUrlPasteHandler(content, setContent);
 
   // エラー表示・処理中フラグ
   const [formError, setFormError] = useState<string | null>(null);
@@ -501,16 +503,24 @@ export function MemoCreateModal({
           </div>
 
           {/* 5. 本文内容 */}
-          <div>
+          <div className="relative">
             <label className="block text-xs font-bold text-slate-700 mb-1">
               本文内容 <span className="text-rose-500">*</span>
             </label>
+            <UrlPastePopup
+              prompt={memoPasteHandler.pastePrompt}
+              onInsertCard={memoPasteHandler.handleInsertCard}
+              onKeepPlain={memoPasteHandler.handleKeepPlain}
+              onClose={memoPasteHandler.closePrompt}
+              positionClass="bottom-full mb-2 left-0"
+            />
             <textarea
               required
               rows={4}
               placeholder="伝言の詳細内容をご記入ください"
               value={content}
               onChange={(e) => setContent(e.target.value)}
+              onPaste={memoPasteHandler.handlePaste}
               className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white leading-relaxed"
             />
           </div>

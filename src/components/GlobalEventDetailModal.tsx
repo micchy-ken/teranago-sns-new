@@ -3,6 +3,7 @@ import { X, Calendar as CalendarIcon, Clock, MapPin, ExternalLink, FileText, Use
 import { CalendarEvent, EventType, User } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
 import { getRecurrenceLabel, isRecurringEvent } from '../utils/recurrenceUtils';
+import { renderContentWithLinks } from '../utils/renderContentWithLinks';
 
 interface GlobalEventDetailModalProps {
   isOpen: boolean;
@@ -174,7 +175,7 @@ export function GlobalEventDetailModal({
                 詳細・メモ
               </h4>
               <div className="p-4 bg-slate-50 border border-slate-200/80 rounded-xl text-xs text-slate-700 whitespace-pre-wrap leading-relaxed">
-                {event.memo}
+                {renderContentWithLinks(event.memo)}
               </div>
             </div>
           )}

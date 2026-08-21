@@ -632,7 +632,7 @@ export function MyPage({
             <div className="space-y-3">
               {myEvents.length > 0 ? (
                 myEvents.map((evt) => {
-                  const isUnread = !readEventIds.includes(evt.id);
+                  const isUnread = isEventUnread(evt, user, readEventIds);
                   const eventDate = new Date(evt.start);
 
                   return (

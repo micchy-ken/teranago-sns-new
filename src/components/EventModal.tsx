@@ -7,6 +7,7 @@ import { FilePreviewModal } from './FilePreviewModal';
 import { getLocalDateStr } from '../utils/dateUtils';
 import { calculateWeekOfMonth, isRecurringEvent, getRecurrenceLabel, safeParseRecurrence } from '../utils/recurrenceUtils';
 import { RecurrenceActionModal, RecurrenceActionScope } from './RecurrenceActionModal';
+import { UrlPastePopup, useUrlPasteHandler } from './common/UrlPastePopup';
 
 export interface EventModalProps {
   isOpen: boolean;
@@ -153,6 +154,7 @@ export function EventModal({
   const [end, setEnd] = useState('');
   const [location, setLocation] = useState('');
   const [memo, setMemo] = useState('');
+  const memoPasteHandler = useUrlPasteHandler(memo, setMemo);
   const [isGoogleSynced, setIsGoogleSynced] = useState(false);
   const [selectedAttendees, setSelectedAttendees] = useState<User[]>([]);
   const [attachments, setAttachments] = useState<AttachmentFile[]>([]);
@@ -1382,16 +1384,24 @@ export function EventModal({
             </div>
           </div>
 
-          <div>
+          <div className="relative">
             <label className="block text-sm font-semibold text-slate-700 mb-1.5">内容</label>
+            <UrlPastePopup
+              prompt={memoPasteHandler.pastePrompt}
+              onInsertCard={memoPasteHandler.handleInsertCard}
+              onKeepPlain={memoPasteHandler.handleKeepPlain}
+              onClose={memoPasteHandler.closePrompt}
+              positionClass="bottom-full mb-2 left-0"
+            />
             <textarea
               readOnly={isIcal}
               value={memo}
               onChange={e => setMemo(e.target.value)}
+              onPaste={memoPasteHandler.handlePaste}
               className={`w-full px-3.5 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors resize-none h-24 text-sm ${
                 isIcal ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-slate-50 focus:bg-white'
               }`}
-              placeholder="詳細な内容... (URLを入力すると自動的にリンクになります)"
+              placeholder="詳細な内容... (URLを入力するとカードまたはリンクを選択できます)"
             ></textarea>
           </div>
 

@@ -4,6 +4,8 @@ import { getAvatarUrl } from '../utils/avatar';
 import { ChevronLeft, ChevronRight, List as ListIcon, Calendar as CalendarIcon, Plus, MapPin, Video, AlignLeft, RefreshCw, Clock, Link as LinkIcon, Loader2, Building2, Users, Paperclip, MessageSquare, Phone, X, Monitor, Maximize2, Minimize2, FileSpreadsheet } from 'lucide-react';
 import { EventModal } from './EventModal';
 import { renderWithClickableLinks } from '../utils/linkify';
+import { renderContentWithLinks } from '../utils/renderContentWithLinks';
+import { UrlPastePopup, useUrlPasteHandler } from './common/UrlPastePopup';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { getLocalDateStr, addMinutesToLocalDatetime } from '../utils/dateUtils';
 import { triggerPushNotification } from '../utils/pushNotifications';
@@ -186,6 +188,7 @@ export function Calendar({
   const [requirementType, setRequirementType] = useState<RequirementType>('phone_called');
   const [customRequirementText, setCustomRequirementText] = useState('');
   const [content, setContent] = useState('');
+  const memoContentPasteHandler = useUrlPasteHandler(content, setContent);
 
   // チームタイムラインの各時間枠（実測X軸座標・幅）の管理
   const [hourLayouts, setHourLayouts] = useState<Record<number, { left: number; width: number }>>({});
@@ -2005,7 +2008,7 @@ export function Calendar({
                                 </div>
                                 <span className="text-[9px] sm:text-[10px] px-2 py-0.5 bg-white/20 rounded-full font-bold">{e.isIcal ? 'iCal' : typeLabels[e.type]}</span>
                               </div>
-                              {e.memo && <div className="text-[11px] sm:text-xs font-normal mt-1 opacity-90">{renderWithClickableLinks(e.memo)}</div>}
+                              {e.memo && <div className="text-[11px] sm:text-xs font-normal mt-1 opacity-90">{renderContentWithLinks(e.memo)}</div>}
                             </div>
                           );
                         })}
@@ -2073,7 +2076,7 @@ export function Calendar({
                                     <div className="text-[11px] sm:text-xs font-semibold text-slate-600 mt-0.5">{displayTimeString}</div>
                                     {e.memo && (
                                       <div className="text-[11px] sm:text-xs text-slate-700 mt-1 bg-white/50 p-1.5 rounded border border-slate-200/50">
-                                        {renderWithClickableLinks(e.memo)}
+                                        {renderContentWithLinks(e.memo)}
                                       </div>
                                     )}
                                   </div>
@@ -2149,7 +2152,7 @@ export function Calendar({
                         </div>
                         {e.memo && (
                           <div className="text-xs text-slate-700 my-2 bg-slate-50 p-2 rounded-lg border border-slate-100">
-                            {renderWithClickableLinks(e.memo)}
+                            {renderContentWithLinks(e.memo)}
                           </div>
                         )}
                         <div className="flex flex-wrap gap-2.5 sm:gap-4 text-xs text-slate-500 mt-2 font-medium items-center">
@@ -2369,13 +2372,21 @@ export function Calendar({
                 </div>
               )}
 
-              <div>
+              <div className="relative">
                 <label className="block text-xs font-bold text-slate-500 mb-1">
                   伝言内容本文 <span className="text-rose-500">*</span>
                 </label>
+                <UrlPastePopup
+                  prompt={memoContentPasteHandler.pastePrompt}
+                  onInsertCard={memoContentPasteHandler.handleInsertCard}
+                  onKeepPlain={memoContentPasteHandler.handleKeepPlain}
+                  onClose={memoContentPasteHandler.closePrompt}
+                  positionClass="bottom-full mb-2 left-0"
+                />
                 <textarea
                   value={content}
                   onChange={(e) => setContent(e.target.value)}
+                  onPaste={memoContentPasteHandler.handlePaste}
                   placeholder="伝言の具体的な内容を入力してください。"
                   required
                   rows={4}

@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { formatRelativeTime, formatEventScheduleBadge } from '../utils';
 import { API_BASE_URL } from '../config/api';
+import { renderContentWithLinks } from '../utils/renderContentWithLinks';
 
 interface TimelineProps {
   posts: Post[];
@@ -623,7 +624,7 @@ export function Timeline({
                     </div>
 
                     <div className="text-slate-800 leading-relaxed whitespace-pre-wrap bg-slate-50/60 p-4 rounded-xl border border-slate-100">
-                      {post.content}
+                      {renderContentWithLinks(post.content)}
                     </div>
 
                     {post.nasLink && (
@@ -722,9 +723,9 @@ export function Timeline({
                         </div>
                       )}
                       {event.memo && (
-                        <p className="text-slate-700 pt-2 border-t border-amber-100 whitespace-pre-wrap leading-relaxed">
-                          {event.memo}
-                        </p>
+                        <div className="text-slate-700 pt-2 border-t border-amber-100 whitespace-pre-wrap leading-relaxed">
+                          {renderContentWithLinks(event.memo)}
+                        </div>
                       )}
                       {event.attendees && event.attendees.length > 0 && (
                         <div className="pt-2 border-t border-amber-100">
@@ -778,7 +779,7 @@ export function Timeline({
                     <div>
                       <h3 className="font-bold text-slate-900 text-base mb-2">{topic.title}</h3>
                       <div className="text-slate-800 leading-relaxed whitespace-pre-wrap bg-slate-50/60 p-4 rounded-xl border border-slate-100">
-                        {topic.content}
+                        {renderContentWithLinks(topic.content)}
                       </div>
                     </div>
 

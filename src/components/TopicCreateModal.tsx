@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { X, Paperclip, Pin, Calendar as CalendarIcon, Building2, Users, Tag, Plus, Trash2, Loader2, UploadCloud } from 'lucide-react';
 import { BoardTopic, User, OfficeMaster, DivisionMaster, AttachmentFile } from '../types';
 import { uploadMultipleFiles } from '../utils/fileUpload';
+import { UrlPastePopup, useUrlPasteHandler } from './common/UrlPastePopup';
 
 interface TopicCreateModalProps {
   isOpen: boolean;
@@ -24,6 +25,7 @@ export function TopicCreateModal({
 }: TopicCreateModalProps) {
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
+  const pasteHandler = useUrlPasteHandler(content, setContent);
   const [selectedOffice, setSelectedOffice] = useState('全社');
   const [selectedDivision, setSelectedDivision] = useState('全部署');
   
@@ -276,15 +278,23 @@ export function TopicCreateModal({
           </div>
 
           {/* 内容 */}
-          <div>
+          <div className="relative">
             <label className="block text-xs font-bold text-slate-700 mb-1.5">
               本文内容 <span className="text-red-500">*</span>
             </label>
+            <UrlPastePopup
+              prompt={pasteHandler.pastePrompt}
+              onInsertCard={pasteHandler.handleInsertCard}
+              onKeepPlain={pasteHandler.handleKeepPlain}
+              onClose={pasteHandler.closePrompt}
+              positionClass="bottom-full mb-2 left-0"
+            />
             <textarea
               rows={5}
               placeholder="告知内容や詳細を詳しく記載してください..."
               value={content}
               onChange={e => setContent(e.target.value)}
+              onPaste={pasteHandler.handlePaste}
               className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
             />
           </div>

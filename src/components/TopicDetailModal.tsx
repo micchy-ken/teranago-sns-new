@@ -5,6 +5,8 @@ import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { getAvatarUrl } from '../utils/avatar';
 import { uploadMultipleFiles, deleteAttachmentFile, deleteAttachmentFiles } from '../utils/fileUpload';
 import { FilePreviewModal } from './FilePreviewModal';
+import { renderContentWithLinks } from '../utils/renderContentWithLinks';
+import { UrlPastePopup, useUrlPasteHandler } from './common/UrlPastePopup';
 
 interface TopicDetailModalProps {
   topic: BoardTopic | null;
@@ -30,6 +32,7 @@ export function TopicDetailModal({
   const [activeTab, setActiveTab] = useState<'content' | 'viewers'>('content');
   const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
   const [commentText, setCommentText] = useState('');
+  const commentPasteHandler = useUrlPasteHandler(commentText, setCommentText);
 
   // コメント添付ファイル関連
   const [commentAttachments, setCommentAttachments] = useState<AttachmentFile[]>([]);
@@ -44,6 +47,7 @@ export function TopicDetailModal({
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState('');
   const [editContent, setEditContent] = useState('');
+  const editPasteHandler = useUrlPasteHandler(editContent, setEditContent);
   const [editOffice, setEditOffice] = useState('');
   const [editDivision, setEditDivision] = useState('');
   const [editIsPinned, setEditIsPinned] = useState(false);
@@ -439,13 +443,21 @@ export function TopicDetailModal({
                 </div>
               </div>
 
-              <div>
+              <div className="relative">
                 <label className="block text-xs font-bold text-slate-700 mb-1">内容 <span className="text-red-500">*</span></label>
+                <UrlPastePopup
+                  prompt={editPasteHandler.pastePrompt}
+                  onInsertCard={editPasteHandler.handleInsertCard}
+                  onKeepPlain={editPasteHandler.handleKeepPlain}
+                  onClose={editPasteHandler.closePrompt}
+                  positionClass="bottom-full mb-2 left-0"
+                />
                 <textarea
                   required
                   rows={6}
                   value={editContent}
                   onChange={e => setEditContent(e.target.value)}
+                  onPaste={editPasteHandler.handlePaste}
                   className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white resize-none"
                 />
               </div>
@@ -674,7 +686,7 @@ export function TopicDetailModal({
                 <>
                   {/* Content Text */}
                   <div className="text-sm text-slate-800 leading-relaxed whitespace-pre-wrap bg-slate-50/50 p-4 rounded-xl border border-slate-200/80 min-h-[120px]">
-                    {topic.content}
+                    {renderContentWithLinks(topic.content)}
                   </div>
 
                   {/* Attachments Section */}
@@ -771,7 +783,9 @@ export function TopicDetailModal({
                                 </button>
                               )}
                             </div>
-                            <p className="text-slate-700 whitespace-pre-wrap pl-8">{c.content}</p>
+                            <div className="text-slate-700 whitespace-pre-wrap pl-8">
+                              {renderContentWithLinks(c.content)}
+                            </div>
 
                             {/* コメント添付ファイル一覧 */}
                             {c.attachments && c.attachments.length > 0 && (
@@ -877,7 +891,14 @@ export function TopicDetailModal({
                           )}
 
                           {/* Comment Input */}
-                          <form onSubmit={handleAddComment} className="flex gap-2 items-center">
+                          <form onSubmit={handleAddComment} className="flex gap-2 items-center relative">
+                            <UrlPastePopup
+                              prompt={commentPasteHandler.pastePrompt}
+                              onInsertCard={commentPasteHandler.handleInsertCard}
+                              onKeepPlain={commentPasteHandler.handleKeepPlain}
+                              onClose={commentPasteHandler.closePrompt}
+                              positionClass="bottom-full mb-2 left-0"
+                            />
                             <button
                               type="button"
                               disabled={isCommentUploading}
@@ -899,6 +920,7 @@ export function TopicDetailModal({
                               placeholder="コメントを入力... (ファイルをドラッグ＆ドロップ可)"
                               value={commentText}
                               onChange={e => setCommentText(e.target.value)}
+                              onPaste={commentPasteHandler.handlePaste}
                               className="flex-1 px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
                             />
                             <button

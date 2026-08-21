@@ -22,7 +22,8 @@ import {
   Briefcase,
   ShieldCheck,
   Users,
-  Info
+  Info,
+  Copy
 } from 'lucide-react';
 import { getAvatarUrl } from '../utils/avatar';
 
@@ -237,8 +238,22 @@ export function DailyReportView({
     setIsModalOpen(true);
   };
 
-  // フォーム送信処理 (下書き または 提出)
-  const handleSaveReport = async (submitStatus: WorkReportStatus) => {
+  // 週報を元にコピーして新規作成
+  const handleDuplicateReport = (report: DailyReport) => {
+    setEditingReportId(null); // 新規作成として扱う
+    setFormWeekStart(getMonday(new Date()));
+    setFormDepartment(report.department || report.author?.department || currentUser.department || '総務');
+    setFormSupervisorId(report.supervisorId || report.supervisor?.id || '');
+    setFormTasks(report.tasks || '');
+    setFormResults(report.results || '');
+    setFormIssues(report.issues || '');
+    setFormOngoingProjects(report.ongoingProjects || '');
+    setFormTomorrowPlan(report.tomorrowPlan || '');
+    setIsModalOpen(true);
+  };
+
+  // フォーム送信処理 (下書き上書き / コピーを保存 / 提出)
+  const handleSaveReport = async (submitStatus: WorkReportStatus, asCopy: boolean = false) => {
     if (!formTasks.trim()) {
       alert('「今週の業務内容」は必須入力です。');
       return;
@@ -258,9 +273,11 @@ export function DailyReportView({
       status: submitStatus,
     };
 
-    if (editingReportId && onUpdateReport) {
+    if (editingReportId && !asCopy && onUpdateReport) {
+      // 既存の週報を上書き保存
       await onUpdateReport(editingReportId, payload);
     } else if (onAddReport) {
+      // 新規保存、または「コピーを保存」として新規作成
       await onAddReport(payload);
     }
 
@@ -503,7 +520,7 @@ export function DailyReportView({
                         </span>
                       )}
 
-                      {/* Author Edit/Delete Actions */}
+                      {/* Author Edit/Copy/Delete Actions */}
                       {isAuthor && report.status !== 'reviewed' && (
                         <button
                           onClick={() => handleOpenEditModal(report)}
@@ -511,6 +528,15 @@ export function DailyReportView({
                           title="編集する"
                         >
                           <Edit3 className="w-4 h-4" />
+                        </button>
+                      )}
+                      {isAuthor && (
+                        <button
+                          onClick={() => handleDuplicateReport(report)}
+                          className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors cursor-pointer"
+                          title="この週報を元にコピーして新規作成"
+                        >
+                          <Copy className="w-4 h-4" />
                         </button>
                       )}
                       {(isAuthor || currentUser.isAdmin) && onDeleteReport && (
@@ -806,7 +832,7 @@ export function DailyReportView({
             </div>
 
             {/* Modal Actions */}
-            <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-3">
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3">
               <button 
                 type="button" 
                 onClick={() => setIsModalOpen(false)} 
@@ -815,18 +841,30 @@ export function DailyReportView({
                 キャンセル
               </button>
 
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-2.5">
+                {editingReportId && (
+                  <button 
+                    type="button" 
+                    onClick={() => handleSaveReport('draft', true)}
+                    className="flex items-center gap-1.5 px-3.5 py-2 bg-amber-50 border border-amber-300 text-amber-900 rounded-lg text-xs sm:text-sm font-semibold hover:bg-amber-100 transition-colors shadow-xs cursor-pointer"
+                    title="現在の入力内容をもとに、別の新しい下書きとして複製保存します"
+                  >
+                    <Copy className="w-4 h-4 text-amber-700" />
+                    コピーを保存
+                  </button>
+                )}
                 <button 
                   type="button" 
-                  onClick={() => handleSaveReport('draft')}
+                  onClick={() => handleSaveReport('draft', false)}
                   className="flex items-center gap-1.5 px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg text-xs sm:text-sm font-semibold hover:bg-slate-50 transition-colors shadow-xs cursor-pointer"
+                  title={editingReportId ? "現在の週報を上書き保存します" : "下書きとして新規保存します"}
                 >
                   <Save className="w-4 h-4 text-slate-500" />
                   下書き保存
                 </button>
                 <button 
                   type="button" 
-                  onClick={() => handleSaveReport('submitted')}
+                  onClick={() => handleSaveReport('submitted', false)}
                   className="flex items-center gap-1.5 px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs sm:text-sm font-bold transition-colors shadow-sm shadow-indigo-200 cursor-pointer"
                 >
                   <Send className="w-4 h-4" />

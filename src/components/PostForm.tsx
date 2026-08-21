@@ -3,6 +3,7 @@ import { Send, Image as ImageIcon, Paperclip, Hash, X, Loader2, UploadCloud, Tra
 import { User, AttachmentFile } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
 import { uploadMultipleFiles } from '../utils/fileUpload';
+import { UrlPastePopup, useUrlPasteHandler } from './common/UrlPastePopup';
 
 interface PostFormProps {
   onPost: (content: string, tags: string[], nasLink?: string) => void;
@@ -11,6 +12,7 @@ interface PostFormProps {
 
 export function PostForm({ onPost, currentUser }: PostFormProps) {
   const [content, setContent] = useState('');
+  const pasteHandler = useUrlPasteHandler(content, setContent);
   const [tagsInput, setTagsInput] = useState('');
   const [nasLinkInput, setNasLinkInput] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
@@ -129,9 +131,17 @@ export function PostForm({ onPost, currentUser }: PostFormProps) {
         />
         <form onSubmit={handleSubmit} className="flex-1">
           <div className="relative">
+            <UrlPastePopup
+              prompt={pasteHandler.pastePrompt}
+              onInsertCard={pasteHandler.handleInsertCard}
+              onKeepPlain={pasteHandler.handleKeepPlain}
+              onClose={pasteHandler.closePrompt}
+              positionClass="bottom-full mb-2 left-0"
+            />
             <textarea
               value={content}
               onChange={(e) => setContent(e.target.value)}
+              onPaste={pasteHandler.handlePaste}
               onFocus={() => setIsExpanded(true)}
               placeholder="今日学んだことや共有したいことを書こう... (ファイルをドラッグ＆ドロップして添付可)"
               className={`w-full p-3 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white resize-none transition-all ${

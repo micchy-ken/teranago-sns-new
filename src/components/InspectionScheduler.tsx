@@ -374,6 +374,8 @@ export function InspectionScheduler({
 
   // ==========================================
   // デバウンス自動保存 (Auto-Save)
+  // D&D移動や連続での時間変更時のサーバー通信トラフィックを削減するため、
+  // ローカル(localStorage)は即時書き込み、サーバー同期は2.5秒(2500ms)静止後に遅延実行します。
   // ==========================================
   useEffect(() => {
     if (isInitialMountRef.current || isLoadingDraft) return;
@@ -381,20 +383,22 @@ export function InspectionScheduler({
     const currentJson = JSON.stringify(items);
     if (currentJson === lastSavedJsonRef.current) return;
 
+    // 1. ローカルストレージ(ブラウザ)へは即座に書き込み（画面描画のレスポンス爆速化＆ブラウザ閉じ対策）
+    try {
+      localStorage.setItem(`inspection_draft_${targetYearMonth}`, currentJson);
+    } catch (_) {}
+
+    // 操作待機中ステータスに更新
+    setSaveStatus('saving');
+    setSyncDetailNote('編集中... 2.5秒後にサーバーと同期します');
+
     if (autoSaveTimerRef.current) {
       clearTimeout(autoSaveTimerRef.current);
     }
 
-    setSaveStatus('saving');
-
+    // 2. サーバーAPIへの同期送信は、D&D・操作が静止した 2500ms (2.5秒) 後に1回だけ一括送信
     autoSaveTimerRef.current = setTimeout(async () => {
-      // 1. ローカルストレージに常に即座バックアップ
       try {
-        localStorage.setItem(`inspection_draft_${targetYearMonth}`, currentJson);
-      } catch (_) {}
-
-      try {
-        // 2. サーバーAPIに保存
         const res = await fetch(`${API_BASE_URL}/inspection/drafts?targetYearMonth=${encodeURIComponent(targetYearMonth)}`, {
           method: 'POST',
           headers: {
@@ -422,7 +426,7 @@ export function InspectionScheduler({
           lastSavedJsonRef.current = currentJson;
           setSaveStatus('saved');
           setSyncDestination('server');
-          setSyncDetailNote('サーバー（API/NAS）と正常に同期されています');
+          setSyncDetailNote(data.storage === 'sql' ? 'SQL Serverデータベースに正常に自動保存・同期されました' : 'サーバー（API/NAS）に正常に自動保存・同期されました');
           setLastSavedTime(
             data.lastSavedAt
               ? new Date(data.lastSavedAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
@@ -443,7 +447,7 @@ export function InspectionScheduler({
         setSyncDetailNote('サーバーAPI未接続: このブラウザ内のみ保存中');
         setLastSavedTime(new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
       }
-    }, 500);
+    }, 2500);
 
     return () => {
       if (autoSaveTimerRef.current) {

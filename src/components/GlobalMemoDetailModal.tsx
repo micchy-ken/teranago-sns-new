@@ -3,6 +3,7 @@ import { X, User, Building2, Phone, Mail, Clock, Calendar, Check, AlertCircle, R
 import { Memo, User as UserType } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
 import { isMemoUnhandled } from '../utils/notifications';
+import { renderContentWithLinks } from '../utils/renderContentWithLinks';
 
 interface GlobalMemoDetailModalProps {
   isOpen: boolean;
@@ -116,7 +117,7 @@ export function GlobalMemoDetailModal({
               伝言内容
             </h4>
             <div className="p-4 bg-white border border-slate-200 rounded-xl text-sm text-slate-700 whitespace-pre-wrap leading-relaxed min-h-[100px] shadow-2xs">
-              {memo.content}
+              {renderContentWithLinks(memo.content)}
             </div>
           </div>
 

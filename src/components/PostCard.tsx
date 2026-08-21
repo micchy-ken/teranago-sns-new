@@ -4,6 +4,7 @@ import { Post, User } from '../types';
 import { formatRelativeTime } from '../utils';
 import { API_BASE_URL } from '../config/api';
 import { getAvatarUrl } from '../utils/avatar';
+import { renderContentWithLinks } from '../utils/renderContentWithLinks';
 
 interface PostCardProps {
   post: Post;
@@ -59,9 +60,9 @@ export const PostCard: React.FC<PostCardProps> = ({
 
       {/* Content */}
       <div className="mb-4">
-        <p className="mt-2 text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">
-          {post.content}
-        </p>
+        <div className="mt-2 text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">
+          {renderContentWithLinks(post.content)}
+        </div>
         
         {post.nasLink && (
           <div className="mt-3 p-3 bg-slate-50 border border-slate-200 rounded-lg flex items-center justify-between gap-2">
