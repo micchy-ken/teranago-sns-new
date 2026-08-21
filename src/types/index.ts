@@ -346,15 +346,76 @@ export interface AppNotification {
   createdAt?: string;
 }
 
-export type WorkReportType = 'daily' | 'weekly';
+export type WorkReportType = 'daily' | 'weekly' | 'maintenance_daily';
 export type WorkReportStatus = 'draft' | 'submitted' | 'reviewed';
+
+export interface MaintenanceWorkRow {
+  id: string;
+  directGo?: boolean;      // 直行
+  directReturn?: boolean;  // 直帰
+  siteName: string;        // 現場名
+  workDescription: string; // 作業内容
+  district: string;        // 地区
+  peopleCount: number;     // 人数
+  coworkers: string;       // 同行者
+  startTime: string;       // 作業時間 開始 (e.g. "07:00")
+  endTime: string;         // 作業時間 終了 (e.g. "09:00")
+  contentType: string;     // 内容 (EG取替, 見積, 修理, 単体取替, 点検等)
+  inspectionCount: number; // 点検台数
+  inspectionValue: number; // 点検数値
+  oncallAmount: number;    // オンコール金額
+  oncallValue: number;     // オンコール数値
+  replacementCount: number;// 取替台数
+  replacementAmount: number; // 取替金額
+  replacementValue: number;  // 取替数値
+  buildingMaterialValue: number; // 建材数値 (※手入力 - 緑色)
+  workHours?: string;      // 算出作業時間 (e.g. "2:00")
+}
+
+export interface MaintenanceOfficeWorkRow {
+  id: string;
+  destination: string;     // 見積提出先
+  content: string;         // 内容
+  amount: number;          // 金額
+  targetMonth: string;     // 決定予定月
+  timeMinutes: number;     // 時間(分)
+  remarks: string;         // 備考
+}
+
+export interface MaintenanceDailyReportData {
+  date: string; // YYYY-MM-DD
+  userName?: string;
+  mainWorkRows: MaintenanceWorkRow[];
+  officeWorkRows: MaintenanceOfficeWorkRow[];
+  otherOfficeWork?: string;
+  
+  // 工事・集計サマリー
+  constructionType?: string;    // 工事内容 (例: 両引き２)
+  constructionCount?: number;   // 台数 (例: 2)
+  constructionPeople?: number;  // 人数 (例: 2)
+  constructionValue?: number;   // 工事数値 (※手入力 - 緑色)
+  distanceValue?: number;       // 距離数値 (※手入力 - 緑色)
+  
+  // 時間集計
+  workHours?: string;           // 作業時間
+  officeHours?: string;         // 事務時間
+  travelHours?: string;         // 移動時間
+  breakHours?: string;          // 休憩時間
+  overtimeHours?: string;       // 残業時間 (※手入力 - 緑色)
+  totalHours?: string;          // 合計時間
+  estimateSurveyHours?: string; // 見積、現調、貼紙
+
+  // 集計値
+  dailyTotalValue?: number;     // 当日数値合計 (自動計算)
+  monthlyTotalValue?: number;   // 当月数値合計 (自動計算/累計)
+}
 
 export interface DailyReport {
   id: string;
   author: User;
   author_id?: string;
   authorId?: string;
-  reportType?: WorkReportType; // 'daily' | 'weekly'
+  reportType?: WorkReportType; // 'daily' | 'weekly' | 'maintenance_daily'
   date?: string; // ISO string or YYYY-MM-DD
   week_start_date?: string; // e.g. '2026-08-17'
   weekStartDate?: string; // e.g. '2026-08-17'
@@ -378,6 +439,7 @@ export interface DailyReport {
   reviewedAt?: string; // 上長確認日時
   feedbackComment?: string; // 上長コメント・フィードバック (互換用)
   review_feedback?: string; // 上長コメント・フィードバック (新カラム)
+  maintenanceData?: MaintenanceDailyReportData; // 保守日報専用構造データ
   createdAt: string; // ISO string
   updated_at?: string; // 更新日時 (新カラム)
   updatedAt?: string; // 更新日時

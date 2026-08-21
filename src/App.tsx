@@ -2660,6 +2660,7 @@ export default function App() {
       supervisor: targetSupervisor,
       status: reportData.status || 'submitted',
       submittedAt: reportData.status === 'submitted' ? new Date().toISOString() : undefined,
+      maintenanceData: (reportData as any).maintenanceData,
       createdAt: new Date().toISOString(),
     };
     setReports([newReport, ...reports]);
@@ -2681,6 +2682,7 @@ export default function App() {
         tomorrowPlan: reportData.tomorrowPlan,
         supervisorId: reportData.supervisorId,
         status: reportData.status || 'submitted',
+        maintenanceData: (reportData as any).maintenanceData,
       };
 
       let response = await fetch(`${API_BASE_URL}/work-reports`, {
@@ -3045,6 +3047,7 @@ export default function App() {
             allUsers={usersList}
             divisions={divisions}
             refetchReports={refetchReports}
+            calendarEvents={events}
           />
         )}
         {activeTab === 'files' && (

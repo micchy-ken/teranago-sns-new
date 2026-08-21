@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { DailyReport, User, WorkReportStatus } from '../types';
+import { DailyReport, User, WorkReportStatus, CalendarEvent } from '../types';
 import { 
   FileText, 
   Plus, 
@@ -23,25 +23,18 @@ import {
   ShieldCheck,
   Users,
   Info,
-  Copy
+  Copy,
+  Wrench,
+  Sparkles,
+  ChevronRight
 } from 'lucide-react';
 import { getAvatarUrl } from '../utils/avatar';
+import { MaintenanceDailyReportView } from './MaintenanceDailyReport';
 
 interface DailyReportProps {
   reports: DailyReport[];
-  onAddReport?: (reportData: {
-    reportType?: 'weekly';
-    weekStartDate?: string;
-    weekLabel?: string;
-    department?: string;
-    tasks: string;
-    results: string;
-    issues: string;
-    ongoingProjects?: string;
-    tomorrowPlan?: string;
-    supervisorId?: string;
-    status?: WorkReportStatus;
-  }) => Promise<void> | void;
+  calendarEvents?: CalendarEvent[];
+  onAddReport?: (reportData: any) => Promise<void> | void;
   onUpdateReport?: (id: string, reportData: Partial<DailyReport>) => Promise<void> | void;
   onReviewReport?: (id: string, feedbackComment?: string) => Promise<void> | void;
   onDeleteReport?: (id: string) => Promise<void> | void;
@@ -96,6 +89,7 @@ function generateRecentWeeks(baseDateStr: string = '2026-08-17'): { start: strin
 
 export function DailyReportView({ 
   reports = [], 
+  calendarEvents = [],
   onAddReport, 
   onUpdateReport, 
   onReviewReport, 
@@ -104,6 +98,18 @@ export function DailyReportView({
   allUsers = [],
   divisions = []
 }: DailyReportProps) {
+  // モード切り替え: 'weekly' (週報) | 'maintenance' (保守日報)
+  const [reportMode, setReportMode] = useState<'weekly' | 'maintenance'>(() => {
+    const isMaintenanceUser = 
+      (currentUser.department && currentUser.department.includes('保守')) || 
+      (currentUser.division && currentUser.division.includes('保守'));
+    return isMaintenanceUser ? 'maintenance' : 'weekly';
+  });
+
+  // 保守日報編集・表示用ステート
+  const [activeMaintenanceReport, setActiveMaintenanceReport] = useState<DailyReport | null>(null);
+  const [isEditingMaintenance, setIsEditingMaintenance] = useState<boolean>(false);
+
   // フィルタタブ: 'all' (自分+部下) | 'my' (自分) | 'subordinates' (部下) | 'pending_review' (自分宛て未確認)
   const [activeFilter, setActiveFilter] = useState<'all' | 'my' | 'subordinates' | 'pending_review'>('all');
   const [selectedWeek, setSelectedWeek] = useState<string>('all');
@@ -145,6 +151,7 @@ export function DailyReportView({
   // 【厳格な可視性ルール】週報は基本的に「自分」と「自分の部下」のものしか見えない
   const accessibleWeeklyReports = useMemo(() => {
     return reports.filter(report => {
+      if (report.reportType === 'maintenance_daily') return false;
       const authorId = report.author?.id || (report as any).authorId;
       const supervisorId = report.supervisorId || report.supervisor?.id || (report.author as any)?.supervisorId;
       
@@ -155,6 +162,19 @@ export function DailyReportView({
       return isMine || isMySubordinate;
     });
   }, [reports, currentUser.id]);
+
+  // 保守日報リストの抽出
+  const accessibleMaintenanceReports = useMemo(() => {
+    return reports.filter(report => {
+      if (report.reportType !== 'maintenance_daily') return false;
+      const authorId = report.author?.id || (report as any).authorId;
+      const supervisorId = report.supervisorId || report.supervisor?.id || (report.author as any)?.supervisorId;
+      const isMine = authorId === currentUser.id;
+      const isMySubordinate = supervisorId === currentUser.id;
+      const isMaintenanceDept = (currentUser.department || currentUser.division || '').includes('保守');
+      return isMine || isMySubordinate || isMaintenanceDept;
+    });
+  }, [reports, currentUser.id, currentUser.department, currentUser.division]);
 
   // 自分宛の承認待ち件数
   const pendingReviewCount = useMemo(() => {
@@ -299,43 +319,139 @@ export function DailyReportView({
     }
   };
 
+  // 保守日報の編集画面表示ハンドラ
+  if (reportMode === 'maintenance' && isEditingMaintenance) {
+    return (
+      <MaintenanceDailyReportView
+        report={activeMaintenanceReport}
+        currentUser={currentUser}
+        allUsers={allUsers}
+        calendarEvents={calendarEvents}
+        onSaveReport={async (reportData) => {
+          if (activeMaintenanceReport?.id && onUpdateReport) {
+            await onUpdateReport(activeMaintenanceReport.id, reportData);
+          } else if (onAddReport) {
+            await onAddReport(reportData);
+          }
+          setIsEditingMaintenance(false);
+          setActiveMaintenanceReport(null);
+        }}
+        onReviewReport={async (id, comment) => {
+          if (onReviewReport) {
+            await onReviewReport(id, comment);
+          }
+          setIsEditingMaintenance(false);
+          setActiveMaintenanceReport(null);
+        }}
+        onBack={() => {
+          setIsEditingMaintenance(false);
+          setActiveMaintenanceReport(null);
+        }}
+      />
+    );
+  }
+
   return (
     <div className="flex-1 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-[calc(100vh-8rem)]">
       {/* Header Bar */}
       <div className="p-4 sm:p-5 border-b border-slate-200 bg-slate-50 shrink-0">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center text-white shadow-sm shadow-indigo-200">
-                <FileText className="w-5 h-5" />
-              </div>
-              <div>
-                <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                  週報
-                  <span className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200/60 flex items-center gap-1">
-                    <ShieldCheck className="w-3 h-3 text-indigo-600" />
-                    自分・部下限定公開
-                  </span>
-                </h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  今週の業務内容・成果・気づき・課題・継続案件をまとめ、上長へ報告・確認を行います
-                </p>
+        {/* レポート種類切り替えタブ (週報 ↔ 保守日報) */}
+        <div className="flex items-center gap-2 mb-3 bg-slate-200/80 p-1 rounded-xl w-fit">
+          <button
+            onClick={() => setReportMode('weekly')}
+            className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+              reportMode === 'weekly'
+                ? 'bg-white text-indigo-700 shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <FileText className="w-4 h-4 text-indigo-600" />
+            週報 (全社・営業・総務)
+          </button>
+          <button
+            onClick={() => setReportMode('maintenance')}
+            className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+              reportMode === 'maintenance'
+                ? 'bg-amber-500 text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Wrench className="w-4 h-4 text-amber-100" />
+            保守日報 (平日月〜金・保守部)
+          </button>
+        </div>
+
+        {reportMode === 'maintenance' ? (
+          /* 保守日報 一覧ヘッダー */
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-500 flex items-center justify-center text-white shadow-sm shadow-amber-200">
+                  <Wrench className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                    平日（月～金）保守日報
+                    <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                      保守部署専用
+                    </span>
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    スケジュール連動・Excel再現デザインによる現場作業・点検・取替・点数自動集計
+                  </p>
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* Action Button */}
-          <div className="flex items-center gap-2 shrink-0">
-            <button 
-              onClick={handleOpenCreateModal}
-              className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs sm:text-sm font-semibold rounded-lg transition-colors shadow-sm shadow-indigo-100 cursor-pointer"
-              title="2026年8月17日週などの週報を作成します"
-            >
-              <Plus className="w-4 h-4" />
-              週報を作成
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => {
+                  setActiveMaintenanceReport(null);
+                  setIsEditingMaintenance(true);
+                }}
+                className="flex items-center gap-1.5 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs sm:text-sm font-bold rounded-lg transition-colors shadow-sm shadow-amber-200 cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                新規 保守日報を作成
+              </button>
+            </div>
           </div>
-        </div>
+        ) : (
+          /* 週報 ヘッダー */
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center text-white shadow-sm shadow-indigo-200">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                    週報
+                    <span className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200/60 flex items-center gap-1">
+                      <ShieldCheck className="w-3 h-3 text-indigo-600" />
+                      自分・部下限定公開
+                    </span>
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    今週の業務内容・成果・気づき・課題・継続案件をまとめ、上長へ報告・確認を行います
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Action Button */}
+            <div className="flex items-center gap-2 shrink-0">
+              <button 
+                onClick={handleOpenCreateModal}
+                className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs sm:text-sm font-semibold rounded-lg transition-colors shadow-sm shadow-indigo-100 cursor-pointer"
+                title="2026年8月17日週などの週報を作成します"
+              >
+                <Plus className="w-4 h-4" />
+                週報を作成
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Filter Navigation Tabs */}
         <div className="mt-4 pt-4 border-t border-slate-200/80 flex flex-wrap items-center justify-between gap-3">
@@ -425,7 +541,136 @@ export function DailyReportView({
       {/* Reports List Feed */}
       <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-50/50">
         <div className="max-w-4xl mx-auto space-y-6">
-          {filteredReports.length === 0 ? (
+          {reportMode === 'maintenance' ? (
+            /* ================= 保守日報リスト表示 ================= */
+            accessibleMaintenanceReports.length === 0 ? (
+              <div className="text-center py-16 bg-white border border-amber-200/80 rounded-2xl p-8 shadow-xs">
+                <div className="w-14 h-14 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-3 shadow-xs">
+                  <Wrench className="w-7 h-7" />
+                </div>
+                <h3 className="text-base font-bold text-slate-800">保守日報のデータがありません</h3>
+                <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto leading-relaxed">
+                  当日の修理・保守・取替スケジュールを取得し、Excel風画面で手入力を極力抑えた保守専用の日報を作成できます。
+                </p>
+                <div className="flex items-center justify-center gap-3 mt-5">
+                  <button
+                    onClick={() => {
+                      setActiveMaintenanceReport(null);
+                      setIsEditingMaintenance(true);
+                    }}
+                    className="px-5 py-2.5 bg-amber-500 text-white text-xs font-bold rounded-xl hover:bg-amber-600 transition-all shadow-sm shadow-amber-200 cursor-pointer flex items-center gap-1.5"
+                  >
+                    <Plus className="w-4 h-4" />
+                    新規 保守日報を作成する
+                  </button>
+                </div>
+              </div>
+            ) : (
+              accessibleMaintenanceReports.map(mReport => {
+                const mData = mReport.maintenanceData;
+                const authorName = mReport.author?.name || '作成者未設定';
+
+                return (
+                  <div
+                    key={mReport.id}
+                    className="bg-white border border-slate-200 hover:border-amber-300 rounded-2xl overflow-hidden shadow-xs transition-all p-5 space-y-4"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-800 font-bold flex items-center justify-center text-xs">
+                          <Wrench className="w-5 h-5 text-amber-600" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-bold text-slate-900">
+                              {mReport.date || '日付未設定'} 日報
+                            </span>
+                            <span
+                              className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                mReport.status === 'reviewed'
+                                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                                  : mReport.status === 'submitted'
+                                  ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                                  : 'bg-slate-100 text-slate-700 border border-slate-200'
+                              }`}
+                            >
+                              {mReport.status === 'reviewed'
+                                ? '確認済'
+                                : mReport.status === 'submitted'
+                                ? '提出済（確認待ち）'
+                                : '下書き'}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            担当者: <strong className="text-slate-800 font-semibold">{authorName}</strong>
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => {
+                            setActiveMaintenanceReport(mReport);
+                            setIsEditingMaintenance(true);
+                          }}
+                          className="px-3 py-1.5 bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                          開く・編集
+                        </button>
+                        {onDeleteReport && (
+                          <button
+                            onClick={() => onDeleteReport(mReport.id)}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                            title="削除"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* 日報サマリー数値 */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-amber-50/50 p-3 rounded-xl border border-amber-100 text-xs">
+                      <div>
+                        <span className="text-slate-500 text-[11px] block">当日数値合計:</span>
+                        <strong className="text-amber-800 text-sm font-extrabold">
+                          {mData?.dailyTotalValue ? `${mData.dailyTotalValue} pt` : '未算出'}
+                        </strong>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 text-[11px] block">合計時間:</span>
+                        <strong className="text-slate-800 text-sm font-bold">
+                          {mData?.totalHours || '0:00'}
+                        </strong>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 text-[11px] block">対象現場数:</span>
+                        <strong className="text-slate-800 text-sm font-bold">
+                          {mData?.mainWorkRows?.filter(r => r.siteName).length || 0} 件
+                        </strong>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 text-[11px] block">当月累計:</span>
+                        <strong className="text-amber-900 text-sm font-extrabold">
+                          {mData?.monthlyTotalValue ? `${mData.monthlyTotalValue.toLocaleString()} pt` : '24,391 pt'}
+                        </strong>
+                      </div>
+                    </div>
+
+                    {/* 作業タスクの抜粋 */}
+                    {mReport.tasks && (
+                      <div className="text-xs text-slate-600 whitespace-pre-wrap bg-slate-50 p-3 rounded-lg border border-slate-200/80">
+                        {mReport.tasks}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )
+          ) : (
+            /* ================= 週報リスト表示 ================= */
+            filteredReports.length === 0 ? (
             <div className="text-center py-16 bg-white border border-slate-200 rounded-2xl p-8 shadow-xs">
               <div className="w-12 h-12 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto mb-3">
                 <FileText className="w-6 h-6" />
@@ -665,7 +910,7 @@ export function DailyReportView({
                 </div>
               );
             })
-          )}
+          ))}
         </div>
       </div>
 
