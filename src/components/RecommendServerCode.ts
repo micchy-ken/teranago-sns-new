@@ -3048,16 +3048,34 @@ const handleGetDailyReports = async (req, res) => {
       const supervisorUser = supId ? usersMap.get(supId) : undefined;
 
       let mData = undefined;
-      if (row.maintenance_data) {
-        try { mData = typeof row.maintenance_data === 'string' ? JSON.parse(row.maintenance_data) : row.maintenance_data; } catch (e) {}
+      const rawM = row.maintenance_data ?? row.maintenanceData ?? row.Maintenance_Data;
+      if (rawM) {
+        try {
+          mData = typeof rawM === 'string' ? JSON.parse(rawM) : rawM;
+          if (typeof mData === 'string') {
+            try { mData = JSON.parse(mData); } catch (e) {}
+          }
+        } catch (e) {}
       }
       let cData = undefined;
-      if (row.construction_data) {
-        try { cData = typeof row.construction_data === 'string' ? JSON.parse(row.construction_data) : row.construction_data; } catch (e) {}
+      const rawC = row.construction_data ?? row.constructionData ?? row.Construction_Data;
+      if (rawC) {
+        try {
+          cData = typeof rawC === 'string' ? JSON.parse(rawC) : rawC;
+          if (typeof cData === 'string') {
+            try { cData = JSON.parse(cData); } catch (e) {}
+          }
+        } catch (e) {}
       }
       let sData = undefined;
-      if (row.sales_data) {
-        try { sData = typeof row.sales_data === 'string' ? JSON.parse(row.sales_data) : row.sales_data; } catch (e) {}
+      const rawS = row.sales_data ?? row.salesData ?? row.Sales_Data;
+      if (rawS) {
+        try {
+          sData = typeof rawS === 'string' ? JSON.parse(rawS) : rawS;
+          if (typeof sData === 'string') {
+            try { sData = JSON.parse(sData); } catch (e) {}
+          }
+        } catch (e) {}
       }
 
       return {

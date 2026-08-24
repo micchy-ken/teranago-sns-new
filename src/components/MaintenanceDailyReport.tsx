@@ -234,17 +234,26 @@ export function MaintenanceDailyReportView({
   onReviewReport,
   onBack,
 }: MaintenanceDailyReportProps) {
-  // maintenanceData の安全な取得（JSON文字列で届いた場合のフェイルセーフ）
+  // maintenanceData の安全な取得（camelCase と snake_case の両方およびJSON文字列化対応）
   const maintenanceData = useMemo<MaintenanceDailyReportData | null>(() => {
-    if (!report?.maintenanceData) return null;
-    if (typeof report.maintenanceData === 'string') {
+    if (!report) return null;
+    let raw = report.maintenanceData || (report as any).maintenance_data || (report as any).maintenanceData;
+    if (!raw) return null;
+    if (typeof raw === 'string') {
       try {
-        return JSON.parse(report.maintenanceData);
+        raw = JSON.parse(raw);
       } catch (e) {
         return null;
       }
     }
-    return report.maintenanceData as MaintenanceDailyReportData;
+    if (typeof raw === 'string') {
+      try {
+        raw = JSON.parse(raw);
+      } catch (e) {
+        // ignore
+      }
+    }
+    return raw as MaintenanceDailyReportData;
   }, [report]);
 
   // 日付
@@ -386,6 +395,113 @@ export function MaintenanceDailyReportView({
   const [status, setStatus] = useState<WorkReportStatus>(report?.status || 'draft');
   const [reviewComment, setReviewComment] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+
+  // report または maintenanceData 変更時の状態復元同期
+  useEffect(() => {
+    if (report?.date) setReportDate(report.date.split('T')[0]);
+    else if ((report as any)?.reportDate) setReportDate((report as any).reportDate.split('T')[0]);
+    if (report?.supervisorId || (report as any)?.supervisor_id) {
+      setSupervisorId(report?.supervisorId || (report as any)?.supervisor_id || '');
+    }
+    if (report?.status) setStatus(report.status);
+
+    if (maintenanceData) {
+      let rowsSource = maintenanceData.mainWorkRows;
+      if (typeof rowsSource === 'string') {
+        try { rowsSource = JSON.parse(rowsSource); } catch (e) {}
+      }
+      if (Array.isArray(rowsSource) && rowsSource.length > 0) {
+        const existing = [...rowsSource];
+        while (existing.length < 10) {
+          existing.push({
+            id: `row-${existing.length + 1}`,
+            directGo: false,
+            directReturn: false,
+            siteName: '',
+            workDescription: '',
+            district: '',
+            peopleCount: 1,
+            coworkers: '',
+            startTime: '',
+            endTime: '',
+            contentType: '',
+            inspectionCount: 0,
+            inspectionValue: 0,
+            oncallAmount: 0,
+            oncallValue: 0,
+            replacementCount: 0,
+            replacementAmount: 0,
+            replacementValue: 0,
+            buildingMaterialValue: 0,
+            workHours: '0:00',
+          });
+        }
+        setMainWorkRows(existing);
+      }
+
+      let officeSource = maintenanceData.officeWorkRows;
+      if (typeof officeSource === 'string') {
+        try { officeSource = JSON.parse(officeSource); } catch (e) {}
+      }
+      if (Array.isArray(officeSource) && officeSource.length > 0) {
+        const existing = [...officeSource];
+        while (existing.length < 5) {
+          existing.push({
+            id: `office-${existing.length + 1}`,
+            destination: '',
+            content: '',
+            amount: 0,
+            targetMonth: '',
+            timeMinutes: 0,
+            remarks: '',
+          });
+        }
+        setOfficeWorkRows(existing);
+      }
+
+      if (maintenanceData.otherOfficeWork !== undefined) setOtherOfficeWork(maintenanceData.otherOfficeWork || '');
+      if (maintenanceData.constructionType !== undefined) setConstructionType(maintenanceData.constructionType || '');
+      if (maintenanceData.constructionCount !== undefined) setConstructionCount(maintenanceData.constructionCount ?? '');
+      if (maintenanceData.constructionPeople !== undefined) setConstructionPeople(maintenanceData.constructionPeople ?? '');
+      if (maintenanceData.constructionValue !== undefined) setConstructionValue(maintenanceData.constructionValue ?? '');
+      if (maintenanceData.distanceValue !== undefined) setDistanceValue(maintenanceData.distanceValue ?? '');
+      if (maintenanceData.breakHours !== undefined) setBreakHours(maintenanceData.breakHours || '');
+      if (maintenanceData.overtimeHours !== undefined) setOvertimeHours(maintenanceData.overtimeHours || '');
+      if (maintenanceData.travelHours !== undefined) setTravelHours(maintenanceData.travelHours || '');
+      if (maintenanceData.estimateSurveyHours !== undefined) setEstimateSurveyHours(maintenanceData.estimateSurveyHours || '');
+    } else if (report) {
+      const tasksSource = report.tasks || (report as any).content || '';
+      const parsedRows = parseTasksToMainWorkRows(tasksSource);
+      if (parsedRows.length > 0) {
+        const existing = [...parsedRows];
+        while (existing.length < 10) {
+          existing.push({
+            id: `row-${existing.length + 1}`,
+            directGo: false,
+            directReturn: false,
+            siteName: '',
+            workDescription: '',
+            district: '',
+            peopleCount: 1,
+            coworkers: '',
+            startTime: '',
+            endTime: '',
+            contentType: '',
+            inspectionCount: 0,
+            inspectionValue: 0,
+            oncallAmount: 0,
+            oncallValue: 0,
+            replacementCount: 0,
+            replacementAmount: 0,
+            replacementValue: 0,
+            buildingMaterialValue: 0,
+            workHours: '0:00',
+          });
+        }
+        setMainWorkRows(existing);
+      }
+    }
+  }, [report, maintenanceData]);
 
   // アコーディオン表示用（スマホビューで展開する行ID）
   const [expandedMobileRow, setExpandedMobileRow] = useState<string | null>('row-1');
