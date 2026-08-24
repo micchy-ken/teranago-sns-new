@@ -892,26 +892,54 @@ export default function App() {
               parsedTasks = r.content;
             }
           }
+          let mData = r.maintenanceData || r.maintenance_data || r.Maintenance_Data;
+          if (typeof mData === 'string') {
+            try { mData = JSON.parse(mData); } catch (_) {}
+            if (typeof mData === 'string') {
+              try { mData = JSON.parse(mData); } catch (_) {}
+            }
+          }
+
+          let cData = r.constructionData || r.construction_data || r.Construction_Data;
+          if (typeof cData === 'string') {
+            try { cData = JSON.parse(cData); } catch (_) {}
+            if (typeof cData === 'string') {
+              try { cData = JSON.parse(cData); } catch (_) {}
+            }
+          }
+
+          let sData = r.salesData || r.sales_data || r.Sales_Data;
+          if (typeof sData === 'string') {
+            try { sData = JSON.parse(sData); } catch (_) {}
+            if (typeof sData === 'string') {
+              try { sData = JSON.parse(sData); } catch (_) {}
+            }
+          }
+
           return {
             id: String(r.id),
             author: authorUser,
-            reportType: r.reportType || (r.weekStartDate ? 'weekly' : 'daily'),
-            date: r.date || r.reportDate || (r.createdAt ? String(r.createdAt).substring(0, 10) : ''),
-            weekStartDate: r.weekStartDate,
-            weekLabel: r.weekLabel,
+            authorId: authorUser?.id || r.authorId || r.author_id,
+            reportType: r.reportType || r.report_type || (r.weekStartDate || r.week_start_date ? 'weekly' : 'daily'),
+            date: r.date || r.reportDate || r.report_date || (r.createdAt ? String(r.createdAt).substring(0, 10) : ''),
+            weekStartDate: r.weekStartDate || r.week_start_date,
+            weekLabel: r.weekLabel || r.week_label,
             department: r.department || authorUser?.department || '',
             tasks: parsedTasks,
             results: parsedResults,
             issues: parsedIssues,
             ongoingProjects: parsedOngoing,
             tomorrowPlan: parsedTomorrow,
-            supervisorId: r.supervisorId,
+            supervisorId: r.supervisorId || r.supervisor_id,
             supervisor: supervisorUser,
             status: r.status || 'submitted',
-            feedbackComment: r.feedbackComment || '',
-            submittedAt: r.submittedAt,
-            reviewedAt: r.reviewedAt,
-            createdAt: r.createdAt || new Date().toISOString()
+            feedbackComment: r.feedbackComment || r.feedback_comment || '',
+            maintenanceData: mData,
+            constructionData: cData,
+            salesData: sData,
+            submittedAt: r.submittedAt || r.submitted_at,
+            reviewedAt: r.reviewedAt || r.reviewed_at,
+            createdAt: r.createdAt || r.created_at || new Date().toISOString()
           };
         });
         setReports(mapped);
@@ -2722,6 +2750,12 @@ export default function App() {
         achievements: reportData.results !== undefined ? reportData.results : (reportData as any).achievements,
         continued_items: reportData.ongoingProjects !== undefined ? reportData.ongoingProjects : (reportData as any).continued_items,
         next_week_plans: reportData.tomorrowPlan !== undefined ? reportData.tomorrowPlan : (reportData as any).next_week_plans,
+        maintenance_data: (reportData as any).maintenanceData !== undefined ? (reportData as any).maintenanceData : (reportData as any).maintenance_data,
+        maintenanceData: (reportData as any).maintenanceData !== undefined ? (reportData as any).maintenanceData : (reportData as any).maintenance_data,
+        construction_data: (reportData as any).constructionData !== undefined ? (reportData as any).constructionData : (reportData as any).construction_data,
+        constructionData: (reportData as any).constructionData !== undefined ? (reportData as any).constructionData : (reportData as any).construction_data,
+        sales_data: (reportData as any).salesData !== undefined ? (reportData as any).salesData : (reportData as any).sales_data,
+        salesData: (reportData as any).salesData !== undefined ? (reportData as any).salesData : (reportData as any).sales_data,
       };
       let response = await fetch(`${API_BASE_URL}/work-reports/${id}`, {
         method: 'PUT',

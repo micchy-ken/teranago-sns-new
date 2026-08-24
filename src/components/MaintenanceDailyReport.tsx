@@ -1655,7 +1655,7 @@ export function MaintenanceDailyReportView({
                     <td className="p-1 border-r border-slate-200">
                       <input
                         type="text"
-                        placeholder="2026/09"
+                        placeholder=""
                         value={row.targetMonth}
                         onChange={e => {
                           const next = [...officeWorkRows];
