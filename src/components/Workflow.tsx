@@ -46,11 +46,30 @@ const getStatusConfig = (status?: string) => {
 };
 
 export function Workflow({ applications, onAddApplication, onUpdateApplication, onDeleteApplication, allUsers, currentUser, approvalFlows, onWorkflowAction, itemMasters = [], initialAppId }: WorkflowProps) {
-  const [filter, setFilter] = useState<'my_applications' | 'pending_approval' | 'draft'>('my_applications');
+  const [filter, setFilter] = useState<'my_applications' | 'pending_approval' | 'approved' | 'draft'>('my_applications');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [highlightedAppId, setHighlightedAppId] = useState<string | null>(null);
 
   const processedInitialAppIdRef = React.useRef<string | null>(null);
+
+  // 自分が承認済みの申請かどうかを判定する関数
+  const isUserApprovedApplication = React.useCallback((app: WorkflowApplication, user: UserType) => {
+    if (!user || !app) return false;
+    // 申請者本人のものは「自分の申請」に含まれるため除外
+    if (app.applicant?.id === user.id) return false;
+
+    // 承認履歴に自分が含まれているか
+    if (app.history && app.history.length > 0) {
+      return app.history.some(h => (h.approver?.id === user.id || h.approver?.name === user.name) && h.status === 'approved');
+    }
+
+    // 単一承認で自分が承認者の場合（ステータスが approved）
+    if (app.status === 'approved' && (app.approver?.id === user.id || app.approver?.name === user.name)) {
+      return true;
+    }
+
+    return false;
+  }, []);
 
   React.useEffect(() => {
     if (initialAppId && processedInitialAppIdRef.current !== initialAppId) {
@@ -59,10 +78,19 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
         processedInitialAppIdRef.current = initialAppId;
         if (targetApp.status === 'draft' && targetApp.applicant?.id === currentUser?.id) {
           setFilter('draft');
-        } else if (targetApp.approver?.id === currentUser?.id) {
+        } else if (isUserCurrentApprover(targetApp, currentUser)) {
           setFilter('pending_approval');
-        } else {
+        } else if (isUserApprovedApplication(targetApp, currentUser)) {
+          setFilter('approved');
+        } else if (targetApp.applicant?.id === currentUser?.id) {
           setFilter('my_applications');
+        } else {
+          // 他者が申請し自分が関連している場合
+          if (targetApp.status === 'approved' || targetApp.status === 'rejected') {
+            setFilter('approved');
+          } else {
+            setFilter('my_applications');
+          }
         }
         setHighlightedAppId(initialAppId);
         setTimeout(() => {
@@ -73,7 +101,7 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
         }, 150);
       }
     }
-  }, [initialAppId, applications, currentUser]);
+  }, [initialAppId, applications, currentUser, isUserApprovedApplication]);
 
   // 却下ダイアログ用の状態
   const [rejectingAppId, setRejectingAppId] = useState<string | null>(null);
@@ -364,15 +392,21 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
   // 承認待ちの件数
   const pendingCount = applications.filter((app) => isUserCurrentApprover(app, currentUser)).length;
 
+  // 自分が承認済みの件数 (他者の申請で自分が承認した、または承認履歴に含まれるもの)
+  const approvedCount = applications.filter((app) => isUserApprovedApplication(app, currentUser)).length;
+
   const filteredApps = applications
     .filter((app) => {
       if (filter === 'draft') {
         return app.applicant?.id === currentUser?.id && app.status === 'draft';
       } else if (filter === 'my_applications') {
         return app.applicant?.id === currentUser?.id && app.status !== 'draft';
-      } else {
+      } else if (filter === 'pending_approval') {
         return isUserCurrentApprover(app, currentUser);
+      } else if (filter === 'approved') {
+        return isUserApprovedApplication(app, currentUser);
       }
+      return false;
     })
     .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
 
@@ -414,6 +448,21 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
             {pendingCount > 0 && (
               <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-700 text-[10px] font-extrabold">
                 {pendingCount}
+              </span>
+            )}
+          </button>
+          <button 
+            onClick={() => setFilter('approved')}
+            className={`px-3.5 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1 ${
+              filter === 'approved' 
+                ? 'bg-white text-slate-800 shadow-sm' 
+                : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <span>承認済み</span>
+            {approvedCount > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-extrabold">
+                {approvedCount}
               </span>
             )}
           </button>

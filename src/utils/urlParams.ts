@@ -146,10 +146,73 @@ export function parseAppQueryParams(searchString?: string): AppQueryParams {
 }
 
 /**
+ * Resolves current base path of the application (e.g. '/teranago-sns-new/' or '/')
+ */
+export function getAppBasePath(): string {
+  if (typeof window !== 'undefined') {
+    const pathname = window.location.pathname;
+    // GitHub Pages or repository subfolder pattern
+    if (pathname.startsWith('/teranago-sns-new/')) {
+      return '/teranago-sns-new/';
+    }
+    const viteBase = import.meta.env.BASE_URL;
+    if (viteBase && viteBase !== '/' && viteBase !== './' && !viteBase.startsWith('.')) {
+      const cleanBase = viteBase.replace(/^\/|\/$/g, '');
+      if (pathname.includes(cleanBase)) {
+        return viteBase.endsWith('/') ? viteBase : `${viteBase}/`;
+      }
+    }
+    // Check if path has a folder segment before index.html or query
+    const cleanPath = pathname.replace(/\/index\.html$/i, '');
+    if (cleanPath && cleanPath !== '/') {
+      const segments = cleanPath.split('/').filter(Boolean);
+      if (segments.length > 0 && !segments[0].includes('.')) {
+        return `/${segments[0]}/`;
+      }
+    }
+    return '/';
+  }
+  return import.meta.env.BASE_URL || '/';
+}
+
+/**
+ * Normalizes notification or link URLs ensuring repository subdirectories (like GitHub Pages) are preserved
+ */
+export function resolveNotificationUrl(url?: string): string {
+  const basePath = getAppBasePath();
+  if (!url || url === '/' || url === './') {
+    return basePath;
+  }
+  // If already absolute URL with protocol
+  if (/^https?:\/\//i.test(url)) {
+    return url;
+  }
+
+  let target = url;
+  if (target.startsWith('/')) {
+    if (basePath !== '/' && target.startsWith(basePath)) {
+      return target;
+    }
+    target = target.replace(/^\/+/, '');
+  } else if (target.startsWith('./')) {
+    target = target.replace(/^\.\/+/, '');
+  }
+
+  const prefix = basePath.endsWith('/') ? basePath : `${basePath}/`;
+  return `${prefix}${target}`;
+}
+
+/**
  * Builds a query string or full URL with the given parameters
  */
 export function buildAppUrl(params: AppQueryParams, baseUrl?: string): string {
-  const origin = baseUrl || (typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}` : '');
+  let origin = baseUrl;
+  if (!origin && typeof window !== 'undefined') {
+    const basePath = getAppBasePath();
+    origin = `${window.location.origin}${basePath}`;
+  } else if (!origin) {
+    origin = '';
+  }
   const searchParams = new URLSearchParams();
 
   if (params.tab) searchParams.set('tab', params.tab);
@@ -167,7 +230,8 @@ export function buildAppUrl(params: AppQueryParams, baseUrl?: string): string {
   if (params.reportId) searchParams.set('reportId', params.reportId);
 
   const qs = searchParams.toString();
-  return qs ? `${origin}?${qs}` : origin;
+  if (!qs) return origin;
+  return origin.includes('?') ? `${origin}&${qs}` : `${origin}?${qs}`;
 }
 
 /**

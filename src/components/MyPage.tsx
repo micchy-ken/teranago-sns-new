@@ -1190,7 +1190,7 @@ export function MyPage({
         <div
           onClick={() => onChangeTab?.('memo')}
           className={`flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3.5 rounded-xl border shadow-xs transition-all cursor-pointer hover:shadow-md hover:border-rose-400 group ${
-            unreadMemos.length > 0
+            unhandledMemos.length > 0
               ? 'bg-rose-50/70 border-rose-300 text-rose-950'
               : 'bg-white border-slate-200 text-slate-800'
           }`}
@@ -1209,9 +1209,9 @@ export function MyPage({
           <div className="flex-1 min-w-0">
             <div className="text-[11px] sm:text-xs font-bold text-slate-600 group-hover:text-rose-800 transition-colors truncate">伝言メモ</div>
             <div className="mt-0.5 sm:mt-1">
-              {unreadMemos.length > 0 ? (
+              {unhandledMemos.length > 0 ? (
                 <span className="inline-flex items-center px-2 py-0.5 bg-rose-600 text-white font-extrabold text-[10px] sm:text-[11px] rounded-full shadow-2xs">
-                  未対応 {unreadMemos.length}
+                  未対応 {unhandledMemos.length}
                 </span>
               ) : (
                 <span className="inline-flex items-center px-2 py-0.5 bg-slate-100 text-slate-500 font-bold text-[10px] sm:text-[11px] rounded-full">

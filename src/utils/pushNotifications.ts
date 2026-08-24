@@ -3,6 +3,7 @@
  */
 
 import { API_BASE_URL } from '../config/api';
+import { resolveNotificationUrl } from './urlParams';
 
 // Helper to convert base64 url-safe string to Uint8Array for VAPID key
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
@@ -445,10 +446,18 @@ export async function triggerPushNotification(params: {
   data?: any;
 }): Promise<void> {
   try {
+    const normalizedUrl = resolveNotificationUrl(params.url);
     await fetch(`${API_BASE_URL}/push/send`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(params),
+      body: JSON.stringify({
+        ...params,
+        url: normalizedUrl,
+        data: {
+          ...(params.data || {}),
+          url: normalizedUrl,
+        }
+      }),
     });
   } catch (err) {
     console.warn('[Push] Failed to trigger notification:', err);

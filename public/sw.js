@@ -73,26 +73,63 @@ self.addEventListener('fetch', (event) => {
 // Web Push Notification Events
 // ==========================================
 
+// URL解決ヘルパー (GitHub Pages等のサブディレクトリスコープに対応)
+function resolveSwUrl(rawUrl) {
+  const defaultUrl = self.registration.scope || './';
+  if (!rawUrl || rawUrl === '/' || rawUrl === './') {
+    return defaultUrl;
+  }
+  if (/^https?:\/\//i.test(rawUrl)) {
+    return rawUrl;
+  }
+  try {
+    const scopeUrl = new URL(self.registration.scope);
+    const scopePath = scopeUrl.pathname.endsWith('/') ? scopeUrl.pathname : (scopeUrl.pathname + '/');
+    
+    let subPath = rawUrl;
+    if (subPath.startsWith('/')) {
+      if (scopePath !== '/' && subPath.startsWith(scopePath)) {
+        return new URL(subPath, self.location.origin).href;
+      }
+      subPath = subPath.replace(/^\/+/, '');
+    } else if (subPath.startsWith('./')) {
+      subPath = subPath.replace(/^\.\/+/, '');
+    }
+    return new URL(subPath, self.registration.scope).href;
+  } catch (e) {
+    return defaultUrl;
+  }
+}
+
 // Push Event: バックグラウンドでの通知受信
 self.addEventListener('push', (event) => {
+  const defaultScope = self.registration.scope || './';
+  const defaultIcon = resolveSwUrl('icon.svg');
+
   let notificationData = {
     title: '社内グループウェア 新着通知',
     body: '新しい連絡があります。',
-    icon: '/icon.svg',
-    badge: '/icon.svg',
-    data: { url: '/' },
+    icon: defaultIcon,
+    badge: defaultIcon,
+    data: { url: defaultScope },
   };
 
   if (event.data) {
     try {
       const payload = event.data.json();
+      const rawUrl = payload.url || (payload.data && payload.data.url) || defaultScope;
+      const targetUrl = resolveSwUrl(rawUrl);
+
       notificationData = {
         title: payload.title || notificationData.title,
         body: payload.body || notificationData.body,
-        icon: payload.icon || '/icon.svg',
-        badge: payload.badge || '/icon.svg',
-        data: payload.data || { url: payload.url || '/' },
-        tag: payload.tag || 'general-notification',
+        icon: payload.icon ? resolveSwUrl(payload.icon) : defaultIcon,
+        badge: payload.badge ? resolveSwUrl(payload.badge) : defaultIcon,
+        data: {
+          ...(payload.data || {}),
+          url: targetUrl
+        },
+        tag: payload.tag || ('notif_' + Date.now()),
         renotify: !!payload.renotify,
         vibrate: [100, 50, 100],
       };
@@ -126,16 +163,17 @@ self.addEventListener('notificationclick', (event) => {
     return;
   }
 
-  const targetUrl = (event.notification.data && event.notification.data.url) ? event.notification.data.url : '/';
+  const rawUrl = (event.notification.data && event.notification.data.url) ? event.notification.data.url : (event.notification.url || '');
+  const targetUrl = resolveSwUrl(rawUrl);
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
       // 既に開いているタブがあればフォーカスしてURLを遷移
       for (const client of clientList) {
         if ('focus' in client) {
-          if (client.url.includes(self.location.origin)) {
+          if (client.url.startsWith(self.registration.scope) || client.url.includes(self.location.origin)) {
             client.focus();
-            if (targetUrl !== '/') {
+            if (targetUrl) {
               client.navigate(targetUrl);
             }
             return;
