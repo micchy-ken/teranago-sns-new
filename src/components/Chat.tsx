@@ -530,7 +530,9 @@ export function Chat({
           title: `💬 ${currentUser.name} (${roomName})`,
           body: previewContent.slice(0, 60),
           url: `/?tab=chat&chatRoomId=${roomId}`,
-          tag: `chat-${roomId}`
+          tag: `chat-${roomId}`,
+          renotify: false,
+          requireInteraction: false
         });
       }
     }

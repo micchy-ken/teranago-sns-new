@@ -159,21 +159,56 @@ self.addEventListener('push', (event) => {
     });
   }).catch(() => {});
 
-  const showNotificationPromise = self.registration.showNotification(notificationData.title, {
-    body: notificationData.body,
-    icon: notificationData.icon,
-    badge: notificationData.badge,
-    data: notificationData.data,
-    tag: notificationData.tag,
-    requireInteraction: notificationData.requireInteraction,
-    renotify: notificationData.renotify,
-    silent: false,
-    timestamp: notificationData.timestamp,
-    vibrate: [300, 150, 300, 150, 300],
-    actions: [
-      { action: 'open', title: '確認する' },
-      { action: 'close', title: '閉じる' }
-    ]
+  const showNotificationPromise = self.registration.getNotifications({ tag: notificationData.tag }).then((existingNotifications) => {
+    const isChat = notificationData.tag && notificationData.tag.startsWith('chat-');
+    const hasExisting = existingNotifications && existingNotifications.length > 0;
+
+    let finalTitle = notificationData.title;
+    let finalRenotify = notificationData.renotify;
+    let finalSilent = notificationData.silent || false;
+    let finalVibrate = [300, 150, 300, 150, 300];
+    let msgCount = 1;
+
+    if (hasExisting) {
+      const existingData = existingNotifications[0].data || {};
+      msgCount = (existingData.messageCount || 1) + 1;
+
+      if (isChat) {
+        // 同じチャットルームで既存の未読通知がある場合：
+        // 通知音・バイブの連打を防ぎ、通知カードの本文を最新メッセージに更新
+        finalRenotify = false;
+        finalSilent = true;
+        finalVibrate = [];
+        
+        // タイトルに新着件数をスマートに付与 (例: 💬 田中 (営業部) [3件])
+        if (!finalTitle.includes(`[${msgCount}件`)) {
+          finalTitle = `${finalTitle.replace(/\s*\[\d+件\]$/, '')} [${msgCount}件]`;
+        }
+      } else if (notificationData.renotify === false) {
+        finalRenotify = false;
+        finalSilent = true;
+        finalVibrate = [];
+      }
+    }
+
+    notificationData.data.messageCount = msgCount;
+
+    return self.registration.showNotification(finalTitle, {
+      body: notificationData.body,
+      icon: notificationData.icon,
+      badge: notificationData.badge,
+      data: notificationData.data,
+      tag: notificationData.tag,
+      requireInteraction: notificationData.requireInteraction,
+      renotify: finalRenotify,
+      silent: finalSilent,
+      timestamp: notificationData.timestamp,
+      vibrate: finalVibrate,
+      actions: [
+        { action: 'open', title: '確認する' },
+        { action: 'close', title: '閉じる' }
+      ]
+    });
   });
 
   event.waitUntil(Promise.all([showNotificationPromise, notifyClientsPromise]));

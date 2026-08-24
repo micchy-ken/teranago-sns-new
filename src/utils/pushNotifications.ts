@@ -444,6 +444,8 @@ export async function triggerPushNotification(params: {
   url?: string;
   tag?: string;
   requireInteraction?: boolean;
+  renotify?: boolean;
+  silent?: boolean;
   data?: any;
 }): Promise<void> {
   const normalizedUrl = resolveNotificationUrl(params.url);
@@ -451,6 +453,8 @@ export async function triggerPushNotification(params: {
     ...params,
     url: normalizedUrl,
     requireInteraction: params.requireInteraction !== undefined ? params.requireInteraction : true,
+    renotify: params.renotify,
+    silent: params.silent,
     data: {
       ...(params.data || {}),
       url: normalizedUrl,

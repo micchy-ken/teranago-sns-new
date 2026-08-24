@@ -727,7 +727,10 @@ app.post('/api/push/send', async (req, res) => {
       badge = '/icon.svg',
       url = '/',
       data = {},
-      tag
+      tag,
+      requireInteraction,
+      renotify,
+      silent
     } = req.body;
 
     if (!title || !body) {
@@ -761,8 +764,9 @@ app.post('/api/push/send', async (req, res) => {
         url
       },
       tag: tag || ('notif_' + Date.now()),
-      requireInteraction: true,
-      renotify: true,
+      requireInteraction: requireInteraction !== undefined ? !!requireInteraction : true,
+      renotify: renotify !== undefined ? !!renotify : true,
+      silent: silent !== undefined ? !!silent : false,
       priority: 'high',
       timestamp: Date.now()
     });
