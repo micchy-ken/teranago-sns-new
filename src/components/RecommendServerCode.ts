@@ -3148,8 +3148,26 @@ const handlePostDailyReport = async (req, res) => {
     const construction_data_str = data.construction_data ? (typeof data.construction_data === 'string' ? data.construction_data : JSON.stringify(data.construction_data)) : (data.constructionData ? JSON.stringify(data.constructionData) : null);
     const sales_data_str = data.sales_data ? (typeof data.sales_data === 'string' ? data.sales_data : JSON.stringify(data.sales_data)) : (data.salesData ? JSON.stringify(data.salesData) : null);
 
-    const columnsRes = await pool.request().query("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'WorkReports' AND TABLE_SCHEMA = 'dbo'");
-    const dbCols = (columnsRes.recordset || []).map(r => r.COLUMN_NAME);
+    let columnsRes = await pool.request().query("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'WorkReports' AND TABLE_SCHEMA = 'dbo'");
+    let dbCols = (columnsRes.recordset || []).map(r => r.COLUMN_NAME);
+
+    if (!dbCols.includes('maintenance_data') || !dbCols.includes('report_type')) {
+      try {
+        if (!dbCols.includes('author_id')) await pool.request().query("ALTER TABLE dbo.WorkReports ADD author_id NVARCHAR(100) NULL");
+        if (!dbCols.includes('supervisor_id')) await pool.request().query("ALTER TABLE dbo.WorkReports ADD supervisor_id NVARCHAR(100) NULL");
+        if (!dbCols.includes('report_type')) await pool.request().query("ALTER TABLE dbo.WorkReports ADD report_type NVARCHAR(50) NULL");
+        if (!dbCols.includes('report_date')) await pool.request().query("ALTER TABLE dbo.WorkReports ADD report_date DATE NULL");
+        if (!dbCols.includes('department')) await pool.request().query("ALTER TABLE dbo.WorkReports ADD department NVARCHAR(100) NULL");
+        if (!dbCols.includes('maintenance_data')) await pool.request().query("ALTER TABLE dbo.WorkReports ADD maintenance_data NVARCHAR(MAX) NULL");
+        if (!dbCols.includes('construction_data')) await pool.request().query("ALTER TABLE dbo.WorkReports ADD construction_data NVARCHAR(MAX) NULL");
+        if (!dbCols.includes('sales_data')) await pool.request().query("ALTER TABLE dbo.WorkReports ADD sales_data NVARCHAR(MAX) NULL");
+
+        columnsRes = await pool.request().query("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'WorkReports' AND TABLE_SCHEMA = 'dbo'");
+        dbCols = (columnsRes.recordset || []).map(r => r.COLUMN_NAME);
+      } catch (colErr) {
+        console.warn('Auto alter table warning:', colErr.message);
+      }
+    }
 
     const hasNewCols = dbCols.includes('author_id') && dbCols.includes('week_start_date');
     const hasMaintenanceCol = dbCols.includes('maintenance_data');

@@ -156,6 +156,58 @@ function createEmptyMainRows(): MaintenanceWorkRow[] {
   return rows;
 }
 
+function parseTasksToMainWorkRows(tasksStr: string): MaintenanceWorkRow[] {
+  if (!tasksStr) return [];
+  const lines = tasksStr.split('\n').map(l => l.trim()).filter(Boolean);
+  const rows: MaintenanceWorkRow[] = [];
+
+  lines.forEach((line, idx) => {
+    const cleanLine = line.replace(/^[・•\-\*\s]+/, '').trim();
+    if (!cleanLine) return;
+
+    const match = cleanLine.match(/^\[\s*([0-9]{1,2}:[0-9]{2})\s*[-〜~]\s*([0-9]{1,2}:[0-9]{2})\s*\]\s*([^\(:（]+)(?:\(([^)]+)\)|（([^）]+)）)?(?::|：)?\s*(.*)$/);
+    if (match) {
+      const startTime = match[1];
+      const endTime = match[2];
+      const siteName = match[3] ? match[3].trim() : '';
+      const rawType = (match[4] || match[5] || '').trim();
+      const workDescription = match[6] ? match[6].trim() : '';
+
+      let contentType = rawType;
+      if (!contentType) {
+        if (workDescription.toLowerCase().includes('inspection')) contentType = '点検';
+        else if (workDescription.toLowerCase().includes('replacement')) contentType = '取替';
+        else if (workDescription.toLowerCase().includes('oncall')) contentType = 'オンコール';
+        else contentType = '修理';
+      }
+
+      rows.push({
+        id: `parsed-${idx + 1}`,
+        directGo: false,
+        directReturn: false,
+        siteName,
+        workDescription,
+        district: '',
+        peopleCount: 1,
+        coworkers: '',
+        startTime,
+        endTime,
+        contentType: contentType as any,
+        inspectionCount: 0,
+        inspectionValue: 0,
+        oncallAmount: 0,
+        oncallValue: 0,
+        replacementCount: 0,
+        replacementAmount: 0,
+        replacementValue: 0,
+        buildingMaterialValue: 0,
+        workHours: '',
+      });
+    }
+  });
+  return rows;
+}
+
 // 空の事務作業行（5行初期生成）
 function createEmptyOfficeRows(): MaintenanceOfficeWorkRow[] {
   const rows: MaintenanceOfficeWorkRow[] = [];
@@ -238,6 +290,39 @@ export function MaintenanceDailyReportView({
       }
       return existing;
     }
+
+    // maintenanceData が直接ない場合、tasks 文字列から明細行を自動復元試行
+    const tasksSource = report?.tasks || (report as any)?.content || '';
+    const parsedRows = parseTasksToMainWorkRows(tasksSource);
+    if (parsedRows.length > 0) {
+      const existing = [...parsedRows];
+      while (existing.length < 10) {
+        existing.push({
+          id: `row-${existing.length + 1}`,
+          directGo: false,
+          directReturn: false,
+          siteName: '',
+          workDescription: '',
+          district: '',
+          peopleCount: 1,
+          coworkers: '',
+          startTime: '',
+          endTime: '',
+          contentType: '',
+          inspectionCount: 0,
+          inspectionValue: 0,
+          oncallAmount: 0,
+          oncallValue: 0,
+          replacementCount: 0,
+          replacementAmount: 0,
+          replacementValue: 0,
+          buildingMaterialValue: 0,
+          workHours: '0:00',
+        });
+      }
+      return existing;
+    }
+
     return createEmptyMainRows();
   });
 
