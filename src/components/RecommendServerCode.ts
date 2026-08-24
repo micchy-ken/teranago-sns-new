@@ -2076,6 +2076,9 @@ app.get('/api/workflows', async (req, res) => {
       status: row.status,
       createdAt: row.createdAt,
       category: row.category,
+      purchaseOrderNumber: row.purchaseOrderNumber || undefined,
+      constructionDate: row.constructionDate || undefined,
+      linkedInventoryIssueId: row.linkedInventoryIssueId || undefined,
       details: row.details,
       attachments: safeParseJSON(row.attachments, [])
     }));
@@ -2085,7 +2088,7 @@ app.get('/api/workflows', async (req, res) => {
 
 app.post('/api/workflows', async (req, res) => {
   try {
-    const { title, description, applicantId, approverId, status, category, details, attachments } = req.body;
+    const { title, description, applicantId, approverId, status, category, details, attachments, purchaseOrderNumber, constructionDate, linkedInventoryIssueId } = req.body;
     const pool = await getPool();
     const id = req.body.id || \`w-\${Date.now()}\`;
     const detailsStr = typeof details === 'object' ? JSON.stringify(details) : (details || '');
@@ -2101,11 +2104,14 @@ app.post('/api/workflows', async (req, res) => {
       .input('status', sql.NVarChar, status || '承認待ち')
       .input('category', sql.NVarChar, workflowCategory)
       .input('type', sql.NVarChar, workflowCategory)
+      .input('purchaseOrderNumber', sql.NVarChar, purchaseOrderNumber || null)
+      .input('constructionDate', sql.NVarChar, constructionDate || null)
+      .input('linkedInventoryIssueId', sql.VarChar, linkedInventoryIssueId || null)
       .input('details', sql.NVarChar, detailsStr)
       .input('attachments', sql.NVarChar, attachStr)
       .query\`
-        INSERT INTO dbo.Workflows (id, title, description, applicantId, approverId, status, createdAt, category, type, details, attachments) 
-        VALUES (@id, @title, @description, @applicantId, @approverId, @status, GETDATE(), @category, @type, @details, @attachments)
+        INSERT INTO dbo.Workflows (id, title, description, applicantId, approverId, status, createdAt, category, type, purchaseOrderNumber, constructionDate, linkedInventoryIssueId, details, attachments) 
+        VALUES (@id, @title, @description, @applicantId, @approverId, @status, GETDATE(), @category, @type, @purchaseOrderNumber, @constructionDate, @linkedInventoryIssueId, @details, @attachments)
       \`;
     res.status(201).json({ id, message: '申請完了' });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -2113,7 +2119,7 @@ app.post('/api/workflows', async (req, res) => {
 
 app.put('/api/workflows/:id', async (req, res) => {
   try {
-    const { status, approverId, details, attachments } = req.body;
+    const { status, approverId, details, attachments, purchaseOrderNumber, constructionDate, linkedInventoryIssueId } = req.body;
     const pool = await getPool();
     const detailsStr = details ? (typeof details === 'object' ? JSON.stringify(details) : details) : null;
     const attachStr = attachments ? (typeof attachments === 'object' ? JSON.stringify(attachments) : attachments) : null;
@@ -2122,6 +2128,9 @@ app.put('/api/workflows/:id', async (req, res) => {
     if (approverId) queryStr += \`, approverId = @approverId\`;
     if (detailsStr) queryStr += \`, details = @details\`;
     if (attachStr !== null) queryStr += \`, attachments = @attachments\`;
+    if (purchaseOrderNumber !== undefined) queryStr += \`, purchaseOrderNumber = @purchaseOrderNumber\`;
+    if (constructionDate !== undefined) queryStr += \`, constructionDate = @constructionDate\`;
+    if (linkedInventoryIssueId !== undefined) queryStr += \`, linkedInventoryIssueId = @linkedInventoryIssueId\`;
     queryStr += \` WHERE id = @id\`;
 
     const reqObj = pool.request()
@@ -2130,6 +2139,9 @@ app.put('/api/workflows/:id', async (req, res) => {
     if (approverId) reqObj.input('approverId', sql.VarChar, approverId);
     if (detailsStr) reqObj.input('details', sql.NVarChar, detailsStr);
     if (attachStr !== null) reqObj.input('attachments', sql.NVarChar, attachStr);
+    if (purchaseOrderNumber !== undefined) reqObj.input('purchaseOrderNumber', sql.NVarChar, purchaseOrderNumber);
+    if (constructionDate !== undefined) reqObj.input('constructionDate', sql.NVarChar, constructionDate);
+    if (linkedInventoryIssueId !== undefined) reqObj.input('linkedInventoryIssueId', sql.VarChar, linkedInventoryIssueId);
 
     await reqObj.query(queryStr);
     res.json({ message: '更新完了' });

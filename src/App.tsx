@@ -605,6 +605,10 @@ export default function App() {
             rawType = 'other';
           }
 
+          const rawPo = app.purchaseOrderNumber || detailsObj.purchaseOrderNumber || undefined;
+          const rawConstDate = app.constructionDate || detailsObj.constructionDate || undefined;
+          const rawLinkedInv = app.linkedInventoryIssueId || detailsObj.linkedInventoryIssueId || undefined;
+
           return {
             id: String(app.id),
             title: app.title || '無題の申請',
@@ -612,6 +616,9 @@ export default function App() {
             approver: approverUserObj,
             createdAt: app.createdAt || new Date().toISOString(),
             ...detailsObj,
+            purchaseOrderNumber: rawPo,
+            constructionDate: rawConstDate,
+            linkedInventoryIssueId: rawLinkedInv,
             status: rawStatus,
             category: rawType,
             type: rawType,
@@ -2116,23 +2123,32 @@ export default function App() {
     }
 
     try {
+      const { applicant, approver, ...restDetails } = appData as any;
       const response = await fetch(`${API_BASE_URL}/workflows`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          id: tempId,
           title: appData.title,
           description: appData.description || appData.title || '',
           applicantId: appData.applicant.id,
           approverId: initialApprover.id,
           status: appData.status || 'pending',
           category: appData.type || 'other',
+          purchaseOrderNumber: appData.purchaseOrderNumber || null,
+          constructionDate: appData.constructionDate || null,
+          linkedInventoryIssueId: appData.linkedInventoryIssueId || null,
           details: JSON.stringify({
+            ...restDetails,
             flowId: appData.flowId || selectedFlow?.id,
             flowName: appData.flowName || selectedFlow?.name || '標準承認フロー',
             currentStepIndex: 1,
             totalSteps: stepsConfig.length,
             stepsConfig: stepsConfig,
             history: [],
+            purchaseOrderNumber: appData.purchaseOrderNumber || null,
+            constructionDate: appData.constructionDate || null,
+            linkedInventoryIssueId: appData.linkedInventoryIssueId || null,
             reason: (appData as any).reason || '',
             purchaseItems: (appData as any).purchaseItems || [],
             leaveStart: (appData as any).leaveStart || '',
@@ -2257,6 +2273,7 @@ export default function App() {
 
     if (!id.startsWith('a-temp-')) {
       try {
+        const { applicant, approver, ...restDetails } = resultApp as any;
         const response = await fetch(`${API_BASE_URL}/workflows/${id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -2266,7 +2283,11 @@ export default function App() {
             approverId: resultApp.approver?.id || userState.id,
             status: resultApp.status,
             category: resultApp.type || 'other',
+            purchaseOrderNumber: resultApp.purchaseOrderNumber || null,
+            constructionDate: resultApp.constructionDate || null,
+            linkedInventoryIssueId: resultApp.linkedInventoryIssueId || null,
             details: JSON.stringify({
+              ...restDetails,
               flowId: resultApp.flowId,
               flowName: resultApp.flowName,
               currentStepIndex: resultApp.currentStepIndex,
@@ -2274,6 +2295,9 @@ export default function App() {
               stepsConfig: resultApp.stepsConfig,
               history: resultApp.history,
               rejectReason: resultApp.rejectReason,
+              purchaseOrderNumber: resultApp.purchaseOrderNumber || null,
+              constructionDate: resultApp.constructionDate || null,
+              linkedInventoryIssueId: resultApp.linkedInventoryIssueId || null,
               reason: (resultApp as any).reason || '',
               purchaseItems: (resultApp as any).purchaseItems || [],
               leaveStart: (resultApp as any).leaveStart || '',
@@ -2299,7 +2323,7 @@ export default function App() {
     window.dispatchEvent(new CustomEvent('notifications_updated'));
   };
 
-  // 申請の更新（再申請、下書き保存、取り下げ等）
+  // 申請の更新（再申請、下書き保存、発注No付与、取り下げ等）
   const handleUpdateApplication = async (updatedApp: WorkflowApplication) => {
     let finalAppObj: WorkflowApplication | undefined;
 
@@ -2351,6 +2375,7 @@ export default function App() {
 
     if (finalAppObj && !updatedApp.id.startsWith('a-temp-')) {
       try {
+        const { applicant, approver, ...restDetails } = finalAppObj as any;
         await fetch(`${API_BASE_URL}/workflows/${updatedApp.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -2360,7 +2385,11 @@ export default function App() {
             approverId: finalAppObj.approver?.id || userState.id,
             status: finalAppObj.status,
             category: finalAppObj.type || 'other',
+            purchaseOrderNumber: finalAppObj.purchaseOrderNumber || null,
+            constructionDate: finalAppObj.constructionDate || null,
+            linkedInventoryIssueId: finalAppObj.linkedInventoryIssueId || null,
             details: JSON.stringify({
+              ...restDetails,
               flowId: finalAppObj.flowId,
               flowName: finalAppObj.flowName,
               currentStepIndex: finalAppObj.currentStepIndex,
@@ -2368,6 +2397,9 @@ export default function App() {
               stepsConfig: finalAppObj.stepsConfig,
               history: finalAppObj.history,
               rejectReason: finalAppObj.rejectReason,
+              purchaseOrderNumber: finalAppObj.purchaseOrderNumber || null,
+              constructionDate: finalAppObj.constructionDate || null,
+              linkedInventoryIssueId: finalAppObj.linkedInventoryIssueId || null,
               reason: (finalAppObj as any).reason || '',
               purchaseItems: (finalAppObj as any).purchaseItems || [],
               leaveStart: (finalAppObj as any).leaveStart || '',
