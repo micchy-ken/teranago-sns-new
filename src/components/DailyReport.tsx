@@ -323,13 +323,15 @@ export function DailyReportView({
   if (reportMode === 'maintenance' && isEditingMaintenance) {
     return (
       <MaintenanceDailyReportView
+        key={activeMaintenanceReport?.id || 'new_maintenance_report'}
         report={activeMaintenanceReport}
         currentUser={currentUser}
         allUsers={allUsers}
         calendarEvents={calendarEvents}
         onSaveReport={async (reportData) => {
-          if (activeMaintenanceReport?.id && onUpdateReport) {
-            await onUpdateReport(activeMaintenanceReport.id, reportData);
+          const targetId = reportData.id || activeMaintenanceReport?.id;
+          if (targetId && onUpdateReport) {
+            await onUpdateReport(targetId, reportData);
           } else if (onAddReport) {
             await onAddReport(reportData);
           }

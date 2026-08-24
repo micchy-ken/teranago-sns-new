@@ -172,6 +172,9 @@ async function getPool() {
             id NVARCHAR(100) PRIMARY KEY,
             author_id NVARCHAR(100) NOT NULL,
             supervisor_id NVARCHAR(100) NULL,
+            report_type NVARCHAR(50) DEFAULT N'weekly',
+            report_date DATE NULL,
+            department NVARCHAR(100) NULL,
             week_start_date DATE NULL,
             week_label NVARCHAR(100) NULL,
             tasks NVARCHAR(MAX) NULL,
@@ -182,6 +185,9 @@ async function getPool() {
             status NVARCHAR(50) DEFAULT N'submitted',
             review_feedback NVARCHAR(MAX) NULL,
             reviewed_at DATETIMEOFFSET NULL,
+            maintenance_data NVARCHAR(MAX) NULL,
+            construction_data NVARCHAR(MAX) NULL,
+            sales_data NVARCHAR(MAX) NULL,
             createdAt DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET(),
             updated_at DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET()
           );
@@ -2914,10 +2920,7 @@ app.post('/api/memos', async (req, res) => {
       .input('details', sql.NVarChar, detailsStr)
       .input('toUsersJson', sql.NVarChar, toUsersJson)
       .input('recipientStatusesJson', sql.NVarChar, recipientStatusesJson)
-      .query\`
-        INSERT INTO dbo.Memos (id, senderId, receiverId, content, isRead, createdAt, fromName, fromCompany, fromPhone, requirementType, requirementText, details, toUsersJson, recipientStatusesJson) 
-        VALUES (@id, @senderId, @receiverId, @content, 0, GETDATE(), @fromName, @fromCompany, @fromPhone, @requirementType, @requirementText, @details, @toUsersJson, @recipientStatusesJson)
-      \`;
+      .query('INSERT INTO dbo.Memos (id, senderId, receiverId, content, isRead, createdAt, fromName, fromCompany, fromPhone, requirementType, requirementText, details, toUsersJson, recipientStatusesJson) VALUES (@id, @senderId, @receiverId, @content, 0, GETDATE(), @fromName, @fromCompany, @fromPhone, @requirementType, @requirementText, @details, @toUsersJson, @recipientStatusesJson)');
     res.status(201).json({ id, message: '伝言メモ作成完了' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -2925,7 +2928,7 @@ app.post('/api/memos', async (req, res) => {
 app.put('/api/memos/:id/read', async (req, res) => {
   try {
     const pool = await getPool();
-    await pool.request().input('id', sql.VarChar, String(req.params.id)).query\`UPDATE dbo.Memos SET isRead = 1 WHERE id = @id\`;
+    await pool.request().input('id', sql.VarChar, String(req.params.id)).query('UPDATE dbo.Memos SET isRead = 1 WHERE id = @id');
     res.json({ message: '既読状態更新完了' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -2936,16 +2939,16 @@ app.put('/api/memos/:id', async (req, res) => {
     const pool = await getPool();
     const detailsStr = details ? (typeof details === 'object' ? JSON.stringify(details) : details) : null;
     
-    let queryStr = \`UPDATE dbo.Memos SET \`;
+    let queryStr = 'UPDATE dbo.Memos SET ';
     const updates = [];
-    if (isRead !== undefined) updates.push(\`isRead = @isRead\`);
-    if (detailsStr !== null) updates.push(\`details = @details\`);
-    if (status !== undefined) updates.push(\`status = @status\`);
+    if (isRead !== undefined) updates.push('isRead = @isRead');
+    if (detailsStr !== null) updates.push('details = @details');
+    if (status !== undefined) updates.push('status = @status');
     
     if (updates.length === 0) {
       return res.json({ message: '更新対象なし' });
     }
-    queryStr += updates.join(', ') + \` WHERE id = @id\`;
+    queryStr += updates.join(', ') + ' WHERE id = @id';
 
     const reqObj = pool.request().input('id', sql.VarChar, String(req.params.id));
     if (isRead !== undefined) reqObj.input('isRead', sql.Bit, isRead ? 1 : 0);
@@ -2965,14 +2968,13 @@ app.delete('/api/memos/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ユーザーの既読ID一覧を取得するAPI
 app.get('/api/read-statuses/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
     const pool = await getPool();
     const result = await pool.request()
       .input('userId', sql.VarChar, userId)
-      .query(\`SELECT targetType, targetId FROM dbo.UserReadStatuses WHERE userId = @userId\`);
+      .query('SELECT targetType, targetId FROM dbo.UserReadStatuses WHERE userId = @userId');
     
     const readMap = { event: [], topic: [], memo: [], workflow: [], chat: [] };
     (result.recordset || []).forEach(row => {
@@ -2986,7 +2988,6 @@ app.get('/api/read-statuses/:userId', async (req, res) => {
   }
 });
 
-// 既読登録（または削除）API
 app.post('/api/read-statuses', async (req, res) => {
   try {
     const { userId, targetType, targetId, isRead } = req.body;
@@ -2997,22 +2998,13 @@ app.post('/api/read-statuses', async (req, res) => {
         .input('userId', sql.VarChar, userId)
         .input('targetType', sql.VarChar, targetType)
         .input('targetId', sql.VarChar, targetId)
-        .query(\`
-          IF NOT EXISTS (SELECT 1 FROM dbo.UserReadStatuses WHERE userId = @userId AND targetType = @targetType AND targetId = @targetId)
-          BEGIN
-            INSERT INTO dbo.UserReadStatuses (userId, targetType, targetId, readAt)
-            VALUES (@userId, @targetType, @targetId, GETDATE())
-          END
-        \`);
+        .query('IF NOT EXISTS (SELECT 1 FROM dbo.UserReadStatuses WHERE userId = @userId AND targetType = @targetType AND targetId = @targetId) BEGIN INSERT INTO dbo.UserReadStatuses (userId, targetType, targetId, readAt) VALUES (@userId, @targetType, @targetId, GETDATE()) END');
     } else {
       await pool.request()
         .input('userId', sql.VarChar, userId)
         .input('targetType', sql.VarChar, targetType)
         .input('targetId', sql.VarChar, targetId)
-        .query(\`
-          DELETE FROM dbo.UserReadStatuses 
-          WHERE userId = @userId AND targetType = @targetType AND targetId = @targetId
-        \`);
+        .query('DELETE FROM dbo.UserReadStatuses WHERE userId = @userId AND targetType = @targetType AND targetId = @targetId');
     }
     res.json({ success: true });
   } catch (err) {
@@ -3027,10 +3019,8 @@ app.post('/api/read-statuses', async (req, res) => {
 const handleGetDailyReports = async (req, res) => {
   try {
     const pool = await getPool();
-    // スキーマの差異（旧カラム/新カラム）に依存しない安全な全カラム取得
     const result = await pool.request().query('SELECT * FROM dbo.WorkReports');
     
-    // ユーザーマスタ取得 (author / supervisor 名引き当て用)
     const usersMap = new Map();
     try {
       const usersRes = await pool.request().query('SELECT id, name, department, avatarUrl FROM dbo.Users');
@@ -3044,7 +3034,7 @@ const handleGetDailyReports = async (req, res) => {
     const reports = (result.recordset || []).map(row => {
       const authId = String(row.author_id || row.authorId || 'u1');
       const supId = row.supervisor_id || row.supervisorId ? String(row.supervisor_id || row.supervisorId) : undefined;
-      const rawDate = row.week_start_date || row.weekStartDate || row.reportDate || row.date || row.createdAt;
+      const rawDate = row.week_start_date || row.weekStartDate || row.report_date || row.reportDate || row.date || row.createdAt;
       const weekDate = rawDate ? (typeof rawDate === 'string' ? rawDate.slice(0, 10) : new Date(rawDate).toISOString().slice(0, 10)) : undefined;
       const weekLbl = row.week_label || row.weekLabel || (weekDate ? (weekDate + '週') : undefined);
       const achieve = row.achievements !== undefined ? row.achievements : (row.results || '');
@@ -3057,11 +3047,26 @@ const handleGetDailyReports = async (req, res) => {
       const authorUser = usersMap.get(authId);
       const supervisorUser = supId ? usersMap.get(supId) : undefined;
 
+      let mData = undefined;
+      if (row.maintenance_data) {
+        try { mData = typeof row.maintenance_data === 'string' ? JSON.parse(row.maintenance_data) : row.maintenance_data; } catch (e) {}
+      }
+      let cData = undefined;
+      if (row.construction_data) {
+        try { cData = typeof row.construction_data === 'string' ? JSON.parse(row.construction_data) : row.construction_data; } catch (e) {}
+      }
+      let sData = undefined;
+      if (row.sales_data) {
+        try { sData = typeof row.sales_data === 'string' ? JSON.parse(row.sales_data) : row.sales_data; } catch (e) {}
+      }
+
       return {
         id: String(row.id),
-        // 新カラム
         author_id: authId,
         supervisor_id: supId,
+        reportType: row.report_type || row.reportType || (mData ? 'maintenance_daily' : 'weekly'),
+        reportDate: weekDate,
+        date: weekDate,
         week_start_date: weekDate,
         week_label: weekLbl,
         tasks: row.tasks || row.content || '',
@@ -3074,7 +3079,6 @@ const handleGetDailyReports = async (req, res) => {
         reviewed_at: reviewedAt,
         createdAt: row.createdAt,
         updated_at: updatedAt,
-        // フロントエンド互換プロパティ
         authorId: authId,
         author: {
           id: authId,
@@ -3085,9 +3089,6 @@ const handleGetDailyReports = async (req, res) => {
         authorName: authorUser ? authorUser.name : (row.authorName || '社員'),
         authorDepartment: authorUser ? authorUser.department : (row.authorDepartment || row.department || ''),
         supervisorName: supervisorUser ? supervisorUser.name : undefined,
-        reportType: row.reportType || 'weekly',
-        reportDate: weekDate,
-        date: weekDate,
         weekStartDate: weekDate,
         weekLabel: weekLbl,
         department: authorUser ? authorUser.department : (row.department || row.authorDepartment || ''),
@@ -3099,11 +3100,13 @@ const handleGetDailyReports = async (req, res) => {
         feedbackComment: feed,
         submittedAt: row.submittedAt || (row.status === 'submitted' ? row.createdAt : undefined),
         reviewedAt: reviewedAt,
-        updatedAt: updatedAt
+        updatedAt: updatedAt,
+        maintenanceData: mData,
+        constructionData: cData,
+        salesData: sData,
       };
     });
 
-    // 新しい順にソート
     reports.sort((a, b) => {
       const timeA = new Date(a.week_start_date || a.createdAt || 0).getTime();
       const timeB = new Date(b.week_start_date || b.createdAt || 0).getTime();
@@ -3122,14 +3125,14 @@ const handlePostDailyReport = async (req, res) => {
   try {
     const data = req.body || {};
     const pool = await getPool();
-    const id = data.id || \`rep_\${Date.now()}_\${Math.random().toString(36).slice(2, 6)}\`;
+    const id = data.id || ('rep_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6));
     
     const author_id = String(data.author_id || data.authorId || (data.author && data.author.id) || 'u1');
     const supervisor_id = data.supervisor_id || data.supervisorId || (data.supervisor && data.supervisor.id) || null;
     const rawWeekDate = data.week_start_date || data.weekStartDate || data.date || data.reportDate || new Date().toISOString().slice(0, 10);
     const formattedWeekDate = rawWeekDate ? new Date(rawWeekDate) : new Date();
     const week_start_date_str = rawWeekDate ? new Date(rawWeekDate).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
-    const week_label = data.week_label || data.weekLabel || (week_start_date_str ? \`\${week_start_date_str}週\` : '');
+    const week_label = data.week_label || data.weekLabel || (week_start_date_str ? (week_start_date_str + '週') : '');
     const tasks = data.tasks || data.content || '';
     const achievements = data.achievements !== undefined ? data.achievements : (data.results || '');
     const issues = data.issues || '';
@@ -3138,13 +3141,41 @@ const handlePostDailyReport = async (req, res) => {
     const repStatus = data.status || (data.isSubmitting ? 'submitted' : 'draft');
     const review_feedback = data.review_feedback !== undefined ? data.review_feedback : (data.feedbackComment || '');
 
-    // WorkReports カラム一覧を確認して動的にクエリ実行
+    const report_type = data.report_type || data.reportType || 'weekly';
+    const report_date = data.report_date || data.reportDate || data.date || null;
+    const department = data.department || null;
+    const maintenance_data_str = data.maintenance_data ? (typeof data.maintenance_data === 'string' ? data.maintenance_data : JSON.stringify(data.maintenance_data)) : (data.maintenanceData ? JSON.stringify(data.maintenanceData) : null);
+    const construction_data_str = data.construction_data ? (typeof data.construction_data === 'string' ? data.construction_data : JSON.stringify(data.construction_data)) : (data.constructionData ? JSON.stringify(data.constructionData) : null);
+    const sales_data_str = data.sales_data ? (typeof data.sales_data === 'string' ? data.sales_data : JSON.stringify(data.sales_data)) : (data.salesData ? JSON.stringify(data.salesData) : null);
+
     const columnsRes = await pool.request().query("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'WorkReports' AND TABLE_SCHEMA = 'dbo'");
     const dbCols = (columnsRes.recordset || []).map(r => r.COLUMN_NAME);
 
     const hasNewCols = dbCols.includes('author_id') && dbCols.includes('week_start_date');
+    const hasMaintenanceCol = dbCols.includes('maintenance_data');
 
-    if (hasNewCols) {
+    if (hasNewCols && hasMaintenanceCol) {
+      await pool.request()
+        .input('id', sql.NVarChar, String(id))
+        .input('author_id', sql.NVarChar, author_id)
+        .input('supervisor_id', sql.NVarChar, supervisor_id)
+        .input('report_type', sql.NVarChar, report_type)
+        .input('report_date', sql.Date, report_date ? new Date(report_date) : null)
+        .input('department', sql.NVarChar, department)
+        .input('week_start_date', sql.Date, formattedWeekDate)
+        .input('week_label', sql.NVarChar, week_label)
+        .input('tasks', sql.NVarChar, tasks)
+        .input('achievements', sql.NVarChar, achievements)
+        .input('issues', sql.NVarChar, issues)
+        .input('continued_items', sql.NVarChar, continued_items)
+        .input('next_week_plans', sql.NVarChar, next_week_plans)
+        .input('status', sql.NVarChar, repStatus)
+        .input('review_feedback', sql.NVarChar, review_feedback)
+        .input('maintenance_data', sql.NVarChar, maintenance_data_str)
+        .input('construction_data', sql.NVarChar, construction_data_str)
+        .input('sales_data', sql.NVarChar, sales_data_str)
+        .query('MERGE dbo.WorkReports AS target USING (SELECT @id AS id) AS source ON (target.id = source.id) WHEN MATCHED THEN UPDATE SET author_id = @author_id, supervisor_id = @supervisor_id, report_type = @report_type, report_date = @report_date, department = @department, week_start_date = @week_start_date, week_label = @week_label, tasks = @tasks, achievements = @achievements, issues = @issues, continued_items = @continued_items, next_week_plans = @next_week_plans, status = @status, review_feedback = @review_feedback, maintenance_data = @maintenance_data, construction_data = @construction_data, sales_data = @sales_data, updated_at = SYSDATETIMEOFFSET() WHEN NOT MATCHED THEN INSERT (id, author_id, supervisor_id, report_type, report_date, department, week_start_date, week_label, tasks, achievements, issues, continued_items, next_week_plans, status, review_feedback, maintenance_data, construction_data, sales_data, createdAt, updated_at) VALUES (@id, @author_id, @supervisor_id, @report_type, @report_date, @department, @week_start_date, @week_label, @tasks, @achievements, @issues, @continued_items, @next_week_plans, @status, @review_feedback, @maintenance_data, @construction_data, @sales_data, SYSDATETIMEOFFSET(), SYSDATETIMEOFFSET());');
+    } else if (hasNewCols) {
       await pool.request()
         .input('id', sql.NVarChar, String(id))
         .input('author_id', sql.NVarChar, author_id)
@@ -3158,28 +3189,7 @@ const handlePostDailyReport = async (req, res) => {
         .input('next_week_plans', sql.NVarChar, next_week_plans)
         .input('status', sql.NVarChar, repStatus)
         .input('review_feedback', sql.NVarChar, review_feedback)
-        .query\`
-          MERGE dbo.WorkReports AS target
-          USING (SELECT @id AS id) AS source
-          ON (target.id = source.id)
-          WHEN MATCHED THEN
-            UPDATE SET 
-              author_id = @author_id,
-              supervisor_id = @supervisor_id,
-              week_start_date = @week_start_date,
-              week_label = @week_label,
-              tasks = @tasks,
-              achievements = @achievements,
-              issues = @issues,
-              continued_items = @continued_items,
-              next_week_plans = @next_week_plans,
-              status = @status,
-              review_feedback = @review_feedback,
-              updated_at = SYSDATETIMEOFFSET()
-          WHEN NOT MATCHED THEN
-            INSERT (id, author_id, supervisor_id, week_start_date, week_label, tasks, achievements, issues, continued_items, next_week_plans, status, review_feedback, createdAt, updated_at)
-            VALUES (@id, @author_id, @supervisor_id, @week_start_date, @week_label, @tasks, @achievements, @issues, @continued_items, @next_week_plans, @status, @review_feedback, SYSDATETIMEOFFSET(), SYSDATETIMEOFFSET());
-        \`;
+        .query('MERGE dbo.WorkReports AS target USING (SELECT @id AS id) AS source ON (target.id = source.id) WHEN MATCHED THEN UPDATE SET author_id = @author_id, supervisor_id = @supervisor_id, week_start_date = @week_start_date, week_label = @week_label, tasks = @tasks, achievements = @achievements, issues = @issues, continued_items = @continued_items, next_week_plans = @next_week_plans, status = @status, review_feedback = @review_feedback, updated_at = SYSDATETIMEOFFSET() WHEN NOT MATCHED THEN INSERT (id, author_id, supervisor_id, week_start_date, week_label, tasks, achievements, issues, continued_items, next_week_plans, status, review_feedback, createdAt, updated_at) VALUES (@id, @author_id, @supervisor_id, @week_start_date, @week_label, @tasks, @achievements, @issues, @continued_items, @next_week_plans, @status, @review_feedback, SYSDATETIMEOFFSET(), SYSDATETIMEOFFSET());');
     } else {
       await pool.request()
         .input('id', sql.VarChar, String(id))
@@ -3194,47 +3204,22 @@ const handlePostDailyReport = async (req, res) => {
         .input('supervisorId', sql.VarChar, supervisor_id)
         .input('status', sql.VarChar, repStatus)
         .input('feedbackComment', sql.NVarChar, review_feedback)
-        .query\`
-          MERGE dbo.WorkReports AS target
-          USING (SELECT @id AS id) AS source
-          ON (target.id = source.id)
-          WHEN MATCHED THEN
-            UPDATE SET 
-              authorId = @authorId,
-              weekStartDate = @weekStartDate,
-              weekLabel = @weekLabel,
-              tasks = @tasks,
-              results = @results,
-              issues = @issues,
-              ongoingProjects = @ongoingProjects,
-              tomorrowPlan = @tomorrowPlan,
-              supervisorId = @supervisorId,
-              status = @status,
-              feedbackComment = @feedbackComment,
-              updatedAt = GETDATE()
-          WHEN NOT MATCHED THEN
-            INSERT (id, authorId, weekStartDate, weekLabel, tasks, results, issues, ongoingProjects, tomorrowPlan, supervisorId, status, feedbackComment, createdAt, updatedAt)
-            VALUES (@id, @authorId, @weekStartDate, @weekLabel, @tasks, @results, @issues, @ongoingProjects, @tomorrowPlan, @supervisorId, @status, @feedbackComment, GETDATE(), GETDATE());
-        \`;
+        .query('MERGE dbo.WorkReports AS target USING (SELECT @id AS id) AS source ON (target.id = source.id) WHEN MATCHED THEN UPDATE SET authorId = @authorId, weekStartDate = @weekStartDate, weekLabel = @weekLabel, tasks = @tasks, results = @results, issues = @issues, ongoingProjects = @ongoingProjects, tomorrowPlan = @tomorrowPlan, supervisorId = @supervisorId, status = @status, feedbackComment = @feedbackComment, updatedAt = GETDATE() WHEN NOT MATCHED THEN INSERT (id, authorId, weekStartDate, weekLabel, tasks, results, issues, ongoingProjects, tomorrowPlan, supervisorId, status, feedbackComment, createdAt, updatedAt) VALUES (@id, @authorId, @weekStartDate, @weekLabel, @tasks, @results, @issues, @ongoingProjects, @tomorrowPlan, @supervisorId, @status, @feedbackComment, GETDATE(), GETDATE());');
     }
 
-    // 週報提出時に上長へ notifications テーブルへの INSERT 自動連携
     if (repStatus === 'submitted' && supervisor_id && supervisor_id !== author_id) {
       try {
-        const notifId = \`notif_\${Date.now()}_\${Math.random().toString(36).slice(2, 6)}\`;
+        const notifId = 'notif_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
         const authorName = data.authorName || (data.author && data.author.name) || '社員';
         await pool.request()
           .input('notifId', sql.NVarChar, notifId)
           .input('user_id', sql.NVarChar, String(supervisor_id))
           .input('sender_id', sql.NVarChar, String(author_id))
           .input('type', sql.NVarChar, 'work_report')
-          .input('title', sql.NVarChar, \`【週報】\${authorName}さんより提出\`)
-          .input('contents', sql.NVarChar, \`\${week_label || '最新'}の週報が提出されました。確認をお願いします。\`)
+          .input('title', sql.NVarChar, '【週報】' + authorName + 'さんより提出')
+          .input('contents', sql.NVarChar, (week_label || '最新') + 'の週報が提出されました。確認をお願いします。')
           .input('target_id', sql.NVarChar, String(id))
-          .query\`
-            INSERT INTO dbo.notifications (id, user_id, sender_id, type, title, contents, target_id, is_read, created_at)
-            VALUES (@notifId, @user_id, @sender_id, @type, @title, @contents, @target_id, 0, SYSDATETIMEOFFSET())
-          \`;
+          .query('INSERT INTO dbo.notifications (id, user_id, sender_id, type, title, contents, target_id, is_read, created_at) VALUES (@notifId, @user_id, @sender_id, @type, @title, @contents, @target_id, 0, SYSDATETIMEOFFSET())');
       } catch (notifErr) {
         console.warn('SQL Server notification insert warning:', notifErr.message);
       }
@@ -3275,38 +3260,29 @@ app.post(['/api/work-reports/:id/review', '/api/daily-reports/:id/review'], asyn
       await pool.request()
         .input('id', sql.NVarChar, reportId)
         .input('review_feedback', sql.NVarChar, comment)
-        .query\`
-          UPDATE dbo.WorkReports 
-          SET status = 'reviewed', review_feedback = @review_feedback, reviewed_at = SYSDATETIMEOFFSET(), updated_at = SYSDATETIMEOFFSET()
-          WHERE id = @id
-        \`;
+        .query("UPDATE dbo.WorkReports SET status = 'reviewed', review_feedback = @review_feedback, reviewed_at = SYSDATETIMEOFFSET(), updated_at = SYSDATETIMEOFFSET() WHERE id = @id");
     } else {
       await pool.request()
         .input('id', sql.VarChar, reportId)
         .input('feedbackComment', sql.NVarChar, comment)
-        .query\`
-          UPDATE dbo.WorkReports 
-          SET status = 'reviewed', feedbackComment = @feedbackComment, reviewedAt = GETDATE(), updatedAt = GETDATE()
-          WHERE id = @id
-        \`;
+        .query("UPDATE dbo.WorkReports SET status = 'reviewed', feedbackComment = @feedbackComment, reviewedAt = GETDATE(), updatedAt = GETDATE() WHERE id = @id");
     }
 
     // 提出者本人へ notifications レコードを INSERT 連動
     if (author_id) {
       try {
-        const notifId = \`notif_\${Date.now()}_\${Math.random().toString(36).slice(2, 6)}\`;
+        const notifId = 'notif_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+        const titleStr = '【週報】' + (reviewerName || '上長') + 'が週報を確認しました';
+        const contentsStr = (week_label || '') + 'の週報が確認されました。' + (comment ? ('コメント: 「' + comment + '」') : '');
         await pool.request()
           .input('notifId', sql.NVarChar, notifId)
           .input('user_id', sql.NVarChar, String(author_id))
           .input('sender_id', sql.NVarChar, reviewerUserId ? String(reviewerUserId) : null)
           .input('type', sql.NVarChar, 'work_report_review')
-          .input('title', sql.NVarChar, \`【週報】\${reviewerName || '上長'}が週報を確認しました\`)
-          .input('contents', sql.NVarChar, \`\${week_label}の週報が確認されました。\${comment ? \`コメント: 「\${comment}」\` : ''}\`)
+          .input('title', sql.NVarChar, titleStr)
+          .input('contents', sql.NVarChar, contentsStr)
           .input('target_id', sql.NVarChar, reportId)
-          .query\`
-            INSERT INTO dbo.notifications (id, user_id, sender_id, type, title, contents, target_id, is_read, created_at)
-            VALUES (@notifId, @user_id, @sender_id, @type, @title, @contents, @target_id, 0, SYSDATETIMEOFFSET())
-          \`;
+          .query('INSERT INTO dbo.notifications (id, user_id, sender_id, type, title, contents, target_id, is_read, created_at) VALUES (@notifId, @user_id, @sender_id, @type, @title, @contents, @target_id, 0, SYSDATETIMEOFFSET())');
       } catch (notifErr) {
         console.warn('SQL Server review notification insert warning:', notifErr.message);
       }
@@ -3378,7 +3354,7 @@ app.post('/api/notifications', async (req, res) => {
     if (!targetUser) return res.status(400).json({ error: 'user_id is required' });
 
     const pool = await getPool();
-    const id = \`notif_\${Date.now()}_\${Math.random().toString(36).slice(2, 6)}\`;
+    const id = 'notif_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
     await pool.request()
       .input('id', sql.NVarChar, id)
       .input('user_id', sql.NVarChar, String(targetUser))
@@ -3387,10 +3363,7 @@ app.post('/api/notifications', async (req, res) => {
       .input('title', sql.NVarChar, title || '通知')
       .input('contents', sql.NVarChar, contents || content || '')
       .input('target_id', sql.NVarChar, target_id || targetId || null)
-      .query\`
-        INSERT INTO dbo.notifications (id, user_id, sender_id, type, title, contents, target_id, is_read, created_at)
-        VALUES (@id, @user_id, @sender_id, @type, @title, @contents, @target_id, 0, SYSDATETIMEOFFSET())
-      \`;
+      .query('INSERT INTO dbo.notifications (id, user_id, sender_id, type, title, contents, target_id, is_read, created_at) VALUES (@id, @user_id, @sender_id, @type, @title, @contents, @target_id, 0, SYSDATETIMEOFFSET())');
     res.status(201).json({ success: true, id });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

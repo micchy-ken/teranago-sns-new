@@ -346,7 +346,7 @@ export interface AppNotification {
   createdAt?: string;
 }
 
-export type WorkReportType = 'daily' | 'weekly' | 'maintenance_daily';
+export type WorkReportType = 'daily' | 'weekly' | 'maintenance_daily' | 'construction_daily' | 'sales_daily';
 export type WorkReportStatus = 'draft' | 'submitted' | 'reviewed';
 
 export interface MaintenanceWorkRow {
@@ -440,6 +440,8 @@ export interface DailyReport {
   feedbackComment?: string; // 上長コメント・フィードバック (互換用)
   review_feedback?: string; // 上長コメント・フィードバック (新カラム)
   maintenanceData?: MaintenanceDailyReportData; // 保守日報専用構造データ
+  constructionData?: Record<string, any>; // 工務日報専用拡張データ (JSON)
+  salesData?: Record<string, any>; // 営業日報専用拡張データ (JSON)
   createdAt: string; // ISO string
   updated_at?: string; // 更新日時 (新カラム)
   updatedAt?: string; // 更新日時

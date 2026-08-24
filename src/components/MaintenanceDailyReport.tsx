@@ -23,6 +23,8 @@ import {
   Printer, 
   ChevronDown, 
   ChevronUp, 
+  ChevronLeft,
+  ChevronRight,
   FileText, 
   ArrowLeft,
   MapPin,
@@ -180,6 +182,19 @@ export function MaintenanceDailyReportView({
   onReviewReport,
   onBack,
 }: MaintenanceDailyReportProps) {
+  // maintenanceData の安全な取得（JSON文字列で届いた場合のフェイルセーフ）
+  const maintenanceData = useMemo<MaintenanceDailyReportData | null>(() => {
+    if (!report?.maintenanceData) return null;
+    if (typeof report.maintenanceData === 'string') {
+      try {
+        return JSON.parse(report.maintenanceData);
+      } catch (e) {
+        return null;
+      }
+    }
+    return report.maintenanceData as MaintenanceDailyReportData;
+  }, [report]);
+
   // 日付
   const [reportDate, setReportDate] = useState<string>(() => {
     if (report?.date) return report.date.split('T')[0];
@@ -194,9 +209,9 @@ export function MaintenanceDailyReportView({
 
   // メイン作業10行
   const [mainWorkRows, setMainWorkRows] = useState<MaintenanceWorkRow[]>(() => {
-    if (report?.maintenanceData?.mainWorkRows && report.maintenanceData.mainWorkRows.length > 0) {
+    if (maintenanceData?.mainWorkRows && maintenanceData.mainWorkRows.length > 0) {
       // 10行に満たない場合は補完
-      const existing = [...report.maintenanceData.mainWorkRows];
+      const existing = [...maintenanceData.mainWorkRows];
       while (existing.length < 10) {
         existing.push({
           id: `row-${existing.length + 1}`,
@@ -228,8 +243,8 @@ export function MaintenanceDailyReportView({
 
   // 事務作業5行
   const [officeWorkRows, setOfficeWorkRows] = useState<MaintenanceOfficeWorkRow[]>(() => {
-    if (report?.maintenanceData?.officeWorkRows && report.maintenanceData.officeWorkRows.length > 0) {
-      const existing = [...report.maintenanceData.officeWorkRows];
+    if (maintenanceData?.officeWorkRows && maintenanceData.officeWorkRows.length > 0) {
+      const existing = [...maintenanceData.officeWorkRows];
       while (existing.length < 5) {
         existing.push({
           id: `office-${existing.length + 1}`,
@@ -248,38 +263,38 @@ export function MaintenanceDailyReportView({
 
   // その他事務作業
   const [otherOfficeWork, setOtherOfficeWork] = useState<string>(
-    report?.maintenanceData?.otherOfficeWork || ''
+    maintenanceData?.otherOfficeWork || ''
   );
 
-  // 工事・集計サマリー（緑色手入力＆自動集計）
+  // 工事・集計サマリー（緑色手入力＆自動集計）初期値はすべて空文字
   const [constructionType, setConstructionType] = useState<string>(
-    report?.maintenanceData?.constructionType || '両引き２'
+    maintenanceData?.constructionType || ''
   );
-  const [constructionCount, setConstructionCount] = useState<number>(
-    report?.maintenanceData?.constructionCount ?? 2
+  const [constructionCount, setConstructionCount] = useState<number | string>(
+    maintenanceData?.constructionCount ?? ''
   );
-  const [constructionPeople, setConstructionPeople] = useState<number>(
-    report?.maintenanceData?.constructionPeople ?? 2
+  const [constructionPeople, setConstructionPeople] = useState<number | string>(
+    maintenanceData?.constructionPeople ?? ''
   );
-  const [constructionValue, setConstructionValue] = useState<number>(
-    report?.maintenanceData?.constructionValue ?? 570
+  const [constructionValue, setConstructionValue] = useState<number | string>(
+    maintenanceData?.constructionValue ?? ''
   ); // ※緑色手入力
-  const [distanceValue, setDistanceValue] = useState<number>(
-    report?.maintenanceData?.distanceValue ?? 82
+  const [distanceValue, setDistanceValue] = useState<number | string>(
+    maintenanceData?.distanceValue ?? ''
   ); // ※緑色手入力
 
-  // 時間集計（緑色手入力＆自動集計）
+  // 時間集計（緑色手入力＆自動集計）初期値はすべて空文字
   const [breakHours, setBreakHours] = useState<string>(
-    report?.maintenanceData?.breakHours || '0:30'
+    maintenanceData?.breakHours || ''
   );
   const [overtimeHours, setOvertimeHours] = useState<string>(
-    report?.maintenanceData?.overtimeHours || '0:00'
+    maintenanceData?.overtimeHours || ''
   ); // ※緑色手入力
   const [travelHours, setTravelHours] = useState<string>(
-    report?.maintenanceData?.travelHours || '0:00'
+    maintenanceData?.travelHours || ''
   );
   const [estimateSurveyHours, setEstimateSurveyHours] = useState<string>(
-    report?.maintenanceData?.estimateSurveyHours || '0:30'
+    maintenanceData?.estimateSurveyHours || ''
   );
 
   // ステータス
@@ -387,12 +402,12 @@ export function MaintenanceDailyReportView({
   // 計算式: 工事数値 + 点検数値 + オンコール数値 + 取替数値 + 建材数値 + 距離数値
   const calculatedDailyTotalValue = useMemo(() => {
     return (
-      (constructionValue || 0) +
+      (Number(constructionValue) || 0) +
       (mainTableTotals.inspectionValue || 0) +
       (mainTableTotals.oncallValue || 0) +
       (mainTableTotals.replacementValue || 0) +
       (mainTableTotals.buildingMaterialValue || 0) +
-      (distanceValue || 0)
+      (Number(distanceValue) || 0)
     );
   }, [
     constructionValue,
@@ -572,25 +587,68 @@ export function MaintenanceDailyReportView({
       const startT = getEventTimeStrJST(ev.start);
       const endT = getEventTimeStrJST(ev.end);
       
-      // 内容の推定
-      let contentType = '修理';
-      if (ev.title.includes('取替') || ev.title.includes('EG')) contentType = 'EG取替';
-      else if (ev.title.includes('点検')) contentType = '点検';
-      else if (ev.title.includes('見積')) contentType = '見積';
+      // 地区の抽出：スケジュールメモやタイトル等の詳細情報に【地区】〇〇が明記されている場合のみセット
+      let districtStr = '';
+      const fullText = `${ev.memo || ''} ${ev.location || ''} ${ev.title || ''}`;
+      const districtMatch = fullText.match(/【地区】\s*([^\s\r\n】]+)/) || fullText.match(/地区[：:]\s*([^\s\r\n]+)/);
+      if (districtMatch && districtMatch[1]) {
+        districtStr = districtMatch[1].trim();
+      }
 
+      // 内容区分の判定：スケジュールの内容（ev.type, ev.memo, ev.title）に準じる
+      let contentType = '';
+      const ctExplicitMatch = fullText.match(/【内容区分】\s*([^\s\r\n】]+)/) || fullText.match(/【内容】\s*([^\s\r\n】]+)/);
+      if (ctExplicitMatch && ctExplicitMatch[1]) {
+        const candidate = ctExplicitMatch[1].trim();
+        if (['EG取替', '単体取替', '修理', 'オンコール', '点検', '見積'].includes(candidate)) {
+          contentType = candidate;
+        }
+      }
+      
+      if (!contentType) {
+        if (fullText.includes('EG取替') || (fullText.includes('EG') && fullText.includes('取替'))) {
+          contentType = 'EG取替';
+        } else if (fullText.includes('単体取替') || (fullText.includes('単体') && fullText.includes('取替'))) {
+          contentType = '単体取替';
+        } else if (fullText.includes('オンコール')) {
+          contentType = 'オンコール';
+        } else if (fullText.includes('点検')) {
+          contentType = '点検';
+        } else if (fullText.includes('見積') || fullText.includes('現調')) {
+          contentType = '見積';
+        } else if (fullText.includes('修理')) {
+          contentType = '修理';
+        } else if (ev.type && ['EG取替', '単体取替', '修理', 'オンコール', '点検', '見積'].includes(ev.type)) {
+          contentType = ev.type;
+        } else {
+          // 特段の記述がなければデフォルトは '修理'
+          contentType = '修理';
+        }
+      }
+
+      // 各内容区分ごとの数値・金額プリセット初期値設定
+      let inspectionCount = 0;
+      let inspectionValue = 0;
+      let oncallAmount = 0;
+      let oncallValue = 0;
       let replacementCount = 0;
       let replacementAmount = 0;
       let replacementValue = 0;
-      let oncallAmount = 0;
-      let oncallValue = 0;
 
       if (contentType === 'EG取替') {
         replacementCount = 1;
         replacementAmount = 291500;
         replacementValue = 480;
-      } else if (contentType === '修理') {
+      } else if (contentType === '単体取替') {
+        replacementCount = 1;
+        replacementAmount = 150000;
+        replacementValue = 240;
+      } else if (contentType === '修理' || contentType === 'オンコール') {
         oncallAmount = 34500;
         oncallValue = 115;
+      } else if (contentType === '点検') {
+        inspectionCount = 1;
+        inspectionValue = 120;
       }
 
       // 自分以外の参加メンバー抽出
@@ -611,18 +669,18 @@ export function MaintenanceDailyReportView({
 
       newRows[idx] = {
         id: `row-${idx + 1}`,
-        directGo: idx === 0,
-        directReturn: idx === dayEvents.length - 1,
+        directGo: false,
+        directReturn: false,
         siteName: ev.title || '現場名未設定',
         workDescription: ev.memo || ev.type || '保守作業',
-        district: ev.location || ev.office || '本社地区',
+        district: districtStr,
         peopleCount: totalPeople,
         coworkers: coworkersStr,
         startTime: startT,
         endTime: endT,
         contentType,
-        inspectionCount: 0,
-        inspectionValue: 0,
+        inspectionCount,
+        inspectionValue,
         oncallAmount,
         oncallValue,
         replacementCount,
@@ -650,10 +708,10 @@ export function MaintenanceDailyReportView({
         officeWorkRows,
         otherOfficeWork,
         constructionType,
-        constructionCount,
-        constructionPeople,
-        constructionValue,
-        distanceValue,
+        constructionCount: Number(constructionCount) || 0,
+        constructionPeople: Number(constructionPeople) || 0,
+        constructionValue: Number(constructionValue) || 0,
+        distanceValue: Number(distanceValue) || 0,
         workHours: calculatedTotalWorkHoursStr,
         officeHours: '0:00',
         travelHours,
@@ -800,17 +858,43 @@ export function MaintenanceDailyReportView({
         <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
             {/* 日付選択 */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               <label className="text-xs font-bold text-slate-600 shrink-0">日報日付:</label>
-              <div className="relative flex-1">
+              <div className="flex items-center gap-1 flex-1 min-w-[170px]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!reportDate) return;
+                    const [y, m, d] = reportDate.split('-').map(Number);
+                    const dt = new Date(y, m - 1, d - 1);
+                    setReportDate(getLocalDateStr(dt));
+                  }}
+                  className="p-1.5 bg-slate-100 hover:bg-amber-100 text-slate-600 hover:text-amber-800 border border-slate-300 hover:border-amber-300 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center shrink-0"
+                  title="前日へ移動"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
                 <input
                   type="date"
                   value={reportDate}
                   onChange={e => setReportDate(e.target.value)}
-                  className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-800 focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500"
+                  className="w-full px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-800 focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 text-center cursor-pointer"
                 />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!reportDate) return;
+                    const [y, m, d] = reportDate.split('-').map(Number);
+                    const dt = new Date(y, m - 1, d + 1);
+                    setReportDate(getLocalDateStr(dt));
+                  }}
+                  className="p-1.5 bg-slate-100 hover:bg-amber-100 text-slate-600 hover:text-amber-800 border border-slate-300 hover:border-amber-300 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center shrink-0"
+                  title="翌日へ移動"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
               </div>
-              <span className="px-2.5 py-1 bg-amber-50 text-amber-800 border border-amber-200 rounded-lg text-xs font-extrabold shrink-0">
+              <span className="px-2 py-1 bg-amber-50 text-amber-800 border border-amber-200 rounded-lg text-xs font-extrabold shrink-0">
                 ({getDayOfWeekJa(reportDate)})
               </span>
             </div>
@@ -1472,7 +1556,7 @@ export function MaintenanceDailyReportView({
                       <input
                         type="number"
                         value={constructionCount}
-                        onChange={e => setConstructionCount(Number(e.target.value))}
+                        onChange={e => setConstructionCount(e.target.value === '' ? '' : Number(e.target.value))}
                         className="w-12 px-1 py-0.5 border border-slate-200 rounded text-center bg-white"
                       /> 台
                     </td>
@@ -1481,7 +1565,7 @@ export function MaintenanceDailyReportView({
                       <input
                         type="number"
                         value={constructionPeople}
-                        onChange={e => setConstructionPeople(Number(e.target.value))}
+                        onChange={e => setConstructionPeople(e.target.value === '' ? '' : Number(e.target.value))}
                         className="w-12 px-1 py-0.5 border border-slate-200 rounded text-center bg-white"
                       /> 人
                     </td>
@@ -1490,7 +1574,7 @@ export function MaintenanceDailyReportView({
                       <input
                         type="number"
                         value={constructionValue}
-                        onChange={e => setConstructionValue(Number(e.target.value))}
+                        onChange={e => setConstructionValue(e.target.value === '' ? '' : Number(e.target.value))}
                         className="w-16 px-1 py-0.5 border border-emerald-400 rounded text-center font-extrabold text-emerald-950 bg-white"
                       />
                     </td>
@@ -1515,7 +1599,7 @@ export function MaintenanceDailyReportView({
                       <input
                         type="number"
                         value={distanceValue}
-                        onChange={e => setDistanceValue(Number(e.target.value))}
+                        onChange={e => setDistanceValue(e.target.value === '' ? '' : Number(e.target.value))}
                         className="w-16 px-1 py-0.5 border border-emerald-400 rounded text-center font-extrabold text-emerald-950 bg-white"
                       />
                     </td>

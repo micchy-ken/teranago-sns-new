@@ -2661,6 +2661,8 @@ export default function App() {
       status: reportData.status || 'submitted',
       submittedAt: reportData.status === 'submitted' ? new Date().toISOString() : undefined,
       maintenanceData: (reportData as any).maintenanceData,
+      constructionData: (reportData as any).constructionData,
+      salesData: (reportData as any).salesData,
       createdAt: new Date().toISOString(),
     };
     setReports([newReport, ...reports]);
@@ -2683,6 +2685,8 @@ export default function App() {
         supervisorId: reportData.supervisorId,
         status: reportData.status || 'submitted',
         maintenanceData: (reportData as any).maintenanceData,
+        constructionData: (reportData as any).constructionData,
+        salesData: (reportData as any).salesData,
       };
 
       let response = await fetch(`${API_BASE_URL}/work-reports`, {
