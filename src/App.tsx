@@ -22,6 +22,7 @@ import { deleteAttachmentFiles } from './utils/fileUpload';
 import { TopicDetailModal } from './components/TopicDetailModal';
 import { GlobalEventDetailModal } from './components/GlobalEventDetailModal';
 import { GlobalMemoDetailModal } from './components/GlobalMemoDetailModal';
+import { GlobalReportDetailModal } from './components/GlobalReportDetailModal';
 import { filterStepsForApplicant, resolveApproverForStep, getSupervisorAtLevel } from './utils/workflowHelpers';
 import { planRecurrenceSave, planRecurrenceDelete, safeParseRecurrence, safeParseExceptions, expandRecurringEvents } from './utils/recurrenceUtils';
 import { RecurrenceActionScope } from './components/RecurrenceActionModal';
@@ -142,6 +143,7 @@ export default function App() {
   const [globalSelectedEvent, setGlobalSelectedEvent] = useState<CalendarEvent | null>(null);
   const [globalSelectedTopic, setGlobalSelectedTopic] = useState<BoardTopic | null>(null);
   const [globalSelectedMemo, setGlobalSelectedMemo] = useState<Memo | null>(null);
+  const [globalSelectedReport, setGlobalSelectedReport] = useState<DailyReport | null>(null);
 
   const handleNavigateToContent = (target: {
     tab: AppTab;
@@ -182,8 +184,16 @@ export default function App() {
         return; // 画面遷移せずにポップアップ
       }
     }
+    // 日報・週報（reportId）
+    if (target.reportId) {
+      const found = reports.find(r => r.id === target.reportId || String(r.id) === String(target.reportId));
+      if (found) {
+        setGlobalSelectedReport(found);
+        return; // 画面遷移せずにポップアップ
+      }
+    }
 
-    // チャット、ワークフロー、日報など遷移して表示
+    // チャット、ワークフローなど遷移して表示
     setActiveTab(target.tab);
     setTargetTopicId(target.topicId);
     setTargetChatRoomId(target.chatRoomId);
@@ -3428,6 +3438,28 @@ export default function App() {
             if (updatedMemo) {
               setGlobalSelectedMemo(updatedMemo);
             }
+          }}
+        />
+      )}
+
+      {/* グローバル日報・週報詳細モーダル */}
+      {globalSelectedReport && (
+        <GlobalReportDetailModal
+          report={globalSelectedReport}
+          currentUser={userState}
+          allUsers={usersList}
+          onClose={() => setGlobalSelectedReport(null)}
+          onReviewReport={async (id, comment) => {
+            await handleReviewReport(id, comment);
+            setGlobalSelectedReport(prev => prev && prev.id === id ? { ...prev, status: 'reviewed', feedbackComment: comment, reviewedAt: new Date().toISOString() } : prev);
+          }}
+          onNavigateToEdit={(reportId) => {
+            setActiveTab('daily_report');
+            setTargetReportId(reportId);
+          }}
+          onOpenFullTab={(reportId) => {
+            setActiveTab('daily_report');
+            setTargetReportId(reportId);
           }}
         />
       )}

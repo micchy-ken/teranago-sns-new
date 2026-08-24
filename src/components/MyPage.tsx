@@ -1218,9 +1218,13 @@ export function MyPage({
                       <div className="flex items-center justify-between text-xs text-slate-600">
                         <span className="font-medium">{report.author?.name || '作成者未設定'}</span>
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                          report.status === 'reviewed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                          report.status === 'reviewed' 
+                            ? 'bg-emerald-100 text-emerald-700' 
+                            : report.status === 'draft'
+                            ? 'bg-slate-100 text-slate-700 border border-slate-200'
+                            : 'bg-amber-100 text-amber-700'
                         }`}>
-                          {report.status === 'reviewed' ? '確認済' : '確認待ち'}
+                          {report.status === 'reviewed' ? '確認済' : report.status === 'draft' ? '下書き' : '確認待ち'}
                         </span>
                       </div>
 
