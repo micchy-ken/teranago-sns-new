@@ -963,12 +963,13 @@ async function startServer() {
       const items = loadReadStatuses();
       const userItems = items.filter((item) => item.userId === userId);
 
-      const readMap: { event: string[]; topic: string[]; memo: string[]; workflow: string[]; chat: string[] } = {
+      const readMap: Record<string, string[]> = {
         event: [],
         topic: [],
         memo: [],
         workflow: [],
         chat: [],
+        report: [],
       };
 
       userItems.forEach((row) => {

@@ -3224,7 +3224,7 @@ app.get('/api/read-statuses/:userId', async (req, res) => {
       .input('userId', sql.VarChar, userId)
       .query('SELECT targetType, targetId FROM dbo.UserReadStatuses WHERE userId = @userId');
     
-    const readMap = { event: [], topic: [], memo: [], workflow: [], chat: [] };
+    const readMap = { event: [], topic: [], memo: [], workflow: [], chat: [], report: [] };
     (result.recordset || []).forEach(row => {
       if (readMap[row.targetType]) {
         readMap[row.targetType].push(row.targetId);

@@ -12,7 +12,7 @@ import { getLocalDateStr, addMinutesToLocalDatetime } from '../utils/dateUtils';
 import { triggerPushNotification } from '../utils/pushNotifications';
 import { expandRecurringEvents } from '../utils/recurrenceUtils';
 import { RecurrenceActionScope } from './RecurrenceActionModal';
-import { buildAppUrl, updateBrowserUrl } from '../utils/urlParams';
+import { buildAppUrl } from '../utils/urlParams';
 
 interface CalendarProps {
   events: CalendarEvent[];
@@ -149,20 +149,6 @@ export function Calendar({
       }
     }
   }, [initialDate]);
-
-  // フィルター変更時にURLクエリパラメータを自動更新（ブラウザのアドレスバーに反映・リロード不要）
-  useEffect(() => {
-    const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
-    updateBrowserUrl({
-      tab: 'calendar',
-      office: selectedOffice,
-      division: selectedDivision,
-      mode: calendarMode,
-      view: view,
-      date: dateStr,
-      type: selectedTypeFilter !== 'all' ? selectedTypeFilter : undefined,
-    });
-  }, [selectedOffice, selectedDivision, calendarMode, view, currentDate, selectedTypeFilter]);
 
   // チーム・日表示以外に変更されたらサイネージモードを自動解除
   useEffect(() => {
