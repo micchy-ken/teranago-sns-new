@@ -761,8 +761,20 @@ app.post('/api/push/send', async (req, res) => {
         url
       },
       tag: tag || ('notif_' + Date.now()),
-      renotify: true
+      requireInteraction: true,
+      renotify: true,
+      priority: 'high',
+      timestamp: Date.now()
     });
+
+    const pushOptions = {
+      TTL: 60 * 60 * 24 * 7, // 7日間 (端末スリープ復帰時にも確実に配信)
+      urgency: 'high', // RFC 8030 高優先度 (バッテリーセーバー制限を回避して即時配信)
+      headers: {
+        'Urgency': 'high',
+        ...(tag ? { 'Topic': String(tag).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 32) } : {})
+      }
+    };
 
     const staleEndpoints = [];
     let sentCount = 0;
@@ -771,7 +783,7 @@ app.post('/api/push/send', async (req, res) => {
     await Promise.all(
       targets.map(async (sub) => {
         try {
-          await webpush.sendNotification(sub.subscription, payload);
+          await webpush.sendNotification(sub.subscription, payload, pushOptions);
           sentCount++;
         } catch (err) {
           failureCount++;
@@ -837,8 +849,17 @@ app.post('/api/push/test', async (req, res) => {
       badge: '/icon.svg',
       url: '/',
       tag: 'test-notification',
-      renotify: true
+      requireInteraction: true,
+      renotify: true,
+      priority: 'high',
+      timestamp: Date.now()
     });
+
+    const pushOptions = {
+      TTL: 60 * 60 * 24, // 24時間
+      urgency: 'high',
+      headers: { 'Urgency': 'high' }
+    };
 
     let sentCount = 0;
     const staleEndpoints = [];
@@ -846,7 +867,7 @@ app.post('/api/push/test', async (req, res) => {
     await Promise.all(
       targets.map(async (sub) => {
         try {
-          await webpush.sendNotification(sub.subscription, payload);
+          await webpush.sendNotification(sub.subscription, payload, pushOptions);
           sentCount++;
         } catch (err) {
           console.error('[WebPush] Test push error:', err.statusCode || err.message);

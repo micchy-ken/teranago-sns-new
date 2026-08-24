@@ -433,7 +433,7 @@ export async function sendTestPushNotification(userId: string): Promise<{
 }
 
 /**
- * 汎用プッシュ通知トリガー
+ * 汎用プッシュ通知トリガー (高優先度 & リトライ機能付き)
  */
 export async function triggerPushNotification(params: {
   targetUserId?: string;
@@ -443,24 +443,44 @@ export async function triggerPushNotification(params: {
   body: string;
   url?: string;
   tag?: string;
+  requireInteraction?: boolean;
   data?: any;
 }): Promise<void> {
-  try {
-    const normalizedUrl = resolveNotificationUrl(params.url);
-    await fetch(`${API_BASE_URL}/push/send`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ...params,
-        url: normalizedUrl,
-        data: {
-          ...(params.data || {}),
-          url: normalizedUrl,
-        }
-      }),
-    });
-  } catch (err) {
-    console.warn('[Push] Failed to trigger notification:', err);
+  const normalizedUrl = resolveNotificationUrl(params.url);
+  const payload = {
+    ...params,
+    url: normalizedUrl,
+    requireInteraction: params.requireInteraction !== undefined ? params.requireInteraction : true,
+    data: {
+      ...(params.data || {}),
+      url: normalizedUrl,
+    }
+  };
+
+  // 確実な配信のためのリトライ (最大2回)
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+      const res = await fetch(`${API_BASE_URL}/push/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+
+      if (res.ok) {
+        return;
+      }
+    } catch (err) {
+      if (attempt === 2) {
+        console.warn('[Push] Failed to trigger notification after retries:', err);
+      } else {
+        await new Promise((r) => setTimeout(r, 800));
+      }
+    }
   }
 }
 

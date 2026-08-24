@@ -112,11 +112,17 @@ self.addEventListener('push', (event) => {
     icon: defaultIcon,
     badge: defaultIcon,
     data: { url: defaultScope },
+    tag: 'notif_' + Date.now(),
+    requireInteraction: true,
+    renotify: true,
+    silent: false,
+    timestamp: Date.now(),
   };
 
+  let payload = null;
   if (event.data) {
     try {
-      const payload = event.data.json();
+      payload = event.data.json();
       const rawUrl = payload.url || (payload.data && payload.data.url) || defaultScope;
       const targetUrl = resolveSwUrl(rawUrl);
 
@@ -127,32 +133,50 @@ self.addEventListener('push', (event) => {
         badge: payload.badge ? resolveSwUrl(payload.badge) : defaultIcon,
         data: {
           ...(payload.data || {}),
-          url: targetUrl
+          url: targetUrl,
+          receivedAt: Date.now()
         },
         tag: payload.tag || ('notif_' + Date.now()),
-        renotify: !!payload.renotify,
-        vibrate: [100, 50, 100],
+        requireInteraction: payload.requireInteraction !== undefined ? !!payload.requireInteraction : true,
+        renotify: payload.renotify !== undefined ? !!payload.renotify : true,
+        silent: false,
+        timestamp: payload.timestamp || Date.now(),
+        vibrate: [300, 150, 300, 150, 300],
       };
     } catch (e) {
       notificationData.body = event.data.text();
     }
   }
 
-  event.waitUntil(
-    self.registration.showNotification(notificationData.title, {
-      body: notificationData.body,
-      icon: notificationData.icon,
-      badge: notificationData.badge,
-      data: notificationData.data,
-      tag: notificationData.tag,
-      renotify: notificationData.renotify,
-      vibrate: [100, 50, 100],
-      actions: [
-        { action: 'open', title: '確認する' },
-        { action: 'close', title: '閉じる' }
-      ]
-    })
-  );
+  // アクティブなクライアントタブへ即時メッセージを中継（フォアグラウンド表示中のリアルタイム即時更新）
+  const notifyClientsPromise = clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+    clientList.forEach((client) => {
+      client.postMessage({
+        type: 'PUSH_NOTIFICATION_RECEIVED',
+        notification: notificationData,
+        payload: payload
+      });
+    });
+  }).catch(() => {});
+
+  const showNotificationPromise = self.registration.showNotification(notificationData.title, {
+    body: notificationData.body,
+    icon: notificationData.icon,
+    badge: notificationData.badge,
+    data: notificationData.data,
+    tag: notificationData.tag,
+    requireInteraction: notificationData.requireInteraction,
+    renotify: notificationData.renotify,
+    silent: false,
+    timestamp: notificationData.timestamp,
+    vibrate: [300, 150, 300, 150, 300],
+    actions: [
+      { action: 'open', title: '確認する' },
+      { action: 'close', title: '閉じる' }
+    ]
+  });
+
+  event.waitUntil(Promise.all([showNotificationPromise, notifyClientsPromise]));
 });
 
 // Notification Click Event: 通知タップ時の挙動
