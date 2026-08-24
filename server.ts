@@ -23,7 +23,13 @@ async function startServer() {
   const vapidKeysPath = path.join(dataDir, 'vapid-keys.json');
   let vapidKeys: { publicKey: string; privateKey: string };
 
-  if (fs.existsSync(vapidKeysPath)) {
+  if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
+    vapidKeys = {
+      publicKey: process.env.VAPID_PUBLIC_KEY,
+      privateKey: process.env.VAPID_PRIVATE_KEY
+    };
+    console.log('[WebPush] VAPID keys loaded from environment variables.');
+  } else if (fs.existsSync(vapidKeysPath)) {
     try {
       vapidKeys = JSON.parse(fs.readFileSync(vapidKeysPath, 'utf8'));
     } catch (e) {
@@ -37,7 +43,7 @@ async function startServer() {
 
   try {
     webpush.setVapidDetails(
-      'mailto:admin@example.com',
+      process.env.VAPID_EMAIL || 'mailto:admin@example.com',
       vapidKeys.publicKey,
       vapidKeys.privateKey
     );

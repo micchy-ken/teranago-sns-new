@@ -25,6 +25,7 @@ import { GlobalMemoDetailModal } from './components/GlobalMemoDetailModal';
 import { filterStepsForApplicant, resolveApproverForStep, getSupervisorAtLevel } from './utils/workflowHelpers';
 import { planRecurrenceSave, planRecurrenceDelete, safeParseRecurrence, safeParseExceptions, expandRecurringEvents } from './utils/recurrenceUtils';
 import { RecurrenceActionScope } from './components/RecurrenceActionModal';
+import { parseAppQueryParams, updateBrowserUrl, AppQueryParams } from './utils/urlParams';
 
 // Helper to map and sanitize API user objects to match frontend types safely
 const mapUserFromApi = (apiUser: any): User => {
@@ -109,12 +110,32 @@ export default function App() {
   const chatConsecutiveErrorsRef = useRef<number>(0);
   const isChatRefetchingRef = useRef<boolean>(false);
 
+  // URLクエリパラメータの初期解析（ディープリンク対応）
+  const initialUrlParams = useRef<AppQueryParams>(parseAppQueryParams()).current;
+
+  // カレンダー用パラメータ状態
+  const [calendarParams, setCalendarParams] = useState<{
+    office?: string;
+    division?: string;
+    mode?: 'personal' | 'team';
+    view?: 'month' | 'week' | 'day' | 'list';
+    date?: string;
+    type?: string;
+  }>(() => ({
+    office: initialUrlParams.office,
+    division: initialUrlParams.division,
+    mode: initialUrlParams.mode,
+    view: initialUrlParams.view,
+    date: initialUrlParams.date,
+    type: initialUrlParams.type,
+  }));
+
   // コンテンツディープリンク用のターゲットID状態
-  const [targetTopicId, setTargetTopicId] = useState<string | undefined>(undefined);
-  const [targetChatRoomId, setTargetChatRoomId] = useState<string | undefined>(undefined);
-  const [targetMemoId, setTargetMemoId] = useState<string | undefined>(undefined);
-  const [targetApplicationId, setTargetApplicationId] = useState<string | undefined>(undefined);
-  const [targetEventId, setTargetEventId] = useState<string | undefined>(undefined);
+  const [targetTopicId, setTargetTopicId] = useState<string | undefined>(initialUrlParams.topicId);
+  const [targetChatRoomId, setTargetChatRoomId] = useState<string | undefined>(initialUrlParams.chatRoomId);
+  const [targetMemoId, setTargetMemoId] = useState<string | undefined>(initialUrlParams.memoId);
+  const [targetApplicationId, setTargetApplicationId] = useState<string | undefined>(initialUrlParams.applicationId);
+  const [targetEventId, setTargetEventId] = useState<string | undefined>(initialUrlParams.eventId);
 
   // グローバル詳細ポップアップ表示用の状態
   const [globalSelectedEvent, setGlobalSelectedEvent] = useState<CalendarEvent | null>(null);
@@ -167,6 +188,15 @@ export default function App() {
     setTargetMemoId(target.memoId);
     setTargetApplicationId(target.applicationId);
     setTargetEventId(target.eventId);
+
+    updateBrowserUrl({
+      tab: target.tab,
+      topicId: target.topicId,
+      chatRoomId: target.chatRoomId,
+      memoId: target.memoId,
+      applicationId: target.applicationId,
+      eventId: target.eventId,
+    });
   };
 
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
@@ -200,7 +230,37 @@ export default function App() {
     localStorage.removeItem('logged_in_user_id');
   };
 
-  const [activeTab, setActiveTab] = useState<AppTab>('mypage');
+  const [activeTab, setActiveTab] = useState<AppTab>(() => initialUrlParams.tab || 'mypage');
+
+  // ブラウザの戻る/進む（popstate）対応
+  useEffect(() => {
+    const handlePopState = () => {
+      const parsed = parseAppQueryParams();
+      if (parsed.tab) {
+        setActiveTab(parsed.tab);
+      }
+      if (parsed.office || parsed.division || parsed.mode || parsed.view || parsed.date || parsed.type) {
+        setCalendarParams(prev => ({
+          ...prev,
+          office: parsed.office ?? prev.office,
+          division: parsed.division ?? prev.division,
+          mode: parsed.mode ?? prev.mode,
+          view: parsed.view ?? prev.view,
+          date: parsed.date ?? prev.date,
+          type: parsed.type ?? prev.type,
+        }));
+      }
+      if (parsed.applicationId !== undefined) setTargetApplicationId(parsed.applicationId);
+      if (parsed.memoId !== undefined) setTargetMemoId(parsed.memoId);
+      if (parsed.topicId !== undefined) setTargetTopicId(parsed.topicId);
+      if (parsed.chatRoomId !== undefined) setTargetChatRoomId(parsed.chatRoomId);
+      if (parsed.eventId !== undefined) setTargetEventId(parsed.eventId);
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
     return localStorage.getItem('is_sidebar_collapsed') === 'true';
   });
@@ -3003,6 +3063,12 @@ export default function App() {
             offices={offices}
             divisions={divisions}
             initialEventId={targetEventId}
+            initialOffice={calendarParams.office}
+            initialDivision={calendarParams.division}
+            initialMode={calendarParams.mode}
+            initialView={calendarParams.view}
+            initialDate={calendarParams.date}
+            initialTypeFilter={calendarParams.type}
             memos={memos}
             onUpdateMemos={handleUpdateMemos}
             onRefetchEvents={refetchEvents}

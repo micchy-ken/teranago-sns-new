@@ -178,6 +178,31 @@ export async function getPushNotificationStatus(userId?: string): Promise<PushSt
     } catch (e) {
       // ignore
     }
+
+    // ブラウザ側にはPush購読が存在するのにサーバー側に登録がない場合、自動で再同期(自己修復)
+    if (isSubscribed && subscriptionCount === 0) {
+      try {
+        const registration = await getOrRegisterSW();
+        const subscription = registration ? await registration.pushManager.getSubscription().catch(() => null) : null;
+        if (subscription) {
+          fetch(`${API_BASE_URL}/push/subscribe`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              userId: String(userId),
+              subscription: subscription.toJSON(),
+              userAgent: navigator.userAgent,
+            }),
+          }).then((r) => {
+            if (r.ok) {
+              console.log('[Push] Auto-healed & synced browser subscription to server database.');
+            }
+          }).catch(() => {});
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
   }
 
   return {

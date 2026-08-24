@@ -209,8 +209,45 @@ async function getPool() {
           IF COL_LENGTH('dbo.WorkReports', 'createdAt') IS NULL ALTER TABLE dbo.WorkReports ADD createdAt DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET();
           IF COL_LENGTH('dbo.WorkReports', 'updated_at') IS NULL ALTER TABLE dbo.WorkReports ADD updated_at DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET();
         END
+
+        -- System Settings Table (VAPIDキー等の永続化)
+        IF OBJECT_ID('dbo.system_settings', 'U') IS NULL
+        BEGIN
+          CREATE TABLE dbo.system_settings (
+            setting_key NVARCHAR(100) PRIMARY KEY,
+            setting_value NVARCHAR(MAX) NOT NULL,
+            updated_at DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET()
+          );
+        END
+
+        -- Push Subscriptions Table (Web Push 端末購読情報永続化)
+        IF OBJECT_ID('dbo.push_subscriptions', 'U') IS NULL
+        BEGIN
+          CREATE TABLE dbo.push_subscriptions (
+            id NVARCHAR(100) PRIMARY KEY,
+            user_id NVARCHAR(100) NOT NULL,
+            endpoint NVARCHAR(1000) NOT NULL,
+            p256dh NVARCHAR(500) NULL,
+            auth NVARCHAR(500) NULL,
+            subscription_json NVARCHAR(MAX) NOT NULL,
+            user_agent NVARCHAR(500) NULL,
+            created_at DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET(),
+            last_active_at DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET()
+          );
+        END
+        ELSE
+        BEGIN
+          IF COL_LENGTH('dbo.push_subscriptions', 'user_id') IS NULL ALTER TABLE dbo.push_subscriptions ADD user_id NVARCHAR(100) NULL;
+          IF COL_LENGTH('dbo.push_subscriptions', 'endpoint') IS NULL ALTER TABLE dbo.push_subscriptions ADD endpoint NVARCHAR(1000) NULL;
+          IF COL_LENGTH('dbo.push_subscriptions', 'p256dh') IS NULL ALTER TABLE dbo.push_subscriptions ADD p256dh NVARCHAR(500) NULL;
+          IF COL_LENGTH('dbo.push_subscriptions', 'auth') IS NULL ALTER TABLE dbo.push_subscriptions ADD auth NVARCHAR(500) NULL;
+          IF COL_LENGTH('dbo.push_subscriptions', 'subscription_json') IS NULL ALTER TABLE dbo.push_subscriptions ADD subscription_json NVARCHAR(MAX) NULL;
+          IF COL_LENGTH('dbo.push_subscriptions', 'user_agent') IS NULL ALTER TABLE dbo.push_subscriptions ADD user_agent NVARCHAR(500) NULL;
+          IF COL_LENGTH('dbo.push_subscriptions', 'created_at') IS NULL ALTER TABLE dbo.push_subscriptions ADD created_at DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET();
+          IF COL_LENGTH('dbo.push_subscriptions', 'last_active_at') IS NULL ALTER TABLE dbo.push_subscriptions ADD last_active_at DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET();
+        END
       \`);
-      console.log('✅ Checked/Updated dbo.notifications and dbo.WorkReports tables in SQL Server');
+      console.log('✅ Checked/Updated dbo.notifications, dbo.WorkReports, dbo.system_settings, dbo.push_subscriptions tables in SQL Server');
     } catch (e) {
       console.warn('⚠️ Failed to check/alter notifications/WorkReports tables:', e.message);
     }
@@ -383,7 +420,7 @@ app.get('/api/ogp', async (req, res) => {
 });
 
 // =========================================================
-// Web Push (VAPID) 設定・購読情報管理
+// Web Push (VAPID) 設定・購読情報管理 (DB永続化 & 自動自己修復対応)
 // =========================================================
 const dataDir = path.join(process.cwd(), 'data');
 if (!fs.existsSync(dataDir)) {
@@ -395,9 +432,16 @@ if (!fs.existsSync(dataDir)) {
 }
 
 const vapidKeysPath = path.join(dataDir, 'vapid-keys.json');
-let vapidKeys;
+let vapidKeys = null;
 
-if (fs.existsSync(vapidKeysPath)) {
+// 1. 環境変数からの読み込み (VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY)
+if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
+  vapidKeys = {
+    publicKey: process.env.VAPID_PUBLIC_KEY,
+    privateKey: process.env.VAPID_PRIVATE_KEY
+  };
+  console.log('[WebPush] VAPID keys loaded from environment variables.');
+} else if (fs.existsSync(vapidKeysPath)) {
   try {
     vapidKeys = JSON.parse(fs.readFileSync(vapidKeysPath, 'utf8'));
   } catch (e) {
@@ -415,14 +459,69 @@ try {
     vapidKeys.publicKey,
     vapidKeys.privateKey
   );
-  console.log('[WebPush] VAPID keys loaded. Public Key:', vapidKeys.publicKey);
+  console.log('[WebPush] Initial VAPID keys loaded. Public Key:', vapidKeys.publicKey);
 } catch (e) {
   console.error('[WebPush] Failed to set VAPID details:', e.message);
 }
 
+// データベース (dbo.system_settings) との VAPID キー自動同期
+async function syncVapidKeysWithDB() {
+  try {
+    const pool = await getPool();
+    if (!pool) return;
+
+    if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
+      await pool.request()
+        .input('key', 'vapid_keys')
+        .input('val', JSON.stringify(vapidKeys))
+        .query(\`
+          IF EXISTS (SELECT 1 FROM dbo.system_settings WHERE setting_key = @key)
+            UPDATE dbo.system_settings SET setting_value = @val, updated_at = SYSDATETIMEOFFSET() WHERE setting_key = @key;
+          ELSE
+            INSERT INTO dbo.system_settings (setting_key, setting_value, updated_at) VALUES (@key, @val, SYSDATETIMEOFFSET());
+        \`);
+      return;
+    }
+
+    const result = await pool.request()
+      .input('key', 'vapid_keys')
+      .query('SELECT setting_value FROM dbo.system_settings WHERE setting_key = @key');
+
+    if (result.recordset && result.recordset.length > 0 && result.recordset[0].setting_value) {
+      const savedKeys = JSON.parse(result.recordset[0].setting_value);
+      if (savedKeys.publicKey && savedKeys.privateKey) {
+        vapidKeys = savedKeys;
+        webpush.setVapidDetails(
+          process.env.VAPID_EMAIL || 'mailto:admin@example.com',
+          vapidKeys.publicKey,
+          vapidKeys.privateKey
+        );
+        try { fs.writeFileSync(vapidKeysPath, JSON.stringify(vapidKeys, null, 2), 'utf8'); } catch (e) {}
+        console.log('✅ [WebPush] Restored persistent VAPID keys from SQL Server (Public Key:', vapidKeys.publicKey, ')');
+        return;
+      }
+    }
+
+    // DB に未保存の場合は現在のキーを保存
+    await pool.request()
+      .input('key', 'vapid_keys')
+      .input('val', JSON.stringify(vapidKeys))
+      .query(\`
+        IF EXISTS (SELECT 1 FROM dbo.system_settings WHERE setting_key = @key)
+          UPDATE dbo.system_settings SET setting_value = @val, updated_at = SYSDATETIMEOFFSET() WHERE setting_key = @key;
+        ELSE
+          INSERT INTO dbo.system_settings (setting_key, setting_value, updated_at) VALUES (@key, @val, SYSDATETIMEOFFSET());
+      \`);
+    console.log('✅ [WebPush] Saved persistent VAPID keys into SQL Server database.');
+  } catch (err) {
+    console.warn('⚠️ [WebPush] VAPID DB sync warning:', err.message);
+  }
+}
+
+// Push Subscription 保存管理 (ファイル & SQL Server dbo.push_subscriptions 連動)
 const subscriptionsPath = path.join(dataDir, 'push-subscriptions.json');
 
-function loadSubscriptions() {
+function loadSubscriptionsFromFile() {
   if (!fs.existsSync(subscriptionsPath)) return [];
   try {
     return JSON.parse(fs.readFileSync(subscriptionsPath, 'utf8'));
@@ -431,30 +530,106 @@ function loadSubscriptions() {
   }
 }
 
-function saveSubscriptions(subs) {
+function saveSubscriptionsToFile(subs) {
   try {
     fs.writeFileSync(subscriptionsPath, JSON.stringify(subs, null, 2), 'utf8');
   } catch (e) {
-    console.error('[WebPush] Failed to save subscriptions:', e.message);
+    console.error('[WebPush] Failed to save subscriptions to file:', e.message);
   }
 }
 
+let cachedSubscriptions = loadSubscriptionsFromFile();
+
+async function getAllSubscriptions() {
+  try {
+    const pool = await getPool();
+    if (pool) {
+      const result = await pool.request().query('SELECT * FROM dbo.push_subscriptions');
+      if (result.recordset) {
+        const subs = result.recordset.map(row => {
+          let subObj = null;
+          try { subObj = JSON.parse(row.subscription_json); } catch (e) {}
+          if (!subObj) {
+            subObj = {
+              endpoint: row.endpoint,
+              keys: {
+                p256dh: row.p256dh,
+                auth: row.auth
+              }
+            };
+          }
+          return {
+            id: row.id,
+            userId: row.user_id,
+            subscription: subObj,
+            userAgent: row.user_agent,
+            createdAt: row.created_at,
+            lastActiveAt: row.last_active_at
+          };
+        });
+        cachedSubscriptions = subs;
+        saveSubscriptionsToFile(subs);
+        return subs;
+      }
+    }
+  } catch (err) {
+    console.warn('[WebPush] Failed to load subs from DB, using cache:', err.message);
+  }
+  return cachedSubscriptions;
+}
+
+// 起動時にDBからVAPIDキーおよび購読一覧を取得
+syncVapidKeysWithDB().then(() => getAllSubscriptions()).catch(() => {});
+
 // VAPID公開鍵取得
-app.get('/api/push/vapid-public-key', (req, res) => {
+app.get('/api/push/vapid-public-key', async (req, res) => {
   res.json({ publicKey: vapidKeys.publicKey });
 });
 
 // 端末のPush通知購読登録
-app.post('/api/push/subscribe', (req, res) => {
+app.post('/api/push/subscribe', async (req, res) => {
   try {
     const { userId, subscription, userAgent } = req.body;
     if (!userId || !subscription || !subscription.endpoint) {
       return res.status(400).json({ error: 'ユーザーIDおよび購読情報が必要です。' });
     }
 
-    const allSubs = loadSubscriptions();
-    const existingIdx = allSubs.findIndex(s => s.subscription && s.subscription.endpoint === subscription.endpoint);
+    const subId = 'sub_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+    const p256dh = subscription.keys?.p256dh || null;
+    const auth = subscription.keys?.auth || null;
+    const endpoint = subscription.endpoint;
+    const subJson = JSON.stringify(subscription);
     const now = new Date().toISOString();
+
+    // 1. SQL Server dbo.push_subscriptions へ永続化
+    try {
+      const pool = await getPool();
+      if (pool) {
+        await pool.request()
+          .input('id', subId)
+          .input('userId', String(userId))
+          .input('endpoint', endpoint)
+          .input('p256dh', p256dh)
+          .input('auth', auth)
+          .input('subJson', subJson)
+          .input('userAgent', userAgent || null)
+          .query(\`
+            IF EXISTS (SELECT 1 FROM dbo.push_subscriptions WHERE endpoint = @endpoint)
+              UPDATE dbo.push_subscriptions 
+              SET user_id = @userId, p256dh = @p256dh, auth = @auth, subscription_json = @subJson, user_agent = @userAgent, last_active_at = SYSDATETIMEOFFSET()
+              WHERE endpoint = @endpoint;
+            ELSE
+              INSERT INTO dbo.push_subscriptions (id, user_id, endpoint, p256dh, auth, subscription_json, user_agent, created_at, last_active_at)
+              VALUES (@id, @userId, @endpoint, @p256dh, @auth, @subJson, @userAgent, SYSDATETIMEOFFSET(), SYSDATETIMEOFFSET());
+          \`);
+      }
+    } catch (dbErr) {
+      console.warn('⚠️ [WebPush] Failed to persist subscription to DB:', dbErr.message);
+    }
+
+    // 2. メモリキャッシュ & ファイルにも保存
+    const allSubs = await getAllSubscriptions();
+    const existingIdx = allSubs.findIndex(s => s.subscription && s.subscription.endpoint === endpoint);
 
     if (existingIdx >= 0) {
       allSubs[existingIdx] = {
@@ -466,7 +641,7 @@ app.post('/api/push/subscribe', (req, res) => {
       };
     } else {
       allSubs.push({
-        id: 'sub_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+        id: subId,
         userId: String(userId),
         subscription,
         userAgent,
@@ -475,9 +650,11 @@ app.post('/api/push/subscribe', (req, res) => {
       });
     }
 
-    saveSubscriptions(allSubs);
+    cachedSubscriptions = allSubs;
+    saveSubscriptionsToFile(allSubs);
+
     const userSubCount = allSubs.filter(s => s.userId === String(userId)).length;
-    res.json({ success: true, message: '通知の購読を登録しました。', count: userSubCount });
+    res.json({ success: true, message: '通知の購読を登録・永続化しました。', count: userSubCount });
   } catch (err) {
     console.error('[WebPush] Subscribe error:', err);
     res.status(500).json({ error: err.message });
@@ -485,14 +662,27 @@ app.post('/api/push/subscribe', (req, res) => {
 });
 
 // 端末のPush通知購読解除
-app.post('/api/push/unsubscribe', (req, res) => {
+app.post('/api/push/unsubscribe', async (req, res) => {
   try {
     const { endpoint, userId } = req.body;
     if (!endpoint) {
       return res.status(400).json({ error: '解除対象のエンドポイントが必要です。' });
     }
 
-    let allSubs = loadSubscriptions();
+    // 1. DBから削除
+    try {
+      const pool = await getPool();
+      if (pool) {
+        await pool.request()
+          .input('endpoint', endpoint)
+          .query('DELETE FROM dbo.push_subscriptions WHERE endpoint = @endpoint');
+      }
+    } catch (dbErr) {
+      console.warn('⚠️ [WebPush] Failed to delete subscription from DB:', dbErr.message);
+    }
+
+    // 2. キャッシュ & ファイルから削除
+    let allSubs = await getAllSubscriptions();
     const initialCount = allSubs.length;
     allSubs = allSubs.filter(s => {
       if (s.subscription && s.subscription.endpoint === endpoint) return false;
@@ -500,7 +690,8 @@ app.post('/api/push/unsubscribe', (req, res) => {
       return true;
     });
 
-    saveSubscriptions(allSubs);
+    cachedSubscriptions = allSubs;
+    saveSubscriptionsToFile(allSubs);
     res.json({ success: true, message: '通知の購読を解除しました。', removed: initialCount - allSubs.length });
   } catch (err) {
     console.error('[WebPush] Unsubscribe error:', err);
@@ -509,10 +700,10 @@ app.post('/api/push/unsubscribe', (req, res) => {
 });
 
 // ユーザーの通知購読状態確認
-app.get('/api/push/status/:userId', (req, res) => {
+app.get('/api/push/status/:userId', async (req, res) => {
   try {
     const userId = String(req.params.userId);
-    const allSubs = loadSubscriptions();
+    const allSubs = await getAllSubscriptions();
     const userSubs = allSubs.filter(s => s.userId === userId);
     res.json({
       isSubscribed: userSubs.length > 0,
@@ -543,7 +734,7 @@ app.post('/api/push/send', async (req, res) => {
       return res.status(400).json({ error: 'タイトルと本文は必須です。' });
     }
 
-    const allSubs = loadSubscriptions();
+    const allSubs = await getAllSubscriptions();
     let targets = [];
 
     if (targetUserId === 'all') {
@@ -595,8 +786,18 @@ app.post('/api/push/send', async (req, res) => {
     );
 
     if (staleEndpoints.length > 0) {
+      try {
+        const pool = await getPool();
+        if (pool) {
+          for (const ep of staleEndpoints) {
+            await pool.request().input('endpoint', ep).query('DELETE FROM dbo.push_subscriptions WHERE endpoint = @endpoint');
+          }
+        }
+      } catch (e) {}
+
       const remainingSubs = allSubs.filter(s => !s.subscription || !staleEndpoints.includes(s.subscription.endpoint));
-      saveSubscriptions(remainingSubs);
+      cachedSubscriptions = remainingSubs;
+      saveSubscriptionsToFile(remainingSubs);
       console.log('[WebPush] Pruned ' + staleEndpoints.length + ' stale subscriptions.');
     }
 
@@ -620,7 +821,7 @@ app.post('/api/push/test', async (req, res) => {
       return res.status(400).json({ error: 'ユーザーIDが必要です。' });
     }
 
-    const allSubs = loadSubscriptions();
+    const allSubs = await getAllSubscriptions();
     const targets = allSubs.filter(s => s.userId === String(userId));
 
     if (targets.length === 0) {
@@ -659,8 +860,18 @@ app.post('/api/push/test', async (req, res) => {
     );
 
     if (staleEndpoints.length > 0) {
+      try {
+        const pool = await getPool();
+        if (pool) {
+          for (const ep of staleEndpoints) {
+            await pool.request().input('endpoint', ep).query('DELETE FROM dbo.push_subscriptions WHERE endpoint = @endpoint');
+          }
+        }
+      } catch (e) {}
+
       const remainingSubs = allSubs.filter(s => !s.subscription || !staleEndpoints.includes(s.subscription.endpoint));
-      saveSubscriptions(remainingSubs);
+      cachedSubscriptions = remainingSubs;
+      saveSubscriptionsToFile(remainingSubs);
     }
 
     res.json({

@@ -766,4 +766,43 @@ BEGIN
 END
 GO
 
+-- Push Subscriptions Table (Web Push 端末購読情報永続化)
+IF OBJECT_ID('dbo.push_subscriptions', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.push_subscriptions (
+        id NVARCHAR(100) PRIMARY KEY,
+        user_id NVARCHAR(100) NOT NULL,
+        endpoint NVARCHAR(1000) NOT NULL,
+        p256dh NVARCHAR(500) NULL,
+        auth NVARCHAR(500) NULL,
+        subscription_json NVARCHAR(MAX) NOT NULL,
+        user_agent NVARCHAR(500) NULL,
+        created_at DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET(),
+        last_active_at DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET()
+    );
+END
+ELSE
+BEGIN
+    IF COL_LENGTH('dbo.push_subscriptions', 'user_id') IS NULL ALTER TABLE dbo.push_subscriptions ADD user_id NVARCHAR(100) NULL;
+    IF COL_LENGTH('dbo.push_subscriptions', 'endpoint') IS NULL ALTER TABLE dbo.push_subscriptions ADD endpoint NVARCHAR(1000) NULL;
+    IF COL_LENGTH('dbo.push_subscriptions', 'p256dh') IS NULL ALTER TABLE dbo.push_subscriptions ADD p256dh NVARCHAR(500) NULL;
+    IF COL_LENGTH('dbo.push_subscriptions', 'auth') IS NULL ALTER TABLE dbo.push_subscriptions ADD auth NVARCHAR(500) NULL;
+    IF COL_LENGTH('dbo.push_subscriptions', 'subscription_json') IS NULL ALTER TABLE dbo.push_subscriptions ADD subscription_json NVARCHAR(MAX) NULL;
+    IF COL_LENGTH('dbo.push_subscriptions', 'user_agent') IS NULL ALTER TABLE dbo.push_subscriptions ADD user_agent NVARCHAR(500) NULL;
+    IF COL_LENGTH('dbo.push_subscriptions', 'created_at') IS NULL ALTER TABLE dbo.push_subscriptions ADD created_at DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET();
+    IF COL_LENGTH('dbo.push_subscriptions', 'last_active_at') IS NULL ALTER TABLE dbo.push_subscriptions ADD last_active_at DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET();
+END
+GO
+
+-- System Settings Table (VAPIDキー等のシステム設定永続化)
+IF OBJECT_ID('dbo.system_settings', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.system_settings (
+        setting_key NVARCHAR(100) PRIMARY KEY,
+        setting_value NVARCHAR(MAX) NOT NULL,
+        updated_at DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET()
+    );
+END
+GO
+
 SELECT 'Database successfully setup and aligned with server.js spec without errors!' AS Status;

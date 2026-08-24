@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { CalendarEvent, EventType, User, OfficeMaster, DivisionMaster, Memo, RequirementType, MemoUserRecipientStatus } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
-import { ChevronLeft, ChevronRight, List as ListIcon, Calendar as CalendarIcon, Plus, MapPin, Video, AlignLeft, RefreshCw, Clock, Link as LinkIcon, Loader2, Building2, Users, Paperclip, MessageSquare, Phone, X, Monitor, Maximize2, Minimize2, FileSpreadsheet } from 'lucide-react';
+import { ChevronLeft, ChevronRight, List as ListIcon, Calendar as CalendarIcon, Plus, MapPin, Video, AlignLeft, RefreshCw, Clock, Link as LinkIcon, Loader2, Building2, Users, Paperclip, MessageSquare, Phone, X, Monitor, Maximize2, Minimize2, FileSpreadsheet, Share2, Check } from 'lucide-react';
 import { EventModal } from './EventModal';
 import { GlobalEventDetailModal } from './GlobalEventDetailModal';
 import { renderWithClickableLinks } from '../utils/linkify';
@@ -12,6 +12,7 @@ import { getLocalDateStr, addMinutesToLocalDatetime } from '../utils/dateUtils';
 import { triggerPushNotification } from '../utils/pushNotifications';
 import { expandRecurringEvents } from '../utils/recurrenceUtils';
 import { RecurrenceActionScope } from './RecurrenceActionModal';
+import { buildAppUrl, updateBrowserUrl } from '../utils/urlParams';
 
 interface CalendarProps {
   events: CalendarEvent[];
@@ -23,6 +24,12 @@ interface CalendarProps {
   offices?: OfficeMaster[];
   divisions?: DivisionMaster[];
   initialEventId?: string;
+  initialOffice?: string;
+  initialDivision?: string;
+  initialMode?: 'personal' | 'team';
+  initialView?: ViewMode;
+  initialDate?: string;
+  initialTypeFilter?: string;
   memos?: Memo[];
   onUpdateMemos?: (updatedMemos: Memo[]) => void;
   onRefetchEvents?: () => void;
@@ -61,41 +68,101 @@ export function Calendar({
   offices = [],
   divisions = [],
   initialEventId,
+  initialOffice,
+  initialDivision,
+  initialMode,
+  initialView,
+  initialDate,
+  initialTypeFilter,
   memos = [],
   onUpdateMemos,
   onRefetchEvents,
   onNavigateToInspectionScheduler,
 }: CalendarProps) {
-  const [view, setView] = useState<ViewMode>('month');
-  const [currentDate, setCurrentDate] = useState(new Date());
+  const [view, setView] = useState<ViewMode>(() => initialView || 'month');
+  const [currentDate, setCurrentDate] = useState<Date>(() => {
+    if (initialDate) {
+      if (initialDate.toLowerCase() === 'today') return new Date();
+      const d = new Date(initialDate.includes('T') ? initialDate : `${initialDate}T00:00:00`);
+      if (!isNaN(d.getTime())) return d;
+    }
+    return new Date();
+  });
 
   // デジタルサイネージモード関連の状態
   const [isSignageMode, setIsSignageMode] = useState<boolean>(false);
   const [liveClock, setLiveClock] = useState<Date>(new Date());
   const [lastRefetchedAt, setLastRefetchedAt] = useState<Date>(new Date());
   const [countdown, setCountdown] = useState<number>(30);
+  const [copiedLink, setCopiedLink] = useState<boolean>(false);
   
-  // 拠点・部署のプルダウンフィルター状態（初期値はログインユーザーの所属拠点・所属部署）
-  const [selectedOffice, setSelectedOffice] = useState<string>(() => currentUser?.office || '全社');
-  const [selectedDivision, setSelectedDivision] = useState<string>(() => currentUser?.division || '全部署');
-  const [selectedTypeFilter, setSelectedTypeFilter] = useState<string>('all');
+  // 拠点・部署のプルダウンフィルター状態（初期値は指定パラメータまたはログインユーザーの所属拠点・所属部署）
+  const [selectedOffice, setSelectedOffice] = useState<string>(() => initialOffice || currentUser?.office || '全社');
+  const [selectedDivision, setSelectedDivision] = useState<string>(() => initialDivision || currentUser?.division || '全部署');
+  const [selectedTypeFilter, setSelectedTypeFilter] = useState<string>(() => initialTypeFilter || 'all');
 
-  // currentUserの所属拠点・所属部署の初期反映
+  // currentUserの所属拠点・所属部署の初期反映（initialOffice/initialDivisionがない場合のみ）
   const userInitRef = React.useRef(false);
   useEffect(() => {
     if (currentUser && !userInitRef.current) {
-      if (currentUser.office) {
+      if (!initialOffice && currentUser.office) {
         setSelectedOffice(currentUser.office);
       }
-      if (currentUser.division) {
+      if (!initialDivision && currentUser.division) {
         setSelectedDivision(currentUser.division);
       }
       userInitRef.current = true;
     }
-  }, [currentUser]);
+  }, [currentUser, initialOffice, initialDivision]);
 
   // カレンダーモード：'personal' (個人表示) or 'team' (チーム表示)
-  const [calendarMode, setCalendarMode] = useState<'personal' | 'team'>('personal');
+  const [calendarMode, setCalendarMode] = useState<'personal' | 'team'>(() => initialMode || 'personal');
+
+  // initialPropsの動的変更を反映
+  useEffect(() => {
+    if (initialView) setView(initialView);
+  }, [initialView]);
+
+  useEffect(() => {
+    if (initialMode) setCalendarMode(initialMode);
+  }, [initialMode]);
+
+  useEffect(() => {
+    if (initialOffice) setSelectedOffice(initialOffice);
+  }, [initialOffice]);
+
+  useEffect(() => {
+    if (initialDivision) setSelectedDivision(initialDivision);
+  }, [initialDivision]);
+
+  useEffect(() => {
+    if (initialTypeFilter) setSelectedTypeFilter(initialTypeFilter);
+  }, [initialTypeFilter]);
+
+  useEffect(() => {
+    if (initialDate) {
+      if (initialDate.toLowerCase() === 'today') {
+        setCurrentDate(new Date());
+      } else {
+        const d = new Date(initialDate.includes('T') ? initialDate : `${initialDate}T00:00:00`);
+        if (!isNaN(d.getTime())) setCurrentDate(d);
+      }
+    }
+  }, [initialDate]);
+
+  // フィルター変更時にURLクエリパラメータを自動更新（ブラウザのアドレスバーに反映・リロード不要）
+  useEffect(() => {
+    const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
+    updateBrowserUrl({
+      tab: 'calendar',
+      office: selectedOffice,
+      division: selectedDivision,
+      mode: calendarMode,
+      view: view,
+      date: dateStr,
+      type: selectedTypeFilter !== 'all' ? selectedTypeFilter : undefined,
+    });
+  }, [selectedOffice, selectedDivision, calendarMode, view, currentDate, selectedTypeFilter]);
 
   // チーム・日表示以外に変更されたらサイネージモードを自動解除
   useEffect(() => {
@@ -322,8 +389,25 @@ export function Calendar({
     };
   }, [resizingEvent, onUpdateEvent]);
 
-  const officeNames = Array.from(new Set(offices.map(o => o.name)));
-  const divisionNames = Array.from(new Set(divisions.map(d => d.name)));
+  const officeNames = useMemo(() => {
+    const list = [
+      ...offices.map(o => o.name),
+      ...((allUsers || []).map(u => u.office).filter(Boolean) as string[]),
+      ...(initialOffice ? [initialOffice] : []),
+      ...(selectedOffice ? [selectedOffice] : []),
+    ];
+    return Array.from(new Set(list));
+  }, [offices, allUsers, initialOffice, selectedOffice]);
+
+  const divisionNames = useMemo(() => {
+    const list = [
+      ...divisions.map(d => d.name),
+      ...((allUsers || []).map(u => u.division).filter(Boolean) as string[]),
+      ...(initialDivision ? [initialDivision] : []),
+      ...(selectedDivision ? [selectedDivision] : []),
+    ];
+    return Array.from(new Set(list));
+  }, [divisions, allUsers, initialDivision, selectedDivision]);
 
   // 表示期間の前後を含む展開用日付範囲（前後3ヶ月）
   const viewRangeStart = new Date(currentDate.getFullYear(), currentDate.getMonth() - 2, 1);
@@ -1598,6 +1682,48 @@ export function Calendar({
               </button>
             )}
           </div>
+
+          {/* 現在の表示条件のURLリンクをコピーするボタン */}
+          <button
+            type="button"
+            onClick={() => {
+              const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
+              const url = buildAppUrl({
+                tab: 'calendar',
+                office: selectedOffice,
+                division: selectedDivision,
+                mode: calendarMode,
+                view: view,
+                date: dateStr,
+                type: selectedTypeFilter !== 'all' ? selectedTypeFilter : undefined,
+              });
+              if (navigator.clipboard) {
+                navigator.clipboard.writeText(url).then(() => {
+                  setCopiedLink(true);
+                  setTimeout(() => setCopiedLink(false), 2500);
+                }).catch(() => {});
+              }
+            }}
+            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all shadow-2xs cursor-pointer shrink-0 ${
+              copiedLink
+                ? 'bg-emerald-50 text-emerald-700 border-emerald-300 ring-2 ring-emerald-200'
+                : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+            }`}
+            title="この表示条件（拠点・部署・モード・表示）を共有できるURLリンクをコピー"
+          >
+            {copiedLink ? (
+              <>
+                <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                <span className="font-bold">URLコピー完了!</span>
+              </>
+            ) : (
+              <>
+                <Share2 className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                <span className="hidden sm:inline">リンク共有</span>
+                <span className="sm:hidden">共有</span>
+              </>
+            )}
+          </button>
 
           {/* デジタルサイネージモード トグル (スケジュール・チーム・日 選択時のみ表示) */}
           {calendarMode === 'team' && view === 'day' && (
