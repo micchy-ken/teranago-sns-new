@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { User, CalendarEvent, BoardTopic, Memo, WorkflowApplication, ChatRoom, OfficeMaster, DivisionMaster, PositionMaster } from '../types';
+import { User, CalendarEvent, BoardTopic, Memo, WorkflowApplication, ChatRoom, OfficeMaster, DivisionMaster, PositionMaster, DailyReport } from '../types';
 import { AppTab } from './Sidebar';
 import { getAvatarUrl, SILHOUETTE_SVG } from '../utils/avatar';
 import { API_BASE_URL } from '../config/api';
@@ -27,12 +27,15 @@ import {
   markMemoAsUnread as markMemoAsUnreadUtil,
   getReadWorkflowIds,
   markWorkflowAsRead as markWorkflowAsReadUtil,
+  getReadReportIds,
+  markReportAsRead as markReportAsReadUtil,
   isEventUnread,
   isTopicUnread,
   isMemoUnhandled,
   isMemoUnread,
   isWorkflowPending,
   isChatUnread,
+  isReportUnread,
 } from '../utils/notifications';
 import { 
   User as UserIcon, 
@@ -95,6 +98,7 @@ interface MyPageProps {
   memos: Memo[];
   applications: WorkflowApplication[];
   chatRooms?: ChatRoom[];
+  reports?: DailyReport[];
   offices?: OfficeMaster[];
   divisions?: DivisionMaster[];
   positions?: PositionMaster[];
@@ -107,6 +111,7 @@ interface MyPageProps {
     memoId?: string;
     applicationId?: string;
     eventId?: string;
+    reportId?: string;
   }) => void;
   onUpdateUser?: (updatedUser: User) => void;
   onUpdateMemo?: (updatedMemos: Memo[]) => void;
@@ -131,6 +136,7 @@ export function MyPage({
   memos,
   applications,
   chatRooms = [],
+  reports = [],
   offices = [],
   divisions = [],
   positions = [],
@@ -157,6 +163,7 @@ export function MyPage({
   const [readTopicIds, setReadTopicIds] = useState<string[]>(() => getReadTopicIds(user?.id));
   const [readChatTimestamps, setReadChatTimestamps] = useState<Record<string, string>>(() => getReadChatTimestamps(user?.id));
   const [readMemoIds, setReadMemoIds] = useState<string[]>(() => getReadMemoIds(user?.id));
+  const [readReportIds, setReadReportIds] = useState<string[]>(() => getReadReportIds(user?.id));
 
   useEffect(() => {
     const handleSync = () => {
@@ -164,6 +171,7 @@ export function MyPage({
       setReadTopicIds(getReadTopicIds(user?.id));
       setReadChatTimestamps(getReadChatTimestamps(user?.id));
       setReadMemoIds(getReadMemoIds(user?.id));
+      setReadReportIds(getReadReportIds(user?.id));
     };
     handleSync();
     window.addEventListener('notifications_updated', handleSync);
@@ -202,7 +210,7 @@ export function MyPage({
   }, [user?.id]);
 
   // D&D並び替え状態管理
-  const DEFAULT_SECTION_ORDER = ['events', 'topics', 'memos', 'workflow', 'chats'];
+  const DEFAULT_SECTION_ORDER = ['events', 'topics', 'memos', 'workflow', 'chats', 'reports'];
   const savedOrder = user?.preferences?.mypageSectionOrder;
   const [sectionOrder, setSectionOrder] = useState<string[]>(() => {
     if (Array.isArray(savedOrder) && savedOrder.length > 0) {
@@ -592,6 +600,25 @@ export function MyPage({
     });
 
   const unreadChatRooms = myChatRooms.filter((room) => isChatUnread(room, user, readChatTimestamps));
+
+  // 6. 自分に関係する日報・週報（自分が作成者 または 上長）
+  const myReports = useMemo(() => {
+    return (reports || [])
+      .filter((r) => {
+        const authorId = r.author?.id || (r as any).authorId;
+        const supervisorId = r.supervisorId || r.supervisor?.id || (r.author as any)?.supervisorId;
+        return authorId === user?.id || supervisorId === user?.id;
+      })
+      .sort((a, b) => {
+        const aTime = a.reviewedAt || a.submittedAt || a.createdAt || '';
+        const bTime = b.reviewedAt || b.submittedAt || b.createdAt || '';
+        return new Date(bTime || 0).getTime() - new Date(aTime || 0).getTime();
+      });
+  }, [reports, user?.id]);
+
+  const unreadReports = useMemo(() => {
+    return myReports.filter((r) => isReportUnread(r, user, readReportIds));
+  }, [myReports, user, readReportIds]);
 
   // ワークフロー承認・却下アクションハンドラー
   const handleWorkflowAction = (appId: string, status: 'approved' | 'rejected') => {
@@ -1105,6 +1132,119 @@ export function MyPage({
             </div>
           </MyPageSectionCard>
         );
+
+      case 'reports':
+        return (
+          <MyPageSectionCard
+            key="reports"
+            id="reports"
+            title="日報・週報"
+            icon={FileText}
+            iconBgColor="bg-teal-600 hover:bg-teal-700"
+            badgeCount={unreadReports.length}
+            badgeLabel="未確認"
+            badgeBgColor="bg-teal-600"
+            onNavigate={() => onChangeTab('daily_report')}
+            actionButton={
+              <button
+                type="button"
+                onClick={() => onChangeTab('daily_report')}
+                className="text-xs font-bold bg-teal-600 hover:bg-teal-700 text-white px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                作成・確認
+              </button>
+            }
+            isFullWidth={isFullWidth}
+            isDragging={isDragging}
+            onDragStart={(e) => handleDragStart(e, index)}
+            onDragOver={(e) => handleDragOver(e, index)}
+            onDrop={(e) => handleDrop(e, index)}
+          >
+            <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 2xl:grid-cols-2">
+              {myReports.length > 0 ? (
+                myReports.slice(0, 8).map((report) => {
+                  const isUnread = isReportUnread(report, user, readReportIds);
+                  const isAuthor = (report.author?.id || (report as any).authorId) === user?.id;
+                  const isWeekly = report.reportType === 'weekly';
+                  const isMaintenance = report.reportType === 'maintenance_daily';
+                  const isSales = report.reportType === 'sales_daily';
+                  const isConstruction = report.reportType === 'construction_daily';
+                  const typeLabel = isMaintenance 
+                    ? '保守日報' 
+                    : (isSales 
+                      ? '営業日報' 
+                      : (isConstruction 
+                        ? '工務日報' 
+                        : (isWeekly ? '週報' : '日報')));
+                  const title = report.weekLabel || (isWeekly ? `週報 (${report.weekStartDate || ''}~)` : `${typeLabel} (${report.date || ''})`);
+                  const dateStr = report.date || report.weekStartDate || (report.createdAt ? new Date(report.createdAt).toLocaleDateString('ja-JP') : '');
+
+                  return (
+                    <div
+                      key={report.id}
+                      onClick={() => {
+                        markReportAsReadUtil(user?.id, report.id);
+                        if (onNavigateToContent) {
+                          onNavigateToContent({ tab: 'daily_report', reportId: report.id });
+                        } else {
+                          onChangeTab('daily_report');
+                        }
+                      }}
+                      className={`p-3.5 rounded-xl border transition-all cursor-pointer flex flex-col gap-2 ${
+                        isUnread
+                          ? 'bg-teal-50/50 border-teal-300 shadow-xs hover:border-teal-400'
+                          : 'bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50/50'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-bold shrink-0 ${
+                            isMaintenance ? 'bg-amber-100 text-amber-800' : (isWeekly ? 'bg-indigo-100 text-indigo-800' : 'bg-emerald-100 text-emerald-800')
+                          }`}>
+                            {typeLabel}
+                          </span>
+                          <span className="text-xs font-extrabold text-slate-900 line-clamp-1">
+                            {title}
+                          </span>
+                        </div>
+                        {isUnread && (
+                          <span className="px-2 py-0.5 bg-teal-600 text-white text-[9px] font-black rounded-full shrink-0 animate-pulse">
+                            NEW {isAuthor ? '要確認' : '未確認'}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center justify-between text-xs text-slate-600">
+                        <span className="font-medium">{report.author?.name || '作成者未設定'}</span>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                          report.status === 'reviewed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                        }`}>
+                          {report.status === 'reviewed' ? '確認済' : '確認待ち'}
+                        </span>
+                      </div>
+
+                      {report.feedbackComment && (
+                        <p className="text-xs text-slate-600 line-clamp-1 bg-slate-50 p-1.5 rounded border border-slate-100">
+                          <span className="font-bold text-slate-700">上長コメント: </span>
+                          {report.feedbackComment}
+                        </p>
+                      )}
+
+                      <div className="text-[10px] text-slate-400 text-right">
+                        {dateStr}
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="p-8 text-center text-slate-400 text-xs col-span-full">
+                  関連する日報・週報はありません
+                </div>
+              )}
+            </div>
+          </MyPageSectionCard>
+        );
     }
   };
 
@@ -1112,8 +1252,8 @@ export function MyPage({
     <div className="flex-1 overflow-y-auto bg-slate-50/50 rounded-xl border border-slate-200 h-[calc(100vh-8rem)] p-3 sm:p-6 space-y-4 sm:space-y-6">
 
 
-      {/* 5つの未読通知サマリーカード（クリックで各機能ページへ直接遷移） */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 sm:gap-3.5">
+      {/* 6つの未読通知サマリーカード（クリックで各機能ページへ直接遷移） */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 sm:gap-3.5">
         {/* スケジュール */}
         <div
           onClick={() => onChangeTab?.('calendar')}
@@ -1261,7 +1401,7 @@ export function MyPage({
         {/* チャット */}
         <div
           onClick={() => onChangeTab?.('chat')}
-          className={`col-span-2 sm:col-span-1 flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3.5 rounded-xl border shadow-xs transition-all cursor-pointer hover:shadow-md hover:border-blue-400 group ${
+          className={`flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3.5 rounded-xl border shadow-xs transition-all cursor-pointer hover:shadow-md hover:border-blue-400 group ${
             unreadChatRooms.length > 0
               ? 'bg-blue-50/70 border-blue-300 text-blue-950'
               : 'bg-white border-slate-200 text-slate-800'
@@ -1288,6 +1428,42 @@ export function MyPage({
               ) : (
                 <span className="inline-flex items-center px-2 py-0.5 bg-slate-100 text-slate-500 font-bold text-[10px] sm:text-[11px] rounded-full">
                   既読
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* 日報・週報 */}
+        <div
+          onClick={() => onChangeTab?.('daily_report')}
+          className={`flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3.5 rounded-xl border shadow-xs transition-all cursor-pointer hover:shadow-md hover:border-teal-400 group ${
+            unreadReports.length > 0
+              ? 'bg-teal-50/70 border-teal-300 text-teal-950'
+              : 'bg-white border-slate-200 text-slate-800'
+          }`}
+          title="日報・週報画面へ移動"
+        >
+          <div
+            onClick={(e) => {
+              e.stopPropagation();
+              onChangeTab?.('daily_report');
+            }}
+            className="p-1.5 sm:p-2 bg-teal-100 group-hover:bg-teal-200 text-teal-700 rounded-lg shrink-0 transition-transform group-hover:scale-105 active:scale-95 cursor-pointer shadow-2xs"
+            title="日報・週報画面を開く"
+          >
+            <FileText className="w-4 h-4 sm:w-5 sm:h-5" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-[11px] sm:text-xs font-bold text-slate-600 group-hover:text-teal-800 transition-colors truncate">日報・週報</div>
+            <div className="mt-0.5 sm:mt-1">
+              {unreadReports.length > 0 ? (
+                <span className="inline-flex items-center px-2 py-0.5 bg-teal-600 text-white font-extrabold text-[10px] sm:text-[11px] rounded-full shadow-2xs">
+                  未確認 {unreadReports.length}
+                </span>
+              ) : (
+                <span className="inline-flex items-center px-2 py-0.5 bg-slate-100 text-slate-500 font-bold text-[10px] sm:text-[11px] rounded-full">
+                  確認済
                 </span>
               )}
             </div>

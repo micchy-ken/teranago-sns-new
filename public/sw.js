@@ -75,16 +75,24 @@ self.addEventListener('fetch', (event) => {
 
 // URL解決ヘルパー (GitHub Pages等のサブディレクトリスコープに対応)
 function resolveSwUrl(rawUrl) {
-  const defaultUrl = self.registration.scope || './';
+  const defaultScope = self.registration.scope || './';
   if (!rawUrl || rawUrl === '/' || rawUrl === './') {
-    return defaultUrl;
+    return defaultScope;
   }
   if (/^https?:\/\//i.test(rawUrl)) {
     return rawUrl;
   }
   try {
     const scopeUrl = new URL(self.registration.scope);
-    const scopePath = scopeUrl.pathname.endsWith('/') ? scopeUrl.pathname : (scopeUrl.pathname + '/');
+    let scopePath = scopeUrl.pathname;
+    if (!scopePath.endsWith('/')) {
+      scopePath += '/';
+    }
+
+    // GitHub Pagesなどの特定リポジトリ名対応
+    if (self.location.pathname.includes('/teranago-sns-new') && !scopePath.includes('/teranago-sns-new/')) {
+      scopePath = '/teranago-sns-new/';
+    }
     
     let subPath = rawUrl;
     if (subPath.startsWith('/')) {
@@ -95,9 +103,11 @@ function resolveSwUrl(rawUrl) {
     } else if (subPath.startsWith('./')) {
       subPath = subPath.replace(/^\.\/+/, '');
     }
-    return new URL(subPath, self.registration.scope).href;
+
+    const baseForResolve = new URL(scopePath, self.location.origin).href;
+    return new URL(subPath, baseForResolve).href;
   } catch (e) {
-    return defaultUrl;
+    return defaultScope;
   }
 }
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Search, Bell, Menu, Phone, FileText, Monitor, Calendar as CalendarIcon, MessageSquare, CheckCheck, ChevronRight, X, Smartphone, Users, MessageCircle } from 'lucide-react';
-import { User, Memo, WorkflowApplication, BoardTopic, CalendarEvent, ChatRoom, Post } from '../types';
+import { User, Memo, WorkflowApplication, BoardTopic, CalendarEvent, ChatRoom, Post, DailyReport } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
 import { AppTab } from './Sidebar';
 import { expandRecurringEvents } from '../utils/recurrenceUtils';
@@ -17,12 +17,14 @@ import {
   markMemoAsRead,
   getReadWorkflowIds,
   markWorkflowAsRead,
+  getReadReportIds,
+  markReportAsRead,
   NotificationItem,
 } from '../utils/notifications';
 
 export interface GlobalSearchResultItem {
   id: string;
-  type: 'board' | 'event' | 'memo' | 'workflow' | 'chat' | 'post' | 'user';
+  type: 'board' | 'event' | 'memo' | 'workflow' | 'chat' | 'post' | 'user' | 'report';
   typeName: string;
   title: string;
   snippet: string;
@@ -44,6 +46,7 @@ interface HeaderProps {
   topics?: BoardTopic[];
   events?: CalendarEvent[];
   chatRooms?: ChatRoom[];
+  reports?: DailyReport[];
   posts?: Post[];
   onSelectTab?: (tab: AppTab) => void;
   onOpenSettings?: () => void;
@@ -55,6 +58,7 @@ interface HeaderProps {
     applicationId?: string;
     eventId?: string;
     postId?: string;
+    reportId?: string;
   }) => void;
   onUpdateMemos?: (memos: Memo[]) => void;
   onUpdateTopic?: (topic: BoardTopic) => void;
@@ -117,6 +121,7 @@ export function Header({
   topics = [],
   events = [],
   chatRooms = [],
+  reports = [],
   posts = [],
   onSelectTab,
   onOpenSettings,
@@ -128,12 +133,13 @@ export function Header({
   onToggleMobileMenu,
 }: HeaderProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [filterType, setFilterType] = useState<'all' | 'memo' | 'workflow' | 'board' | 'event'>('all');
+  const [filterType, setFilterType] = useState<'all' | 'memo' | 'workflow' | 'board' | 'event' | 'chat' | 'report'>('all');
   const [readEventIds, setReadEventIds] = useState<string[]>(() => getReadEventIds(currentUser?.id));
   const [readTopicIds, setReadTopicIds] = useState<string[]>(() => getReadTopicIds(currentUser?.id));
   const [readChatTimestamps, setReadChatTimestamps] = useState<Record<string, string>>(() => getReadChatTimestamps(currentUser?.id));
   const [readMemoIds, setReadMemoIds] = useState<string[]>(() => getReadMemoIds(currentUser?.id));
   const [readWorkflowIds, setReadWorkflowIds] = useState<string[]>(() => getReadWorkflowIds(currentUser?.id));
+  const [readReportIds, setReadReportIds] = useState<string[]>(() => getReadReportIds(currentUser?.id));
   const popoverRef = useRef<HTMLDivElement>(null);
 
   // Cross-functional search state
@@ -403,6 +409,8 @@ export function Header({
         return { icon: MessageCircle, bg: 'bg-sky-100 text-sky-700 border-sky-200' };
       case 'user':
         return { icon: Users, bg: 'bg-emerald-100 text-emerald-700 border-emerald-200' };
+      case 'report':
+        return { icon: FileText, bg: 'bg-emerald-100 text-emerald-700 border-emerald-200' };
     }
   };
 
@@ -414,6 +422,7 @@ export function Header({
       setReadChatTimestamps(getReadChatTimestamps(currentUser?.id));
       setReadMemoIds(getReadMemoIds(currentUser?.id));
       setReadWorkflowIds(getReadWorkflowIds(currentUser?.id));
+      setReadReportIds(getReadReportIds(currentUser?.id));
     };
     handleSync();
     window.addEventListener('notifications_updated', handleSync);
@@ -444,18 +453,22 @@ export function Header({
       topics,
       events,
       chatRooms,
+      reports,
       readEventIds,
       readTopicIds,
       readChatTimestamps,
       readMemoIds,
       readWorkflowIds,
+      readReportIds,
     });
-  }, [currentUser, memos, applications, topics, events, chatRooms, readEventIds, readTopicIds, readChatTimestamps, readMemoIds, readWorkflowIds]);
+  }, [currentUser, memos, applications, topics, events, chatRooms, reports, readEventIds, readTopicIds, readChatTimestamps, readMemoIds, readWorkflowIds, readReportIds]);
 
   const memoNotifications = useMemo(() => allNotifications.filter((n) => n.type === 'memo'), [allNotifications]);
   const workflowNotifications = useMemo(() => allNotifications.filter((n) => n.type === 'workflow'), [allNotifications]);
   const boardNotifications = useMemo(() => allNotifications.filter((n) => n.type === 'board'), [allNotifications]);
   const eventNotifications = useMemo(() => allNotifications.filter((n) => n.type === 'event'), [allNotifications]);
+  const chatNotifications = useMemo(() => allNotifications.filter((n) => n.type === 'chat'), [allNotifications]);
+  const reportNotifications = useMemo(() => allNotifications.filter((n) => n.type === 'report'), [allNotifications]);
 
   const filteredNotifications = useMemo<NotificationItem[]>(() => {
     if (filterType === 'all') return allNotifications;
@@ -534,6 +547,9 @@ export function Header({
           } as any);
         }
       }
+    } else if (item.type === 'report' && item.originalData) {
+      const rep = item.originalData as DailyReport;
+      markReportAsRead(currentUser?.id, rep.id);
     }
 
     if (onNavigateToContent) {
@@ -543,6 +559,7 @@ export function Header({
       if (item.type === 'memo' && item.originalData) targetParams.memoId = (item.originalData as Memo).id;
       if (item.type === 'workflow' && item.originalData) targetParams.applicationId = (item.originalData as WorkflowApplication).id;
       if (item.type === 'event' && item.originalData) targetParams.eventId = (item.originalData as CalendarEvent).id;
+      if (item.type === 'report' && item.originalData) targetParams.reportId = (item.originalData as DailyReport).id;
 
       onNavigateToContent(targetParams);
     } else if (onSelectTab) {
@@ -557,6 +574,7 @@ export function Header({
       if (item.type === 'board' && item.originalData) markTopicAsRead(currentUser?.id, item.originalData.id);
       if (item.type === 'chat' && item.originalData) markChatRoomAsRead(currentUser?.id, item.originalData.id);
       if (item.type === 'event' && item.originalData) markEventAsRead(currentUser?.id, item.originalData.id);
+      if (item.type === 'report' && item.originalData) markReportAsRead(currentUser?.id, item.originalData.id);
     });
 
     if (onUpdateMemos && memos.length > 0) {
@@ -613,6 +631,8 @@ export function Header({
         return <CalendarIcon className="w-4 h-4 text-emerald-600" />;
       case 'chat':
         return <MessageSquare className="w-4 h-4 text-violet-600" />;
+      case 'report':
+        return <FileText className="w-4 h-4 text-teal-600" />;
     }
   };
 
@@ -628,6 +648,8 @@ export function Header({
         return 'bg-emerald-100/70 border-emerald-200';
       case 'chat':
         return 'bg-violet-100/70 border-violet-200';
+      case 'report':
+        return 'bg-teal-100/70 border-teal-200';
     }
   };
 
@@ -987,6 +1009,32 @@ export function Header({
                       }`}
                     >
                       予定 ({eventNotifications.length})
+                    </button>
+                  )}
+                  {chatNotifications.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setFilterType('chat')}
+                      className={`px-2.5 py-1 rounded-lg font-medium whitespace-nowrap transition-colors ${
+                        filterType === 'chat'
+                          ? 'bg-violet-600 text-white font-bold'
+                          : 'text-slate-600 hover:bg-violet-50'
+                      }`}
+                    >
+                      チャット ({chatNotifications.length})
+                    </button>
+                  )}
+                  {reportNotifications.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setFilterType('report')}
+                      className={`px-2.5 py-1 rounded-lg font-medium whitespace-nowrap transition-colors ${
+                        filterType === 'report'
+                          ? 'bg-teal-600 text-white font-bold'
+                          : 'text-slate-600 hover:bg-teal-50'
+                      }`}
+                    >
+                      日報・週報 ({reportNotifications.length})
                     </button>
                   )}
                 </div>

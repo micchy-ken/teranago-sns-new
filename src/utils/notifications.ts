@@ -1,18 +1,18 @@
-import { User, Memo, WorkflowApplication, BoardTopic, CalendarEvent, ChatRoom } from '../types';
+import { User, Memo, WorkflowApplication, BoardTopic, CalendarEvent, ChatRoom, DailyReport } from '../types';
 import { API_BASE_URL } from '../config/api';
 
 export interface NotificationItem {
   id: string;
-  type: 'memo' | 'workflow' | 'board' | 'event' | 'chat';
+  type: 'memo' | 'workflow' | 'board' | 'event' | 'chat' | 'report';
   title: string;
   description: string;
   createdAt: string;
-  tab: 'memo' | 'workflow' | 'board' | 'calendar' | 'chat' | 'mypage';
+  tab: 'memo' | 'workflow' | 'board' | 'calendar' | 'chat' | 'daily_report' | 'mypage';
   originalData?: any;
 }
 
 // -------------------------------------------------------------
-// イベント・トピック・チャット・メモの既読 インメモリキャッシュ管理（LocalStorageは一切使用しない）
+// イベント・トピック・チャット・メモ・日報の既読 インメモリキャッシュ管理（LocalStorageは一切使用しない）
 // -------------------------------------------------------------
 
 // 指定ユーザーごとのインメモリ既読状態キャッシュ
@@ -20,10 +20,11 @@ const memoryReadEventIds: Record<string, string[]> = {};
 const memoryReadTopicIds: Record<string, string[]> = {};
 const memoryReadMemoIds: Record<string, string[]> = {};
 const memoryReadWorkflowIds: Record<string, string[]> = {};
+const memoryReadReportIds: Record<string, string[]> = {};
 const memoryReadChatTimestamps: Record<string, Record<string, string>> = {};
 
 /** サーバーへ既読状態を送信（非同期） */
-async function saveReadStatusToServer(userId: string, targetType: 'event' | 'topic' | 'memo' | 'workflow' | 'chat', targetId: string) {
+async function saveReadStatusToServer(userId: string, targetType: 'event' | 'topic' | 'memo' | 'workflow' | 'chat' | 'report', targetId: string) {
   if (!userId || !targetType || !targetId) return;
   try {
     await fetch(`${API_BASE_URL}/read-statuses`, {
@@ -42,7 +43,7 @@ export async function syncUserReadStatusesFromServer(userId: string) {
   try {
     const res = await fetch(`${API_BASE_URL}/read-statuses/${encodeURIComponent(userId)}`);
     if (!res.ok) return;
-    const data: { event?: string[]; topic?: string[]; memo?: string[]; workflow?: string[]; chat?: string[] } = await res.json();
+    const data: { event?: string[]; topic?: string[]; memo?: string[]; workflow?: string[]; chat?: string[]; report?: string[] } = await res.json();
     if (!data) return;
 
     // サーバーから取得したデータでインメモリキャッシュを同期
@@ -50,6 +51,7 @@ export async function syncUserReadStatusesFromServer(userId: string) {
     if (Array.isArray(data.topic)) memoryReadTopicIds[userId] = data.topic;
     if (Array.isArray(data.memo)) memoryReadMemoIds[userId] = data.memo;
     if (Array.isArray(data.workflow)) memoryReadWorkflowIds[userId] = data.workflow;
+    if (Array.isArray(data.report)) memoryReadReportIds[userId] = data.report;
     
     const chatTimestamps: Record<string, string> = {};
     if (Array.isArray(data.chat)) {
@@ -192,6 +194,35 @@ export function markAllWorkflowsAsRead(userId?: string, workflowIds?: string[]) 
   memoryReadWorkflowIds[userId] = Array.from(nextSet);
   window.dispatchEvent(new CustomEvent('notifications_updated'));
   workflowIds.forEach((id) => saveReadStatusToServer(userId, 'workflow', id));
+}
+
+/** 6. 週報・日報既読 */
+export function getReadReportIds(userId?: string): string[] {
+  if (!userId) return [];
+  return memoryReadReportIds[userId] || [];
+}
+
+export function markReportAsRead(userId?: string, reportId?: string) {
+  if (!userId || !reportId) return;
+  if (!memoryReadReportIds[userId]) {
+    memoryReadReportIds[userId] = [];
+  }
+  if (!memoryReadReportIds[userId].includes(reportId)) {
+    memoryReadReportIds[userId].push(reportId);
+    window.dispatchEvent(new CustomEvent('notifications_updated'));
+  }
+  saveReadStatusToServer(userId, 'report', reportId);
+}
+
+export function markAllReportsAsRead(userId?: string, reportIds?: string[]) {
+  if (!userId || !reportIds || !reportIds.length) return;
+  if (!memoryReadReportIds[userId]) {
+    memoryReadReportIds[userId] = [];
+  }
+  const nextSet = new Set([...memoryReadReportIds[userId], ...reportIds]);
+  memoryReadReportIds[userId] = Array.from(nextSet);
+  window.dispatchEvent(new CustomEvent('notifications_updated'));
+  reportIds.forEach((id) => saveReadStatusToServer(userId, 'report', id));
 }
 
 // -------------------------------------------------------------
@@ -403,6 +434,31 @@ export function isChatUnread(room: ChatRoom, user: User, readChatTimestamps: Rec
   return msgTime > readTime;
 }
 
+/** 8. 週報・日報の未読/未確認判定 */
+export function isReportUnread(
+  report: DailyReport,
+  user: User,
+  readReportIds: string[] = getReadReportIds(user?.id)
+): boolean {
+  if (!user || !report) return false;
+  if (readReportIds.includes(report.id)) return false;
+
+  const isAuthor = report.author?.id === user.id;
+  const isSupervisor = report.supervisorId === user.id || report.supervisor?.id === user.id;
+
+  // 上長宛て: 部下が提出した未確認の週報・日報
+  if (isSupervisor && !isAuthor && report.status === 'submitted') {
+    return true;
+  }
+
+  // 作成者宛て: 上長が確認・フィードバック済みにした週報・日報
+  if (isAuthor && report.status === 'reviewed' && report.reviewedAt) {
+    return true;
+  }
+
+  return false;
+}
+
 // -------------------------------------------------------------
 // 統一未読通知アイテム一覧取得関数
 // -------------------------------------------------------------
@@ -413,11 +469,13 @@ export function getUnreadNotifications({
   topics = [],
   events = [],
   chatRooms = [],
+  reports = [],
   readEventIds = getReadEventIds(user?.id),
   readTopicIds = getReadTopicIds(user?.id),
   readChatTimestamps = getReadChatTimestamps(user?.id),
   readMemoIds = getReadMemoIds(user?.id),
   readWorkflowIds = getReadWorkflowIds(user?.id),
+  readReportIds = getReadReportIds(user?.id),
 }: {
   user: User;
   memos?: Memo[];
@@ -425,11 +483,13 @@ export function getUnreadNotifications({
   topics?: BoardTopic[];
   events?: CalendarEvent[];
   chatRooms?: ChatRoom[];
+  reports?: DailyReport[];
   readEventIds?: string[];
   readTopicIds?: string[];
   readChatTimestamps?: Record<string, string>;
   readMemoIds?: string[];
   readWorkflowIds?: string[];
+  readReportIds?: string[];
 }): NotificationItem[] {
   if (!user) return [];
 
@@ -519,6 +579,30 @@ export function getUnreadNotifications({
         createdAt: lastMsg.createdAt || room.lastUpdated,
         tab: 'chat',
         originalData: room,
+      });
+    }
+  });
+
+  // 6. Reports (週報・保守日報)
+  reports.forEach((rep) => {
+    if (isReportUnread(rep, user, readReportIds)) {
+      const isAuthor = rep.author?.id === user.id;
+      const typeLabel = rep.reportType === 'maintenance_daily' || (rep as any).reportType === 'maintenance' ? '保守日報' : '週報';
+      const title = isAuthor 
+        ? `【${typeLabel}確認済】上長が提出内容を確認しました`
+        : `【${typeLabel}提出】${rep.author?.name || '部下'}様より提出がありました`;
+      const description = isAuthor
+        ? (rep.feedbackComment ? `コメント: ${rep.feedbackComment}` : '確認が完了しました。')
+        : `${rep.weekLabel || rep.date || ''} の報告内容を確認してください。`;
+
+      list.push({
+        id: `rep_${rep.id}`,
+        type: 'report',
+        title,
+        description,
+        createdAt: rep.reviewedAt || rep.submittedAt || rep.createdAt || new Date().toISOString(),
+        tab: 'daily_report',
+        originalData: rep,
       });
     }
   });

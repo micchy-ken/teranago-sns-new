@@ -2787,6 +2787,40 @@ export default function App() {
     };
     setReports([newReport, ...reports]);
 
+    // 週報・日報提出時のプッシュ通知送信 (下書き以外)
+    if (newReport.status === 'submitted') {
+      const typeLabel = newReport.reportType === 'weekly' ? '週報' : '日報';
+      const dateLabel = newReport.reportType === 'weekly' ? (newReport.weekLabel || `${newReport.weekStartDate}週`) : newReport.date;
+      
+      // 上長が指定されている場合は上長宛、未指定の場合は同部署の承認者または管理者宛
+      if (newReport.supervisorId && newReport.supervisorId !== userState.id) {
+        triggerPushNotification({
+          targetUserId: newReport.supervisorId,
+          excludeUserId: userState.id,
+          title: `📝 ${typeLabel}提出: ${userState.name}さん`,
+          body: `${dateLabel}の${typeLabel}が提出されました。確認をお願いします。`,
+          url: `/?tab=daily_report&reportId=${tempId}`,
+          tag: `report-${tempId}`
+        });
+      } else {
+        // 同部署の管理職/リーダーまたは全管理者に通知
+        const approvers = usersList.filter(u => 
+          u.id !== userState.id && 
+          (u.role === 'admin' || (u.role as any) === 'manager' || (u.division === userState.division && ['課長', '部長', '所長', 'リーダー'].some(pos => u.position?.includes(pos))))
+        );
+        if (approvers.length > 0) {
+          triggerPushNotification({
+            targetUserIds: approvers.map(u => u.id),
+            excludeUserId: userState.id,
+            title: `📝 ${typeLabel}提出: ${userState.name}さん`,
+            body: `${dateLabel}の${typeLabel}が提出されました。確認をお願いします。`,
+            url: `/?tab=daily_report&reportId=${tempId}`,
+            tag: `report-${tempId}`
+          });
+        }
+      }
+    }
+
     try {
       const payload = {
         id: tempId,
@@ -2870,7 +2904,23 @@ export default function App() {
   };
 
   const handleReviewReport = async (id: string, feedbackComment?: string) => {
+    const targetReport = reports.find(r => r.id === id);
     setReports(prev => prev.map(r => r.id === id ? { ...r, status: 'reviewed', feedbackComment, reviewedAt: new Date().toISOString() } : r));
+
+    // 作成者宛に確認・フィードバック完了のプッシュ通知を送信
+    if (targetReport && targetReport.author && targetReport.author.id !== userState.id) {
+      const typeLabel = targetReport.reportType === 'weekly' ? '週報' : '日報';
+      const dateLabel = targetReport.reportType === 'weekly' ? (targetReport.weekLabel || `${targetReport.weekStartDate}週`) : targetReport.date;
+      triggerPushNotification({
+        targetUserId: targetReport.author.id,
+        excludeUserId: userState.id,
+        title: `✍️ ${typeLabel}確認完了: ${userState.name}さん`,
+        body: `${userState.name}さんが${dateLabel}の${typeLabel}を確認しました。${feedbackComment ? `「${feedbackComment.slice(0, 40)}」` : ''}`,
+        url: `/?tab=daily_report&reportId=${id}`,
+        tag: `report-rev-${id}`
+      });
+    }
+
     try {
       let response = await fetch(`${API_BASE_URL}/work-reports/${id}/review`, {
         method: 'POST',
@@ -2940,6 +2990,7 @@ export default function App() {
         topics={topics}
         events={events}
         chatRooms={chatRooms}
+        reports={reports}
         posts={posts}
         onSelectTab={setActiveTab}
         onOpenSettings={handleOpenPersonalSettings}
@@ -3199,6 +3250,7 @@ export default function App() {
             memos={memos}
             applications={applications}
             chatRooms={chatRooms}
+            reports={reports}
             offices={offices}
             divisions={divisions}
             positions={positions}

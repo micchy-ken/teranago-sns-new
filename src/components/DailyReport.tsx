@@ -110,8 +110,9 @@ export function DailyReportView({
   const [activeMaintenanceReport, setActiveMaintenanceReport] = useState<DailyReport | null>(null);
   const [isEditingMaintenance, setIsEditingMaintenance] = useState<boolean>(false);
 
-  // フィルタタブ: 'all' (自分+部下) | 'my' (自分) | 'subordinates' (部下) | 'pending_review' (自分宛て未確認)
-  const [activeFilter, setActiveFilter] = useState<'all' | 'my' | 'subordinates' | 'pending_review'>('all');
+  // フィルタタブ: 'my' (自分の週報・デフォルト) | 'subordinates' (部下) | 'pending_review' (自分宛て未確認) | 'all' (全体)
+  const [activeFilter, setActiveFilter] = useState<'my' | 'subordinates' | 'pending_review' | 'all'>('my');
+  const [maintenanceFilter, setMaintenanceFilter] = useState<'my' | 'subordinates' | 'all'>('my');
   const [selectedWeek, setSelectedWeek] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   
@@ -176,6 +177,32 @@ export function DailyReportView({
     });
   }, [reports, currentUser.id, currentUser.department, currentUser.division]);
 
+  // フィルタリング適用後の保守日報リスト
+  const filteredMaintenanceReports = useMemo(() => {
+    return accessibleMaintenanceReports.filter(report => {
+      const authorId = report.author?.id || (report as any).authorId;
+      const supervisorId = report.supervisorId || report.supervisor?.id;
+      const isMine = authorId === currentUser.id;
+      const isSubordinate = supervisorId === currentUser.id;
+
+      if (maintenanceFilter === 'my' && !isMine) return false;
+      if (maintenanceFilter === 'subordinates' && !isSubordinate) return false;
+
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const authorName = (report.author?.name || (report as any).authorName || '').toLowerCase();
+        const tasks = (report.tasks || '').toLowerCase();
+        const dateStr = (report.date || '').toLowerCase();
+        const siteNames = (report.maintenanceData?.mainWorkRows || []).map(r => r.siteName).join(' ').toLowerCase();
+        if (!authorName.includes(q) && !tasks.includes(q) && !dateStr.includes(q) && !siteNames.includes(q)) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [accessibleMaintenanceReports, maintenanceFilter, searchQuery, currentUser.id]);
+
   // 自分宛の承認待ち件数
   const pendingReviewCount = useMemo(() => {
     return accessibleWeeklyReports.filter(r => {
@@ -183,6 +210,16 @@ export function DailyReportView({
       return supervisorId === currentUser.id && r.status === 'submitted';
     }).length;
   }, [accessibleWeeklyReports, currentUser.id]);
+
+  // 自分の週報件数
+  const myWeeklyReportsCount = useMemo(() => {
+    return accessibleWeeklyReports.filter(r => (r.author?.id || (r as any).authorId) === currentUser.id).length;
+  }, [accessibleWeeklyReports, currentUser.id]);
+
+  // 自分の保守日報件数
+  const myMaintenanceReportsCount = useMemo(() => {
+    return accessibleMaintenanceReports.filter(r => (r.author?.id || (r as any).authorId) === currentUser.id).length;
+  }, [accessibleMaintenanceReports, currentUser.id]);
 
   // フィルタリング適用後の週報リスト
   const filteredReports = useMemo(() => {
@@ -458,79 +495,117 @@ export function DailyReportView({
         {/* Filter Navigation Tabs */}
         <div className="mt-4 pt-4 border-t border-slate-200/80 flex flex-wrap items-center justify-between gap-3">
           {/* Main Category Tabs */}
-          <div className="flex items-center gap-1 bg-slate-200/70 p-1 rounded-xl">
-            <button
-              onClick={() => setActiveFilter('all')}
-              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                activeFilter === 'all' 
-                  ? 'bg-white text-indigo-700 shadow-xs' 
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              すべて ({accessibleWeeklyReports.length})
-            </button>
-            <button
-              onClick={() => setActiveFilter('my')}
-              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                activeFilter === 'my' 
-                  ? 'bg-white text-indigo-700 shadow-xs' 
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              自分の週報
-            </button>
-            <button
-              onClick={() => setActiveFilter('subordinates')}
-              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
-                activeFilter === 'subordinates' 
-                  ? 'bg-white text-indigo-700 shadow-xs' 
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Users className="w-3.5 h-3.5" />
-              部下の週報
-            </button>
-            <button
-              onClick={() => setActiveFilter('pending_review')}
-              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
-                activeFilter === 'pending_review' 
-                  ? 'bg-amber-500 text-white shadow-xs' 
-                  : 'text-slate-700 hover:text-slate-900'
-              }`}
-            >
-              <UserCheck className="w-3.5 h-3.5" />
-              未確認
-              {pendingReviewCount > 0 && (
-                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-extrabold ${
-                  activeFilter === 'pending_review' ? 'bg-white text-amber-600' : 'bg-amber-500 text-white'
-                }`}>
-                  {pendingReviewCount}
-                </span>
-              )}
-            </button>
-          </div>
+          {reportMode === 'weekly' ? (
+            <div className="flex items-center gap-1 bg-slate-200/70 p-1 rounded-xl">
+              <button
+                onClick={() => setActiveFilter('my')}
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                  activeFilter === 'my' 
+                    ? 'bg-white text-indigo-700 shadow-xs' 
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                自分の週報 ({myWeeklyReportsCount})
+              </button>
+              <button
+                onClick={() => setActiveFilter('subordinates')}
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+                  activeFilter === 'subordinates' 
+                    ? 'bg-white text-indigo-700 shadow-xs' 
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Users className="w-3.5 h-3.5" />
+                部下の週報
+              </button>
+              <button
+                onClick={() => setActiveFilter('pending_review')}
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+                  activeFilter === 'pending_review' 
+                    ? 'bg-amber-500 text-white shadow-xs' 
+                    : 'text-slate-700 hover:text-slate-900'
+                }`}
+              >
+                <UserCheck className="w-3.5 h-3.5" />
+                未確認
+                {pendingReviewCount > 0 && (
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-extrabold ${
+                    activeFilter === 'pending_review' ? 'bg-white text-amber-600' : 'bg-amber-500 text-white'
+                  }`}>
+                    {pendingReviewCount}
+                  </span>
+                )}
+              </button>
+              <button
+                onClick={() => setActiveFilter('all')}
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                  activeFilter === 'all' 
+                    ? 'bg-white text-indigo-700 shadow-xs' 
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                すべて ({accessibleWeeklyReports.length})
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1 bg-slate-200/70 p-1 rounded-xl">
+              <button
+                onClick={() => setMaintenanceFilter('my')}
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                  maintenanceFilter === 'my' 
+                    ? 'bg-white text-amber-700 shadow-xs' 
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                自分の日報 ({myMaintenanceReportsCount})
+              </button>
+              <button
+                onClick={() => setMaintenanceFilter('subordinates')}
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+                  maintenanceFilter === 'subordinates' 
+                    ? 'bg-white text-amber-700 shadow-xs' 
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Users className="w-3.5 h-3.5" />
+                部下の日報
+              </button>
+              <button
+                onClick={() => setMaintenanceFilter('all')}
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                  maintenanceFilter === 'all' 
+                    ? 'bg-white text-amber-700 shadow-xs' 
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                すべて ({accessibleMaintenanceReports.length})
+              </button>
+            </div>
+          )}
 
           {/* Sub Controls (Week Selector & Search) */}
           <div className="flex items-center gap-2 flex-1 max-w-md justify-end">
-            <div className="flex items-center gap-1.5 bg-white px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs">
-              <Calendar className="w-3.5 h-3.5 text-slate-400" />
-              <select 
-                value={selectedWeek}
-                onChange={e => setSelectedWeek(e.target.value)}
-                className="bg-transparent font-medium text-slate-700 focus:outline-none cursor-pointer"
-              >
-                <option value="all">すべての週</option>
-                {weekOptions.map(w => (
-                  <option key={w.start} value={w.start}>{w.label}</option>
-                ))}
-              </select>
-            </div>
+            {reportMode === 'weekly' && (
+              <div className="flex items-center gap-1.5 bg-white px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs">
+                <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                <select 
+                  value={selectedWeek}
+                  onChange={e => setSelectedWeek(e.target.value)}
+                  className="bg-transparent font-medium text-slate-700 focus:outline-none cursor-pointer"
+                >
+                  <option value="all">すべての週</option>
+                  {weekOptions.map(w => (
+                    <option key={w.start} value={w.start}>{w.label}</option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             <div className="relative flex-1 min-w-[140px]">
               <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
-                placeholder="週報内容や氏名で検索..."
+                placeholder={reportMode === 'weekly' ? '週報内容や氏名で検索...' : '日報内容・現場名・氏名で検索...'}
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 className="w-full pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500"
@@ -545,14 +620,16 @@ export function DailyReportView({
         <div className="max-w-4xl mx-auto space-y-6">
           {reportMode === 'maintenance' ? (
             /* ================= 保守日報リスト表示 ================= */
-            accessibleMaintenanceReports.length === 0 ? (
+            filteredMaintenanceReports.length === 0 ? (
               <div className="text-center py-16 bg-white border border-amber-200/80 rounded-2xl p-8 shadow-xs">
                 <div className="w-14 h-14 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-3 shadow-xs">
                   <Wrench className="w-7 h-7" />
                 </div>
-                <h3 className="text-base font-bold text-slate-800">保守日報のデータがありません</h3>
+                <h3 className="text-base font-bold text-slate-800">表示できる保守日報がありません</h3>
                 <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto leading-relaxed">
-                  当日の修理・保守・取替スケジュールを取得し、Excel風画面で手入力を極力抑えた保守専用の日報を作成できます。
+                  {maintenanceFilter === 'my' 
+                    ? '作成した自分の保守日報がまだありません。右上のボタンから新規日報を作成できます。' 
+                    : '該当する保守日報が見つかりませんでした。'}
                 </p>
                 <div className="flex items-center justify-center gap-3 mt-5">
                   <button
@@ -568,7 +645,7 @@ export function DailyReportView({
                 </div>
               </div>
             ) : (
-              accessibleMaintenanceReports.map(mReport => {
+              filteredMaintenanceReports.map(mReport => {
                 const mData = mReport.maintenanceData;
                 const authorName = mReport.author?.name || '作成者未設定';
 

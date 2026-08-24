@@ -80,7 +80,7 @@ async function startServer() {
     }
   }
 
-  // Push通知送信ヘルパー関数
+  // Push通知送信ヘルパー関数 (高優先度 & 確実な配信)
   async function sendPushNotificationToUser(params: {
     targetUserId?: string;
     targetUserIds?: string[];
@@ -92,6 +92,9 @@ async function startServer() {
     url?: string;
     data?: any;
     tag?: string;
+    requireInteraction?: boolean;
+    renotify?: boolean;
+    silent?: boolean;
   }) {
     const {
       targetUserId,
@@ -103,7 +106,10 @@ async function startServer() {
       badge = '/icon.svg',
       url = '/',
       data = {},
-      tag
+      tag,
+      requireInteraction = true,
+      renotify = true,
+      silent = false
     } = params;
 
     const allSubs = loadSubscriptions();
@@ -120,6 +126,7 @@ async function startServer() {
 
     if (targets.length === 0) return { sentCount: 0, failureCount: 0, totalTargets: 0 };
 
+    const notificationTag = tag || `notif_${Date.now()}`;
     const payload = JSON.stringify({
       title,
       body,
@@ -130,18 +137,27 @@ async function startServer() {
         ...data,
         url
       },
-      tag: tag || `notif_${Date.now()}`,
-      renotify: true
+      tag: notificationTag,
+      requireInteraction,
+      renotify,
+      silent
     });
 
     const staleEndpoints: string[] = [];
     let sentCount = 0;
     let failureCount = 0;
 
+    // Web Push標準オプション (高優先度、24時間TTL、トピック集約)
+    const pushOptions: webpush.RequestOptions = {
+      TTL: 86400, // 24時間保持 (オフライン復帰時にも確実に配信)
+      urgency: 'high', // 最高優先度
+      topic: notificationTag.replace(/[^a-zA-Z0-9_-]/g, '').substring(0, 32) || undefined
+    };
+
     await Promise.all(
       targets.map(async (sub) => {
         try {
-          await webpush.sendNotification(sub.subscription, payload);
+          await webpush.sendNotification(sub.subscription, payload, pushOptions);
           sentCount++;
         } catch (err: any) {
           failureCount++;
@@ -276,7 +292,10 @@ async function startServer() {
         badge = '/icon.svg',
         url = '/',
         data = {},
-        tag
+        tag,
+        requireInteraction,
+        renotify,
+        silent
       } = req.body;
 
       if (!title || !body) {
@@ -293,7 +312,10 @@ async function startServer() {
         badge,
         url,
         data,
-        tag
+        tag,
+        requireInteraction,
+        renotify,
+        silent
       });
 
       res.json({

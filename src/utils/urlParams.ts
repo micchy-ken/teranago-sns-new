@@ -151,10 +151,12 @@ export function parseAppQueryParams(searchString?: string): AppQueryParams {
 export function getAppBasePath(): string {
   if (typeof window !== 'undefined') {
     const pathname = window.location.pathname;
-    // GitHub Pages or repository subfolder pattern
-    if (pathname.startsWith('/teranago-sns-new/')) {
+    
+    // Explicit match for repository name (with or without trailing slash)
+    if (pathname.includes('/teranago-sns-new')) {
       return '/teranago-sns-new/';
     }
+    
     const viteBase = import.meta.env.BASE_URL;
     if (viteBase && viteBase !== '/' && viteBase !== './' && !viteBase.startsWith('.')) {
       const cleanBase = viteBase.replace(/^\/|\/$/g, '');
@@ -162,7 +164,8 @@ export function getAppBasePath(): string {
         return viteBase.endsWith('/') ? viteBase : `${viteBase}/`;
       }
     }
-    // Check if path has a folder segment before index.html or query
+    
+    // Check if path has a repository/subfolder segment before index.html or query
     const cleanPath = pathname.replace(/\/index\.html$/i, '');
     if (cleanPath && cleanPath !== '/') {
       const segments = cleanPath.split('/').filter(Boolean);
@@ -177,21 +180,33 @@ export function getAppBasePath(): string {
 
 /**
  * Normalizes notification or link URLs ensuring repository subdirectories (like GitHub Pages) are preserved
+ * Always returns a complete, unambiguous URL for notifications and external opens.
  */
 export function resolveNotificationUrl(url?: string): string {
   const basePath = getAppBasePath();
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  const baseWithOrigin = origin ? `${origin}${basePath.endsWith('/') ? basePath : `${basePath}/`}` : basePath;
+
   if (!url || url === '/' || url === './') {
-    return basePath;
+    return baseWithOrigin;
   }
-  // If already absolute URL with protocol
+  
+  // If already absolute URL with protocol (https:// or http://)
   if (/^https?:\/\//i.test(url)) {
+    // If it's on the same origin but missing repository prefix
+    if (origin && url.startsWith(origin) && basePath !== '/' && !url.includes(basePath)) {
+      const urlObj = new URL(url);
+      const searchAndHash = `${urlObj.search}${urlObj.hash}`;
+      const prefix = basePath.endsWith('/') ? basePath : `${basePath}/`;
+      return `${origin}${prefix}${searchAndHash}`;
+    }
     return url;
   }
 
   let target = url;
   if (target.startsWith('/')) {
     if (basePath !== '/' && target.startsWith(basePath)) {
-      return target;
+      return origin ? `${origin}${target}` : target;
     }
     target = target.replace(/^\/+/, '');
   } else if (target.startsWith('./')) {
@@ -199,7 +214,8 @@ export function resolveNotificationUrl(url?: string): string {
   }
 
   const prefix = basePath.endsWith('/') ? basePath : `${basePath}/`;
-  return `${prefix}${target}`;
+  const fullPath = `${prefix}${target}`;
+  return origin ? `${origin}${fullPath}` : fullPath;
 }
 
 /**
