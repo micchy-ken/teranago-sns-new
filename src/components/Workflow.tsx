@@ -826,6 +826,8 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
                         <div className="flex items-center gap-1.5 flex-1">
                           <input
                             type="text"
+                            name="purchase-order-id-input"
+                            autoComplete="off"
                             value={poInputs[app.id] !== undefined ? poInputs[app.id] : (app.purchaseOrderNumber || '')}
                             onChange={e => setPoInputs({ ...poInputs, [app.id]: e.target.value })}
                             placeholder="例: PO-2026-001"
@@ -1177,6 +1179,7 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
                 <input
                   type="text"
                   required
+                  autoComplete="off"
                   value={transTitle}
                   onChange={e => setTransTitle(e.target.value)}
                   className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all"

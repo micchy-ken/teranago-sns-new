@@ -1305,6 +1305,7 @@ export function AdminPanel({
                 <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
                   type="text"
+                  autoComplete="off"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="メンバー氏名、所属、メールアドレスで検索..."
@@ -1769,8 +1770,8 @@ export function AdminPanel({
                   all: '全申請共通',
                   business_trip: '出張申請',
                   inventory_issue: '補充申請',
-                  purchase_order: '物品購入申請',
-                  other: 'その他申請',
+                  purchase_order: '発注申請',
+                  other: 'その他',
                 };
 
                 return (
@@ -2502,7 +2503,7 @@ END;`}
               </button>
             </div>
 
-            <form onSubmit={handleSaveUser} className="p-6 space-y-4">
+            <form onSubmit={handleSaveUser} autoComplete="off" className="p-6 space-y-4">
               {userFormError && (
                 <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl flex items-center gap-2">
                   <AlertTriangle className="w-4 h-4 shrink-0 text-red-500" />
@@ -2573,6 +2574,7 @@ END;`}
                   <input
                     type="text"
                     required
+                    autoComplete="off"
                     placeholder="例: 山道 健介"
                     value={userFormData.name}
                     onChange={(e) => {
@@ -2588,6 +2590,7 @@ END;`}
                   </label>
                   <input
                     type="text"
+                    autoComplete="off"
                     placeholder="例: ヤマミチ ケンスケ"
                     value={userFormData.kanaName}
                     onChange={(e) => setUserFormData({ ...userFormData, kanaName: e.target.value })}
@@ -2604,6 +2607,7 @@ END;`}
                   </label>
                   <input
                     type="text"
+                    autoComplete="off"
                     placeholder="例: yamamichi"
                     value={userFormData.loginId}
                     onChange={(e) => setUserFormData({ ...userFormData, loginId: e.target.value })}
@@ -2616,6 +2620,7 @@ END;`}
                   </label>
                   <input
                     type="text"
+                    autoComplete="off"
                     placeholder="例: test"
                     value={userFormData.password}
                     onChange={(e) => setUserFormData({ ...userFormData, password: e.target.value })}
@@ -2695,6 +2700,7 @@ END;`}
                   <label className="block text-xs font-bold text-slate-700 mb-1">メールアドレス</label>
                   <input
                     type="email"
+                    autoComplete="off"
                     placeholder="yamamichi@teraoka-ads.co.jp"
                     value={userFormData.email}
                     onChange={(e) => setUserFormData({ ...userFormData, email: e.target.value })}
@@ -2706,6 +2712,7 @@ END;`}
                   <label className="block text-xs font-bold text-slate-700 mb-1">携帯メールアドレス</label>
                   <input
                     type="email"
+                    autoComplete="off"
                     placeholder="micchy.k@gmail.com"
                     value={userFormData.mobileEmail}
                     onChange={(e) => setUserFormData({ ...userFormData, mobileEmail: e.target.value })}
@@ -2720,6 +2727,7 @@ END;`}
                   <label className="block text-xs font-bold text-slate-700 mb-1">電話番号 (外線)</label>
                   <input
                     type="text"
+                    autoComplete="off"
                     placeholder="052-123-4567"
                     value={userFormData.phoneOutside}
                     onChange={(e) => setUserFormData({ ...userFormData, phoneOutside: e.target.value })}
@@ -2731,6 +2739,7 @@ END;`}
                   <label className="block text-xs font-bold text-slate-700 mb-1">電話番号 (内線)</label>
                   <input
                     type="text"
+                    autoComplete="off"
                     placeholder="16"
                     value={userFormData.phoneExtension}
                     onChange={(e) => setUserFormData({ ...userFormData, phoneExtension: e.target.value })}
@@ -2742,6 +2751,7 @@ END;`}
                   <label className="block text-xs font-bold text-slate-700 mb-1">電話番号 (携帯)</label>
                   <input
                     type="text"
+                    autoComplete="off"
                     placeholder="080-3281-6140"
                     value={userFormData.mobilePhone}
                     onChange={(e) => setUserFormData({ ...userFormData, mobilePhone: e.target.value })}
@@ -2825,7 +2835,7 @@ END;`}
               </button>
             </div>
 
-            <form onSubmit={handleSaveOffice} className="p-6 space-y-4">
+            <form onSubmit={handleSaveOffice} autoComplete="off" className="p-6 space-y-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
                   拠点名 <span className="text-red-500">*</span>
@@ -2833,6 +2843,7 @@ END;`}
                 <input
                   type="text"
                   required
+                  autoComplete="off"
                   placeholder="例: 名古屋支店, 浜松営業所, 静岡営業所"
                   value={officeFormData.name}
                   onChange={(e) => setOfficeFormData({ ...officeFormData, name: e.target.value })}
@@ -2859,6 +2870,7 @@ END;`}
                   <label className="block text-xs font-bold text-slate-700 mb-1">識別コード</label>
                   <input
                     type="text"
+                    autoComplete="off"
                     placeholder="OFF-001"
                     value={officeFormData.code}
                     onChange={(e) => setOfficeFormData({ ...officeFormData, code: e.target.value })}
@@ -2871,6 +2883,7 @@ END;`}
                 <label className="block text-xs font-bold text-slate-700 mb-1">所在地 (住所)</label>
                 <input
                   type="text"
+                  autoComplete="off"
                   placeholder="愛知県名古屋市中村区名駅1-1-4"
                   value={officeFormData.location}
                   onChange={(e) => setOfficeFormData({ ...officeFormData, location: e.target.value })}
@@ -2882,6 +2895,7 @@ END;`}
                 <label className="block text-xs font-bold text-slate-700 mb-1">代表電話番号</label>
                 <input
                   type="text"
+                  autoComplete="off"
                   placeholder="052-555-0192"
                   value={officeFormData.phone}
                   onChange={(e) => setOfficeFormData({ ...officeFormData, phone: e.target.value })}
@@ -2932,7 +2946,7 @@ END;`}
               </button>
             </div>
 
-            <form onSubmit={handleSaveDivision} className="p-6 space-y-4">
+            <form onSubmit={handleSaveDivision} autoComplete="off" className="p-6 space-y-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
                   部署名 <span className="text-red-500">*</span>
@@ -2940,6 +2954,7 @@ END;`}
                 <input
                   type="text"
                   required
+                  autoComplete="off"
                   placeholder="例: 管理, 営業, 設計, 工務, 保守, 保守営業, 総務"
                   value={divisionFormData.name}
                   onChange={(e) => setDivisionFormData({ ...divisionFormData, name: e.target.value })}
@@ -2951,6 +2966,7 @@ END;`}
                 <label className="block text-xs font-bold text-slate-700 mb-1">識別コード</label>
                 <input
                   type="text"
+                  autoComplete="off"
                   placeholder="DIV-001"
                   value={divisionFormData.code}
                   onChange={(e) => setDivisionFormData({ ...divisionFormData, code: e.target.value })}
@@ -3012,7 +3028,7 @@ END;`}
               </button>
             </div>
 
-            <form onSubmit={handleSavePosition} className="p-6 space-y-4">
+            <form onSubmit={handleSavePosition} autoComplete="off" className="p-6 space-y-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
                   役職名 <span className="text-red-500">*</span>
@@ -3020,6 +3036,7 @@ END;`}
                 <input
                   type="text"
                   required
+                  autoComplete="off"
                   placeholder="例: 代表取締役, 部長, 課長, 課長補佐, 主任"
                   value={positionFormData.name}
                   onChange={(e) => setPositionFormData({ ...positionFormData, name: e.target.value })}
@@ -3031,6 +3048,7 @@ END;`}
                 <label className="block text-xs font-bold text-slate-700 mb-1">識別コード</label>
                 <input
                   type="text"
+                  autoComplete="off"
                   placeholder="POS-001"
                   value={positionFormData.code}
                   onChange={(e) => setPositionFormData({ ...positionFormData, code: e.target.value })}
@@ -3092,7 +3110,7 @@ END;`}
               </button>
             </div>
 
-            <form onSubmit={handleSaveFlow} className="p-6 space-y-4">
+            <form onSubmit={handleSaveFlow} autoComplete="off" className="p-6 space-y-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
                   フロー名 <span className="text-red-500">*</span>
@@ -3100,6 +3118,7 @@ END;`}
                 <input
                   type="text"
                   required
+                  autoComplete="off"
                   placeholder="例: 標準2段階承認フロー（上長1次 → 上長2次）"
                   value={flowFormData.name}
                   onChange={(e) => setFlowFormData({ ...flowFormData, name: e.target.value })}
@@ -3129,7 +3148,7 @@ END;`}
                     <option value="all">全申請共通</option>
                     <option value="business_trip">出張申請</option>
                     <option value="inventory_issue">補充申請</option>
-                    <option value="purchase_order">物品購入申請</option>
+                    <option value="purchase_order">発注申請</option>
                     <option value="other">その他</option>
                   </select>
                 </div>
@@ -3206,6 +3225,7 @@ END;`}
                           </label>
                           <input
                             type="text"
+                            autoComplete="off"
                             value={step.stepName || ''}
                             onChange={(e) => {
                               const updatedSteps = [...flowFormData.steps];
@@ -3283,7 +3303,7 @@ END;`}
               </button>
             </div>
 
-            <form onSubmit={handleSaveItem} className="p-6 space-y-4">
+            <form onSubmit={handleSaveItem} autoComplete="off" className="p-6 space-y-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
                   品名 <span className="text-rose-500">*</span>
@@ -3291,6 +3311,7 @@ END;`}
                 <input
                   type="text"
                   required
+                  autoComplete="off"
                   value={itemFormData.name}
                   onChange={e => setItemFormData({ ...itemFormData, name: e.target.value })}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -3305,6 +3326,7 @@ END;`}
                   </label>
                   <input
                     type="text"
+                    autoComplete="off"
                     value={itemFormData.code}
                     onChange={e => setItemFormData({ ...itemFormData, code: e.target.value })}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -3318,6 +3340,7 @@ END;`}
                   </label>
                   <input
                     type="text"
+                    autoComplete="off"
                     value={itemFormData.category}
                     onChange={e => setItemFormData({ ...itemFormData, category: e.target.value })}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -3333,6 +3356,7 @@ END;`}
                 <input
                   type="number"
                   min="0"
+                  autoComplete="off"
                   value={itemFormData.defaultUnitPrice}
                   onChange={e => setItemFormData({ ...itemFormData, defaultUnitPrice: e.target.value ? Number(e.target.value) : '' })}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -3430,6 +3454,7 @@ END;`}
                 <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
                   type="text"
+                  autoComplete="off"
                   value={workflowSearchQuery}
                   onChange={(e) => setWorkflowSearchQuery(e.target.value)}
                   placeholder="タイトル、申請者名、理由などで検索..."

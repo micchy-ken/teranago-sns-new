@@ -184,18 +184,31 @@ export function ApplicationModal({
       const matchedMaster = itemMasters.find(m => m.name === nameVal);
       if (matchedMaster && matchedMaster.defaultUnitPrice !== undefined) {
         targetItem.unitPrice = matchedMaster.defaultUnitPrice;
-        targetItem.amount = (targetItem.quantity || 1) * matchedMaster.defaultUnitPrice;
+        targetItem.amount = (Number(targetItem.quantity) || 1) * matchedMaster.defaultUnitPrice;
       } else {
-        targetItem.amount = (targetItem.quantity || 0) * (targetItem.unitPrice || 0);
+        const p = Number(targetItem.unitPrice) || 0;
+        targetItem.amount = (Number(targetItem.quantity) || 0) * p;
       }
     } else if (field === 'quantity') {
-      const qtyNum = Math.max(0, Number(value));
-      targetItem.quantity = qtyNum;
-      targetItem.amount = qtyNum * (targetItem.unitPrice || 0);
+      if (value === '') {
+        (targetItem as any).quantity = '';
+        targetItem.amount = 0;
+      } else {
+        const qtyNum = Math.max(0, Number(value));
+        targetItem.quantity = qtyNum;
+        const p = Number(targetItem.unitPrice) || 0;
+        targetItem.amount = qtyNum * p;
+      }
     } else if (field === 'unitPrice') {
-      const priceNum = Math.max(0, Number(value));
-      targetItem.unitPrice = priceNum;
-      targetItem.amount = (targetItem.quantity || 0) * priceNum;
+      if (value === '') {
+        (targetItem as any).unitPrice = '';
+        targetItem.amount = 0;
+      } else {
+        const priceNum = Math.max(0, Number(value));
+        targetItem.unitPrice = priceNum;
+        const q = Number(targetItem.quantity) || 0;
+        targetItem.amount = q * priceNum;
+      }
     } else if (field === 'note') {
       targetItem.note = String(value);
     }
@@ -280,8 +293,21 @@ export function ApplicationModal({
         : currentUser;
     }
 
+    const sanitizedPurchaseItems = (type === 'purchase_order' || type === 'inventory_issue')
+      ? purchaseItems.map(pi => {
+          const qty = Math.max(1, Number(pi.quantity) || 1);
+          const price = Math.max(0, Number(pi.unitPrice) || 0);
+          return {
+            ...pi,
+            quantity: qty,
+            unitPrice: price,
+            amount: qty * price
+          };
+        })
+      : undefined;
+
     const finalAmount = (type === 'purchase_order' || type === 'inventory_issue') 
-      ? totalPurchaseAmount 
+      ? (sanitizedPurchaseItems?.reduce((sum, item) => sum + item.amount, 0) ?? totalPurchaseAmount)
       : (amount !== '' ? Number(amount) : undefined);
 
     onSave({
@@ -295,7 +321,7 @@ export function ApplicationModal({
       startDate: startDate ? new Date(startDate).toISOString() : undefined,
       endDate: endDate ? new Date(endDate).toISOString() : undefined,
       constructionDate: type === 'purchase_order' && constructionDate ? constructionDate : undefined,
-      purchaseItems: (type === 'purchase_order' || type === 'inventory_issue') ? purchaseItems : undefined,
+      purchaseItems: sanitizedPurchaseItems,
       applicant: initialData?.applicant || currentUser,
       approver: initialApprover!,
       flowId: selectedFlowId !== 'manual' ? selectedFlowId : undefined,
@@ -348,8 +374,21 @@ export function ApplicationModal({
     if (!initialApprover) return;
 
     // 発注申請・補充申請の場合は明細の合計額を amount に設定し、purchaseItems を格納
+    const sanitizedPurchaseItems = (type === 'purchase_order' || type === 'inventory_issue')
+      ? purchaseItems.map(pi => {
+          const qty = Math.max(1, Number(pi.quantity) || 1);
+          const price = Math.max(0, Number(pi.unitPrice) || 0);
+          return {
+            ...pi,
+            quantity: qty,
+            unitPrice: price,
+            amount: qty * price
+          };
+        })
+      : undefined;
+
     const finalAmount = (type === 'purchase_order' || type === 'inventory_issue') 
-      ? totalPurchaseAmount 
+      ? (sanitizedPurchaseItems?.reduce((sum, item) => sum + item.amount, 0) ?? totalPurchaseAmount)
       : (amount !== '' ? Number(amount) : undefined);
 
     onSave({
@@ -363,7 +402,7 @@ export function ApplicationModal({
       startDate: startDate ? new Date(startDate).toISOString() : undefined,
       endDate: endDate ? new Date(endDate).toISOString() : undefined,
       constructionDate: type === 'purchase_order' && constructionDate ? constructionDate : undefined,
-      purchaseItems: (type === 'purchase_order' || type === 'inventory_issue') ? purchaseItems : undefined,
+      purchaseItems: sanitizedPurchaseItems,
       applicant: initialData?.applicant || currentUser,
       approver: initialApprover,
       flowId: selectedFlowId !== 'manual' ? selectedFlowId : undefined,
@@ -420,7 +459,7 @@ export function ApplicationModal({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-5">
+        <form onSubmit={handleSubmit} autoComplete="off" className="p-6 space-y-5">
           <div>
             <label className="block text-sm font-bold text-slate-700 mb-1.5">申請種別</label>
             <select
@@ -450,6 +489,7 @@ export function ApplicationModal({
             <input
               type="text"
               required
+              autoComplete="off"
               value={title}
               onChange={e => setTitle(e.target.value)}
               className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white font-medium text-slate-800 transition-colors"
@@ -469,6 +509,7 @@ export function ApplicationModal({
               </label>
               <input
                 type="date"
+                autoComplete="off"
                 value={constructionDate}
                 onChange={e => setConstructionDate(e.target.value)}
                 className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white font-medium text-slate-800 transition-colors"
@@ -624,6 +665,7 @@ export function ApplicationModal({
                           type="text"
                           list="item-master-list"
                           required
+                          autoComplete="off"
                           value={item.itemName}
                           onChange={e => handlePurchaseItemChange(idx, 'itemName', e.target.value)}
                           placeholder="例: M3戸車セット"
@@ -637,7 +679,8 @@ export function ApplicationModal({
                           type="number"
                           min="1"
                           required
-                          value={item.quantity || ''}
+                          autoComplete="off"
+                          value={item.quantity !== undefined ? item.quantity : ''}
                           onChange={e => handlePurchaseItemChange(idx, 'quantity', e.target.value)}
                           placeholder="1"
                           className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none text-right"
@@ -650,7 +693,8 @@ export function ApplicationModal({
                           type="number"
                           min="0"
                           required
-                          value={item.unitPrice || ''}
+                          autoComplete="off"
+                          value={item.unitPrice !== undefined ? item.unitPrice : ''}
                           onChange={e => handlePurchaseItemChange(idx, 'unitPrice', e.target.value)}
                           placeholder="0"
                           className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none text-right"
@@ -668,6 +712,7 @@ export function ApplicationModal({
                     <div>
                       <input
                         type="text"
+                        autoComplete="off"
                         value={item.note || ''}
                         onChange={e => handlePurchaseItemChange(idx, 'note', e.target.value)}
                         placeholder="備考（例: A棟2階設置用、規格指定あり等）"
@@ -708,6 +753,7 @@ export function ApplicationModal({
                 <label className="block text-sm font-bold text-slate-700 mb-1.5">金額（円）</label>
                 <input
                   type="number"
+                  autoComplete="off"
                   value={amount}
                   onChange={e => setAmount(e.target.value ? Number(e.target.value) : '')}
                   className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white font-bold text-slate-800 transition-colors"
@@ -724,6 +770,7 @@ export function ApplicationModal({
                 <label className="block text-sm font-bold text-slate-700 mb-1.5">開始日</label>
                 <input
                   type="date"
+                  autoComplete="off"
                   value={startDate}
                   onChange={e => setStartDate(e.target.value)}
                   className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white text-xs font-semibold"
@@ -733,6 +780,7 @@ export function ApplicationModal({
                 <label className="block text-sm font-bold text-slate-700 mb-1.5">終了日</label>
                 <input
                   type="date"
+                  autoComplete="off"
                   value={endDate}
                   onChange={e => setEndDate(e.target.value)}
                   className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white text-xs font-semibold"
