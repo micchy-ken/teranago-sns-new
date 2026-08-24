@@ -136,6 +136,7 @@ export default function App() {
   const [targetMemoId, setTargetMemoId] = useState<string | undefined>(initialUrlParams.memoId);
   const [targetApplicationId, setTargetApplicationId] = useState<string | undefined>(initialUrlParams.applicationId);
   const [targetEventId, setTargetEventId] = useState<string | undefined>(initialUrlParams.eventId);
+  const [targetReportId, setTargetReportId] = useState<string | undefined>(initialUrlParams.reportId);
 
   // グローバル詳細ポップアップ表示用の状態
   const [globalSelectedEvent, setGlobalSelectedEvent] = useState<CalendarEvent | null>(null);
@@ -149,6 +150,7 @@ export default function App() {
     memoId?: string;
     applicationId?: string;
     eventId?: string;
+    reportId?: string;
   }) => {
     // スケジュール（eventId）
     if (target.eventId) {
@@ -181,13 +183,14 @@ export default function App() {
       }
     }
 
-    // チャット、ワークフローなど遷移しないと表示できないものは通常遷移
+    // チャット、ワークフロー、日報など遷移して表示
     setActiveTab(target.tab);
     setTargetTopicId(target.topicId);
     setTargetChatRoomId(target.chatRoomId);
     setTargetMemoId(target.memoId);
     setTargetApplicationId(target.applicationId);
     setTargetEventId(target.eventId);
+    setTargetReportId(target.reportId);
 
     updateBrowserUrl({
       tab: target.tab,
@@ -196,6 +199,7 @@ export default function App() {
       memoId: target.memoId,
       applicationId: target.applicationId,
       eventId: target.eventId,
+      reportId: target.reportId,
     });
   };
 
@@ -3235,6 +3239,7 @@ export default function App() {
             divisions={divisions}
             refetchReports={refetchReports}
             calendarEvents={events}
+            initialReportId={targetReportId}
           />
         )}
         {activeTab === 'files' && (

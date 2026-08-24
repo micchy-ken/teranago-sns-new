@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { DailyReport, User, WorkReportStatus, CalendarEvent } from '../types';
 import { 
   FileText, 
@@ -26,10 +26,13 @@ import {
   Copy,
   Wrench,
   Sparkles,
-  ChevronRight
+  ChevronRight,
+  ExternalLink,
+  Eye
 } from 'lucide-react';
 import { getAvatarUrl } from '../utils/avatar';
 import { MaintenanceDailyReportView } from './MaintenanceDailyReport';
+import { markReportAsRead } from '../utils/notifications';
 
 interface DailyReportProps {
   reports: DailyReport[];
@@ -42,6 +45,7 @@ interface DailyReportProps {
   allUsers?: User[];
   divisions?: { id: string; name: string }[];
   refetchReports?: () => Promise<void> | void;
+  initialReportId?: string;
 }
 
 // ヘルパー: 指定日の週の月曜日（YYYY-MM-DD）を取得
@@ -96,7 +100,8 @@ export function DailyReportView({
   onDeleteReport, 
   currentUser,
   allUsers = [],
-  divisions = []
+  divisions = [],
+  initialReportId
 }: DailyReportProps) {
   // モード切り替え: 'weekly' (週報) | 'maintenance' (保守日報)
   const [reportMode, setReportMode] = useState<'weekly' | 'maintenance'>(() => {
@@ -119,6 +124,7 @@ export function DailyReportView({
   // モーダル状態
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingReportId, setEditingReportId] = useState<string | null>(null);
+  const [viewingReport, setViewingReport] = useState<DailyReport | null>(null);
 
   // フォームステート (週報専用)
   const [formWeekStart, setFormWeekStart] = useState<string>('2026-08-17');
@@ -138,6 +144,37 @@ export function DailyReportView({
   // 削除確認モーダル
   const [deletingReport, setDeletingReport] = useState<DailyReport | null>(null);
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
+
+  // initialReportId の処理済み管理 Ref
+  const processedInitialReportIdRef = useRef<string | null>(null);
+
+  // 通知や外部リンクから initialReportId が渡された場合に該当レポートを自動展開
+  useEffect(() => {
+    if (initialReportId && processedInitialReportIdRef.current !== initialReportId) {
+      const target = reports.find(r => r.id === initialReportId || String(r.id) === String(initialReportId));
+      if (target) {
+        processedInitialReportIdRef.current = initialReportId;
+        if (currentUser?.id) {
+          markReportAsRead(currentUser.id, target.id);
+        }
+
+        if (target.reportType === 'maintenance_daily') {
+          setReportMode('maintenance');
+          setActiveMaintenanceReport(target);
+          setIsEditingMaintenance(true);
+        } else {
+          setReportMode('weekly');
+          const isAssignedSupervisor = (target.supervisorId || target.supervisor?.id) === currentUser?.id;
+          if (isAssignedSupervisor && target.status === 'submitted') {
+            setReviewingReport(target);
+            setReviewFeedback(target.feedbackComment || '');
+          } else {
+            setViewingReport(target);
+          }
+        }
+      }
+    }
+  }, [initialReportId, reports, currentUser?.id]);
 
   // 上長候補リスト (自分以外のユーザー)
   const supervisorCandidates = useMemo(() => {
@@ -844,6 +881,15 @@ export function DailyReportView({
                         </span>
                       )}
 
+                      {/* View details button */}
+                      <button
+                        onClick={() => setViewingReport(report)}
+                        className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                        title="詳細ポップアップを開く"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </button>
+
                       {/* Author Edit/Copy/Delete Actions */}
                       {isAuthor && report.status !== 'reviewed' && (
                         <button
@@ -1200,11 +1246,227 @@ export function DailyReportView({
         </div>
       )}
 
+      {/* Weekly Report Detail View Modal */}
+      {viewingReport && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl w-full max-w-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]">
+            {/* Header */}
+            <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center text-white shadow-xs">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-bold text-slate-900 text-base">
+                      {viewingReport.weekLabel || (viewingReport.weekStartDate ? `${viewingReport.weekStartDate} 週` : '週報詳細')}
+                    </h3>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                      viewingReport.status === 'reviewed'
+                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                        : viewingReport.status === 'submitted'
+                        ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                        : 'bg-slate-100 text-slate-700 border border-slate-200'
+                    }`}>
+                      {viewingReport.status === 'reviewed' ? '確認済' : viewingReport.status === 'submitted' ? '確認待ち' : '下書き'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    作成者: <strong className="text-slate-800 font-semibold">{viewingReport.author?.name || (viewingReport as any).authorName || '不明'}</strong> 
+                    {viewingReport.department ? ` (${viewingReport.department})` : ''}
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setViewingReport(null)} 
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-200/60 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Content Body */}
+            <div className="p-6 overflow-y-auto space-y-5">
+              {/* Meta information bar */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs">
+                <div>
+                  <span className="text-slate-500 block text-[11px]">提出・登録日時:</span>
+                  <span className="font-bold text-slate-800">
+                    {viewingReport.submittedAt || viewingReport.createdAt ? new Date(viewingReport.submittedAt || viewingReport.createdAt).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '未提出'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block text-[11px]">報告先上長:</span>
+                  <span className="font-bold text-indigo-900">
+                    {viewingReport.supervisor?.name || (supervisorCandidates.find(u => u.id === viewingReport.supervisorId)?.name) || '指定なし'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block text-[11px]">確認日時:</span>
+                  <span className="font-bold text-emerald-800">
+                    {viewingReport.reviewedAt ? new Date(viewingReport.reviewedAt).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '未確認'}
+                  </span>
+                </div>
+              </div>
+
+              {/* 1. 今週の業務内容 */}
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <Briefcase className="w-4 h-4 text-indigo-600" />
+                  <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                    今週の業務内容
+                  </h4>
+                </div>
+                <div className="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed bg-slate-50/80 p-4 rounded-xl border border-slate-200/70 font-sans">
+                  {viewingReport.tasks || '業務内容の記載なし'}
+                </div>
+              </div>
+
+              {/* 2. 成果・気づき & 課題・問題点 */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Lightbulb className="w-4 h-4 text-emerald-600" />
+                    <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                      成果・気づき
+                    </h4>
+                  </div>
+                  <div className="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed bg-emerald-50/40 p-3.5 rounded-xl border border-emerald-200/60 min-h-[72px]">
+                    {viewingReport.results || '特になし'}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <AlertCircle className="w-4 h-4 text-rose-600" />
+                    <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                      課題・問題点
+                    </h4>
+                  </div>
+                  <div className="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed bg-rose-50/40 p-3.5 rounded-xl border border-rose-200/60 min-h-[72px]">
+                    {viewingReport.issues || '特になし'}
+                  </div>
+                </div>
+              </div>
+
+              {/* 3. 継続案件 & 来週の予定 */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Bookmark className="w-4 h-4 text-sky-600" />
+                    <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                      継続案件
+                    </h4>
+                  </div>
+                  <div className="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed bg-sky-50/40 p-3.5 rounded-xl border border-sky-200/60 min-h-[64px]">
+                    {viewingReport.ongoingProjects || '特になし'}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <TrendingUp className="w-4 h-4 text-violet-600" />
+                    <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                      来週の予定
+                    </h4>
+                  </div>
+                  <div className="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed bg-violet-50/40 p-3.5 rounded-xl border border-violet-200/60 min-h-[64px]">
+                    {viewingReport.tomorrowPlan || '特になし'}
+                  </div>
+                </div>
+              </div>
+
+              {/* 上長フィードバック */}
+              {viewingReport.feedbackComment && (
+                <div className="p-4 bg-emerald-50/70 border border-emerald-200 rounded-xl">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    <span className="text-xs font-bold text-emerald-900">
+                      上長フィードバック・確認コメント
+                    </span>
+                    {viewingReport.reviewedAt && (
+                      <span className="text-[10px] text-emerald-600 font-medium ml-auto">
+                        {new Date(viewingReport.reviewedAt).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-sm text-emerald-950 whitespace-pre-wrap leading-relaxed">
+                    {viewingReport.feedbackComment}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3">
+              <button 
+                type="button" 
+                onClick={() => setViewingReport(null)} 
+                className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg text-xs sm:text-sm font-semibold hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                閉じる
+              </button>
+
+              <div className="flex flex-wrap items-center gap-2.5">
+                {/* 上長確認ボタン */}
+                {((viewingReport.supervisorId || viewingReport.supervisor?.id) === currentUser.id || currentUser.isAdmin) && viewingReport.status === 'submitted' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const rep = viewingReport;
+                      setViewingReport(null);
+                      setReviewingReport(rep);
+                      setReviewFeedback(rep.feedbackComment || '');
+                    }}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs sm:text-sm font-bold transition-colors shadow-xs cursor-pointer"
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    上長確認・コメントする
+                  </button>
+                )}
+
+                {/* 作成者編集ボタン */}
+                {((viewingReport.author?.id || (viewingReport as any).authorId) === currentUser.id || currentUser.isAdmin) && viewingReport.status !== 'reviewed' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const rep = viewingReport;
+                      setViewingReport(null);
+                      handleOpenEditModal(rep);
+                    }}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs sm:text-sm font-bold transition-colors shadow-xs cursor-pointer"
+                  >
+                    <Edit3 className="w-4 h-4" />
+                    編集する
+                  </button>
+                )}
+
+                {/* コピーして作成ボタン */}
+                {((viewingReport.author?.id || (viewingReport as any).authorId) === currentUser.id) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const rep = viewingReport;
+                      setViewingReport(null);
+                      handleDuplicateReport(rep);
+                    }}
+                    className="flex items-center gap-1.5 px-3.5 py-2 bg-white border border-amber-300 text-amber-900 rounded-lg text-xs sm:text-sm font-semibold hover:bg-amber-50 transition-colors shadow-xs cursor-pointer"
+                  >
+                    <Copy className="w-4 h-4 text-amber-700" />
+                    コピーして作成
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Review Modal for Supervisor */}
       {reviewingReport && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl border border-slate-200 overflow-hidden flex flex-col">
-            <div className="px-6 py-4 bg-amber-50 border-b border-amber-200 flex items-center justify-between">
+          <div className="bg-white rounded-2xl w-full max-w-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]">
+            <div className="px-6 py-4 bg-amber-50 border-b border-amber-200 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2.5">
                 <UserCheck className="w-5 h-5 text-amber-600" />
                 <h3 className="font-bold text-amber-950 text-base">
@@ -1219,20 +1481,100 @@ export function DailyReportView({
               </button>
             </div>
 
-            <div className="p-6 space-y-4">
-              <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs space-y-1">
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-500">提出者:</span>
-                  <span className="font-bold text-slate-800">{reviewingReport.author?.name || (reviewingReport as any).authorName} ({reviewingReport.department || reviewingReport.author?.department})</span>
+            <div className="p-6 overflow-y-auto space-y-5">
+              {/* レポート概要ヘッダー */}
+              <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs space-y-1.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-500">提出者:</span>
+                    <span className="font-bold text-slate-800 text-sm">
+                      {reviewingReport.author?.name || (reviewingReport as any).authorName || '不明'} 
+                      {reviewingReport.department || reviewingReport.author?.department ? ` (${reviewingReport.department || reviewingReport.author?.department})` : ''}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-500">対象週:</span>
+                    <span className="font-bold text-indigo-900 bg-indigo-50 px-2.5 py-0.5 rounded-md border border-indigo-100">
+                      {reviewingReport.weekLabel || reviewingReport.weekStartDate}
+                    </span>
+                  </div>
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-500">対象週:</span>
-                  <span className="font-bold text-slate-800">{reviewingReport.weekLabel || reviewingReport.weekStartDate}</span>
+                {reviewingReport.submittedAt && (
+                  <div className="text-[11px] text-slate-500 text-right pt-1 border-t border-slate-200/60">
+                    提出日時: {new Date(reviewingReport.submittedAt).toLocaleString('ja-JP', { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                )}
+              </div>
+
+              {/* 提出内容表示セクション */}
+              <div className="space-y-4 border-b border-slate-200 pb-5">
+                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                  <FileText className="w-4 h-4 text-slate-400" />
+                  提出された週報の内容
+                </h4>
+
+                {/* 1. 今週の業務内容 */}
+                <div>
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    <Briefcase className="w-4 h-4 text-indigo-600" />
+                    <span className="text-xs font-bold text-slate-800">今週の業務内容</span>
+                  </div>
+                  <div className="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed bg-slate-50 p-3.5 rounded-xl border border-slate-200/80 font-sans">
+                    {reviewingReport.tasks || '（記載なし）'}
+                  </div>
+                </div>
+
+                {/* 2. 成果・気づき & 課題・問題点 */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <Lightbulb className="w-4 h-4 text-emerald-600" />
+                      <span className="text-xs font-bold text-slate-800">成果・気づき</span>
+                    </div>
+                    <div className="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed bg-emerald-50/40 p-3 rounded-xl border border-emerald-200/60 min-h-[64px]">
+                      {reviewingReport.results || '（特になし）'}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <AlertCircle className="w-4 h-4 text-rose-600" />
+                      <span className="text-xs font-bold text-slate-800">課題・問題点</span>
+                    </div>
+                    <div className="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed bg-rose-50/40 p-3 rounded-xl border border-rose-200/60 min-h-[64px]">
+                      {reviewingReport.issues || '（特になし）'}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. 継続案件 & 来週の予定 */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <Bookmark className="w-4 h-4 text-sky-600" />
+                      <span className="text-xs font-bold text-slate-800">継続案件</span>
+                    </div>
+                    <div className="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed bg-sky-50/40 p-3 rounded-xl border border-sky-200/60 min-h-[56px]">
+                      {reviewingReport.ongoingProjects || '（特になし）'}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <TrendingUp className="w-4 h-4 text-violet-600" />
+                      <span className="text-xs font-bold text-slate-800">来週の予定</span>
+                    </div>
+                    <div className="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed bg-violet-50/40 p-3 rounded-xl border border-violet-200/60 min-h-[56px]">
+                      {reviewingReport.tomorrowPlan || '（特になし）'}
+                    </div>
+                  </div>
                 </div>
               </div>
 
+              {/* フィードバックコメント入力 */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                <label className="block text-xs font-bold text-slate-800 mb-1.5 flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                   上長コメント・指示事項 (任意)
                 </label>
                 <textarea
@@ -1245,7 +1587,7 @@ export function DailyReportView({
               </div>
             </div>
 
-            <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-3">
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-3 shrink-0">
               <button 
                 type="button" 
                 onClick={() => setReviewingReport(null)} 
