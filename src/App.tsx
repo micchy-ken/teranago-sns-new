@@ -737,10 +737,10 @@ export default function App() {
           return {
             id: String(app.id),
             title: app.title || '無題の申請',
-            createdAt: app.createdAt || new Date().toISOString(),
-            ...detailsObj,
             applicant: applicantUser,
             approver: approverUserObj,
+            createdAt: app.createdAt || new Date().toISOString(),
+            ...detailsObj,
             purchaseOrderNumber: rawPo,
             constructionDate: rawConstDate,
             linkedInventoryIssueId: rawLinkedInv,

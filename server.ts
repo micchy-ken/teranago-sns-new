@@ -3213,20 +3213,7 @@ async function startServer() {
   app.get(['/api/workflows', '/api/workflows/', '/workflows', '/workflows/'], (req, res) => {
     try {
       const list = loadWorkflows();
-      const allUsers = loadUsers();
-      const result = list.map(item => {
-        const u = allUsers.find((user: any) => String(user.id) === String(item.applicantId));
-        return {
-          ...item,
-          applicant: {
-            id: item.applicantId,
-            name: u?.name || '不明',
-            department: u?.department || u?.division || '',
-            avatarUrl: u?.avatarUrl || ''
-          }
-        };
-      });
-      res.json(result);
+      res.json(list);
     } catch (err: any) {
       console.error('Get workflows error:', err);
       res.status(500).json({ error: err.message });
