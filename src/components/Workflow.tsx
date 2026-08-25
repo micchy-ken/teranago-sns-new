@@ -363,28 +363,38 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
   };
 
   // 動的に現在ログイン中のユーザーが対象申請のステップ承認者かをチェックする関数
-  const isUserCurrentApprover = (app: WorkflowApplication, user: UserType) => {
-    if (app.status !== 'pending') return false;
+  const isUserCurrentApprover = React.useCallback((app: WorkflowApplication, user: UserType) => {
+    if (!user || !app || app.status !== 'pending') return false;
 
     // もし直接指定の approver が居れば判定
-    if (app.approver?.id === user.id) return true;
+    if (
+      (app.approver?.id && String(app.approver.id) === String(user.id)) ||
+      ((app as any).approverId && String((app as any).approverId) === String(user.id))
+    ) {
+      return true;
+    }
+
+    // 管理者権限（isAdmin / role === 'admin'）ならすべての承認待ち申請を承認できる
+    if (user.isAdmin || user.role === 'admin') return true;
 
     // 多段階ステップのチェック
     if (app.stepsConfig && app.stepsConfig.length > 0) {
       const currentStepIdx = (app.currentStepIndex || 1) - 1;
       const step = app.stepsConfig[currentStepIdx];
       if (step) {
-        if (step.approverType === 'specific_user') {
-          return step.specificUserId === user.id;
+        if (step.approverType === 'specific_user' && step.specificUserId) {
+          return String(step.specificUserId) === String(user.id);
         }
 
         const targetLevel = step.supervisorLevel || (step.approverType === 'supervisor_2' ? 2 : step.approverType === 'supervisor_1' ? 1 : currentStepIdx + 1);
         const expectedApproverId = getSupervisorIdAtLevel(app.applicant?.id, targetLevel, allUsers);
-        return expectedApproverId === user.id;
+        if (expectedApproverId && String(expectedApproverId) === String(user.id)) {
+          return true;
+        }
       }
     }
     return false;
-  };
+  }, [allUsers]);
 
   // 下書き件数
   const draftCount = applications.filter((app) => app.applicant?.id === currentUser?.id && app.status === 'draft').length;
@@ -1039,8 +1049,8 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
                       </>
                     )}
 
-                    {/* 承認者操作ボタン (承認待ちタブの承認者用) */}
-                    {filter === 'pending_approval' && app.status === 'pending' && onWorkflowAction && (
+                    {/* 承認者操作ボタン */}
+                    {app.status === 'pending' && isUserCurrentApprover(app, currentUser) && onWorkflowAction && (
                       <>
                         <button
                           onClick={() => onWorkflowAction(app.id, 'approved')}

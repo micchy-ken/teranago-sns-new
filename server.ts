@@ -2417,7 +2417,7 @@ async function startServer() {
         category: 'general',
         tags: Array.from(extractedTags),
         office: matchedUser.office || '全社',
-        division: matchedUser.department || matchedUser.division || '全部署',
+        division: matchedUser.division || matchedUser.department || '全部署',
         scope: '全社',
         author: {
           id: matchedUser.id,
@@ -3118,6 +3118,278 @@ async function startServer() {
       res.json({ success: true, deleted: initialCount - reports.length });
     } catch (err: any) {
       console.error('Delete work report error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ==========================================
+  // ワークフロー (Workflows / Applications) JSON ストレージ & API
+  // ==========================================
+  const workflowsPath = path.join(dataDir, 'workflows.json');
+
+  interface StoredWorkflow {
+    id: string;
+    title: string;
+    applicantId: string;
+    approverId?: string;
+    status: string; // 'pending' | 'approved' | 'rejected' | 'draft'
+    category?: string;
+    type?: string;
+    purchaseOrderNumber?: string | null;
+    constructionDate?: string | null;
+    linkedInventoryIssueId?: string | null;
+    details?: string | any;
+    createdAt: string;
+    updatedAt?: string;
+  }
+
+  function getInitialWorkflowsSample(): StoredWorkflow[] {
+    const initial: StoredWorkflow[] = [
+      {
+        id: 'wf-101',
+        title: '備品（モニタ・キーボード）購入申請',
+        applicantId: 'u2',
+        approverId: 'u1',
+        status: 'pending',
+        category: 'purchase_order',
+        type: 'purchase_order',
+        purchaseOrderNumber: 'PO-2026-0801',
+        constructionDate: null,
+        linkedInventoryIssueId: null,
+        createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
+        updatedAt: new Date(Date.now() - 86400000 * 2).toISOString(),
+        details: JSON.stringify({
+          flowId: 'flow-1',
+          flowName: '標準承認フロー',
+          currentStepIndex: 1,
+          totalSteps: 2,
+          reason: '開発受託業務用モニターおよびキーボードの購入',
+          amount: 45000,
+          expenseType: '備品消耗品費',
+          purchaseItems: [
+            { name: '4K 27インチモニター', count: 1, price: 35000 },
+            { name: 'メカニカルキーボード', count: 1, price: 10000 }
+          ],
+          stepsConfig: [
+            { stepNumber: 1, approverType: 'supervisor_1', stepName: '一次承認（直属上長）' },
+            { stepNumber: 2, approverType: 'department_head', stepName: '最終承認（部長）' }
+          ],
+          history: []
+        })
+      }
+    ];
+    try {
+      fs.writeFileSync(workflowsPath, JSON.stringify(initial, null, 2), 'utf8');
+    } catch (e) {
+      console.error('Failed to write initial workflows sample:', e);
+    }
+    return initial;
+  }
+
+  function loadWorkflows(): StoredWorkflow[] {
+    if (!fs.existsSync(workflowsPath)) {
+      return getInitialWorkflowsSample();
+    }
+    try {
+      const raw = JSON.parse(fs.readFileSync(workflowsPath, 'utf8'));
+      if (!Array.isArray(raw) || raw.length === 0) {
+        return getInitialWorkflowsSample();
+      }
+      return raw;
+    } catch (e) {
+      return getInitialWorkflowsSample();
+    }
+  }
+
+  function saveWorkflows(items: StoredWorkflow[]) {
+    try {
+      fs.writeFileSync(workflowsPath, JSON.stringify(items, null, 2), 'utf8');
+    } catch (e) {
+      console.error('Failed to save workflows:', e);
+    }
+  }
+
+  // ワークフロー一覧取得 API
+  app.get(['/api/workflows', '/api/workflows/', '/workflows', '/workflows/'], (req, res) => {
+    try {
+      const list = loadWorkflows();
+      const allUsers = loadUsers();
+      const result = list.map(item => {
+        const u = allUsers.find((user: any) => String(user.id) === String(item.applicantId));
+        return {
+          ...item,
+          applicant: {
+            id: item.applicantId,
+            name: u?.name || '不明',
+            department: u?.department || u?.division || '',
+            avatarUrl: u?.avatarUrl || ''
+          }
+        };
+      });
+      res.json(result);
+    } catch (err: any) {
+      console.error('Get workflows error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ワークフロー新規作成 API
+  app.post(['/api/workflows', '/api/workflows/', '/workflows', '/workflows/'], (req, res) => {
+    try {
+      const data = req.body || {};
+      const list = loadWorkflows();
+      const nowIso = new Date().toISOString();
+
+      const newId = data.id && !data.id.startsWith('a-temp-')
+        ? data.id
+        : `wf-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
+      const applicantId = String(data.applicantId || (data.applicant && data.applicant.id) || 'u1');
+      const approverId = data.approverId || (data.approver && data.approver.id) || undefined;
+      const status = data.status || 'pending';
+      const category = data.category || data.type || 'other';
+
+      let detailsStr = '';
+      if (typeof data.details === 'string') {
+        detailsStr = data.details;
+      } else if (typeof data.details === 'object' && data.details !== null) {
+        detailsStr = JSON.stringify(data.details);
+      } else {
+        const { id, title, applicantId: _a, approverId: _ap, status: _s, category: _c, type: _t, ...rest } = data;
+        detailsStr = JSON.stringify(rest);
+      }
+
+      const newWorkflow: StoredWorkflow = {
+        id: newId,
+        title: data.title || '無題の申請',
+        applicantId,
+        approverId,
+        status,
+        category,
+        type: category,
+        purchaseOrderNumber: data.purchaseOrderNumber || null,
+        constructionDate: data.constructionDate || null,
+        linkedInventoryIssueId: data.linkedInventoryIssueId || null,
+        details: detailsStr,
+        createdAt: data.createdAt || nowIso,
+        updatedAt: nowIso
+      };
+
+      const existingIdx = list.findIndex(w => w.id === newId);
+      if (existingIdx >= 0) {
+        list[existingIdx] = newWorkflow;
+      } else {
+        list.unshift(newWorkflow);
+      }
+
+      saveWorkflows(list);
+      res.status(201).json(newWorkflow);
+    } catch (err: any) {
+      console.error('Create workflow error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ワークフロー更新 API (承認 / 却下 / 変更)
+  app.put(['/api/workflows/:id', '/workflows/:id'], (req, res) => {
+    try {
+      const { id } = req.params;
+      const data = req.body || {};
+      const list = loadWorkflows();
+      const idx = list.findIndex(w => w.id === id);
+
+      const nowIso = new Date().toISOString();
+
+      let detailsStr = '';
+      if (typeof data.details === 'string') {
+        detailsStr = data.details;
+      } else if (typeof data.details === 'object' && data.details !== null) {
+        detailsStr = JSON.stringify(data.details);
+      }
+
+      if (idx === -1) {
+        const newWorkflow: StoredWorkflow = {
+          id,
+          title: data.title || '無題の申請',
+          applicantId: String(data.applicantId || 'u1'),
+          approverId: data.approverId || undefined,
+          status: data.status || 'pending',
+          category: data.category || data.type || 'other',
+          type: data.category || data.type || 'other',
+          purchaseOrderNumber: data.purchaseOrderNumber || null,
+          constructionDate: data.constructionDate || null,
+          linkedInventoryIssueId: data.linkedInventoryIssueId || null,
+          details: detailsStr || JSON.stringify(data),
+          createdAt: data.createdAt || nowIso,
+          updatedAt: nowIso
+        };
+        list.unshift(newWorkflow);
+        saveWorkflows(list);
+        return res.json(newWorkflow);
+      }
+
+      const existing = list[idx];
+
+      // details 内の status 等も更新されて送られてくるため、detailsObj があればパースして同期
+      let mergedDetailsStr = detailsStr || existing.details;
+      if (detailsStr) {
+        try {
+          const parsedDetails = JSON.parse(detailsStr);
+          parsedDetails.status = data.status || existing.status;
+          mergedDetailsStr = JSON.stringify(parsedDetails);
+        } catch (e) {}
+      }
+
+      const updatedWorkflow: StoredWorkflow = {
+        ...existing,
+        title: data.title !== undefined ? data.title : existing.title,
+        applicantId: data.applicantId ? String(data.applicantId) : existing.applicantId,
+        approverId: data.approverId !== undefined ? data.approverId : existing.approverId,
+        status: data.status !== undefined ? data.status : existing.status,
+        category: data.category || data.type || existing.category,
+        type: data.category || data.type || existing.type,
+        purchaseOrderNumber: data.purchaseOrderNumber !== undefined ? data.purchaseOrderNumber : existing.purchaseOrderNumber,
+        constructionDate: data.constructionDate !== undefined ? data.constructionDate : existing.constructionDate,
+        linkedInventoryIssueId: data.linkedInventoryIssueId !== undefined ? data.linkedInventoryIssueId : existing.linkedInventoryIssueId,
+        details: mergedDetailsStr,
+        updatedAt: nowIso
+      };
+
+      list[idx] = updatedWorkflow;
+      saveWorkflows(list);
+
+      res.json(updatedWorkflow);
+    } catch (err: any) {
+      console.error('Update workflow error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ワークフロー削除 API
+  app.delete(['/api/workflows/:id', '/workflows/:id'], (req, res) => {
+    try {
+      const { id } = req.params;
+      let list = loadWorkflows();
+      const initialCount = list.length;
+      list = list.filter(w => w.id !== id);
+      saveWorkflows(list);
+      res.json({ success: true, deleted: initialCount - list.length });
+    } catch (err: any) {
+      console.error('Delete workflow error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post(['/api/workflows/:id/delete', '/workflows/:id/delete'], (req, res) => {
+    try {
+      const { id } = req.params;
+      let list = loadWorkflows();
+      const initialCount = list.length;
+      list = list.filter(w => w.id !== id);
+      saveWorkflows(list);
+      res.json({ success: true, deleted: initialCount - list.length });
+    } catch (err: any) {
+      console.error('Delete workflow error:', err);
       res.status(500).json({ error: err.message });
     }
   });

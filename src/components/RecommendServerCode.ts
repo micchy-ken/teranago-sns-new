@@ -1,7 +1,7 @@
 export const RECOMMEND_SERVER_JS = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年8月21日 (URLリッチリンクカード・OGPメタデータ取得対応版)
+ * 最終更新日時 (最終アップデート): 2026年8月25日 (電子決裁ワークフロー承認状態保存＆メール添付ファイル安定化対応版)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -27,6 +27,7 @@ import fs from 'fs';
 import multer from 'multer';
 import webpush from 'web-push';
 import nodemailer from 'nodemailer';
+import { simpleParser } from 'mailparser';
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -279,7 +280,7 @@ function safeParseJSON(jsonString, fallbackValue = []) {
 
 // --- API Endpoints ---
 
-app.get('/api/health', (req, res) => res.json({ status: 'ok', timestamp: new Date(), lastUpdated: '2026-08-21 (URLリッチリンクカード・OGP取得対応版)' }));
+app.get('/api/health', (req, res) => res.json({ status: 'ok', timestamp: new Date(), lastUpdated: '2026-08-25 (電子決裁ワークフロー承認状態保存＆メール添付ファイル安定化対応版)' }));
 
 // =========================================================
 // OGP (Open Graph Protocol) メタデータ取得 API
@@ -1051,6 +1052,59 @@ app.post('/api/upload-avatar', upload.single('avatar'), (req, res) => {
 });
 
 // =========================================================
+// MIMEヘッダー解読・拡張子自動推定ヘルパー
+// =========================================================
+function decodeMimeHeader(str) {
+  if (!str) return '';
+  try {
+    let text = str;
+    text = text.replace(/=\?([^?]+)\?([BQbq])\?([^?]+)\?=/g, (_, charset, encoding, encText) => {
+      try {
+        if (encoding.toUpperCase() === 'B') {
+          return Buffer.from(encText, 'base64').toString('utf8');
+        } else if (encoding.toUpperCase() === 'Q') {
+          const qDecoded = encText.replace(/_/g, ' ').replace(/=([0-9A-F]{2})/gi, (__, hex) =>
+            String.fromCharCode(parseInt(hex, 16))
+          );
+          return Buffer.from(qDecoded, 'latin1').toString('utf8');
+        }
+      } catch (e) {
+        return encText;
+      }
+      return encText;
+    });
+    return text.trim();
+  } catch (e) {
+    return str || '';
+  }
+}
+
+function getExtensionFromMimeType(contentType) {
+  if (!contentType) return '.bin';
+  const ct = contentType.toLowerCase();
+  if (ct.includes('image/jpeg') || ct.includes('image/jpg')) return '.jpg';
+  if (ct.includes('image/png')) return '.png';
+  if (ct.includes('image/gif')) return '.gif';
+  if (ct.includes('image/webp')) return '.webp';
+  if (ct.includes('image/svg')) return '.svg';
+  if (ct.includes('application/pdf')) return '.pdf';
+  if (ct.includes('spreadsheetml') || ct.includes('excel') || ct.includes('xls')) return '.xlsx';
+  if (ct.includes('wordprocessingml') || ct.includes('msword') || ct.includes('doc')) return '.docx';
+  if (ct.includes('presentationml') || ct.includes('powerpoint') || ct.includes('ppt')) return '.pptx';
+  if (ct.includes('text/plain')) return '.txt';
+  if (ct.includes('text/csv')) return '.csv';
+  if (ct.includes('zip') || ct.includes('compressed')) return '.zip';
+  return '.bin';
+}
+
+function formatAttachmentSize(bytes) {
+  if (!bytes || isNaN(bytes)) return '0 KB';
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+// =========================================================
 // 掲示板添付ファイル・汎用ファイルアップロードAPI (/app/bulletinsfiles へ保存)
 // =========================================================
 const bulletinsStorage = multer.diskStorage({
@@ -1063,14 +1117,25 @@ const bulletinsStorage = multer.diskStorage({
   filename: function (req, file, cb) {
     let originalName = file.originalname;
     try {
-      originalName = Buffer.from(file.originalname, 'latin1').toString('utf8');
+      // MIMEヘッダー文字化け解読（=?UTF-8?B?...?=等）
+      originalName = decodeMimeHeader(file.originalname);
+      // latin1化け補正
+      if (originalName === file.originalname) {
+        originalName = Buffer.from(file.originalname, 'latin1').toString('utf8');
+      }
     } catch (e) {
       originalName = file.originalname;
     }
-    const ext = path.extname(originalName);
+    let ext = path.extname(originalName);
+    if (!ext || ext.length > 10 || ext.includes('=')) {
+      ext = getExtensionFromMimeType(file.mimetype);
+      if (!path.extname(originalName)) {
+        originalName = originalName + ext;
+      }
+    }
     const baseName = path.basename(originalName, ext);
     const timeStamp = Date.now();
-    const safeFilename = \`\${timeStamp}_\${baseName}\${ext}\`;
+    const safeFilename = timeStamp + '_' + baseName + ext;
     cb(null, safeFilename);
   }
 });
@@ -2205,12 +2270,7 @@ app.get(['/api/inspection/carry-overs', '/api/inspection/carry-overs/:targetYear
 app.get('/api/workflows', async (req, res) => {
   try {
     const pool = await getPool();
-    const result = await pool.request().query\`
-      SELECT w.*, u.name AS applicantName, u.department AS applicantDepartment, u.avatarUrl AS applicantAvatarUrl
-      FROM dbo.Workflows w
-      LEFT JOIN dbo.Users u ON w.applicantId = u.id
-      ORDER BY w.createdAt DESC
-    \`;
+    const result = await pool.request().query('SELECT w.*, u.name AS applicantName, u.department AS applicantDepartment, u.avatarUrl AS applicantAvatarUrl FROM dbo.Workflows w LEFT JOIN dbo.Users u ON w.applicantId = u.id ORDER BY w.createdAt DESC');
     const list = (result.recordset || []).map(row => ({
       id: String(row.id),
       title: row.title,
@@ -2225,9 +2285,6 @@ app.get('/api/workflows', async (req, res) => {
       status: row.status,
       createdAt: row.createdAt,
       category: row.category,
-      purchaseOrderNumber: row.purchaseOrderNumber || undefined,
-      constructionDate: row.constructionDate || undefined,
-      linkedInventoryIssueId: row.linkedInventoryIssueId || undefined,
       details: row.details,
       attachments: safeParseJSON(row.attachments, [])
     }));
@@ -2237,9 +2294,9 @@ app.get('/api/workflows', async (req, res) => {
 
 app.post('/api/workflows', async (req, res) => {
   try {
-    const { title, description, applicantId, approverId, status, category, details, attachments, purchaseOrderNumber, constructionDate, linkedInventoryIssueId } = req.body;
+    const { title, description, applicantId, approverId, status, category, details, attachments } = req.body;
     const pool = await getPool();
-    const id = req.body.id || \`w-\${Date.now()}\`;
+    const id = req.body.id || ('w-' + Date.now());
     const detailsStr = typeof details === 'object' ? JSON.stringify(details) : (details || '');
     const workflowCategory = category || 'general';
     const attachStr = attachments ? (typeof attachments === 'object' ? JSON.stringify(attachments) : attachments) : null;
@@ -2253,34 +2310,25 @@ app.post('/api/workflows', async (req, res) => {
       .input('status', sql.NVarChar, status || '承認待ち')
       .input('category', sql.NVarChar, workflowCategory)
       .input('type', sql.NVarChar, workflowCategory)
-      .input('purchaseOrderNumber', sql.NVarChar, purchaseOrderNumber || null)
-      .input('constructionDate', sql.NVarChar, constructionDate || null)
-      .input('linkedInventoryIssueId', sql.VarChar, linkedInventoryIssueId || null)
       .input('details', sql.NVarChar, detailsStr)
       .input('attachments', sql.NVarChar, attachStr)
-      .query\`
-        INSERT INTO dbo.Workflows (id, title, description, applicantId, approverId, status, createdAt, category, type, purchaseOrderNumber, constructionDate, linkedInventoryIssueId, details, attachments) 
-        VALUES (@id, @title, @description, @applicantId, @approverId, @status, GETDATE(), @category, @type, @purchaseOrderNumber, @constructionDate, @linkedInventoryIssueId, @details, @attachments)
-      \`;
+      .query('INSERT INTO dbo.Workflows (id, title, description, applicantId, approverId, status, createdAt, category, type, details, attachments) VALUES (@id, @title, @description, @applicantId, @approverId, @status, GETDATE(), @category, @type, @details, @attachments)');
     res.status(201).json({ id, message: '申請完了' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.put('/api/workflows/:id', async (req, res) => {
   try {
-    const { status, approverId, details, attachments, purchaseOrderNumber, constructionDate, linkedInventoryIssueId } = req.body;
+    const { status, approverId, details, attachments } = req.body;
     const pool = await getPool();
     const detailsStr = details ? (typeof details === 'object' ? JSON.stringify(details) : details) : null;
     const attachStr = attachments ? (typeof attachments === 'object' ? JSON.stringify(attachments) : attachments) : null;
 
-    let queryStr = \`UPDATE dbo.Workflows SET status = @status\`;
-    if (approverId) queryStr += \`, approverId = @approverId\`;
-    if (detailsStr) queryStr += \`, details = @details\`;
-    if (attachStr !== null) queryStr += \`, attachments = @attachments\`;
-    if (purchaseOrderNumber !== undefined) queryStr += \`, purchaseOrderNumber = @purchaseOrderNumber\`;
-    if (constructionDate !== undefined) queryStr += \`, constructionDate = @constructionDate\`;
-    if (linkedInventoryIssueId !== undefined) queryStr += \`, linkedInventoryIssueId = @linkedInventoryIssueId\`;
-    queryStr += \` WHERE id = @id\`;
+    let queryStr = 'UPDATE dbo.Workflows SET status = @status';
+    if (approverId) queryStr += ', approverId = @approverId';
+    if (detailsStr) queryStr += ', details = @details';
+    if (attachStr !== null) queryStr += ', attachments = @attachments';
+    queryStr += ' WHERE id = @id';
 
     const reqObj = pool.request()
       .input('id', sql.VarChar, String(req.params.id))
@@ -2288,9 +2336,6 @@ app.put('/api/workflows/:id', async (req, res) => {
     if (approverId) reqObj.input('approverId', sql.VarChar, approverId);
     if (detailsStr) reqObj.input('details', sql.NVarChar, detailsStr);
     if (attachStr !== null) reqObj.input('attachments', sql.NVarChar, attachStr);
-    if (purchaseOrderNumber !== undefined) reqObj.input('purchaseOrderNumber', sql.NVarChar, purchaseOrderNumber);
-    if (constructionDate !== undefined) reqObj.input('constructionDate', sql.NVarChar, constructionDate);
-    if (linkedInventoryIssueId !== undefined) reqObj.input('linkedInventoryIssueId', sql.VarChar, linkedInventoryIssueId);
 
     await reqObj.query(queryStr);
     res.json({ message: '更新完了' });
@@ -2418,7 +2463,7 @@ const handleGetBulletins = async (req, res) => {
         scope: row.scope || '全社',
         tags: tags,
         isPinned: row.isPinned ? true : false,
-        attachments: row.attachments ? (typeof row.attachments === 'string' && row.attachments.startsWith('[') ? JSON.parse(row.attachments) : row.attachments) : [],
+        attachments: safeParseJSON(row.attachments, []),
         comments: topicComments,
         viewers: topicViewers,
         commentsCount: topicComments.length
@@ -4319,4 +4364,4 @@ app.get('/api/ical/user_:userId_calendar.ics', async (req, res) => {
 // サーバー起動 (すべての設定が終わった最後に実行)
 // =========================================================
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(\`🚀 Company SNS API server listening on port \${PORT} [最終更新: 2026年8月5日 18:00 (自動パス解決＆耐障害性強化版)]\`));`;
+app.listen(PORT, () => console.log(\`🚀 Company SNS API server listening on port \${PORT} [最終更新: 2026年8月25日 18:00 (メール添付ファイル文字化け解読・拡張子自動補完＆安定化対応版)]\`));`;

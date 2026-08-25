@@ -326,8 +326,25 @@ export function isTopicUnread(t: BoardTopic, user: User, readTopicIds: string[] 
 
   if (readTopicIds.includes(t.id)) return false;
 
-  const matchOffice = !t.office || t.office === '全社' || t.office === user.office;
-  const matchDivision = !t.division || t.division === '全部署' || t.division === user.division;
+  const userOffice = user?.office || '';
+  const userDivision = user?.division || '';
+  const userDept = user?.department || '';
+
+  const matchOffice =
+    !t.office ||
+    t.office === '全社' ||
+    t.office === userOffice ||
+    (userOffice && t.office.includes(userOffice)) ||
+    (userDept && t.office && userDept.includes(t.office));
+
+  const matchDivision =
+    !t.division ||
+    t.division === '全部署' ||
+    t.division === userDivision ||
+    (userDivision && t.division.includes(userDivision)) ||
+    (userDept && t.division && userDept.includes(t.division)) ||
+    (t.division && userDept && t.division.includes(userDept));
+
   if (!matchOffice || !matchDivision) return false;
 
   return true;

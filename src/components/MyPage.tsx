@@ -686,11 +686,35 @@ export function MyPage({
 
   const unreadEvents = myEvents.filter((e) => isEventUnread(e, user, readEventIds));
 
-  // 2. 対象の掲示板トピック（全社・自拠点・自部署宛て）
+  // 2. 対象の掲示板トピック（全社・自拠点・自部署宛て、または自分が投稿）
   const myTopics = topics
     .filter((t) => {
-      const matchOffice = !t.office || t.office === '全社' || t.office === user?.office;
-      const matchDivision = !t.division || t.division === '全部署' || t.division === user?.division;
+      // 自分が投稿・作成したトピックは常にマイページに表示
+      const isAuthor =
+        (t.author?.id && user?.id && String(t.author.id) === String(user.id)) ||
+        (t.author?.name && user?.name && t.author.name === user.name) ||
+        ((t as any).authorId && user?.id && String((t as any).authorId) === String(user.id));
+      if (isAuthor) return true;
+
+      const userOffice = user?.office || '';
+      const userDivision = user?.division || '';
+      const userDept = user?.department || '';
+
+      const matchOffice =
+        !t.office ||
+        t.office === '全社' ||
+        t.office === userOffice ||
+        (userOffice && t.office.includes(userOffice)) ||
+        (userDept && t.office && userDept.includes(t.office));
+
+      const matchDivision =
+        !t.division ||
+        t.division === '全部署' ||
+        t.division === userDivision ||
+        (userDivision && t.division.includes(userDivision)) ||
+        (userDept && t.division && userDept.includes(t.division)) ||
+        (t.division && userDept && t.division.includes(userDept));
+
       return matchOffice && matchDivision;
     })
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
