@@ -3584,55 +3584,44 @@ export default function App() {
             // メモの未読/対応トグル処理
             const updated = memos.map((m) => {
               if (m.id === memoId) {
-                const currentlyUnread = isMemoUnread(m, userState, []);
                 const nowIso = new Date().toISOString();
+                const statuses = m.recipientStatuses || [];
+                const isRecipient = statuses.some((st) => st.userId === userState.id);
+
+                if (!isRecipient) {
+                  // 宛先メンバーでない場合はステータス配列を改変しない
+                  return m;
+                }
+
+                const myStatus = statuses.find((st) => st.userId === userState.id);
+                const nextHandled = !myStatus?.isHandled;
 
                 // キャッシュ同期
-                if (currentlyUnread) {
+                if (nextHandled) {
                   markMemoAsRead(userState.id, memoId);
                 } else {
                   markMemoAsUnread(userState.id, memoId);
                 }
 
-                const statuses = m.recipientStatuses || [];
-                const nextRecipientStatuses = statuses.length > 0
-                  ? statuses.map((st) => {
-                      if (st.userId === userState.id) {
-                        const nextHandled = currentlyUnread; // 未読なら対応完了(true)、対応完了なら未対応(false)
-                        return {
-                          ...st,
-                          isViewed: nextHandled ? true : false,
-                          viewedAt: nextHandled ? (st.viewedAt || nowIso) : undefined,
-                          isHandled: nextHandled,
-                          handledAt: nextHandled ? nowIso : undefined,
-                          handledByUserId: nextHandled ? userState.id : undefined,
-                          handledByUserName: nextHandled ? userState.name : undefined,
-                          status: nextHandled ? ('handled' as const) : ('unread' as const),
-                        };
-                      }
-                      return st;
-                    })
-                  : [
-                      {
-                        userId: userState.id,
-                        userName: userState.name || '',
-                        avatarUrl: userState.avatarUrl || '',
-                        department: userState.department || '',
-                        office: userState.office || '',
-                        division: userState.division || '',
-                        isViewed: currentlyUnread,
-                        viewedAt: currentlyUnread ? nowIso : undefined,
-                        isHandled: currentlyUnread,
-                        handledAt: currentlyUnread ? nowIso : undefined,
-                        handledByUserId: currentlyUnread ? userState.id : undefined,
-                        handledByUserName: currentlyUnread ? userState.name : undefined,
-                        status: currentlyUnread ? ('handled' as const) : ('unread' as const),
-                      }
-                    ];
+                const nextRecipientStatuses = statuses.map((st) => {
+                  if (st.userId === userState.id) {
+                    return {
+                      ...st,
+                      isViewed: true,
+                      viewedAt: st.viewedAt || nowIso,
+                      isHandled: nextHandled,
+                      handledAt: nextHandled ? nowIso : undefined,
+                      handledByUserId: nextHandled ? userState.id : undefined,
+                      handledByUserName: nextHandled ? userState.name : undefined,
+                      status: nextHandled ? ('handled' as const) : ('read' as const),
+                    };
+                  }
+                  return st;
+                });
 
                 // 全員が対応完了しているかチェック
                 const allHandled = nextRecipientStatuses.length > 0 && nextRecipientStatuses.every((s) => s.isHandled);
-                const nextOverallStatus = allHandled ? ('handled' as const) : ('unread' as const);
+                const nextOverallStatus = allHandled ? ('handled' as const) : ('read' as const);
 
                 return {
                   ...m,

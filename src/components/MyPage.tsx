@@ -589,51 +589,40 @@ export function MyPage({
     if (onUpdateMemo) {
       const updated = memos.map((m) => {
         if (m.id === memoId) {
-          const currentlyUnhandled = isMemoUnhandled(m, user);
           const nowIso = new Date().toISOString();
+          const statuses = m.recipientStatuses || [];
+          const isRecipient = statuses.some((st) => st.userId === user.id);
+
+          if (!isRecipient) {
+            // 宛先メンバーでない場合は配列を変更しない
+            return m;
+          }
+
+          const myStatus = statuses.find((st) => st.userId === user.id);
+          const nextHandled = !myStatus?.isHandled;
 
           // キャッシュの同期
-          if (currentlyUnhandled) {
+          if (nextHandled) {
             markMemoAsReadUtil(user.id, memoId);
           } else {
             markMemoAsUnreadUtil(user.id, memoId);
           }
 
-          const statuses = m.recipientStatuses || [];
-          const nextRecipientStatuses = statuses.length > 0
-            ? statuses.map((st) => {
-                if (st.userId === user.id) {
-                  const nextHandled = currentlyUnhandled; // 未対応なら対応完了(true)、対応完了なら未対応(false)
-                  return {
-                    ...st,
-                    isViewed: true,
-                    viewedAt: st.viewedAt || nowIso,
-                    isHandled: nextHandled,
-                    handledAt: nextHandled ? nowIso : undefined,
-                    handledByUserId: nextHandled ? user.id : undefined,
-                    handledByUserName: nextHandled ? user.name : undefined,
-                    status: nextHandled ? ('handled' as const) : ('read' as const),
-                  };
-                }
-                return st;
-              })
-            : [
-                {
-                  userId: user.id,
-                  userName: user.name || '',
-                  avatarUrl: user.avatarUrl || '',
-                  department: user.department || '',
-                  office: user.office || '',
-                  division: user.division || '',
-                  isViewed: true,
-                  viewedAt: nowIso,
-                  isHandled: currentlyUnhandled,
-                  handledAt: currentlyUnhandled ? nowIso : undefined,
-                  handledByUserId: currentlyUnhandled ? user.id : undefined,
-                  handledByUserName: currentlyUnhandled ? user.name : undefined,
-                  status: currentlyUnhandled ? ('handled' as const) : ('read' as const),
-                }
-              ];
+          const nextRecipientStatuses = statuses.map((st) => {
+            if (st.userId === user.id) {
+              return {
+                ...st,
+                isViewed: true,
+                viewedAt: st.viewedAt || nowIso,
+                isHandled: nextHandled,
+                handledAt: nextHandled ? nowIso : undefined,
+                handledByUserId: nextHandled ? user.id : undefined,
+                handledByUserName: nextHandled ? user.name : undefined,
+                status: nextHandled ? ('handled' as const) : ('read' as const),
+              };
+            }
+            return st;
+          });
 
           // 全員が対応完了しているかチェック
           const allHandled = nextRecipientStatuses.length > 0 && nextRecipientStatuses.every((s) => s.isHandled);

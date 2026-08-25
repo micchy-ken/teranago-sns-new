@@ -1563,6 +1563,194 @@ async function startServer() {
   });
 
   // ==========================================
+  // ユーザー情報・マイ設定 (Users & Preferences) API
+  // ==========================================
+  const usersPath = path.join(dataDir, 'users.json');
+
+  function loadUsers(): any[] {
+    if (!fs.existsSync(usersPath)) return [];
+    try {
+      return JSON.parse(fs.readFileSync(usersPath, 'utf8'));
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function saveUsers(users: any[]) {
+    fs.writeFileSync(usersPath, JSON.stringify(users, null, 2), 'utf8');
+  }
+
+  // ユーザー一覧取得 API
+  app.get(['/api/users', '/api/users/'], (req, res) => {
+    try {
+      const users = loadUsers();
+      res.json(users);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 単一ユーザー取得 API
+  app.get('/api/users/:id', (req, res) => {
+    try {
+      const users = loadUsers();
+      const user = users.find((u: any) => u.id === req.params.id);
+      if (!user) return res.status(404).json({ error: 'ユーザーが見つかりません' });
+      res.json(user);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ユーザー保存・更新 API (POST / PUT)
+  app.post(['/api/users', '/api/users/'], (req, res) => {
+    try {
+      const u = req.body;
+      if (!u || !u.id) {
+        return res.status(400).json({ error: 'ユーザーIDが必要です' });
+      }
+      const users = loadUsers();
+      const idx = users.findIndex((item: any) => item.id === u.id);
+      if (idx >= 0) {
+        users[idx] = { ...users[idx], ...u };
+      } else {
+        users.push(u);
+      }
+      saveUsers(users);
+      res.json({ success: true, user: users[idx >= 0 ? idx : users.length - 1] });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put('/api/users/:id', (req, res) => {
+    try {
+      const u = req.body;
+      u.id = req.params.id;
+      const users = loadUsers();
+      const idx = users.findIndex((item: any) => item.id === u.id);
+      if (idx >= 0) {
+        users[idx] = { ...users[idx], ...u };
+      } else {
+        users.push(u);
+      }
+      saveUsers(users);
+      res.json({ success: true, user: users[idx >= 0 ? idx : users.length - 1] });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 個人設定・通知設定の保存 API
+  app.put('/api/users/:id/preferences', (req, res) => {
+    try {
+      const userId = req.params.id;
+      const preferences = req.body;
+      const users = loadUsers();
+      const idx = users.findIndex((item: any) => item.id === userId);
+      if (idx >= 0) {
+        users[idx].preferences = preferences;
+        saveUsers(users);
+        res.json({ success: true, preferences, message: '個人設定・通知設定を保存しました。' });
+      } else {
+        const newUser = { id: userId, preferences };
+        users.push(newUser);
+        saveUsers(users);
+        res.json({ success: true, preferences, message: '個人設定・通知設定を保存しました。' });
+      }
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ==========================================
+  // 伝言メモ (Memos) API
+  // ==========================================
+  const memosPath = path.join(dataDir, 'memos.json');
+
+  function loadMemos(): any[] {
+    if (!fs.existsSync(memosPath)) {
+      return [];
+    }
+    try {
+      const raw = JSON.parse(fs.readFileSync(memosPath, 'utf8'));
+      return Array.isArray(raw) ? raw : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function saveMemos(memosList: any[]) {
+    try {
+      fs.writeFileSync(memosPath, JSON.stringify(memosList, null, 2), 'utf8');
+    } catch (e) {
+      console.error('Failed to save memos:', e);
+    }
+  }
+
+  // 伝言メモ一覧取得
+  app.get(['/api/memos', '/api/memos/'], (req, res) => {
+    try {
+      const memosList = loadMemos();
+      res.json(memosList);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 伝言メモ新規作成
+  app.post(['/api/memos', '/api/memos/'], (req, res) => {
+    try {
+      const memosList = loadMemos();
+      const newMemo = {
+        id: req.body.id || `memo-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+        ...req.body,
+        createdAt: req.body.createdAt || new Date().toISOString()
+      };
+      memosList.unshift(newMemo);
+      saveMemos(memosList);
+      res.status(201).json(newMemo);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 伝言メモ更新（ステータス変更等）
+  app.put('/api/memos/:id', (req, res) => {
+    try {
+      const memoId = req.params.id;
+      const memosList = loadMemos();
+      const idx = memosList.findIndex((m: any) => String(m.id) === String(memoId));
+      if (idx === -1) {
+        return res.status(404).json({ error: '伝言メモが見つかりません' });
+      }
+      memosList[idx] = {
+        ...memosList[idx],
+        ...req.body,
+        updatedAt: new Date().toISOString()
+      };
+      saveMemos(memosList);
+      res.json(memosList[idx]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 伝言メモ削除
+  app.delete('/api/memos/:id', (req, res) => {
+    try {
+      const memoId = req.params.id;
+      let memosList = loadMemos();
+      const beforeLen = memosList.length;
+      memosList = memosList.filter((m: any) => String(m.id) !== String(memoId));
+      saveMemos(memosList);
+      res.json({ success: true, deletedCount: beforeLen - memosList.length });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ==========================================
   // 日報・週報 (Work Reports / Daily Reports) API
   // ==========================================
   const workReportsPath = path.join(dataDir, 'work_reports.json');

@@ -336,6 +336,7 @@ export interface Memo {
   status: 'unread' | 'read' | 'handled'; // 全体ステータス
   createdAt: string;           // 作成日時 ISO string
   createdByUser?: User;        // 伝言受付作成者
+  senderId?: string;           // 作成者ID (DB互換)
 
   // 各対象者の閲覧・対応状況
   recipientStatuses: MemoUserRecipientStatus[];

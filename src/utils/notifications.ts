@@ -340,22 +340,29 @@ export function isMemoUnhandled(m: Memo, user: User): boolean {
   // 全体ステータスが対応済み(handled)なら未対応ではない
   if (m.status === 'handled') return false;
 
-  // recipientStatuses が存在する場合
+  // recipientStatuses が存在する場合（最も正確な宛先リスト）
   if (m.recipientStatuses && m.recipientStatuses.length > 0) {
     const userStatus = m.recipientStatuses.find((st) => st.userId === user.id);
-    if (userStatus && (userStatus.isHandled || userStatus.status === 'handled')) {
+    if (!userStatus) {
+      // 宛先リストに含まれていない第3者または作成者自身は未対応判定の対象外
       return false;
     }
+    return !userStatus.isHandled && userStatus.status !== 'handled';
   }
 
-  // 自分宛て判定
+  // 作成者自身で宛先でない場合は対象外
+  if ((m.createdByUser?.id === user.id || m.senderId === user.id) && (!m.toUsers || !m.toUsers.some((u) => u?.id === user.id))) {
+    return false;
+  }
+
+  // フォールバック: 自分宛て判定 (toUsers / toUser / targetOffices / targetDivisions)
   const isToUser =
     (m.toUsers && m.toUsers.some((u) => u?.id === user.id || u?.name === user.name)) ||
     (m.toUser && (m.toUser.id === user.id || m.toUser.name === user.name || (m.toUser.loginId && m.toUser.loginId === user.loginId))) ||
     (m.targetOffices && user.office && m.targetOffices.includes(user.office)) ||
     (m.targetDivisions && user.division && m.targetDivisions.includes(user.division));
 
-  return isToUser;
+  return !!isToUser;
 }
 
 /** 4. 伝言メモの未読(ベルマーク通知対象)判定 */

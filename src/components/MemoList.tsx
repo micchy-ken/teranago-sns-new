@@ -3,7 +3,7 @@ import { Memo, User, OfficeMaster, DivisionMaster, RequirementType, MemoUserReci
 import { getAvatarUrl } from '../utils/avatar';
 import { MemberSelector } from './MemberSelector';
 import { API_BASE_URL } from '../config/api';
-import { markMemoAsRead } from '../utils/notifications';
+import { markMemoAsRead, isMemoUnhandled } from '../utils/notifications';
 import { triggerPushNotification } from '../utils/pushNotifications';
 import { dispatchNotificationEmail } from '../utils/emailNotificationDispatcher';
 import { 
@@ -24,7 +24,9 @@ import {
   FileText,
   User as UserIcon,
   ArrowUpRight,
-  Trash2
+  Trash2,
+  Inbox,
+  Send
 } from 'lucide-react';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { renderContentWithLinks } from '../utils/renderContentWithLinks';
@@ -56,6 +58,7 @@ export function MemoList({
   onCloseCreateModal,
 }: MemoListProps) {
   const [memos, setMemos] = useState<Memo[]>(initialMemos);
+  const [scope, setScope] = useState<'inbox' | 'sent' | 'all'>('inbox');
   const [filter, setFilter] = useState<'all' | 'unread' | 'handled'>('unread');
   const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
 
@@ -108,10 +111,7 @@ export function MemoList({
       const target = initialMemos.find(m => m.id === initialMemoId);
       if (target) {
         processedInitialMemoIdRef.current = initialMemoId;
-        setDetailMemo(target);
-        if (currentUser?.id) {
-          markMemoAsRead(currentUser.id, target.id);
-        }
+        handleOpenDetail(target);
       }
     }
   }, [initialMemoId, initialMemos, currentUser?.id]);
@@ -143,41 +143,30 @@ export function MemoList({
     }
   };
 
-  // 閲覧日時の記録処理
+  // 閲覧日時の記録処理（自分が宛名メンバーの場合のみ閲覧日時を記録し、第3者を宛先に追加しない）
   const handleOpenDetail = (memo: Memo) => {
     const nowIso = new Date().toISOString();
     let updated = false;
 
-    // 自分の受領ステータスを既読(isViewed=true, viewedAt=now)にする
     const statuses = memo.recipientStatuses || [];
-    const updatedStatuses = statuses.map((st) => {
-      if (currentUser && st.userId === currentUser.id && !st.isViewed) {
-        updated = true;
-        return {
-          ...st,
-          isViewed: true,
-          viewedAt: nowIso,
-        };
-      }
-      return st;
-    });
+    const isRecipient = currentUser ? statuses.some((st) => st.userId === currentUser.id) : false;
 
-    // 宛先に含まれていなくてもログ用に追加・閲覧記録
-    const hasMyStatus = currentUser ? updatedStatuses.some((st) => st.userId === currentUser.id) : true;
-    if (currentUser && !hasMyStatus) {
-      updatedStatuses.push({
-        userId: currentUser.id,
-        userName: currentUser.name,
-        avatarUrl: currentUser.avatarUrl || '',
-        department: currentUser.department || '',
-        office: currentUser.office,
-        division: currentUser.division,
-        isViewed: true,
-        viewedAt: nowIso,
-        isHandled: false,
+    let updatedStatuses = statuses;
+    if (isRecipient && currentUser) {
+      updatedStatuses = statuses.map((st) => {
+        if (st.userId === currentUser.id && !st.isViewed) {
+          updated = true;
+          return {
+            ...st,
+            isViewed: true,
+            viewedAt: nowIso,
+          };
+        }
+        return st;
       });
-      updated = true;
     }
+
+    // ⚠️ 宛先に含まれていない第3者が閲覧しても、絶対に updatedStatuses に push しない！
 
     const newMemoState = updated
       ? { ...memo, recipientStatuses: updatedStatuses }
@@ -202,6 +191,9 @@ export function MemoList({
       if (m.id !== memoId) return m;
 
       const statuses = m.recipientStatuses || [];
+      const hasTarget = statuses.some((st) => st.userId === targetUserId);
+      if (!hasTarget) return m; // 宛先リストに存在しないユーザーの操作は無視
+
       const nextRecipientStatuses = statuses.map((st) => {
         if (st.userId === targetUserId) {
           const nextHandled = !st.isHandled;
@@ -240,6 +232,9 @@ export function MemoList({
 
   // 全体簡易トグル（自分の対応完了化）
   const handleToggleMyHandled = (memo: Memo) => {
+    const statuses = memo.recipientStatuses || [];
+    const isRecipient = statuses.some((st) => st.userId === currentUser.id);
+    if (!isRecipient) return;
     handleToggleUserHandled(memo.id, currentUser.id);
   };
 
@@ -431,18 +426,42 @@ export function MemoList({
   };
 
   // フィルタリング処理
-  const filteredMemos = memos.filter((m) => {
-    const myStatus = m.recipientStatuses?.find((st) => st.userId === currentUser.id);
-    const isHandledForMe = myStatus ? myStatus.isHandled : (m.status === 'handled');
+  const inboxUnhandledCount = memos.filter((m) => isMemoUnhandled(m, currentUser)).length;
+  const inboxTotalCount = memos.filter((m) => {
+    const statuses = m.recipientStatuses || [];
+    return statuses.some((st) => st.userId === currentUser?.id) ||
+      (m.toUsers && m.toUsers.some((u) => u.id === currentUser?.id)) ||
+      (m.toUser && m.toUser.id === currentUser?.id);
+  }).length;
+  const sentCount = memos.filter(
+    (m) => m.createdByUser?.id === currentUser?.id || m.senderId === currentUser?.id
+  ).length;
+  const allCount = memos.length;
 
-    // ステータスフィルター
+  const filteredMemos = memos.filter((m) => {
+    const statuses = m.recipientStatuses || [];
+    const isRecipient = statuses.some((st) => st.userId === currentUser?.id) ||
+      (m.toUsers && m.toUsers.some((u) => u.id === currentUser?.id)) ||
+      (m.toUser && m.toUser.id === currentUser?.id);
+    const isCreator = (m.createdByUser?.id === currentUser?.id || m.senderId === currentUser?.id);
+
+    // 1. スコープフィルター (自分宛て / 作成した伝言 / すべて)
+    if (scope === 'inbox' && !isRecipient) return false;
+    if (scope === 'sent' && !isCreator) return false;
+
+    // 2. ステータスフィルター
+    const myStatus = statuses.find((st) => st.userId === currentUser?.id);
+    const isHandledForMe = isRecipient
+      ? (myStatus ? myStatus.isHandled : m.status === 'handled')
+      : (m.status === 'handled' || (statuses.length > 0 && statuses.every((s) => s.isHandled)));
+
     if (filter === 'unread' && isHandledForMe) return false;
     if (filter === 'handled' && !isHandledForMe) return false;
 
-    // 拠点フィルター
+    // 3. 拠点フィルター
     if (selectedOfficeFilter !== 'all') {
       const matchOffice = m.targetOffices?.includes(selectedOfficeFilter);
-      const matchUserOffice = (m.recipientStatuses || []).some((st) => st.office === selectedOfficeFilter);
+      const matchUserOffice = statuses.some((st) => st.office === selectedOfficeFilter);
       if (!matchOffice && !matchUserOffice) return false;
     }
 
@@ -452,63 +471,120 @@ export function MemoList({
   return (
     <div className="flex-1 bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden flex flex-col h-[calc(100vh-8rem)]">
       {/* 伝言メモ ヘッダー */}
-      <div className="p-4 sm:p-5 border-b border-slate-200 bg-slate-50/80 shrink-0 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex gap-1 p-1 bg-slate-200/60 rounded-xl">
+      <div className="p-4 sm:p-5 border-b border-slate-200 bg-slate-50/80 shrink-0 space-y-3">
+        {/* 上段: スコープタブ (自分宛て / 作成した伝言 / 全体共有) & 新規作成ボタン */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-1.5 p-1 bg-slate-200/80 rounded-xl">
             <button
-              onClick={() => setFilter('unread')}
-              className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                filter === 'unread' ? 'bg-white text-slate-800 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              onClick={() => setScope('inbox')}
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                scope === 'inbox'
+                  ? 'bg-white text-indigo-700 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              未対応・進行中
+              <Inbox className="w-4 h-4 text-indigo-600" />
+              <span>自分宛て（受信）</span>
+              {inboxUnhandledCount > 0 ? (
+                <span className="px-1.5 py-0.2 bg-rose-500 text-white text-[10px] font-extrabold rounded-full animate-pulse">
+                  {inboxUnhandledCount}
+                </span>
+              ) : (
+                <span className="text-[10px] font-medium text-slate-400">({inboxTotalCount})</span>
+              )}
             </button>
+
             <button
-              onClick={() => setFilter('handled')}
-              className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                filter === 'handled' ? 'bg-white text-slate-800 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              onClick={() => setScope('sent')}
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                scope === 'sent'
+                  ? 'bg-white text-indigo-700 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              対応完了
+              <Send className="w-3.5 h-3.5 text-indigo-600" />
+              <span>作成した伝言（送信）</span>
+              <span className="text-[10px] font-medium text-slate-400">({sentCount})</span>
             </button>
+
             <button
-              onClick={() => setFilter('all')}
-              className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                filter === 'all' ? 'bg-white text-slate-800 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              onClick={() => setScope('all')}
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                scope === 'all'
+                  ? 'bg-white text-indigo-700 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              すべて表示
+              <Users className="w-3.5 h-3.5 text-indigo-600" />
+              <span>すべての伝言（共有）</span>
+              <span className="text-[10px] font-medium text-slate-400">({allCount})</span>
             </button>
           </div>
 
-          <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg px-2.5 py-1 text-xs font-bold text-slate-700">
-            <Building2 className="w-3.5 h-3.5 text-slate-400" />
-            <span>拠点絞り込み:</span>
-            <select
-              value={selectedOfficeFilter}
-              onChange={(e) => setSelectedOfficeFilter(e.target.value)}
-              className="bg-transparent font-bold focus:outline-none cursor-pointer"
-            >
-              <option value="all">すべての拠点</option>
-              {offices.map((off) => (
-                <option key={off.id} value={off.name}>
-                  {off.name}
-                </option>
-              ))}
-            </select>
-          </div>
+          <button
+            onClick={() => {
+              setFormError(null);
+              setIsCreateOpen(true);
+            }}
+            className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-sm cursor-pointer ml-auto"
+          >
+            <Plus className="w-4 h-4" />
+            新規伝言メモを作成
+          </button>
         </div>
 
-        <button
-          onClick={() => {
-            setFormError(null);
-            setIsCreateOpen(true);
-          }}
-          className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-sm cursor-pointer"
-        >
-          <Plus className="w-4 h-4" />
-          新規伝言メモを作成
-        </button>
+        {/* 下段: サブステータスフィルター & 拠点絞り込み */}
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex gap-1 p-0.5 bg-slate-200/50 rounded-lg border border-slate-200/60">
+              <button
+                onClick={() => setFilter('unread')}
+                className={`px-3 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${
+                  filter === 'unread' ? 'bg-white text-slate-800 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                未対応・進行中
+              </button>
+              <button
+                onClick={() => setFilter('handled')}
+                className={`px-3 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${
+                  filter === 'handled' ? 'bg-white text-slate-800 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                対応完了
+              </button>
+              <button
+                onClick={() => setFilter('all')}
+                className={`px-3 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${
+                  filter === 'all' ? 'bg-white text-slate-800 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                すべて表示
+              </button>
+            </div>
+
+            <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg px-2.5 py-1 text-xs font-bold text-slate-700">
+              <Building2 className="w-3.5 h-3.5 text-slate-400" />
+              <span>拠点絞り込み:</span>
+              <select
+                value={selectedOfficeFilter}
+                onChange={(e) => setSelectedOfficeFilter(e.target.value)}
+                className="bg-transparent font-bold focus:outline-none cursor-pointer"
+              >
+                <option value="all">すべての拠点</option>
+                {offices.map((off) => (
+                  <option key={off.id} value={off.name}>
+                    {off.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="text-xs text-slate-400 font-medium">
+            該当: <span className="font-bold text-slate-700">{filteredMemos.length}</span> 件
+          </div>
+        </div>
       </div>
 
       {/* 伝言メモ 一覧カード表示 */}
@@ -517,24 +593,33 @@ export function MemoList({
           {filteredMemos.length > 0 ? (
             filteredMemos.map((memo) => {
               const reqBadge = getRequirementLabel(memo);
-              const myStatus = memo.recipientStatuses.find((st) => st.userId === currentUser.id);
+              const statuses = memo.recipientStatuses || [];
+              const isRecipient = statuses.some((st) => st.userId === currentUser.id);
+              const myStatus = statuses.find((st) => st.userId === currentUser.id);
               const isHandled = myStatus ? myStatus.isHandled : (memo.status === 'handled');
-              const viewedCount = memo.recipientStatuses.filter((s) => s.isViewed).length;
-              const handledCount = memo.recipientStatuses.filter((s) => s.isHandled).length;
-              const totalRecipients = memo.recipientStatuses.length;
+              const isCreator = memo.createdByUser?.id === currentUser?.id || memo.senderId === currentUser?.id;
+              const viewedCount = statuses.filter((s) => s.isViewed).length;
+              const handledCount = statuses.filter((s) => s.isHandled).length;
+              const totalRecipients = statuses.length;
 
               return (
                 <div
                   key={memo.id}
                   className={`bg-white border rounded-2xl p-5 shadow-2xs hover:shadow-md transition-all flex flex-col sm:flex-row gap-4 items-start relative overflow-hidden ${
-                    memo.status === 'unread'
+                    isRecipient && !isHandled
+                      ? 'border-l-4 border-l-rose-500 border-slate-200 ring-1 ring-rose-500/20'
+                      : memo.status === 'unread'
                       ? 'border-l-4 border-l-amber-500 border-slate-200'
                       : 'border-slate-200 opacity-90'
                   }`}
                 >
                   <div
                     className={`p-3 rounded-2xl shrink-0 ${
-                      memo.status === 'unread' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'
+                      isRecipient && !isHandled
+                        ? 'bg-rose-100 text-rose-700'
+                        : memo.status === 'unread'
+                        ? 'bg-amber-100 text-amber-700'
+                        : 'bg-slate-100 text-slate-500'
                     }`}
                   >
                     <Phone className="w-6 h-6" />
@@ -549,6 +634,26 @@ export function MemoList({
                           >
                             {reqBadge.text}
                           </span>
+
+                          {isRecipient ? (
+                            !isHandled ? (
+                              <span className="px-2 py-0.5 bg-rose-500 text-white font-extrabold text-[10px] rounded-full flex items-center gap-1 shadow-2xs">
+                                <Clock className="w-3 h-3" /> あなた宛 (未対応)
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 font-extrabold text-[10px] rounded-full flex items-center gap-1 border border-emerald-200">
+                                <Check className="w-3 h-3 text-emerald-600" /> 対応完了
+                              </span>
+                            )
+                          ) : isCreator ? (
+                            <span className="px-2 py-0.5 bg-indigo-100 text-indigo-800 font-extrabold text-[10px] rounded-full flex items-center gap-1 border border-indigo-200">
+                              あなたが受付・登録
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 bg-slate-100 text-slate-600 font-bold text-[10px] rounded-full flex items-center gap-1 border border-slate-200">
+                              閲覧専用
+                            </span>
+                          )}
 
                           <span className="text-xs text-slate-400 font-mono">
                             {new Date(memo.createdAt).toLocaleString('ja-JP')}
@@ -567,17 +672,19 @@ export function MemoList({
                       </div>
 
                       <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => handleToggleMyHandled(memo)}
-                          className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition-all cursor-pointer flex items-center gap-1 ${
-                            isHandled
-                              ? 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
-                              : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
-                          }`}
-                        >
-                          <Check className="w-3.5 h-3.5" />
-                          {isHandled ? '未対応に戻す' : '対応済にする'}
-                        </button>
+                        {isRecipient && (
+                          <button
+                            onClick={() => handleToggleMyHandled(memo)}
+                            className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition-all cursor-pointer flex items-center gap-1 ${
+                              isHandled
+                                ? 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
+                                : 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700 shadow-xs'
+                            }`}
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            {isHandled ? '未対応に戻す' : '対応済にする'}
+                          </button>
+                        )}
 
                         <button
                           onClick={() => handleOpenDetail(memo)}
@@ -587,14 +694,16 @@ export function MemoList({
                           詳細・ログ
                         </button>
 
-                        <button
-                          onClick={() => handleDeleteMemoClick(memo.id)}
-                          className="px-3 py-1.5 text-xs font-bold bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
-                          title="削除する"
-                        >
-                          <Trash2 className="w-3.5 h-3.5 text-rose-600" />
-                          削除
-                        </button>
+                        {(isCreator || currentUser?.role === 'admin') && (
+                          <button
+                            onClick={() => handleDeleteMemoClick(memo.id)}
+                            className="px-3 py-1.5 text-xs font-bold bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
+                            title="削除する"
+                          >
+                            <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                            削除
+                          </button>
+                        )}
                       </div>
                     </div>
 
@@ -616,10 +725,26 @@ export function MemoList({
                         </span>
                       )}
 
-                      {memo.toUsers && memo.toUsers.length > 0 && (
-                        <span className="bg-indigo-100 text-indigo-900 text-[11px] font-bold px-2 py-0.5 rounded">
-                          個人: {memo.toUsers.map((u) => u.name).join(', ')}
-                        </span>
+                      {statuses.length > 0 ? (
+                        statuses.map((st) => (
+                          <span
+                            key={st.userId}
+                            className={`text-[11px] font-bold px-2 py-0.5 rounded inline-flex items-center gap-1 ${
+                              st.userId === currentUser.id
+                                ? 'bg-indigo-600 text-white'
+                                : 'bg-indigo-50 text-indigo-900 border border-indigo-200'
+                            }`}
+                          >
+                            {st.userName}
+                            {st.isHandled && <Check className="w-3 h-3 text-emerald-400" />}
+                          </span>
+                        ))
+                      ) : (
+                        memo.toUsers && memo.toUsers.length > 0 && (
+                          <span className="bg-indigo-100 text-indigo-900 text-[11px] font-bold px-2 py-0.5 rounded">
+                            {memo.toUsers.map((u) => u.name).join(', ')}
+                          </span>
+                        )
                       )}
                     </div>
 
@@ -673,9 +798,17 @@ export function MemoList({
           ) : (
             <div className="text-center py-16 bg-white rounded-2xl border border-slate-200 shadow-2xs">
               <Phone className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-              <h3 className="text-slate-800 font-bold text-sm mb-1">表示できる伝言メモがありません</h3>
+              <h3 className="text-slate-800 font-bold text-sm mb-1">
+                {scope === 'inbox'
+                  ? 'あなた宛ての伝言メモはありません'
+                  : scope === 'sent'
+                  ? 'あなたが作成した伝言メモはありません'
+                  : '表示できる伝言メモがありません'}
+              </h3>
               <p className="text-slate-500 text-xs">
-                条件を変更するか、「新規伝言メモを作成」から伝言を投稿してください。
+                {scope === 'inbox'
+                  ? '新しい伝言メモが届くとここに表示されます。'
+                  : '上部の「新規伝言メモを作成」から宛先を指定してメッセージを登録できます。'}
               </p>
             </div>
           )}
@@ -1027,18 +1160,34 @@ export function MemoList({
                         <div className="text-[11px] min-w-[120px]">
                           <div className="font-bold text-slate-500">対応状況</div>
                           {st.isHandled ? (
-                            <span className="text-indigo-600 font-bold flex items-center gap-1 justify-end">
-                              <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600" />
-                              {st.handledAt ? new Date(st.handledAt).toLocaleString('ja-JP') : '対応完了'}
-                            </span>
+                            <div className="flex items-center gap-1.5 justify-end">
+                              <span className="text-emerald-600 font-bold flex items-center gap-1">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                {st.handledAt ? new Date(st.handledAt).toLocaleString('ja-JP') : '対応完了'}
+                              </span>
+                              {(st.userId === currentUser.id || detailMemo.createdByUser?.id === currentUser.id || currentUser.role === 'admin') && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleUserHandled(detailMemo.id, st.userId)}
+                                  className="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded text-[10px] font-bold transition-colors cursor-pointer"
+                                  title="未対応に戻す"
+                                >
+                                  戻す
+                                </button>
+                              )}
+                            </div>
                           ) : (
-                            <button
-                              type="button"
-                              onClick={() => handleToggleUserHandled(detailMemo.id, st.userId)}
-                              className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded-lg font-bold text-[10px] transition-colors cursor-pointer"
-                            >
-                              対応完了にする
-                            </button>
+                            (st.userId === currentUser.id || detailMemo.createdByUser?.id === currentUser.id || currentUser.role === 'admin') ? (
+                              <button
+                                type="button"
+                                onClick={() => handleToggleUserHandled(detailMemo.id, st.userId)}
+                                className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded-lg font-bold text-[10px] transition-colors cursor-pointer"
+                              >
+                                対応完了にする
+                              </button>
+                            ) : (
+                              <span className="text-amber-600 font-bold">未対応</span>
+                            )
                           )}
                         </div>
                       </div>
@@ -1049,14 +1198,18 @@ export function MemoList({
 
               {/* フッター */}
               <div className="flex items-center justify-between pt-4 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => handleDeleteMemoClick(detailMemo.id)}
-                  className="px-4 py-2 text-xs font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-xl transition-colors cursor-pointer flex items-center gap-1.5"
-                >
-                  <Trash2 className="w-4 h-4 text-rose-500" />
-                  この伝言メモを削除
-                </button>
+                {(detailMemo.createdByUser?.id === currentUser.id || currentUser.role === 'admin') ? (
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteMemoClick(detailMemo.id)}
+                    className="px-4 py-2 text-xs font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-xl transition-colors cursor-pointer flex items-center gap-1.5"
+                  >
+                    <Trash2 className="w-4 h-4 text-rose-500" />
+                    この伝言メモを削除
+                  </button>
+                ) : (
+                  <div />
+                )}
 
                 <button
                   type="button"
