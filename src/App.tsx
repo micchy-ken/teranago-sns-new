@@ -16,7 +16,22 @@ import { AdminPanel } from './components/AdminPanel';
 import { LoginScreen } from './components/LoginScreen';
 import FileManager from './components/FileManager';
 import { Post, CalendarEvent, WorkflowApplication, User, OfficeMaster, DivisionMaster, PositionMaster, BoardTopic, ChatRoom, ApprovalFlowRule, ApprovalStepConfig, ItemMaster, ApplicationStatus, DailyReport, Memo } from './types';
-import { syncUserReadStatusesFromServer, isMemoUnread, markMemoAsRead, markMemoAsUnread, markEventAsRead, markTopicAsRead } from './utils/notifications';
+import { 
+  syncUserReadStatusesFromServer, 
+  isMemoUnread, 
+  isTopicUnread, 
+  isWorkflowUnread, 
+  isEventUnread, 
+  isReportUnread, 
+  isChatUnread, 
+  markMemoAsRead, 
+  markMemoAsUnread, 
+  markEventAsRead, 
+  markTopicAsRead, 
+  markWorkflowAsRead, 
+  markReportAsRead, 
+  markChatRoomAsRead 
+} from './utils/notifications';
 import { triggerPushNotification } from './utils/pushNotifications';
 import { deleteAttachmentFiles } from './utils/fileUpload';
 import { TopicDetailModal } from './components/TopicDetailModal';
@@ -166,6 +181,10 @@ export default function App() {
 
       const found = expanded.find(e => e.id === target.eventId || e.recurrenceParentId === target.eventId);
       if (found) {
+        if (userState?.id) {
+          markEventAsRead(userState.id, found.id);
+          if (found.recurrenceParentId) markEventAsRead(userState.id, found.recurrenceParentId);
+        }
         setGlobalSelectedEvent(found);
         return; // 画面遷移せずにポップアップ
       }
@@ -174,6 +193,7 @@ export default function App() {
     if (target.topicId) {
       const found = topics.find(t => t.id === target.topicId);
       if (found) {
+        if (userState?.id) markTopicAsRead(userState.id, found.id);
         setGlobalSelectedTopic(found);
         return; // 画面遷移せずにポップアップ
       }
@@ -182,6 +202,7 @@ export default function App() {
     if (target.memoId) {
       const found = memos.find(m => m.id === target.memoId);
       if (found) {
+        if (userState?.id) markMemoAsRead(userState.id, found.id);
         setGlobalSelectedMemo(found);
         return; // 画面遷移せずにポップアップ
       }
@@ -190,6 +211,7 @@ export default function App() {
     if (target.reportId) {
       const found = reports.find(r => r.id === target.reportId || String(r.id) === String(target.reportId));
       if (found) {
+        if (userState?.id) markReportAsRead(userState.id, found.id);
         setGlobalSelectedReport(found);
         return; // 画面遷移せずにポップアップ
       }
@@ -504,6 +526,43 @@ export default function App() {
   const [reports, setReports] = useState<DailyReport[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
+
+  // 対象画面（タブ）を開いたタイミングで、その機能に関連する未読通知を自動既読化してベルマークのバッジ数を即座に更新
+  useEffect(() => {
+    if (!userState?.id || !isAuthenticated) return;
+
+    if (activeTab === 'memo') {
+      const unreadMemos = memos.filter((m) => isMemoUnread(m, userState));
+      if (unreadMemos.length > 0) {
+        unreadMemos.forEach((m) => markMemoAsRead(userState.id, m.id));
+      }
+    } else if (activeTab === 'board') {
+      const unreadTopics = topics.filter((t) => isTopicUnread(t, userState));
+      if (unreadTopics.length > 0) {
+        unreadTopics.forEach((t) => markTopicAsRead(userState.id, t.id));
+      }
+    } else if (activeTab === 'workflow') {
+      const unreadWorkflows = applications.filter((app) => isWorkflowUnread(app, userState));
+      if (unreadWorkflows.length > 0) {
+        unreadWorkflows.forEach((app) => markWorkflowAsRead(userState.id, app.id));
+      }
+    } else if (activeTab === 'calendar' || activeTab === 'inspection_scheduler') {
+      const unreadEvents = events.filter((e) => isEventUnread(e, userState));
+      if (unreadEvents.length > 0) {
+        unreadEvents.forEach((e) => markEventAsRead(userState.id, e.id));
+      }
+    } else if (activeTab === 'daily_report') {
+      const unreadReports = reports.filter((r) => isReportUnread(r, userState));
+      if (unreadReports.length > 0) {
+        unreadReports.forEach((r) => markReportAsRead(userState.id, r.id));
+      }
+    } else if (activeTab === 'chat') {
+      const unreadRooms = chatRooms.filter((r) => isChatUnread(r, userState));
+      if (unreadRooms.length > 0) {
+        unreadRooms.forEach((r) => markChatRoomAsRead(userState.id, r.id));
+      }
+    }
+  }, [activeTab, userState, isAuthenticated, memos, topics, applications, events, reports, chatRooms]);
 
   const refetchEvents = async (currentUsers = usersList) => {
     try {

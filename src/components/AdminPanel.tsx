@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { RECOMMEND_SERVER_JS } from './RecommendServerCode';
 import { getAvatarUrl, SILHOUETTE_SVG } from '../utils/avatar';
@@ -40,7 +40,8 @@ import {
   Activity,
   Server,
   Copy,
-  Check
+  Check,
+  Send
 } from 'lucide-react';
 import { User, OfficeMaster, DivisionMaster, PositionMaster, OfficeType, ApprovalFlowRule, ApprovalStepConfig, ApplicationType, ApproverType, ItemMaster, WorkflowApplication, ApplicationStatus } from '../types';
 
@@ -126,9 +127,66 @@ export function AdminPanel({
   const [diagnosticLogs, setDiagnosticLogs] = useState<string[]>([]);
   const [diagnosticStatus, setDiagnosticStatus] = useState<'idle' | 'success' | 'warning' | 'error'>('idle');
   const [copySuccess, setCopySuccess] = useState<Record<string, boolean>>({});
-  const [systemActiveSection, setSystemActiveSection] = useState<'diagnostics' | 'database' | 'server_code'>('diagnostics');
+  const [systemActiveSection, setSystemActiveSection] = useState<'diagnostics' | 'database' | 'server_code' | 'email'>('email');
   const [selectedSystemTable, setSelectedSystemTable] = useState('dbo.Users');
   const [isServerCodeUpdated, setIsServerCodeUpdated] = useState(true);
+
+  // メールテスト送信用の状態
+  const [testCustomEmail, setTestCustomEmail] = useState('');
+  const [testCustomRecipientName, setTestCustomRecipientName] = useState('');
+  const [testEmailSendingKey, setTestEmailSendingKey] = useState<string | null>(null);
+  const [testEmailResult, setTestEmailResult] = useState<{ success?: boolean; message?: string; error?: string } | null>(null);
+  const [smtpConfigInfo, setSmtpConfigInfo] = useState<{ host?: string; port?: number; user?: string; fromEmail?: string; fromName?: string; isConfigured?: boolean } | null>(null);
+
+  const handleFetchSmtpConfig = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/email/config`);
+      if (res.ok) {
+        const data = await res.json();
+        setSmtpConfigInfo(data);
+      }
+    } catch (e) {
+      console.error('Failed to fetch SMTP config', e);
+    }
+  };
+
+  useEffect(() => {
+    handleFetchSmtpConfig();
+  }, []);
+
+  const handleSendTestEmail = async (targetEmail: string, recipientName?: string, keyId?: string) => {
+    if (!targetEmail || !targetEmail.trim()) {
+      setTestEmailResult({ error: 'メールアドレスが設定されていません。' });
+      return;
+    }
+    const sendKey = keyId || targetEmail;
+    setTestEmailSendingKey(sendKey);
+    setTestEmailResult(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/email/test`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: targetEmail.trim(), recipientName })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setTestEmailResult({
+          success: true,
+          message: data.message || `${targetEmail} へテストメールを送信しました。`
+        });
+      } else {
+        setTestEmailResult({
+          error: data.error || 'テストメールの送信に失敗しました。'
+        });
+      }
+    } catch (err: any) {
+      setTestEmailResult({
+        error: '通信エラー: ' + (err.message || 'メール送信処理に失敗しました。')
+      });
+    } finally {
+      setTestEmailSendingKey(null);
+    }
+  };
 
   // Modal State for Item Master (品名マスタ)
   const [isItemModalOpen, setIsItemModalOpen] = useState(false);
@@ -1398,10 +1456,18 @@ export function AdminPanel({
                       </div>
 
                       <div className="flex flex-wrap items-center gap-x-4 text-xs text-slate-500 pt-1">
+                        {user.mobileEmail ? (
+                          <span className="flex items-center gap-1 font-mono text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">
+                            <Smartphone className="w-3 h-3 text-indigo-500" />
+                            携帯: {user.mobileEmail}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 text-[11px]">携帯: 未設定</span>
+                        )}
                         {user.email && (
-                          <span className="flex items-center gap-1">
+                          <span className="flex items-center gap-1 font-mono">
                             <Mail className="w-3 h-3 text-slate-400" />
-                            {user.email}
+                            PC: {user.email}
                           </span>
                         )}
                         {user.phone && (
@@ -1415,7 +1481,19 @@ export function AdminPanel({
                   </div>
 
                   {/* Action Buttons */}
-                  <div className="flex items-center gap-2 self-end md:self-center shrink-0">
+                  <div className="flex flex-wrap items-center gap-2 self-end md:self-center shrink-0">
+                    {user.mobileEmail && (
+                      <button
+                        type="button"
+                        disabled={testEmailSendingKey === `user-mob-${user.id}`}
+                        onClick={() => handleSendTestEmail(user.mobileEmail!, user.name, `user-mob-${user.id}`)}
+                        title="このメンバーの携帯メールへテスト送信"
+                        className="px-2.5 py-1.5 rounded-lg text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                      >
+                        <Smartphone className="w-3.5 h-3.5 text-indigo-600" />
+                        {testEmailSendingKey === `user-mob-${user.id}` ? '送信中...' : '携帯宛テスト送信'}
+                      </button>
+                    )}
                     <button
                       onClick={() => onToggleUserAdmin(user.id)}
                       title="管理者権限切り替え"
@@ -1997,7 +2075,18 @@ export function AdminPanel({
             </div>
 
             {/* Sub-section Navigation */}
-            <div className="flex flex-wrap gap-1 mt-6 p-1 bg-slate-50 rounded-xl border border-slate-200/60 max-w-2xl">
+            <div className="flex flex-wrap gap-1 mt-6 p-1 bg-slate-50 rounded-xl border border-slate-200/60 max-w-3xl">
+              <button
+                onClick={() => setSystemActiveSection('email')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                  systemActiveSection === 'email'
+                    ? 'bg-white text-indigo-600 shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Mail className="w-4 h-4 text-indigo-500" />
+                <span>📧 メール通知設定 & テスト送信</span>
+              </button>
               <button
                 onClick={() => setSystemActiveSection('diagnostics')}
                 className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
@@ -2038,6 +2127,277 @@ export function AdminPanel({
                 )}
               </button>
             </div>
+
+            {/* SECTION: EMAIL NOTIFICATION SETTINGS & TEST */}
+            {systemActiveSection === 'email' && (
+              <div className="mt-6 space-y-6">
+                {/* SMTP 設定状況概要カード */}
+                <div className="bg-gradient-to-r from-slate-900 to-indigo-950 text-white rounded-2xl p-5 shadow-sm space-y-4">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-indigo-900/60 pb-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-2 bg-indigo-600/30 rounded-xl border border-indigo-500/30">
+                        <Mail className="w-5 h-5 text-indigo-300" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-sm text-white flex items-center gap-2">
+                          SMTP メールサーバー設定状況
+                          <span className="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full font-normal">
+                            .env 設定適用済み
+                          </span>
+                        </h4>
+                        <p className="text-xs text-indigo-200/70 mt-0.5">
+                          システム全体のメール通知（スケジュール・伝言メモ・ワークフロー等）に使用されるSMTP設定です。
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={handleFetchSmtpConfig}
+                      className="text-xs bg-indigo-800/60 hover:bg-indigo-700 text-indigo-100 px-3 py-1.5 rounded-lg border border-indigo-600/40 flex items-center gap-1.5 transition-colors"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      設定を更新
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                    <div className="bg-white/5 backdrop-blur-xs p-3 rounded-xl border border-white/10 space-y-1">
+                      <span className="text-indigo-300 font-medium block">送信サーバー (SMTP)</span>
+                      <span className="font-mono font-bold text-white text-sm block">
+                        {smtpConfigInfo?.host || '111.89.134.68'}
+                      </span>
+                      <span className="text-[10px] text-slate-400">ポート: {smtpConfigInfo?.port || 587} (暗号化: TLS/STARTTLS)</span>
+                    </div>
+
+                    <div className="bg-white/5 backdrop-blur-xs p-3 rounded-xl border border-white/10 space-y-1">
+                      <span className="text-indigo-300 font-medium block">認証ユーザー</span>
+                      <span className="font-mono font-bold text-white text-sm block">
+                        {smtpConfigInfo?.user || 'nagoya-soumu2'}
+                      </span>
+                      <span className="text-[10px] text-slate-400">認証方式: SMTP認証</span>
+                    </div>
+
+                    <div className="bg-white/5 backdrop-blur-xs p-3 rounded-xl border border-white/10 space-y-1">
+                      <span className="text-indigo-300 font-medium block">差出人アドレス</span>
+                      <span className="font-mono font-bold text-white text-xs truncate block">
+                        {smtpConfigInfo?.fromEmail || 'nagoya-soumu2@teraoka-ads.co.jp'}
+                      </span>
+                      <span className="text-[10px] text-slate-400 truncate block">
+                        名義: {smtpConfigInfo?.fromName || 'Aipo送信用'}
+                      </span>
+                    </div>
+
+                    <div className="bg-white/5 backdrop-blur-xs p-3 rounded-xl border border-white/10 space-y-1">
+                      <span className="text-indigo-300 font-medium block">接続ステータス</span>
+                      <span className="font-bold text-emerald-400 text-xs flex items-center gap-1.5 mt-1">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                        通信準備完了
+                      </span>
+                      <span className="text-[10px] text-slate-400">SMTPクライアント有効</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* メール送信テスト結果通知トースト/メッセージ */}
+                {testEmailResult && (
+                  <div className={`p-4 rounded-xl border flex items-start gap-3 shadow-xs transition-all ${
+                    testEmailResult.success 
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-800' 
+                      : 'bg-rose-50 border-rose-200 text-rose-800'
+                  }`}>
+                    {testEmailResult.success ? (
+                      <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                    ) : (
+                      <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+                    )}
+                    <div className="space-y-1 text-xs">
+                      <span className="font-bold block">
+                        {testEmailResult.success ? 'テストメール送信完了' : '送信エラー'}
+                      </span>
+                      <p className="leading-relaxed">
+                        {testEmailResult.message || testEmailResult.error}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* 1. 管理者に登録されたユーザーの携帯メールへのテスト送信セクション */}
+                <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-5 space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                    <div>
+                      <h4 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+                        <ShieldCheck className="w-4 h-4 text-indigo-600" />
+                        管理者宛テストメール送信
+                      </h4>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        システム管理者に指定されているメンバー（およびその携帯メールアドレス）へワンクリックでテストメールを送信します。
+                      </p>
+                    </div>
+                    <span className="text-xs font-semibold px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-lg border border-indigo-100 self-start sm:self-auto">
+                      管理者数: {allUsers.filter(u => u.isAdmin).length} 名
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {allUsers.filter(u => u.isAdmin).length === 0 ? (
+                      <div className="col-span-2 text-center py-6 text-slate-400 text-xs">
+                        管理者に指定されているユーザーがありません。「メンバー管理」より管理者を指定してください。
+                      </div>
+                    ) : (
+                      allUsers.filter(u => u.isAdmin).map((adminUser) => {
+                        const hasMobileEmail = !!adminUser.mobileEmail?.trim();
+                        const hasEmail = !!adminUser.email?.trim();
+
+                        return (
+                          <div key={adminUser.id} className="p-4 bg-slate-50 rounded-xl border border-slate-200/80 space-y-3 flex flex-col justify-between">
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2.5">
+                                  <img
+                                    src={getAvatarUrl(adminUser.avatarUrl)}
+                                    alt={adminUser.name}
+                                    className="w-9 h-9 rounded-full object-cover border border-slate-200 shadow-xs"
+                                  />
+                                  <div>
+                                    <div className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                                      {adminUser.name}
+                                      <span className="bg-indigo-600 text-white text-[10px] px-1.5 py-0.2 rounded font-normal">管理者</span>
+                                    </div>
+                                    <div className="text-[10px] text-slate-500">
+                                      {[adminUser.office, adminUser.division, adminUser.position].filter(Boolean).join(' / ')}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="space-y-1 text-xs pt-1 border-t border-slate-200/60 font-mono">
+                                <div className="flex items-center justify-between text-[11px]">
+                                  <span className="text-slate-500 flex items-center gap-1 font-sans">
+                                    <Smartphone className="w-3.5 h-3.5 text-indigo-500" />
+                                    携帯メール:
+                                  </span>
+                                  <span className={hasMobileEmail ? 'text-slate-800 font-semibold' : 'text-slate-400 italic font-sans'}>
+                                    {hasMobileEmail ? adminUser.mobileEmail : '未登録'}
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between text-[11px]">
+                                  <span className="text-slate-500 flex items-center gap-1 font-sans">
+                                    <Mail className="w-3.5 h-3.5 text-slate-400" />
+                                    PCメール:
+                                  </span>
+                                  <span className={hasEmail ? 'text-slate-700' : 'text-slate-400 italic font-sans'}>
+                                    {hasEmail ? adminUser.email : '未登録'}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="pt-2 flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                disabled={!hasMobileEmail || testEmailSendingKey === `mobile-${adminUser.id}`}
+                                onClick={() => handleSendTestEmail(adminUser.mobileEmail!, adminUser.name, `mobile-${adminUser.id}`)}
+                                className="flex-1 min-w-[140px] px-3 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-200 disabled:text-slate-400 text-white text-xs font-bold rounded-lg shadow-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:cursor-not-allowed"
+                              >
+                                <Smartphone className="w-3.5 h-3.5" />
+                                {testEmailSendingKey === `mobile-${adminUser.id}` ? (
+                                  <>
+                                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                    送信中...
+                                  </>
+                                ) : (
+                                  '📱 携帯メールへテスト送信'
+                                )}
+                              </button>
+
+                              {hasEmail && (
+                                <button
+                                  type="button"
+                                  disabled={testEmailSendingKey === `pc-${adminUser.id}`}
+                                  onClick={() => handleSendTestEmail(adminUser.email!, adminUser.name, `pc-${adminUser.id}`)}
+                                  className="px-3 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:cursor-not-allowed"
+                                >
+                                  <Mail className="w-3.5 h-3.5 text-slate-500" />
+                                  {testEmailSendingKey === `pc-${adminUser.id}` ? '送信中...' : 'PC宛送信'}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+
+                {/* 2. 任意のメールアドレス宛への自由テスト送信フォーム */}
+                <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-5 space-y-4">
+                  <div>
+                    <h4 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+                      <Send className="w-4 h-4 text-indigo-600" />
+                      指定メールアドレスへの直接テスト送信
+                    </h4>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      任意のメールアドレス（docomo, au, SoftBank, Y!mobile, Gmail等のキャリア携帯メールを含む）を入力してテスト送信を実行できます。
+                    </p>
+                  </div>
+
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      handleSendTestEmail(testCustomEmail, testCustomRecipientName, 'custom-form');
+                    }}
+                    className="space-y-3 bg-slate-50 p-4 rounded-xl border border-slate-200/80"
+                  >
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">
+                          宛先メールアドレス <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          type="email"
+                          required
+                          placeholder="例: user@docomo.ne.jp / admin@example.com"
+                          value={testCustomEmail}
+                          onChange={(e) => setTestCustomEmail(e.target.value)}
+                          className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">
+                          宛先お名前（任意）
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="例: 山道 健介"
+                          value={testCustomRecipientName}
+                          onChange={(e) => setTestCustomRecipientName(e.target.value)}
+                          className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end pt-1">
+                      <button
+                        type="submit"
+                        disabled={!testCustomEmail.trim() || testEmailSendingKey === 'custom-form'}
+                        className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white text-xs font-bold rounded-lg shadow-xs transition-all flex items-center gap-2 cursor-pointer disabled:cursor-not-allowed"
+                      >
+                        {testEmailSendingKey === 'custom-form' ? (
+                          <>
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                            テストメール送信中...
+                          </>
+                        ) : (
+                          <>
+                            <Send className="w-4 h-4" />
+                            テストメールを送信する
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
 
             {/* SECTION 1: API DIAGNOSTICS */}
             {systemActiveSection === 'diagnostics' && (
@@ -2709,11 +3069,24 @@ END;`}
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">携帯メールアドレス</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-bold text-slate-700">携帯メールアドレス</label>
+                    {userFormData.mobileEmail?.trim() && (
+                      <button
+                        type="button"
+                        disabled={testEmailSendingKey === 'modal-mobile'}
+                        onClick={() => handleSendTestEmail(userFormData.mobileEmail, userFormData.name || 'メンバー', 'modal-mobile')}
+                        className="text-[10px] text-indigo-600 font-bold hover:underline flex items-center gap-1 cursor-pointer"
+                      >
+                        <Smartphone className="w-3 h-3" />
+                        {testEmailSendingKey === 'modal-mobile' ? 'テスト送信中...' : 'テスト送信'}
+                      </button>
+                    )}
+                  </div>
                   <input
                     type="email"
                     autoComplete="off"
-                    placeholder="micchy.k@gmail.com"
+                    placeholder="example@docomo.ne.jp"
                     value={userFormData.mobileEmail}
                     onChange={(e) => setUserFormData({ ...userFormData, mobileEmail: e.target.value })}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"

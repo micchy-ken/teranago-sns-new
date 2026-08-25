@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { 
   X, 
   Calendar as CalendarIcon, 
@@ -21,6 +21,7 @@ import { CalendarEvent, EventType, User } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
 import { getRecurrenceLabel, isRecurringEvent } from '../utils/recurrenceUtils';
 import { renderContentWithLinks } from '../utils/renderContentWithLinks';
+import { markEventAsRead } from '../utils/notifications';
 
 export interface GlobalEventDetailModalProps {
   isOpen: boolean;
@@ -63,6 +64,15 @@ export function GlobalEventDetailModal({
   onEditInCalendar,
   currentUser,
 }: GlobalEventDetailModalProps) {
+  useEffect(() => {
+    if (isOpen && event && currentUser?.id) {
+      markEventAsRead(currentUser.id, event.id);
+      if (event.recurrenceParentId) {
+        markEventAsRead(currentUser.id, event.recurrenceParentId);
+      }
+    }
+  }, [isOpen, event, currentUser?.id]);
+
   if (!isOpen || !event) return null;
 
   const formatDateWithDay = (isoStr?: string, includeTime = true) => {

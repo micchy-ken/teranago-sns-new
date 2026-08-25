@@ -7,6 +7,7 @@ import { uploadMultipleFiles, deleteAttachmentFile, deleteAttachmentFiles } from
 import { FilePreviewModal } from './FilePreviewModal';
 import { renderContentWithLinks } from '../utils/renderContentWithLinks';
 import { UrlPastePopup, useUrlPasteHandler } from './common/UrlPastePopup';
+import { markTopicAsRead } from '../utils/notifications';
 
 interface TopicDetailModalProps {
   topic: BoardTopic | null;
@@ -69,6 +70,9 @@ export function TopicDetailModal({
   // モーダルが開かれた時に自動的に既読（閲覧メンバー）を記録、及び編集用フォーム初期化
   useEffect(() => {
     if (isOpen && topic) {
+      if (currentUser?.id) {
+        markTopicAsRead(currentUser.id, topic.id);
+      }
       setIsEditing(false);
       setEditTitle(topic.title);
       setEditContent(topic.content);

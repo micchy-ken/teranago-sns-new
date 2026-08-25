@@ -4,6 +4,7 @@ import { ApplicationType, WorkflowApplication, User, ApprovalFlowRule, ApprovalS
 import { filterStepsForApplicant, getSupervisorAtLevel, resolveApproverForStep, resolveApproverForStepDetails } from '../utils/workflowHelpers';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { uploadMultipleFiles } from '../utils/fileUpload';
+import { markWorkflowAsRead } from '../utils/notifications';
 
 interface ApplicationModalProps {
   isOpen: boolean;
@@ -112,6 +113,9 @@ export function ApplicationModal({
   useEffect(() => {
     if (isOpen) {
       if (initialData) {
+        if (currentUser?.id && initialData.id) {
+          markWorkflowAsRead(currentUser.id, initialData.id);
+        }
         setType(initialData.type);
         setTitle(initialData.title);
         setDescription(initialData.description);

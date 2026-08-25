@@ -187,6 +187,9 @@ export function MemoList({
       updateMemosState(nextMemos);
     }
 
+    if (currentUser?.id) {
+      markMemoAsRead(currentUser.id, memo.id);
+    }
     setDetailMemo(newMemoState);
   };
 

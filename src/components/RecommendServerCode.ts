@@ -26,6 +26,7 @@ import path from 'path';
 import fs from 'fs';
 import multer from 'multer';
 import webpush from 'web-push';
+import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
 dotenv.config();
 

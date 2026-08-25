@@ -1,8 +1,8 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { X, User, Building2, Phone, Mail, Clock, Calendar, Check, AlertCircle, RefreshCw } from 'lucide-react';
 import { Memo, User as UserType } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
-import { isMemoUnhandled } from '../utils/notifications';
+import { isMemoUnhandled, markMemoAsRead } from '../utils/notifications';
 import { renderContentWithLinks } from '../utils/renderContentWithLinks';
 
 interface GlobalMemoDetailModalProps {
@@ -36,6 +36,12 @@ export function GlobalMemoDetailModal({
   onClose,
   onToggleStatus,
 }: GlobalMemoDetailModalProps) {
+  useEffect(() => {
+    if (isOpen && memo && currentUser?.id) {
+      markMemoAsRead(currentUser.id, memo.id);
+    }
+  }, [isOpen, memo, currentUser?.id]);
+
   if (!isOpen || !memo) return null;
 
   const isUnhandled = isMemoUnhandled(memo, currentUser);
