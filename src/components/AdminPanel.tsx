@@ -140,13 +140,24 @@ export function AdminPanel({
 
   const handleFetchSmtpConfig = async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/email/config`);
+      let res = await fetch(`${API_BASE_URL}/email/config`);
+      if (!res.ok && API_BASE_URL !== '/api') {
+        res = await fetch('/api/email/config');
+      }
       if (res.ok) {
         const data = await res.json();
         setSmtpConfigInfo(data);
       }
     } catch (e) {
-      console.error('Failed to fetch SMTP config', e);
+      try {
+        const res = await fetch('/api/email/config');
+        if (res.ok) {
+          const data = await res.json();
+          setSmtpConfigInfo(data);
+        }
+      } catch (err) {
+        console.warn('SMTP config endpoint not reachable on backend server.');
+      }
     }
   };
 
@@ -163,11 +174,18 @@ export function AdminPanel({
     setTestEmailSendingKey(sendKey);
     setTestEmailResult(null);
     try {
-      const res = await fetch(`${API_BASE_URL}/api/email/test`, {
+      let res = await fetch(`${API_BASE_URL}/email/test`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ to: targetEmail.trim(), recipientName })
       });
+      if (!res.ok && API_BASE_URL !== '/api') {
+        res = await fetch('/api/email/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ to: targetEmail.trim(), recipientName })
+        });
+      }
       const data = await res.json();
       if (res.ok && data.success) {
         setTestEmailResult({
