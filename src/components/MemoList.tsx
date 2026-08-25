@@ -5,6 +5,7 @@ import { MemberSelector } from './MemberSelector';
 import { API_BASE_URL } from '../config/api';
 import { markMemoAsRead } from '../utils/notifications';
 import { triggerPushNotification } from '../utils/pushNotifications';
+import { dispatchNotificationEmail } from '../utils/emailNotificationDispatcher';
 import { 
   Phone, 
   Check, 
@@ -389,6 +390,25 @@ export function MemoList({
           url: `/?tab=memo&memoId=${newMemo.id}`,
           tag: `memo-${newMemo.id}`
         });
+
+        // メール通知を通知センター設定に応じて配信
+        const targetRecipients = targetUsers.filter(u => u.id && u.id !== currentUser.id);
+        if (targetRecipients.length > 0) {
+          dispatchNotificationEmail(targetRecipients, {
+            category: 'memo',
+            categoryLabel: '伝言メモ',
+            title: `伝言メモ: ${fromCompany ? `${fromCompany} ` : ''}${fromName}様`,
+            actorName: currentUser.name,
+            details: [
+              { label: '相手様名', value: `${fromCompany ? `${fromCompany} ` : ''}${fromName} 様` },
+              { label: 'お電話番号', value: fromPhone || 'なし' },
+              { label: 'ご用件', value: reqText },
+              { label: '登録担当者', value: currentUser.name },
+            ],
+            mainContent: content || undefined,
+            pathParams: `tab=memo&memoId=${newMemo.id}`,
+          }, currentUser);
+        }
 
         // リセット
         setFromName('');

@@ -435,7 +435,7 @@ async function startServer() {
   }
 
   // SMTP 設定情報取得 API
-  app.get('/api/email/config', (req, res) => {
+  app.get(['/api/email/config', '/api/email/config/'], (req, res) => {
     res.json({
       host: smtpConfig.host,
       port: smtpConfig.port,
@@ -447,12 +447,16 @@ async function startServer() {
     });
   });
 
-  // 汎用メール送信 API
-  app.post('/api/email/send', async (req, res) => {
+  // 汎用メール送信 API (GET / POST 両対応)
+  app.all(['/api/email/send', '/api/email/send/'], async (req, res) => {
     try {
-      const { to, subject, text, html } = req.body;
+      const to = req.body?.to || req.query?.to;
+      const subject = req.body?.subject || req.query?.subject;
+      const text = req.body?.text || req.query?.text;
+      const html = req.body?.html || req.query?.html;
+
       if (!to || !subject) {
-        return res.status(400).json({ error: '宛先 (to) および件名 (subject) は必須です。' });
+        return res.status(400).json({ error: '宛先 (to) および件名 (subject) は必須です。POST (JSON) または GET (?to=...&subject=...) で送信してください。' });
       }
       const info = await sendEmailNotification({ to, subject, text, html });
       res.json({ success: true, messageId: info.messageId, message: 'メールを正常に送信しました。' });
@@ -462,12 +466,18 @@ async function startServer() {
     }
   });
 
-  // テストメール送信 API (携帯メール等へのテスト用)
-  app.post('/api/email/test', async (req, res) => {
+  // テストメール送信 API (GET / POST 両対応)
+  app.all(['/api/email/test', '/api/email/test/'], async (req, res) => {
     try {
-      const { to, recipientName, targetUser } = req.body;
+      const to = req.body?.to || req.query?.to;
+      const recipientName = req.body?.recipientName || req.query?.recipientName;
+      const targetUser = req.body?.targetUser || req.query?.targetUser;
+
       if (!to) {
-        return res.status(400).json({ error: '送信先のメールアドレスを指定してください。' });
+        return res.status(400).json({
+          error: '送信先のメールアドレスを指定してください。',
+          usage: 'POST (JSON: { "to": "user@example.com" }) または GET (?to=user@example.com) でアクセス可能です。'
+        });
       }
 
       const nameStr = recipientName ? `${recipientName} 様` : (targetUser?.name ? `${targetUser.name} 様` : '管理者 様');

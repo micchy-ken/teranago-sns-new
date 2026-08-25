@@ -138,26 +138,30 @@ export function AdminPanel({
   const [testEmailResult, setTestEmailResult] = useState<{ success?: boolean; message?: string; error?: string } | null>(null);
   const [smtpConfigInfo, setSmtpConfigInfo] = useState<{ host?: string; port?: number; user?: string; fromEmail?: string; fromName?: string; isConfigured?: boolean } | null>(null);
 
-  const handleFetchSmtpConfig = async () => {
+  const safeFetchJson = async (url: string, options?: RequestInit) => {
     try {
-      let res = await fetch(`${API_BASE_URL}/email/config`);
-      if (!res.ok && API_BASE_URL !== '/api') {
-        res = await fetch('/api/email/config');
+      const res = await fetch(url, options);
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        return { ok: false, status: res.status, isHtml: true, data: null };
       }
-      if (res.ok) {
-        const data = await res.json();
-        setSmtpConfigInfo(data);
+      const data = await res.json();
+      return { ok: res.ok, status: res.status, isHtml: false, data };
+    } catch (err: any) {
+      return { ok: false, status: 0, isHtml: false, data: null, error: err.message };
+    }
+  };
+
+  const handleFetchSmtpConfig = async () => {
+    let result = await safeFetchJson(`${API_BASE_URL}/email/config`);
+    if ((!result.ok || result.isHtml) && API_BASE_URL !== '/api') {
+      const localResult = await safeFetchJson('/api/email/config');
+      if (localResult.ok) {
+        result = localResult;
       }
-    } catch (e) {
-      try {
-        const res = await fetch('/api/email/config');
-        if (res.ok) {
-          const data = await res.json();
-          setSmtpConfigInfo(data);
-        }
-      } catch (err) {
-        console.warn('SMTP config endpoint not reachable on backend server.');
-      }
+    }
+    if (result.ok && result.data) {
+      setSmtpConfigInfo(result.data);
     }
   };
 
@@ -173,37 +177,38 @@ export function AdminPanel({
     const sendKey = keyId || targetEmail;
     setTestEmailSendingKey(sendKey);
     setTestEmailResult(null);
-    try {
-      let res = await fetch(`${API_BASE_URL}/email/test`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ to: targetEmail.trim(), recipientName })
-      });
-      if (!res.ok && API_BASE_URL !== '/api') {
-        res = await fetch('/api/email/test', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ to: targetEmail.trim(), recipientName })
-        });
+
+    const payload = JSON.stringify({ to: targetEmail.trim(), recipientName });
+    const options: RequestInit = {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: payload
+    };
+
+    let result = await safeFetchJson(`${API_BASE_URL}/email/test`, options);
+
+    if ((!result.ok || result.isHtml) && API_BASE_URL !== '/api') {
+      const localResult = await safeFetchJson('/api/email/test', options);
+      if (localResult.ok && localResult.data) {
+        result = localResult;
       }
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setTestEmailResult({
-          success: true,
-          message: data.message || `${targetEmail} へテストメールを送信しました。`
-        });
-      } else {
-        setTestEmailResult({
-          error: data.error || 'テストメールの送信に失敗しました。'
-        });
-      }
-    } catch (err: any) {
-      setTestEmailResult({
-        error: '通信エラー: ' + (err.message || 'メール送信処理に失敗しました。')
-      });
-    } finally {
-      setTestEmailSendingKey(null);
     }
+
+    if (result.ok && result.data?.success) {
+      setTestEmailResult({
+        success: true,
+        message: result.data.message || `${targetEmail} へテストメールを送信しました。`
+      });
+    } else if (result.isHtml) {
+      setTestEmailResult({
+        error: '接続先サーバー (NAS) がまだ更新されていません。NAS側で cd /volume1/docker/sns-api && docker-compose up -d --build を実行し、Dockerコンテナを再起動してください。'
+      });
+    } else {
+      setTestEmailResult({
+        error: result.data?.error || result.error || 'テストメールの送信に失敗しました。サーバーの設定をご確認ください。'
+      });
+    }
+    setTestEmailSendingKey(null);
   };
 
   // Modal State for Item Master (品名マスタ)

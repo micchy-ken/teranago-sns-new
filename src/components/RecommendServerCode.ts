@@ -910,6 +910,129 @@ app.post('/api/push/test', async (req, res) => {
   }
 });
 
+// ==========================================
+// SMTP メール通知設定・送信処理
+// ==========================================
+const smtpConfig = {
+  host: process.env.SMTP_HOST || '111.89.134.68',
+  port: parseInt(process.env.SMTP_PORT || '587', 10),
+  secure: process.env.SMTP_SECURE === 'true',
+  auth: {
+    user: process.env.SMTP_USER || 'nagoya-soumu2',
+    pass: process.env.SMTP_PASS || 'km5WitaN'
+  },
+  tls: {
+    rejectUnauthorized: false
+  }
+};
+
+const smtpFromEmail = process.env.SMTP_FROM_EMAIL || 'nagoya-soumu2@teraoka-ads.co.jp';
+const smtpFromName = process.env.SMTP_FROM_NAME || 'Aipo送信用（このメールには返信できません）';
+const smtpFromFormatted = \`"\${smtpFromName}" <\${smtpFromEmail}>\`;
+
+async function sendEmailNotification(options) {
+  if (!options.to || (Array.isArray(options.to) && options.to.length === 0)) {
+    throw new Error('送信先メールアドレスが指定されていません。');
+  }
+
+  const transporter = nodemailer.createTransport(smtpConfig);
+  const mailOptions = {
+    from: smtpFromFormatted,
+    to: Array.isArray(options.to) ? options.to.join(', ') : options.to,
+    subject: options.subject,
+    text: options.text || '',
+    html: options.html || (options.text ? \`<p style="white-space: pre-wrap;">\${options.text}</p>\` : '')
+  };
+
+  const info = await transporter.sendMail(mailOptions);
+  console.log('[Email] Notification sent successfully:', info.messageId, 'to:', options.to);
+  return info;
+}
+
+// SMTP 設定情報取得 API
+app.get(['/api/email/config', '/api/email/config/'], (req, res) => {
+  res.json({
+    host: smtpConfig.host,
+    port: smtpConfig.port,
+    secure: smtpConfig.secure,
+    user: smtpConfig.auth.user,
+    fromEmail: smtpFromEmail,
+    fromName: smtpFromName,
+    isConfigured: !!(smtpConfig.host && smtpConfig.auth.user)
+  });
+});
+
+// 汎用メール送信 API (GET / POST 両対応)
+app.all(['/api/email/send', '/api/email/send/'], async (req, res) => {
+  try {
+    const to = req.body?.to || req.query?.to;
+    const subject = req.body?.subject || req.query?.subject;
+    const text = req.body?.text || req.query?.text;
+    const html = req.body?.html || req.query?.html;
+
+    if (!to || !subject) {
+      return res.status(400).json({ error: '宛先 (to) および件名 (subject) は必須です。POST (JSON) または GET (?to=...&subject=...) で送信してください。' });
+    }
+    const info = await sendEmailNotification({ to, subject, text, html });
+    res.json({ success: true, messageId: info.messageId, message: 'メールを正常に送信しました。' });
+  } catch (err) {
+    console.error('[Email] Send error:', err);
+    res.status(500).json({ error: err.message || 'メールの送信に失敗しました。' });
+  }
+});
+
+// テストメール送信 API (GET / POST 両対応)
+app.all(['/api/email/test', '/api/email/test/'], async (req, res) => {
+  try {
+    const to = req.body?.to || req.query?.to;
+    const recipientName = req.body?.recipientName || req.query?.recipientName;
+    const targetUser = req.body?.targetUser || req.query?.targetUser;
+
+    if (!to) {
+      return res.status(400).json({
+        error: '送信先のメールアドレスを指定してください。',
+        usage: 'POST (JSON: { "to": "user@example.com" }) または GET (?to=user@example.com) でアクセス可能です。'
+      });
+    }
+
+    const nameStr = recipientName ? \`\${recipientName} 様\` : (targetUser?.name ? \`\${targetUser.name} 様\` : '管理者 様');
+    const nowStr = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
+
+    const subject = '【テストメール】寺岡オートドアSNS メール通知連携テスト';
+    const text = \`\${nameStr}\\n\\n寺岡オートドアSNS からのメール通知送信テストです。\\n本メールを受信できている場合、SMTPメール通知機能（\${smtpConfig.host}:\${smtpConfig.port}）の設定および連携は正常に機能しています。\\n\\n送信日時: \${nowStr}\\n差出人: \${smtpFromFormatted}\\n送信先: \${to}\`;
+    const html = \`
+      <div style="font-family: sans-serif; padding: 24px; line-height: 1.6; color: #1e293b; max-width: 600px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
+        <div style="background-color: #2563eb; color: #ffffff; padding: 12px 16px; border-radius: 8px 8px 0 0; margin: -24px -24px 20px -24px;">
+          <h2 style="margin: 0; font-size: 16px; font-weight: bold;">寺岡オートドアSNS メール通知テスト</h2>
+        </div>
+        <p style="font-size: 14px; font-weight: bold; margin-bottom: 16px;">\${nameStr}</p>
+        <p style="font-size: 13px; color: #334155; margin-bottom: 16px;">
+          寺岡オートドアSNS システムからのメール送信機能テストです。<br>
+          このメールが正しく届いている場合、SMTPメールサーバーとの通信（\${smtpConfig.host}:\${smtpConfig.port}）は正常に機能しています。
+        </p>
+        <div style="background-color: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px; font-size: 12px; color: #475569; margin-bottom: 16px;">
+          <div style="margin-bottom: 4px;"><strong>送信日時:</strong> \${nowStr}</div>
+          <div style="margin-bottom: 4px;"><strong>差出人:</strong> \${smtpFromFormatted}</div>
+          <div><strong>宛先アドレス:</strong> \${to}</div>
+        </div>
+        <p style="font-size: 11px; color: #94a3b8; margin: 0; text-align: center; border-top: 1px solid #f1f5f9; padding-top: 12px;">
+          本メールは自動送信テストメールです。返信はできません。
+        </p>
+      </div>
+    \`;
+
+    const info = await sendEmailNotification({ to, subject, text, html });
+    res.json({
+      success: true,
+      messageId: info.messageId,
+      message: \`\${to} へテストメールを正常に送信しました。\`
+    });
+  } catch (err) {
+    console.error('[Email] Test email error:', err);
+    res.status(500).json({ error: err.message || 'テストメールの送信に失敗しました。' });
+  }
+});
+
 // =========================================================
 // アバター画像アップロードAPI
 // =========================================================

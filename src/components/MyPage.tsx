@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { User, CalendarEvent, BoardTopic, Memo, WorkflowApplication, ChatRoom, OfficeMaster, DivisionMaster, PositionMaster, DailyReport } from '../types';
+import { User, CalendarEvent, BoardTopic, Memo, WorkflowApplication, ChatRoom, OfficeMaster, DivisionMaster, PositionMaster, DailyReport, EmailNotificationSettings } from '../types';
 import { AppTab } from './Sidebar';
 import { getAvatarUrl, SILHOUETTE_SVG } from '../utils/avatar';
 import { API_BASE_URL } from '../config/api';
@@ -80,7 +80,10 @@ import {
   ArrowUp,
   ArrowDown,
   RotateCcw,
-  SlidersHorizontal
+  SlidersHorizontal,
+  Mail,
+  CheckSquare,
+  Square,
 } from 'lucide-react';
 import { TopicDetailModal } from './TopicDetailModal';
 import { EventModal } from './EventModal';
@@ -406,6 +409,136 @@ export function MyPage({
 
   // 設定フォーム状態
   const [settingsForm, setSettingsForm] = useState<User>(user);
+
+  // 通知センター (メール送信カテゴリ設定)
+  const NOTIFICATION_CATEGORIES: {
+    key: keyof EmailNotificationSettings;
+    label: string;
+    desc: string;
+    icon: React.ReactNode;
+  }[] = useMemo(() => [
+    {
+      key: 'schedule',
+      label: 'スケジュール',
+      desc: '自分の参加予定・変更・同行登録',
+      icon: <CalendarIcon className="w-4 h-4 text-amber-500 shrink-0" />,
+    },
+    {
+      key: 'bulletin',
+      label: '掲示板',
+      desc: '新規投稿・閲覧依頼トピック・全体告知',
+      icon: <FileText className="w-4 h-4 text-emerald-500 shrink-0" />,
+    },
+    {
+      key: 'memo',
+      label: '伝言メモ',
+      desc: '自分宛ての電話伝言・折り返し依頼',
+      icon: <MessageSquare className="w-4 h-4 text-purple-500 shrink-0" />,
+    },
+    {
+      key: 'workflow',
+      label: 'ワークフロー・申請',
+      desc: '承認依頼・決裁判定・差戻し通知',
+      icon: <CheckCircle2 className="w-4 h-4 text-blue-500 shrink-0" />,
+    },
+    {
+      key: 'post',
+      label: '社内SNS・タイムライン',
+      desc: '自分への返信・@メンション通知',
+      icon: <Users className="w-4 h-4 text-indigo-500 shrink-0" />,
+    },
+    {
+      key: 'inspection',
+      label: '点検・報告書',
+      desc: '日報・点検票の提出・レビュー依頼',
+      icon: <Wrench className="w-4 h-4 text-rose-500 shrink-0" />,
+    },
+  ], []);
+
+  const [emailTestLoading, setEmailTestLoading] = useState(false);
+  const [emailTestResult, setEmailTestResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  const handleSendTestEmail = async (targetEmail: string, label: string) => {
+    if (!targetEmail || !targetEmail.trim()) {
+      setEmailTestResult({ type: 'error', message: `${label}のアドレスが未入力です。` });
+      return;
+    }
+    setEmailTestLoading(true);
+    setEmailTestResult(null);
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/email/test`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: targetEmail.trim(),
+          recipientName: settingsForm.name,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setEmailTestResult({ type: 'success', message: `${label} (${targetEmail.trim()}) へテストメールを正常送信しました。` });
+      } else {
+        setEmailTestResult({ type: 'error', message: data.error || 'テストメール送信エラー' });
+      }
+    } catch (err: any) {
+      setEmailTestResult({ type: 'error', message: `送信エラー: ${err?.message || '接続不可'}` });
+    } finally {
+      setEmailTestLoading(false);
+    }
+  };
+
+  const defaultEmailNotifs: EmailNotificationSettings = useMemo(() => ({
+    schedule: { pc: true, mobile: true },
+    bulletin: { pc: true, mobile: true },
+    memo: { pc: true, mobile: true },
+    workflow: { pc: true, mobile: true },
+    post: { pc: true, mobile: false },
+    inspection: { pc: true, mobile: false },
+  }), []);
+
+  const currentEmailNotifs: EmailNotificationSettings = useMemo(() => ({
+    ...defaultEmailNotifs,
+    ...(settingsForm.preferences?.emailNotifications || {}),
+  }), [settingsForm.preferences?.emailNotifications, defaultEmailNotifs]);
+
+  const handleToggleEmailNotif = (catKey: keyof EmailNotificationSettings, type: 'pc' | 'mobile') => {
+    const curCat = currentEmailNotifs[catKey] || { pc: true, mobile: false };
+    const updatedCat = { ...curCat, [type]: !curCat[type] };
+    const updatedPrefs = {
+      ...(settingsForm.preferences || {}),
+      emailNotifications: {
+        ...currentEmailNotifs,
+        [catKey]: updatedCat,
+      },
+    };
+    setSettingsForm({ ...settingsForm, preferences: updatedPrefs });
+  };
+
+  const handleBatchSetEmailNotif = (mode: 'all_pc_on' | 'all_mobile_on' | 'all_off') => {
+    const updated: EmailNotificationSettings = { ...currentEmailNotifs };
+    const keys: (keyof EmailNotificationSettings)[] = ['schedule', 'bulletin', 'memo', 'workflow', 'post', 'inspection'];
+
+    keys.forEach((k) => {
+      const cur = updated[k] || { pc: true, mobile: false };
+      if (mode === 'all_pc_on') {
+        updated[k] = { ...cur, pc: true };
+      } else if (mode === 'all_mobile_on') {
+        updated[k] = { ...cur, mobile: true };
+      } else {
+        updated[k] = { pc: false, mobile: false };
+      }
+    });
+
+    setSettingsForm({
+      ...settingsForm,
+      preferences: {
+        ...(settingsForm.preferences || {}),
+        emailNotifications: updated,
+      },
+    });
+  };
   const [copiedICal, setCopiedICal] = useState(false);
   const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
 
@@ -1621,7 +1754,7 @@ export function MyPage({
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden my-8 max-h-[90vh] flex flex-col border border-slate-100"
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden my-8 max-h-[90vh] flex flex-col border border-slate-100"
           >
             <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2">
@@ -1846,6 +1979,159 @@ export function MyPage({
                         </option>
                       ))}
                   </select>
+                </div>
+              </div>
+
+              {/* 通知センター (メール送信通知設定) */}
+              <div className="space-y-4 pt-4 border-t border-slate-100">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-1 border-b border-slate-100">
+                  <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                    <Mail className="w-4 h-4 text-blue-600" />
+                    通知センター（メール配信 ON/OFF 設定）
+                  </h3>
+                  
+                  {/* 一括操作ボタン */}
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => handleBatchSetEmailNotif('all_pc_on')}
+                      className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10.5px] font-medium rounded transition-colors cursor-pointer"
+                    >
+                      すべてPCオン
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleBatchSetEmailNotif('all_mobile_on')}
+                      className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10.5px] font-medium rounded transition-colors cursor-pointer"
+                    >
+                      すべて携帯オン
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleBatchSetEmailNotif('all_off')}
+                      className="px-2 py-1 bg-slate-100 hover:bg-rose-50 text-rose-600 text-[10.5px] font-medium rounded transition-colors cursor-pointer"
+                    >
+                      すべてオフ
+                    </button>
+                  </div>
+                </div>
+
+                <p className="text-[11px] text-slate-500 leading-relaxed">
+                  スケジュール、掲示板、伝言メモ等の更新時に、あなたのPCメール・携帯メール宛へ主要内容と共有リンクを送信するかを設定します。選択状態はJSON形式でマイ設定に保存されます。
+                </p>
+
+                {/* メールアドレス接続状況とテスト送信ボタン */}
+                <div className="p-3 bg-blue-50/50 rounded-xl border border-blue-100 space-y-2 text-xs">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11.5px]">
+                    <div className="flex items-center justify-between bg-white px-2.5 py-1.5 rounded-lg border border-slate-200">
+                      <div className="truncate pr-2">
+                        <span className="font-bold text-slate-700">PCメール: </span>
+                        {settingsForm.email ? (
+                          <span className="font-mono text-slate-900">{settingsForm.email}</span>
+                        ) : (
+                          <span className="text-amber-600 font-bold">（未登録）</span>
+                        )}
+                      </div>
+                      {settingsForm.email && (
+                        <button
+                          type="button"
+                          disabled={emailTestLoading}
+                          onClick={() => handleSendTestEmail(settingsForm.email || '', 'PCメール')}
+                          className="text-[10px] font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded transition-colors shrink-0 cursor-pointer disabled:opacity-50"
+                        >
+                          テスト送信
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="flex items-center justify-between bg-white px-2.5 py-1.5 rounded-lg border border-slate-200">
+                      <div className="truncate pr-2">
+                        <span className="font-bold text-slate-700">携帯メール: </span>
+                        {settingsForm.mobileEmail ? (
+                          <span className="font-mono text-slate-900">{settingsForm.mobileEmail}</span>
+                        ) : (
+                          <span className="text-amber-600 font-bold">（未登録）</span>
+                        )}
+                      </div>
+                      {settingsForm.mobileEmail && (
+                        <button
+                          type="button"
+                          disabled={emailTestLoading}
+                          onClick={() => handleSendTestEmail(settingsForm.mobileEmail || '', '携帯メール')}
+                          className="text-[10px] font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded transition-colors shrink-0 cursor-pointer disabled:opacity-50"
+                        >
+                          テスト送信
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {emailTestResult && (
+                    <div className={`p-2 rounded text-[11px] font-medium flex items-center gap-1.5 ${
+                      emailTestResult.type === 'success' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                    }`}>
+                      {emailTestResult.type === 'success' ? <CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> : <AlertCircle className="w-3.5 h-3.5 shrink-0" />}
+                      <span>{emailTestResult.message}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* メール設定マトリックス (左列: スケジュール、掲示板、伝言メモ等 | 右列: PCメール / 携帯メール) */}
+                <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs bg-white">
+                  <div className="grid grid-cols-12 bg-slate-100 border-b border-slate-200 text-[11px] font-bold text-slate-700 p-2.5">
+                    <div className="col-span-6 sm:col-span-7 pl-1">対象通知機能・項目</div>
+                    <div className="col-span-3 sm:col-span-2 text-center">PCメール</div>
+                    <div className="col-span-3 sm:col-span-3 text-center">携帯メール</div>
+                  </div>
+
+                  <div className="divide-y divide-slate-100 text-xs">
+                    {NOTIFICATION_CATEGORIES.map((cat) => {
+                      const cur = currentEmailNotifs[cat.key] || { pc: true, mobile: false };
+                      return (
+                        <div key={cat.key} className="grid grid-cols-12 items-center p-2.5 hover:bg-slate-50/80 transition-colors">
+                          <div className="col-span-6 sm:col-span-7 flex items-start gap-2 pr-2">
+                            {cat.icon}
+                            <div>
+                              <div className="font-bold text-slate-800 text-[12px]">{cat.label}</div>
+                              <div className="text-[10.5px] text-slate-500 leading-tight">{cat.desc}</div>
+                            </div>
+                          </div>
+
+                          {/* PCメール トグル */}
+                          <div className="col-span-3 sm:col-span-2 flex items-center justify-center">
+                            <label className="inline-flex items-center gap-1 cursor-pointer select-none">
+                              <input
+                                type="checkbox"
+                                checked={cur.pc}
+                                onChange={() => handleToggleEmailNotif(cat.key, 'pc')}
+                                className="sr-only peer"
+                              />
+                              <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600 relative"></div>
+                              <span className={`text-[10px] font-bold ${cur.pc ? 'text-blue-600' : 'text-slate-400'}`}>
+                                {cur.pc ? 'ON' : 'OFF'}
+                              </span>
+                            </label>
+                          </div>
+
+                          {/* 携帯メール トグル */}
+                          <div className="col-span-3 sm:col-span-3 flex items-center justify-center">
+                            <label className="inline-flex items-center gap-1 cursor-pointer select-none">
+                              <input
+                                type="checkbox"
+                                checked={cur.mobile}
+                                onChange={() => handleToggleEmailNotif(cat.key, 'mobile')}
+                                className="sr-only peer"
+                              />
+                              <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-purple-600 relative"></div>
+                              <span className={`text-[10px] font-bold ${cur.mobile ? 'text-purple-600' : 'text-slate-400'}`}>
+                                {cur.mobile ? 'ON' : 'OFF'}
+                              </span>
+                            </label>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
 

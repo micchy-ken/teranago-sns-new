@@ -1,6 +1,21 @@
+export interface CategoryEmailNotificationOption {
+  pc: boolean;      // PCメール (email) 送信
+  mobile: boolean;  // 携帯メール (mobileEmail) 送信
+}
+
+export interface EmailNotificationSettings {
+  schedule?: CategoryEmailNotificationOption;   // スケジュール (登録・変更・参加)
+  bulletin?: CategoryEmailNotificationOption;   // 掲示板 (新規投稿・閲覧依頼)
+  memo?: CategoryEmailNotificationOption;       // 伝言メモ (新規伝言・宛先指定)
+  workflow?: CategoryEmailNotificationOption;   // ワークフロー (承認依頼・判定結果)
+  post?: CategoryEmailNotificationOption;       // 社内SNS (返信・メンション)
+  inspection?: CategoryEmailNotificationOption; // 点検・報告書 (提出・レビュー依頼)
+}
+
 export interface UserPreferences {
   mypageSectionOrder?: string[];
   isSidebarCollapsed?: boolean;
+  emailNotifications?: EmailNotificationSettings;
   [key: string]: any;
 }
 

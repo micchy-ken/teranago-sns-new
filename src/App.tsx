@@ -33,6 +33,7 @@ import {
   markChatRoomAsRead 
 } from './utils/notifications';
 import { triggerPushNotification } from './utils/pushNotifications';
+import { dispatchNotificationEmail } from './utils/emailNotificationDispatcher';
 import { deleteAttachmentFiles } from './utils/fileUpload';
 import { TopicDetailModal } from './components/TopicDetailModal';
 import { GlobalEventDetailModal } from './components/GlobalEventDetailModal';
@@ -1208,6 +1209,25 @@ export default function App() {
       tag: `topic-${tempId}`
     });
 
+    // 掲示板メール通知をユーザー設定に応じて配信
+    const targetBoardUsers = usersList.filter(u => u.id !== topicData.author.id);
+    if (targetBoardUsers.length > 0) {
+      dispatchNotificationEmail(targetBoardUsers, {
+        category: 'bulletin',
+        categoryLabel: '掲示板',
+        title: `掲示板投稿: ${topicData.title}`,
+        actorName: topicData.author.name,
+        details: [
+          { label: 'カテゴリ', value: topicData.category || '掲示' },
+          { label: 'タイトル', value: topicData.title },
+          { label: '投稿拠点', value: topicData.office || '全社' },
+          { label: '投稿者', value: topicData.author.name },
+        ],
+        mainContent: topicData.content,
+        pathParams: `tab=board&topicId=${tempId}`,
+      }, topicData.author);
+    }
+
     try {
       const response = await fetch(`${API_BASE_URL}/bulletins`, {
         method: 'POST',
@@ -1950,6 +1970,27 @@ export default function App() {
         url: `/?tab=calendar&eventId=${tempId}`,
         tag: `event-${tempId}`
       });
+
+      const targetScheduleAttendees = (eventData.attendees || [])
+        .map(a => usersList.find(u => u.id === a.id))
+        .filter((u): u is User => !!u && u.id !== userState.id);
+      if (targetScheduleAttendees.length > 0) {
+        dispatchNotificationEmail(targetScheduleAttendees, {
+          category: 'schedule',
+          categoryLabel: 'スケジュール',
+          title: `新しい予定: ${eventData.title}`,
+          actorName: userState.name,
+          details: [
+            { label: 'タイトル', value: eventData.title },
+            { label: '日時', value: `${eventData.start || ''}${eventData.end ? ` ～ ${eventData.end}` : ''}` },
+            { label: '場所', value: eventData.location || 'なし' },
+            { label: '区分', value: eventData.type || '予定' },
+            { label: '登録者', value: userState.name },
+          ],
+          mainContent: eventData.memo,
+          pathParams: `tab=calendar&eventId=${tempId}`,
+        }, userState);
+      }
     }
 
     try {
@@ -2198,6 +2239,21 @@ export default function App() {
         url: `/?tab=workflow&appId=${tempId}`,
         tag: `wf-${tempId}`
       });
+
+      const approverUser = usersList.find(u => u.id === initialApprover.id) || initialApprover;
+      dispatchNotificationEmail([approverUser], {
+        category: 'workflow',
+        categoryLabel: 'ワークフロー',
+        title: `承認依頼: ${appData.title}`,
+        actorName: appData.applicant.name,
+        details: [
+          { label: '申請タイトル', value: appData.title },
+          { label: '申請者', value: appData.applicant.name },
+          { label: '申請種別', value: (appData as any).typeLabel || (appData as any).flowName || '各種申請' },
+        ],
+        mainContent: (appData as any).reason || (appData as any).description,
+        pathParams: `tab=workflow&appId=${tempId}`,
+      }, appData.applicant);
     }
 
     try {
@@ -2316,6 +2372,8 @@ export default function App() {
 
     // 申請者に結果を通知 (却下または全承認時)
     if (resultApp.applicant && resultApp.applicant.id !== userState.id) {
+      const applicantUser = usersList.find(u => u.id === resultApp.applicant.id) || resultApp.applicant;
+
       if (actionStatus === 'rejected') {
         triggerPushNotification({
           targetUserId: resultApp.applicant.id,
@@ -2325,6 +2383,20 @@ export default function App() {
           url: `/?tab=workflow&appId=${id}`,
           tag: `wf-${id}`
         });
+
+        dispatchNotificationEmail([applicantUser], {
+          category: 'workflow',
+          categoryLabel: 'ワークフロー',
+          title: `申請判定: 却下 (${resultApp.title})`,
+          actorName: userState.name,
+          details: [
+            { label: '申請タイトル', value: resultApp.title },
+            { label: '判定結果', value: '却下 (差し戻し)' },
+            { label: '判定者', value: userState.name },
+            { label: '理由・コメント', value: comment || 'なし' },
+          ],
+          pathParams: `tab=workflow&appId=${id}`,
+        }, userState);
       } else if (resultApp.status === 'approved') {
         triggerPushNotification({
           targetUserId: resultApp.applicant.id,
@@ -2334,6 +2406,19 @@ export default function App() {
           url: `/?tab=workflow&appId=${id}`,
           tag: `wf-${id}`
         });
+
+        dispatchNotificationEmail([applicantUser], {
+          category: 'workflow',
+          categoryLabel: 'ワークフロー',
+          title: `申請判定: 承認完了 (${resultApp.title})`,
+          actorName: userState.name,
+          details: [
+            { label: '申請タイトル', value: resultApp.title },
+            { label: '判定結果', value: '最終承認完了' },
+            { label: '最終承認者', value: userState.name },
+          ],
+          pathParams: `tab=workflow&appId=${id}`,
+        }, userState);
       }
     }
 
@@ -2347,6 +2432,20 @@ export default function App() {
         url: `/?tab=workflow&appId=${id}`,
         tag: `wf-${id}`
       });
+
+      const nextApprover = usersList.find(u => u.id === resultApp.approver.id) || resultApp.approver;
+      dispatchNotificationEmail([nextApprover], {
+        category: 'workflow',
+        categoryLabel: 'ワークフロー',
+        title: `次期承認依頼: ${resultApp.title}`,
+        actorName: userState.name,
+        details: [
+          { label: '申請タイトル', value: resultApp.title },
+          { label: '申請者', value: targetApp.applicant.name },
+          { label: '進行ステップ', value: `${resultApp.currentStepIndex}/${resultApp.totalSteps}` },
+        ],
+        pathParams: `tab=workflow&appId=${id}`,
+      }, userState);
     }
 
     if (!id.startsWith('a-temp-')) {
@@ -2880,6 +2979,23 @@ export default function App() {
           url: `/?tab=daily_report&reportId=${tempId}`,
           tag: `report-${tempId}`
         });
+
+        const supervisorUser = usersList.find(u => u.id === newReport.supervisorId);
+        if (supervisorUser) {
+          dispatchNotificationEmail([supervisorUser], {
+            category: 'inspection',
+            categoryLabel: '点検・報告書',
+            title: `${typeLabel}提出: ${userState.name}さん`,
+            actorName: userState.name,
+            details: [
+              { label: '報告種別', value: typeLabel },
+              { label: '対象日付', value: dateLabel },
+              { label: '提出者', value: userState.name },
+            ],
+            mainContent: newReport.results || newReport.tasks,
+            pathParams: `tab=daily_report&reportId=${tempId}`,
+          }, userState);
+        }
       } else {
         // 同部署の管理職/リーダーまたは全管理者に通知
         const approvers = usersList.filter(u => 
@@ -2895,6 +3011,20 @@ export default function App() {
             url: `/?tab=daily_report&reportId=${tempId}`,
             tag: `report-${tempId}`
           });
+
+          dispatchNotificationEmail(approvers, {
+            category: 'inspection',
+            categoryLabel: '点検・報告書',
+            title: `${typeLabel}提出: ${userState.name}さん`,
+            actorName: userState.name,
+            details: [
+              { label: '報告種別', value: typeLabel },
+              { label: '対象日付', value: dateLabel },
+              { label: '提出者', value: userState.name },
+            ],
+            mainContent: newReport.results || newReport.tasks,
+            pathParams: `tab=daily_report&reportId=${tempId}`,
+          }, userState);
         }
       }
     }
@@ -2997,6 +3127,21 @@ export default function App() {
         url: `/?tab=daily_report&reportId=${id}`,
         tag: `report-rev-${id}`
       });
+
+      const authorUser = usersList.find(u => u.id === targetReport.author.id) || targetReport.author;
+      dispatchNotificationEmail([authorUser], {
+        category: 'inspection',
+        categoryLabel: '点検・報告書',
+        title: `${typeLabel}確認完了: ${userState.name}さん`,
+        actorName: userState.name,
+        details: [
+          { label: '報告種別', value: typeLabel },
+          { label: '対象日付', value: dateLabel },
+          { label: '確認者', value: userState.name },
+          { label: 'フィードバック', value: feedbackComment || '確認完了' },
+        ],
+        pathParams: `tab=daily_report&reportId=${id}`,
+      }, userState);
     }
 
     try {
