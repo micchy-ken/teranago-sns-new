@@ -5,6 +5,7 @@ import { formatRelativeTime } from '../utils';
 import { API_BASE_URL } from '../config/api';
 import { getAvatarUrl } from '../utils/avatar';
 import { renderContentWithLinks } from '../utils/renderContentWithLinks';
+import { triggerOpenUserModal } from '../utils/userModal';
 
 interface PostCardProps {
   post: Post;
@@ -26,14 +27,28 @@ export const PostCard: React.FC<PostCardProps> = ({
       {/* Header */}
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-center gap-3 w-full">
-          <img
-            src={getAvatarUrl(post.author?.avatarUrl)}
-            alt={post.author?.name || '匿名'}
-            className="w-10 h-10 rounded-full object-cover border border-slate-100 bg-slate-100 shrink-0"
-          />
+          <button
+            type="button"
+            onClick={() => post.author && triggerOpenUserModal(post.author)}
+            className="cursor-pointer hover:opacity-80 transition-opacity shrink-0"
+            title={`${post.author?.name || '社員'}のプロフィールを表示`}
+          >
+            <img
+              src={getAvatarUrl(post.author?.avatarUrl)}
+              alt={post.author?.name || '匿名'}
+              className="w-10 h-10 rounded-full object-cover border border-slate-100 bg-slate-100"
+            />
+          </button>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between w-full gap-1 sm:gap-4">
             <div className="flex items-center gap-2">
-              <span className="font-bold text-slate-800">{post.author?.name || '匿名'}</span>
+              <button
+                type="button"
+                onClick={() => post.author && triggerOpenUserModal(post.author)}
+                className="font-bold text-slate-800 hover:text-indigo-600 cursor-pointer text-left transition-colors"
+                title={`${post.author?.name || '社員'}のプロフィールを表示`}
+              >
+                {post.author?.name || '匿名'}
+              </button>
               <span className="text-xs px-2 py-0.5 bg-slate-100 text-slate-500 rounded">{post.author?.department || '未設定'}</span>
             </div>
             <span className="text-xs text-slate-400">{formatRelativeTime(post.createdAt)}</span>

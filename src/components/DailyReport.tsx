@@ -698,8 +698,12 @@ export function DailyReportView({
                         </div>
                         <div>
                           <div className="flex items-center gap-2">
+                            <span className="text-xs font-extrabold px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-1">
+                              <Wrench className="w-3 h-3 text-amber-700" />
+                              保守日報
+                            </span>
                             <span className="text-sm font-bold text-slate-900">
-                              {mReport.date || '日付未設定'} 日報
+                              {mReport.date || '日付未設定'}
                             </span>
                             <span
                               className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
@@ -830,20 +834,24 @@ export function DailyReportView({
                       />
                       <div>
                         <div className="flex items-center gap-2">
-                          <span className="text-sm font-bold text-slate-900">
-                            {report.author?.name || (report as any).authorName || '氏名未設定'}
-                          </span>
-                          
-                          {/* Department Badge */}
-                          <span className="text-[11px] font-medium px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200">
-                            {report.department || report.author?.department || '全社'}
-                          </span>
-
-                          {isAuthor && (
-                            <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
-                              本人
+                            <span className="text-xs font-extrabold px-2 py-0.5 rounded-md bg-indigo-100 text-indigo-900 border border-indigo-300 flex items-center gap-1">
+                              <FileText className="w-3 h-3 text-indigo-700" />
+                              週報
                             </span>
-                          )}
+                            <span className="text-sm font-bold text-slate-900">
+                              {report.author?.name || (report as any).authorName || '氏名未設定'}
+                            </span>
+                            
+                            {/* Department Badge */}
+                            <span className="text-[11px] font-medium px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200">
+                              {report.department || report.author?.department || '全社'}
+                            </span>
+
+                            {isAuthor && (
+                              <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                本人
+                              </span>
+                            )}
                         </div>
                         <div className="text-xs text-slate-500 mt-0.5 flex items-center gap-2">
                           <span>{report.author?.office || ''} {report.author?.position || ''}</span>

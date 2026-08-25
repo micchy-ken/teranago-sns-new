@@ -313,8 +313,54 @@ export function AdminPanel({
     mobilePhone: '',
     isAdmin: false,
     supervisorId: '',
+    showInspectionScheduler: false, // デフォルト: OFF
+    showSharedFiles: false,         // デフォルト: OFF
   });
   const [userFormError, setUserFormError] = useState<string | null>(null);
+
+  // ワンクリック・個別メニュー表示切り替え（点検予定管理）
+  const handleToggleInspection = (targetUser: User) => {
+    const isCurrentlyOn = targetUser.preferences?.showInspectionScheduler === true;
+    onUpdateUser({
+      ...targetUser,
+      preferences: {
+        ...(targetUser.preferences || {}),
+        showInspectionScheduler: !isCurrentlyOn,
+        hideInspectionScheduler: isCurrentlyOn,
+      },
+    });
+  };
+
+  // ワンクリック・個別メニュー表示切り替え（共有ファイル）
+  const handleToggleFiles = (targetUser: User) => {
+    const isCurrentlyOn = targetUser.preferences?.showSharedFiles === true;
+    onUpdateUser({
+      ...targetUser,
+      preferences: {
+        ...(targetUser.preferences || {}),
+        showSharedFiles: !isCurrentlyOn,
+        hideSharedFiles: isCurrentlyOn,
+      },
+    });
+  };
+
+  // 全員一括メニュー表示切り替え（ON / OFF）
+  const handleBatchToggle = (type: 'inspection' | 'files', enable: boolean) => {
+    const targetUsers = filteredUsers.length > 0 ? filteredUsers : allUsers;
+    targetUsers.forEach((u) => {
+      if (u.isAdmin) return; // 管理者は常に全アクセス可能
+      const updatedPreferences = {
+        ...(u.preferences || {}),
+        ...(type === 'inspection'
+          ? { showInspectionScheduler: enable, hideInspectionScheduler: !enable }
+          : { showSharedFiles: enable, hideSharedFiles: !enable }),
+      };
+      onUpdateUser({
+        ...u,
+        preferences: updatedPreferences,
+      });
+    });
+  };
 
   // Modal State for Office Master
   const [isOfficeModalOpen, setIsOfficeModalOpen] = useState(false);
@@ -413,6 +459,8 @@ export function AdminPanel({
       mobilePhone: '',
       isAdmin: false,
       supervisorId: '',
+      showInspectionScheduler: false,
+      showSharedFiles: false,
     });
     setUserFormError(null);
     setIsUserModalOpen(true);
@@ -436,6 +484,8 @@ export function AdminPanel({
       mobilePhone: user.mobilePhone || user.phone || '',
       isAdmin: !!user.isAdmin,
       supervisorId: user.supervisorId || '',
+      showInspectionScheduler: user.preferences?.showInspectionScheduler === true,
+      showSharedFiles: user.preferences?.showSharedFiles === true,
     });
     setUserFormError(null);
     setIsUserModalOpen(true);
@@ -480,6 +530,13 @@ export function AdminPanel({
         isAdmin: userFormData.isAdmin,
         role: userFormData.isAdmin ? 'admin' : 'user',
         supervisorId: userFormData.supervisorId || undefined,
+        preferences: {
+          ...(editingUser.preferences || {}),
+          showInspectionScheduler: userFormData.showInspectionScheduler,
+          showSharedFiles: userFormData.showSharedFiles,
+          hideInspectionScheduler: !userFormData.showInspectionScheduler,
+          hideSharedFiles: !userFormData.showSharedFiles,
+        },
       });
     } else {
       onAddUser({
@@ -501,6 +558,12 @@ export function AdminPanel({
         isAdmin: userFormData.isAdmin,
         role: userFormData.isAdmin ? 'admin' : 'user',
         supervisorId: userFormData.supervisorId || undefined,
+        preferences: {
+          showInspectionScheduler: userFormData.showInspectionScheduler,
+          showSharedFiles: userFormData.showSharedFiles,
+          hideInspectionScheduler: !userFormData.showInspectionScheduler,
+          hideSharedFiles: !userFormData.showSharedFiles,
+        },
       });
     }
 
@@ -1419,12 +1482,54 @@ export function AdminPanel({
 
           {/* Members Table / List */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden divide-y divide-slate-100">
-            <div className="px-6 py-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between text-xs font-bold text-slate-600">
-              <span className="flex items-center gap-2">
+            <div className="px-6 py-3.5 bg-slate-50 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-2">
                 <Users className="w-4 h-4 text-indigo-600" />
-                登録メンバー一覧 ({filteredUsers.length}名)
-              </span>
-              <span className="text-slate-400 font-normal">メンバー登録・編集時に「拠点」と「部署」をマスターからドロップダウン選択できます</span>
+                <span className="font-bold text-slate-700 text-sm">
+                  登録メンバー一覧 ({filteredUsers.length}名)
+                </span>
+              </div>
+              {/* 一括操作バー */}
+              <div className="flex items-center gap-3 flex-wrap">
+                <div className="flex items-center gap-1.5 bg-white px-2.5 py-1.5 rounded-lg border border-slate-200 shadow-2xs">
+                  <span className="text-[11px] font-bold text-amber-900">点検予定:</span>
+                  <button
+                    type="button"
+                    onClick={() => handleBatchToggle('inspection', true)}
+                    className="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-500 hover:bg-amber-600 text-white transition-colors cursor-pointer shadow-2xs"
+                    title="表示中メンバーの点検予定管理メニューを一括ON"
+                  >
+                    全員ON
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleBatchToggle('inspection', false)}
+                    className="px-2 py-0.5 rounded text-[11px] font-bold bg-slate-200 hover:bg-slate-300 text-slate-700 transition-colors cursor-pointer shadow-2xs"
+                    title="表示中メンバーの点検予定管理メニューを一括OFF"
+                  >
+                    全員OFF
+                  </button>
+                </div>
+                <div className="flex items-center gap-1.5 bg-white px-2.5 py-1.5 rounded-lg border border-slate-200 shadow-2xs">
+                  <span className="text-[11px] font-bold text-indigo-900">共有ファイル:</span>
+                  <button
+                    type="button"
+                    onClick={() => handleBatchToggle('files', true)}
+                    className="px-2 py-0.5 rounded text-[11px] font-bold bg-indigo-600 hover:bg-indigo-700 text-white transition-colors cursor-pointer shadow-2xs"
+                    title="表示中メンバーの共有ファイルメニューを一括ON"
+                  >
+                    全員ON
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleBatchToggle('files', false)}
+                    className="px-2 py-0.5 rounded text-[11px] font-bold bg-slate-200 hover:bg-slate-300 text-slate-700 transition-colors cursor-pointer shadow-2xs"
+                    title="表示中メンバーの共有ファイルメニューを一括OFF"
+                  >
+                    全員OFF
+                  </button>
+                </div>
+              </div>
             </div>
 
             {filteredUsers.length === 0 ? (
@@ -1476,6 +1581,28 @@ export function AdminPanel({
                             </span>
                           </>
                         )}
+                        {!user.isAdmin && (
+                          user.preferences?.showInspectionScheduler ? (
+                            <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200" title="点検予定管理メニュー表示中">
+                              点検予定: 表示
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded border border-slate-200" title="点検予定管理メニュー非表示中">
+                              点検予定: 非表示
+                            </span>
+                          )
+                        )}
+                        {!user.isAdmin && (
+                          user.preferences?.showSharedFiles ? (
+                            <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200" title="共有ファイルメニュー表示中">
+                              共有ファイル: 表示
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded border border-slate-200" title="共有ファイルメニュー非表示中">
+                              共有ファイル: 非表示
+                            </span>
+                          )
+                        )}
                       </div>
 
                       <div className="flex flex-wrap items-center gap-x-4 text-xs text-slate-500 pt-1">
@@ -1517,6 +1644,59 @@ export function AdminPanel({
                         {testEmailSendingKey === `user-mob-${user.id}` ? '送信中...' : '携帯宛テスト送信'}
                       </button>
                     )}
+
+                    {/* ワンクリック 点検予定トグル */}
+                    {!user.isAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => handleToggleInspection(user)}
+                        title={`クリックで「点検予定管理」を${user.preferences?.showInspectionScheduler ? 'OFF（非表示）' : 'ON（表示）'}に切り替え`}
+                        className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 border transition-all cursor-pointer ${
+                          user.preferences?.showInspectionScheduler
+                            ? 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'
+                            : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200 hover:text-slate-700'
+                        }`}
+                      >
+                        {user.preferences?.showInspectionScheduler ? (
+                          <>
+                            <CheckCircle2 className="w-3.5 h-3.5 text-amber-600" />
+                            点検: ON
+                          </>
+                        ) : (
+                          <>
+                            <X className="w-3.5 h-3.5 text-slate-400" />
+                            点検: OFF
+                          </>
+                        )}
+                      </button>
+                    )}
+
+                    {/* ワンクリック 共有ファイルトグル */}
+                    {!user.isAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => handleToggleFiles(user)}
+                        title={`クリックで「共有ファイル」を${user.preferences?.showSharedFiles ? 'OFF（非表示）' : 'ON（表示）'}に切り替え`}
+                        className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 border transition-all cursor-pointer ${
+                          user.preferences?.showSharedFiles
+                            ? 'bg-indigo-50 text-indigo-800 border-indigo-300 hover:bg-indigo-100'
+                            : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200 hover:text-slate-700'
+                        }`}
+                      >
+                        {user.preferences?.showSharedFiles ? (
+                          <>
+                            <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600" />
+                            ファイル: ON
+                          </>
+                        ) : (
+                          <>
+                            <X className="w-3.5 h-3.5 text-slate-400" />
+                            ファイル: OFF
+                          </>
+                        )}
+                      </button>
+                    )}
+
                     <button
                       onClick={() => onToggleUserAdmin(user.id)}
                       title="管理者権限切り替え"
@@ -3179,13 +3359,61 @@ END;`}
 
               {/* Admin toggle */}
               <div className="flex items-center justify-between pt-2 border-t border-slate-100">
-                <span className="text-xs font-bold text-slate-700">管理者権限を付与する</span>
+                <div>
+                  <span className="text-xs font-bold text-slate-700 block">管理者権限を付与する</span>
+                  <span className="text-[10px] text-slate-400">管理者権限を持つユーザーはすべての機能・メニューにアクセスできます</span>
+                </div>
                 <input
                   type="checkbox"
                   checked={userFormData.isAdmin}
                   onChange={(e) => setUserFormData({ ...userFormData, isAdmin: e.target.checked })}
                   className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 cursor-pointer"
                 />
+              </div>
+
+              {/* Menu & Page Permissions */}
+              <div className="pt-3 border-t border-slate-100 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-bold text-slate-700">
+                    メニュー・機能の表示制御
+                  </label>
+                  <span className="text-[10px] text-slate-400 font-medium">※デフォルトはOFF（非表示）</span>
+                </div>
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2.5">
+                  <label className="flex items-center justify-between cursor-pointer">
+                    <div>
+                      <span className="text-xs font-bold text-slate-800 block">
+                        「点検予定管理」メニューを表示
+                      </span>
+                      <span className="text-[10px] text-slate-500">
+                        ONにすると、このメンバーのメニューに「点検予定管理」が表示されます
+                      </span>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={userFormData.showInspectionScheduler}
+                      onChange={(e) => setUserFormData({ ...userFormData, showInspectionScheduler: e.target.checked })}
+                      className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 cursor-pointer shrink-0"
+                    />
+                  </label>
+                  <div className="border-t border-slate-200/80 my-1" />
+                  <label className="flex items-center justify-between cursor-pointer">
+                    <div>
+                      <span className="text-xs font-bold text-slate-800 block">
+                        「共有ファイル」メニューを表示
+                      </span>
+                      <span className="text-[10px] text-slate-500">
+                        ONにすると、このメンバーのメニューに「共有ファイル」が表示されます
+                      </span>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={userFormData.showSharedFiles}
+                      onChange={(e) => setUserFormData({ ...userFormData, showSharedFiles: e.target.checked })}
+                      className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 cursor-pointer shrink-0"
+                    />
+                  </label>
+                </div>
               </div>
 
               <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">

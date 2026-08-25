@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { Hash, Home, Bookmark, User, Calendar as CalendarIcon, FileText, MessageSquare, Phone, ClipboardList, Monitor, Shield, HardDrive, Copy, Check } from 'lucide-react';
+import { Hash, Home, Bookmark, User, Calendar as CalendarIcon, FileText, MessageSquare, Phone, ClipboardList, Monitor, Shield, HardDrive, Copy, Check, Users } from 'lucide-react';
 import { Post, User as UserType } from '../types';
 import { RECOMMEND_SERVER_JS } from './RecommendServerCode';
 
-export type AppTab = 'timeline' | 'calendar' | 'inspection_scheduler' | 'workflow' | 'board' | 'chat' | 'memo' | 'daily_report' | 'files' | 'mypage' | 'admin';
+export type AppTab = 'timeline' | 'calendar' | 'inspection_scheduler' | 'workflow' | 'board' | 'chat' | 'memo' | 'daily_report' | 'files' | 'members' | 'mypage' | 'admin';
 
 interface SidebarProps {
   posts: Post[];
@@ -53,6 +53,21 @@ export function Sidebar({ posts, selectedTag, onSelectTag, activeTab, onChangeTa
     (currentUser?.division && currentUser.division.includes('保守'));
   const reportLabel = isMaintenanceUser ? '保守日報' : '週報';
 
+  // ページ・メニュー表示権限判定（点検予定管理・共有ファイルはデフォルト「非表示/OFF」）
+  const isTabAllowed = (tabId: AppTab) => {
+    if (currentUser?.isAdmin) return true;
+    if (tabId === 'inspection_scheduler') {
+      return currentUser?.preferences?.showInspectionScheduler === true;
+    }
+    if (tabId === 'files') {
+      return currentUser?.preferences?.showSharedFiles === true;
+    }
+    if (currentUser?.preferences?.allowedTabs && currentUser.preferences.allowedTabs.length > 0) {
+      return currentUser.preferences.allowedTabs.includes(tabId);
+    }
+    return true;
+  };
+
   return (
     <div className={containerClassName}>
       {onCollapse && (
@@ -69,116 +84,149 @@ export function Sidebar({ posts, selectedTag, onSelectTag, activeTab, onChangeTa
       )}
       <nav className="space-y-1">
         <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">メニュー</div>
-        <button
-          onClick={() => onChangeTab('mypage')}
-          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-bold transition-colors ${
-            activeTab === 'mypage'
-              ? 'bg-indigo-600 text-white shadow-sm'
-              : 'text-slate-700 hover:bg-slate-100'
-          }`}
-        >
-          <User className="w-4 h-4" />
-          マイページ
-        </button>
-        <button
-          onClick={() => onChangeTab('timeline')}
-          className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${
-            activeTab === 'timeline'
-              ? 'bg-indigo-50 text-indigo-700'
-              : 'text-slate-600 hover:bg-slate-50'
-          }`}
-        >
-          <Home className="w-4 h-4" />
-          タイムライン
-        </button>
-        <button
-          onClick={() => onChangeTab('calendar')}
-          className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${
-            activeTab === 'calendar'
-              ? 'bg-indigo-50 text-indigo-700'
-              : 'text-slate-600 hover:bg-slate-50'
-          }`}
-        >
-          <CalendarIcon className="w-4 h-4" />
-          カレンダー
-        </button>
-        <button
-          onClick={() => onChangeTab('inspection_scheduler')}
-          className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${
-            activeTab === 'inspection_scheduler'
-              ? 'bg-indigo-50 text-indigo-700 shadow-2xs'
-              : 'text-slate-600 hover:bg-slate-50'
-          }`}
-        >
-          <ClipboardList className="w-4 h-4 text-indigo-600" />
-          点検予定管理
-        </button>
-        <button
-          onClick={() => onChangeTab('workflow')}
-          className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${
-            activeTab === 'workflow'
-              ? 'bg-indigo-50 text-indigo-700'
-              : 'text-slate-600 hover:bg-slate-50'
-          }`}
-        >
-          <FileText className="w-4 h-4" />
-          ワークフロー
-        </button>
-        <button
-          onClick={() => onChangeTab('board')}
-          className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${
-            activeTab === 'board'
-              ? 'bg-indigo-50 text-indigo-700'
-              : 'text-slate-600 hover:bg-slate-50'
-          }`}
-        >
-          <Monitor className="w-4 h-4" />
-          掲示板
-        </button>
-        <button
-          onClick={() => onChangeTab('chat')}
-          className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${
-            activeTab === 'chat'
-              ? 'bg-indigo-50 text-indigo-700'
-              : 'text-slate-600 hover:bg-slate-50'
-          }`}
-        >
-          <MessageSquare className="w-4 h-4" />
-          チャットルーム
-        </button>
-        <button
-          onClick={() => onChangeTab('memo')}
-          className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${
-            activeTab === 'memo'
-              ? 'bg-indigo-50 text-indigo-700'
-              : 'text-slate-600 hover:bg-slate-50'
-          }`}
-        >
-          <Phone className="w-4 h-4" />
-          伝言メモ
-        </button>
-        <button
-          onClick={() => onChangeTab('daily_report')}
-          className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${
-            activeTab === 'daily_report'
-              ? 'bg-indigo-50 text-indigo-700'
-              : 'text-slate-600 hover:bg-slate-50'
-          }`}
-        >
-          <ClipboardList className="w-4 h-4" />
-          {reportLabel}
-        </button>
-        <button
-          onClick={() => onChangeTab('files')}
-          className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${
-            activeTab === 'files'
-              ? 'bg-indigo-50 text-indigo-700'
-              : 'text-slate-600 hover:bg-slate-50'
-          }`}
-        >
-          <HardDrive className="w-4 h-4 text-indigo-500" />
-          共有ファイル
-        </button>
+        {isTabAllowed('mypage') && (
+          <button
+            onClick={() => onChangeTab('mypage')}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-bold transition-colors ${
+              activeTab === 'mypage'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'text-slate-700 hover:bg-slate-100'
+            }`}
+          >
+            <User className="w-4 h-4" />
+            マイページ
+          </button>
+        )}
+        {isTabAllowed('timeline') && (
+          <button
+            onClick={() => onChangeTab('timeline')}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${
+              activeTab === 'timeline'
+                ? 'bg-indigo-50 text-indigo-700'
+                : 'text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            <Home className="w-4 h-4" />
+            タイムライン
+          </button>
+        )}
+        {isTabAllowed('calendar') && (
+          <button
+            onClick={() => onChangeTab('calendar')}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${
+              activeTab === 'calendar'
+                ? 'bg-indigo-50 text-indigo-700'
+                : 'text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            <CalendarIcon className="w-4 h-4" />
+            カレンダー
+          </button>
+        )}
+        {isTabAllowed('inspection_scheduler') && (
+          <button
+            onClick={() => onChangeTab('inspection_scheduler')}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${
+              activeTab === 'inspection_scheduler'
+                ? 'bg-indigo-50 text-indigo-700 shadow-2xs'
+                : 'text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            <ClipboardList className="w-4 h-4 text-indigo-600" />
+            点検予定管理
+          </button>
+        )}
+        {isTabAllowed('workflow') && (
+          <button
+            onClick={() => onChangeTab('workflow')}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${
+              activeTab === 'workflow'
+                ? 'bg-indigo-50 text-indigo-700'
+                : 'text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            <FileText className="w-4 h-4" />
+            ワークフロー
+          </button>
+        )}
+        {isTabAllowed('board') && (
+          <button
+            onClick={() => onChangeTab('board')}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${
+              activeTab === 'board'
+                ? 'bg-indigo-50 text-indigo-700'
+                : 'text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            <Monitor className="w-4 h-4" />
+            掲示板
+          </button>
+        )}
+        {isTabAllowed('chat') && (
+          <button
+            onClick={() => onChangeTab('chat')}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${
+              activeTab === 'chat'
+                ? 'bg-indigo-50 text-indigo-700'
+                : 'text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            <MessageSquare className="w-4 h-4" />
+            チャットルーム
+          </button>
+        )}
+        {isTabAllowed('memo') && (
+          <button
+            onClick={() => onChangeTab('memo')}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${
+              activeTab === 'memo'
+                ? 'bg-indigo-50 text-indigo-700'
+                : 'text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            <Phone className="w-4 h-4" />
+            伝言メモ
+          </button>
+        )}
+        {isTabAllowed('daily_report') && (
+          <button
+            onClick={() => onChangeTab('daily_report')}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${
+              activeTab === 'daily_report'
+                ? 'bg-indigo-50 text-indigo-700'
+                : 'text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            <ClipboardList className="w-4 h-4" />
+            <span>{reportLabel}</span>
+          </button>
+        )}
+        {isTabAllowed('files') && (
+          <button
+            onClick={() => onChangeTab('files')}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${
+              activeTab === 'files'
+                ? 'bg-indigo-50 text-indigo-700'
+                : 'text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            <HardDrive className="w-4 h-4 text-indigo-500" />
+            共有ファイル
+          </button>
+        )}
+        {isTabAllowed('members') && (
+          <button
+            onClick={() => onChangeTab('members')}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${
+              activeTab === 'members'
+                ? 'bg-indigo-50 text-indigo-700'
+                : 'text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            <Users className="w-4 h-4 text-indigo-600" />
+            社員名簿
+          </button>
+        )}
 
         {currentUser?.isAdmin && (
           <div className="space-y-1">

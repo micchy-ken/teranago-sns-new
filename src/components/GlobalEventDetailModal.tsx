@@ -22,6 +22,7 @@ import { getAvatarUrl } from '../utils/avatar';
 import { getRecurrenceLabel, isRecurringEvent } from '../utils/recurrenceUtils';
 import { renderContentWithLinks } from '../utils/renderContentWithLinks';
 import { markEventAsRead } from '../utils/notifications';
+import { triggerOpenUserModal } from '../utils/userModal';
 
 export interface GlobalEventDetailModalProps {
   isOpen: boolean;
@@ -257,11 +258,22 @@ export function GlobalEventDetailModal({
                 <UserCheck className="w-4 h-4 text-slate-400 shrink-0" />
                 <span>
                   登録者:{' '}
-                  <strong className="text-slate-800">
-                    {(event.createdViaInspection || (event.createdBy && event.createdBy.name === '点検登録') || (event.type === 'inspection' && event.targetYearMonth))
-                      ? '点検登録'
-                      : event.createdBy?.name || '不明'}
-                  </strong>
+                  {event.createdBy && !event.createdViaInspection && !(event.type === 'inspection' && event.targetYearMonth) ? (
+                    <button
+                      type="button"
+                      onClick={() => triggerOpenUserModal(event.createdBy!)}
+                      className="font-bold text-slate-800 hover:text-indigo-600 cursor-pointer underline transition-colors"
+                      title={`${event.createdBy.name}のプロフィールを表示`}
+                    >
+                      {event.createdBy.name}
+                    </button>
+                  ) : (
+                    <strong className="text-slate-800">
+                      {(event.createdViaInspection || (event.createdBy && event.createdBy.name === '点検登録') || (event.type === 'inspection' && event.targetYearMonth))
+                        ? '点検登録'
+                        : event.createdBy?.name || '不明'}
+                    </strong>
+                  )}
                 </span>
               </div>
             )}
@@ -278,13 +290,15 @@ export function GlobalEventDetailModal({
                 {event.attendees.map((user: User) => (
                   <div
                     key={user.id}
-                    className="flex items-center gap-1.5 bg-slate-50 border border-slate-150 pl-1.5 pr-2.5 py-1 rounded-lg text-xs font-semibold text-slate-700"
+                    onClick={() => triggerOpenUserModal(user)}
+                    className="flex items-center gap-1.5 bg-slate-50 hover:bg-indigo-50/60 border border-slate-150 hover:border-indigo-200 pl-1.5 pr-2.5 py-1 rounded-lg text-xs font-semibold text-slate-700 hover:text-indigo-700 cursor-pointer transition-all group/attendee"
+                    title={`${user.name}のプロフィールを表示`}
                   >
                     <img
                       src={getAvatarUrl(user.avatarUrl)}
                       alt={user.name}
                       referrerPolicy="no-referrer"
-                      className="w-5 h-5 rounded-full object-cover"
+                      className="w-5 h-5 rounded-full object-cover group-hover/attendee:ring-1 ring-indigo-200"
                     />
                     <span>{user.name}</span>
                     {user.department && <span className="text-[10px] text-slate-400">({user.department})</span>}

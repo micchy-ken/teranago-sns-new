@@ -39,6 +39,8 @@ import { TopicDetailModal } from './components/TopicDetailModal';
 import { GlobalEventDetailModal } from './components/GlobalEventDetailModal';
 import { GlobalMemoDetailModal } from './components/GlobalMemoDetailModal';
 import { GlobalReportDetailModal } from './components/GlobalReportDetailModal';
+import { UserDirectory } from './components/UserDirectory';
+import { UserDetailModal } from './components/UserDetailModal';
 import { filterStepsForApplicant, resolveApproverForStep, getSupervisorAtLevel } from './utils/workflowHelpers';
 import { planRecurrenceSave, planRecurrenceDelete, safeParseRecurrence, safeParseExceptions, expandRecurringEvents } from './utils/recurrenceUtils';
 import { RecurrenceActionScope } from './components/RecurrenceActionModal';
@@ -160,7 +162,47 @@ export default function App() {
   const [globalSelectedTopic, setGlobalSelectedTopic] = useState<BoardTopic | null>(null);
   const [globalSelectedMemo, setGlobalSelectedMemo] = useState<Memo | null>(null);
   const [globalSelectedReport, setGlobalSelectedReport] = useState<DailyReport | null>(null);
+  const [globalSelectedUser, setGlobalSelectedUser] = useState<User | null>(null);
   const [autoOpenCreateMemo, setAutoOpenCreateMemo] = useState(false);
+  const [memoInitialRecipientId, setMemoInitialRecipientId] = useState<string | undefined>(undefined);
+
+  const handleOpenUserDetail = (userOrId: User | string) => {
+    if (typeof userOrId === 'string') {
+      const found = usersList.find(u => u.id === userOrId);
+      if (found) setGlobalSelectedUser(found);
+    } else if (userOrId) {
+      const enriched = usersList.find(u => u.id === userOrId.id) || userOrId;
+      setGlobalSelectedUser(enriched);
+    }
+  };
+
+  const handleSendMemoFromModal = (targetUser: User) => {
+    setGlobalSelectedUser(null);
+    setMemoInitialRecipientId(targetUser.id);
+    setAutoOpenCreateMemo(true);
+    setActiveTab('memo');
+  };
+
+  const handleViewScheduleFromModal = (targetUser: User) => {
+    setGlobalSelectedUser(null);
+    setActiveTab('calendar');
+  };
+
+  const handleOpenChatFromModal = (targetUser: User) => {
+    setGlobalSelectedUser(null);
+    setActiveTab('chat');
+  };
+
+  // 全体からの社員ポップアップ呼び出しをリスニング
+  useEffect(() => {
+    const handleUserModalEvent = (e: any) => {
+      if (e.detail) {
+        handleOpenUserDetail(e.detail);
+      }
+    };
+    window.addEventListener('teranago:open-user-modal' as any, handleUserModalEvent);
+    return () => window.removeEventListener('teranago:open-user-modal' as any, handleUserModalEvent);
+  }, [usersList]);
 
   const handleNavigateToContent = (target: {
     tab: AppTab;
@@ -230,15 +272,7 @@ export default function App() {
     setTargetEventId(target.eventId);
     setTargetReportId(target.reportId);
 
-    updateBrowserUrl({
-      tab: target.tab,
-      topicId: target.topicId,
-      chatRoomId: target.chatRoomId,
-      memoId: target.memoId,
-      applicationId: target.applicationId,
-      eventId: target.eventId,
-      reportId: target.reportId,
-    });
+    updateBrowserUrl();
   };
 
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
@@ -273,6 +307,18 @@ export default function App() {
   };
 
   const [activeTab, setActiveTab] = useState<AppTab>(() => initialUrlParams.tab || 'mypage');
+
+  // URL末尾のクエリパラメータを完全除去してクリーンなURLを維持
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.location.search && window.history) {
+      try {
+        const cleanUrl = window.location.pathname + (window.location.hash ? window.location.hash.split('?')[0] : '');
+        window.history.replaceState({}, '', cleanUrl);
+      } catch (e) {
+        // ignore
+      }
+    }
+  }, []);
 
   // ブラウザの戻る/進む（popstate）対応
   useEffect(() => {
@@ -3445,7 +3491,24 @@ export default function App() {
             onDeleteMemo={handleDeleteMemo}
             initialMemoId={targetMemoId}
             initialOpenCreate={autoOpenCreateMemo}
-            onCloseCreateModal={() => setAutoOpenCreateMemo(false)}
+            initialRecipientId={memoInitialRecipientId}
+            onCloseCreateModal={() => {
+              setAutoOpenCreateMemo(false);
+              setMemoInitialRecipientId(undefined);
+            }}
+            onSelectUser={handleOpenUserDetail}
+          />
+        )}
+        {activeTab === 'members' && (
+          <UserDirectory
+            users={usersList}
+            offices={offices}
+            divisions={divisions}
+            currentUser={userState}
+            onSelectUser={handleOpenUserDetail}
+            onSendMemo={handleSendMemoFromModal}
+            onViewSchedule={handleViewScheduleFromModal}
+            onOpenChat={handleOpenChatFromModal}
           />
         )}
         {activeTab === 'daily_report' && (
@@ -3661,6 +3724,19 @@ export default function App() {
             setActiveTab('daily_report');
             setTargetReportId(reportId);
           }}
+        />
+      )}
+
+      {/* 社員明細ポップアップモーダル */}
+      {globalSelectedUser && (
+        <UserDetailModal
+          isOpen={!!globalSelectedUser}
+          user={globalSelectedUser}
+          onClose={() => setGlobalSelectedUser(null)}
+          onSendMemo={handleSendMemoFromModal}
+          onViewSchedule={handleViewScheduleFromModal}
+          onOpenChat={handleOpenChatFromModal}
+          currentUser={userState}
         />
       )}
     </div>

@@ -42,7 +42,9 @@ interface MemoListProps {
   onDeleteMemo?: (memoId: string) => void;
   initialMemoId?: string;
   initialOpenCreate?: boolean;
+  initialRecipientId?: string;
   onCloseCreateModal?: () => void;
+  onSelectUser?: (user: User) => void;
 }
 
 export function MemoList({
@@ -55,7 +57,9 @@ export function MemoList({
   onDeleteMemo,
   initialMemoId,
   initialOpenCreate = false,
+  initialRecipientId,
   onCloseCreateModal,
+  onSelectUser,
 }: MemoListProps) {
   const [memos, setMemos] = useState<Memo[]>(initialMemos);
   const [scope, setScope] = useState<'inbox' | 'sent' | 'all'>('inbox');
@@ -88,14 +92,17 @@ export function MemoList({
   const [selectedOfficeFilter, setSelectedOfficeFilter] = useState<string>('all');
 
   // モーダル制御
-  const [isCreateOpen, setIsCreateOpen] = useState(initialOpenCreate);
+  const [isCreateOpen, setIsCreateOpen] = useState(initialOpenCreate || !!initialRecipientId);
   const [detailMemo, setDetailMemo] = useState<Memo | null>(null);
 
   React.useEffect(() => {
-    if (initialOpenCreate) {
+    if (initialOpenCreate || initialRecipientId) {
       setIsCreateOpen(true);
+      if (initialRecipientId) {
+        setSelectedToUserIds([initialRecipientId]);
+      }
     }
-  }, [initialOpenCreate]);
+  }, [initialOpenCreate, initialRecipientId]);
 
   const handleCloseCreateModal = () => {
     setIsCreateOpen(false);

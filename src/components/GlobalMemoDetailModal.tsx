@@ -4,6 +4,7 @@ import { Memo, User as UserType } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
 import { isMemoUnhandled, markMemoAsRead } from '../utils/notifications';
 import { renderContentWithLinks } from '../utils/renderContentWithLinks';
+import { triggerOpenUserModal } from '../utils/userModal';
 
 interface GlobalMemoDetailModalProps {
   isOpen: boolean;
@@ -140,17 +141,20 @@ export function GlobalMemoDetailModal({
               <div className="flex flex-wrap gap-1.5 pt-0.5">
                 {statuses.length > 0 ? (
                   statuses.map((st) => (
-                    <span
+                    <button
                       key={st.userId}
-                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold ${
+                      type="button"
+                      onClick={() => triggerOpenUserModal(st.userId)}
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold cursor-pointer transition-all hover:opacity-80 ${
                         st.userId === currentUser?.id
                           ? 'bg-indigo-600 text-white'
-                          : 'bg-white text-slate-700 border border-slate-200'
+                          : 'bg-white text-slate-700 border border-slate-200 hover:border-indigo-300'
                       }`}
+                      title={`${st.userName}のプロフィールを表示`}
                     >
                       {st.userName}
                       {st.isHandled && <Check className="w-3 h-3 text-emerald-400" />}
-                    </span>
+                    </button>
                   ))
                 ) : (
                   <span className="text-slate-600">{memo.toUsers?.map(u => u.name).join(', ') || '指定なし'}</span>
@@ -176,7 +180,11 @@ export function GlobalMemoDetailModal({
               <span>受付日時: {new Date(memo.createdAt).toLocaleString('ja-JP')}</span>
             </div>
             {memo.createdByUser && (
-              <div className="flex items-center gap-1.5 mt-0.5">
+              <div 
+                onClick={() => memo.createdByUser && triggerOpenUserModal(memo.createdByUser)}
+                className="flex items-center gap-1.5 mt-0.5 cursor-pointer hover:text-indigo-600 transition-colors w-fit"
+                title={`${memo.createdByUser.name}のプロフィールを表示`}
+              >
                 <img
                   src={getAvatarUrl(memo.createdByUser.avatarUrl)}
                   alt={memo.createdByUser.name}

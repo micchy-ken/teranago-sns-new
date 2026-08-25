@@ -16,6 +16,11 @@ export interface UserPreferences {
   mypageSectionOrder?: string[];
   isSidebarCollapsed?: boolean;
   emailNotifications?: EmailNotificationSettings;
+  allowedTabs?: string[];
+  showInspectionScheduler?: boolean; // 点検予定管理メニューの表示（デフォルト: false / OFF）
+  showSharedFiles?: boolean;         // 共有ファイルメニューの表示（デフォルト: false / OFF）
+  hideInspectionScheduler?: boolean; // 互換用
+  hideSharedFiles?: boolean;         // 互換用
   [key: string]: any;
 }
 

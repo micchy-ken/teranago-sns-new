@@ -1669,20 +1669,11 @@ export function Calendar({
             )}
           </div>
 
-          {/* 現在の表示条件のURLリンクをコピーするボタン */}
+          {/* アプリケーションURLリンクをコピーするボタン */}
           <button
             type="button"
             onClick={() => {
-              const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
-              const url = buildAppUrl({
-                tab: 'calendar',
-                office: selectedOffice,
-                division: selectedDivision,
-                mode: calendarMode,
-                view: view,
-                date: dateStr,
-                type: selectedTypeFilter !== 'all' ? selectedTypeFilter : undefined,
-              });
+              const url = buildAppUrl();
               if (navigator.clipboard) {
                 navigator.clipboard.writeText(url).then(() => {
                   setCopiedLink(true);
@@ -1695,7 +1686,7 @@ export function Calendar({
                 ? 'bg-emerald-50 text-emerald-700 border-emerald-300 ring-2 ring-emerald-200'
                 : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
             }`}
-            title="この表示条件（拠点・部署・モード・表示）を共有できるURLリンクをコピー"
+            title="アプリケーションURLリンクをコピー"
           >
             {copiedLink ? (
               <>

@@ -16,6 +16,7 @@ import {
   Clock
 } from 'lucide-react';
 import { markReportAsRead } from '../utils/notifications';
+import { triggerOpenUserModal } from '../utils/userModal';
 
 interface GlobalReportDetailModalProps {
   report: DailyReport | null;
@@ -92,6 +93,13 @@ export const GlobalReportDetailModal: React.FC<GlobalReportDetailModalProps> = (
               <div className="flex items-center gap-2">
                 <h3 className="font-bold text-slate-900 text-base">{title}</h3>
                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                  isMaintenance 
+                    ? 'bg-amber-100 text-amber-800 border border-amber-300' 
+                    : 'bg-indigo-100 text-indigo-800 border border-indigo-300'
+                }`}>
+                  {typeLabel}
+                </span>
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                   report.status === 'reviewed'
                     ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
                     : report.status === 'draft'
@@ -102,7 +110,15 @@ export const GlobalReportDetailModal: React.FC<GlobalReportDetailModalProps> = (
                 </span>
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
-                作成者: <strong className="text-slate-800 font-semibold">{report.author?.name || (report as any).authorName || '不明'}</strong>
+                作成者:{' '}
+                <button
+                  type="button"
+                  onClick={() => report.author && triggerOpenUserModal(report.author)}
+                  className="text-slate-800 font-bold hover:text-indigo-600 cursor-pointer underline transition-colors"
+                  title="プロフィールを表示"
+                >
+                  {report.author?.name || (report as any).authorName || '不明'}
+                </button>
                 {report.department ? ` (${report.department})` : ''}
               </p>
             </div>
@@ -127,7 +143,18 @@ export const GlobalReportDetailModal: React.FC<GlobalReportDetailModalProps> = (
             </div>
             <div>
               <span className="text-slate-500 block text-[11px]">報告先上長:</span>
-              <span className="font-bold text-indigo-900">{supervisorName}</span>
+              {report.supervisor ? (
+                <button
+                  type="button"
+                  onClick={() => report.supervisor && triggerOpenUserModal(report.supervisor)}
+                  className="font-bold text-indigo-900 hover:text-indigo-600 cursor-pointer underline transition-colors"
+                  title="プロフィールを表示"
+                >
+                  {supervisorName}
+                </button>
+              ) : (
+                <span className="font-bold text-indigo-900">{supervisorName}</span>
+              )}
             </div>
             <div>
               <span className="text-slate-500 block text-[11px]">確認日時:</span>

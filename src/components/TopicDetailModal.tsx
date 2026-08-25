@@ -8,6 +8,7 @@ import { FilePreviewModal } from './FilePreviewModal';
 import { renderContentWithLinks } from '../utils/renderContentWithLinks';
 import { UrlPastePopup, useUrlPasteHandler } from './common/UrlPastePopup';
 import { markTopicAsRead } from '../utils/notifications';
+import { triggerOpenUserModal } from '../utils/userModal';
 
 interface TopicDetailModalProps {
   topic: BoardTopic | null;
@@ -355,14 +356,20 @@ export function TopicDetailModal({
         {/* Sub-Header Meta & Tabs */}
         {!isEditing && (
           <div className="px-6 py-3 bg-white border-b border-slate-100 flex flex-wrap items-center justify-between gap-3 shrink-0">
-            <div className="flex items-center gap-3">
+            <div 
+              onClick={() => topic.author && triggerOpenUserModal(topic.author)}
+              className="flex items-center gap-3 cursor-pointer group/author hover:opacity-90 transition-opacity"
+              title={`${topic.author.name}のプロフィールを表示`}
+            >
               <img
                 src={getAvatarUrl(topic.author.avatarUrl)}
                 alt={topic.author.name}
-                className="w-9 h-9 rounded-full border border-slate-200 object-cover"
+                className="w-9 h-9 rounded-full border border-slate-200 object-cover group-hover/author:ring-2 ring-indigo-200 transition-all"
               />
               <div>
-                <div className="text-xs font-bold text-slate-800">{topic.author.name}</div>
+                <div className="text-xs font-bold text-slate-800 group-hover/author:text-indigo-600 transition-colors">
+                  {topic.author.name}
+                </div>
                 <div className="text-[11px] text-slate-400">
                   {new Date(topic.createdAt).toLocaleString('ja-JP')} 投稿
                 </div>
@@ -765,13 +772,17 @@ export function TopicDetailModal({
                         topic.comments.map(c => (
                           <div key={c.id} className="p-3.5 bg-slate-50 border border-slate-200/80 rounded-xl text-xs space-y-1.5">
                             <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
+                              <div 
+                                onClick={() => c.author && triggerOpenUserModal(c.author)}
+                                className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
+                                title={`${c.author.name}のプロフィールを表示`}
+                              >
                                 <img
                                   src={getAvatarUrl(c.author.avatarUrl)}
                                   alt={c.author.name}
                                   className="w-6 h-6 rounded-full border border-slate-200"
                                 />
-                                <span className="font-bold text-slate-800">{c.author.name}</span>
+                                <span className="font-bold text-slate-800 hover:text-indigo-600 transition-colors">{c.author.name}</span>
                                 <span className="text-[10px] text-slate-400">
                                   {new Date(c.createdAt).toLocaleString('ja-JP')}
                                 </span>
@@ -958,16 +969,18 @@ export function TopicDetailModal({
                     {viewersList.map((v, idx) => (
                       <div
                         key={idx}
-                        className="flex items-center justify-between p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs"
+                        onClick={() => v.user && triggerOpenUserModal(v.user)}
+                        className="flex items-center justify-between p-3 bg-slate-50 hover:bg-indigo-50/50 border border-slate-200 hover:border-indigo-200 rounded-xl text-xs cursor-pointer transition-all group/viewer"
+                        title={`${v.user.name}のプロフィールを表示`}
                       >
                         <div className="flex items-center gap-2.5">
                           <img
                             src={getAvatarUrl(v.user.avatarUrl)}
                             alt={v.user.name}
-                            className="w-8 h-8 rounded-full border border-slate-200 object-cover"
+                            className="w-8 h-8 rounded-full border border-slate-200 object-cover group-hover/viewer:ring-1 ring-indigo-200"
                           />
                           <div>
-                            <div className="font-bold text-slate-800">{v.user.name}</div>
+                            <div className="font-bold text-slate-800 group-hover/viewer:text-indigo-600 transition-colors">{v.user.name}</div>
                             <div className="text-[10px] text-slate-500">
                               {v.user.office || ''} {v.user.division || ''}
                             </div>

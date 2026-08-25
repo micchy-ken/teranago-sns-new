@@ -21,6 +21,7 @@ import {
   markReportAsRead,
   NotificationItem,
 } from '../utils/notifications';
+import { triggerOpenUserModal } from '../utils/userModal';
 
 export interface GlobalSearchResultItem {
   id: string;
@@ -370,11 +371,7 @@ export function Header({
     setIsSearchFocused(false);
 
     if (item.type === 'user' && item.originalData) {
-      if (onNavigateToContent) {
-        onNavigateToContent({ tab: 'chat' });
-      } else if (onSelectTab) {
-        onSelectTab('chat');
-      }
+      triggerOpenUserModal(item.originalData);
       return;
     }
 

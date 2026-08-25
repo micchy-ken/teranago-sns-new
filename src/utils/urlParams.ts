@@ -180,7 +180,7 @@ export function getAppBasePath(): string {
 
 /**
  * Normalizes notification or link URLs ensuring repository subdirectories (like GitHub Pages) are preserved
- * Always returns a complete, unambiguous URL for notifications and external opens.
+ * Always returns a clean, complete URL without any trailing query parameters.
  */
 export function resolveNotificationUrl(url?: string): string {
   const basePath = getAppBasePath();
@@ -188,22 +188,20 @@ export function resolveNotificationUrl(url?: string): string {
   const baseWithOrigin = origin ? `${origin}${basePath.endsWith('/') ? basePath : `${basePath}/`}` : basePath;
 
   if (!url || url === '/' || url === './') {
-    return baseWithOrigin;
+    return baseWithOrigin.split('?')[0];
   }
   
   // If already absolute URL with protocol (https:// or http://)
   if (/^https?:\/\//i.test(url)) {
-    // If it's on the same origin but missing repository prefix
-    if (origin && url.startsWith(origin) && basePath !== '/' && !url.includes(basePath)) {
-      const urlObj = new URL(url);
-      const searchAndHash = `${urlObj.search}${urlObj.hash}`;
+    const cleanUrl = url.split('?')[0];
+    if (origin && cleanUrl.startsWith(origin) && basePath !== '/' && !cleanUrl.includes(basePath)) {
       const prefix = basePath.endsWith('/') ? basePath : `${basePath}/`;
-      return `${origin}${prefix}${searchAndHash}`;
+      return `${origin}${prefix}`;
     }
-    return url;
+    return cleanUrl;
   }
 
-  let target = url;
+  let target = url.split('?')[0];
   if (target.startsWith('/')) {
     if (basePath !== '/' && target.startsWith(basePath)) {
       return origin ? `${origin}${target}` : target;
@@ -215,13 +213,14 @@ export function resolveNotificationUrl(url?: string): string {
 
   const prefix = basePath.endsWith('/') ? basePath : `${basePath}/`;
   const fullPath = `${prefix}${target}`;
-  return origin ? `${origin}${fullPath}` : fullPath;
+  const finalUrl = origin ? `${origin}${fullPath}` : fullPath;
+  return finalUrl.split('?')[0];
 }
 
 /**
- * Builds a query string or full URL with the given parameters
+ * Builds clean base application URL without any query parameters
  */
-export function buildAppUrl(params: AppQueryParams, baseUrl?: string): string {
+export function buildAppUrl(_params?: AppQueryParams, baseUrl?: string): string {
   let origin = baseUrl;
   if (!origin && typeof window !== 'undefined') {
     const basePath = getAppBasePath();
@@ -229,38 +228,18 @@ export function buildAppUrl(params: AppQueryParams, baseUrl?: string): string {
   } else if (!origin) {
     origin = '';
   }
-  const searchParams = new URLSearchParams();
-
-  if (params.tab) searchParams.set('tab', params.tab);
-  if (params.office) searchParams.set('office', params.office);
-  if (params.division) searchParams.set('division', params.division);
-  if (params.mode) searchParams.set('mode', params.mode);
-  if (params.view) searchParams.set('view', params.view);
-  if (params.date) searchParams.set('date', params.date);
-  if (params.type && params.type !== 'all') searchParams.set('type', params.type);
-  if (params.eventId) searchParams.set('eventId', params.eventId);
-  if (params.applicationId) searchParams.set('appId', params.applicationId);
-  if (params.memoId) searchParams.set('memoId', params.memoId);
-  if (params.topicId) searchParams.set('topicId', params.topicId);
-  if (params.chatRoomId) searchParams.set('roomId', params.chatRoomId);
-  if (params.reportId) searchParams.set('reportId', params.reportId);
-
-  const qs = searchParams.toString();
-  if (!qs) return origin;
-  return origin.includes('?') ? `${origin}&${qs}` : `${origin}?${qs}`;
+  return origin.split('?')[0];
 }
 
 /**
- * Updates browser address bar URL with current parameters without reloading
+ * Cleans the browser address bar to ensure no query parameters remain attached to the URL
  */
-export function updateBrowserUrl(params: AppQueryParams, replace = true) {
+export function updateBrowserUrl(_params?: AppQueryParams, _replace = true) {
   if (typeof window === 'undefined' || !window.history) return;
   try {
-    const newUrl = buildAppUrl(params);
-    if (replace) {
-      window.history.replaceState({ ...params }, '', newUrl);
-    } else {
-      window.history.pushState({ ...params }, '', newUrl);
+    if (window.location.search) {
+      const cleanPath = window.location.pathname + (window.location.hash ? window.location.hash.split('?')[0] : '');
+      window.history.replaceState({}, '', cleanPath);
     }
   } catch (e) {
     // ignore

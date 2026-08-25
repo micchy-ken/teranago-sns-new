@@ -83,6 +83,7 @@ import {
   SlidersHorizontal,
   Mail,
   CheckSquare,
+  Sparkles,
   Square,
 } from 'lucide-react';
 import { TopicDetailModal } from './TopicDetailModal';
@@ -489,13 +490,24 @@ export function MyPage({
     }
   };
 
+  // デフォルト設定：すべてオフ
   const defaultEmailNotifs: EmailNotificationSettings = useMemo(() => ({
-    schedule: { pc: true, mobile: true },
-    bulletin: { pc: true, mobile: true },
+    schedule: { pc: false, mobile: false },
+    bulletin: { pc: false, mobile: false },
+    memo: { pc: false, mobile: false },
+    workflow: { pc: false, mobile: false },
+    post: { pc: false, mobile: false },
+    inspection: { pc: false, mobile: false },
+  }), []);
+
+  // 推奨設定プリセット (伝言メモ・ワークフロー・点検報告書をON、他をOFF)
+  const RECOMMENDED_EMAIL_NOTIFS: EmailNotificationSettings = useMemo(() => ({
+    schedule: { pc: false, mobile: false },
+    bulletin: { pc: false, mobile: false },
     memo: { pc: true, mobile: true },
     workflow: { pc: true, mobile: true },
-    post: { pc: true, mobile: false },
-    inspection: { pc: true, mobile: false },
+    post: { pc: false, mobile: false },
+    inspection: { pc: true, mobile: true },
   }), []);
 
   const currentEmailNotifs: EmailNotificationSettings = useMemo(() => ({
@@ -504,7 +516,7 @@ export function MyPage({
   }), [settingsForm.preferences?.emailNotifications, defaultEmailNotifs]);
 
   const handleToggleEmailNotif = (catKey: keyof EmailNotificationSettings, type: 'pc' | 'mobile') => {
-    const curCat = currentEmailNotifs[catKey] || { pc: true, mobile: false };
+    const curCat = currentEmailNotifs[catKey] || { pc: false, mobile: false };
     const updatedCat = { ...curCat, [type]: !curCat[type] };
     const updatedPrefs = {
       ...(settingsForm.preferences || {}),
@@ -516,20 +528,26 @@ export function MyPage({
     setSettingsForm({ ...settingsForm, preferences: updatedPrefs });
   };
 
-  const handleBatchSetEmailNotif = (mode: 'all_pc_on' | 'all_mobile_on' | 'all_off') => {
-    const updated: EmailNotificationSettings = { ...currentEmailNotifs };
-    const keys: (keyof EmailNotificationSettings)[] = ['schedule', 'bulletin', 'memo', 'workflow', 'post', 'inspection'];
+  const handleBatchSetEmailNotif = (mode: 'recommended' | 'all_pc_on' | 'all_mobile_on' | 'all_off') => {
+    let updated: EmailNotificationSettings;
 
-    keys.forEach((k) => {
-      const cur = updated[k] || { pc: true, mobile: false };
-      if (mode === 'all_pc_on') {
-        updated[k] = { ...cur, pc: true };
-      } else if (mode === 'all_mobile_on') {
-        updated[k] = { ...cur, mobile: true };
-      } else {
-        updated[k] = { pc: false, mobile: false };
-      }
-    });
+    if (mode === 'recommended') {
+      updated = { ...RECOMMENDED_EMAIL_NOTIFS };
+    } else {
+      updated = { ...currentEmailNotifs };
+      const keys: (keyof EmailNotificationSettings)[] = ['schedule', 'bulletin', 'memo', 'workflow', 'post', 'inspection'];
+
+      keys.forEach((k) => {
+        const cur = updated[k] || { pc: false, mobile: false };
+        if (mode === 'all_pc_on') {
+          updated[k] = { ...cur, pc: true };
+        } else if (mode === 'all_mobile_on') {
+          updated[k] = { ...cur, mobile: true };
+        } else {
+          updated[k] = { pc: false, mobile: false };
+        }
+      });
+    }
 
     setSettingsForm({
       ...settingsForm,
@@ -1980,25 +1998,34 @@ export function MyPage({
                   </h3>
                   
                   {/* 一括操作ボタン */}
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => handleBatchSetEmailNotif('recommended')}
+                      className="flex items-center gap-1 px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold text-[11px] rounded-lg transition-all cursor-pointer shadow-2xs"
+                      title="伝言メモ・ワークフロー・点検報告書をON、他をOFFにする推奨設定"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                      <span>推奨</span>
+                    </button>
                     <button
                       type="button"
                       onClick={() => handleBatchSetEmailNotif('all_pc_on')}
-                      className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10.5px] font-medium rounded transition-colors cursor-pointer"
+                      className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10.5px] font-medium rounded-lg transition-colors cursor-pointer"
                     >
                       すべてPCオン
                     </button>
                     <button
                       type="button"
                       onClick={() => handleBatchSetEmailNotif('all_mobile_on')}
-                      className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10.5px] font-medium rounded transition-colors cursor-pointer"
+                      className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10.5px] font-medium rounded-lg transition-colors cursor-pointer"
                     >
                       すべて携帯オン
                     </button>
                     <button
                       type="button"
                       onClick={() => handleBatchSetEmailNotif('all_off')}
-                      className="px-2 py-1 bg-slate-100 hover:bg-rose-50 text-rose-600 text-[10.5px] font-medium rounded transition-colors cursor-pointer"
+                      className="px-2 py-1 bg-slate-100 hover:bg-rose-50 text-rose-600 text-[10.5px] font-medium rounded-lg transition-colors cursor-pointer"
                     >
                       すべてオフ
                     </button>

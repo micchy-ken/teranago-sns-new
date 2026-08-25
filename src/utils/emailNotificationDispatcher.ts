@@ -15,23 +15,17 @@ export interface EmailDispatchItem {
 }
 
 /**
- * Gets the full share link URL given a path query or full URL
+ * Gets the full share link URL (clean URL without trailing query parameters)
  */
 export function getFullShareUrl(pathParamsOrUrl?: string): string {
-  if (!pathParamsOrUrl) {
-    if (typeof window !== 'undefined') {
-      return window.location.origin + window.location.pathname;
-    }
-    return '';
+  if (pathParamsOrUrl && (pathParamsOrUrl.startsWith('http://') || pathParamsOrUrl.startsWith('https://'))) {
+    return pathParamsOrUrl.split('?')[0];
   }
 
-  if (pathParamsOrUrl.startsWith('http://') || pathParamsOrUrl.startsWith('https://')) {
-    return pathParamsOrUrl;
+  if (typeof window !== 'undefined') {
+    return (window.location.origin + window.location.pathname).split('?')[0];
   }
-
-  const baseOrigin = typeof window !== 'undefined' ? window.location.origin + window.location.pathname : '';
-  const cleanParams = pathParamsOrUrl.startsWith('?') ? pathParamsOrUrl : `?${pathParamsOrUrl}`;
-  return `${baseOrigin}${cleanParams}`;
+  return '';
 }
 
 /**
@@ -44,9 +38,8 @@ export function getRecipientEmailAddresses(
   const prefs: EmailNotificationSettings = user.preferences?.emailNotifications || {};
   
   // Default values if preference for category is not explicitly set:
-  // PC email is enabled by default if user has email.
-  // Mobile email is enabled if set to true.
-  const catPref = prefs[category] ?? { pc: true, mobile: true };
+  // All notifications are disabled (OFF) by default.
+  const catPref = prefs[category] ?? { pc: false, mobile: false };
 
   const result: { pcEmail?: string; mobileEmail?: string } = {};
 
