@@ -1,6 +1,7 @@
 import React from 'react';
 import { X, Download, FileText, FileImage, FileCode, FileSpreadsheet } from 'lucide-react';
 import { AttachmentFile } from '../types';
+import { resolveFileUrl } from '../utils/fileUpload';
 
 interface FilePreviewModalProps {
   isOpen: boolean;
@@ -11,6 +12,7 @@ interface FilePreviewModalProps {
 export function FilePreviewModal({ isOpen, onClose, file }: FilePreviewModalProps) {
   if (!isOpen || !file) return null;
 
+  const resolvedUrl = resolveFileUrl(file.url);
   const isImage = file.type?.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(file.name);
   const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
 
@@ -23,9 +25,9 @@ export function FilePreviewModal({ isOpen, onClose, file }: FilePreviewModalProp
   };
 
   const handleDownload = () => {
-    if (!file.url) return;
+    if (!resolvedUrl) return;
     const link = document.createElement('a');
-    link.href = file.url;
+    link.href = resolvedUrl;
     link.download = file.name;
     document.body.appendChild(link);
     link.click();
@@ -80,19 +82,19 @@ export function FilePreviewModal({ isOpen, onClose, file }: FilePreviewModalProp
 
         {/* Preview Content */}
         <div className="flex-1 overflow-auto bg-slate-100 p-6 flex items-center justify-center min-h-[300px]">
-          {isImage && file.url ? (
+          {isImage && resolvedUrl ? (
             <div className="max-w-full max-h-[70vh] flex items-center justify-center">
               <img
-                src={file.url}
+                src={resolvedUrl}
                 alt={file.name}
                 referrerPolicy="no-referrer"
                 className="max-w-full max-h-[70vh] rounded-lg shadow-sm border border-slate-200/50 object-contain bg-white"
               />
             </div>
-          ) : isPdf && file.url ? (
+          ) : isPdf && resolvedUrl ? (
             <div className="w-full h-[70vh] bg-white rounded-lg overflow-hidden border border-slate-200">
               <iframe
-                src={`${file.url}#toolbar=1`}
+                src={`${resolvedUrl}#toolbar=1`}
                 className="w-full h-full border-0"
                 title={file.name}
               />

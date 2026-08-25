@@ -797,6 +797,19 @@ export default function App() {
             parsedViewers = detailsObj.viewers;
           }
 
+          let parsedAtts = [];
+          if (Array.isArray(t.attachments)) {
+            parsedAtts = t.attachments;
+          } else if (typeof t.attachments === 'string') {
+            try {
+              const p = JSON.parse(t.attachments);
+              if (Array.isArray(p)) parsedAtts = p;
+              else if (p) parsedAtts = [p];
+            } catch (_) {}
+          } else if (detailsObj.attachments && Array.isArray(detailsObj.attachments)) {
+            parsedAtts = detailsObj.attachments;
+          }
+
           return {
             id: String(t.id),
             category: t.category || 'general',
@@ -811,11 +824,11 @@ export default function App() {
             scope: t.scope || '全社',
             tags: Array.isArray(t.tags) ? t.tags : (typeof t.tags === 'string' ? t.tags.split(',') : []),
             isPinned: t.isPinned === true || t.isPinned === 1,
-            attachments: t.attachments ? (typeof t.attachments === 'string' && t.attachments.startsWith('[') ? JSON.parse(t.attachments) : t.attachments) : [],
             comments: commentsList,
             viewers: parsedViewers,
             commentsCount: commentsList.length || t.commentsCount || 0,
-            ...detailsObj
+            ...detailsObj,
+            attachments: parsedAtts
           };
         });
         setTopics(mapped);

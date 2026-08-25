@@ -2262,6 +2262,51 @@ async function startServer() {
     return null;
   }
 
+  // MIMEヘッダー文字化け解読・デコードヘルパー
+  function decodeMimeHeader(str?: string): string {
+    if (!str) return '';
+    try {
+      let text = str;
+      text = text.replace(/=\?([^?]+)\?([BQbq])\?([^?]+)\?=/g, (_, charset, encoding, encText) => {
+        try {
+          if (encoding.toUpperCase() === 'B') {
+            return Buffer.from(encText, 'base64').toString('utf8');
+          } else if (encoding.toUpperCase() === 'Q') {
+            const qDecoded = encText.replace(/_/g, ' ').replace(/=([0-9A-F]{2})/gi, (__: string, hex: string) =>
+              String.fromCharCode(parseInt(hex, 16))
+            );
+            return Buffer.from(qDecoded, 'latin1').toString('utf8');
+          }
+        } catch (e) {
+          return encText;
+        }
+        return encText;
+      });
+      return text.trim();
+    } catch (e) {
+      return str || '';
+    }
+  }
+
+  // Content-Typeからの拡張子推定ヘルパー
+  function getExtensionFromMimeType(contentType?: string): string {
+    if (!contentType) return '.bin';
+    const ct = contentType.toLowerCase();
+    if (ct.includes('image/jpeg') || ct.includes('image/jpg')) return '.jpg';
+    if (ct.includes('image/png')) return '.png';
+    if (ct.includes('image/gif')) return '.gif';
+    if (ct.includes('image/webp')) return '.webp';
+    if (ct.includes('image/svg')) return '.svg';
+    if (ct.includes('application/pdf')) return '.pdf';
+    if (ct.includes('spreadsheetml') || ct.includes('excel') || ct.includes('xls')) return '.xlsx';
+    if (ct.includes('wordprocessingml') || ct.includes('msword') || ct.includes('doc')) return '.docx';
+    if (ct.includes('presentationml') || ct.includes('powerpoint') || ct.includes('ppt')) return '.pptx';
+    if (ct.includes('text/plain')) return '.txt';
+    if (ct.includes('text/csv')) return '.csv';
+    if (ct.includes('zip') || ct.includes('compressed')) return '.zip';
+    return '.bin';
+  }
+
   // ファイルサイズ整形ヘルパー
   function formatAttachmentSize(bytes: number): string {
     if (!bytes || isNaN(bytes)) return '0 KB';
@@ -2307,17 +2352,31 @@ async function startServer() {
         for (let i = 0; i < parsed.attachments.length; i++) {
           const att = parsed.attachments[i];
           try {
-            const rawFilename = att.filename || `email_attachment_${Date.now()}_${i}`;
-            const ext = path.extname(rawFilename);
-            const baseName = path.basename(rawFilename, ext).replace(/[^a-zA-Z0-9_\-\u3000-\u303F\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]/g, '_');
-            const safeSavedFilename = `${Date.now()}_${i}_${baseName}${ext}`;
+            // MIMEヘッダーデコードを適用
+            let decodedFilename = decodeMimeHeader(att.filename);
+            if (!decodedFilename) {
+              decodedFilename = `email_attachment_${Date.now()}_${i}`;
+            }
+
+            let ext = path.extname(decodedFilename);
+            if (!ext || ext.length > 10 || ext.includes('=')) {
+              ext = getExtensionFromMimeType(att.contentType);
+              if (!path.extname(decodedFilename)) {
+                decodedFilename = `${decodedFilename}${ext}`;
+              }
+            }
+
+            const cleanBase = path.basename(decodedFilename, ext)
+              .replace(/[^a-zA-Z0-9_\-\u3000-\u303F\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF\uFF65-\uFF9F\uFF01-\uFF5E]/g, '_') || 'file';
+            
+            const safeSavedFilename = `${Date.now()}_${i}_${cleanBase}${ext}`;
             const filePath = path.join(bulletinsFilesDir, safeSavedFilename);
 
             fs.writeFileSync(filePath, att.content);
             attachmentsList.push({
               id: `att_mail_${Date.now()}_${i}`,
-              name: rawFilename,
-              size: formatAttachmentSize(att.size || att.content.length),
+              name: decodedFilename,
+              size: formatAttachmentSize(att.size || att.content?.length || 0),
               url: `/bulletinsfiles/${encodeURIComponent(safeSavedFilename)}`,
               type: att.contentType || 'application/octet-stream'
             });

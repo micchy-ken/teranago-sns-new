@@ -38,6 +38,19 @@ export async function uploadFile(file: File): Promise<AttachmentFile> {
 }
 
 /**
+ * 添付ファイルのURL（相対パス /bulletinsfiles/... など）を完全な閲覧・DL用URLに変換します。
+ */
+export function resolveFileUrl(url?: string): string {
+  if (!url) return '';
+  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('blob:')) {
+    return url;
+  }
+  const baseUrl = (API_BASE_URL || '').replace(/\/api\/?$/, '');
+  const cleanPath = url.startsWith('/') ? url : `/${url}`;
+  return `${baseUrl}${cleanPath}`;
+}
+
+/**
  * 複数ファイルのアップロード処理を並列で実行します。
  */
 export async function uploadMultipleFiles(files: FileList | File[]): Promise<AttachmentFile[]> {

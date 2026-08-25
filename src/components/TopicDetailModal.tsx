@@ -3,7 +3,7 @@ import { X, MessageSquare, Eye, Pin, Paperclip, Calendar as CalendarIcon, Send, 
 import { BoardTopic, User, OfficeMaster, DivisionMaster, AttachmentFile } from '../types';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { getAvatarUrl } from '../utils/avatar';
-import { uploadMultipleFiles, deleteAttachmentFile, deleteAttachmentFiles } from '../utils/fileUpload';
+import { uploadMultipleFiles, deleteAttachmentFile, deleteAttachmentFiles, resolveFileUrl } from '../utils/fileUpload';
 import { FilePreviewModal } from './FilePreviewModal';
 import { renderContentWithLinks } from '../utils/renderContentWithLinks';
 import { UrlPastePopup, useUrlPasteHandler } from './common/UrlPastePopup';
@@ -725,7 +725,7 @@ export function TopicDetailModal({
                                 <button
                                   type="button"
                                   onClick={() => {
-                                    setPreviewFile(att);
+                                    setPreviewFile({ ...att, url: resolveFileUrl(att.url) });
                                     setIsPreviewOpen(true);
                                   }}
                                   className="px-2.5 py-1 text-[11px] font-bold text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
@@ -734,7 +734,7 @@ export function TopicDetailModal({
                                 </button>
                               )}
                               <a
-                                href={att.url || '#'}
+                                href={resolveFileUrl(att.url) || '#'}
                                 download={att.name}
                                 onClick={(e) => {
                                   if (!att.url) {
@@ -817,7 +817,7 @@ export function TopicDetailModal({
                                         <button
                                           type="button"
                                           onClick={() => {
-                                            setPreviewFile(att);
+                                            setPreviewFile({ ...att, url: resolveFileUrl(att.url) });
                                             setIsPreviewOpen(true);
                                           }}
                                           className="text-emerald-600 hover:text-emerald-800"
@@ -826,7 +826,7 @@ export function TopicDetailModal({
                                         </button>
                                       )}
                                       <a
-                                        href={att.url || '#'}
+                                        href={resolveFileUrl(att.url) || '#'}
                                         download={att.name}
                                         onClick={(e) => {
                                           if (!att.url) {
