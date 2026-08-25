@@ -41,7 +41,8 @@ import {
   Server,
   Copy,
   Check,
-  Send
+  Send,
+  Inbox
 } from 'lucide-react';
 import { User, OfficeMaster, DivisionMaster, PositionMaster, OfficeType, ApprovalFlowRule, ApprovalStepConfig, ApplicationType, ApproverType, ItemMaster, WorkflowApplication, ApplicationStatus } from '../types';
 
@@ -136,7 +137,21 @@ export function AdminPanel({
   const [testCustomRecipientName, setTestCustomRecipientName] = useState('');
   const [testEmailSendingKey, setTestEmailSendingKey] = useState<string | null>(null);
   const [testEmailResult, setTestEmailResult] = useState<{ success?: boolean; message?: string; error?: string } | null>(null);
-  const [smtpConfigInfo, setSmtpConfigInfo] = useState<{ host?: string; port?: number; user?: string; fromEmail?: string; fromName?: string; isConfigured?: boolean } | null>(null);
+  const [smtpConfigInfo, setSmtpConfigInfo] = useState<{ host?: string; port?: number; user?: string; fromEmail?: string; fromName?: string; isConfigured?: boolean; inbound?: any } | null>(null);
+
+  // POP3 メール受信設定 & 稼働状態
+  const [pop3InboundInfo, setPop3InboundInfo] = useState<{
+    config?: { host: string; port: number; secure: boolean; user: string; fromAddress: string; deleteAfterImport: boolean; checkIntervalSec: number; defaultTag: string };
+    whitelist?: { totalMembers: number; whitelistedMembersCount: number; members: any[] };
+    state?: { isPolling: boolean; lastCheckedAt: string | null; lastCheckStatus: 'idle' | 'checking' | 'success' | 'error'; lastCheckMessage: string; totalImportedCount: number; logs: any[] };
+  } | null>(null);
+  const [isCheckingPop3, setIsCheckingPop3] = useState(false);
+  const [pop3CheckResult, setPop3CheckResult] = useState<{ success?: boolean; message?: string; error?: string } | null>(null);
+  const [simulateSenderEmail, setSimulateSenderEmail] = useState('');
+  const [simulateSubject, setSimulateSubject] = useState('【連絡】社内メールからのテスト投稿');
+  const [simulateBody, setSimulateBody] = useState('外出先からの社内メール受信連携のテスト投稿です。\n重要なお知らせや現場連絡をメールから直接掲示板へ共有できます。');
+  const [isSimulatingPop3, setIsSimulatingPop3] = useState(false);
+  const [simulateResult, setSimulateResult] = useState<{ success?: boolean; message?: string; error?: string } | null>(null);
 
   const safeFetchJson = async (url: string, options?: RequestInit) => {
     try {
@@ -163,10 +178,88 @@ export function AdminPanel({
     if (result.ok && result.data) {
       setSmtpConfigInfo(result.data);
     }
+    handleFetchPop3Status();
+  };
+
+  const handleFetchPop3Status = async () => {
+    let result = await safeFetchJson(`${API_BASE_URL}/email/inbound/status`);
+    if ((!result.ok || result.isHtml) && API_BASE_URL !== '/api') {
+      const localResult = await safeFetchJson('/api/email/inbound/status');
+      if (localResult.ok) {
+        result = localResult;
+      }
+    }
+    if (result.ok && result.data) {
+      setPop3InboundInfo(result.data);
+    }
+  };
+
+  const handleCheckPop3Now = async () => {
+    setIsCheckingPop3(true);
+    setPop3CheckResult(null);
+    const options: RequestInit = { method: 'POST' };
+    let result = await safeFetchJson(`${API_BASE_URL}/email/inbound/check-now`, options);
+    if ((!result.ok || result.isHtml) && API_BASE_URL !== '/api') {
+      const localResult = await safeFetchJson('/api/email/inbound/check-now', options);
+      if (localResult.ok && localResult.data) {
+        result = localResult;
+      }
+    }
+    if (result.ok && result.data) {
+      setPop3CheckResult({
+        success: result.data.checked && !result.data.message.includes('エラー'),
+        message: result.data.message || `POP3チェック完了: 検出 ${result.data.found}件, 掲載 ${result.data.imported}件, 削除 ${result.data.deleted}件`
+      });
+      handleFetchPop3Status();
+    } else {
+      setPop3CheckResult({
+        error: result.data?.error || result.error || 'POP3メール受信チェックに失敗しました。'
+      });
+    }
+    setIsCheckingPop3(false);
+  };
+
+  const handleSimulateEmailPost = async () => {
+    if (!simulateSenderEmail || !simulateSenderEmail.trim()) {
+      setSimulateResult({ error: '送信者メールアドレスを選択または入力してください。' });
+      return;
+    }
+    setIsSimulatingPop3(true);
+    setSimulateResult(null);
+    const options: RequestInit = {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        senderEmail: simulateSenderEmail.trim(),
+        subject: simulateSubject,
+        body: simulateBody
+      })
+    };
+    let result = await safeFetchJson(`${API_BASE_URL}/email/inbound/simulate`, options);
+    if ((!result.ok || result.isHtml) && API_BASE_URL !== '/api') {
+      const localResult = await safeFetchJson('/api/email/inbound/simulate', options);
+      if (localResult.ok && localResult.data) {
+        result = localResult;
+      }
+    }
+    if (result.ok && result.data) {
+      setSimulateResult({
+        success: result.data.success,
+        message: result.data.message,
+        error: !result.data.success ? (result.data.details?.reason || '投稿スキップされました') : undefined
+      });
+      handleFetchPop3Status();
+    } else {
+      setSimulateResult({
+        error: result.data?.error || result.error || 'シミュレーション実行に失敗しました。'
+      });
+    }
+    setIsSimulatingPop3(false);
   };
 
   useEffect(() => {
     handleFetchSmtpConfig();
+    handleFetchPop3Status();
   }, []);
 
   const handleSendTestEmail = async (targetEmail: string, recipientName?: string, keyId?: string) => {
@@ -2598,6 +2691,222 @@ export function AdminPanel({
                       </button>
                     </div>
                   </form>
+                </div>
+
+                {/* 3. POP3 メール受信・掲示板自動投稿 (メール投稿) 管理 & シミュレーター */}
+                <div className="bg-gradient-to-br from-slate-900 via-slate-900 to-blue-950 text-white rounded-2xl p-5 shadow-sm space-y-5 border border-blue-900/50">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-blue-900/60 pb-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-2 bg-blue-600/30 rounded-xl border border-blue-500/30 text-blue-300">
+                        <Inbox className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-sm text-white flex items-center gap-2">
+                          POP3 受信・掲示板自動投稿 (メール投稿連携)
+                          <span className="text-[10px] bg-blue-500/20 text-blue-300 border border-blue-500/30 px-2 py-0.5 rounded-full font-normal">
+                            自動巡回 (60秒毎) & ホワイトリスト保護
+                          </span>
+                        </h4>
+                        <p className="text-xs text-blue-200/70 mt-0.5">
+                          SNS専用アドレス（nagoya-soumu2@teraoka-ads.co.jp）へ届いたメールを自動巡回し、登録メンバーのメールのみ「#社内メール」タグで掲示板へ自動掲載します。
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 self-stretch sm:self-auto">
+                      <button
+                        onClick={handleCheckPop3Now}
+                        disabled={isCheckingPop3}
+                        className="flex-1 sm:flex-initial text-xs bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800/60 text-white font-bold px-3.5 py-2 rounded-lg shadow-sm flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:cursor-not-allowed"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${isCheckingPop3 ? 'animate-spin' : ''}`} />
+                        {isCheckingPop3 ? '受信巡回中...' : '📥 今すぐ受信チェック'}
+                      </button>
+                      <button
+                        onClick={handleFetchPop3Status}
+                        className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-2 rounded-lg border border-slate-700 flex items-center gap-1.5 transition-colors"
+                        title="稼働状況を再取得"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* POP3 通信パラメータ概要 */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                    <div className="bg-white/5 backdrop-blur-xs p-3 rounded-xl border border-white/10 space-y-1">
+                      <span className="text-blue-300 font-medium block">受信サーバー (POP3)</span>
+                      <span className="font-mono font-bold text-white text-sm block">
+                        {pop3InboundInfo?.config?.host || '111.89.134.68'}
+                      </span>
+                      <span className="text-[10px] text-slate-400">ポート: {pop3InboundInfo?.config?.port || 110} (セキュリティ: なし/平文)</span>
+                    </div>
+
+                    <div className="bg-white/5 backdrop-blur-xs p-3 rounded-xl border border-white/10 space-y-1">
+                      <span className="text-blue-300 font-medium block">認証アカウント / 受信先</span>
+                      <span className="font-mono font-bold text-white text-xs truncate block">
+                        {pop3InboundInfo?.config?.user || 'nagoya-soumu2'}
+                      </span>
+                      <span className="text-[10px] text-slate-400 truncate block">
+                        {pop3InboundInfo?.config?.fromAddress || 'nagoya-soumu2@teraoka-ads.co.jp'}
+                      </span>
+                    </div>
+
+                    <div className="bg-white/5 backdrop-blur-xs p-3 rounded-xl border border-white/10 space-y-1">
+                      <span className="text-blue-300 font-medium block">ホワイトリスト & 自動タグ</span>
+                      <span className="font-bold text-emerald-300 text-xs block">
+                        登録メンバー {pop3InboundInfo?.whitelist?.whitelistedMembersCount || allUsers.filter(u => !!(u.email?.trim() || u.mobileEmail?.trim())).length} 名 許可
+                      </span>
+                      <span className="text-[10px] text-blue-200">付与タグ: #{pop3InboundInfo?.config?.defaultTag || '社内メール'}</span>
+                    </div>
+
+                    <div className="bg-white/5 backdrop-blur-xs p-3 rounded-xl border border-white/10 space-y-1">
+                      <span className="text-blue-300 font-medium block">受信箱自動クリーンアップ</span>
+                      <span className="font-bold text-emerald-400 text-xs flex items-center gap-1.5 mt-0.5">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                        自動削除 有効
+                      </span>
+                      <span className="text-[10px] text-slate-400">掲示板掲載後・迷惑メール即時削除（容量圧迫完全防止）</span>
+                    </div>
+                  </div>
+
+                  {/* POP3 手動巡回結果通知 */}
+                  {pop3CheckResult && (
+                    <div className={`p-4 rounded-xl border flex items-start gap-3 shadow-xs transition-all ${
+                      pop3CheckResult.success 
+                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200' 
+                        : 'bg-rose-500/10 border-rose-500/30 text-rose-200'
+                    }`}>
+                      {pop3CheckResult.success ? (
+                        <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+                      ) : (
+                        <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+                      )}
+                      <div className="space-y-0.5 text-xs">
+                        <span className="font-bold block text-white">
+                          {pop3CheckResult.success ? '受信巡回完了' : '受信巡回エラー'}
+                        </span>
+                        <p className="leading-relaxed">
+                          {pop3CheckResult.message || pop3CheckResult.error}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* メール投稿テスト・シミュレーター */}
+                  <div className="bg-slate-800/80 rounded-xl p-4 border border-slate-700/80 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h5 className="font-bold text-xs text-white flex items-center gap-1.5">
+                        <Smartphone className="w-4 h-4 text-blue-400" />
+                        🧪 メール投稿テスト・シミュレーター (ホワイトリスト照合・掲示板掲載検証)
+                      </h5>
+                      <span className="text-[10px] text-slate-400">
+                        登録メンバーのアドレスからのメールを擬似送信して掲示板への掲載を即時テストできます
+                      </span>
+                    </div>
+
+                    {simulateResult && (
+                      <div className={`p-3 rounded-lg border text-xs flex items-center gap-2 ${
+                        simulateResult.success 
+                          ? 'bg-emerald-950/60 border-emerald-600/40 text-emerald-200' 
+                          : 'bg-rose-950/60 border-rose-600/40 text-rose-200'
+                      }`}>
+                        {simulateResult.success ? (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                        ) : (
+                          <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                        )}
+                        <span>{simulateResult.message || simulateResult.error}</span>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                          送信者メールアドレス (登録メンバー)
+                        </label>
+                        <select
+                          value={simulateSenderEmail}
+                          onChange={(e) => setSimulateSenderEmail(e.target.value)}
+                          className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="">-- 送信者を選択してください --</option>
+                          {allUsers.map(u => {
+                            const candidate = u.email || u.mobileEmail;
+                            if (!candidate) return null;
+                            return (
+                              <option key={u.id} value={candidate}>
+                                {u.name} ({candidate})
+                              </option>
+                            );
+                          })}
+                        </select>
+                      </div>
+
+                      <div className="sm:col-span-2">
+                        <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                          メール件名
+                        </label>
+                        <input
+                          type="text"
+                          value={simulateSubject}
+                          onChange={(e) => setSimulateSubject(e.target.value)}
+                          className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="例: 【緊急連絡】現場完了報告 #連絡"
+                        />
+                      </div>
+
+                      <div className="sm:col-span-3">
+                        <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                          メール本文
+                        </label>
+                        <textarea
+                          rows={2}
+                          value={simulateBody}
+                          onChange={(e) => setSimulateBody(e.target.value)}
+                          className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                          placeholder="メール本文を入力..."
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end pt-1">
+                      <button
+                        type="button"
+                        disabled={!simulateSenderEmail || isSimulatingPop3}
+                        onClick={handleSimulateEmailPost}
+                        className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 text-white text-xs font-bold rounded-lg shadow-sm transition-all flex items-center gap-1.5 cursor-pointer disabled:cursor-not-allowed"
+                      >
+                        <Send className={`w-3.5 h-3.5 ${isSimulatingPop3 ? 'animate-spin' : ''}`} />
+                        {isSimulatingPop3 ? '投稿シミュレーション実行中...' : 'メール投稿テストを実行して掲示板に掲載'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* POP3 稼働・受信履歴ログ */}
+                  {pop3InboundInfo?.state?.logs && pop3InboundInfo.state.logs.length > 0 && (
+                    <div className="space-y-2">
+                      <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                        <Activity className="w-3.5 h-3.5 text-blue-400" />
+                        最新のPOP3受信・判定ログ (直近50件)
+                      </span>
+                      <div className="bg-slate-950 rounded-xl p-3 font-mono text-[11px] leading-relaxed text-slate-300 max-h-48 overflow-y-auto border border-slate-800">
+                        {pop3InboundInfo.state.logs.map((log: any, idx: number) => (
+                          <div key={idx} className="flex items-start gap-2 py-0.5 border-b border-slate-900 last:border-0">
+                            <span className="text-slate-500 shrink-0">{log.timestamp}</span>
+                            <span className={`font-bold shrink-0 ${
+                              log.type === 'success' ? 'text-emerald-400' :
+                              log.type === 'error' ? 'text-rose-400' :
+                              log.type === 'warn' ? 'text-amber-400' : 'text-blue-300'
+                            }`}>
+                              [{log.type.toUpperCase()}]
+                            </span>
+                            <span className="text-slate-300 break-all">{log.message}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
