@@ -87,7 +87,6 @@ import { EventModal } from './EventModal';
 import { GlobalEventDetailModal } from './GlobalEventDetailModal';
 import { TopicCreateModal } from './TopicCreateModal';
 import { ApplicationModal } from './ApplicationModal';
-import { MemoCreateModal } from './MemoCreateModal';
 import { MyPageSectionCard } from './MyPageSectionCard';
 import { ApprovalFlowRule, ItemMaster, ApplicationStatus } from '../types';
 
@@ -112,6 +111,7 @@ interface MyPageProps {
     applicationId?: string;
     eventId?: string;
     reportId?: string;
+    openCreateMemo?: boolean;
   }) => void;
   onUpdateUser?: (updatedUser: User) => void;
   onUpdateMemo?: (updatedMemos: Memo[]) => void;
@@ -187,7 +187,6 @@ export function MyPage({
   const [isEventModalOpen, setIsEventModalOpen] = useState(false);
   const [isCreateTopicModalOpen, setIsCreateTopicModalOpen] = useState(false);
   const [isCreateApplicationOpen, setIsCreateApplicationOpen] = useState(false);
-  const [isCreateMemoOpen, setIsCreateMemoOpen] = useState(false);
 
   // Web Push 通知状態管理
   const [pushStatus, setPushStatus] = useState<PushStatus | null>(null);
@@ -856,7 +855,13 @@ export function MyPage({
             actionButton={
               <button
                 type="button"
-                onClick={() => setIsCreateMemoOpen(true)}
+                onClick={() => {
+                  if (onNavigateToContent) {
+                    onNavigateToContent({ tab: 'memo', openCreateMemo: true });
+                  } else {
+                    onChangeTab('memo');
+                  }
+                }}
                 className="text-xs font-bold bg-rose-500 hover:bg-rose-600 text-white px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5" />
@@ -1606,18 +1611,6 @@ export function MyPage({
         currentUser={user}
         approvalFlows={approvalFlows}
         itemMasters={itemMasters}
-      />
-
-      {/* 伝言メモ新規登録モーダル */}
-      <MemoCreateModal
-        isOpen={isCreateMemoOpen}
-        onClose={() => setIsCreateMemoOpen(false)}
-        currentUser={user}
-        users={allUsers}
-        offices={offices}
-        divisions={divisions}
-        memos={memos}
-        onUpdateMemos={onUpdateMemo}
       />
 
       {/* 個人設定・カレンダー連携モーダル */}

@@ -242,10 +242,17 @@ export function GlobalEventDetailModal({
             )}
 
             {/* Registered / Created by */}
-            {event.createdBy && (
+            {(event.createdBy || event.createdViaInspection || (event.type === 'inspection' && event.targetYearMonth)) && (
               <div className="flex items-center gap-2.5 text-xs text-slate-600 border-t border-slate-200/60 pt-2.5">
                 <UserCheck className="w-4 h-4 text-slate-400 shrink-0" />
-                <span>登録者: <strong className="text-slate-800">{event.createdBy.name}</strong></span>
+                <span>
+                  登録者:{' '}
+                  <strong className="text-slate-800">
+                    {(event.createdViaInspection || (event.createdBy && event.createdBy.name === '点検登録') || (event.type === 'inspection' && event.targetYearMonth))
+                      ? '点検登録'
+                      : event.createdBy?.name || '不明'}
+                  </strong>
+                </span>
               </div>
             )}
           </div>

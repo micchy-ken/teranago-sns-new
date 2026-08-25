@@ -8,6 +8,7 @@ import { getLocalDateStr } from '../utils/dateUtils';
 import { calculateWeekOfMonth, isRecurringEvent, getRecurrenceLabel, safeParseRecurrence } from '../utils/recurrenceUtils';
 import { RecurrenceActionModal, RecurrenceActionScope } from './RecurrenceActionModal';
 import { UrlPastePopup, useUrlPasteHandler } from './common/UrlPastePopup';
+import { MemberSelector } from './MemberSelector';
 
 export interface EventModalProps {
   isOpen: boolean;
@@ -1202,38 +1203,18 @@ export function EventModal({
 
           {/* 参加者の選択 */}
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center justify-between">
-              <span className="flex items-center gap-1.5">
-                <UserCheck className="w-4 h-4 text-indigo-600" />
-                参加者メンバー ({selectedAttendees.length}名選択中)
-              </span>
-            </label>
-            <div className={`flex flex-wrap gap-2 max-h-32 overflow-y-auto p-2 border border-slate-200 rounded-xl ${isIcal ? 'bg-slate-100' : 'bg-slate-50'}`}>
-              {allUsers.map(user => {
-                const isSelected = selectedAttendees.some(u => u.id === user.id);
-                return (
-                  <button
-                    key={user.id}
-                    type="button"
-                    disabled={isIcal}
-                    onClick={() => toggleAttendee(user)}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all border ${
-                      isSelected
-                        ? (isIcal ? 'bg-slate-300 text-slate-600 border-slate-300 cursor-not-allowed' : 'bg-indigo-600 text-white border-indigo-600 shadow-xs')
-                        : (isIcal ? 'bg-slate-200 text-slate-400 border-slate-200 cursor-not-allowed' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100')
-                    }`}
-                  >
-                    <img
-                      src={getAvatarUrl(user.avatarUrl)}
-                      alt={user.name}
-                      className="w-4 h-4 rounded-full object-cover shrink-0"
-                    />
-                    <span>{user.name}</span>
-                    {isSelected && <Check className="w-3 h-3 text-white ml-0.5" />}
-                  </button>
-                );
-              })}
-            </div>
+            <MemberSelector
+              allUsers={allUsers}
+              selectedUserIds={selectedAttendees.map(u => u.id)}
+              onChangeSelectedUserIds={(ids) => {
+                const updated = allUsers.filter(u => ids.includes(u.id));
+                setSelectedAttendees(updated);
+              }}
+              offices={offices}
+              divisions={divisions}
+              disabled={isIcal}
+              label="参加メンバー設定"
+            />
           </div>
 
           <div>

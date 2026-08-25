@@ -105,6 +105,7 @@ export interface CalendarEvent {
   // スケジュール・点検管理ステータス
   status?: 'pending' | 'draft' | 'published' | 'carried_over' | 'hidden';
   targetYearMonth?: string; // 点検対象年月 (例: '2026-08')
+  createdViaInspection?: boolean; // 点検管理からの登録フラグ
   draftSavedAt?: string;    // 下書き・自動保存日時 (ISO string)
 
   // 作成・更新日時

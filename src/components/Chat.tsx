@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ChatRoom, ChatMessage, User, OfficeMaster, DivisionMaster, AttachmentFile } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
+import { MemberSelector } from './MemberSelector';
 import { markChatRoomAsRead } from '../utils/notifications';
 import { API_BASE_URL } from '../config/api';
 import { 
@@ -1705,81 +1706,21 @@ export function Chat({
 
               {/* メンバー追加フィルター＆検索 */}
               <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-xs font-bold text-slate-700">
-                    メンバーを選択 ({selectedUserIds.length}名選択中)
-                  </label>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 mb-2">
-                  <select
-                    value={modalOffice}
-                    onChange={(e) => setModalOffice(e.target.value)}
-                    className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700"
-                  >
-                    <option value="all">全拠点</option>
-                    {offices.map((off) => (
-                      <option key={off.id} value={off.name}>{off.name}</option>
-                    ))}
-                  </select>
-                  <select
-                    value={modalDivision}
-                    onChange={(e) => setModalDivision(e.target.value)}
-                    className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700"
-                  >
-                    <option value="all">全部署</option>
-                    {divisions.map((div) => (
-                      <option key={div.id} value={div.name}>{div.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <input
-                  type="text"
-                  value={modalSearch}
-                  onChange={(e) => setModalSearch(e.target.value)}
-                  placeholder="名前・部署・拠点名で絞り込み..."
-                  className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs mb-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                <MemberSelector
+                  allUsers={users.filter(u => u.id !== currentUser.id)}
+                  selectedUserIds={selectedUserIds}
+                  onChangeSelectedUserIds={(ids) => {
+                    if (newRoomType === 'dm' && ids.length > 1) {
+                      // DMの場合は最後の選択のみ保持
+                      setSelectedUserIds([ids[ids.length - 1]]);
+                    } else {
+                      setSelectedUserIds(ids);
+                    }
+                  }}
+                  offices={offices}
+                  divisions={divisions}
+                  label={newRoomType === 'dm' ? 'チャット相手を選択' : 'グループ参加メンバーを選択'}
                 />
-
-                {/* メンバー候補リスト */}
-                <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100 p-1 bg-slate-50/50">
-                  {candidateUsers.map((u) => {
-                    const isSelected = selectedUserIds.includes(u.id);
-                    return (
-                      <label
-                        key={u.id}
-                        className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors ${
-                          isSelected ? 'bg-indigo-50' : 'hover:bg-white'
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => {
-                            if (newRoomType === 'dm') {
-                              setSelectedUserIds([u.id]);
-                            } else {
-                              if (isSelected) {
-                                setSelectedUserIds(selectedUserIds.filter((id) => id !== u.id));
-                              } else {
-                                setSelectedUserIds([...selectedUserIds, u.id]);
-                              }
-                            }
-                          }}
-                          className="w-4 h-4 text-indigo-600 rounded-md border-slate-300 focus:ring-indigo-500"
-                        />
-                        <img src={getAvatarUrl(u.avatarUrl)} alt={u.name} className="w-7 h-7 rounded-full object-cover shrink-0" />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-xs font-bold text-slate-800">{u.name}</p>
-                          <p className="text-[10px] text-slate-500 truncate">
-                            {u.office} / {u.division} {u.position ? `(${u.position})` : ''}
-                          </p>
-                        </div>
-                      </label>
-                    );
-                  })}
-                </div>
               </div>
 
               <div className="pt-3 border-t border-slate-200 flex justify-end gap-2">
@@ -1818,50 +1759,14 @@ export function Chat({
             </div>
 
             <form onSubmit={handleAddMembers} className="p-5 space-y-4">
-              <input
-                type="text"
-                value={modalSearch}
-                onChange={(e) => setModalSearch(e.target.value)}
-                placeholder="追加するメンバーを検索..."
-                className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              <MemberSelector
+                allUsers={users.filter((u) => !activeRoom.participants.some((p) => p.id === u.id))}
+                selectedUserIds={selectedUserIds}
+                onChangeSelectedUserIds={setSelectedUserIds}
+                offices={offices}
+                divisions={divisions}
+                label="追加するメンバーを選択"
               />
-
-              <div className="max-h-60 overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100 p-1 bg-slate-50/50">
-                {users
-                  .filter((u) => !activeRoom.participants.some((p) => p.id === u.id))
-                  .filter((u) => u.name.toLowerCase().includes(modalSearch.toLowerCase()) || (u.division && u.division.includes(modalSearch)))
-                  .map((u) => {
-                    const isSelected = selectedUserIds.includes(u.id);
-                    return (
-                      <label
-                        key={u.id}
-                        className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors ${
-                          isSelected ? 'bg-indigo-50' : 'hover:bg-white'
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => {
-                            if (isSelected) {
-                              setSelectedUserIds(selectedUserIds.filter((id) => id !== u.id));
-                            } else {
-                              setSelectedUserIds([...selectedUserIds, u.id]);
-                            }
-                          }}
-                          className="w-4 h-4 text-indigo-600 rounded-md border-slate-300 focus:ring-indigo-500"
-                        />
-                        <img src={getAvatarUrl(u.avatarUrl)} alt={u.name} className="w-7 h-7 rounded-full object-cover shrink-0" />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-xs font-bold text-slate-800">{u.name}</p>
-                          <p className="text-[10px] text-slate-500 truncate">
-                            {u.office} / {u.division}
-                          </p>
-                        </div>
-                      </label>
-                    );
-                  })}
-              </div>
 
               <div className="pt-3 border-t border-slate-200 flex justify-end gap-2">
                 <button

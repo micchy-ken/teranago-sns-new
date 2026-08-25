@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Memo, User, OfficeMaster, DivisionMaster, RequirementType, MemoUserRecipientStatus } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
+import { MemberSelector } from './MemberSelector';
 import { API_BASE_URL } from '../config/api';
 import { markMemoAsRead } from '../utils/notifications';
 import { triggerPushNotification } from '../utils/pushNotifications';
@@ -37,6 +38,8 @@ interface MemoListProps {
   onUpdateMemos?: (memos: Memo[]) => void;
   onDeleteMemo?: (memoId: string) => void;
   initialMemoId?: string;
+  initialOpenCreate?: boolean;
+  onCloseCreateModal?: () => void;
 }
 
 export function MemoList({
@@ -48,6 +51,8 @@ export function MemoList({
   onUpdateMemos,
   onDeleteMemo,
   initialMemoId,
+  initialOpenCreate = false,
+  onCloseCreateModal,
 }: MemoListProps) {
   const [memos, setMemos] = useState<Memo[]>(initialMemos);
   const [filter, setFilter] = useState<'all' | 'unread' | 'handled'>('unread');
@@ -79,8 +84,21 @@ export function MemoList({
   const [selectedOfficeFilter, setSelectedOfficeFilter] = useState<string>('all');
 
   // モーダル制御
-  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isCreateOpen, setIsCreateOpen] = useState(initialOpenCreate);
   const [detailMemo, setDetailMemo] = useState<Memo | null>(null);
+
+  React.useEffect(() => {
+    if (initialOpenCreate) {
+      setIsCreateOpen(true);
+    }
+  }, [initialOpenCreate]);
+
+  const handleCloseCreateModal = () => {
+    setIsCreateOpen(false);
+    if (onCloseCreateModal) {
+      onCloseCreateModal();
+    }
+  };
 
   const processedInitialMemoIdRef = React.useRef<string | null>(null);
 
@@ -105,9 +123,6 @@ export function MemoList({
   const [notificationEmail, setNotificationEmail] = useState('');
   const [notificationMobileEmail, setNotificationMobileEmail] = useState('');
 
-  // 宛先選択（複数可）
-  const [selectedTargetOffices, setSelectedTargetOffices] = useState<string[]>([]);
-  const [selectedTargetDivisions, setSelectedTargetDivisions] = useState<string[]>([]);
   const [selectedToUserIds, setSelectedToUserIds] = useState<string[]>([]);
 
   // 要件
@@ -252,36 +267,17 @@ export function MemoList({
       setFormError('伝言の本文内容を入力してください。');
       return;
     }
-    if (
-      selectedTargetOffices.length === 0 &&
-      selectedTargetDivisions.length === 0 &&
-      selectedToUserIds.length === 0
-    ) {
-      setFormError('宛先（拠点、部署、個人のいずれか）を1つ以上選択してください。');
+    if (selectedToUserIds.length === 0) {
+      setFormError('宛先メンバーを1つ以上選択してください。');
       return;
     }
 
     // 対象受領ユーザーの抽出
     const targetUserMap = new Map<string, User>();
 
-    // 1. 指定された個人ユーザー
     users.filter((u) => selectedToUserIds.includes(u.id)).forEach((u) => {
       targetUserMap.set(u.id, u);
     });
-
-    // 2. 指定された拠点のユーザー
-    if (selectedTargetOffices.length > 0) {
-      users.filter((u) => u.office && selectedTargetOffices.includes(u.office)).forEach((u) => {
-        targetUserMap.set(u.id, u);
-      });
-    }
-
-    // 3. 指定された部署のユーザー
-    if (selectedTargetDivisions.length > 0) {
-      users.filter((u) => u.division && selectedTargetDivisions.includes(u.division)).forEach((u) => {
-        targetUserMap.set(u.id, u);
-      });
-    }
 
     const targetUsers = Array.from(targetUserMap.values());
 
@@ -304,6 +300,9 @@ export function MemoList({
     else if (requirementType === 'please_call_back') reqText = '折り返し連絡下さい';
     else reqText = customRequirementText || '伝言';
 
+    const derivedTargetOffices = Array.from(new Set(targetUsers.map((u) => u.office).filter(Boolean))) as string[];
+    const derivedTargetDivisions = Array.from(new Set(targetUsers.map((u) => u.division).filter(Boolean))) as string[];
+
     const newMemo: Memo = {
       id: `memo-${Date.now()}`,
       fromName: (fromName || '').trim(),
@@ -312,8 +311,8 @@ export function MemoList({
       fromEmail: (fromEmail || '').trim() || undefined,
       notificationEmail: (notificationEmail || '').trim() || undefined,
       notificationMobileEmail: (notificationMobileEmail || '').trim() || undefined,
-      targetOffices: selectedTargetOffices,
-      targetDivisions: selectedTargetDivisions,
+      targetOffices: derivedTargetOffices,
+      targetDivisions: derivedTargetDivisions,
       toUsers: targetUsers,
       toUser: targetUsers[0] || currentUser,
       requirementType,
@@ -348,8 +347,8 @@ export function MemoList({
         fromEmail: (fromEmail || '').trim() || undefined,
         notificationEmail: (notificationEmail || '').trim() || undefined,
         notificationMobileEmail: (notificationMobileEmail || '').trim() || undefined,
-        targetOffices: selectedTargetOffices,
-        targetDivisions: selectedTargetDivisions,
+        targetOffices: derivedTargetOffices,
+        targetDivisions: derivedTargetDivisions,
         requirementType,
         requirementText: reqText,
         recipientStatuses
@@ -395,14 +394,12 @@ export function MemoList({
         setFromEmail('');
         setNotificationEmail('');
         setNotificationMobileEmail('');
-        setSelectedTargetOffices([]);
-        setSelectedTargetDivisions([]);
         setSelectedToUserIds([]);
         setRequirementType('phone_called');
         setCustomRequirementText('');
         setContent('');
         setFormError(null);
-        setIsCreateOpen(false);
+        handleCloseCreateModal();
       })
       .catch((err) => {
         console.error('Failed to create memo via API:', err);
@@ -665,7 +662,7 @@ export function MemoList({
       {/* モーダル 1: 新規伝言メモ作成 */}
       {isCreateOpen && (
         <div
-          onClick={() => setIsCreateOpen(false)}
+          onClick={handleCloseCreateModal}
           className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-50 p-4 backdrop-blur-xs overflow-y-auto"
         >
           <div
@@ -678,7 +675,7 @@ export function MemoList({
                 <h2 className="text-base font-bold">新規伝言メモを作成</h2>
               </div>
               <button
-                onClick={() => setIsCreateOpen(false)}
+                onClick={handleCloseCreateModal}
                 className="p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded-full transition-colors cursor-pointer"
               >
                 <X className="w-5 h-5" />
@@ -692,114 +689,16 @@ export function MemoList({
                 </div>
               )}
 
-              {/* 1. 宛先選択（拠点、部署、個人 複数選択） */}
-              <div className="space-y-3 bg-indigo-50/50 p-4 rounded-2xl border border-indigo-100">
-                <label className="block text-xs font-extrabold text-indigo-900 uppercase tracking-wider flex items-center gap-1.5">
-                  <Users className="w-4 h-4 text-indigo-600" />
-                  宛先指定（複数選択可能）
-                </label>
-
-                {/* 拠点選択 */}
-                <div>
-                  <span className="block text-[11px] font-bold text-slate-700 mb-1.5">
-                    拠点あて指定 (複数可):
-                  </span>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {offices.map((off) => {
-                      const isSelected = selectedTargetOffices.includes(off.name);
-                      return (
-                        <button
-                          key={off.id}
-                          type="button"
-                          onClick={() => {
-                            if (isSelected) {
-                              setSelectedTargetOffices(selectedTargetOffices.filter((n) => n !== off.name));
-                            } else {
-                              setSelectedTargetOffices([...selectedTargetOffices, off.name]);
-                            }
-                          }}
-                          className={`px-3 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
-                            isSelected
-                              ? 'bg-amber-500 text-white border-amber-500 shadow-2xs'
-                              : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
-                          }`}
-                        >
-                          {off.name}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* 部署選択 */}
-                <div>
-                  <span className="block text-[11px] font-bold text-slate-700 mb-1.5">
-                    部署あて指定 (複数可):
-                  </span>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {divisions.map((div) => {
-                      const isSelected = selectedTargetDivisions.includes(div.name);
-                      return (
-                        <button
-                          key={div.id}
-                          type="button"
-                          onClick={() => {
-                            if (isSelected) {
-                              setSelectedTargetDivisions(selectedTargetDivisions.filter((n) => n !== div.name));
-                            } else {
-                              setSelectedTargetDivisions([...selectedTargetDivisions, div.name]);
-                            }
-                          }}
-                          className={`px-3 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
-                            isSelected
-                              ? 'bg-purple-600 text-white border-purple-600 shadow-2xs'
-                              : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
-                          }`}
-                        >
-                          {div.name}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* 個人ユーザー選択 */}
-                <div>
-                  <span className="block text-[11px] font-bold text-slate-700 mb-1.5">
-                    個人あて指定 (複数選択):
-                  </span>
-                  <div className="flex items-center gap-2 flex-wrap max-h-32 overflow-y-auto p-1">
-                    {users.map((u) => {
-                      const isSelected = selectedToUserIds.includes(u.id);
-                      return (
-                        <button
-                          key={u.id}
-                          type="button"
-                          onClick={() => {
-                            if (isSelected) {
-                              setSelectedToUserIds(selectedToUserIds.filter((id) => id !== u.id));
-                            } else {
-                              setSelectedToUserIds([...selectedToUserIds, u.id]);
-                            }
-                          }}
-                          className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer flex items-center gap-1.5 ${
-                            isSelected
-                              ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
-                              : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
-                          }`}
-                        >
-                          <img
-                            src={getAvatarUrl(u.avatarUrl)}
-                            alt={u.name}
-                            className="w-4 h-4 rounded-full object-cover"
-                          />
-                          <span>{u.name}</span>
-                          <span className="text-[10px] opacity-70">({u.office || ''} {u.division || ''})</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
+              {/* 1. 宛先指定（MemberSelector オブジェクト） */}
+              <div>
+                <MemberSelector
+                  allUsers={users}
+                  selectedUserIds={selectedToUserIds}
+                  onChangeSelectedUserIds={setSelectedToUserIds}
+                  offices={offices}
+                  divisions={divisions}
+                  label="宛先メンバー指定 (複数選択可能)"
+                />
               </div>
 
               {/* 2. 依頼者情報 */}
@@ -954,7 +853,7 @@ export function MemoList({
               <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
                 <button
                   type="button"
-                  onClick={() => setIsCreateOpen(false)}
+                  onClick={handleCloseCreateModal}
                   className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
                 >
                   キャンセル

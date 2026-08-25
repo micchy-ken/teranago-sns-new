@@ -144,6 +144,7 @@ export default function App() {
   const [globalSelectedTopic, setGlobalSelectedTopic] = useState<BoardTopic | null>(null);
   const [globalSelectedMemo, setGlobalSelectedMemo] = useState<Memo | null>(null);
   const [globalSelectedReport, setGlobalSelectedReport] = useState<DailyReport | null>(null);
+  const [autoOpenCreateMemo, setAutoOpenCreateMemo] = useState(false);
 
   const handleNavigateToContent = (target: {
     tab: AppTab;
@@ -153,6 +154,7 @@ export default function App() {
     applicationId?: string;
     eventId?: string;
     reportId?: string;
+    openCreateMemo?: boolean;
   }) => {
     // スケジュール（eventId）
     if (target.eventId) {
@@ -195,6 +197,9 @@ export default function App() {
 
     // チャット、ワークフローなど遷移して表示
     setActiveTab(target.tab);
+    if (target.openCreateMemo) {
+      setAutoOpenCreateMemo(true);
+    }
     setTargetTopicId(target.topicId);
     setTargetChatRoomId(target.chatRoomId);
     setTargetMemoId(target.memoId);
@@ -3235,6 +3240,8 @@ export default function App() {
             onUpdateMemos={handleUpdateMemos}
             onDeleteMemo={handleDeleteMemo}
             initialMemoId={targetMemoId}
+            initialOpenCreate={autoOpenCreateMemo}
+            onCloseCreateModal={() => setAutoOpenCreateMemo(false)}
           />
         )}
         {activeTab === 'daily_report' && (

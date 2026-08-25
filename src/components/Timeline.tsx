@@ -24,6 +24,7 @@ import {
   Heart,
   Share2,
   Trash2,
+  UserCheck,
   MessageSquare
 } from 'lucide-react';
 import { formatRelativeTime, formatEventScheduleBadge } from '../utils';
@@ -453,7 +454,10 @@ export function Timeline({
 
               if (item.type === 'event') {
                 const event = item.data;
+                const isInspectionEvent = !!(event.createdViaInspection || (event.createdBy && event.createdBy.name === '点検登録') || (event.type === 'inspection' && event.targetYearMonth));
                 const eventUser = (event as any).createdBy || (event.attendees && event.attendees.length > 0 ? event.attendees[0] : null);
+                const displayUserName = isInspectionEvent ? '点検登録' : (eventUser?.name || '不明');
+
                 return (
                   <div
                     key={item.id}
@@ -467,16 +471,22 @@ export function Timeline({
                           <Calendar className="w-3 h-3 text-amber-600" />
                           予定
                         </span>
-                        {eventUser && (
+                        {(eventUser || isInspectionEvent) && (
                           <div className="flex items-center gap-1.5 min-w-0">
-                            <img
-                              src={getAvatarUrl(eventUser.avatarUrl)}
-                              onError={handleAvatarError}
-                              alt={eventUser.name}
-                              className="w-5 h-5 rounded-full object-cover border border-slate-100 bg-slate-100 shrink-0"
-                            />
+                            {isInspectionEvent ? (
+                              <div className="w-5 h-5 rounded-full bg-emerald-500 text-white flex items-center justify-center font-bold text-[10px] shrink-0 border border-emerald-600 shadow-2xs">
+                                点
+                              </div>
+                            ) : (
+                              <img
+                                src={getAvatarUrl(eventUser?.avatarUrl)}
+                                onError={handleAvatarError}
+                                alt={displayUserName}
+                                className="w-5 h-5 rounded-full object-cover border border-slate-100 bg-slate-100 shrink-0"
+                              />
+                            )}
                             <span className="font-bold text-xs text-slate-800 truncate">
-                              {eventUser.name}
+                              {displayUserName}
                             </span>
                             {event.attendees && event.attendees.length > 1 && (
                               <span className="text-[10px] text-slate-500 font-medium shrink-0">
@@ -695,14 +705,25 @@ export function Timeline({
 
               {selectedDetailItem.type === 'event' && (() => {
                 const event = selectedDetailItem.data;
+                const isInspectionEvent = !!(event.createdViaInspection || (event.createdBy && event.createdBy.name === '点検登録') || (event.type === 'inspection' && event.targetYearMonth));
+                const creatorName = isInspectionEvent ? '点検登録' : event.createdBy?.name;
+
                 return (
                   <div className="space-y-4">
                     <div>
                       <h3 className="font-bold text-slate-900 text-lg">{event.title}</h3>
-                      <div className="flex items-center gap-2 mt-1">
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
                         <span className="text-xs text-slate-400">
                           登録: {formatRelativeTime(selectedDetailItem.date)}
                         </span>
+                        {creatorName && (
+                          <span className={`px-2 py-0.5 text-[10px] font-bold rounded flex items-center gap-1 ${
+                            isInspectionEvent ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-slate-100 text-slate-700'
+                          }`}>
+                            <UserCheck className="w-3 h-3" />
+                            登録者: {creatorName}
+                          </span>
+                        )}
                         {event.targetYearMonth && (
                           <span className="px-1.5 py-0.5 bg-slate-100 text-slate-600 text-[10px] font-bold rounded">
                             {event.targetYearMonth}度

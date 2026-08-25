@@ -1352,7 +1352,11 @@ export function InspectionScheduler({
         location: item.address,
         memo: memoLines.join('\n'),
         attendees: item.assignedUsers && item.assignedUsers.length > 0 ? item.assignedUsers : [currentUser],
-        createdBy: currentUser,
+        createdBy: {
+          ...currentUser,
+          name: '点検登録',
+        },
+        createdViaInspection: true,
         isGoogleSynced: false,
         status: 'published',
         targetYearMonth: targetYearMonth,
