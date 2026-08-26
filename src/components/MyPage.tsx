@@ -85,6 +85,10 @@ import {
   CheckSquare,
   Sparkles,
   Square,
+  ShieldCheck,
+  Lock,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { TopicDetailModal } from './TopicDetailModal';
 import { EventModal } from './EventModal';
@@ -487,6 +491,100 @@ export function MyPage({
       setEmailTestResult({ type: 'error', message: `送信エラー: ${err?.message || '接続不可'}` });
     } finally {
       setEmailTestLoading(false);
+    }
+  };
+
+  // 安否確認 個人メール暗号化設定用状態
+  const [isEmergencyEmailOpen, setIsEmergencyEmailOpen] = useState(false);
+  const [personalEmailInput, setPersonalEmailInput] = useState('');
+  const [personalEmailSaving, setPersonalEmailSaving] = useState(false);
+  const [personalEmailTesting, setPersonalEmailTesting] = useState(false);
+  const [personalEmailResult, setPersonalEmailResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  const handleSavePersonalEmail = async () => {
+    if (!user?.id) return;
+    if (!personalEmailInput.trim()) {
+      setPersonalEmailResult({ type: 'error', message: '個人メールアドレスを入力してください。' });
+      return;
+    }
+    setPersonalEmailSaving(true);
+    setPersonalEmailResult(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/users/${user.id}/personal-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ personalEmail: personalEmailInput.trim() }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setPersonalEmailResult({ type: 'success', message: '個人メールアドレスをAES-256-GCM暗号化して安全に保存しました。' });
+        setPersonalEmailInput('');
+        const updatedUser = {
+          ...settingsForm,
+          personalEmailMasked: data.personalEmailMasked,
+        };
+        setSettingsForm(updatedUser);
+        if (onUpdateUser) onUpdateUser(updatedUser);
+      } else {
+        setPersonalEmailResult({ type: 'error', message: data.error || '個人メールアドレスの保存に失敗しました。' });
+      }
+    } catch (err: any) {
+      setPersonalEmailResult({ type: 'error', message: '通信エラー: ' + err.message });
+    } finally {
+      setPersonalEmailSaving(false);
+    }
+  };
+
+  const handleRemovePersonalEmail = async () => {
+    if (!user?.id) return;
+    if (!window.confirm('登録中の個人メールアドレスを解除（削除）しますか？\n解除すると災害発生時の個人宛て緊急メール通知は届かなくなります。')) return;
+    setPersonalEmailSaving(true);
+    setPersonalEmailResult(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/users/${user.id}/personal-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ personalEmail: '' }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setPersonalEmailResult({ type: 'success', message: '個人メールアドレスの登録を解除しました。' });
+        const updatedUser = {
+          ...settingsForm,
+          personalEmailMasked: undefined,
+        };
+        setSettingsForm(updatedUser);
+        if (onUpdateUser) onUpdateUser(updatedUser);
+      } else {
+        setPersonalEmailResult({ type: 'error', message: data.error || '解除に失敗しました。' });
+      }
+    } catch (err: any) {
+      setPersonalEmailResult({ type: 'error', message: '通信エラー: ' + err.message });
+    } finally {
+      setPersonalEmailSaving(false);
+    }
+  };
+
+  const handleTestPersonalEmail = async () => {
+    if (!user?.id) return;
+    setPersonalEmailTesting(true);
+    setPersonalEmailResult(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/users/${user.id}/personal-email/test`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ personalEmail: personalEmailInput.trim() || undefined }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setPersonalEmailResult({ type: 'success', message: data.message || '緊急連絡先テストメールを送信しました！' });
+      } else {
+        setPersonalEmailResult({ type: 'error', message: data.error || 'テストメール送信に失敗しました。' });
+      }
+    } catch (err: any) {
+      setPersonalEmailResult({ type: 'error', message: '送信エラー: ' + err.message });
+    } finally {
+      setPersonalEmailTesting(false);
     }
   };
 
@@ -2174,6 +2272,195 @@ export function MyPage({
                       );
                     })}
                   </div>
+                </div>
+              </div>
+
+              {/* 🚨 安否確認・緊急連絡先（個人メールアドレス暗号化登録・トグル開閉） */}
+              <div className="pt-4 border-t border-slate-100">
+                <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs bg-white transition-all">
+                  {/* アコーディオン・トグルヘッダー */}
+                  <button
+                    type="button"
+                    onClick={() => setIsEmergencyEmailOpen(prev => !prev)}
+                    className="w-full p-3.5 bg-slate-50/80 hover:bg-slate-100/90 flex items-center justify-between gap-3 text-left transition-colors cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-8 h-8 rounded-lg bg-indigo-100 border border-indigo-200 flex items-center justify-center shrink-0">
+                        <ShieldCheck className="w-4 h-4 text-indigo-700" />
+                      </div>
+                      <div className="truncate">
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-xs font-bold text-slate-800">
+                            安否確認 緊急連絡先（個人メール暗号化設定）
+                          </h3>
+                          <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                            AES-256-GCM
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                          災害発生時、社用端末不通に備えて私用メール（Gmail/Yahoo等）へ緊急安否確認メールを配信
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      {settingsForm.personalEmailMasked ? (
+                        <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 border border-emerald-200 text-[10px] font-bold rounded-md flex items-center gap-1 font-mono">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                          登録済: {settingsForm.personalEmailMasked}
+                        </span>
+                      ) : (
+                        <span className="px-2.5 py-1 bg-amber-100 text-amber-800 border border-amber-200 text-[10px] font-bold rounded-md">
+                          未登録
+                        </span>
+                      )}
+                      <div className="p-1 rounded-md text-slate-400 hover:text-slate-600 bg-white border border-slate-200 shadow-2xs">
+                        {isEmergencyEmailOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                      </div>
+                    </div>
+                  </button>
+
+                  {/* 開閉コンテンツ */}
+                  {isEmergencyEmailOpen && (
+                    <div className="p-4 border-t border-slate-200/80 space-y-4 bg-white animate-fade-in text-xs">
+                      {/* プライバシー保護・暗号化仕様解説 */}
+                      <div className="p-3 bg-indigo-50/70 rounded-xl border border-indigo-100 space-y-1.5">
+                        <div className="font-bold text-indigo-950 flex items-center gap-1.5 text-xs">
+                          <Lock className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                          高度な個人情報保護（暗号化）仕様
+                        </div>
+                        <p className="text-[11px] text-indigo-900 leading-relaxed">
+                          入力された個人メールアドレスは <strong>AES-256-GCM</strong> 方式で暗号化して保存されます。
+                          データベースや管理画面上でも平文は保存・表示されず、<strong>システム管理者であっても閲覧できません</strong>。
+                          安否確認発動時のみ、サーバーがメモリ上で一時復号して緊急配信を行います。
+                        </p>
+                      </div>
+
+                      {/* 結果・通知アラート */}
+                      {personalEmailResult && (
+                        <div
+                          className={`p-3 rounded-lg flex items-center justify-between text-xs font-bold ${
+                            personalEmailResult.type === 'success'
+                              ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                              : 'bg-rose-50 text-rose-800 border border-rose-200'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            {personalEmailResult.type === 'success' ? (
+                              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                            ) : (
+                              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                            )}
+                            <span>{personalEmailResult.message}</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setPersonalEmailResult(null)}
+                            className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
+
+                      {/* 現在の登録状況 & 解除・テスト */}
+                      <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <div>
+                            <span className="text-[11px] font-bold text-slate-500 block">現在の登録状況:</span>
+                            {settingsForm.personalEmailMasked ? (
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <span className="text-xs font-extrabold font-mono text-emerald-800 bg-emerald-50 px-2.5 py-0.5 rounded border border-emerald-200">
+                                  {settingsForm.personalEmailMasked}
+                                </span>
+                                <span className="text-[10px] text-emerald-600 font-bold">（暗号化保護中）</span>
+                              </div>
+                            ) : (
+                              <span className="text-xs text-slate-500 font-medium mt-0.5 block">
+                                未登録（災害発動時の個人アドレス宛通知はスキップされます）
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            {settingsForm.personalEmailMasked && (
+                              <>
+                                <button
+                                  type="button"
+                                  disabled={personalEmailTesting || personalEmailSaving}
+                                  onClick={handleTestPersonalEmail}
+                                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs disabled:opacity-50"
+                                >
+                                  {personalEmailTesting ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  ) : (
+                                    <Mail className="w-3.5 h-3.5" />
+                                  )}
+                                  <span>テスト送信</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  disabled={personalEmailSaving || personalEmailTesting}
+                                  onClick={handleRemovePersonalEmail}
+                                  className="px-2.5 py-1.5 bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 text-xs font-medium rounded-lg transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <span>解除</span>
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 個人メールアドレス登録・更新フォーム */}
+                      <div className="space-y-1.5">
+                        <label className="block text-xs font-bold text-slate-700">
+                          {settingsForm.personalEmailMasked ? '個人メールアドレスの変更' : '個人メールアドレスの新規登録'}
+                        </label>
+                        <div className="flex flex-col sm:flex-row gap-2">
+                          <input
+                            type="email"
+                            placeholder="例: private.account@gmail.com / icloud.com 等"
+                            value={personalEmailInput}
+                            onChange={(e) => setPersonalEmailInput(e.target.value)}
+                            className="flex-1 px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
+                          />
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              disabled={personalEmailSaving || !personalEmailInput.trim()}
+                              onClick={handleSavePersonalEmail}
+                              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer shadow-sm disabled:opacity-50 shrink-0"
+                            >
+                              {personalEmailSaving ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <Lock className="w-3.5 h-3.5" />
+                              )}
+                              <span>{settingsForm.personalEmailMasked ? '暗号化して更新' : '暗号化して登録'}</span>
+                            </button>
+
+                            {personalEmailInput.trim() && (
+                              <button
+                                type="button"
+                                disabled={personalEmailTesting}
+                                onClick={handleTestPersonalEmail}
+                                className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-lg transition-colors flex items-center gap-1 cursor-pointer shrink-0 disabled:opacity-50"
+                              >
+                                {personalEmailTesting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mail className="w-3.5 h-3.5" />}
+                                <span>入力先へテスト</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        <p className="text-[10px] text-slate-400">
+                          ※登録後は「ya****@gmail.com」のように伏字（マスク）で保護表示されます。
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 

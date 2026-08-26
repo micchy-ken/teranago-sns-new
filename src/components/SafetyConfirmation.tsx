@@ -105,8 +105,8 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
   divisions,
   onOpenConfirmModal,
 }) => {
-  // Tabs: 'dashboard' (発動中・集計), 'trigger' (安否確認発動), 'respond' (安否回答), 'my_settings' (個人メール暗号化設定)
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'trigger' | 'respond' | 'my_settings'>('dashboard');
+  // Tabs: 'dashboard' (発動中・集計), 'trigger' (安否確認発動), 'respond' (安否回答)
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'trigger' | 'respond'>('dashboard');
 
   // Events & responses state
   const [events, setEvents] = useState<SafetyConfirmationEvent[]>([]);
@@ -139,12 +139,6 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
   const [myLocation, setMyLocation] = useState('自宅');
   const [myComment, setMyComment] = useState('');
   const [isSubmittingResponse, setIsSubmittingResponse] = useState(false);
-
-  // Personal Email Encryption Settings State
-  const [personalEmailInput, setPersonalEmailInput] = useState('');
-  const [personalEmailMasked, setPersonalEmailMasked] = useState(currentUser.personalEmailMasked || '');
-  const [isSavingEmail, setIsSavingEmail] = useState(false);
-  const [isTestingEmail, setIsTestingEmail] = useState(false);
 
   // Filter in Dashboard
   const [statusFilter, setStatusFilter] = useState<'all' | 'safe' | 'unanswered' | 'danger'>('all');
@@ -354,61 +348,6 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
     }
   };
 
-  // Save Encrypted Personal Email
-  const handleSavePersonalEmail = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!personalEmailInput.trim() || !personalEmailInput.includes('@')) {
-      setActionMessage({ type: 'error', text: '有効な個人メールアドレスを入力してください。' });
-      return;
-    }
-
-    setIsSavingEmail(true);
-    setActionMessage(null);
-    try {
-      const res = await fetch(`/api/users/${currentUser.id}/personal-email`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ personalEmail: personalEmailInput.trim() }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setPersonalEmailMasked(data.personalEmailMasked);
-        setPersonalEmailInput('');
-        setActionMessage({
-          type: 'success',
-          text: `個人メールアドレスをAES-256-GCMで暗号化して安全に保存しました (${data.personalEmailMasked})。`,
-        });
-      } else {
-        setActionMessage({ type: 'error', text: data.error || '個人メールアドレスの保存に失敗しました。' });
-      }
-    } catch (err: any) {
-      setActionMessage({ type: 'error', text: 'エラー: ' + err.message });
-    } finally {
-      setIsSavingEmail(false);
-    }
-  };
-
-  // Test Personal Email
-  const handleTestPersonalEmail = async () => {
-    setIsTestingEmail(true);
-    setActionMessage(null);
-    try {
-      const res = await fetch(`/api/users/${currentUser.id}/personal-email/test`, {
-        method: 'POST',
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setActionMessage({ type: 'success', text: `テストメールを送信しました！個人アドレスの受信ボックスをご確認ください。` });
-      } else {
-        setActionMessage({ type: 'error', text: data.error || 'テストメール送信に失敗しました。' });
-      }
-    } catch (err: any) {
-      setActionMessage({ type: 'error', text: 'エラー: ' + err.message });
-    } finally {
-      setIsTestingEmail(false);
-    }
-  };
-
   // Send Reminder to Unanswered Users
   const handleSendReminder = async () => {
     if (!activeEvent) return;
@@ -579,18 +518,6 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
           >
             <Send className="w-4 h-4" />
             安否確認を発動
-          </button>
-
-          <button
-            onClick={() => setActiveTab('my_settings')}
-            className={`px-3.5 py-2 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
-              activeTab === 'my_settings'
-                ? 'bg-white text-indigo-700 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Lock className="w-4 h-4" />
-            個人メール暗号化設定
           </button>
         </div>
       </div>
@@ -1205,6 +1132,21 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
             )}
           </div>
 
+          {/* 個人メール設定案内バナー */}
+          <div className="p-3 bg-indigo-50/70 rounded-xl border border-indigo-100 flex items-center justify-between gap-3 text-xs text-indigo-900">
+            <div className="flex items-center gap-2">
+              <ShieldAlert className="w-4 h-4 text-indigo-600 shrink-0" />
+              <span>
+                <strong>緊急時の個人メール連絡網:</strong> 私用メール（Gmail/iCloud等）への暗号化配信設定・テストは、画面右上の「<strong>マイページ（個人設定）</strong>」から安全に登録・変更できます。
+              </span>
+            </div>
+            {currentUser.personalEmailMasked && (
+              <span className="text-[10px] font-mono font-bold text-emerald-800 bg-emerald-100/80 px-2 py-0.5 rounded border border-emerald-200 shrink-0">
+                登録済: {currentUser.personalEmailMasked}
+              </span>
+            )}
+          </div>
+
           <form onSubmit={handleResponseSubmit} className="space-y-6">
             {/* 1. 本人の安否 */}
             <div>
@@ -1384,97 +1326,6 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
                 <CheckCircle2 className="w-4 h-4" />
                 {isSubmittingResponse ? '送信中...' : '安否状況を回答・登録する'}
               </button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* TAB 4: MY_SETTINGS (個人メールアドレス暗号化登録) */}
-      {/* ========================================================================= */}
-      {activeTab === 'my_settings' && (
-        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-6">
-          <div className="border-b border-slate-100 pb-4">
-            <h2 className="text-base font-extrabold text-slate-800 flex items-center gap-2">
-              <Lock className="w-5 h-5 text-indigo-600" />
-              個人メールアドレスの安全な登録・暗号化管理 (AES-256-GCM)
-            </h2>
-            <p className="text-xs text-slate-500 mt-1">
-              災害時に会社PCや社用携帯が不通になった場合に備え、個人の私用メールアドレス（Gmail, iCloud, Yahoo等）を登録できます。
-            </p>
-          </div>
-
-          {/* Security Notice Box */}
-          <div className="p-4 bg-indigo-50/60 rounded-2xl border border-indigo-100 text-xs text-indigo-900 space-y-2">
-            <div className="font-extrabold flex items-center gap-2 text-indigo-950">
-              <ShieldAlert className="w-4 h-4 text-indigo-600" />
-              個人プライバシー保護と暗号化仕様について
-            </div>
-            <p className="leading-relaxed text-[11px] text-indigo-800">
-              本システムに入力された個人メールアドレスは、保存時に強力な暗号化標準である <strong>AES-256-GCM</strong> により暗号化されます。
-              データベース上には平文ではなく暗号文としてのみ保存されるため、<strong>システム管理者やDB管理者であっても元のメールアドレスを盗み見ることはできません</strong>。
-              緊急安否確認の発動時のみ、通知配信サーバーが一時的にメモリ上で復号してBcc通知を送信します。
-            </p>
-          </div>
-
-          {/* Current Status Box */}
-          <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <span className="text-[11px] font-bold text-slate-500 block">現在の登録状態:</span>
-              {personalEmailMasked ? (
-                <div className="flex items-center gap-2 mt-1">
-                  <span className="text-sm font-extrabold font-mono text-emerald-700 bg-emerald-50 px-3 py-1 rounded-lg border border-emerald-200">
-                    {personalEmailMasked}
-                  </span>
-                  <span className="text-[10px] text-emerald-600 font-bold">（暗号化保護中）</span>
-                </div>
-              ) : (
-                <span className="text-xs font-bold text-slate-400 mt-1 block">
-                  （未登録 - 災害時の個人アドレス宛通知はスキップされます）
-                </span>
-              )}
-            </div>
-
-            {personalEmailMasked && (
-              <button
-                type="button"
-                onClick={handleTestPersonalEmail}
-                disabled={isTestingEmail}
-                className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs disabled:opacity-50"
-              >
-                <Mail className="w-3.5 h-3.5" />
-                {isTestingEmail ? 'テスト送信中...' : '個人宛テスト通知を送信'}
-              </button>
-            )}
-          </div>
-
-          {/* Registration Form */}
-          <form onSubmit={handleSavePersonalEmail} className="space-y-4">
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">
-                個人メールアドレスの新規登録・変更
-              </label>
-              <div className="flex gap-2">
-                <input
-                  type="email"
-                  required
-                  placeholder="example@gmail.com"
-                  value={personalEmailInput}
-                  onChange={(e) => setPersonalEmailInput(e.target.value)}
-                  className="flex-1 px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
-                />
-                <button
-                  type="submit"
-                  disabled={isSavingEmail}
-                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-2 cursor-pointer shrink-0 disabled:opacity-50"
-                >
-                  <Lock className="w-4 h-4" />
-                  {isSavingEmail ? '暗号化保存中...' : '暗号化して保存'}
-                </button>
-              </div>
-              <p className="text-[10px] text-slate-400 mt-1.5">
-                ※保存後、アドレスは「ya****@gmail.com」のように伏字で表示されます。
-              </p>
             </div>
           </form>
         </div>
