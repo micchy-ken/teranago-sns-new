@@ -3,11 +3,12 @@ import { BoardTopic, User, OfficeMaster, DivisionMaster } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
 import { markTopicAsRead } from '../utils/notifications';
 import { deleteAttachmentFiles } from '../utils/fileUpload';
-import { MessageSquare, Eye, Plus, Search, Pin, Paperclip, Calendar as CalendarIcon, Building2, Users, Flame, Tag, Trash2, Server } from 'lucide-react';
+import { MessageSquare, Eye, Plus, Search, Pin, Paperclip, Calendar as CalendarIcon, Building2, Users, Flame, Tag, Trash2, Server, Share2, Check } from 'lucide-react';
 import { TopicCreateModal } from './TopicCreateModal';
 import { TopicDetailModal } from './TopicDetailModal';
 import { ConfirmModal } from './ConfirmModal';
 import { APIDiagnosticModal } from './APIDiagnosticModal';
+import { buildAppUrl, copyTextToClipboard } from '../utils/urlParams';
 
 interface BoardProps {
   topics: BoardTopic[];
@@ -41,6 +42,18 @@ export function Board({
   const [selectedTopic, setSelectedTopic] = useState<BoardTopic | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [topicToDelete, setTopicToDelete] = useState<string | null>(null);
+  const [copiedTopicId, setCopiedTopicId] = useState<string | null>(null);
+
+  const handleShareTopic = async (topicId: string) => {
+    const url = buildAppUrl({ tab: 'board', topicId });
+    const success = await copyTextToClipboard(url);
+    if (success) {
+      setCopiedTopicId(topicId);
+      setTimeout(() => {
+        setCopiedTopicId(prev => (prev === topicId ? null : prev));
+      }, 2500);
+    }
+  };
 
   const handleOpenDetail = (topic: BoardTopic) => {
     markTopicAsRead(currentUser?.id, topic.id);
@@ -308,10 +321,35 @@ export function Board({
                           </span>
                         )}
 
-                        <div className="flex items-center gap-2 ml-auto">
-                          <span className="text-xs text-slate-400">
+                        <div className="flex items-center gap-1.5 ml-auto">
+                          <span className="text-xs text-slate-400 mr-0.5">
                             {new Date(topic.createdAt).toLocaleDateString('ja-JP')}
                           </span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleShareTopic(topic.id);
+                            }}
+                            className={`px-2 py-1 rounded-lg border transition-all flex items-center gap-1 text-[11px] font-semibold cursor-pointer ${
+                              copiedTopicId === topic.id
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-300 ring-2 ring-emerald-200'
+                                : 'text-slate-500 bg-slate-50 hover:bg-slate-100 hover:text-indigo-600 border-slate-200 shadow-2xs'
+                            }`}
+                            title="このトピックを開く共有リンク（URL）をコピー"
+                          >
+                            {copiedTopicId === topic.id ? (
+                              <>
+                                <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                <span className="text-emerald-700 font-bold">コピー完了!</span>
+                              </>
+                            ) : (
+                              <>
+                                <Share2 className="w-3.5 h-3.5 shrink-0" />
+                                <span>共有</span>
+                              </>
+                            )}
+                          </button>
                           {onDeleteTopic && canDeleteTopic(topic) && (
                             <button
                               type="button"

@@ -141,6 +141,21 @@ export function parseAppQueryParams(searchString?: string): AppQueryParams {
   if (!result.tab && (result.office || result.division || result.mode || result.view || result.eventId)) {
     result.tab = 'calendar';
   }
+  if (!result.tab && result.topicId) {
+    result.tab = 'board';
+  }
+  if (!result.tab && result.memoId) {
+    result.tab = 'memo';
+  }
+  if (!result.tab && result.applicationId) {
+    result.tab = 'workflow';
+  }
+  if (!result.tab && result.chatRoomId) {
+    result.tab = 'chat';
+  }
+  if (!result.tab && result.reportId) {
+    result.tab = 'daily_report';
+  }
 
   return result;
 }
@@ -218,17 +233,71 @@ export function resolveNotificationUrl(url?: string): string {
 }
 
 /**
- * Builds clean base application URL without any query parameters
+ * Builds full application URL with query parameters attached.
+ * Ensures basePath (e.g. '/teranago-sns-new/' or '/') is preserved correctly.
  */
-export function buildAppUrl(_params?: AppQueryParams, baseUrl?: string): string {
+export function buildAppUrl(params?: AppQueryParams, baseUrl?: string): string {
   let origin = baseUrl;
   if (!origin && typeof window !== 'undefined') {
     const basePath = getAppBasePath();
-    origin = `${window.location.origin}${basePath}`;
+    const cleanOrigin = window.location.origin;
+    const prefix = basePath.startsWith('/') ? basePath : `/${basePath}`;
+    origin = `${cleanOrigin}${prefix}`;
   } else if (!origin) {
-    origin = '';
+    origin = '/';
   }
-  return origin.split('?')[0];
+
+  // Ensure origin is clean of existing search/hash
+  const baseClean = origin.split('?')[0].split('#')[0];
+
+  if (!params) {
+    return baseClean;
+  }
+
+  const searchParams = new URLSearchParams();
+
+  if (params.tab) {
+    searchParams.set('tab', params.tab);
+  }
+  if (params.mode) {
+    searchParams.set('mode', params.mode);
+  }
+  if (params.view) {
+    searchParams.set('view', params.view);
+  }
+  if (params.date) {
+    searchParams.set('date', params.date);
+  }
+  if (params.office && params.office !== '全社' && params.office !== '全拠点') {
+    searchParams.set('office', params.office);
+  }
+  if (params.division && params.division !== '全部署') {
+    searchParams.set('division', params.division);
+  }
+  if (params.type && params.type !== 'all') {
+    searchParams.set('type', params.type);
+  }
+  if (params.eventId) {
+    searchParams.set('eventId', params.eventId);
+  }
+  if (params.applicationId) {
+    searchParams.set('applicationId', params.applicationId);
+  }
+  if (params.memoId) {
+    searchParams.set('memoId', params.memoId);
+  }
+  if (params.topicId) {
+    searchParams.set('topicId', params.topicId);
+  }
+  if (params.chatRoomId) {
+    searchParams.set('chatRoomId', params.chatRoomId);
+  }
+  if (params.reportId) {
+    searchParams.set('reportId', params.reportId);
+  }
+
+  const queryString = searchParams.toString();
+  return queryString ? `${baseClean}?${queryString}` : baseClean;
 }
 
 /**
@@ -245,3 +314,36 @@ export function updateBrowserUrl(_params?: AppQueryParams, _replace = true) {
     // ignore
   }
 }
+
+/**
+ * Copies text to clipboard with iframe/non-HTTPS fallback support
+ */
+export async function copyTextToClipboard(text: string): Promise<boolean> {
+  if (typeof navigator !== 'undefined' && navigator.clipboard && window.isSecureContext) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (e) {
+      // fallback below
+    }
+  }
+  if (typeof document !== 'undefined') {
+    try {
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      textArea.style.position = 'fixed';
+      textArea.style.left = '-999999px';
+      textArea.style.top = '-999999px';
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      const successful = document.execCommand('copy');
+      textArea.remove();
+      return successful;
+    } catch (e) {
+      return false;
+    }
+  }
+  return false;
+}
+

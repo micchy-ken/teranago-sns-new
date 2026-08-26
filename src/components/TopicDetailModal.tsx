@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, MessageSquare, Eye, Pin, Paperclip, Calendar as CalendarIcon, Send, Trash2, Building2, Users, Tag, CheckCircle2, Edit3, Save, Plus, Loader2, Eye as EyeIcon, Download, UploadCloud } from 'lucide-react';
+import { X, MessageSquare, Eye, Pin, Paperclip, Calendar as CalendarIcon, Send, Trash2, Building2, Users, Tag, CheckCircle2, Edit3, Save, Plus, Loader2, Eye as EyeIcon, Download, UploadCloud, Share2, Check } from 'lucide-react';
 import { BoardTopic, User, OfficeMaster, DivisionMaster, AttachmentFile } from '../types';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { getAvatarUrl } from '../utils/avatar';
@@ -9,6 +9,7 @@ import { renderContentWithLinks } from '../utils/renderContentWithLinks';
 import { UrlPastePopup, useUrlPasteHandler } from './common/UrlPastePopup';
 import { markTopicAsRead } from '../utils/notifications';
 import { triggerOpenUserModal } from '../utils/userModal';
+import { buildAppUrl, copyTextToClipboard } from '../utils/urlParams';
 
 interface TopicDetailModalProps {
   topic: BoardTopic | null;
@@ -62,8 +63,19 @@ export function TopicDetailModal({
   const [isEditingUploading, setIsEditingUploading] = useState(false);
   const [isEditingDraggingOver, setIsEditingDraggingOver] = useState(false);
   const [isCommentDraggingOver, setIsCommentDraggingOver] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleShareTopic = async () => {
+    if (!topic) return;
+    const url = buildAppUrl({ tab: 'board', topicId: topic.id });
+    const success = await copyTextToClipboard(url);
+    if (success) {
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2500);
+    }
+  };
 
   const officeNames = React.useMemo(() => {
     const list = Array.from(new Set(offices.map(o => o.name).filter(Boolean)));
@@ -319,6 +331,31 @@ export function TopicDetailModal({
             </h2>
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            {!isEditing && (
+              <button
+                type="button"
+                onClick={handleShareTopic}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all shadow-2xs cursor-pointer ${
+                  copiedLink
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-300 ring-2 ring-emerald-200'
+                    : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200 hover:text-indigo-600'
+                }`}
+                title="このトピックを開く共有リンク（URL）をコピー"
+              >
+                {copiedLink ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span>URLコピー完了!</span>
+                  </>
+                ) : (
+                  <>
+                    <Share2 className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                    <span className="hidden sm:inline">共有リンク</span>
+                    <span className="sm:hidden">共有</span>
+                  </>
+                )}
+              </button>
+            )}
             {isAuthor && !isEditing && (
               <button
                 onClick={() => setIsEditing(true)}

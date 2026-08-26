@@ -3844,10 +3844,15 @@ async function startServer() {
         };
       });
 
-      // Filter events relevant to user
-      const userEvents = normalizedEvents.filter((e: any) => {
-        const isCreator = String(e.createdById) === String(userId) || String(e.createdBy?.id) === String(userId);
+      // ユーザー情報を取得
+      const allUsers = loadUsers();
+      const targetUser = allUsers.find((u: any) => String(u.id) === String(userId) || u.loginId === userId || u.email === userId);
+      const userName = targetUser?.name;
+      const userEmail = targetUser?.email;
+      const userMobileEmail = targetUser?.mobileEmail;
 
+      // Filter events: 厳密に自分が参加メンバー (attendees) に含まれている予定のみを抽出
+      const userEvents = normalizedEvents.filter((e: any) => {
         let attendeesList: any[] = [];
         if (Array.isArray(e.attendees)) {
           attendeesList = e.attendees;
@@ -3858,21 +3863,26 @@ async function startServer() {
           } catch (_) {}
         }
 
-        let isAttendee = false;
-        if (attendeesList.length > 0) {
-          isAttendee = attendeesList.some((att: any) => {
-            if (!att) return false;
-            if (typeof att === 'object') {
-              return String(att.id) === String(userId) || String(att.name) === String(userId);
-            }
-            return String(att) === String(userId);
-          });
+        if (!attendeesList || attendeesList.length === 0) {
+          return false;
         }
 
-        if (isAttendee || isCreator) return true;
-        if (attendeesList.length === 0 && (!e.office || e.office === '全社')) return true;
+        const isAttendee = attendeesList.some((att: any) => {
+          if (!att) return false;
+          if (typeof att === 'object') {
+            const attId = String(att.id || '');
+            const attName = String(att.name || '');
+            const attEmail = String(att.email || '');
+            return attId === String(userId) ||
+                   (userName && attName === userName) ||
+                   (userEmail && attEmail === userEmail) ||
+                   (userMobileEmail && attEmail === userMobileEmail);
+          }
+          const attStr = String(att);
+          return attStr === String(userId) || (userName && attStr === userName);
+        });
 
-        return false;
+        return isAttendee;
       });
 
       // Expand recurring events (-6 months ~ +18 months)

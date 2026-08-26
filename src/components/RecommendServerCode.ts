@@ -5076,28 +5076,25 @@ app.get('/api/ical/user_:userId_calendar.ics', async (req, res) => {
       };
     });
 
-    // 【重要】個人専用カレンダー: 自分が参加者（attendees）または作成者に含まれている予定のみを厳格に抽出
+    // 【重要】個人専用カレンダー: 自分が参加者（attendees）に含まれている予定のみを厳格に抽出
     const userEvents = allNormalizedEvents.filter(evt => {
-      let isAttendee = false;
-      if (evt.attendees && evt.attendees.length > 0) {
-        isAttendee = evt.attendees.some((att) => {
-          if (!att) return false;
-          if (typeof att === 'object') {
-            const attId = String(att.id || '');
-            const attName = String(att.name || '');
-            const attEmail = String(att.email || '');
-            return attId === String(userId) ||
-                   (userName && attName === userName) ||
-                   (userEmail && attEmail === userEmail);
-          }
-          const attStr = String(att);
-          return attStr === String(userId) || (userName && attStr === userName);
-        });
+      if (!evt.attendees || evt.attendees.length === 0) {
+        return false;
       }
-      const isCreator = String(evt.createdById) === String(userId);
-      if (isAttendee || isCreator) return true;
-      if ((!evt.attendees || evt.attendees.length === 0) && (!evt.office || evt.office === '全社')) return true;
-      return false;
+      const isAttendee = evt.attendees.some((att) => {
+        if (!att) return false;
+        if (typeof att === 'object') {
+          const attId = String(att.id || '');
+          const attName = String(att.name || '');
+          const attEmail = String(att.email || '');
+          return attId === String(userId) ||
+                 (userName && attName === userName) ||
+                 (userEmail && attEmail === userEmail);
+        }
+        const attStr = String(att);
+        return attStr === String(userId) || (userName && attStr === userName);
+      });
+      return isAttendee;
     });
 
     // 繰り返し予定の展開ヘルパー (-6ヶ月 〜 +18ヶ月)

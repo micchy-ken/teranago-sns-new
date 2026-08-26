@@ -30,6 +30,7 @@ import {
 import { formatRelativeTime, formatEventScheduleBadge } from '../utils';
 import { API_BASE_URL } from '../config/api';
 import { renderContentWithLinks } from '../utils/renderContentWithLinks';
+import { buildAppUrl, copyTextToClipboard } from '../utils/urlParams';
 
 interface TimelineProps {
   posts: Post[];
@@ -84,6 +85,7 @@ export function Timeline({
 
   // 選択詳細アイテム
   const [selectedDetailItem, setSelectedDetailItem] = useState<TimelineFeedItem | null>(null);
+  const [copiedDetailLink, setCopiedDetailLink] = useState(false);
 
   // 拠点オプション一覧
   const officeOptions = useMemo(() => {
@@ -816,17 +818,48 @@ export function Timeline({
                         </span>
                       </div>
 
-                      {onChangeTab && (
+                      <div className="flex items-center gap-2">
                         <button
-                          onClick={() => {
-                            setSelectedDetailItem(null);
-                            onChangeTab('board');
+                          type="button"
+                          onClick={async () => {
+                            const url = buildAppUrl({ tab: 'board', topicId: topic.id });
+                            const ok = await copyTextToClipboard(url);
+                            if (ok) {
+                              setCopiedDetailLink(true);
+                              setTimeout(() => setCopiedDetailLink(false), 2500);
+                            }
                           }}
-                          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-xs transition-colors"
+                          className={`px-3 py-2 rounded-xl text-xs font-bold border transition-colors flex items-center gap-1.5 cursor-pointer ${
+                            copiedDetailLink
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-300 ring-2 ring-emerald-200'
+                              : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200 hover:text-indigo-600'
+                          }`}
+                          title="この掲示板トピックへの共有リンクをコピー"
                         >
-                          掲示板で確認 <ArrowUpRight className="w-4 h-4" />
+                          {copiedDetailLink ? (
+                            <>
+                              <Check className="w-3.5 h-3.5 text-emerald-600" />
+                              <span>URLコピー完了!</span>
+                            </>
+                          ) : (
+                            <>
+                              <Share2 className="w-3.5 h-3.5 text-slate-500" />
+                              <span>共有リンク</span>
+                            </>
+                          )}
                         </button>
-                      )}
+                        {onChangeTab && (
+                          <button
+                            onClick={() => {
+                              setSelectedDetailItem(null);
+                              onChangeTab('board');
+                            }}
+                            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-xs transition-colors"
+                          >
+                            掲示板で確認 <ArrowUpRight className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );

@@ -12,7 +12,7 @@ import { getLocalDateStr, addMinutesToLocalDatetime } from '../utils/dateUtils';
 import { triggerPushNotification } from '../utils/pushNotifications';
 import { expandRecurringEvents } from '../utils/recurrenceUtils';
 import { RecurrenceActionModal, RecurrenceActionScope } from './RecurrenceActionModal';
-import { buildAppUrl } from '../utils/urlParams';
+import { buildAppUrl, AppQueryParams } from '../utils/urlParams';
 
 interface CalendarProps {
   events: CalendarEvent[];
@@ -1705,24 +1705,64 @@ export function Calendar({
             )}
           </div>
 
-          {/* アプリケーションURLリンクをコピーするボタン */}
+          {/* 現在の設定を含むカレンダーURLリンクをコピーするボタン */}
           <button
             type="button"
             onClick={() => {
-              const url = buildAppUrl();
-              if (navigator.clipboard) {
-                navigator.clipboard.writeText(url).then(() => {
-                  setCopiedLink(true);
-                  setTimeout(() => setCopiedLink(false), 2500);
-                }).catch(() => {});
+              const currentDateStr = getLocalDateStr(currentDate);
+              const shareParams: AppQueryParams = {
+                tab: 'calendar',
+                mode: calendarMode,
+                view: view,
+                date: currentDateStr,
+              };
+              if (calendarMode === 'team') {
+                if (selectedOffice && selectedOffice !== '全社' && selectedOffice !== '全拠点') {
+                  shareParams.office = selectedOffice;
+                }
+                if (selectedDivision && selectedDivision !== '全部署') {
+                  shareParams.division = selectedDivision;
+                }
               }
+              if (selectedTypeFilter && selectedTypeFilter !== 'all') {
+                shareParams.type = selectedTypeFilter;
+              }
+
+              const url = buildAppUrl(shareParams);
+              const copyToClipboard = (text: string) => {
+                if (navigator.clipboard && window.isSecureContext) {
+                  return navigator.clipboard.writeText(text);
+                } else {
+                  const textArea = document.createElement('textarea');
+                  textArea.value = text;
+                  textArea.style.position = 'fixed';
+                  textArea.style.left = '-999999px';
+                  textArea.style.top = '-999999px';
+                  document.body.appendChild(textArea);
+                  textArea.focus();
+                  textArea.select();
+                  return new Promise<void>((resolve, reject) => {
+                    const successful = document.execCommand('copy');
+                    textArea.remove();
+                    if (successful) resolve();
+                    else reject(new Error('execCommand copy failed'));
+                  });
+                }
+              };
+
+              copyToClipboard(url).then(() => {
+                setCopiedLink(true);
+                setTimeout(() => setCopiedLink(false), 2500);
+              }).catch(() => {
+                // ignore
+              });
             }}
             className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all shadow-2xs cursor-pointer shrink-0 ${
               copiedLink
                 ? 'bg-emerald-50 text-emerald-700 border-emerald-300 ring-2 ring-emerald-200'
                 : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
             }`}
-            title="アプリケーションURLリンクをコピー"
+            title="現在の表示設定（日付・表示形式・拠点・部署等）を含んだ共有リンクをコピー"
           >
             {copiedLink ? (
               <>
