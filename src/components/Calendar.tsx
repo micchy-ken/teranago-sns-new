@@ -11,7 +11,7 @@ import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { getLocalDateStr, addMinutesToLocalDatetime } from '../utils/dateUtils';
 import { triggerPushNotification } from '../utils/pushNotifications';
 import { expandRecurringEvents } from '../utils/recurrenceUtils';
-import { RecurrenceActionScope } from './RecurrenceActionModal';
+import { RecurrenceActionModal, RecurrenceActionScope } from './RecurrenceActionModal';
 import { buildAppUrl } from '../utils/urlParams';
 
 interface CalendarProps {
@@ -321,6 +321,12 @@ export function Calendar({
     dateStr?: string;
   } | null>(null);
 
+  // D&D または リサイズ変更時の繰り返しスコープ決定モーダル用ステート
+  const [pendingRecurrenceUpdate, setPendingRecurrenceUpdate] = useState<{
+    updatedEvent: CalendarEvent;
+    originalInstanceDate?: string;
+  } | null>(null);
+
   // リサイズ操作中のマウス移動 & マウスアップのグローバルリスナー
   useEffect(() => {
     if (!resizingEvent) return;
@@ -333,21 +339,15 @@ export function Calendar({
       let deltaMinutes = 0;
       if (resizingEvent.direction === 'horizontal') {
         const slotWidth = resizingEvent.slotWidthPx && resizingEvent.slotWidthPx > 0 ? resizingEvent.slotWidthPx : 100;
-        // 1スロット(60分) あたりのピクセル幅から計算
         const rawMinutes = (deltaX / slotWidth) * 60;
-        // 15分単位にスナップ
         deltaMinutes = Math.round(rawMinutes / 15) * 15;
       } else {
         const slotHeight = resizingEvent.slotHeightPx && resizingEvent.slotHeightPx > 0 ? resizingEvent.slotHeightPx : 50;
-        // 1スロット(60分) あたりのピクセル高さから計算
         const rawMinutes = (deltaY / slotHeight) * 60;
-        // 15分単位にスナップ
         deltaMinutes = Math.round(rawMinutes / 15) * 15;
       }
 
-      // 新しい終了時間（ミリ秒）
       let newEndMs = resizingEvent.initialEndMs + deltaMinutes * 60 * 1000;
-      // 最小所要時間は15分
       const minEndMs = startMs + 15 * 60 * 1000;
       if (newEndMs < minEndMs) {
         newEndMs = minEndMs;
@@ -358,11 +358,30 @@ export function Calendar({
 
     const handleMouseUp = () => {
       if (resizingEvent && resizingEvent.currentEndMs !== resizingEvent.initialEndMs) {
+        const resizedEv = resizingEvent.event;
         const newEndIso = new Date(resizingEvent.currentEndMs).toISOString();
-        onUpdateEvent?.({
-          ...resizingEvent.event,
+
+        const isRecurring = !!(resizedEv.recurrence && resizedEv.recurrence.frequency && resizedEv.recurrence.frequency !== 'none') ||
+          !!resizedEv.recurrenceParentId ||
+          resizedEv.id.includes('_') ||
+          !!resizedEv.instanceDate ||
+          !!resizedEv.recurrenceOriginalDate;
+
+        const origDate = resizedEv.instanceDate || resizedEv.recurrenceOriginalDate || (resizedEv.id.includes('_') ? resizedEv.id.split('_')[1] : (resizedEv.start ? getLocalDateStr(resizedEv.start) : undefined));
+
+        const updatedEvObj: CalendarEvent = {
+          ...resizedEv,
           end: newEndIso,
-        });
+        };
+
+        if (isRecurring) {
+          setPendingRecurrenceUpdate({
+            updatedEvent: updatedEvObj,
+            originalInstanceDate: origDate,
+          });
+        } else {
+          onUpdateEvent?.(updatedEvObj, 'all');
+        }
       }
       setResizingEvent(null);
     };
@@ -1451,12 +1470,29 @@ export function Calendar({
       }
     }
 
-    onUpdateEvent?.({
+    const isRecurring = !!(ev.recurrence && ev.recurrence.frequency && ev.recurrence.frequency !== 'none') ||
+      !!ev.recurrenceParentId ||
+      ev.id.includes('_') ||
+      !!ev.instanceDate ||
+      !!ev.recurrenceOriginalDate;
+
+    const origDate = ev.instanceDate || ev.recurrenceOriginalDate || (ev.id.includes('_') ? ev.id.split('_')[1] : (ev.start ? getLocalDateStr(ev.start) : undefined));
+
+    const updatedEvObj: CalendarEvent = {
       ...ev,
       start: newStartIso,
       end: newEndIso,
       attendees: updatedAttendees,
-    });
+    };
+
+    if (isRecurring) {
+      setPendingRecurrenceUpdate({
+        updatedEvent: updatedEvObj,
+        originalInstanceDate: origDate,
+      });
+    } else {
+      onUpdateEvent?.(updatedEvObj, 'all');
+    }
 
     setDraggedEventId(null);
     setDraggedFromMemberId(null);
@@ -2564,6 +2600,27 @@ export function Calendar({
             </form>
           </div>
         </div>
+      )}
+
+      {/* D&D / リサイズ時の繰り返しスコープ決定モーダル */}
+      {pendingRecurrenceUpdate && (
+        <RecurrenceActionModal
+          isOpen={true}
+          mode="edit"
+          title="定期予定の変更範囲を選択"
+          instanceDate={pendingRecurrenceUpdate.originalInstanceDate}
+          onClose={() => setPendingRecurrenceUpdate(null)}
+          onConfirm={(scope) => {
+            if (pendingRecurrenceUpdate) {
+              onUpdateEvent?.(
+                pendingRecurrenceUpdate.updatedEvent,
+                scope,
+                pendingRecurrenceUpdate.originalInstanceDate
+              );
+            }
+            setPendingRecurrenceUpdate(null);
+          }}
+        />
       )}
       {/* デジタルサイネージモード 全画面オーバーレイ */}
       {isSignageMode && (

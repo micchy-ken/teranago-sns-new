@@ -2272,7 +2272,7 @@ export default function App() {
 
     const initialApprover = appData.approver || resolveApproverForStep(appData.applicant, stepsConfig[0] || rawSteps[0], usersList);
 
-    const tempId = `a-temp-${Date.now()}`;
+    const tempId = `wf-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const newApp: WorkflowApplication = {
       ...appData,
       id: tempId,
@@ -2333,6 +2333,7 @@ export default function App() {
           linkedInventoryIssueId: appData.linkedInventoryIssueId || null,
           details: JSON.stringify({
             ...restDetails,
+            status: appData.status || 'pending',
             flowId: appData.flowId || selectedFlow?.id,
             flowName: appData.flowName || selectedFlow?.name || '標準承認フロー',
             currentStepIndex: 1,
@@ -2507,53 +2508,50 @@ export default function App() {
       }, userState);
     }
 
-    if (!id.startsWith('a-temp-')) {
-      try {
-        const { applicant, approver, ...restDetails } = resultApp as any;
-        const response = await fetch(`${API_BASE_URL}/workflows/${id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            title: resultApp.title,
-            applicantId: resultApp.applicant.id,
-            approverId: resultApp.approver?.id || userState.id,
+    try {
+      const { applicant, approver, ...restDetails } = resultApp as any;
+      const response = await fetch(`${API_BASE_URL}/workflows/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: resultApp.title,
+          applicantId: resultApp.applicant.id,
+          approverId: resultApp.approver?.id || userState.id,
+          status: resultApp.status,
+          category: resultApp.type || 'other',
+          purchaseOrderNumber: resultApp.purchaseOrderNumber || null,
+          constructionDate: resultApp.constructionDate || null,
+          linkedInventoryIssueId: resultApp.linkedInventoryIssueId || null,
+          details: JSON.stringify({
+            ...restDetails,
             status: resultApp.status,
-            category: resultApp.type || 'other',
+            flowId: resultApp.flowId,
+            flowName: resultApp.flowName,
+            currentStepIndex: resultApp.currentStepIndex,
+            totalSteps: resultApp.totalSteps,
+            stepsConfig: resultApp.stepsConfig,
+            history: resultApp.history,
+            rejectReason: resultApp.rejectReason,
             purchaseOrderNumber: resultApp.purchaseOrderNumber || null,
             constructionDate: resultApp.constructionDate || null,
             linkedInventoryIssueId: resultApp.linkedInventoryIssueId || null,
-            details: JSON.stringify({
-              ...restDetails,
-              flowId: resultApp.flowId,
-              flowName: resultApp.flowName,
-              currentStepIndex: resultApp.currentStepIndex,
-              totalSteps: resultApp.totalSteps,
-              stepsConfig: resultApp.stepsConfig,
-              history: resultApp.history,
-              rejectReason: resultApp.rejectReason,
-              purchaseOrderNumber: resultApp.purchaseOrderNumber || null,
-              constructionDate: resultApp.constructionDate || null,
-              linkedInventoryIssueId: resultApp.linkedInventoryIssueId || null,
-              reason: (resultApp as any).reason || '',
-              purchaseItems: (resultApp as any).purchaseItems || [],
-              leaveStart: (resultApp as any).leaveStart || '',
-              leaveEnd: (resultApp as any).leaveEnd || '',
-              expenseType: (resultApp as any).expenseType || '',
-              amount: (resultApp as any).amount || 0,
-              attachmentUrl: (resultApp as any).attachmentUrl || '',
-            })
+            reason: (resultApp as any).reason || '',
+            purchaseItems: (resultApp as any).purchaseItems || [],
+            leaveStart: (resultApp as any).leaveStart || '',
+            leaveEnd: (resultApp as any).leaveEnd || '',
+            expenseType: (resultApp as any).expenseType || '',
+            amount: (resultApp as any).amount || 0,
+            attachmentUrl: (resultApp as any).attachmentUrl || '',
           })
-        });
-        if (response.ok) {
-          await refetchApplications();
-        } else {
-          setApplications(prev => prev.map(a => a.id === id ? resultApp : a));
-        }
-      } catch (err) {
-        console.error('Failed to sync workflow action with API:', err);
+        })
+      });
+      if (response.ok) {
+        await refetchApplications();
+      } else {
         setApplications(prev => prev.map(a => a.id === id ? resultApp : a));
       }
-    } else {
+    } catch (err) {
+      console.error('Failed to sync workflow action with API:', err);
       setApplications(prev => prev.map(a => a.id === id ? resultApp : a));
     }
     window.dispatchEvent(new CustomEvent('notifications_updated'));
@@ -2609,7 +2607,7 @@ export default function App() {
       return resultApp;
     }));
 
-    if (finalAppObj && !updatedApp.id.startsWith('a-temp-')) {
+    if (finalAppObj) {
       try {
         const { applicant, approver, ...restDetails } = finalAppObj as any;
         await fetch(`${API_BASE_URL}/workflows/${updatedApp.id}`, {
@@ -2626,6 +2624,7 @@ export default function App() {
             linkedInventoryIssueId: finalAppObj.linkedInventoryIssueId || null,
             details: JSON.stringify({
               ...restDetails,
+              status: finalAppObj.status,
               flowId: finalAppObj.flowId,
               flowName: finalAppObj.flowName,
               currentStepIndex: finalAppObj.currentStepIndex,
@@ -2669,11 +2668,6 @@ export default function App() {
     } catch (_) {}
 
     setApplications(prevApps => prevApps.filter(app => app.id !== applicationId));
-
-    if (applicationId.startsWith('a-temp-')) {
-      console.log(`[DELETE WORKFLOW] 一時的なローカルIDのため、API送信をスキップします: ${applicationId}`);
-      return;
-    }
 
     let deleteSuccess = false;
 

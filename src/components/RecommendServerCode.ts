@@ -4259,74 +4259,57 @@ app.get('/api/ical/user_:userId_calendar.ics', async (req, res) => {
       return \`\${yyyy}\${mm}\${dd}T\${hh}\${min}\${ss}Z\`;
     };
 
-    const formatToUtcDate = (dateObj) => {
-      const d = new Date(dateObj);
-      if (isNaN(d.getTime())) return '';
-      const pad = (n) => String(n).padStart(2, '0');
-      const yyyy = d.getUTCFullYear();
-      const mm = pad(d.getUTCMonth() + 1);
-      const dd = pad(d.getUTCDate());
-      return \`\${yyyy}\${mm}\${dd}\`;
-    };
-
-    const extractLocalDateStr = (dateInput) => {
+    const getJstDateStr = (dateInput) => {
       if (!dateInput) return '';
-      if (dateInput instanceof Date) {
-        const y = dateInput.getFullYear();
-        const m = String(dateInput.getMonth() + 1).padStart(2, '0');
-        const d = String(dateInput.getDate()).padStart(2, '0');
-        return \`\${y}-\${m}-\${d}\`;
-      }
-      const str = String(dateInput);
-      const match = str.match(/^(\\d{4})[-/](\\d{2})[-/](\\d{2})/);
-      if (match) {
-        return \`\${match[1]}-\${match[2]}-\${match[3]}\`;
-      }
       const d = new Date(dateInput);
       if (isNaN(d.getTime())) return '';
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, '0');
-      const day = String(d.getDate()).padStart(2, '0');
+      const jstDate = new Date(d.getTime() + 9 * 60 * 60 * 1000);
+      const y = jstDate.getUTCFullYear();
+      const m = String(jstDate.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(jstDate.getUTCDate()).padStart(2, '0');
       return \`\${y}-\${m}-\${day}\`;
+    };
+
+    const addDaysJstFormatted = (dateStr, days) => {
+      const parts = dateStr.split('-');
+      const y = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10) - 1;
+      const d = parseInt(parts[2], 10);
+      const date = new Date(Date.UTC(y, m, d + days, 12, 0, 0));
+      const year = date.getUTCFullYear();
+      const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(date.getUTCDate()).padStart(2, '0');
+      return \`\${year}\${month}\${day}\`;
     };
 
     let icsContent = "BEGIN:VCALENDAR\\r\\nVERSION:2.0\\r\\nPRODID:-//Company SNS Calendar//JA\\r\\nCALSCALE:GREGORIAN\\r\\nMETHOD:PUBLISH\\r\\nX-WR-CALNAME:社内カレンダー同期\\r\\nX-WR-TIMEZONE:Asia/Tokyo\\r\\n";
     const nowStr = formatToUtc(new Date());
 
     for (const evt of filteredEvents) {
-      const isAllDay = evt.isAllDay === true || evt.isAllDay === 1;
+      const isAllDay = evt.isAllDay === true || evt.isAllDay === 1 || evt.isAllDay === 'true';
       let dtStartLine = '';
       let dtEndLine = '';
 
       if (isAllDay) {
-        const startStr = extractLocalDateStr(evt.startAt);
-        const endStr = evt.endAt ? extractLocalDateStr(evt.endAt) : startStr;
-        if (startStr && endStr) {
+        const startStr = getJstDateStr(evt.startAt || evt.start);
+        const endStr = evt.endAt || evt.end ? getJstDateStr(evt.endAt || evt.end) : startStr;
+        if (startStr) {
           const startClean = startStr.replace(/-/g, '');
           dtStartLine = "DTSTART;VALUE=DATE:" + startClean + "\\r\\n";
-          
-          const parts = endStr.split('-');
-          const endYear = parseInt(parts[0], 10);
-          const endMonth = parseInt(parts[1], 10) - 1;
-          const endDay = parseInt(parts[2], 10);
-          
-          const nextDate = new Date(endYear, endMonth, endDay + 1, 12, 0, 0);
-          const nextYear = nextDate.getFullYear();
-          const nextMonth = String(nextDate.getMonth() + 1).padStart(2, '0');
-          const nextDay = String(nextDate.getDate()).padStart(2, '0');
-          dtEndLine = "DTEND;VALUE=DATE:" + \`\${nextYear}\${nextMonth}\${nextDay}\` + "\\r\\n";
+          const nextClean = addDaysJstFormatted(endStr || startStr, 1);
+          dtEndLine = "DTEND;VALUE=DATE:" + nextClean + "\\r\\n";
         }
       } else {
-        const startD = evt.startAt ? new Date(evt.startAt) : null;
-        const endD = evt.endAt ? new Date(evt.endAt) : startD;
+        const startD = (evt.startAt || evt.start) ? new Date(evt.startAt || evt.start) : null;
+        const endD = (evt.endAt || evt.end) ? new Date(evt.endAt || evt.end) : startD;
         if (startD && endD) {
           dtStartLine = "DTSTART:" + formatToUtc(startD) + "\\r\\n";
           dtEndLine = "DTEND:" + formatToUtc(endD) + "\\r\\n";
         }
       }
       
-      let descText = evt.description || '';
-      if (descText.startsWith('{')) {
+      let descText = evt.description || evt.memo || '';
+      if (typeof descText === 'string' && descText.startsWith('{')) {
         try {
           const parsed = JSON.parse(descText);
           descText = parsed.memo || '';
@@ -4335,7 +4318,7 @@ app.get('/api/ical/user_:userId_calendar.ics', async (req, res) => {
 
       // 改行のエスケープおよびカンマ等のエスケープ
       const summaryEscaped = (evt.title || '').replace(/\\r\\n|\\r|\\n/g, ' ').replace(/[,;]/g, '\\\\$&');
-      const descEscaped = descText.replace(/\\r\\n|\\r|\\n/g, '\\\\n').replace(/[,;]/g, '\\\\$&');
+      const descEscaped = String(descText).replace(/\\r\\n|\\r|\\n/g, '\\\\n').replace(/[,;]/g, '\\\\$&');
       const locEscaped = (evt.location || '').replace(/\\r\\n|\\r|\\n/g, ' ').replace(/[,;]/g, '\\\\$&');
 
       icsContent += "BEGIN:VEVENT\\r\\n";

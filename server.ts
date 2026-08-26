@@ -7,6 +7,7 @@ import webpush from 'web-push';
 import nodemailer from 'nodemailer';
 import { simpleParser } from 'mailparser';
 import { createServer as createViteServer } from 'vite';
+import { expandRecurringEvents } from './src/utils/recurrenceUtils';
 
 async function startServer() {
   const app = express();
@@ -1765,6 +1766,107 @@ async function startServer() {
   });
 
   // ==========================================
+  // カレンダー (Events / Calendar) JSON ストレージ & API
+  // ==========================================
+  const eventsPath = path.join(dataDir, 'events.json');
+
+  function loadEvents(): any[] {
+    if (!fs.existsSync(eventsPath)) {
+      return [];
+    }
+    try {
+      const raw = JSON.parse(fs.readFileSync(eventsPath, 'utf8'));
+      return Array.isArray(raw) ? raw : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function saveEvents(eventsList: any[]) {
+    try {
+      fs.writeFileSync(eventsPath, JSON.stringify(eventsList, null, 2), 'utf8');
+    } catch (e) {
+      console.error('Failed to save events:', e);
+    }
+  }
+
+  // カレンダー予定一覧取得
+  app.get(['/api/events', '/api/events/', '/events', '/events/'], (req, res) => {
+    try {
+      const list = loadEvents();
+      res.json(list);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // カレンダー予定新規作成
+  app.post(['/api/events', '/api/events/', '/events', '/events/'], (req, res) => {
+    try {
+      const list = loadEvents();
+      const newEvent = {
+        id: req.body.id || `e-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        ...req.body,
+        createdAt: req.body.createdAt || new Date().toISOString()
+      };
+      list.push(newEvent);
+      saveEvents(list);
+      res.status(201).json(newEvent);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // カレンダー予定更新
+  app.put(['/api/events/:id', '/events/:id'], (req, res) => {
+    try {
+      const eventId = req.params.id;
+      const list = loadEvents();
+      const idx = list.findIndex((e: any) => String(e.id) === String(eventId));
+      if (idx === -1) {
+        const newEv = { id: eventId, ...req.body, updatedAt: new Date().toISOString() };
+        list.push(newEv);
+        saveEvents(list);
+        return res.json(newEv);
+      }
+      list[idx] = {
+        ...list[idx],
+        ...req.body,
+        updatedAt: new Date().toISOString()
+      };
+      saveEvents(list);
+      res.json(list[idx]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // カレンダー予定削除
+  app.delete(['/api/events/:id', '/events/:id'], (req, res) => {
+    try {
+      const eventId = req.params.id;
+      let list = loadEvents();
+      list = list.filter((e: any) => String(e.id) !== String(eventId));
+      saveEvents(list);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post(['/api/events/:id/delete', '/events/:id/delete'], (req, res) => {
+    try {
+      const eventId = req.params.id;
+      let list = loadEvents();
+      list = list.filter((e: any) => String(e.id) !== String(eventId));
+      saveEvents(list);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ==========================================
   // 掲示板 (Bulletin Board) JSON ストレージ & API
   // ==========================================
   const bulletinsPath = path.join(dataDir, 'bulletins.json');
@@ -3227,9 +3329,7 @@ async function startServer() {
       const list = loadWorkflows();
       const nowIso = new Date().toISOString();
 
-      const newId = data.id && !data.id.startsWith('a-temp-')
-        ? data.id
-        : `wf-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      const newId = data.id || `wf-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
       const applicantId = String(data.applicantId || (data.applicant && data.applicant.id) || 'u1');
       const approverId = data.approverId || (data.approver && data.approver.id) || undefined;
@@ -3381,6 +3481,42 @@ async function startServer() {
     }
   });
 
+  // Helper functions for iCal timezone & dates
+  function getJstDateString(dateInput: Date | string | undefined): string {
+    if (!dateInput) return '';
+    const d = new Date(dateInput);
+    if (isNaN(d.getTime())) return '';
+    // JST offset (+9 hours)
+    const jstDate = new Date(d.getTime() + 9 * 60 * 60 * 1000);
+    const yyyy = jstDate.getUTCFullYear();
+    const mm = String(jstDate.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(jstDate.getUTCDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
+  function addDaysJstFormatted(dateStr: string, days: number): string {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const date = new Date(Date.UTC(y, m - 1, d + days, 12, 0, 0));
+    const year = date.getUTCFullYear();
+    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(date.getUTCDate()).padStart(2, '0');
+    return `${year}${month}${day}`;
+  }
+
+  function formatToUtc(dateInput: Date | string | undefined): string {
+    if (!dateInput) return '';
+    const d = new Date(dateInput);
+    if (isNaN(d.getTime())) return '';
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const yyyy = d.getUTCFullYear();
+    const mm = pad(d.getUTCMonth() + 1);
+    const dd = pad(d.getUTCDate());
+    const hh = pad(d.getUTCHours());
+    const min = pad(d.getUTCMinutes());
+    const ss = pad(d.getUTCSeconds());
+    return `${yyyy}${mm}${dd}T${hh}${min}${ss}Z`;
+  }
+
   // ==========================================
   // iCal (ICS) カレンダー外部連携 API
   // ==========================================
@@ -3404,7 +3540,7 @@ async function startServer() {
     `);
   });
 
-  app.get('/api/ical/user_:userId_calendar.ics', (req, res) => {
+  app.get(['/api/ical/user_:userId_calendar.ics', '/ical/user_:userId_calendar.ics'], (req, res) => {
     try {
       let rawUserId = (req.params as any).userId || (req.params as any).userId_calendar || '';
       if (rawUserId.endsWith('_calendar')) {
@@ -3412,29 +3548,162 @@ async function startServer() {
       }
       const userId = rawUserId;
 
-      const formatToUtc = (dateObj: Date | string) => {
-        const d = new Date(dateObj);
-        if (isNaN(d.getTime())) return '';
-        const pad = (n: number) => String(n).padStart(2, '0');
-        const yyyy = d.getUTCFullYear();
-        const mm = pad(d.getUTCMonth() + 1);
-        const dd = pad(d.getUTCDate());
-        const hh = pad(d.getUTCHours());
-        const min = pad(d.getUTCMinutes());
-        const ss = pad(d.getUTCSeconds());
-        return `${yyyy}${mm}${dd}T${hh}${min}${ss}Z`;
-      };
+      const allRawEvents = loadEvents();
+
+      // Normalization
+      const normalizedEvents = allRawEvents.map((e: any) => {
+        let detailsObj: any = {};
+        if (e.description && typeof e.description === 'string' && e.description.startsWith('{')) {
+          try { detailsObj = JSON.parse(e.description); } catch (_) {}
+        }
+        return {
+          id: String(e.id),
+          title: e.title || '予定',
+          start: e.startAt || e.start || new Date().toISOString(),
+          end: e.endAt || e.end || e.startAt || e.start || new Date().toISOString(),
+          isAllDay: e.isAllDay === true || e.isAllDay === 1 || e.isAllDay === 'true' || e.isAllDay === '1',
+          type: e.category || e.type || 'personal',
+          office: e.office || '全社',
+          division: e.division || '全部署',
+          location: e.location || detailsObj.location || '',
+          memo: e.memo || detailsObj.memo || e.description || '',
+          attendees: e.attendees || detailsObj.attendees || [],
+          createdBy: e.createdBy || detailsObj.createdBy,
+          createdById: e.createdById || e.userId || detailsObj.createdById || detailsObj.userId,
+          recurrence: e.recurrence || detailsObj.recurrence,
+          recurrenceParentId: e.recurrenceParentId || detailsObj.recurrenceParentId,
+          recurrenceOriginalDate: e.recurrenceOriginalDate || detailsObj.recurrenceOriginalDate || e.instanceDate || detailsObj.instanceDate,
+          recurrenceExceptions: e.recurrenceExceptions || detailsObj.recurrenceExceptions,
+        };
+      });
+
+      // Filter events relevant to user
+      const userEvents = normalizedEvents.filter((e: any) => {
+        const isCreator = String(e.createdById) === String(userId) || String(e.createdBy?.id) === String(userId);
+
+        let attendeesList: any[] = [];
+        if (Array.isArray(e.attendees)) {
+          attendeesList = e.attendees;
+        } else if (typeof e.attendees === 'string') {
+          try {
+            const p = JSON.parse(e.attendees);
+            if (Array.isArray(p)) attendeesList = p;
+          } catch (_) {}
+        }
+
+        let isAttendee = false;
+        if (attendeesList.length > 0) {
+          isAttendee = attendeesList.some((att: any) => {
+            if (!att) return false;
+            if (typeof att === 'object') {
+              return String(att.id) === String(userId) || String(att.name) === String(userId);
+            }
+            return String(att) === String(userId);
+          });
+        }
+
+        if (isAttendee || isCreator) return true;
+        if (attendeesList.length === 0 && (!e.office || e.office === '全社')) return true;
+
+        return false;
+      });
+
+      // Expand recurring events (-6 months ~ +18 months)
+      const viewStart = new Date();
+      viewStart.setMonth(viewStart.getMonth() - 6);
+      const viewEnd = new Date();
+      viewEnd.setMonth(viewEnd.getMonth() + 18);
+
+      const expandedEvents = expandRecurringEvents(userEvents as any[], viewStart, viewEnd);
 
       const nowStr = formatToUtc(new Date());
-
       let icsContent = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Company SNS Calendar//JA\r\nCALSCALE:GREGORIAN\r\nMETHOD:PUBLISH\r\nX-WR-CALNAME:社内カレンダー同期\r\nX-WR-TIMEZONE:Asia/Tokyo\r\n";
+
+      for (const evt of expandedEvents) {
+        const isAllDay = evt.isAllDay === true || (evt as any).isAllDay === 1 || (evt as any).isAllDay === 'true';
+        let dtStartLine = '';
+        let dtEndLine = '';
+
+        if (isAllDay) {
+          const startJst = getJstDateString(evt.start);
+          const endJst = evt.end ? getJstDateString(evt.end) : startJst;
+          if (startJst) {
+            const startClean = startJst.replace(/-/g, '');
+            dtStartLine = `DTSTART;VALUE=DATE:${startClean}\r\n`;
+
+            // Non-inclusive DTEND
+            const endCleanNext = addDaysJstFormatted(endJst || startJst, 1);
+            dtEndLine = `DTEND;VALUE=DATE:${endCleanNext}\r\n`;
+          }
+        } else {
+          const startD = evt.start ? new Date(evt.start) : null;
+          const endD = evt.end ? new Date(evt.end) : startD;
+          if (startD && endD) {
+            dtStartLine = `DTSTART:${formatToUtc(startD)}\r\n`;
+            dtEndLine = `DTEND:${formatToUtc(endD)}\r\n`;
+          }
+        }
+
+        let descText = evt.memo || (evt as any).description || '';
+        if (typeof descText === 'string' && descText.startsWith('{')) {
+          try {
+            const parsed = JSON.parse(descText);
+            descText = parsed.memo || '';
+          } catch (_) {}
+        }
+
+        const summaryEscaped = (evt.title || '').replace(/\r\n|\r|\n/g, ' ').replace(/[,;]/g, '\\$&');
+        const descEscaped = String(descText).replace(/\r\n|\r|\n/g, '\\n').replace(/[,;]/g, '\\$&');
+        const locEscaped = (evt.location || '').replace(/\r\n|\r|\n/g, ' ').replace(/[,;]/g, '\\$&');
+
+        icsContent += "BEGIN:VEVENT\r\n";
+        icsContent += `UID:evt-${evt.id}@company-sns\r\n`;
+        icsContent += `DTSTAMP:${nowStr}\r\n`;
+        icsContent += `SUMMARY:${summaryEscaped}\r\n`;
+        if (descText) icsContent += `DESCRIPTION:${descEscaped}\r\n`;
+        if (evt.location) icsContent += `LOCATION:${locEscaped}\r\n`;
+        if (dtStartLine) icsContent += dtStartLine;
+        if (dtEndLine) icsContent += dtEndLine;
+        icsContent += "END:VEVENT\r\n";
+      }
+
       icsContent += "END:VCALENDAR\r\n";
+
+      // Folding 75 octets
+      const lines = icsContent.split("\r\n");
+      const foldedLines = lines.map(line => {
+        if (!line) return '';
+        const buf = Buffer.from(line, 'utf-8');
+        if (buf.length <= 72) return line;
+
+        let result = '';
+        let currentBytes = 0;
+        let currentStr = '';
+
+        for (let i = 0; i < line.length; i++) {
+          const char = line[i];
+          const charBytes = Buffer.from(char, 'utf-8').length;
+
+          if (currentBytes + charBytes > 72) {
+            result += currentStr + "\r\n ";
+            currentStr = char;
+            currentBytes = charBytes;
+          } else {
+            currentStr += char;
+            currentBytes += charBytes;
+          }
+        }
+        result += currentStr;
+        return result;
+      });
+      const finalIcs = foldedLines.join("\r\n");
 
       res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
       res.setHeader('Content-Disposition', 'inline; filename="user_' + userId + '_calendar.ics"');
       res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate, proxy-revalidate');
-      res.send(icsContent);
+      res.send(finalIcs);
     } catch (err: any) {
+      console.error('[iCal Export Error]', err);
       res.status(500).send(err.message);
     }
   });

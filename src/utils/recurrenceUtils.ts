@@ -13,13 +13,29 @@ export function safeParseRecurrence(val: any): RecurrenceRule | undefined {
     if (val.frequency && val.frequency !== 'none') return val as RecurrenceRule;
     return undefined;
   }
-  if (typeof val === 'string' && val.trim().startsWith('{')) {
-    try {
-      const parsed = JSON.parse(val);
-      if (parsed && parsed.frequency && parsed.frequency !== 'none') {
-        return parsed as RecurrenceRule;
-      }
-    } catch (_) {}
+  if (typeof val === 'string') {
+    let trimmed = val.trim();
+    if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+      try {
+        const unescaped = JSON.parse(trimmed);
+        if (typeof unescaped === 'string') trimmed = unescaped.trim();
+        else if (typeof unescaped === 'object' && unescaped !== null) {
+          if (unescaped.frequency && unescaped.frequency !== 'none') return unescaped as RecurrenceRule;
+        }
+      } catch (_) {}
+    }
+    if (trimmed.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (parsed && parsed.frequency && parsed.frequency !== 'none') {
+          return parsed as RecurrenceRule;
+        }
+      } catch (_) {}
+    }
+    const lower = trimmed.toLowerCase();
+    if (['daily', 'weekly', 'monthly', 'yearly'].includes(lower)) {
+      return { frequency: lower as any, endType: 'never' };
+    }
   }
   return undefined;
 }
@@ -30,11 +46,24 @@ export function safeParseRecurrence(val: any): RecurrenceRule | undefined {
 export function safeParseExceptions(val: any): string[] {
   if (!val) return [];
   if (Array.isArray(val)) return val;
-  if (typeof val === 'string' && val.trim().startsWith('[')) {
-    try {
-      const parsed = JSON.parse(val);
-      if (Array.isArray(parsed)) return parsed;
-    } catch (_) {}
+  if (typeof val === 'string') {
+    let trimmed = val.trim();
+    if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+      try {
+        const unescaped = JSON.parse(trimmed);
+        if (Array.isArray(unescaped)) return unescaped;
+        if (typeof unescaped === 'string') trimmed = unescaped.trim();
+      } catch (_) {}
+    }
+    if (trimmed.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) return parsed;
+      } catch (_) {}
+    }
+    if (trimmed.includes('-')) {
+      return trimmed.split(',').map(s => s.trim()).filter(Boolean);
+    }
   }
   return [];
 }
@@ -187,8 +216,10 @@ export function expandRecurringEvents(
   const normalAndParentEvents: CalendarEvent[] = [];
 
   for (const ev of events) {
-    if (ev.recurrenceParentId && ev.recurrenceOriginalDate) {
-      overrideMap.set(`${ev.recurrenceParentId}_${ev.recurrenceOriginalDate}`, ev);
+    const parentId = ev.recurrenceParentId;
+    const origDate = ev.recurrenceOriginalDate || ev.instanceDate || (ev.start ? getLocalDateStr(ev.start) : undefined);
+    if (parentId && parentId !== ev.id && origDate) {
+      overrideMap.set(`${parentId}_${origDate}`, ev);
     } else {
       normalAndParentEvents.push(ev);
     }
@@ -249,6 +280,15 @@ export function expandRecurringEvents(
       }
     };
 
+    const shouldProcessOccurrence = (currStr: string) => {
+      if (currStr >= viewStartStr && currStr <= viewEndStr) {
+        const overrideKey = `${event.id}_${currStr}`;
+        if (overrideMap.has(overrideKey) || !exceptions.has(currStr)) {
+          pushInstance(currStr);
+        }
+      }
+    };
+
     // 日毎の繰り返し (daily)
     if (recurrence.frequency === 'daily') {
       let currStr = eventStartDateStr;
@@ -259,9 +299,7 @@ export function expandRecurringEvents(
         count++;
         if (count > maxCount) break;
 
-        if (currStr >= viewStartStr && currStr <= viewEndStr && !exceptions.has(currStr)) {
-          pushInstance(currStr);
-        }
+        shouldProcessOccurrence(currStr);
 
         currStr = addDays(currStr, 1);
       }
@@ -280,9 +318,7 @@ export function expandRecurringEvents(
           count++;
           if (count > maxCount) break;
 
-          if (currStr >= viewStartStr && currStr <= viewEndStr && !exceptions.has(currStr)) {
-            pushInstance(currStr);
-          }
+          shouldProcessOccurrence(currStr);
         }
 
         currStr = addDays(currStr, 1);
@@ -314,9 +350,7 @@ export function expandRecurringEvents(
             count++;
             if (count > maxCount) break;
 
-            if (currStr >= viewStartStr && currStr <= viewEndStr && !exceptions.has(currStr)) {
-              pushInstance(currStr);
-            }
+            shouldProcessOccurrence(currStr);
           }
         }
 
@@ -345,9 +379,7 @@ export function expandRecurringEvents(
         count++;
         if (count > maxCount) break;
 
-        if (currStr >= viewStartStr && currStr <= viewEndStr && !exceptions.has(currStr)) {
-          pushInstance(currStr);
-        }
+        shouldProcessOccurrence(currStr);
 
         currentYear++;
       }
@@ -386,12 +418,26 @@ export function planRecurrenceSave(
   // 親イベントIDの特定
   const rawId = eventData.id || '';
   const isExpandedId = rawId.includes('_');
-  const parentId = eventData.recurrenceParentId || (isExpandedId ? rawId.split('_')[0] : (rawId && !rawId.startsWith('e-ovr-') ? rawId : undefined));
+
+  let parentId = eventData.recurrenceParentId;
+  if (!parentId && isExpandedId) {
+    parentId = rawId.split('_')[0];
+  }
+  if (!parentId && rawId) {
+    const rawMatch = currentEvents.find(e => e.id === rawId);
+    if (rawMatch?.recurrenceParentId) {
+      parentId = rawMatch.recurrenceParentId;
+    } else if (rawMatch && ((rawMatch.recurrence && rawMatch.recurrence.frequency && rawMatch.recurrence.frequency !== 'none') || rawMatch.recurrenceExceptions)) {
+      parentId = rawId;
+    }
+  }
+
   const parentEvent = parentId ? currentEvents.find(e => e.id === parentId) : null;
-  
+
   // 元のインスタンス日付と新しい日付の特定
   const origDate = (eventData as any).recurrenceOriginalDate || (eventData as any).instanceDate || instanceDate || (isExpandedId ? rawId.split('_')[1] : undefined);
-  const newDate = eventData.start ? getLocalDateStr(eventData.start) : origDate;
+  const newStartIso = eventData.start || parentEvent?.start || new Date().toISOString();
+  const newDate = getLocalDateStr(newStartIso);
   const targetDate = origDate || newDate;
 
   if (!parentEvent || scope === 'all' || !targetDate) {
@@ -408,6 +454,18 @@ export function planRecurrenceSave(
       instanceDate: undefined,
     };
 
+    // 親の全変更に伴い、紐づいていた古いオーバーライド子イベントは全リセットのためDB削除対象へ
+    if (targetId) {
+      const childEvents = currentEvents.filter(e => e.recurrenceParentId === targetId && e.id !== targetId);
+      for (const child of childEvents) {
+        const realChildId = child.id.includes('_') ? child.id.split('_')[0] : child.id;
+        if (realChildId && !toDelete.includes(realChildId)) {
+          toDelete.push(realChildId);
+        }
+      }
+      currentEvents = currentEvents.filter(e => e.recurrenceParentId !== targetId || e.id === targetId);
+    }
+
     currentEvents = currentEvents.map(e => e.id === targetId ? updatedParent : e);
     if (!currentEvents.some(e => e.id === targetId)) {
       currentEvents.push(updatedParent);
@@ -419,7 +477,7 @@ export function planRecurrenceSave(
 
   if (scope === 'this_only') {
     // 2. このスケジュールのみ変更
-    // ① 親イベントの recurrenceExceptions に対象日付（元の発生日および新しい日付）を追加
+    // ① 親イベントの recurrenceExceptions に対象日付（元の発生日）を追加
     const existingExceptions = safeParseExceptions(parentEvent.recurrenceExceptions);
     const updatedExceptions = Array.from(new Set([
       ...existingExceptions,
@@ -434,14 +492,13 @@ export function planRecurrenceSave(
     toSave.push(updatedParent);
 
     // ② この日専用の単発イベント（オーバーライド）を作成または更新
-    // 既存のオーバーライドイベントを検索
     const existingOvr = allEvents.find(e =>
       e.recurrenceParentId === parentEvent.id &&
       (e.recurrenceOriginalDate === origDate || e.instanceDate === origDate || e.id === rawId)
     );
 
     let overrideId = existingOvr?.id;
-    if (!overrideId && rawId && !isExpandedId) {
+    if (!overrideId && rawId && !isExpandedId && rawId.startsWith('e-ovr-')) {
       overrideId = rawId;
     }
     if (!overrideId) {
@@ -473,33 +530,74 @@ export function planRecurrenceSave(
 
   if (scope === 'this_and_following') {
     // 3. これ以降全てのスケジュールを変更
-    // ① 親イベントの繰り返し終了日を「対象日の前日」に設定
     const dayBefore = addDays(targetDate, -1);
-    const updatedParent: CalendarEvent = {
-      ...parentEvent,
-      recurrence: {
-        ...(parentEvent.recurrence || { frequency: 'weekly' }),
+    const parentStartStr = parentEvent.start ? getLocalDateStr(parentEvent.start) : targetDate;
+
+    if (dayBefore < parentStartStr) {
+      // 対象日が親の初回発生日以前なら、親イベント自体を更新
+      const updatedParent: CalendarEvent = {
+        ...parentEvent,
+        ...eventData,
+        createdBy: eventData.createdBy || parentEvent.createdBy,
+        createdById: (eventData as any).createdById || eventData.createdBy?.id || parentEvent.createdBy?.id,
+        id: parentEvent.id,
+        recurrenceParentId: undefined,
+        recurrenceOriginalDate: undefined,
+        instanceDate: undefined,
+      };
+      currentEvents = currentEvents.map(e => e.id === parentEvent.id ? updatedParent : e);
+      toSave.push(updatedParent);
+    } else {
+      // ① 旧親イベントの繰り返し終了日を「対象日の前日」に設定（有限データ化）
+      const updatedParentRule: RecurrenceRule = {
+        ...(safeParseRecurrence(parentEvent.recurrence) || { frequency: 'weekly', endType: 'never' }),
         endType: 'until_date',
         endDate: dayBefore,
-      },
-    };
-    currentEvents = currentEvents.map(e => e.id === parentEvent.id ? updatedParent : e);
-    toSave.push(updatedParent);
+      };
+      const updatedParent: CalendarEvent = {
+        ...parentEvent,
+        recurrence: updatedParentRule,
+      };
+      currentEvents = currentEvents.map(e => e.id === parentEvent.id ? updatedParent : e);
+      toSave.push(updatedParent);
 
-    // ② 対象日を開始日とする新しい繰り返しイベントを作成
-    const newRecurrenceId = `e-recur-split-${Date.now()}`;
-    const newRecurrenceEvent: CalendarEvent = {
-      ...parentEvent,
-      ...eventData,
-      createdBy: eventData.createdBy || parentEvent.createdBy,
-      createdById: (eventData as any).createdById || eventData.createdBy?.id || parentEvent.createdBy?.id,
-      id: newRecurrenceId,
-      recurrenceParentId: undefined,
-      recurrenceOriginalDate: undefined,
-      instanceDate: undefined,
-    };
-    currentEvents.push(newRecurrenceEvent);
-    toSave.push(newRecurrenceEvent);
+      // ② 旧親イベントに紐づいていた対象日以降の古い子オーバーライドイベントを削除対象に追加
+      const oldChildEvents = currentEvents.filter(e =>
+        e.recurrenceParentId === parentEvent.id &&
+        ((e.recurrenceOriginalDate && e.recurrenceOriginalDate >= targetDate) ||
+         (e.instanceDate && e.instanceDate >= targetDate))
+      );
+      for (const child of oldChildEvents) {
+        const realChildId = child.id.includes('_') ? child.id.split('_')[0] : child.id;
+        if (realChildId && !toDelete.includes(realChildId)) {
+          toDelete.push(realChildId);
+        }
+      }
+      currentEvents = currentEvents.filter(e => !toDelete.includes(e.id));
+
+      // ③ 対象日を開始日とする新しい繰り返し親イベントを作成
+      const newRecurrenceId = `e-recur-split-${Date.now()}`;
+      const newRecurrenceRule: RecurrenceRule = eventData.recurrence ? {
+        ...eventData.recurrence,
+      } : {
+        ...(safeParseRecurrence(parentEvent.recurrence) || { frequency: 'weekly', endType: 'never' }),
+      };
+
+      const newRecurrenceEvent: CalendarEvent = {
+        ...parentEvent,
+        ...eventData,
+        createdBy: eventData.createdBy || parentEvent.createdBy,
+        createdById: (eventData as any).createdById || eventData.createdBy?.id || parentEvent.createdBy?.id,
+        id: newRecurrenceId,
+        recurrence: newRecurrenceRule,
+        recurrenceParentId: undefined,
+        recurrenceOriginalDate: undefined,
+        instanceDate: undefined,
+        recurrenceExceptions: undefined,
+      };
+      currentEvents.push(newRecurrenceEvent);
+      toSave.push(newRecurrenceEvent);
+    }
 
     return { updatedEvents: currentEvents, toSave, toDelete };
   }
@@ -523,15 +621,27 @@ export function planRecurrenceDelete(
   // 対象イベントと親イベントの特定
   const targetEvent = currentEvents.find(e => e.id === eventId);
   const isExpandedInstance = eventId.includes('_');
-  const parentId = targetEvent?.recurrenceParentId || (isExpandedInstance ? eventId.split('_')[0] : eventId);
+
+  let parentId = targetEvent?.recurrenceParentId;
+  if (!parentId && isExpandedInstance) {
+    parentId = eventId.split('_')[0];
+  }
+  if (!parentId && eventId) {
+    const rawMatch = currentEvents.find(e => e.id === eventId);
+    if (rawMatch?.recurrenceParentId) {
+      parentId = rawMatch.recurrenceParentId;
+    } else if (rawMatch && ((rawMatch.recurrence && rawMatch.recurrence.frequency && rawMatch.recurrence.frequency !== 'none') || rawMatch.recurrenceExceptions)) {
+      parentId = eventId;
+    }
+  }
+
   const parentEvent = currentEvents.find(e => e.id === parentId);
-  const targetDate = instanceDate || targetEvent?.instanceDate || (isExpandedInstance ? eventId.split('_')[1] : (targetEvent?.start ? getLocalDateStr(targetEvent.start) : undefined));
+  const targetDate = instanceDate || targetEvent?.instanceDate || (targetEvent as any)?.recurrenceOriginalDate || (isExpandedInstance ? eventId.split('_')[1] : (targetEvent?.start ? getLocalDateStr(targetEvent.start) : undefined));
 
   if (!parentEvent || scope === 'all' || !targetDate) {
-    // 1. 全てのスケジュールを削除（親レコードおよび関連するすべての個別オーバーライドをDB削除対象に含める）
+    // 1. 全てのスケジュールを削除
     const deleteId = parentId || (isExpandedInstance ? eventId.split('_')[0] : eventId);
 
-    // 親イベントと、その親に紐づくすべての個別オーバーライドを抽出
     const relatedEvents = allEvents.filter(e => e.id === deleteId || e.recurrenceParentId === deleteId || e.id === eventId);
     for (const rel of relatedEvents) {
       const realId = rel.id.includes('_') ? rel.id.split('_')[0] : rel.id;
@@ -551,7 +661,7 @@ export function planRecurrenceDelete(
   if (scope === 'this_only') {
     // 2. このスケジュールのみ削除
     // ① 親イベントの recurrenceExceptions に対象日付を追加
-    const existingExceptions = parentEvent.recurrenceExceptions || [];
+    const existingExceptions = safeParseExceptions(parentEvent.recurrenceExceptions);
     const updatedExceptions = Array.from(new Set([...existingExceptions, targetDate]));
     const updatedParent: CalendarEvent = {
       ...parentEvent,
@@ -579,29 +689,46 @@ export function planRecurrenceDelete(
 
   if (scope === 'this_and_following') {
     // 3. これ以降全てのスケジュールを削除
-    // 親イベントの繰り返し終了日を対象日の前日に短縮
+    // 親イベントの繰り返し終了日を対象日の前日に短縮（有限データ化）
     const dayBefore = addDays(targetDate, -1);
-    const updatedParent: CalendarEvent = {
-      ...parentEvent,
-      recurrence: {
-        ...(parentEvent.recurrence || { frequency: 'weekly' }),
+    const parentStartStr = parentEvent.start ? getLocalDateStr(parentEvent.start) : targetDate;
+
+    if (dayBefore < parentStartStr) {
+      if (!toDelete.includes(parentEvent.id)) {
+        toDelete.push(parentEvent.id);
+      }
+      const childEvents = currentEvents.filter(e => e.recurrenceParentId === parentEvent.id);
+      for (const child of childEvents) {
+        const realId = child.id.includes('_') ? child.id.split('_')[0] : child.id;
+        if (realId && !toDelete.includes(realId)) toDelete.push(realId);
+      }
+      currentEvents = currentEvents.filter(e => !toDelete.includes(e.id));
+    } else {
+      const updatedParentRule: RecurrenceRule = {
+        ...(safeParseRecurrence(parentEvent.recurrence) || { frequency: 'weekly', endType: 'never' }),
         endType: 'until_date',
         endDate: dayBefore,
-      },
-    };
-    currentEvents = currentEvents.map(e => e.id === parentEvent.id ? updatedParent : e);
-    toSave.push(updatedParent);
+      };
+      const updatedParent: CalendarEvent = {
+        ...parentEvent,
+        recurrence: updatedParentRule,
+      };
+      currentEvents = currentEvents.map(e => e.id === parentEvent.id ? updatedParent : e);
+      toSave.push(updatedParent);
 
-    // 対象日以降のオーバーライドイベントをDB削除対象に追加
-    const followingOverrides = currentEvents.filter(
-      e => e.recurrenceParentId === parentEvent.id && e.recurrenceOriginalDate && e.recurrenceOriginalDate >= targetDate
-    );
-    for (const fo of followingOverrides) {
-      const realFoId = fo.id.includes('_') ? fo.id.split('_')[0] : fo.id;
-      if (realFoId && !toDelete.includes(realFoId)) {
-        toDelete.push(realFoId);
+      // 対象日以降のオーバーライドイベントをDB削除対象に追加
+      const followingOverrides = currentEvents.filter(
+        e => e.recurrenceParentId === parentEvent.id &&
+        ((e.recurrenceOriginalDate && e.recurrenceOriginalDate >= targetDate) ||
+         (e.instanceDate && e.instanceDate >= targetDate))
+      );
+      for (const fo of followingOverrides) {
+        const realFoId = fo.id.includes('_') ? fo.id.split('_')[0] : fo.id;
+        if (realFoId && !toDelete.includes(realFoId)) {
+          toDelete.push(realFoId);
+        }
+        currentEvents = currentEvents.filter(e => e.id !== fo.id);
       }
-      currentEvents = currentEvents.filter(e => e.id !== fo.id);
     }
 
     return { updatedEvents: currentEvents, toSave, toDelete };
