@@ -5038,17 +5038,11 @@ app.get('/api/ical/user_:userId_calendar.ics', async (req, res) => {
     const result = await pool.request()
       .query('SELECT * FROM dbo.Events ORDER BY startAt ASC');
 
-    // 【重要】個人専用カレンダー: 自分が参加者（attendees）に含まれている予定のみを厳格に抽出
-    // ※自分が代理作成・投稿しただけで自身が参加しない予定や、別メンバーの作業予定は除外されます
-    const filteredEvents = (result.recordset || []).filter(evt => {
-      let isAttendee = false;
-
-      // description JSON または attendees カラムから参加者一覧を取得
+    // 予定の正規化
+    const allNormalizedEvents = (result.recordset || []).map(evt => {
       let descObj = null;
       if (evt.description && typeof evt.description === 'string' && evt.description.trim().startsWith('{')) {
-        try {
-          descObj = JSON.parse(evt.description);
-        } catch (_) {}
+        try { descObj = JSON.parse(evt.description); } catch (_) {}
       }
 
       const rawAttendees = evt.attendees || (descObj && descObj.attendees) || [];
@@ -5062,8 +5056,31 @@ app.get('/api/ical/user_:userId_calendar.ics', async (req, res) => {
         } catch (_) {}
       }
 
-      if (parsedAttendeesList.length > 0) {
-        isAttendee = parsedAttendeesList.some((att) => {
+      return {
+        id: String(evt.id),
+        title: evt.title || '予定',
+        start: evt.startAt || evt.start || new Date().toISOString(),
+        end: evt.endAt || evt.end || evt.startAt || evt.start || new Date().toISOString(),
+        isAllDay: evt.isAllDay === true || evt.isAllDay === 1 || evt.isAllDay === 'true' || evt.isAllDay === '1',
+        category: evt.category || 'general',
+        office: evt.office || '',
+        division: evt.division || '',
+        location: evt.location || (descObj && descObj.location) || '',
+        memo: evt.memo || (descObj && descObj.memo) || evt.description || '',
+        attendees: parsedAttendeesList,
+        createdById: evt.createdById || evt.userId || (descObj && descObj.createdById) || '',
+        recurrence: safeParseJSON(evt.recurrence, null) || (descObj && descObj.recurrence) || null,
+        recurrenceParentId: evt.recurrenceParentId || (descObj && descObj.recurrenceParentId) || null,
+        recurrenceOriginalDate: evt.recurrenceOriginalDate || (descObj && descObj.recurrenceOriginalDate) || null,
+        recurrenceExceptions: safeParseJSON(evt.recurrenceExceptions, []) || (descObj && descObj.recurrenceExceptions) || []
+      };
+    });
+
+    // 【重要】個人専用カレンダー: 自分が参加者（attendees）または作成者に含まれている予定のみを厳格に抽出
+    const userEvents = allNormalizedEvents.filter(evt => {
+      let isAttendee = false;
+      if (evt.attendees && evt.attendees.length > 0) {
+        isAttendee = evt.attendees.some((att) => {
           if (!att) return false;
           if (typeof att === 'object') {
             const attId = String(att.id || '');
@@ -5077,9 +5094,173 @@ app.get('/api/ical/user_:userId_calendar.ics', async (req, res) => {
           return attStr === String(userId) || (userName && attStr === userName);
         });
       }
-
-      return isAttendee;
+      const isCreator = String(evt.createdById) === String(userId);
+      if (isAttendee || isCreator) return true;
+      if ((!evt.attendees || evt.attendees.length === 0) && (!evt.office || evt.office === '全社')) return true;
+      return false;
     });
+
+    // 繰り返し予定の展開ヘルパー (-6ヶ月 〜 +18ヶ月)
+    const getJstDateStr = (dateInput) => {
+      if (!dateInput) return '';
+      const d = new Date(dateInput);
+      if (isNaN(d.getTime())) return '';
+      const jstDate = new Date(d.getTime() + 9 * 60 * 60 * 1000);
+      const y = jstDate.getUTCFullYear();
+      const m = String(jstDate.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(jstDate.getUTCDate()).padStart(2, '0');
+      return \`\${y}-\${m}-\${day}\`;
+    };
+
+    const addDays = (dateStr, days) => {
+      const parts = dateStr.split('-');
+      const y = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10) - 1;
+      const d = parseInt(parts[2], 10);
+      const date = new Date(Date.UTC(y, m, d + days, 12, 0, 0));
+      const year = date.getUTCFullYear();
+      const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(date.getUTCDate()).padStart(2, '0');
+      return \`\${year}-\${month}-\${day}\`;
+    };
+
+    const replaceDateInIso = (isoStr, newDateStr, isAllDay) => {
+      if (!isoStr && !newDateStr) return undefined;
+      if (isAllDay) return \`\${newDateStr}T00:00:00+09:00\`;
+      const d = new Date(isoStr);
+      let timePart = '09:00:00';
+      if (!isNaN(d.getTime())) {
+        const jst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
+        const hh = String(jst.getUTCHours()).padStart(2, '0');
+        const mm = String(jst.getUTCMinutes()).padStart(2, '0');
+        const ss = String(jst.getUTCSeconds()).padStart(2, '0');
+        timePart = \`\${hh}:\${mm}:\${ss}\`;
+      }
+      return \`\${newDateStr}T\${timePart}+09:00\`;
+    };
+
+    const viewStart = new Date();
+    viewStart.setMonth(viewStart.getMonth() - 6);
+    const viewEnd = new Date();
+    viewEnd.setMonth(viewEnd.getMonth() + 18);
+    const viewStartStr = getJstDateStr(viewStart);
+    const viewEndStr = getJstDateStr(viewEnd);
+
+    // 展開処理
+    const overrideMap = new Map();
+    const normalAndParentEvents = [];
+
+    for (const ev of userEvents) {
+      const parentId = ev.recurrenceParentId;
+      const origDate = ev.recurrenceOriginalDate || (ev.start ? getJstDateStr(ev.start) : undefined);
+      if (parentId && parentId !== ev.id && origDate) {
+        overrideMap.set(\`\${parentId}_\${origDate}\`, ev);
+      } else {
+        normalAndParentEvents.push(ev);
+      }
+    }
+
+    const expandedEvents = [];
+    for (const event of normalAndParentEvents) {
+      let rec = event.recurrence;
+      if (typeof rec === 'string') {
+        try { rec = JSON.parse(rec); } catch (_) { rec = null; }
+      }
+      if (!rec || !rec.frequency || rec.frequency === 'none') {
+        expandedEvents.push(event);
+        continue;
+      }
+
+      const eventStartDateStr = getJstDateStr(event.start);
+      let exceptionsList = event.recurrenceExceptions || [];
+      if (typeof exceptionsList === 'string') {
+        try { exceptionsList = JSON.parse(exceptionsList); } catch (_) { exceptionsList = []; }
+      }
+      const exceptions = new Set(Array.isArray(exceptionsList) ? exceptionsList : []);
+      const untilDateStr = rec.endType === 'until_date' ? rec.endDate : undefined;
+      const maxCount = rec.endType === 'count' ? (rec.count || 999) : 999;
+      let count = 0;
+
+      const pushInstance = (currStr) => {
+        const overrideKey = \`\${event.id}_\${currStr}\`;
+        if (overrideMap.has(overrideKey)) {
+          const ovr = overrideMap.get(overrideKey);
+          expandedEvents.push({ ...event, ...ovr, instanceDate: currStr });
+        } else {
+          expandedEvents.push({
+            ...event,
+            id: \`\${event.id}_\${currStr}\`,
+            recurrenceParentId: event.id,
+            recurrenceOriginalDate: currStr,
+            instanceDate: currStr,
+            start: replaceDateInIso(event.start, currStr, event.isAllDay) || event.start,
+            end: event.end ? replaceDateInIso(event.end, currStr, event.isAllDay) : undefined
+          });
+        }
+      };
+
+      if (rec.frequency === 'daily') {
+        let currStr = eventStartDateStr;
+        while (true) {
+          if (untilDateStr && currStr > untilDateStr) break;
+          if (currStr > viewEndStr && rec.endType !== 'count') break;
+          count++;
+          if (count > maxCount) break;
+          if (currStr >= viewStartStr && currStr <= viewEndStr) {
+            if (!exceptions.has(currStr)) pushInstance(currStr);
+          }
+          currStr = addDays(currStr, rec.interval || 1);
+        }
+      } else if (rec.frequency === 'weekly') {
+        const targetDays = (rec.daysOfWeek && rec.daysOfWeek.length > 0) ? rec.daysOfWeek : [new Date(event.start).getDay()];
+        let currStr = eventStartDateStr;
+        let weekLoop = 0;
+        while (weekLoop < 150) {
+          weekLoop++;
+          for (let d = 0; d < 7; d++) {
+            const checkDateStr = addDays(currStr, d);
+            if (checkDateStr < eventStartDateStr) continue;
+            if (untilDateStr && checkDateStr > untilDateStr) break;
+            const parts = checkDateStr.split('-').map(Number);
+            const dayOfWeek = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2], 12, 0, 0)).getUTCDay();
+            if (targetDays.includes(dayOfWeek)) {
+              count++;
+              if (count > maxCount) break;
+              if (checkDateStr >= viewStartStr && checkDateStr <= viewEndStr) {
+                if (!exceptions.has(checkDateStr)) pushInstance(checkDateStr);
+              }
+            }
+          }
+          if (untilDateStr && currStr > untilDateStr) break;
+          if (currStr > viewEndStr && rec.endType !== 'count') break;
+          if (count >= maxCount) break;
+          currStr = addDays(currStr, (rec.interval || 1) * 7);
+        }
+      } else {
+        expandedEvents.push(event);
+      }
+    }
+
+    // 同一スロット・類似タイトルでの重複（過去の親レコード残骸や分割重複）を安全に排除
+    const seenSlotMap = new Map();
+    for (const evt of expandedEvents) {
+      const startKey = evt.start ? new Date(evt.start).toISOString() : '';
+      const endKey = evt.end ? new Date(evt.end).toISOString() : startKey;
+      const normTitle = (evt.title || '').trim().replace(/\\s+/g, ' ');
+      const slotKey = \`\${startKey}_\${endKey}_\${normTitle}\`;
+
+      if (seenSlotMap.has(slotKey)) {
+        const prev = seenSlotMap.get(slotKey);
+        const prevScore = (prev.location ? 2 : 0) + (String(prev.id).includes('split') ? 1 : 0);
+        const currScore = (evt.location ? 2 : 0) + (String(evt.id).includes('split') ? 1 : 0);
+        if (currScore >= prevScore) {
+          seenSlotMap.set(slotKey, evt);
+        }
+      } else {
+        seenSlotMap.set(slotKey, evt);
+      }
+    }
+    const finalEventsToExport = Array.from(seenSlotMap.values());
 
     // UTC (末尾に Z) フォーマットヘルパー (ミリ秒を含まない YYYYMMDDTHHMMSSZ)
     const formatToUtc = (dateObj) => {
@@ -5093,17 +5274,6 @@ app.get('/api/ical/user_:userId_calendar.ics', async (req, res) => {
       const min = pad(d.getUTCMinutes());
       const ss = pad(d.getUTCSeconds());
       return \`\${yyyy}\${mm}\${dd}T\${hh}\${min}\${ss}Z\`;
-    };
-
-    const getJstDateStr = (dateInput) => {
-      if (!dateInput) return '';
-      const d = new Date(dateInput);
-      if (isNaN(d.getTime())) return '';
-      const jstDate = new Date(d.getTime() + 9 * 60 * 60 * 1000);
-      const y = jstDate.getUTCFullYear();
-      const m = String(jstDate.getUTCMonth() + 1).padStart(2, '0');
-      const day = String(jstDate.getUTCDate()).padStart(2, '0');
-      return \`\${y}-\${m}-\${day}\`;
     };
 
     const addDaysJstFormatted = (dateStr, days) => {
@@ -5121,7 +5291,7 @@ app.get('/api/ical/user_:userId_calendar.ics', async (req, res) => {
     let icsContent = "BEGIN:VCALENDAR\\r\\nVERSION:2.0\\r\\nPRODID:-//Company SNS Calendar//JA\\r\\nCALSCALE:GREGORIAN\\r\\nMETHOD:PUBLISH\\r\\nX-WR-CALNAME:社内カレンダー同期\\r\\nX-WR-TIMEZONE:Asia/Tokyo\\r\\n";
     const nowStr = formatToUtc(new Date());
 
-    for (const evt of filteredEvents) {
+    for (const evt of finalEventsToExport) {
       const isAllDay = evt.isAllDay === true || evt.isAllDay === 1 || evt.isAllDay === 'true';
       let dtStartLine = '';
       let dtEndLine = '';

@@ -3883,10 +3883,32 @@ async function startServer() {
 
       const expandedEvents = expandRecurringEvents(userEvents as any[], viewStart, viewEnd);
 
+      // 同一スロット・類似タイトルでの重複（過去の親レコード残骸や分割重複）を安全に排除
+      const seenSlotMap = new Map<string, any>();
+      for (const evt of expandedEvents) {
+        const startKey = evt.start ? new Date(evt.start).toISOString() : '';
+        const endKey = evt.end ? new Date(evt.end).toISOString() : startKey;
+        const normTitle = (evt.title || '').trim().replace(/\s+/g, ' ');
+        const slotKey = `${startKey}_${endKey}_${normTitle}`;
+
+        if (seenSlotMap.has(slotKey)) {
+          const prev = seenSlotMap.get(slotKey);
+          // 場所情報があるもの、またはより新しいレコードを優先採用
+          const prevScore = (prev.location ? 2 : 0) + (String(prev.id).includes('split') ? 1 : 0);
+          const currScore = (evt.location ? 2 : 0) + (String(evt.id).includes('split') ? 1 : 0);
+          if (currScore >= prevScore) {
+            seenSlotMap.set(slotKey, evt);
+          }
+        } else {
+          seenSlotMap.set(slotKey, evt);
+        }
+      }
+      const finalEvents = Array.from(seenSlotMap.values());
+
       const nowStr = formatToUtc(new Date());
       let icsContent = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Company SNS Calendar//JA\r\nCALSCALE:GREGORIAN\r\nMETHOD:PUBLISH\r\nX-WR-CALNAME:社内カレンダー同期\r\nX-WR-TIMEZONE:Asia/Tokyo\r\n";
 
-      for (const evt of expandedEvents) {
+      for (const evt of finalEvents) {
         const isAllDay = evt.isAllDay === true || (evt as any).isAllDay === 1 || (evt as any).isAllDay === 'true';
         let dtStartLine = '';
         let dtEndLine = '';
