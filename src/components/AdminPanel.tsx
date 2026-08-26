@@ -416,6 +416,7 @@ export function AdminPanel({
     supervisorId: '',
     showInspectionScheduler: false, // デフォルト: OFF
     showSharedFiles: false,         // デフォルト: OFF
+    showSafetyConfirmation: false,  // デフォルト: OFF
   });
   const [userFormError, setUserFormError] = useState<string | null>(null);
 
@@ -445,17 +446,35 @@ export function AdminPanel({
     });
   };
 
+  // ワンクリック・個別メニュー表示切り替え（安否確認発動）
+  const handleToggleSafetyConfirmation = (targetUser: User) => {
+    const isCurrentlyOn = targetUser.preferences?.showSafetyConfirmation === true;
+    onUpdateUser({
+      ...targetUser,
+      preferences: {
+        ...(targetUser.preferences || {}),
+        showSafetyConfirmation: !isCurrentlyOn,
+        hideSafetyConfirmation: isCurrentlyOn,
+      },
+    });
+  };
+
   // 全員一括メニュー表示切り替え（ON / OFF）
-  const handleBatchToggle = (type: 'inspection' | 'files', enable: boolean) => {
+  const handleBatchToggle = (type: 'inspection' | 'files' | 'safety', enable: boolean) => {
     const targetUsers = filteredUsers.length > 0 ? filteredUsers : allUsers;
     targetUsers.forEach((u) => {
       if (u.isAdmin) return; // 管理者は常に全アクセス可能
-      const updatedPreferences = {
-        ...(u.preferences || {}),
-        ...(type === 'inspection'
-          ? { showInspectionScheduler: enable, hideInspectionScheduler: !enable }
-          : { showSharedFiles: enable, hideSharedFiles: !enable }),
-      };
+      let updatedPreferences = { ...(u.preferences || {}) };
+      if (type === 'inspection') {
+        updatedPreferences.showInspectionScheduler = enable;
+        updatedPreferences.hideInspectionScheduler = !enable;
+      } else if (type === 'files') {
+        updatedPreferences.showSharedFiles = enable;
+        updatedPreferences.hideSharedFiles = !enable;
+      } else if (type === 'safety') {
+        updatedPreferences.showSafetyConfirmation = enable;
+        updatedPreferences.hideSafetyConfirmation = !enable;
+      }
       onUpdateUser({
         ...u,
         preferences: updatedPreferences,
@@ -562,6 +581,7 @@ export function AdminPanel({
       supervisorId: '',
       showInspectionScheduler: false,
       showSharedFiles: false,
+      showSafetyConfirmation: false,
     });
     setUserFormError(null);
     setIsUserModalOpen(true);
@@ -587,6 +607,7 @@ export function AdminPanel({
       supervisorId: user.supervisorId || '',
       showInspectionScheduler: user.preferences?.showInspectionScheduler === true,
       showSharedFiles: user.preferences?.showSharedFiles === true,
+      showSafetyConfirmation: user.preferences?.showSafetyConfirmation === true,
     });
     setUserFormError(null);
     setIsUserModalOpen(true);
@@ -635,8 +656,10 @@ export function AdminPanel({
           ...(editingUser.preferences || {}),
           showInspectionScheduler: userFormData.showInspectionScheduler,
           showSharedFiles: userFormData.showSharedFiles,
+          showSafetyConfirmation: userFormData.showSafetyConfirmation,
           hideInspectionScheduler: !userFormData.showInspectionScheduler,
           hideSharedFiles: !userFormData.showSharedFiles,
+          hideSafetyConfirmation: !userFormData.showSafetyConfirmation,
         },
       });
     } else {
@@ -662,8 +685,10 @@ export function AdminPanel({
         preferences: {
           showInspectionScheduler: userFormData.showInspectionScheduler,
           showSharedFiles: userFormData.showSharedFiles,
+          showSafetyConfirmation: userFormData.showSafetyConfirmation,
           hideInspectionScheduler: !userFormData.showInspectionScheduler,
           hideSharedFiles: !userFormData.showSharedFiles,
+          hideSafetyConfirmation: !userFormData.showSafetyConfirmation,
         },
       });
     }
@@ -1630,6 +1655,25 @@ export function AdminPanel({
                     全員OFF
                   </button>
                 </div>
+                <div className="flex items-center gap-1.5 bg-white px-2.5 py-1.5 rounded-lg border border-rose-200 shadow-2xs">
+                  <span className="text-[11px] font-bold text-rose-900">安否確認発動:</span>
+                  <button
+                    type="button"
+                    onClick={() => handleBatchToggle('safety', true)}
+                    className="px-2 py-0.5 rounded text-[11px] font-bold bg-rose-600 hover:bg-rose-700 text-white transition-colors cursor-pointer shadow-2xs"
+                    title="表示中メンバーの安否確認発動メニューを一括ON"
+                  >
+                    全員ON
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleBatchToggle('safety', false)}
+                    className="px-2 py-0.5 rounded text-[11px] font-bold bg-slate-200 hover:bg-slate-300 text-slate-700 transition-colors cursor-pointer shadow-2xs"
+                    title="表示中メンバーの安否確認発動メニューを一括OFF"
+                  >
+                    全員OFF
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -1701,6 +1745,17 @@ export function AdminPanel({
                           ) : (
                             <span className="text-[10px] font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded border border-slate-200" title="共有ファイルメニュー非表示中">
                               共有ファイル: 非表示
+                            </span>
+                          )
+                        )}
+                        {!user.isAdmin && (
+                          user.preferences?.showSafetyConfirmation ? (
+                            <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200" title="安否確認発動メニュー表示中">
+                              安否確認: 表示
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded border border-slate-200" title="安否確認発動メニュー非表示中">
+                              安否確認: 非表示
                             </span>
                           )
                         )}
@@ -1793,6 +1848,32 @@ export function AdminPanel({
                           <>
                             <X className="w-3.5 h-3.5 text-slate-400" />
                             ファイル: OFF
+                          </>
+                        )}
+                      </button>
+                    )}
+
+                    {/* ワンクリック 安否確認発動トグル */}
+                    {!user.isAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => handleToggleSafetyConfirmation(user)}
+                        title={`クリックで「安否確認発動」を${user.preferences?.showSafetyConfirmation ? 'OFF（非表示）' : 'ON（表示）'}に切り替え`}
+                        className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 border transition-all cursor-pointer ${
+                          user.preferences?.showSafetyConfirmation
+                            ? 'bg-rose-50 text-rose-800 border-rose-300 hover:bg-rose-100'
+                            : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200 hover:text-slate-700'
+                        }`}
+                      >
+                        {user.preferences?.showSafetyConfirmation ? (
+                          <>
+                            <CheckCircle2 className="w-3.5 h-3.5 text-rose-600" />
+                            安否: ON
+                          </>
+                        ) : (
+                          <>
+                            <X className="w-3.5 h-3.5 text-slate-400" />
+                            安否: OFF
                           </>
                         )}
                       </button>
@@ -3733,6 +3814,23 @@ END;`}
                       checked={userFormData.showSharedFiles}
                       onChange={(e) => setUserFormData({ ...userFormData, showSharedFiles: e.target.checked })}
                       className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 cursor-pointer shrink-0"
+                    />
+                  </label>
+                  <div className="border-t border-slate-200/80 my-1" />
+                  <label className="flex items-center justify-between cursor-pointer">
+                    <div>
+                      <span className="text-xs font-bold text-rose-800 block">
+                        「安否確認発動」メニューを表示
+                      </span>
+                      <span className="text-[10px] text-slate-500">
+                        ONにすると、このメンバーのユーティリティメニュー内に「安否確認発動」が表示されます
+                      </span>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={userFormData.showSafetyConfirmation}
+                      onChange={(e) => setUserFormData({ ...userFormData, showSafetyConfirmation: e.target.checked })}
+                      className="w-4 h-4 text-rose-600 rounded focus:ring-rose-500 cursor-pointer shrink-0"
                     />
                   </label>
                 </div>

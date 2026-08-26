@@ -143,7 +143,9 @@ BEGIN
         position NVARCHAR(100) NULL,
         role VARCHAR(50) DEFAULT 'user',
         isAdmin BIT DEFAULT 0,
-        supervisorId VARCHAR(50) NULL
+        supervisorId VARCHAR(50) NULL,
+        personalEmailEncrypted NVARCHAR(500) NULL,
+        personalEmailMasked NVARCHAR(255) NULL
     );
 END
 ELSE
@@ -158,6 +160,8 @@ BEGIN
     IF COL_LENGTH('dbo.Users', 'role') IS NULL ALTER TABLE dbo.Users ADD role VARCHAR(50) DEFAULT 'user';
     IF COL_LENGTH('dbo.Users', 'isAdmin') IS NULL ALTER TABLE dbo.Users ADD isAdmin BIT DEFAULT 0;
     IF COL_LENGTH('dbo.Users', 'supervisorId') IS NULL ALTER TABLE dbo.Users ADD supervisorId VARCHAR(50) NULL;
+    IF COL_LENGTH('dbo.Users', 'personalEmailEncrypted') IS NULL ALTER TABLE dbo.Users ADD personalEmailEncrypted NVARCHAR(500) NULL;
+    IF COL_LENGTH('dbo.Users', 'personalEmailMasked') IS NULL ALTER TABLE dbo.Users ADD personalEmailMasked NVARCHAR(255) NULL;
 END
 GO
 
@@ -802,6 +806,83 @@ BEGIN
         setting_value NVARCHAR(MAX) NOT NULL,
         updated_at DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET()
     );
+END
+GO
+
+-- ------------------------------------------
+-- Safety Confirmation Tables (安否確認イベント & 回答テーブル)
+-- ------------------------------------------
+IF OBJECT_ID('dbo.SafetyEvents', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.SafetyEvents (
+        id NVARCHAR(100) PRIMARY KEY,
+        title NVARCHAR(200) NOT NULL,
+        type NVARCHAR(50) NOT NULL,
+        severity NVARCHAR(50) DEFAULT 'warning',
+        targetOffice NVARCHAR(100) DEFAULT N'全社',
+        targetDivision NVARCHAR(100) DEFAULT N'全部署',
+        message NVARCHAR(MAX) NULL,
+        notifyWebPush BIT DEFAULT 1,
+        notifyCompanyEmail BIT DEFAULT 1,
+        notifyPersonalEmail BIT DEFAULT 1,
+        isDrill BIT DEFAULT 0,
+        status NVARCHAR(50) DEFAULT 'active',
+        createdBy NVARCHAR(100) NULL,
+        createdByName NVARCHAR(100) NULL,
+        createdAt DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET(),
+        updatedAt DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET()
+    );
+END
+ELSE
+BEGIN
+    IF COL_LENGTH('dbo.SafetyEvents', 'title') IS NULL ALTER TABLE dbo.SafetyEvents ADD title NVARCHAR(200) NULL;
+    IF COL_LENGTH('dbo.SafetyEvents', 'type') IS NULL ALTER TABLE dbo.SafetyEvents ADD type NVARCHAR(50) NULL;
+    IF COL_LENGTH('dbo.SafetyEvents', 'severity') IS NULL ALTER TABLE dbo.SafetyEvents ADD severity NVARCHAR(50) DEFAULT 'warning';
+    IF COL_LENGTH('dbo.SafetyEvents', 'targetOffice') IS NULL ALTER TABLE dbo.SafetyEvents ADD targetOffice NVARCHAR(100) DEFAULT N'全社';
+    IF COL_LENGTH('dbo.SafetyEvents', 'targetDivision') IS NULL ALTER TABLE dbo.SafetyEvents ADD targetDivision NVARCHAR(100) DEFAULT N'全部署';
+    IF COL_LENGTH('dbo.SafetyEvents', 'message') IS NULL ALTER TABLE dbo.SafetyEvents ADD message NVARCHAR(MAX) NULL;
+    IF COL_LENGTH('dbo.SafetyEvents', 'notifyWebPush') IS NULL ALTER TABLE dbo.SafetyEvents ADD notifyWebPush BIT DEFAULT 1;
+    IF COL_LENGTH('dbo.SafetyEvents', 'notifyCompanyEmail') IS NULL ALTER TABLE dbo.SafetyEvents ADD notifyCompanyEmail BIT DEFAULT 1;
+    IF COL_LENGTH('dbo.SafetyEvents', 'notifyPersonalEmail') IS NULL ALTER TABLE dbo.SafetyEvents ADD notifyPersonalEmail BIT DEFAULT 1;
+    IF COL_LENGTH('dbo.SafetyEvents', 'isDrill') IS NULL ALTER TABLE dbo.SafetyEvents ADD isDrill BIT DEFAULT 0;
+    IF COL_LENGTH('dbo.SafetyEvents', 'status') IS NULL ALTER TABLE dbo.SafetyEvents ADD status NVARCHAR(50) DEFAULT 'active';
+    IF COL_LENGTH('dbo.SafetyEvents', 'createdBy') IS NULL ALTER TABLE dbo.SafetyEvents ADD createdBy NVARCHAR(100) NULL;
+    IF COL_LENGTH('dbo.SafetyEvents', 'createdByName') IS NULL ALTER TABLE dbo.SafetyEvents ADD createdByName NVARCHAR(100) NULL;
+    IF COL_LENGTH('dbo.SafetyEvents', 'createdAt') IS NULL ALTER TABLE dbo.SafetyEvents ADD createdAt DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET();
+    IF COL_LENGTH('dbo.SafetyEvents', 'updatedAt') IS NULL ALTER TABLE dbo.SafetyEvents ADD updatedAt DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET();
+END
+GO
+
+IF OBJECT_ID('dbo.SafetyResponses', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.SafetyResponses (
+        id NVARCHAR(100) PRIMARY KEY,
+        eventId NVARCHAR(100) NOT NULL,
+        userId NVARCHAR(100) NOT NULL,
+        userName NVARCHAR(100) NULL,
+        userOffice NVARCHAR(100) NULL,
+        userDivision NVARCHAR(100) NULL,
+        status NVARCHAR(50) NOT NULL,
+        canWork NVARCHAR(50) NOT NULL,
+        currentLocation NVARCHAR(50) DEFAULT 'home',
+        comment NVARCHAR(MAX) NULL,
+        locationCoordinates NVARCHAR(100) NULL,
+        respondedAt DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET()
+    );
+END
+ELSE
+BEGIN
+    IF COL_LENGTH('dbo.SafetyResponses', 'eventId') IS NULL ALTER TABLE dbo.SafetyResponses ADD eventId NVARCHAR(100) NULL;
+    IF COL_LENGTH('dbo.SafetyResponses', 'userId') IS NULL ALTER TABLE dbo.SafetyResponses ADD userId NVARCHAR(100) NULL;
+    IF COL_LENGTH('dbo.SafetyResponses', 'userName') IS NULL ALTER TABLE dbo.SafetyResponses ADD userName NVARCHAR(100) NULL;
+    IF COL_LENGTH('dbo.SafetyResponses', 'userOffice') IS NULL ALTER TABLE dbo.SafetyResponses ADD userOffice NVARCHAR(100) NULL;
+    IF COL_LENGTH('dbo.SafetyResponses', 'userDivision') IS NULL ALTER TABLE dbo.SafetyResponses ADD userDivision NVARCHAR(100) NULL;
+    IF COL_LENGTH('dbo.SafetyResponses', 'status') IS NULL ALTER TABLE dbo.SafetyResponses ADD status NVARCHAR(50) NULL;
+    IF COL_LENGTH('dbo.SafetyResponses', 'canWork') IS NULL ALTER TABLE dbo.SafetyResponses ADD canWork NVARCHAR(50) NULL;
+    IF COL_LENGTH('dbo.SafetyResponses', 'currentLocation') IS NULL ALTER TABLE dbo.SafetyResponses ADD currentLocation NVARCHAR(50) DEFAULT 'home';
+    IF COL_LENGTH('dbo.SafetyResponses', 'comment') IS NULL ALTER TABLE dbo.SafetyResponses ADD comment NVARCHAR(MAX) NULL;
+    IF COL_LENGTH('dbo.SafetyResponses', 'locationCoordinates') IS NULL ALTER TABLE dbo.SafetyResponses ADD locationCoordinates NVARCHAR(100) NULL;
+    IF COL_LENGTH('dbo.SafetyResponses', 'respondedAt') IS NULL ALTER TABLE dbo.SafetyResponses ADD respondedAt DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET();
 END
 GO
 

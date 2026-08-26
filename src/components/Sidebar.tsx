@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { Hash, Home, Bookmark, User, Calendar as CalendarIcon, FileText, MessageSquare, Phone, ClipboardList, Monitor, Shield, HardDrive, Copy, Check, Users } from 'lucide-react';
+import { Hash, Home, Bookmark, User, Calendar as CalendarIcon, FileText, MessageSquare, Phone, ClipboardList, Monitor, Shield, HardDrive, Copy, Check, Users, ShieldAlert, Wrench } from 'lucide-react';
 import { Post, User as UserType } from '../types';
 import { RECOMMEND_SERVER_JS } from './RecommendServerCode';
 
-export type AppTab = 'timeline' | 'calendar' | 'inspection_scheduler' | 'workflow' | 'board' | 'chat' | 'memo' | 'daily_report' | 'files' | 'members' | 'mypage' | 'admin';
+export type AppTab = 'timeline' | 'calendar' | 'inspection_scheduler' | 'workflow' | 'board' | 'chat' | 'memo' | 'daily_report' | 'files' | 'members' | 'mypage' | 'admin' | 'safety_confirmation';
 
 interface SidebarProps {
   posts: Post[];
@@ -53,7 +53,7 @@ export function Sidebar({ posts, selectedTag, onSelectTag, activeTab, onChangeTa
     (currentUser?.division && currentUser.division.includes('保守'));
   const reportLabel = isMaintenanceUser ? '保守日報' : '週報';
 
-  // ページ・メニュー表示権限判定（点検予定管理・共有ファイルはデフォルト「非表示/OFF」）
+  // ページ・メニュー表示権限判定（点検予定管理・共有ファイル・安否確認発動は許可者のみ表示）
   const isTabAllowed = (tabId: AppTab) => {
     if (currentUser?.isAdmin) return true;
     if (tabId === 'inspection_scheduler') {
@@ -61,6 +61,9 @@ export function Sidebar({ posts, selectedTag, onSelectTag, activeTab, onChangeTa
     }
     if (tabId === 'files') {
       return currentUser?.preferences?.showSharedFiles === true;
+    }
+    if (tabId === 'safety_confirmation') {
+      return currentUser?.preferences?.showSafetyConfirmation === true;
     }
     if (currentUser?.preferences?.allowedTabs && currentUser.preferences.allowedTabs.length > 0) {
       return currentUser.preferences.allowedTabs.includes(tabId);
@@ -228,8 +231,34 @@ export function Sidebar({ posts, selectedTag, onSelectTag, activeTab, onChangeTa
           </button>
         )}
 
+        {/* ユーティリティ（権限者・管理者専用ツール） */}
+        {isTabAllowed('safety_confirmation') && (
+          <div className="pt-2 border-t border-slate-100 space-y-1">
+            <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider px-3 py-1 flex items-center gap-1.5">
+              <Wrench className="w-3 h-3 text-slate-400" />
+              <span>ユーティリティ</span>
+            </div>
+            <button
+              onClick={() => onChangeTab('safety_confirmation')}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg font-medium transition-all ${
+                activeTab === 'safety_confirmation'
+                  ? 'bg-rose-50 text-rose-700 font-bold shadow-2xs'
+                  : 'text-slate-700 hover:bg-rose-50/60 hover:text-rose-700'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <ShieldAlert className="w-4 h-4 text-rose-600 shrink-0" />
+                <span className="text-xs">安否確認発動</span>
+              </div>
+              <span className="text-[9px] px-1.5 py-0.5 rounded font-extrabold bg-rose-100 text-rose-700 border border-rose-200">
+                緊急
+              </span>
+            </button>
+          </div>
+        )}
+
         {currentUser?.isAdmin && (
-          <div className="space-y-1">
+          <div className="space-y-1 pt-2 border-t border-slate-100">
             <button
               onClick={() => onChangeTab('admin')}
               className={`w-full flex items-center justify-between px-3 py-2 rounded-lg font-medium transition-colors ${

@@ -11,6 +11,7 @@ import { Chat } from './components/Chat';
 import { MemoList } from './components/MemoList';
 import { DailyReportView } from './components/DailyReport';
 import { InspectionScheduler } from './components/InspectionScheduler';
+import { SafetyConfirmation } from './components/SafetyConfirmation';
 import { MyPage } from './components/MyPage';
 import { AdminPanel } from './components/AdminPanel';
 import { LoginScreen } from './components/LoginScreen';
@@ -124,6 +125,25 @@ export default function App() {
   const [fetchErrors, setFetchErrors] = useState<Record<string, string>>({});
   const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  const handleOpenConfirmModal = (options: {
+    title: string;
+    message: string;
+    confirmLabel?: string;
+    cancelLabel?: string;
+    isDangerous?: boolean;
+    onConfirm: () => void;
+  }) => {
+    setConfirmModal({
+      isOpen: true,
+      title: options.title,
+      message: options.message,
+      confirmText: options.confirmLabel || 'OK',
+      cancelText: options.cancelLabel || 'キャンセル',
+      type: options.isDangerous ? 'danger' : 'warning',
+      onConfirm: options.onConfirm,
+    });
+  };
 
   // チャット同期・エラー制御用Ref
   const chatConsecutiveErrorsRef = useRef<number>(0);
@@ -3569,6 +3589,15 @@ export default function App() {
         {activeTab === 'files' && (
           <FileManager 
             currentUser={userState}
+          />
+        )}
+        {activeTab === 'safety_confirmation' && (
+          <SafetyConfirmation
+            currentUser={userState}
+            allUsers={usersList}
+            offices={offices}
+            divisions={divisions}
+            onOpenConfirmModal={handleOpenConfirmModal}
           />
         )}
         {activeTab === 'mypage' && (

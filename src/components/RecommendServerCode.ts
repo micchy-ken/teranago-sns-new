@@ -1,7 +1,7 @@
 export const RECOMMEND_SERVER_JS = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年8月25日 (電子決裁ワークフロー承認状態保存＆メール添付ファイル安定化対応版)
+ * 最終更新日時 (最終アップデート): 2026年8月26日 (安否確認発動機能・AES-256-GCM暗号化個人メール緊急連絡網対応版)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -25,6 +25,7 @@ import sql from 'mssql';
 import path from 'path';
 import fs from 'fs';
 import net from 'net';
+import crypto from 'crypto';
 import multer from 'multer';
 import webpush from 'web-push';
 import nodemailer from 'nodemailer';
@@ -5377,8 +5378,220 @@ app.get('/api/ical/user_:userId_calendar.ics', async (req, res) => {
 });
 
 
+// ==========================================
+// 個人メールアドレス AES-256-GCM 暗号化 & 管理 API
+// ==========================================
+const EMAIL_ENCRYPTION_SECRET = process.env.PERSONAL_EMAIL_SECRET_KEY || 'teraoka-safety-confirmation-secret-2026-auth-v1';
+const ENCRYPTION_KEY = crypto.createHash('sha256').update(EMAIL_ENCRYPTION_SECRET).digest();
+
+function encryptText(plainText) {
+  if (!plainText) return '';
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', ENCRYPTION_KEY, iv);
+  let encrypted = cipher.update(plainText, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  const authTag = cipher.getAuthTag().toString('hex');
+  return \`\${iv.toString('hex')}:\${authTag}:\${encrypted}\`;
+}
+
+function decryptText(cipherText) {
+  if (!cipherText || !cipherText.includes(':')) return '';
+  try {
+    const parts = cipherText.split(':');
+    if (parts.length !== 3) return '';
+    const [ivHex, authTagHex, encryptedHex] = parts;
+    const decipher = crypto.createDecipheriv('aes-256-gcm', ENCRYPTION_KEY, Buffer.from(ivHex, 'hex'));
+    decipher.setAuthTag(Buffer.from(authTagHex, 'hex'));
+    let decrypted = decipher.update(encryptedHex, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
+  } catch (err) {
+    console.error('[Crypto] 個人メール復号化エラー:', err);
+    return '';
+  }
+}
+
+function maskEmail(email) {
+  if (!email || !email.includes('@')) return '';
+  const [local, domain] = email.split('@');
+  const visible = local.slice(0, 2);
+  const maskedLocal = visible + '***';
+  return \`\${maskedLocal}@\${domain}\`;
+}
+
+app.post('/api/users/:id/personal-email', async (req, res) => {
+  try {
+    const userId = req.params.id;
+    const { personalEmail } = req.body || {};
+    const emailTrimmed = personalEmail ? String(personalEmail).trim() : '';
+    const encrypted = emailTrimmed ? encryptText(emailTrimmed) : null;
+    const masked = emailTrimmed ? maskEmail(emailTrimmed) : null;
+
+    if (pool && pool.connected) {
+      await pool.request()
+        .input('id', sql.NVarChar, userId)
+        .input('personalEmailEncrypted', sql.NVarChar, encrypted)
+        .input('personalEmailMasked', sql.NVarChar, masked)
+        .query(\`
+          UPDATE Users 
+          SET personalEmailEncrypted = @personalEmailEncrypted, personalEmailMasked = @personalEmailMasked
+          WHERE id = @id
+        \`);
+    }
+
+    res.json({
+      success: true,
+      message: emailTrimmed ? '個人メールアドレスを暗号化して保存しました。' : '個人メールアドレスの登録を解除しました。',
+      personalEmailMasked: masked
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/users/:id/personal-email/test', async (req, res) => {
+  try {
+    const userId = req.params.id;
+    let targetEmail = '';
+    let userName = '社員';
+
+    if (req.body?.personalEmail) {
+      targetEmail = String(req.body.personalEmail).trim();
+    } else if (pool && pool.connected) {
+      const result = await pool.request().input('id', sql.NVarChar, userId).query('SELECT name, personalEmailEncrypted FROM Users WHERE id = @id');
+      if (result.recordset.length > 0) {
+        userName = result.recordset[0].name || userName;
+        targetEmail = decryptText(result.recordset[0].personalEmailEncrypted);
+      }
+    }
+
+    if (!targetEmail) {
+      return res.status(400).json({ error: 'テスト送信先の個人メールアドレスが登録されていないか復号できません。' });
+    }
+
+    const nowStr = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
+    const subject = '【安否確認テスト】緊急連絡先メール疎通確認';
+    const text = \`\${userName} 様\\n\\n安否確認システムからの緊急連絡先メール疎通テストです。\\n送信日時: \${nowStr}\`;
+    
+    await sendEmailNotification({ to: targetEmail, subject, text });
+    res.json({ success: true, message: \`\${maskEmail(targetEmail)} へテストメールを正常に送信しました。\` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 安否確認イベント & 回答 API
+app.get(['/api/safety-events', '/api/safety-events/'], async (req, res) => {
+  try {
+    if (pool && pool.connected) {
+      const result = await pool.request().query('SELECT * FROM SafetyEvents ORDER BY createdAt DESC');
+      return res.json(result.recordset);
+    }
+    res.json([]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post(['/api/safety-events', '/api/safety-events/'], async (req, res) => {
+  try {
+    const { title, type, severity, targetOffice, targetDivision, message, notifyWebPush, notifyCompanyEmail, notifyPersonalEmail, isDrill, createdBy, createdByName } = req.body || {};
+    const newId = \`safety_\${Date.now()}_\${Math.random().toString(36).substring(2, 7)}\`;
+    const nowIso = new Date().toISOString();
+
+    if (pool && pool.connected) {
+      await pool.request()
+        .input('id', sql.NVarChar, newId)
+        .input('title', sql.NVarChar, title)
+        .input('type', sql.NVarChar, type)
+        .input('severity', sql.NVarChar, severity || 'warning')
+        .input('targetOffice', sql.NVarChar, targetOffice || '全社')
+        .input('targetDivision', sql.NVarChar, targetDivision || '全部署')
+        .input('message', sql.NVarChar, message || '')
+        .input('notifyWebPush', sql.Bit, notifyWebPush ? 1 : 0)
+        .input('notifyCompanyEmail', sql.Bit, notifyCompanyEmail ? 1 : 0)
+        .input('notifyPersonalEmail', sql.Bit, notifyPersonalEmail ? 1 : 0)
+        .input('isDrill', sql.Bit, isDrill ? 1 : 0)
+        .input('status', sql.NVarChar, 'active')
+        .input('createdBy', sql.NVarChar, createdBy || 'admin')
+        .input('createdByName', sql.NVarChar, createdByName || '管理者')
+        .input('createdAt', sql.DateTimeOffset, nowIso)
+        .input('updatedAt', sql.DateTimeOffset, nowIso)
+        .query(\`
+          INSERT INTO SafetyEvents (id, title, type, severity, targetOffice, targetDivision, message, notifyWebPush, notifyCompanyEmail, notifyPersonalEmail, isDrill, status, createdBy, createdByName, createdAt, updatedAt)
+          VALUES (@id, @title, @type, @severity, @targetOffice, @targetDivision, @message, @notifyWebPush, @notifyCompanyEmail, @notifyPersonalEmail, @isDrill, @status, @createdBy, @createdByName, @createdAt, @updatedAt)
+        \`);
+    }
+
+    res.status(201).json({ success: true, message: '安否確認を発動しました。', eventId: newId });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/safety-events/:id/responses', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (pool && pool.connected) {
+      const result = await pool.request().input('eventId', sql.NVarChar, id).query('SELECT * FROM SafetyResponses WHERE eventId = @eventId ORDER BY respondedAt DESC');
+      return res.json(result.recordset);
+    }
+    res.json([]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/safety-events/:id/respond', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { userId, userName, userOffice, userDivision, status, canWork, currentLocation, comment, locationCoordinates } = req.body || {};
+    const nowIso = new Date().toISOString();
+    const respId = \`resp_\${Date.now()}_\${Math.random().toString(36).substring(2, 6)}\`;
+
+    if (pool && pool.connected) {
+      await pool.request()
+        .input('id', sql.NVarChar, respId)
+        .input('eventId', sql.NVarChar, id)
+        .input('userId', sql.NVarChar, userId)
+        .input('userName', sql.NVarChar, userName)
+        .input('userOffice', sql.NVarChar, userOffice || '')
+        .input('userDivision', sql.NVarChar, userDivision || '')
+        .input('status', sql.NVarChar, status)
+        .input('canWork', sql.NVarChar, canWork)
+        .input('currentLocation', sql.NVarChar, currentLocation || 'home')
+        .input('comment', sql.NVarChar, comment || '')
+        .input('locationCoordinates', sql.NVarChar, locationCoordinates || null)
+        .input('respondedAt', sql.DateTimeOffset, nowIso)
+        .query(\`
+          MERGE SafetyResponses AS target
+          USING (SELECT @eventId AS eventId, @userId AS userId) AS source
+          ON (target.eventId = source.eventId AND target.userId = source.userId)
+          WHEN MATCHED THEN
+            UPDATE SET 
+              userName = @userName,
+              userOffice = @userOffice,
+              userDivision = @userDivision,
+              status = @status,
+              canWork = @canWork,
+              currentLocation = @currentLocation,
+              comment = @comment,
+              locationCoordinates = @locationCoordinates,
+              respondedAt = @respondedAt
+          WHEN NOT MATCHED THEN
+            INSERT (id, eventId, userId, userName, userOffice, userDivision, status, canWork, currentLocation, comment, locationCoordinates, respondedAt)
+            VALUES (@id, @eventId, @userId, @userName, @userOffice, @userDivision, @status, @canWork, @currentLocation, @comment, @locationCoordinates, @respondedAt);
+        \`);
+    }
+
+    res.json({ success: true, message: '安否確認の回答を受け付けました。' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // =========================================================
 // サーバー起動 (すべての設定が終わった最後に実行)
 // =========================================================
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(\`🚀 Company SNS API server listening on port \${PORT} [最終更新: 2026年8月25日 18:00 (メール添付ファイル文字化け解読・拡張子自動補完＆安定化対応版)]\`));`;
+app.listen(PORT, () => console.log(\`🚀 Company SNS API server listening on port \${PORT} [最終更新: 2026年8月26日 12:00 (安否確認発動機能・暗号化個人メール緊急連絡網対応版)]\`));`;

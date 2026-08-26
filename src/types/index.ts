@@ -19,8 +19,10 @@ export interface UserPreferences {
   allowedTabs?: string[];
   showInspectionScheduler?: boolean; // 点検予定管理メニューの表示（デフォルト: false / OFF）
   showSharedFiles?: boolean;         // 共有ファイルメニューの表示（デフォルト: false / OFF）
+  showSafetyConfirmation?: boolean;  // 安否確認発動メニューの表示（デフォルト: false / OFF）
   hideInspectionScheduler?: boolean; // 互換用
   hideSharedFiles?: boolean;         // 互換用
+  hideSafetyConfirmation?: boolean;  // 互換用
   [key: string]: any;
 }
 
@@ -37,8 +39,11 @@ export interface User {
   avatarUrl: string;
   isAdmin?: boolean;
   role?: 'admin' | 'user';
-  email?: string;          // メールアドレス
-  mobileEmail?: string;    // 携帯メールアドレス
+  email?: string;          // メールアドレス（会社PC）
+  mobileEmail?: string;    // 携帯メールアドレス（会社携帯など）
+  personalEmailEncrypted?: string; // 暗号化された個人メールアドレス (enc:v1:...)
+  personalEmailMasked?: string;    // 表示用マスク済み個人メール (例: p***l@example.com)
+  personalEmail?: string;          // 登録・更新時の入力値用
   phone?: string;          // 旧互換用
   phoneOutside?: string;   // 電話番号（外線）
   phoneExtension?: string; // 電話番号（内線）
@@ -471,3 +476,71 @@ export interface DailyReport {
 
 export type WorkReport = DailyReport;
 
+// ==========================================
+// 安否確認システム (Safety Confirmation) 型定義
+// ==========================================
+export type DisasterType = 'earthquake' | 'typhoon_rain' | 'fire' | 'blackout' | 'drill' | 'other';
+export type SafetyStatus = 'safe' | 'minor_injury' | 'severe_injury' | 'unknown';
+export type WorkAvailability = 'available' | 'remote' | 'standby' | 'unavailable';
+export type LocationStatus = 'home' | 'office' | 'traveling' | 'shelter' | 'other';
+
+export interface SafetyConfirmationTargetFilter {
+  allOffices?: boolean;
+  offices?: string[]; // 対象拠点 (例: ['名古屋', '浜松'])
+  allDivisions?: boolean;
+  divisions?: string[]; // 対象部署 (例: ['営業', '工務'])
+  targetUserIds?: string[]; // 対象ユーザーID一覧 (任意指定)
+}
+
+export interface SafetyConfirmationChannelOption {
+  webPush: boolean;       // Web Push 通知
+  companyEmail: boolean;  // 会社PCメール (email)
+  mobileEmail: boolean;   // 携帯メール (mobileEmail)
+  personalEmail: boolean; // 個人メール (暗号化保存された personalEmailEncrypted)
+}
+
+export interface SafetyConfirmationStats {
+  totalTargets: number;
+  respondedCount: number;
+  safeCount: number;
+  minorInjuryCount: number;
+  severeInjuryCount: number;
+  unknownCount: number;
+  availableCount: number;
+  remoteCount: number;
+  standbyCount: number;
+  unavailableCount: number;
+}
+
+export interface SafetyConfirmationEvent {
+  id: string;
+  title: string;              // タイトル (例: 【安否確認】愛知県西部 震度5強 地震発生)
+  disasterType: DisasterType; // 災害種別 (earthquake, typhoon_rain, etc.)
+  message: string;            // メッセージ・指示内容
+  severity?: 'normal' | 'urgent' | 'critical'; // 緊急度
+  status: 'active' | 'closed'; // 状況 (active: 回答受付中, closed: 終了・締め切り)
+  targetFilter: SafetyConfirmationTargetFilter; // 対象範囲
+  channels: SafetyConfirmationChannelOption; // 通知手段
+  createdById: string;
+  createdByName: string;
+  createdAt: string;          // 発動日時 (ISO)
+  closedAt?: string;          // 終了日時 (ISO)
+  stats?: SafetyConfirmationStats;
+}
+
+export interface SafetyConfirmationResponse {
+  id: string;
+  eventId: string;
+  userId: string;
+  userName: string;
+  office?: string;
+  division?: string;
+  safetyStatus: SafetyStatus;         // 安否状況 (safe / minor_injury / severe_injury)
+  workAvailability: WorkAvailability; // 出社可否 (available / remote / standby / unavailable)
+  locationStatus: LocationStatus;     // 現在地 (home / office / traveling / shelter / other)
+  currentAddressOrNote?: string;      // 現在地詳細・避難所名等
+  message?: string;                   // 本人コメント・連絡事項
+  contactPhone?: string;              // 緊急時連絡先電話番号
+  respondedAt: string;                // 回答日時 (ISO)
+  updatedAt?: string;
+}

@@ -2,6 +2,7 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import net from 'net';
+import crypto from 'crypto';
 import multer from 'multer';
 import webpush from 'web-push';
 import nodemailer from 'nodemailer';
@@ -1788,6 +1789,505 @@ async function startServer() {
         res.json({ success: true, preferences, message: '個人設定・通知設定を保存しました。' });
       }
     } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ==========================================
+  // 個人メールアドレス AES-256-GCM 暗号化 & 管理 API
+  // ==========================================
+  const EMAIL_ENCRYPTION_SECRET = process.env.PERSONAL_EMAIL_SECRET_KEY || 'teraoka-safety-confirmation-secret-2026-auth-v1';
+  const ENCRYPTION_KEY = crypto.createHash('sha256').update(EMAIL_ENCRYPTION_SECRET).digest();
+
+  function encryptText(plainText: string): string {
+    if (!plainText) return '';
+    const iv = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv('aes-256-gcm', ENCRYPTION_KEY, iv);
+    let encrypted = cipher.update(plainText, 'utf8', 'hex');
+    encrypted += cipher.final('hex');
+    const authTag = cipher.getAuthTag().toString('hex');
+    return `${iv.toString('hex')}:${authTag}:${encrypted}`;
+  }
+
+  function decryptText(cipherText: string): string {
+    if (!cipherText || !cipherText.includes(':')) return '';
+    try {
+      const parts = cipherText.split(':');
+      if (parts.length !== 3) return '';
+      const [ivHex, authTagHex, encryptedHex] = parts;
+      const decipher = crypto.createDecipheriv('aes-256-gcm', ENCRYPTION_KEY, Buffer.from(ivHex, 'hex'));
+      decipher.setAuthTag(Buffer.from(authTagHex, 'hex'));
+      let decrypted = decipher.update(encryptedHex, 'hex', 'utf8');
+      decrypted += decipher.final('utf8');
+      return decrypted;
+    } catch (err) {
+      console.error('[Crypto] 個人メール復号化エラー:', err);
+      return '';
+    }
+  }
+
+  function maskEmail(email: string): string {
+    if (!email || !email.includes('@')) return '';
+    const [local, domain] = email.split('@');
+    const visible = local.slice(0, 2);
+    const maskedLocal = visible + '***';
+    return `${maskedLocal}@${domain}`;
+  }
+
+  // 個人メールアドレスの安全な登録・更新 API (平文は一切保存せず、暗号化文字列とマスク文字列のみ保存)
+  app.post('/api/users/:id/personal-email', (req, res) => {
+    try {
+      const userId = req.params.id;
+      const { personalEmail } = req.body || {};
+      const users = loadUsers();
+      const idx = users.findIndex((item: any) => item.id === userId);
+
+      if (idx === -1) {
+        return res.status(404).json({ error: 'ユーザーが見つかりません' });
+      }
+
+      if (!personalEmail) {
+        // 削除リクエスト
+        users[idx].personalEmailEncrypted = undefined;
+        users[idx].personalEmailMasked = undefined;
+        saveUsers(users);
+        return res.json({
+          success: true,
+          message: '個人メールアドレスの登録を解除しました。',
+          personalEmailMasked: undefined,
+          user: users[idx]
+        });
+      }
+
+      const emailTrimmed = String(personalEmail).trim();
+      if (!emailTrimmed.includes('@') || !emailTrimmed.includes('.')) {
+        return res.status(400).json({ error: '有効なメールアドレス形式で入力してください。' });
+      }
+
+      const encrypted = encryptText(emailTrimmed);
+      const masked = maskEmail(emailTrimmed);
+
+      users[idx].personalEmailEncrypted = encrypted;
+      users[idx].personalEmailMasked = masked;
+      saveUsers(users);
+
+      res.json({
+        success: true,
+        message: '個人メールアドレスを暗号化して安全に保存しました。',
+        personalEmailMasked: masked,
+        user: users[idx]
+      });
+    } catch (err: any) {
+      console.error('[PersonalEmail] Save error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 個人メールアドレス宛テストメール送信 API (暗号化されたアドレスをメモリ上でのみ復号して送信)
+  app.post('/api/users/:id/personal-email/test', async (req, res) => {
+    try {
+      const userId = req.params.id;
+      const users = loadUsers();
+      const user = users.find((u: any) => u.id === userId);
+
+      if (!user) {
+        return res.status(404).json({ error: 'ユーザーが見つかりません' });
+      }
+
+      let targetEmail = '';
+      if (req.body?.personalEmail) {
+        targetEmail = String(req.body.personalEmail).trim();
+      } else if (user.personalEmailEncrypted) {
+        targetEmail = decryptText(user.personalEmailEncrypted);
+      }
+
+      if (!targetEmail) {
+        return res.status(400).json({ error: 'テスト送信先の個人メールアドレスが登録されていないか、復号できませんでした。' });
+      }
+
+      const nowStr = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
+      const subject = '【安否確認テスト】緊急連絡先メール疎通確認';
+      const text = `${user.name} 様\n\n寺岡オートドアSNS 安否確認システムからの緊急連絡先メール通知テストです。\n\n本メールは、緊急安否確認が発動された際にご登録の個人メールアドレスへ確実に通知が届くかをテストするために配信されています。\n\n送信日時: ${nowStr}\n対象ユーザー: ${user.name} (${user.office || ''} ${user.division || ''})`;
+      const html = `
+        <div style="font-family: sans-serif; padding: 24px; line-height: 1.6; color: #1e293b; max-width: 600px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
+          <div style="background-color: #dc2626; color: #ffffff; padding: 12px 16px; border-radius: 8px 8px 0 0; margin: -24px -24px 20px -24px;">
+            <h2 style="margin: 0; font-size: 18px; font-weight: 600;">🚨 安否確認 緊急連絡先メールテスト</h2>
+          </div>
+          <p style="font-size: 15px; font-weight: 600; color: #0f172a;">${user.name} 様</p>
+          <p>寺岡オートドアSNS 安否確認システムからの緊急連絡先メール通知テストです。</p>
+          <p>このメールが届いている場合、暗号化保存された個人メールアドレスへの安否確認通知経路は正常に機能しています。</p>
+          <div style="background-color: #fef2f2; padding: 16px; border-radius: 8px; border: 1px solid #fecaca; margin: 20px 0;">
+            <p style="margin: 0 0 8px 0; font-size: 13px; font-weight: 600; color: #991b1b;">【通知配信詳細】</p>
+            <ul style="margin: 0; padding-left: 20px; font-size: 13px; color: #7f1d1d;">
+              <li><b>送信日時:</b> ${nowStr}</li>
+              <li><b>対象社員:</b> ${user.name} 様</li>
+              <li><b>所属:</b> ${user.office || '全社'} / ${user.division || '全部署'}</li>
+            </ul>
+          </div>
+          <p style="font-size: 12px; color: #94a3b8; margin-bottom: 0;">※個人メールアドレスは AES-256-GCM で強固に暗号化されており、管理者画面やデータベース上でも平文は表示・保存されません。</p>
+        </div>
+      `;
+
+      const info = await sendEmailNotification({ to: targetEmail, subject, text, html });
+      res.json({
+        success: true,
+        message: `${maskEmail(targetEmail)} へテストメールを正常に送信しました。`,
+        messageId: info.messageId
+      });
+    } catch (err: any) {
+      console.error('[PersonalEmail] Test send error:', err);
+      res.status(500).json({ error: err.message || 'テストメールの送信に失敗しました。' });
+    }
+  });
+
+  // ==========================================
+  // 安否確認 (Safety Confirmation) ストレージ & API
+  // ==========================================
+  const safetyEventsPath = path.join(dataDir, 'safety_events.json');
+  const safetyResponsesPath = path.join(dataDir, 'safety_responses.json');
+
+  function loadSafetyEvents(): any[] {
+    if (!fs.existsSync(safetyEventsPath)) return [];
+    try {
+      const data = JSON.parse(fs.readFileSync(safetyEventsPath, 'utf8'));
+      return Array.isArray(data) ? data : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function saveSafetyEvents(events: any[]) {
+    try {
+      fs.writeFileSync(safetyEventsPath, JSON.stringify(events, null, 2), 'utf8');
+    } catch (e) {
+      console.error('Failed to save safety events:', e);
+    }
+  }
+
+  function loadSafetyResponses(): any[] {
+    if (!fs.existsSync(safetyResponsesPath)) return [];
+    try {
+      const data = JSON.parse(fs.readFileSync(safetyResponsesPath, 'utf8'));
+      return Array.isArray(data) ? data : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function saveSafetyResponses(responses: any[]) {
+    try {
+      fs.writeFileSync(safetyResponsesPath, JSON.stringify(responses, null, 2), 'utf8');
+    } catch (e) {
+      console.error('Failed to save safety responses:', e);
+    }
+  }
+
+  // 安否確認イベント一覧取得 API
+  app.get(['/api/safety-events', '/api/safety-events/'], (req, res) => {
+    try {
+      const events = loadSafetyEvents();
+      events.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+      res.json(events);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 安否確認発動 API (POST)
+  app.post(['/api/safety-events', '/api/safety-events/'], async (req, res) => {
+    try {
+      const {
+        title,
+        type,
+        severity,
+        targetOffice,
+        targetDivision,
+        message,
+        notifyWebPush = true,
+        notifyCompanyEmail = true,
+        notifyPersonalEmail = true,
+        isDrill = false,
+        createdBy,
+        createdByName
+      } = req.body || {};
+
+      if (!title || !type) {
+        return res.status(400).json({ error: 'タイトルおよび災害種別は必須です。' });
+      }
+
+      const newId = `safety_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      const nowIso = new Date().toISOString();
+
+      const newEvent = {
+        id: newId,
+        title,
+        type,
+        severity: severity || 'warning',
+        targetOffice: targetOffice || '全社',
+        targetDivision: targetDivision || '全部署',
+        message: message || '',
+        notifyWebPush: !!notifyWebPush,
+        notifyCompanyEmail: !!notifyCompanyEmail,
+        notifyPersonalEmail: !!notifyPersonalEmail,
+        isDrill: !!isDrill,
+        status: 'active',
+        createdBy: createdBy || 'admin',
+        createdByName: createdByName || '管理者',
+        createdAt: nowIso,
+        updatedAt: nowIso
+      };
+
+      const events = loadSafetyEvents();
+      events.unshift(newEvent);
+      saveSafetyEvents(events);
+
+      // 全社ユーザーを読み込み、対象ユーザーをフィルタリング
+      const allUsers = loadUsers();
+      const targetUsers = allUsers.filter((u: any) => {
+        const matchOffice = (!targetOffice || targetOffice === '全社' || u.office === targetOffice);
+        const matchDivision = (!targetDivision || targetDivision === '全部署' || u.division === targetDivision);
+        return matchOffice && matchDivision;
+      });
+
+      console.log(`[SafetyConfirmation] 発動: ${title} (対象者数: ${targetUsers.length} 名)`);
+
+      // 1. アプリ内通知の作成
+      targetUsers.forEach((u: any) => {
+        try {
+          createNotification({
+            user_id: String(u.id),
+            sender_id: String(createdBy || 'admin'),
+            sender_name: createdByName || '安否確認本部',
+            type: 'safety_confirmation',
+            title: `【緊急安否確認】${title}`,
+            contents: message || '安否状況の回答をお願いします。',
+            target_id: newId
+          });
+        } catch (_) {}
+      });
+
+      // 2. Web Push 通知の一斉配信
+      if (notifyWebPush) {
+        try {
+          for (const u of targetUsers) {
+            await sendPushNotificationToUser({
+              targetUserId: String(u.id),
+              title: `🚨【安否確認】${title}`,
+              body: message || 'ただちに安否確認画面を開き、状況を回答してください。',
+              url: `/?tab=safety_confirmation&eventId=${newId}`,
+              data: { eventId: newId, tab: 'safety_confirmation' },
+              tag: `safety_${newId}`
+            });
+          }
+        } catch (pushErr) {
+          console.warn('[SafetyConfirmation] Push通知エラー:', pushErr);
+        }
+      }
+
+      // 3. メール一斉配信（会社PC・携帯メール + 暗号化個人メール）
+      if (notifyCompanyEmail || notifyPersonalEmail) {
+        const mailPromises = targetUsers.map(async (u: any) => {
+          const emailAddresses: string[] = [];
+
+          if (notifyCompanyEmail) {
+            if (u.email && u.email.includes('@')) emailAddresses.push(u.email);
+            if (u.mobileEmail && u.mobileEmail.includes('@') && u.mobileEmail !== u.email) {
+              emailAddresses.push(u.mobileEmail);
+            }
+          }
+
+          if (notifyPersonalEmail && u.personalEmailEncrypted) {
+            const decrypted = decryptText(u.personalEmailEncrypted);
+            if (decrypted && decrypted.includes('@') && !emailAddresses.includes(decrypted)) {
+              emailAddresses.push(decrypted);
+            }
+          }
+
+          if (emailAddresses.length === 0) return;
+
+          const nowJst = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
+          const subject = `【緊急安否確認】${isDrill ? '【訓練】' : ''}${title}`;
+          const text = `${u.name} 様\n\n【安否確認システムからの緊急連絡】\n\n${title}\n\n${message || ''}\n\n至急、以下のURLより現在の安否状況をご回答ください。\n社内SNSへアクセスし、「ユーティリティ」→「安否確認」より回答をお願いいたします。\n\n発動日時: ${nowJst}\n発信者: ${createdByName || '安否確認本部'}`;
+
+          const html = `
+            <div style="font-family: sans-serif; padding: 24px; line-height: 1.6; color: #1e293b; max-width: 600px; border: 2px solid #dc2626; border-radius: 12px; background-color: #ffffff;">
+              <div style="background-color: #dc2626; color: #ffffff; padding: 14px 18px; border-radius: 8px 8px 0 0; margin: -24px -24px 20px -24px;">
+                <h2 style="margin: 0; font-size: 19px; font-weight: 700;">🚨 【緊急安否確認】${isDrill ? '【訓練】' : ''}${title}</h2>
+              </div>
+              <p style="font-size: 16px; font-weight: 600; color: #0f172a;">${u.name} 様</p>
+              <p style="font-size: 14px; color: #334155;">安否確認が発動されました。身の安全を確保した上で、速やかに現在の状況をご回答ください。</p>
+              ${message ? `
+                <div style="background-color: #fef2f2; padding: 14px; border-radius: 8px; border-left: 4px solid #dc2626; margin: 16px 0;">
+                  <p style="margin: 0; font-size: 14px; color: #991b1b; white-space: pre-wrap;">${message}</p>
+                </div>
+              ` : ''}
+              <div style="text-align: center; margin: 24px 0;">
+                <p style="font-size: 13px; color: #64748b; margin-bottom: 8px;">社内SNSにログインし、安否確認メニューから回答してください。</p>
+              </div>
+              <div style="background-color: #f8fafc; padding: 12px 16px; border-radius: 8px; border: 1px solid #e2e8f0; font-size: 12px; color: #64748b;">
+                <p style="margin: 0 0 4px 0;"><b>発動日時:</b> ${nowJst}</p>
+                <p style="margin: 0;"><b>発動本部:</b> ${createdByName || '安否確認本部'}</p>
+              </div>
+            </div>
+          `;
+
+          for (const addr of emailAddresses) {
+            try {
+              await sendEmailNotification({ to: addr, subject, text, html });
+            } catch (mailErr) {
+              console.warn(`[SafetyConfirmation] Mail error to ${maskEmail(addr)}:`, mailErr);
+            }
+          }
+        });
+
+        // バックグラウンドでメール配信処理を実行
+        Promise.all(mailPromises).catch((err) => console.error('[SafetyConfirmation] Batch mail error:', err));
+      }
+
+      res.status(201).json({
+        success: true,
+        message: '安否確認を発動し、対象者へ一斉通知を開始しました。',
+        event: newEvent,
+        targetUserCount: targetUsers.length
+      });
+    } catch (err: any) {
+      console.error('Safety event trigger error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 安否確認イベント更新 API (ステータス完了化など)
+  app.put('/api/safety-events/:id', (req, res) => {
+    try {
+      const { id } = req.params;
+      const data = req.body || {};
+      const events = loadSafetyEvents();
+      const idx = events.findIndex(e => e.id === id);
+
+      if (idx === -1) {
+        return res.status(404).json({ error: '安否確認イベントが見つかりません' });
+      }
+
+      events[idx] = {
+        ...events[idx],
+        ...data,
+        id,
+        updatedAt: new Date().toISOString()
+      };
+      saveSafetyEvents(events);
+
+      res.json({ success: true, event: events[idx] });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 安否確認イベント削除 API
+  app.delete(['/api/safety-events/:id', '/api/safety-events/:id/delete'], (req, res) => {
+    try {
+      const { id } = req.params;
+      let events = loadSafetyEvents();
+      events = events.filter(e => e.id !== id);
+      saveSafetyEvents(events);
+
+      let responses = loadSafetyResponses();
+      responses = responses.filter(r => r.eventId !== id);
+      saveSafetyResponses(responses);
+
+      res.json({ success: true, message: '安否確認イベントおよび回答データを削除しました。' });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+  app.post(['/api/safety-events/:id/delete'], (req, res) => {
+    try {
+      const { id } = req.params;
+      let events = loadSafetyEvents();
+      events = events.filter(e => e.id !== id);
+      saveSafetyEvents(events);
+
+      let responses = loadSafetyResponses();
+      responses = responses.filter(r => r.eventId !== id);
+      saveSafetyResponses(responses);
+
+      res.json({ success: true, message: '安否確認イベントおよび回答データを削除しました。' });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 安否確認回答一覧取得 API
+  app.get('/api/safety-events/:id/responses', (req, res) => {
+    try {
+      const { id } = req.params;
+      const responses = loadSafetyResponses().filter(r => r.eventId === id);
+      res.json(responses);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 安否確認回答送信 API (ユーザーの回答登録・更新)
+  app.post('/api/safety-events/:id/respond', (req, res) => {
+    try {
+      const { id } = req.params;
+      const {
+        userId,
+        userName,
+        userOffice,
+        userDivision,
+        status,
+        canWork,
+        currentLocation,
+        comment,
+        locationCoordinates
+      } = req.body || {};
+
+      if (!userId || !status || !canWork) {
+        return res.status(400).json({ error: 'ユーザーID、安否状態、出勤可否は必須です。' });
+      }
+
+      const events = loadSafetyEvents();
+      const event = events.find(e => e.id === id);
+      if (!event) {
+        return res.status(404).json({ error: '安否確認イベントが存在しません。' });
+      }
+
+      const responses = loadSafetyResponses();
+      const nowIso = new Date().toISOString();
+      const idx = responses.findIndex(r => r.eventId === id && r.userId === userId);
+
+      const responseRecord = {
+        id: idx >= 0 ? responses[idx].id : `resp_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        eventId: id,
+        userId,
+        userName: userName || '匿名',
+        userOffice: userOffice || '',
+        userDivision: userDivision || '',
+        status,
+        canWork,
+        currentLocation: currentLocation || 'home',
+        comment: comment || '',
+        locationCoordinates: locationCoordinates || undefined,
+        respondedAt: nowIso,
+        updatedAt: nowIso
+      };
+
+      if (idx >= 0) {
+        responses[idx] = responseRecord;
+      } else {
+        responses.unshift(responseRecord);
+      }
+
+      saveSafetyResponses(responses);
+
+      res.json({
+        success: true,
+        message: '安否確認の回答を受け付けました。',
+        response: responseRecord
+      });
+    } catch (err: any) {
+      console.error('Safety respond error:', err);
       res.status(500).json({ error: err.message });
     }
   });
