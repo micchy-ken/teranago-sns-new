@@ -1,7 +1,7 @@
 export const RECOMMEND_SERVER_JS = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年8月26日 (安否確認発動機能・AES-256-GCM暗号化個人メール緊急連絡網対応版)
+ * 最終更新日時 (最終アップデート): 2026年8月26日 (個人メール暗号化保存/テスト送信/安否確認APIのSQL Server pool参照修正・自動カラム検出版)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -221,6 +221,55 @@ async function getPool() {
             setting_key NVARCHAR(100) PRIMARY KEY,
             setting_value NVARCHAR(MAX) NOT NULL,
             updated_at DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET()
+          );
+        END
+
+        -- Users Table 個人メール暗号化カラムチェック
+        IF OBJECT_ID('dbo.Users', 'U') IS NOT NULL
+        BEGIN
+          IF COL_LENGTH('dbo.Users', 'personalEmailEncrypted') IS NULL ALTER TABLE dbo.Users ADD personalEmailEncrypted NVARCHAR(500) NULL;
+          IF COL_LENGTH('dbo.Users', 'personalEmailMasked') IS NULL ALTER TABLE dbo.Users ADD personalEmailMasked NVARCHAR(255) NULL;
+        END
+
+        -- SafetyEvents Table (安否確認イベントテーブル)
+        IF OBJECT_ID('dbo.SafetyEvents', 'U') IS NULL
+        BEGIN
+          CREATE TABLE dbo.SafetyEvents (
+            id NVARCHAR(100) PRIMARY KEY,
+            title NVARCHAR(500) NOT NULL,
+            type NVARCHAR(50) NOT NULL,
+            severity NVARCHAR(50) DEFAULT N'warning',
+            targetOffice NVARCHAR(100) DEFAULT N'全社',
+            targetDivision NVARCHAR(100) DEFAULT N'全部署',
+            message NVARCHAR(MAX) NULL,
+            notifyWebPush BIT DEFAULT 1,
+            notifyCompanyEmail BIT DEFAULT 1,
+            notifyPersonalEmail BIT DEFAULT 1,
+            isDrill BIT DEFAULT 0,
+            status NVARCHAR(50) DEFAULT N'active',
+            createdBy NVARCHAR(100) NULL,
+            createdByName NVARCHAR(100) NULL,
+            createdAt DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET(),
+            updatedAt DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET()
+          );
+        END
+
+        -- SafetyResponses Table (安否確認回答テーブル)
+        IF OBJECT_ID('dbo.SafetyResponses', 'U') IS NULL
+        BEGIN
+          CREATE TABLE dbo.SafetyResponses (
+            id NVARCHAR(100) PRIMARY KEY,
+            eventId NVARCHAR(100) NOT NULL,
+            userId NVARCHAR(100) NOT NULL,
+            userName NVARCHAR(100) NULL,
+            userOffice NVARCHAR(100) NULL,
+            userDivision NVARCHAR(100) NULL,
+            status NVARCHAR(50) NOT NULL,
+            canWork NVARCHAR(50) NULL,
+            currentLocation NVARCHAR(100) DEFAULT N'home',
+            comment NVARCHAR(MAX) NULL,
+            locationCoordinates NVARCHAR(200) NULL,
+            respondedAt DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET()
           );
         END
 
@@ -5424,16 +5473,22 @@ app.post('/api/users/:id/personal-email', async (req, res) => {
     const userId = req.params.id;
     const { personalEmail } = req.body || {};
     const emailTrimmed = personalEmail ? String(personalEmail).trim() : '';
+
+    if (emailTrimmed && (!emailTrimmed.includes('@') || !emailTrimmed.includes('.'))) {
+      return res.status(400).json({ error: '有効なメールアドレス形式で入力してください。' });
+    }
+
     const encrypted = emailTrimmed ? encryptText(emailTrimmed) : null;
     const masked = emailTrimmed ? maskEmail(emailTrimmed) : null;
 
-    if (pool && pool.connected) {
+    const pool = await getPool();
+    if (pool) {
       await pool.request()
-        .input('id', sql.NVarChar, userId)
+        .input('id', sql.VarChar, userId)
         .input('personalEmailEncrypted', sql.NVarChar, encrypted)
         .input('personalEmailMasked', sql.NVarChar, masked)
         .query(\`
-          UPDATE Users 
+          UPDATE dbo.Users 
           SET personalEmailEncrypted = @personalEmailEncrypted, personalEmailMasked = @personalEmailMasked
           WHERE id = @id
         \`);
@@ -5445,6 +5500,7 @@ app.post('/api/users/:id/personal-email', async (req, res) => {
       personalEmailMasked: masked
     });
   } catch (err) {
+    console.error('[PersonalEmail] Save error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -5457,11 +5513,14 @@ app.post('/api/users/:id/personal-email/test', async (req, res) => {
 
     if (req.body?.personalEmail) {
       targetEmail = String(req.body.personalEmail).trim();
-    } else if (pool && pool.connected) {
-      const result = await pool.request().input('id', sql.NVarChar, userId).query('SELECT name, personalEmailEncrypted FROM Users WHERE id = @id');
-      if (result.recordset.length > 0) {
-        userName = result.recordset[0].name || userName;
-        targetEmail = decryptText(result.recordset[0].personalEmailEncrypted);
+    } else {
+      const pool = await getPool();
+      if (pool) {
+        const result = await pool.request().input('id', sql.VarChar, userId).query('SELECT name, personalEmailEncrypted FROM dbo.Users WHERE id = @id');
+        if (result.recordset.length > 0) {
+          userName = result.recordset[0].name || userName;
+          targetEmail = decryptText(result.recordset[0].personalEmailEncrypted);
+        }
       }
     }
 
@@ -5476,6 +5535,7 @@ app.post('/api/users/:id/personal-email/test', async (req, res) => {
     await sendEmailNotification({ to: targetEmail, subject, text });
     res.json({ success: true, message: \`\${maskEmail(targetEmail)} へテストメールを正常に送信しました。\` });
   } catch (err) {
+    console.error('[PersonalEmail] Test send error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -5483,9 +5543,10 @@ app.post('/api/users/:id/personal-email/test', async (req, res) => {
 // 安否確認イベント & 回答 API
 app.get(['/api/safety-events', '/api/safety-events/'], async (req, res) => {
   try {
-    if (pool && pool.connected) {
-      const result = await pool.request().query('SELECT * FROM SafetyEvents ORDER BY createdAt DESC');
-      return res.json(result.recordset);
+    const pool = await getPool();
+    if (pool) {
+      const result = await pool.request().query('SELECT * FROM dbo.SafetyEvents ORDER BY createdAt DESC');
+      return res.json(result.recordset || []);
     }
     res.json([]);
   } catch (err) {
@@ -5499,11 +5560,12 @@ app.post(['/api/safety-events', '/api/safety-events/'], async (req, res) => {
     const newId = \`safety_\${Date.now()}_\${Math.random().toString(36).substring(2, 7)}\`;
     const nowIso = new Date().toISOString();
 
-    if (pool && pool.connected) {
+    const pool = await getPool();
+    if (pool) {
       await pool.request()
         .input('id', sql.NVarChar, newId)
-        .input('title', sql.NVarChar, title)
-        .input('type', sql.NVarChar, type)
+        .input('title', sql.NVarChar, title || '緊急安否確認')
+        .input('type', sql.NVarChar, type || 'earthquake')
         .input('severity', sql.NVarChar, severity || 'warning')
         .input('targetOffice', sql.NVarChar, targetOffice || '全社')
         .input('targetDivision', sql.NVarChar, targetDivision || '全部署')
@@ -5518,7 +5580,7 @@ app.post(['/api/safety-events', '/api/safety-events/'], async (req, res) => {
         .input('createdAt', sql.DateTimeOffset, nowIso)
         .input('updatedAt', sql.DateTimeOffset, nowIso)
         .query(\`
-          INSERT INTO SafetyEvents (id, title, type, severity, targetOffice, targetDivision, message, notifyWebPush, notifyCompanyEmail, notifyPersonalEmail, isDrill, status, createdBy, createdByName, createdAt, updatedAt)
+          INSERT INTO dbo.SafetyEvents (id, title, type, severity, targetOffice, targetDivision, message, notifyWebPush, notifyCompanyEmail, notifyPersonalEmail, isDrill, status, createdBy, createdByName, createdAt, updatedAt)
           VALUES (@id, @title, @type, @severity, @targetOffice, @targetDivision, @message, @notifyWebPush, @notifyCompanyEmail, @notifyPersonalEmail, @isDrill, @status, @createdBy, @createdByName, @createdAt, @updatedAt)
         \`);
     }
@@ -5532,9 +5594,10 @@ app.post(['/api/safety-events', '/api/safety-events/'], async (req, res) => {
 app.get('/api/safety-events/:id/responses', async (req, res) => {
   try {
     const { id } = req.params;
-    if (pool && pool.connected) {
-      const result = await pool.request().input('eventId', sql.NVarChar, id).query('SELECT * FROM SafetyResponses WHERE eventId = @eventId ORDER BY respondedAt DESC');
-      return res.json(result.recordset);
+    const pool = await getPool();
+    if (pool) {
+      const result = await pool.request().input('eventId', sql.NVarChar, id).query('SELECT * FROM dbo.SafetyResponses WHERE eventId = @eventId ORDER BY respondedAt DESC');
+      return res.json(result.recordset || []);
     }
     res.json([]);
   } catch (err) {
@@ -5549,7 +5612,8 @@ app.post('/api/safety-events/:id/respond', async (req, res) => {
     const nowIso = new Date().toISOString();
     const respId = \`resp_\${Date.now()}_\${Math.random().toString(36).substring(2, 6)}\`;
 
-    if (pool && pool.connected) {
+    const pool = await getPool();
+    if (pool) {
       await pool.request()
         .input('id', sql.NVarChar, respId)
         .input('eventId', sql.NVarChar, id)
@@ -5564,7 +5628,7 @@ app.post('/api/safety-events/:id/respond', async (req, res) => {
         .input('locationCoordinates', sql.NVarChar, locationCoordinates || null)
         .input('respondedAt', sql.DateTimeOffset, nowIso)
         .query(\`
-          MERGE SafetyResponses AS target
+          MERGE dbo.SafetyResponses AS target
           USING (SELECT @eventId AS eventId, @userId AS userId) AS source
           ON (target.eventId = source.eventId AND target.userId = source.userId)
           WHEN MATCHED THEN
@@ -5594,4 +5658,4 @@ app.post('/api/safety-events/:id/respond', async (req, res) => {
 // サーバー起動 (すべての設定が終わった最後に実行)
 // =========================================================
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(\`🚀 Company SNS API server listening on port \${PORT} [最終更新: 2026年8月26日 12:00 (安否確認発動機能・暗号化個人メール緊急連絡網対応版)]\`));`;
+app.listen(PORT, () => console.log(\`🚀 Company SNS API server listening on port \${PORT} [最終更新: 2026年8月26日 (SQL Server 個人メール暗号化保存/テスト送信/安否確認API pool参照修正・自動カラム検出版)]\`));`;

@@ -496,6 +496,9 @@ export function MyPage({
 
   // 安否確認 個人メール暗号化設定用状態
   const [isEmergencyEmailOpen, setIsEmergencyEmailOpen] = useState(false);
+  const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
+  const [isICalOpen, setIsICalOpen] = useState(false);
+  const [isWebPushOpen, setIsWebPushOpen] = useState(false);
   const [personalEmailInput, setPersonalEmailInput] = useState('');
   const [personalEmailSaving, setPersonalEmailSaving] = useState(false);
   const [personalEmailTesting, setPersonalEmailTesting] = useState(false);
@@ -2113,165 +2116,196 @@ export function MyPage({
                 </div>
               </div>
 
-              {/* 通知センター (メール送信通知設定) */}
-              <div className="space-y-4 pt-4 border-t border-slate-100">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-1 border-b border-slate-100">
-                  <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                    <Mail className="w-4 h-4 text-blue-600" />
-                    通知センター（メール配信 ON/OFF 設定）
-                  </h3>
-                  
-                  {/* 一括操作ボタン */}
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <button
-                      type="button"
-                      onClick={() => handleBatchSetEmailNotif('recommended')}
-                      className="flex items-center gap-1 px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold text-[11px] rounded-lg transition-all cursor-pointer shadow-2xs"
-                      title="伝言メモ・ワークフロー・点検報告書をON、他をOFFにする推奨設定"
-                    >
-                      <Sparkles className="w-3.5 h-3.5 text-amber-600" />
-                      <span>推奨</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleBatchSetEmailNotif('all_pc_on')}
-                      className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10.5px] font-medium rounded-lg transition-colors cursor-pointer"
-                    >
-                      すべてPCオン
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleBatchSetEmailNotif('all_mobile_on')}
-                      className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10.5px] font-medium rounded-lg transition-colors cursor-pointer"
-                    >
-                      すべて携帯オン
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleBatchSetEmailNotif('all_off')}
-                      className="px-2 py-1 bg-slate-100 hover:bg-rose-50 text-rose-600 text-[10.5px] font-medium rounded-lg transition-colors cursor-pointer"
-                    >
-                      すべてオフ
-                    </button>
-                  </div>
-                </div>
-
-                <p className="text-[11px] text-slate-500 leading-relaxed">
-                  スケジュール、掲示板、伝言メモ等の更新時に、あなたのPCメール・携帯メール宛へ主要内容と共有リンクを送信するかを設定します。選択状態はJSON形式でマイ設定に保存されます。
-                </p>
-
-                {/* メールアドレス接続状況とテスト送信ボタン */}
-                <div className="p-3 bg-blue-50/50 rounded-xl border border-blue-100 space-y-2 text-xs">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11.5px]">
-                    <div className="flex items-center justify-between bg-white px-2.5 py-1.5 rounded-lg border border-slate-200">
-                      <div className="truncate pr-2">
-                        <span className="font-bold text-slate-700">PCメール: </span>
-                        {settingsForm.email ? (
-                          <span className="font-mono text-slate-900">{settingsForm.email}</span>
-                        ) : (
-                          <span className="text-amber-600 font-bold">（未登録）</span>
-                        )}
+              {/* 🔔 通知センター (メール送信通知設定・トグル開閉) */}
+              <div className="pt-4 border-t border-slate-100">
+                <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs bg-white transition-all">
+                  {/* トグルヘッダー */}
+                  <button
+                    type="button"
+                    onClick={() => setIsNotificationCenterOpen((prev) => !prev)}
+                    className="w-full p-3.5 bg-slate-50/80 hover:bg-slate-100/90 flex items-center justify-between gap-3 text-left transition-colors cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-8 h-8 rounded-lg bg-blue-100 border border-blue-200 flex items-center justify-center shrink-0">
+                        <Mail className="w-4 h-4 text-blue-700" />
                       </div>
-                      {settingsForm.email && (
-                        <button
-                          type="button"
-                          disabled={emailTestLoading}
-                          onClick={() => handleSendTestEmail(settingsForm.email || '', 'PCメール')}
-                          className="text-[10px] font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded transition-colors shrink-0 cursor-pointer disabled:opacity-50"
-                        >
-                          テスト送信
-                        </button>
-                      )}
-                    </div>
-
-                    <div className="flex items-center justify-between bg-white px-2.5 py-1.5 rounded-lg border border-slate-200">
-                      <div className="truncate pr-2">
-                        <span className="font-bold text-slate-700">携帯メール: </span>
-                        {settingsForm.mobileEmail ? (
-                          <span className="font-mono text-slate-900">{settingsForm.mobileEmail}</span>
-                        ) : (
-                          <span className="text-amber-600 font-bold">（未登録）</span>
-                        )}
+                      <div className="truncate">
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-xs font-bold text-slate-800">
+                            通知センター（メール配信 ON/OFF 設定）
+                          </h3>
+                        </div>
+                        <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                          伝言メモ、掲示板、スケジュール等の更新時のPC・携帯メール通知
+                        </p>
                       </div>
-                      {settingsForm.mobileEmail && (
-                        <button
-                          type="button"
-                          disabled={emailTestLoading}
-                          onClick={() => handleSendTestEmail(settingsForm.mobileEmail || '', '携帯メール')}
-                          className="text-[10px] font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded transition-colors shrink-0 cursor-pointer disabled:opacity-50"
-                        >
-                          テスト送信
-                        </button>
-                      )}
                     </div>
-                  </div>
 
-                  {emailTestResult && (
-                    <div className={`p-2 rounded text-[11px] font-medium flex items-center gap-1.5 ${
-                      emailTestResult.type === 'success' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
-                    }`}>
-                      {emailTestResult.type === 'success' ? <CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> : <AlertCircle className="w-3.5 h-3.5 shrink-0" />}
-                      <span>{emailTestResult.message}</span>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <div className="p-1 rounded-md text-slate-400 hover:text-slate-600 bg-white border border-slate-200 shadow-2xs">
+                        {isNotificationCenterOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                      </div>
                     </div>
-                  )}
-                </div>
+                  </button>
 
-                {/* メール設定マトリックス (左列: スケジュール、掲示板、伝言メモ等 | 右列: PCメール / 携帯メール) */}
-                <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs bg-white">
-                  <div className="grid grid-cols-12 bg-slate-100 border-b border-slate-200 text-[11px] font-bold text-slate-700 p-2.5">
-                    <div className="col-span-6 sm:col-span-7 pl-1">対象通知機能・項目</div>
-                    <div className="col-span-3 sm:col-span-2 text-center">PCメール</div>
-                    <div className="col-span-3 sm:col-span-3 text-center">携帯メール</div>
-                  </div>
+                  {/* 開閉コンテンツ */}
+                  {isNotificationCenterOpen && (
+                    <div className="p-4 border-t border-slate-200/80 space-y-4 bg-white animate-fade-in text-xs">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-1 border-b border-slate-100">
+                        <p className="text-[11px] text-slate-500 leading-relaxed">
+                          スケジュール、掲示板、伝言メモ等の更新時に、あなたのPCメール・携帯メール宛へ主要内容と共有リンクを送信するかを設定します。
+                        </p>
+                        
+                        {/* 一括操作ボタン */}
+                        <div className="flex items-center gap-1.5 flex-wrap shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => handleBatchSetEmailNotif('recommended')}
+                            className="flex items-center gap-1 px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold text-[11px] rounded-lg transition-all cursor-pointer shadow-2xs"
+                            title="伝言メモ・ワークフロー・点検報告書をON、他をOFFにする推奨設定"
+                          >
+                            <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                            <span>推奨</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleBatchSetEmailNotif('all_pc_on')}
+                            className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10.5px] font-medium rounded-lg transition-colors cursor-pointer"
+                          >
+                            すべてPCオン
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleBatchSetEmailNotif('all_mobile_on')}
+                            className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10.5px] font-medium rounded-lg transition-colors cursor-pointer"
+                          >
+                            すべて携帯オン
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleBatchSetEmailNotif('all_off')}
+                            className="px-2 py-1 bg-slate-100 hover:bg-rose-50 text-rose-600 text-[10.5px] font-medium rounded-lg transition-colors cursor-pointer"
+                          >
+                            すべてオフ
+                          </button>
+                        </div>
+                      </div>
 
-                  <div className="divide-y divide-slate-100 text-xs">
-                    {NOTIFICATION_CATEGORIES.map((cat) => {
-                      const cur = currentEmailNotifs[cat.key] || { pc: true, mobile: false };
-                      return (
-                        <div key={cat.key} className="grid grid-cols-12 items-center p-2.5 hover:bg-slate-50/80 transition-colors">
-                          <div className="col-span-6 sm:col-span-7 flex items-start gap-2 pr-2">
-                            {cat.icon}
-                            <div>
-                              <div className="font-bold text-slate-800 text-[12px]">{cat.label}</div>
-                              <div className="text-[10.5px] text-slate-500 leading-tight">{cat.desc}</div>
+                      {/* メールアドレス接続状況とテスト送信ボタン */}
+                      <div className="p-3 bg-blue-50/50 rounded-xl border border-blue-100 space-y-2 text-xs">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11.5px]">
+                          <div className="flex items-center justify-between bg-white px-2.5 py-1.5 rounded-lg border border-slate-200">
+                            <div className="truncate pr-2">
+                              <span className="font-bold text-slate-700">PCメール: </span>
+                              {settingsForm.email ? (
+                                <span className="font-mono text-slate-900">{settingsForm.email}</span>
+                              ) : (
+                                <span className="text-amber-600 font-bold">（未登録）</span>
+                              )}
                             </div>
+                            {settingsForm.email && (
+                              <button
+                                type="button"
+                                disabled={emailTestLoading}
+                                onClick={() => handleSendTestEmail(settingsForm.email || '', 'PCメール')}
+                                className="text-[10px] font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded transition-colors shrink-0 cursor-pointer disabled:opacity-50"
+                              >
+                                テスト送信
+                              </button>
+                            )}
                           </div>
 
-                          {/* PCメール トグル */}
-                          <div className="col-span-3 sm:col-span-2 flex items-center justify-center">
-                            <label className="inline-flex items-center gap-1 cursor-pointer select-none">
-                              <input
-                                type="checkbox"
-                                checked={cur.pc}
-                                onChange={() => handleToggleEmailNotif(cat.key, 'pc')}
-                                className="sr-only peer"
-                              />
-                              <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600 relative"></div>
-                              <span className={`text-[10px] font-bold ${cur.pc ? 'text-blue-600' : 'text-slate-400'}`}>
-                                {cur.pc ? 'ON' : 'OFF'}
-                              </span>
-                            </label>
-                          </div>
-
-                          {/* 携帯メール トグル */}
-                          <div className="col-span-3 sm:col-span-3 flex items-center justify-center">
-                            <label className="inline-flex items-center gap-1 cursor-pointer select-none">
-                              <input
-                                type="checkbox"
-                                checked={cur.mobile}
-                                onChange={() => handleToggleEmailNotif(cat.key, 'mobile')}
-                                className="sr-only peer"
-                              />
-                              <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-purple-600 relative"></div>
-                              <span className={`text-[10px] font-bold ${cur.mobile ? 'text-purple-600' : 'text-slate-400'}`}>
-                                {cur.mobile ? 'ON' : 'OFF'}
-                              </span>
-                            </label>
+                          <div className="flex items-center justify-between bg-white px-2.5 py-1.5 rounded-lg border border-slate-200">
+                            <div className="truncate pr-2">
+                              <span className="font-bold text-slate-700">携帯メール: </span>
+                              {settingsForm.mobileEmail ? (
+                                <span className="font-mono text-slate-900">{settingsForm.mobileEmail}</span>
+                              ) : (
+                                <span className="text-amber-600 font-bold">（未登録）</span>
+                              )}
+                            </div>
+                            {settingsForm.mobileEmail && (
+                              <button
+                                type="button"
+                                disabled={emailTestLoading}
+                                onClick={() => handleSendTestEmail(settingsForm.mobileEmail || '', '携帯メール')}
+                                className="text-[10px] font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded transition-colors shrink-0 cursor-pointer disabled:opacity-50"
+                              >
+                                テスト送信
+                              </button>
+                            )}
                           </div>
                         </div>
-                      );
-                    })}
-                  </div>
+
+                        {emailTestResult && (
+                          <div className={`p-2 rounded text-[11px] font-medium flex items-center gap-1.5 ${
+                            emailTestResult.type === 'success' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                          }`}>
+                            {emailTestResult.type === 'success' ? <CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> : <AlertCircle className="w-3.5 h-3.5 shrink-0" />}
+                            <span>{emailTestResult.message}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* メール設定マトリックス */}
+                      <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs bg-white">
+                        <div className="grid grid-cols-12 bg-slate-100 border-b border-slate-200 text-[11px] font-bold text-slate-700 p-2.5">
+                          <div className="col-span-6 sm:col-span-7 pl-1">対象通知機能・項目</div>
+                          <div className="col-span-3 sm:col-span-2 text-center">PCメール</div>
+                          <div className="col-span-3 sm:col-span-3 text-center">携帯メール</div>
+                        </div>
+
+                        <div className="divide-y divide-slate-100 text-xs">
+                          {NOTIFICATION_CATEGORIES.map((cat) => {
+                            const cur = currentEmailNotifs[cat.key] || { pc: true, mobile: false };
+                            return (
+                              <div key={cat.key} className="grid grid-cols-12 items-center p-2.5 hover:bg-slate-50/80 transition-colors">
+                                <div className="col-span-6 sm:col-span-7 flex items-start gap-2 pr-2">
+                                  {cat.icon}
+                                  <div>
+                                    <div className="font-bold text-slate-800 text-[12px]">{cat.label}</div>
+                                    <div className="text-[10.5px] text-slate-500 leading-tight">{cat.desc}</div>
+                                  </div>
+                                </div>
+
+                                {/* PCメール トグル */}
+                                <div className="col-span-3 sm:col-span-2 flex items-center justify-center">
+                                  <label className="inline-flex items-center gap-1 cursor-pointer select-none">
+                                    <input
+                                      type="checkbox"
+                                      checked={cur.pc}
+                                      onChange={() => handleToggleEmailNotif(cat.key, 'pc')}
+                                      className="sr-only peer"
+                                    />
+                                    <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600 relative"></div>
+                                    <span className={`text-[10px] font-bold ${cur.pc ? 'text-blue-600' : 'text-slate-400'}`}>
+                                      {cur.pc ? 'ON' : 'OFF'}
+                                    </span>
+                                  </label>
+                                </div>
+
+                                {/* 携帯メール トグル */}
+                                <div className="col-span-3 sm:col-span-3 flex items-center justify-center">
+                                  <label className="inline-flex items-center gap-1 cursor-pointer select-none">
+                                    <input
+                                      type="checkbox"
+                                      checked={cur.mobile}
+                                      onChange={() => handleToggleEmailNotif(cat.key, 'mobile')}
+                                      className="sr-only peer"
+                                    />
+                                    <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-purple-600 relative"></div>
+                                    <span className={`text-[10px] font-bold ${cur.mobile ? 'text-purple-600' : 'text-slate-400'}`}>
+                                      {cur.mobile ? 'ON' : 'OFF'}
+                                    </span>
+                                  </label>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -2464,185 +2498,257 @@ export function MyPage({
                 </div>
               </div>
 
-              {/* 外部カレンダー連携（iCal / Google Calendar） */}
-              <div className="space-y-3 pt-4 border-t border-slate-100">
-                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5 pb-1 border-b border-slate-100">
-                  <CalendarIcon className="w-4 h-4 text-amber-500" />
-                  外部カレンダー同期設定 (iCal / Google Calendar)
-                </h3>
-
-                <div className="p-3.5 bg-amber-50/60 rounded-xl border border-amber-200 space-y-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <h4 className="text-xs font-bold text-amber-900">iCal形式 外部連携URL（個人専用カレンダー）</h4>
-                      <p className="text-[11px] text-amber-700 leading-relaxed mt-0.5">
-                        GoogleカレンダーやiPhone・Outlook等にこのURLを登録すると、<strong>ご自身が参加者・担当者として含まれる予定のみ</strong>が自動同期されます（代理投稿した別メンバーの作業等は除外されます）。
-                      </p>
+              {/* 📅 外部カレンダー連携（iCal / Google Calendar・トグル開閉） */}
+              <div className="pt-4 border-t border-slate-100">
+                <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs bg-white transition-all">
+                  {/* トグルヘッダー */}
+                  <button
+                    type="button"
+                    onClick={() => setIsICalOpen((prev) => !prev)}
+                    className="w-full p-3.5 bg-slate-50/80 hover:bg-slate-100/90 flex items-center justify-between gap-3 text-left transition-colors cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-8 h-8 rounded-lg bg-amber-100 border border-amber-200 flex items-center justify-center shrink-0">
+                        <CalendarIcon className="w-4 h-4 text-amber-700" />
+                      </div>
+                      <div className="truncate">
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-xs font-bold text-slate-800">
+                            外部カレンダー同期設定 (iCal / Google Calendar)
+                          </h3>
+                          <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                            iCalendar
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                          GoogleカレンダーやiPhone/Outlookとあなたの担当予定を自動同期
+                        </p>
+                      </div>
                     </div>
-                    <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded shrink-0">
-                      同期有効
-                    </span>
-                  </div>
 
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      readOnly
-                      value={`${API_BASE_URL}/ical/user_${user.id}_calendar.ics`}
-                      className="flex-1 px-3 py-1.5 bg-white border border-amber-300 rounded-lg text-[11px] font-mono text-slate-700 select-all focus:outline-none"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        navigator.clipboard.writeText(`${API_BASE_URL}/ical/user_${user.id}_calendar.ics`);
-                        setCopiedICal(true);
-                        setTimeout(() => setCopiedICal(false), 2000);
-                      }}
-                      className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1 shrink-0 cursor-pointer"
-                    >
-                      <Copy className="w-3.5 h-3.5" />
-                      {copiedICal ? 'コピー完了' : 'URLコピー'}
-                    </button>
-                  </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded">
+                        同期有効
+                      </span>
+                      <div className="p-1 rounded-md text-slate-400 hover:text-slate-600 bg-white border border-slate-200 shadow-2xs">
+                        {isICalOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                      </div>
+                    </div>
+                  </button>
+
+                  {/* 開閉コンテンツ */}
+                  {isICalOpen && (
+                    <div className="p-4 border-t border-slate-200/80 space-y-3 bg-white animate-fade-in text-xs">
+                      <div className="p-3.5 bg-amber-50/60 rounded-xl border border-amber-200 space-y-3">
+                        <div>
+                          <h4 className="text-xs font-bold text-amber-900">iCal形式 外部連携URL（個人専用カレンダー）</h4>
+                          <p className="text-[11px] text-amber-700 leading-relaxed mt-0.5">
+                            GoogleカレンダーやiPhone・Outlook等にこのURLを登録すると、<strong>ご自身が参加者・担当者として含まれる予定のみ</strong>が自動同期されます（代理投稿した別メンバーの作業等は除外されます）。
+                          </p>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            readOnly
+                            value={`${API_BASE_URL}/ical/user_${user.id}_calendar.ics`}
+                            className="flex-1 px-3 py-1.5 bg-white border border-amber-300 rounded-lg text-[11px] font-mono text-slate-700 select-all focus:outline-none"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(`${API_BASE_URL}/ical/user_${user.id}_calendar.ics`);
+                              setCopiedICal(true);
+                              setTimeout(() => setCopiedICal(false), 2000);
+                            }}
+                            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1 shrink-0 cursor-pointer"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                            {copiedICal ? 'コピー完了' : 'URLコピー'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
-              {/* スマートフォン・ブラウザ Web Push プッシュ通知設定 */}
-              <div className="space-y-3 pt-4 border-t border-slate-100">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5 pb-1 border-b border-slate-100">
-                    <Smartphone className="w-4 h-4 text-indigo-500" />
-                    Web Push プッシュ通知設定（スマホ・PCリアルタイム通知）
-                  </h3>
+              {/* 📲 スマートフォン・ブラウザ Web Push プッシュ通知設定（トグル開閉） */}
+              <div className="pt-4 border-t border-slate-100">
+                <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs bg-white transition-all">
+                  {/* トグルヘッダー */}
                   <button
                     type="button"
-                    onClick={refreshPushStatus}
-                    className="text-[11px] text-slate-500 hover:text-indigo-600 flex items-center gap-1 transition-colors"
+                    onClick={() => setIsWebPushOpen((prev) => !prev)}
+                    className="w-full p-3.5 bg-slate-50/80 hover:bg-slate-100/90 flex items-center justify-between gap-3 text-left transition-colors cursor-pointer"
                   >
-                    <RefreshCw className={`w-3 h-3 ${pushLoading ? 'animate-spin' : ''}`} />
-                    状態更新
-                  </button>
-                </div>
-
-                {pushMessage && (
-                  <div className={`p-3 rounded-lg text-xs font-medium flex items-center gap-2 ${
-                    pushMessage.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' :
-                    pushMessage.type === 'error' ? 'bg-rose-50 text-rose-800 border border-rose-200' :
-                    'bg-sky-50 text-sky-800 border border-sky-200'
-                  }`}>
-                    {pushMessage.type === 'success' ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" /> :
-                     pushMessage.type === 'error' ? <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" /> :
-                     <Info className="w-4 h-4 text-sky-600 shrink-0" />}
-                    <span>{pushMessage.text}</span>
-                  </div>
-                )}
-
-                {pushLoading && pushProgressStep && (
-                  <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-lg text-xs font-bold text-indigo-900 flex items-center gap-2.5 shadow-sm animate-pulse">
-                    <Loader2 className="w-4 h-4 animate-spin text-indigo-600 shrink-0" />
-                    <span>{pushProgressStep}</span>
-                  </div>
-                )}
-
-                {pushStatus?.inIframe && (
-                  <div className="p-3 bg-amber-50 rounded-lg border border-amber-200 text-xs text-amber-900 space-y-1">
-                    <div className="font-bold flex items-center gap-1.5 text-amber-800">
-                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                      【注意】現在プレビュー画面（iFrame枠内）で動作しています
-                    </div>
-                    <p className="text-[11px] text-amber-800 leading-relaxed">
-                      iFrame内ではブラウザセキュリティ制限により「通知許可ポップアップ」が出ない場合があります。画面右上の <strong>「新しいタブで開く」</strong> アイコンを押して別タブでアクセスしてから「通知を有効にする」を試してください。
-                    </p>
-                  </div>
-                )}
-
-                <div className="p-4 bg-indigo-50/40 rounded-xl border border-indigo-100 space-y-3.5">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <h4 className="text-xs font-bold text-slate-900">この端末でのリアルタイム通知</h4>
-                        {pushStatus?.isSubscribed ? (
-                          <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded-full flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                            受信有効
-                          </span>
-                        ) : pushStatus?.permission === 'denied' ? (
-                          <span className="px-2 py-0.5 bg-rose-100 text-rose-800 text-[10px] font-bold rounded-full">
-                            通知拒否
-                          </span>
-                        ) : (
-                          <span className="px-2 py-0.5 bg-slate-200 text-slate-700 text-[10px] font-bold rounded-full">
-                            未登録
-                          </span>
-                        )}
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-8 h-8 rounded-lg bg-indigo-100 border border-indigo-200 flex items-center justify-center shrink-0">
+                        <Smartphone className="w-4 h-4 text-indigo-700" />
                       </div>
-                      <p className="text-[11px] text-slate-600 leading-relaxed">
-                        電話メモ、チャットメッセージ、承認依頼などが届いた際、アプリを開いていなくてもスマートフォンのロック画面やPCに即座に通知されます。
-                      </p>
-                      {pushStatus && (pushStatus.subscriptionCount ?? 0) > 0 && (
-                        <p className="text-[10px] text-indigo-700 font-medium">
-                          📲 あなたのアカウントで現在 <strong>{pushStatus.subscriptionCount}台</strong> の端末が通知受信登録されています。
+                      <div className="truncate">
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-xs font-bold text-slate-800">
+                            Web Push プッシュ通知設定（スマホ・PCリアルタイム通知）
+                          </h3>
+                          <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                            Web Push
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                          電話メモ、チャット、承認依頼などのスマホ・PC端末ロック画面リアルタイム通知
                         </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      {pushStatus?.isSubscribed ? (
+                        <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 border border-emerald-200 text-[10px] font-bold rounded-md flex items-center gap-1 font-mono">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                          受信有効
+                        </span>
+                      ) : pushStatus?.permission === 'denied' ? (
+                        <span className="px-2.5 py-1 bg-rose-100 text-rose-800 border border-rose-200 text-[10px] font-bold rounded-md">
+                          通知拒否
+                        </span>
+                      ) : (
+                        <span className="px-2.5 py-1 bg-slate-100 text-slate-700 border border-slate-200 text-[10px] font-bold rounded-md">
+                          未登録
+                        </span>
                       )}
+                      <div className="p-1 rounded-md text-slate-400 hover:text-slate-600 bg-white border border-slate-200 shadow-2xs">
+                        {isWebPushOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                      </div>
                     </div>
-                  </div>
+                  </button>
 
-                  {/* iOS PWA案内 */}
-                  <div className="p-2.5 bg-white rounded-lg border border-indigo-100/80 text-[11px] text-slate-600 space-y-1">
-                    <div className="font-bold text-slate-800 flex items-center gap-1 text-[11px]">
-                      <Info className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                      iPhone / iPad をご利用の場合の注意
-                    </div>
-                    <p className="text-[10.5px] leading-relaxed text-slate-600">
-                      iOS 16.4以降のSafariでSafari下部の共有ボタン <span className="inline-block px-1 py-0.5 bg-slate-100 border border-slate-200 rounded font-mono text-[9px]">共有 [↑]</span> → <strong>「ホーム画面に追加」</strong> を行い、ホーム画面のアイコンから起動した状態で下記の「通知を有効にする」を押してください。
-                    </p>
-                  </div>
-
-                  {/* アクションボタン群 */}
-                  <div className="flex flex-wrap items-center gap-2 pt-1">
-                    {pushStatus?.isSubscribed ? (
-                      <>
+                  {/* 開閉コンテンツ */}
+                  {isWebPushOpen && (
+                    <div className="p-4 border-t border-slate-200/80 space-y-3.5 bg-white animate-fade-in text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] text-slate-500">
+                          この端末でのプッシュ通知受信状態を管理します
+                        </span>
                         <button
                           type="button"
-                          disabled={pushLoading}
-                          onClick={handleTestPush}
-                          className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-bold rounded-lg transition-all shadow-sm flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                          onClick={refreshPushStatus}
+                          className="text-[11px] text-slate-500 hover:text-indigo-600 flex items-center gap-1 transition-colors cursor-pointer"
                         >
-                          {pushLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-                          テスト通知を送信
+                          <RefreshCw className={`w-3 h-3 ${pushLoading ? 'animate-spin' : ''}`} />
+                          状態更新
                         </button>
-                        <button
-                          type="button"
-                          disabled={pushLoading}
-                          onClick={handleDisablePush}
-                          className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 text-xs font-medium rounded-lg transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                        >
-                          <BellOff className="w-3.5 h-3.5 text-slate-400" />
-                          この端末の通知を解除
-                        </button>
-                      </>
-                    ) : (
-                      <button
-                        type="button"
-                        disabled={pushLoading}
-                        onClick={handleEnablePush}
-                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-bold rounded-lg transition-all shadow-sm flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                      >
-                        {pushLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <BellRing className="w-4 h-4" />}
-                        この端末でプッシュ通知を有効にする
-                      </button>
-                    )}
+                      </div>
 
-                    <button
-                      type="button"
-                      disabled={pushLoading || diagLoading}
-                      onClick={handleRunDiagnostics}
-                      className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-xs font-medium rounded-lg transition-all flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
-                    >
-                      {diagLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-500" /> : <Wrench className="w-3.5 h-3.5 text-slate-500" />}
-                      端末通知環境を診断
-                    </button>
-                  </div>
+                      {pushMessage && (
+                        <div className={`p-3 rounded-lg text-xs font-medium flex items-center gap-2 ${
+                          pushMessage.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' :
+                          pushMessage.type === 'error' ? 'bg-rose-50 text-rose-800 border border-rose-200' :
+                          'bg-sky-50 text-sky-800 border border-sky-200'
+                        }`}>
+                          {pushMessage.type === 'success' ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" /> :
+                           pushMessage.type === 'error' ? <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" /> :
+                           <Info className="w-4 h-4 text-sky-600 shrink-0" />}
+                          <span>{pushMessage.text}</span>
+                        </div>
+                      )}
+
+                      {pushLoading && pushProgressStep && (
+                        <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-lg text-xs font-bold text-indigo-900 flex items-center gap-2.5 shadow-sm animate-pulse">
+                          <Loader2 className="w-4 h-4 animate-spin text-indigo-600 shrink-0" />
+                          <span>{pushProgressStep}</span>
+                        </div>
+                      )}
+
+                      <div className="p-4 bg-indigo-50/40 rounded-xl border border-indigo-100 space-y-3.5">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <h4 className="text-xs font-bold text-slate-900">この端末でのリアルタイム通知</h4>
+                              {pushStatus?.isSubscribed ? (
+                                <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded-full flex items-center gap-1">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                  受信有効
+                                </span>
+                              ) : pushStatus?.permission === 'denied' ? (
+                                <span className="px-2 py-0.5 bg-rose-100 text-rose-800 text-[10px] font-bold rounded-full">
+                                  通知拒否
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 bg-slate-200 text-slate-700 text-[10px] font-bold rounded-full">
+                                  未登録
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[11px] text-slate-600 leading-relaxed">
+                              電話メモ、チャットメッセージ、承認依頼などが届いた際、アプリを開いていなくてもスマートフォンのロック画面やPCに即座に通知されます。
+                            </p>
+                            {pushStatus && (pushStatus.subscriptionCount ?? 0) > 0 && (
+                              <p className="text-[10px] text-indigo-700 font-medium">
+                                📲 あなたのアカウントで現在 <strong>{pushStatus.subscriptionCount}台</strong> の端末が通知受信登録されています。
+                              </p>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* iOS PWA案内 */}
+                        <div className="p-2.5 bg-white rounded-lg border border-indigo-100/80 text-[11px] text-slate-600 space-y-1">
+                          <div className="font-bold text-slate-800 flex items-center gap-1 text-[11px]">
+                            <Info className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                            iPhone / iPad をご利用の場合の注意
+                          </div>
+                          <p className="text-[10.5px] leading-relaxed text-slate-600">
+                            iOS 16.4以降のSafariでSafari下部の共有ボタン <span className="inline-block px-1 py-0.5 bg-slate-100 border border-slate-200 rounded font-mono text-[9px]">共有 [↑]</span> → <strong>「ホーム画面に追加」</strong> を行い、ホーム画面のアイコンから起動した状態で下記の「通知を有効にする」を押してください。
+                          </p>
+                        </div>
+
+                        {/* アクションボタン群 */}
+                        <div className="flex flex-wrap items-center gap-2 pt-1">
+                          {pushStatus?.isSubscribed ? (
+                            <>
+                              <button
+                                type="button"
+                                disabled={pushLoading}
+                                onClick={handleTestPush}
+                                className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-bold rounded-lg transition-all shadow-sm flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                              >
+                                {pushLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                                テスト通知を送信
+                              </button>
+                              <button
+                                type="button"
+                                disabled={pushLoading}
+                                onClick={handleDisablePush}
+                                className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 text-xs font-medium rounded-lg transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                              >
+                                <BellOff className="w-3.5 h-3.5 text-slate-400" />
+                                この端末の通知を解除
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={pushLoading}
+                              onClick={handleEnablePush}
+                              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-bold rounded-lg transition-all shadow-sm flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                            >
+                              {pushLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <BellRing className="w-4 h-4" />}
+                              この端末でプッシュ通知を有効にする
+                            </button>
+                          )}
+
+                          <button
+                            type="button"
+                            disabled={pushLoading || diagLoading}
+                            onClick={handleRunDiagnostics}
+                            className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-xs font-medium rounded-lg transition-all flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
+                          >
+                            {diagLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-500" /> : <Wrench className="w-3.5 h-3.5 text-slate-500" />}
+                            端末通知環境を診断
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
