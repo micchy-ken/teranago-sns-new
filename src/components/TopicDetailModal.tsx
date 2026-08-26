@@ -65,8 +65,21 @@ export function TopicDetailModal({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const officeNames = Array.from(new Set(offices.map(o => o.name)));
-  const divisionNames = Array.from(new Set(divisions.map(d => d.name)));
+  const officeNames = React.useMemo(() => {
+    const list = Array.from(new Set(offices.map(o => o.name).filter(Boolean)));
+    if (topic?.office && topic.office !== '全社' && !list.includes(topic.office)) {
+      list.push(topic.office);
+    }
+    return list;
+  }, [offices, topic?.office]);
+
+  const divisionNames = React.useMemo(() => {
+    const list = Array.from(new Set(divisions.map(d => d.name).filter(Boolean)));
+    if (topic?.division && topic.division !== '全部署' && !list.includes(topic.division)) {
+      list.push(topic.division);
+    }
+    return list;
+  }, [divisions, topic?.division]);
 
   // モーダルが開かれた時に自動的に既読（閲覧メンバー）を記録、及び編集用フォーム初期化
   useEffect(() => {

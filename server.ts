@@ -2494,12 +2494,111 @@ async function startServer() {
       const mailDateStr = parsed.date ? new Date(parsed.date).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }) : new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
       const fromDisplay = parsed.from?.text || `${matchedUser.name} <${matchedUser.email || matchedUser.mobileEmail}>`;
 
-      // 本文先頭にメールヘッダー風の分かりやすいヘッダーバナーを付与
-      const formattedContent = `${rawText}\n\n───────────────\n📧 メール受信情報\n差出人: ${fromDisplay}\n送信日時: ${mailDateStr}\n添付ファイル: ${attachmentsList.length} 件`;
-
-      // 本文および件名から #タグ を抽出 + '#社内メール' を必ず追加
+      // ─── 本文1行目から特定のタブ（タグ／拠点／部署）の解析 ───
+      // メール投稿時のデフォルトは必ず「全社」「全部署」
+      let targetOffice = '全社';
+      let targetDivision = '全部署';
       const extractedTags = new Set<string>();
       extractedTags.add('社内メール');
+
+      // 登録ユーザー一覧から既知の拠点名・部署名リストを動的に収集
+      const knownOffices = new Set<string>(['本社', '名古屋支店', '静岡営業所', '三河営業所', '三重営業所', '岐阜営業所', '東京支店', '大阪支店']);
+      const knownDivisions = new Set<string>(['管理', '営業', '設計', '工務', '保守', '総務', '製造', '開発', 'IT', '人事', '経理', '管理部', '営業部', '設計部', '工務部', '保守部', '総務部']);
+      allUsers.forEach((u: any) => {
+        if (u.office && u.office.trim() && u.office !== '全社') knownOffices.add(u.office.trim());
+        if (u.division && u.division.trim() && u.division !== '全部署') knownDivisions.add(u.division.trim());
+        if (u.department && u.department.trim() && u.department !== '全部署') knownDivisions.add(u.department.trim());
+      });
+
+      // 本文を行ごとに分割し、最初の非空行（1行目）をチェック
+      const lines = rawText.split(/\r?\n/);
+      let firstLineIndex = -1;
+      for (let idx = 0; idx < lines.length; idx++) {
+        if (lines[idx].trim().length > 0) {
+          firstLineIndex = idx;
+          break;
+        }
+      }
+
+      let isFirstLineHeaderInstruction = false;
+      let bodyTextForContent = rawText;
+
+      if (firstLineIndex !== -1) {
+        const firstLineRaw = lines[firstLineIndex].trim();
+
+        // 1行目のフォーマットパターンを判定:
+        // パターンA: [タブ名/宛先] または 【タブ名/宛先】 または (タブ名/宛先)
+        // パターンB: タブ: ○○ / タグ: ○○ / カテゴリ: ○○ / 宛先: ○○ / 拠点: ○○ / 部署: ○○
+        // パターンC: #タグ名
+        // パターンD: 単一の短いキーワード行（例: "重要", "お知らせ", "保守", "名古屋支店"）
+        let extractedDirective = '';
+        const bracketMatch = firstLineRaw.match(/^[\[【\(「](.+?)[\]】\)」]$/);
+        const prefixMatch = firstLineRaw.match(/^(?:タブ|タグ|カテゴリ|カテゴリー|宛先|対象|公開範囲|拠点|部署|scope)[\s:：]+(.+)$/i);
+        const hashMatch = firstLineRaw.match(/^#([^\s#　]+)$/);
+
+        if (bracketMatch) {
+          extractedDirective = bracketMatch[1].trim();
+          isFirstLineHeaderInstruction = true;
+        } else if (prefixMatch) {
+          extractedDirective = prefixMatch[1].trim();
+          isFirstLineHeaderInstruction = true;
+        } else if (hashMatch) {
+          extractedDirective = hashMatch[1].trim();
+          isFirstLineHeaderInstruction = true;
+        } else if (firstLineRaw.length <= 20 && !/[。、!?！？]/.test(firstLineRaw)) {
+          // 短い単語1行のみで、既知の拠点・部署・重要タグに合致する場合
+          const candidate = firstLineRaw.replace(/^[#＃]/, '').trim();
+          const matchOffice = Array.from(knownOffices).find(o => candidate === o || candidate.includes(o));
+          const matchDiv = Array.from(knownDivisions).find(d => candidate === d || candidate.includes(d));
+          if (matchOffice || matchDiv || ['重要', 'お知らせ', '緊急', '連絡', '社内連絡', '議事録', '保守', '工務', '営業', '総務', 'IT', '人事'].includes(candidate)) {
+            extractedDirective = candidate;
+            isFirstLineHeaderInstruction = true;
+          }
+        }
+
+        if (extractedDirective) {
+          // 抽出された文字列から拠点、部署、タグを特定
+          // 1. 拠点判定
+          for (const officeName of Array.from(knownOffices)) {
+            if (extractedDirective.includes(officeName)) {
+              targetOffice = officeName;
+              break;
+            }
+          }
+
+          // 2. 部署判定
+          for (const divName of Array.from(knownDivisions)) {
+            if (extractedDirective.includes(divName)) {
+              targetDivision = divName;
+              break;
+            }
+          }
+
+          // 3. タグ判定（スラッシュや記号で分割してタグとして登録）
+          const tagTokens = extractedDirective
+            .split(/[\/\s,、|｜・]+/)
+            .map(t => t.replace(/^[#＃\[\]【】\(\)]/, '').trim())
+            .filter(Boolean);
+
+          tagTokens.forEach(token => {
+            if (token && token !== '全社' && token !== '全部署') {
+              extractedTags.add(token);
+            }
+          });
+
+          // 1行目が明示的な指定行の場合は、本文からその行を除いてすっきり表示
+          if (isFirstLineHeaderInstruction) {
+            const remainingLines = [...lines];
+            remainingLines.splice(firstLineIndex, 1);
+            while (remainingLines.length > 0 && remainingLines[0].trim() === '') {
+              remainingLines.shift();
+            }
+            bodyTextForContent = remainingLines.join('\n');
+          }
+        }
+      }
+
+      // 件名および本文からの #ハッシュタグ も抽出
       const tagMatches = `${mailSubject} ${rawText}`.match(/#([^\s#　]+)/g);
       if (tagMatches) {
         tagMatches.forEach(t => {
@@ -2510,6 +2609,13 @@ async function startServer() {
         });
       }
 
+      // 本文先頭にメールヘッダー風の分かりやすいヘッダーバナーを付与
+      const targetDisplay = (targetOffice === '全社' && targetDivision === '全部署')
+        ? '全社 / 全部署'
+        : `${targetOffice} / ${targetDivision}`;
+
+      const formattedContent = `${bodyTextForContent}\n\n───────────────\n📧 メール受信情報\n差出人: ${fromDisplay}\n宛先: ${targetDisplay}\n送信日時: ${mailDateStr}\n添付ファイル: ${attachmentsList.length} 件`;
+
       // 掲示板トピック作成
       const topicId = `topic_mail_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
       const newTopic = {
@@ -2518,9 +2624,9 @@ async function startServer() {
         content: formattedContent,
         category: 'general',
         tags: Array.from(extractedTags),
-        office: matchedUser.office || '全社',
-        division: matchedUser.division || matchedUser.department || '全部署',
-        scope: '全社',
+        office: targetOffice,
+        division: targetDivision,
+        scope: targetOffice === '全社' && targetDivision === '全部署' ? '全社' : '特定部署',
         author: {
           id: matchedUser.id,
           name: matchedUser.name,
@@ -2542,7 +2648,7 @@ async function startServer() {
       saveBulletins(bulletinsList);
 
       pop3State.totalImportedCount++;
-      addPop3Log('success', `メールを掲示板へ掲載しました: 「${mailSubject}」（投稿者: ${matchedUser.name}様, タグ: #${Array.from(extractedTags).join(' #')}）`);
+      addPop3Log('success', `メールを掲示板へ掲載しました: 「${mailSubject}」（投稿者: ${matchedUser.name}様, 宛先: ${targetDisplay}, タグ: #${Array.from(extractedTags).join(' #')}）`);
 
       // 社内メンバーへのアプリ内通知 & Web Push
       try {

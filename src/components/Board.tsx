@@ -428,6 +428,8 @@ export function Board({
             onDeleteTopic(topicId);
           }
         }}
+        offices={offices}
+        divisions={divisions}
       />
 
       {/* 削除確認モーダル */}

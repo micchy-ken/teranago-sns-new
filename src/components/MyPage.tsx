@@ -1713,6 +1713,8 @@ export function MyPage({
             setSelectedTopic(updated);
             if (onUpdateTopic) onUpdateTopic(updated);
           }}
+          offices={offices}
+          divisions={divisions}
         />
       )}
 

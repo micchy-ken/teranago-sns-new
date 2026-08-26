@@ -149,7 +149,7 @@ export function AdminPanel({
   const [pop3CheckResult, setPop3CheckResult] = useState<{ success?: boolean; message?: string; error?: string } | null>(null);
   const [simulateSenderEmail, setSimulateSenderEmail] = useState('');
   const [simulateSubject, setSimulateSubject] = useState('【連絡】社内メールからのテスト投稿');
-  const [simulateBody, setSimulateBody] = useState('外出先からの社内メール受信連携のテスト投稿です。\n重要なお知らせや現場連絡をメールから直接掲示板へ共有できます。');
+  const [simulateBody, setSimulateBody] = useState('[お知らせ]\n外出先からの社内メール受信連携のテスト投稿です。\n本文1行目に [重要] や [お知らせ]、または [名古屋支店/営業] などのタブ・宛先を指定できます（省略時は全社・全部署宛て）。');
   const [isSimulatingPop3, setIsSimulatingPop3] = useState(false);
   const [simulateResult, setSimulateResult] = useState<{ success?: boolean; message?: string; error?: string } | null>(null);
 
@@ -2857,15 +2857,20 @@ export function AdminPanel({
                       </div>
 
                       <div className="sm:col-span-3">
-                        <label className="block text-[11px] font-bold text-slate-300 mb-1">
-                          メール本文
-                        </label>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="block text-[11px] font-bold text-slate-300">
+                            メール本文
+                          </label>
+                          <span className="text-[10px] text-blue-300">
+                            💡 1行目に [重要] [お知らせ] や [名古屋支店/営業] 等でタブ・宛先を指定可能（省略時は全社・全部署）
+                          </span>
+                        </div>
                         <textarea
-                          rows={2}
+                          rows={3}
                           value={simulateBody}
                           onChange={(e) => setSimulateBody(e.target.value)}
                           className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                          placeholder="メール本文を入力..."
+                          placeholder="[お知らせ] （1行目にタブ・タグ指定、省略可）&#10;メール本文を入力..."
                         />
                       </div>
                     </div>
