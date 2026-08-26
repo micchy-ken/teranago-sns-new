@@ -46,6 +46,11 @@ interface DailyReportProps {
   divisions?: { id: string; name: string }[];
   refetchReports?: () => Promise<void> | void;
   initialReportId?: string;
+  applications?: any[];
+  onAddApplication?: (app: any) => Promise<void> | void;
+  onUpdateApplication?: (app: any) => Promise<void> | void;
+  approvalFlows?: any[];
+  itemMasters?: any[];
 }
 
 // ヘルパー: 指定日の週の月曜日（YYYY-MM-DD）を取得
@@ -101,7 +106,12 @@ export function DailyReportView({
   currentUser,
   allUsers = [],
   divisions = [],
-  initialReportId
+  initialReportId,
+  applications = [],
+  onAddApplication,
+  onUpdateApplication,
+  approvalFlows = [],
+  itemMasters = [],
 }: DailyReportProps) {
   // モード切り替え: 'weekly' (週報) | 'maintenance' (保守日報)
   const [reportMode, setReportMode] = useState<'weekly' | 'maintenance'>(() => {
@@ -402,6 +412,11 @@ export function DailyReportView({
         currentUser={currentUser}
         allUsers={allUsers}
         calendarEvents={calendarEvents}
+        applications={applications}
+        onAddApplication={onAddApplication}
+        onUpdateApplication={onUpdateApplication}
+        approvalFlows={approvalFlows}
+        itemMasters={itemMasters}
         onSaveReport={async (reportData) => {
           const targetId = reportData.id || activeMaintenanceReport?.id;
           if (targetId && onUpdateReport) {

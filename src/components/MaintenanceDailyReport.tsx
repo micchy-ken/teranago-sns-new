@@ -6,7 +6,11 @@ import {
   MaintenanceWorkRow, 
   MaintenanceOfficeWorkRow, 
   MaintenanceDailyReportData, 
-  WorkReportStatus 
+  WorkReportStatus,
+  WorkflowApplication,
+  ApprovalFlowRule,
+  ItemMaster,
+  ApplicationStatus
 } from '../types';
 import { 
   Calendar as CalendarIcon, 
@@ -30,11 +34,15 @@ import {
   MapPin,
   Users,
   Check,
-  AlertCircle
+  AlertCircle,
+  PackageCheck,
+  PackagePlus,
+  Package
 } from 'lucide-react';
 import { getAvatarUrl } from '../utils/avatar';
 import { getLocalDateStr } from '../utils/dateUtils';
 import { expandRecurringEvents } from '../utils/recurrenceUtils';
+import { ApplicationModal } from './ApplicationModal';
 
 // JST (日本標準時) 基準で YYYY-MM-DD を判定
 function getEventDateStrJST(dateInput: string | Date | undefined): string {
@@ -83,6 +91,11 @@ interface MaintenanceDailyReportProps {
   onSaveReport?: (data: Partial<DailyReport>) => Promise<void> | void;
   onReviewReport?: (id: string, comment: string) => Promise<void> | void;
   onBack?: () => void;
+  applications?: WorkflowApplication[];
+  onAddApplication?: (app: Omit<WorkflowApplication, 'id' | 'createdAt' | 'status'> & { id?: string; status?: ApplicationStatus }) => Promise<void> | void;
+  onUpdateApplication?: (app: WorkflowApplication) => Promise<void> | void;
+  approvalFlows?: ApprovalFlowRule[];
+  itemMasters?: ItemMaster[];
 }
 
 // 曜日漢字ヘルパー
@@ -233,7 +246,38 @@ export function MaintenanceDailyReportView({
   onSaveReport,
   onReviewReport,
   onBack,
+  applications = [],
+  onAddApplication,
+  onUpdateApplication,
+  approvalFlows = [],
+  itemMasters = [],
 }: MaintenanceDailyReportProps) {
+  // 補充申請モーダル管理用ステート
+  const [supplyModalState, setSupplyModalState] = useState<{
+    isOpen: boolean;
+    initialData?: WorkflowApplication | null;
+    targetSiteName?: string;
+  } | null>(null);
+
+  // 現場名に対応する補充申請を検索するヘルパー関数
+  const getSupplyApplicationForSite = (siteName: string): WorkflowApplication | undefined => {
+    if (!siteName || !siteName.trim() || !applications) return undefined;
+    const sName = siteName.trim();
+    return applications.find(app => 
+      app.type === 'inventory_issue' && 
+      (app.title.includes(sName) || (app.description && app.description.includes(sName)))
+    );
+  };
+
+  const handleOpenSupplyModal = (siteName: string) => {
+    if (!siteName || !siteName.trim()) return;
+    const existingApp = getSupplyApplicationForSite(siteName);
+    setSupplyModalState({
+      isOpen: true,
+      initialData: existingApp || null,
+      targetSiteName: siteName.trim(),
+    });
+  };
   // maintenanceData の安全な取得（camelCase と snake_case の両方およびJSON文字列化対応）
   const maintenanceData = useMemo<MaintenanceDailyReportData | null>(() => {
     if (!report) return null;
@@ -1164,6 +1208,9 @@ export function MaintenanceDailyReportView({
                   <th className="p-2 text-center bg-[#E8F8F0] w-24 text-emerald-900 border-l border-emerald-300">
                     建材数値<br /><span className="text-[9px] font-normal text-emerald-700">※手入力</span>
                   </th>
+                  <th className="p-2 text-center bg-[#EBF5FF] w-28 text-sky-900 border-l border-sky-300">
+                    補充<br /><span className="text-[9px] font-normal text-sky-700">※申請・確認</span>
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 font-sans">
@@ -1371,6 +1418,63 @@ export function MaintenanceDailyReportView({
                         className="w-full px-2 py-1 border border-emerald-400 rounded text-xs text-center font-bold text-emerald-950 bg-white focus:ring-2 focus:ring-emerald-500/20"
                       />
                     </td>
+
+                    {/* 補充ボタン列 */}
+                    <td className="p-1 border-l border-slate-200 text-center bg-slate-50/50">
+                      {(() => {
+                        const existingApp = getSupplyApplicationForSite(row.siteName);
+                        const isSiteEmpty = !row.siteName || !row.siteName.trim();
+
+                        if (existingApp) {
+                          let badgeColor = 'bg-amber-100 text-amber-900 border-amber-300 hover:bg-amber-200 shadow-2xs';
+                          let statusText = '申請中';
+                          if (existingApp.status === 'approved') {
+                            badgeColor = 'bg-emerald-100 text-emerald-900 border-emerald-300 hover:bg-emerald-200 shadow-2xs';
+                            statusText = '承認済';
+                          } else if (existingApp.status === 'rejected') {
+                            badgeColor = 'bg-rose-100 text-rose-900 border-rose-300 hover:bg-rose-200 shadow-2xs';
+                            statusText = '却下';
+                          } else if (existingApp.status === 'draft') {
+                            badgeColor = 'bg-slate-100 text-slate-800 border-slate-300 hover:bg-slate-200 shadow-2xs';
+                            statusText = '下書き';
+                          }
+
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenSupplyModal(row.siteName)}
+                              className={`w-full px-1.5 py-1 text-[11px] font-bold rounded border flex items-center justify-center gap-1 mx-auto transition-colors cursor-pointer ${badgeColor}`}
+                              title="クリックで補充申請の内容を確認・変更"
+                            >
+                              <PackageCheck className="w-3.5 h-3.5 shrink-0" />
+                              <span className="truncate">補充 ({statusText})</span>
+                            </button>
+                          );
+                        }
+
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (isSiteEmpty) {
+                                alert('補充申請を作成するには、先に現場名を入力してください。');
+                                return;
+                              }
+                              handleOpenSupplyModal(row.siteName);
+                            }}
+                            className={`w-full px-2 py-1 text-[11px] font-bold rounded border flex items-center justify-center gap-1 mx-auto transition-all ${
+                              isSiteEmpty 
+                                ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-60' 
+                                : 'bg-sky-50 text-sky-700 border-sky-300 hover:bg-sky-100 hover:text-sky-800 shadow-2xs cursor-pointer'
+                            }`}
+                            title={isSiteEmpty ? '現場名を入力すると補充依頼できます' : 'この現場の補充申請を作成'}
+                          >
+                            <PackagePlus className="w-3.5 h-3.5 shrink-0 text-sky-600" />
+                            <span>補充</span>
+                          </button>
+                        );
+                      })()}
+                    </td>
                   </tr>
                 ))}
 
@@ -1395,6 +1499,7 @@ export function MaintenanceDailyReportView({
                   <td className="p-2 text-center font-bold text-emerald-900 bg-emerald-100/70 border-l border-emerald-300">
                     {mainTableTotals.buildingMaterialValue}
                   </td>
+                  <td className="p-2 text-center bg-slate-100 border-l border-slate-300 text-slate-400 font-normal text-[11px]">-</td>
                 </tr>
               </tbody>
             </table>
@@ -1482,7 +1587,59 @@ export function MaintenanceDailyReportView({
                     {/* 現場名 & 作業内容 */}
                     <div className="grid grid-cols-1 gap-2">
                       <div>
-                        <label className="text-[11px] font-bold text-slate-600">現場名</label>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-[11px] font-bold text-slate-600">現場名</label>
+                          {(() => {
+                            const existingApp = getSupplyApplicationForSite(row.siteName);
+                            const isSiteEmpty = !row.siteName || !row.siteName.trim();
+                            if (existingApp) {
+                              let badgeColor = 'bg-amber-100 text-amber-900 border-amber-300';
+                              let statusText = '申請中';
+                              if (existingApp.status === 'approved') {
+                                badgeColor = 'bg-emerald-100 text-emerald-900 border-emerald-300';
+                                statusText = '承認済';
+                              } else if (existingApp.status === 'rejected') {
+                                badgeColor = 'bg-rose-100 text-rose-900 border-rose-300';
+                                statusText = '却下';
+                              }
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleOpenSupplyModal(row.siteName);
+                                  }}
+                                  className={`px-2 py-0.5 text-[10px] font-bold rounded border flex items-center gap-1 ${badgeColor}`}
+                                >
+                                  <PackageCheck className="w-3 h-3" />
+                                  <span>補充 ({statusText})</span>
+                                </button>
+                              );
+                            }
+                            return (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (isSiteEmpty) {
+                                    alert('補充申請を作成するには、先に現場名を入力してください。');
+                                    return;
+                                  }
+                                  handleOpenSupplyModal(row.siteName);
+                                }}
+                                disabled={isSiteEmpty}
+                                className={`px-2 py-0.5 text-[10px] font-bold rounded border flex items-center gap-1 ${
+                                  isSiteEmpty 
+                                    ? 'bg-slate-100 text-slate-400 border-slate-200' 
+                                    : 'bg-sky-50 text-sky-700 border-sky-300'
+                                }`}
+                              >
+                                <PackagePlus className="w-3 h-3 text-sky-600" />
+                                <span>補充依頼</span>
+                              </button>
+                            );
+                          })()}
+                        </div>
                         <input
                           type="text"
                           value={row.siteName}
@@ -1907,6 +2064,30 @@ export function MaintenanceDailyReportView({
               確認完了（確認印を押印）
             </button>
           </div>
+        )}
+
+        {/* ---------------- 補充申請 ポップアップモーダル ---------------- */}
+        {supplyModalState?.isOpen && (
+          <ApplicationModal
+            isOpen={true}
+            onClose={() => setSupplyModalState(null)}
+            onSave={async (appData) => {
+              if (appData.id && onUpdateApplication) {
+                await onUpdateApplication(appData as WorkflowApplication);
+              } else if (onAddApplication) {
+                await onAddApplication(appData);
+              }
+              setSupplyModalState(null);
+            }}
+            allUsers={allUsers || []}
+            currentUser={currentUser}
+            approvalFlows={approvalFlows}
+            itemMasters={itemMasters}
+            initialData={supplyModalState.initialData}
+            initialType="inventory_issue"
+            initialTitle={`[${supplyModalState.targetSiteName || '現場'}] 補充申請`}
+            initialDescription={`保守日報 (${reportDate}) の現場 [${supplyModalState.targetSiteName || '未入力'}] における資材・部品の補充依頼です。`}
+          />
         )}
       </div>
     </div>

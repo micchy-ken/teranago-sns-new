@@ -15,6 +15,9 @@ interface ApplicationModalProps {
   approvalFlows?: ApprovalFlowRule[];
   initialData?: WorkflowApplication | null;
   itemMasters?: ItemMaster[];
+  initialType?: ApplicationType;
+  initialTitle?: string;
+  initialDescription?: string;
 }
 
 const typeLabels: Record<ApplicationType, string> = {
@@ -35,6 +38,9 @@ export function ApplicationModal({
   approvalFlows = [],
   initialData,
   itemMasters = [],
+  initialType,
+  initialTitle,
+  initialDescription,
 }: ApplicationModalProps) {
   const [type, setType] = useState<ApplicationType>('business_trip');
   const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
@@ -135,10 +141,10 @@ export function ApplicationModal({
           setPurchaseItems([{ itemName: '', quantity: 1, unitPrice: 0, amount: 0 }]);
         }
       } else {
-        const defaultType: ApplicationType = 'business_trip';
+        const defaultType: ApplicationType = initialType || 'business_trip';
         setType(defaultType);
-        setTitle('');
-        setDescription('');
+        setTitle(initialTitle || '');
+        setDescription(initialDescription || '');
         setAmount('');
         setAttachments([]);
         setQuantity('');
@@ -170,7 +176,7 @@ export function ApplicationModal({
         }
       }
     }
-  }, [isOpen, initialData]);
+  }, [isOpen, initialData, initialType, initialTitle, initialDescription]);
 
   // 明細行の更新
   const handlePurchaseItemChange = (

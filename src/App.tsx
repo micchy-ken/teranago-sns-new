@@ -3531,6 +3531,11 @@ export default function App() {
             refetchReports={refetchReports}
             calendarEvents={events}
             initialReportId={targetReportId}
+            applications={applications}
+            onAddApplication={handleAddApplication}
+            onUpdateApplication={handleUpdateApplication}
+            approvalFlows={approvalFlows}
+            itemMasters={itemMasters}
           />
         )}
         {activeTab === 'files' && (
