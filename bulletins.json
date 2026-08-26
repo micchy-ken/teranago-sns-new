@@ -1,0 +1,38 @@
+[
+  {
+    "id": "topic_mail_1787718961113_xgap9x",
+    "title": "【連絡】社内掲示板メール投稿テスト（自動同期確認）",
+    "content": "メールサーバーからの自動投稿テスト本文です。\n正常に反映されているか確認してください。\n\n───────────────\n📧 メール受信情報\n差出人: \"テスト送信者\" <yamamichi@teraoka-ads.co.jp>\n宛先: 名古屋支店 / 工務\n送信日時: 2026/8/26 13:36:01\n添付ファイル: 0 件",
+    "category": "general",
+    "tags": [
+      "社内メール",
+      "名古屋支店",
+      "工務部"
+    ],
+    "office": "名古屋支店",
+    "division": "工務",
+    "scope": "特定部署",
+    "authorId": "u1",
+    "author_id": "u1",
+    "author": {
+      "id": "u1",
+      "name": "山道 健介",
+      "department": "名古屋支店 総務部 課長補佐",
+      "office": "名古屋支店",
+      "avatarUrl": "",
+      "position": "課長補佐"
+    },
+    "attachments": [],
+    "hasPeriod": false,
+    "isPinned": false,
+    "views": 0,
+    "likes": 0,
+    "comments": [],
+    "commentsCount": 0,
+    "viewers": [],
+    "createdAt": "2026-08-26T04:36:01.000Z",
+    "created_at": "2026-08-26T04:36:01.000Z",
+    "updatedAt": "2026-08-26T04:36:01.113Z",
+    "updated_at": "2026-08-26T04:36:01.113Z"
+  }
+]

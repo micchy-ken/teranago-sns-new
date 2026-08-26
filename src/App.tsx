@@ -1242,6 +1242,34 @@ export default function App() {
     };
   }, [isAuthenticated, activeTab, usersList]);
 
+  // 掲示板 (Bulletins / Board) 自動同期 & 更新イベントリスナー
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    // 掲示板タブを開いたときは即時に最新トピックを再取得
+    if (activeTab === 'board') {
+      refetchTopics(usersList);
+    }
+
+    const handleBulletinsUpdated = () => {
+      refetchTopics(usersList);
+    };
+
+    window.addEventListener('bulletins_updated', handleBulletinsUpdated);
+
+    // バックグラウンドでも45秒おきに最新掲示板トピックを巡回取得
+    const boardInterval = setInterval(() => {
+      if (typeof document !== 'undefined' && !document.hidden) {
+        refetchTopics(usersList);
+      }
+    }, 45000);
+
+    return () => {
+      window.removeEventListener('bulletins_updated', handleBulletinsUpdated);
+      clearInterval(boardInterval);
+    };
+  }, [isAuthenticated, activeTab, usersList]);
+
   // Board Handlers
   const handleAddTopic = async (topicData: Omit<BoardTopic, 'id' | 'createdAt' | 'views' | 'commentsCount'>) => {
     const tempId = `t-temp-${Date.now()}`;

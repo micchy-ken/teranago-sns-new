@@ -211,6 +211,10 @@ export function AdminPanel({
         message: result.data.message || `POP3チェック完了: 検出 ${result.data.found}件, 掲載 ${result.data.imported}件, 削除 ${result.data.deleted}件`
       });
       handleFetchPop3Status();
+      if (result.data.imported > 0) {
+        window.dispatchEvent(new CustomEvent('bulletins_updated'));
+        window.dispatchEvent(new CustomEvent('notifications_updated'));
+      }
     } else {
       setPop3CheckResult({
         error: result.data?.error || result.error || 'POP3メール受信チェックに失敗しました。'
@@ -249,6 +253,10 @@ export function AdminPanel({
         error: !result.data.success ? (result.data.details?.reason || '投稿スキップされました') : undefined
       });
       handleFetchPop3Status();
+      if (result.data.success) {
+        window.dispatchEvent(new CustomEvent('bulletins_updated'));
+        window.dispatchEvent(new CustomEvent('notifications_updated'));
+      }
     } else {
       setSimulateResult({
         error: result.data?.error || result.error || 'シミュレーション実行に失敗しました。'

@@ -24,6 +24,7 @@ import cors from 'cors';
 import sql from 'mssql';
 import path from 'path';
 import fs from 'fs';
+import net from 'net';
 import multer from 'multer';
 import webpush from 'web-push';
 import nodemailer from 'nodemailer';
@@ -248,8 +249,80 @@ async function getPool() {
           IF COL_LENGTH('dbo.push_subscriptions', 'created_at') IS NULL ALTER TABLE dbo.push_subscriptions ADD created_at DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET();
           IF COL_LENGTH('dbo.push_subscriptions', 'last_active_at') IS NULL ALTER TABLE dbo.push_subscriptions ADD last_active_at DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET();
         END
+
+        -- Bulletins Table (社内掲示板テーブル)
+        IF OBJECT_ID('dbo.Bulletins', 'U') IS NULL
+        BEGIN
+          CREATE TABLE dbo.Bulletins (
+            id NVARCHAR(100) PRIMARY KEY,
+            title NVARCHAR(500) NOT NULL,
+            content NVARCHAR(MAX) NULL,
+            category NVARCHAR(100) DEFAULT N'general',
+            authorId NVARCHAR(100) NULL,
+            author_id NVARCHAR(100) NULL,
+            isPinned BIT DEFAULT 0,
+            office NVARCHAR(100) NULL,
+            division NVARCHAR(100) NULL,
+            scope NVARCHAR(100) DEFAULT N'全社',
+            tags NVARCHAR(MAX) NULL,
+            attachments NVARCHAR(MAX) NULL,
+            views INT DEFAULT 0,
+            likes INT DEFAULT 0,
+            createdAt DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET(),
+            created_at DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET(),
+            updatedAt DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET()
+          );
+        END
+        ELSE
+        BEGIN
+          IF COL_LENGTH('dbo.Bulletins', 'title') IS NULL ALTER TABLE dbo.Bulletins ADD title NVARCHAR(500) NULL;
+          IF COL_LENGTH('dbo.Bulletins', 'content') IS NULL ALTER TABLE dbo.Bulletins ADD content NVARCHAR(MAX) NULL;
+          IF COL_LENGTH('dbo.Bulletins', 'category') IS NULL ALTER TABLE dbo.Bulletins ADD category NVARCHAR(100) DEFAULT N'general';
+          IF COL_LENGTH('dbo.Bulletins', 'authorId') IS NULL ALTER TABLE dbo.Bulletins ADD authorId NVARCHAR(100) NULL;
+          IF COL_LENGTH('dbo.Bulletins', 'isPinned') IS NULL ALTER TABLE dbo.Bulletins ADD isPinned BIT DEFAULT 0;
+          IF COL_LENGTH('dbo.Bulletins', 'office') IS NULL ALTER TABLE dbo.Bulletins ADD office NVARCHAR(100) NULL;
+          IF COL_LENGTH('dbo.Bulletins', 'division') IS NULL ALTER TABLE dbo.Bulletins ADD division NVARCHAR(100) NULL;
+          IF COL_LENGTH('dbo.Bulletins', 'scope') IS NULL ALTER TABLE dbo.Bulletins ADD scope NVARCHAR(100) DEFAULT N'全社';
+          IF COL_LENGTH('dbo.Bulletins', 'tags') IS NULL ALTER TABLE dbo.Bulletins ADD tags NVARCHAR(MAX) NULL;
+          IF COL_LENGTH('dbo.Bulletins', 'attachments') IS NULL ALTER TABLE dbo.Bulletins ADD attachments NVARCHAR(MAX) NULL;
+          IF COL_LENGTH('dbo.Bulletins', 'views') IS NULL ALTER TABLE dbo.Bulletins ADD views INT DEFAULT 0;
+          IF COL_LENGTH('dbo.Bulletins', 'likes') IS NULL ALTER TABLE dbo.Bulletins ADD likes INT DEFAULT 0;
+          IF COL_LENGTH('dbo.Bulletins', 'createdAt') IS NULL ALTER TABLE dbo.Bulletins ADD createdAt DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET();
+          IF COL_LENGTH('dbo.Bulletins', 'updatedAt') IS NULL ALTER TABLE dbo.Bulletins ADD updatedAt DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET();
+        END
+
+        -- BoardComments Table
+        IF OBJECT_ID('dbo.BoardComments', 'U') IS NULL
+        BEGIN
+          CREATE TABLE dbo.BoardComments (
+            id NVARCHAR(100) PRIMARY KEY,
+            topicId NVARCHAR(100) NULL,
+            topic_id NVARCHAR(100) NULL,
+            authorId NVARCHAR(100) NULL,
+            author_id NVARCHAR(100) NULL,
+            content NVARCHAR(MAX) NULL,
+            attachments NVARCHAR(MAX) NULL,
+            createdAt DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET(),
+            created_at DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET()
+          );
+        END
+
+        -- BoardViewers Table
+        IF OBJECT_ID('dbo.BoardViewers', 'U') IS NULL
+        BEGIN
+          CREATE TABLE dbo.BoardViewers (
+            id INT IDENTITY(1,1) PRIMARY KEY,
+            topicId NVARCHAR(100) NULL,
+            topic_id NVARCHAR(100) NULL,
+            bulletinId NVARCHAR(100) NULL,
+            userId NVARCHAR(100) NULL,
+            user_id NVARCHAR(100) NULL,
+            viewedAt DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET(),
+            viewed_at DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET()
+          );
+        END
       \`);
-      console.log('✅ Checked/Updated dbo.notifications, dbo.WorkReports, dbo.system_settings, dbo.push_subscriptions tables in SQL Server');
+      console.log('✅ Checked/Updated dbo.notifications, dbo.WorkReports, dbo.system_settings, dbo.push_subscriptions, dbo.Bulletins tables in SQL Server');
     } catch (e) {
       console.warn('⚠️ Failed to check/alter notifications/WorkReports tables:', e.message);
     }
@@ -1031,6 +1104,769 @@ app.all(['/api/email/test', '/api/email/test/'], async (req, res) => {
   } catch (err) {
     console.error('[Email] Test email error:', err);
     res.status(500).json({ error: err.message || 'テストメールの送信に失敗しました。' });
+  }
+});
+
+// =========================================================
+// POP3 メール受信・掲示板自動投稿エンジン (Inbound Mail Polling Engine)
+// =========================================================
+const pop3Config = {
+  host: process.env.POP3_HOST || process.env.SMTP_HOST || '111.89.134.68',
+  port: Number(process.env.POP3_PORT || 110),
+  secure: false, // ポート110・平文TCP
+  user: process.env.POP3_USER || process.env.SMTP_USER || 'nagoya-soumu2',
+  pass: process.env.POP3_PASS || process.env.SMTP_PASS || 'EJ2brys7',
+  fromAddress: process.env.SMTP_FROM_EMAIL || 'nagoya-soumu2@teraoka-ads.co.jp',
+  deleteAfterImport: process.env.POP3_DELETE_AFTER_IMPORT !== 'false',
+  checkIntervalSec: Number(process.env.POP3_CHECK_INTERVAL_SEC || 60),
+  defaultTag: process.env.POP3_DEFAULT_TAG || '社内メール'
+};
+
+const pop3State = {
+  isPolling: false,
+  lastCheckedAt: null,
+  lastCheckStatus: 'idle',
+  lastCheckMessage: '起動待機中',
+  totalImportedCount: 0,
+  logs: []
+};
+
+function addPop3Log(type, message) {
+  const timestamp = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
+  pop3State.logs.unshift({ timestamp, type, message });
+  if (pop3State.logs.length > 50) {
+    pop3State.logs = pop3State.logs.slice(0, 50);
+  }
+  console.log(\`[POP3 \${type.toUpperCase()}] \${message}\`);
+}
+
+// POP3 Socket クライアント実装
+class Pop3SocketClient {
+  constructor() {
+    this.socket = null;
+    this.buffer = '';
+    this.isMultiline = false;
+    this.currentResolve = null;
+    this.currentReject = null;
+  }
+
+  async connect(host, port, timeoutMs = 12000) {
+    return new Promise((resolve, reject) => {
+      const sock = net.createConnection({ host, port });
+      this.socket = sock;
+      sock.setTimeout(timeoutMs);
+
+      let initialResolved = false;
+
+      sock.on('connect', () => {});
+
+      sock.on('data', (chunk) => {
+        this.buffer += chunk.toString('latin1');
+        this.processBuffer();
+      });
+
+      sock.on('timeout', () => {
+        sock.destroy(new Error(\`POP3 接続タイムアウト (\${host}:\${port})\`));
+      });
+
+      sock.on('error', (err) => {
+        if (!initialResolved) {
+          initialResolved = true;
+          reject(err);
+        } else if (this.currentReject) {
+          const r = this.currentReject;
+          this.currentReject = null;
+          this.currentResolve = null;
+          r(err);
+        }
+      });
+
+      sock.on('close', () => {
+        if (this.currentReject) {
+          const r = this.currentReject;
+          this.currentReject = null;
+          this.currentResolve = null;
+          r(new Error('POP3 接続が切断されました'));
+        }
+      });
+
+      this.currentResolve = (greeting) => {
+        initialResolved = true;
+        resolve(greeting);
+      };
+      this.currentReject = (err) => {
+        initialResolved = true;
+        reject(err);
+      };
+    });
+  }
+
+  processBuffer() {
+    if (!this.currentResolve) return;
+
+    if (this.isMultiline) {
+      let termIndex = this.buffer.indexOf('\\r\\n.\\r\\n');
+      let termLen = 5;
+      if (termIndex === -1) {
+        termIndex = this.buffer.indexOf('\\n.\\n');
+        termLen = 3;
+      }
+      if (termIndex === -1 && (this.buffer === '.\\r\\n' || this.buffer.startsWith('.\\r\\n'))) {
+        termIndex = 0;
+        termLen = 3;
+      }
+
+      if (termIndex !== -1) {
+        const fullContent = this.buffer.slice(0, termIndex);
+        this.buffer = this.buffer.slice(termIndex + termLen);
+        this.isMultiline = false;
+
+        const lines = fullContent.split(/\\r?\\n/);
+        const header = lines[0] || '';
+        const bodyLines = lines.slice(1).map(l => l.startsWith('..') ? l.substring(1) : l);
+
+        const r = this.currentResolve;
+        this.currentResolve = null;
+        this.currentReject = null;
+        r({
+          header,
+          body: bodyLines,
+          raw: Buffer.from(bodyLines.join('\\r\\n'), 'latin1')
+        });
+      }
+    } else {
+      const lineEnd = this.buffer.indexOf('\\r\\n');
+      if (lineEnd !== -1) {
+        const line = this.buffer.slice(0, lineEnd);
+        this.buffer = this.buffer.slice(lineEnd + 2);
+
+        const r = this.currentResolve;
+        this.currentResolve = null;
+        this.currentReject = null;
+        r(line);
+      }
+    }
+  }
+
+  async sendCommand(cmd) {
+    if (!this.socket) throw new Error('POP3 ソケットが初期化されていません');
+    return new Promise((resolve, reject) => {
+      this.isMultiline = false;
+      this.currentResolve = (res) => {
+        if (res && res.startsWith('-ERR')) {
+          reject(new Error(\`POP3 コマンドエラー (\${cmd}): \${res}\`));
+        } else {
+          resolve(res);
+        }
+      };
+      this.currentReject = reject;
+      this.socket.write(cmd + '\\r\\n');
+    });
+  }
+
+  async sendMultilineCommand(cmd) {
+    if (!this.socket) throw new Error('POP3 ソケットが初期化されていません');
+    return new Promise((resolve, reject) => {
+      this.isMultiline = true;
+      this.currentResolve = (res) => {
+        if (res.header && res.header.startsWith('-ERR')) {
+          reject(new Error(\`POP3 コマンドエラー (\${cmd}): \${res.header}\`));
+        } else {
+          resolve(res);
+        }
+      };
+      this.currentReject = reject;
+      this.socket.write(cmd + '\\r\\n');
+    });
+  }
+
+  close() {
+    if (this.socket) {
+      try {
+        this.socket.destroy();
+      } catch (_) {}
+      this.socket = null;
+    }
+  }
+}
+
+// 送信者アドレスのホワイトリスト判定（登録メンバーのPCメール & 携帯メール & ログインID照合）
+function matchSenderToWhitelist(candidateAddresses, allUsers) {
+  if (!candidateAddresses || candidateAddresses.length === 0) return null;
+
+  for (const rawAddr of candidateAddresses) {
+    if (!rawAddr) continue;
+    const cleanAddr = rawAddr.replace(/[<>\\"\\'\\s]/g, '').trim().toLowerCase();
+    if (!cleanAddr) continue;
+
+    const addrUserPart = cleanAddr.split('@')[0] || '';
+
+    // 1. メールアドレス完全一致 (PCメール / 携帯メール)
+    const exactMatch = allUsers.find(u => {
+      const pc = (u.email || '').replace(/[<>\\"\\'\\s]/g, '').trim().toLowerCase();
+      const mobile = (u.mobileEmail || u.mobile_email || '').replace(/[<>\\"\\'\\s]/g, '').trim().toLowerCase();
+      return (pc && pc === cleanAddr) || (mobile && mobile === cleanAddr);
+    });
+    if (exactMatch) return exactMatch;
+
+    // 2. ユーザー名・ログインID一致
+    if (addrUserPart) {
+      const loginMatch = allUsers.find(u => {
+        const loginId = (u.loginId || u.login_id || u.username || '').trim().toLowerCase();
+        return loginId && loginId === addrUserPart;
+      });
+      if (loginMatch) return loginMatch;
+    }
+
+    // 3. 部分一致
+    const partialMatch = allUsers.find(u => {
+      const pc = (u.email || '').replace(/[<>\\"\\'\\s]/g, '').trim().toLowerCase();
+      const mobile = (u.mobileEmail || u.mobile_email || '').replace(/[<>\\"\\'\\s]/g, '').trim().toLowerCase();
+      return (pc && (cleanAddr.includes(pc) || pc.includes(cleanAddr))) ||
+             (mobile && (cleanAddr.includes(mobile) || mobile.includes(cleanAddr)));
+    });
+    if (partialMatch) return partialMatch;
+  }
+  return null;
+}
+
+// 1通のRawメールをパースして掲示板トピックへ変換・登録
+async function processIncomingEmail(rawEmailBuffer) {
+  try {
+    const parsed = await simpleParser(rawEmailBuffer);
+    
+    // DBまたはフォールバックから全ユーザーを取得
+    let allUsers = [];
+    try {
+      if (dbConnected) {
+        const userRes = await pool.request().query('SELECT * FROM dbo.Users');
+        allUsers = userRes.recordset.map(u => ({
+          id: String(u.id),
+          name: u.name,
+          email: u.email,
+          mobileEmail: u.mobile_email || u.mobileEmail,
+          office: u.office,
+          division: u.division || u.department,
+          department: u.department || u.division,
+          position: u.position,
+          avatarUrl: u.avatar_url || u.avatarUrl,
+          loginId: u.login_id || u.loginId
+        }));
+      }
+    } catch (dbErr) {
+      console.warn('[POP3] DBからのユーザー取得失敗、JSON/デフォルトを使用:', dbErr.message);
+    }
+
+    if (!allUsers || allUsers.length === 0) {
+      allUsers = [
+        { id: 'u1', name: '山道 健介', email: 'yamamichi@teraoka-ads.co.jp', mobileEmail: 'yamamichi.mobile@teraoka-ads.co.jp', office: '名古屋支店', division: '総務部', loginId: 'yamamichi' },
+        { id: 'u2', name: '寺岡 伸悟', email: 'teraoka@teraoka-ads.co.jp', office: '本社', division: '役員', loginId: 'teraoka' },
+        { id: 'u3', name: '加藤 翼', email: 'kato@teraoka-ads.co.jp', office: '名古屋支店', division: '営業部', loginId: 'kato' },
+        { id: 'u4', name: '水野 浩二', email: 'mizuno@teraoka-ads.co.jp', office: '名古屋支店', division: '工務部', loginId: 'mizuno' },
+        { id: 'u5', name: '伊藤 美咲', email: 'ito@teraoka-ads.co.jp', office: '本社', division: '管理部', loginId: 'ito' },
+        { id: 'u6', name: '鈴木 大輔', email: 'suzuki@teraoka-ads.co.jp', office: '静岡営業所', division: '営業部', loginId: 'suzuki' },
+        { id: 'u7', name: '佐藤 雅人', email: 'sato@teraoka-ads.co.jp', office: '三河営業所', division: '保守部', loginId: 'sato' }
+      ];
+    }
+
+    // 送信元メールアドレスの候補リストを抽出
+    const candidateSenders = [];
+    if (parsed.from?.value) {
+      parsed.from.value.forEach(v => {
+        if (v.address) candidateSenders.push(v.address);
+      });
+    }
+    if (parsed.from?.text) {
+      const matches = parsed.from.text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}/g);
+      if (matches) candidateSenders.push(...matches);
+    }
+    if (parsed.replyTo?.value) {
+      parsed.replyTo.value.forEach(v => {
+        if (v.address) candidateSenders.push(v.address);
+      });
+    }
+
+    // ホワイトリスト照合
+    const matchedUser = matchSenderToWhitelist(candidateSenders, allUsers);
+    if (!matchedUser) {
+      const senderStr = candidateSenders.join(', ') || parsed.from?.text || '不明な送信元';
+      addPop3Log('warn', \`ホワイトリスト外の送信元 (\${senderStr}) からのメールのため、掲示板への掲載をスキップしました。\`);
+      return { imported: false, reason: \`ホワイトリスト外 (\${senderStr})\` };
+    }
+
+    // 添付ファイルの保存処理
+    const attachmentsList = [];
+    if (parsed.attachments && parsed.attachments.length > 0) {
+      for (let i = 0; i < parsed.attachments.length; i++) {
+        const att = parsed.attachments[i];
+        try {
+          let decodedFilename = decodeMimeHeader(att.filename);
+          if (!decodedFilename) {
+            decodedFilename = \`email_attachment_\${Date.now()}_\${i}\`;
+          }
+
+          let ext = path.extname(decodedFilename);
+          if (!ext || ext.length > 10 || ext.includes('=')) {
+            ext = getExtensionFromMimeType(att.contentType);
+            if (!path.extname(decodedFilename)) {
+              decodedFilename = \`\${decodedFilename}\${ext}\`;
+            }
+          }
+
+          const cleanBase = path.basename(decodedFilename, ext)
+            .replace(/[^a-zA-Z0-9_\\-\\u3000-\\u303F\\u3040-\\u309F\\u30A0-\\u30FF\\u4E00-\\u9FFF\\uFF65-\\uFF9F\\uFF01-\\uFF5E]/g, '_') || 'file';
+          
+          const safeSavedFilename = \`\${Date.now()}_\${i}_\${cleanBase}\${ext}\`;
+          const filePath = path.join(bulletinsFilesDir, safeSavedFilename);
+
+          fs.writeFileSync(filePath, att.content);
+          attachmentsList.push({
+            id: \`att_mail_\${Date.now()}_\${i}\`,
+            name: decodedFilename,
+            size: formatAttachmentSize(att.size || att.content?.length || 0),
+            url: \`/bulletinsfiles/\${encodeURIComponent(safeSavedFilename)}\`,
+            type: att.contentType || 'application/octet-stream'
+          });
+        } catch (attErr) {
+          console.error('[POP3] 添付ファイル保存エラー:', attErr);
+        }
+      }
+    }
+
+    // 本文の抽出と整形
+    const rawText = parsed.text || (parsed.html ? parsed.html.replace(/<[^>]+>/g, '') : '') || '（本文なし）';
+    const mailSubject = (parsed.subject || '（無題の社内メール）').trim();
+    const mailDateStr = parsed.date ? new Date(parsed.date).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }) : new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
+    const fromDisplay = parsed.from?.text || \`\${matchedUser.name} <\${matchedUser.email || matchedUser.mobileEmail}>\`;
+
+    // ─── 本文1行目から特定のタブ（タグ／拠点／部署）の解析 ───
+    let targetOffice = '全社';
+    let targetDivision = '全部署';
+    const extractedTags = new Set();
+    extractedTags.add('社内メール');
+
+    const knownOffices = new Set(['本社', '名古屋支店', '静岡営業所', '三河営業所', '三重営業所', '岐阜営業所', '東京支店', '大阪支店']);
+    const knownDivisions = new Set(['管理', '営業', '設計', '工務', '保守', '総務', '製造', '開発', 'IT', '人事', '経理', '管理部', '営業部', '設計部', '工務部', '保守部', '総務部']);
+    allUsers.forEach(u => {
+      if (u.office && u.office.trim() && u.office !== '全社') knownOffices.add(u.office.trim());
+      if (u.division && u.division.trim() && u.division !== '全部署') knownDivisions.add(u.division.trim());
+      if (u.department && u.department.trim() && u.department !== '全部署') knownDivisions.add(u.department.trim());
+    });
+
+    const lines = rawText.split(/\\r?\\n/);
+    let firstLineIndex = -1;
+    for (let idx = 0; idx < lines.length; idx++) {
+      if (lines[idx].trim().length > 0) {
+        firstLineIndex = idx;
+        break;
+      }
+    }
+
+    let isFirstLineHeaderInstruction = false;
+    let bodyTextForContent = rawText;
+
+    if (firstLineIndex !== -1) {
+      const firstLineRaw = lines[firstLineIndex].trim();
+      let extractedDirective = '';
+      const bracketMatch = firstLineRaw.match(/^[[\\[【(「](.+?)[\\］】)」「]$/);
+      const prefixMatch = firstLineRaw.match(/^(?:タブ|タグ|カテゴリ|カテゴリー|宛先|対象|公開範囲|拠点|部署|scope)[\\s:：]+(.+)$/i);
+      const hashMatch = firstLineRaw.match(/^#([^\\s#　]+)$/);
+
+      if (bracketMatch) {
+        extractedDirective = bracketMatch[1].trim();
+        isFirstLineHeaderInstruction = true;
+      } else if (prefixMatch) {
+        extractedDirective = prefixMatch[1].trim();
+        isFirstLineHeaderInstruction = true;
+      } else if (hashMatch) {
+        extractedDirective = hashMatch[1].trim();
+        isFirstLineHeaderInstruction = true;
+      } else if (firstLineRaw.length <= 20 && !/[。、!?！？]/.test(firstLineRaw)) {
+        const candidate = firstLineRaw.replace(/^[#＃]/, '').trim();
+        const matchOffice = Array.from(knownOffices).find(o => candidate === o || candidate.includes(o));
+        const matchDiv = Array.from(knownDivisions).find(d => candidate === d || candidate.includes(d));
+        if (matchOffice || matchDiv || ['重要', 'お知らせ', '緊急', '連絡', '社内連絡', '議事録', '保守', '工務', '営業', '総務', 'IT', '人事'].includes(candidate)) {
+          extractedDirective = candidate;
+          isFirstLineHeaderInstruction = true;
+        }
+      }
+
+      if (extractedDirective) {
+        for (const officeName of Array.from(knownOffices)) {
+          if (extractedDirective.includes(officeName)) {
+            targetOffice = officeName;
+            break;
+          }
+        }
+        for (const divName of Array.from(knownDivisions)) {
+          if (extractedDirective.includes(divName)) {
+            targetDivision = divName;
+            break;
+          }
+        }
+        const tagTokens = extractedDirective
+          .split(/[\\/\\s,、|｜・]+/)
+          .map(t => t.replace(/^[#＃\\[\\]【】()]/, '').trim())
+          .filter(Boolean);
+
+        tagTokens.forEach(token => {
+          if (token && token !== '全社' && token !== '全部署') {
+            extractedTags.add(token);
+          }
+        });
+
+        if (isFirstLineHeaderInstruction) {
+          const remainingLines = [...lines];
+          remainingLines.splice(firstLineIndex, 1);
+          while (remainingLines.length > 0 && remainingLines[0].trim() === '') {
+            remainingLines.shift();
+          }
+          bodyTextForContent = remainingLines.join('\\n');
+        }
+      }
+    }
+
+    const tagMatches = \`\${mailSubject} \${rawText}\`.match(/#([^\\s#　]+)/g);
+    if (tagMatches) {
+      tagMatches.forEach(t => {
+        const cleanTag = t.replace(/^#/, '').trim();
+        if (cleanTag && cleanTag !== '社内メール') {
+          extractedTags.add(cleanTag);
+        }
+      });
+    }
+
+    const targetDisplay = (targetOffice === '全社' && targetDivision === '全部署')
+      ? '全社 / 全部署'
+      : \`\${targetOffice} / \${targetDivision}\`;
+
+    const formattedContent = \`\${bodyTextForContent}\\n\\n───────────────\\n📧 メール受信情報\\n差出人: \${fromDisplay}\\n宛先: \${targetDisplay}\\n送信日時: \${mailDateStr}\\n添付ファイル: \${attachmentsList.length} 件\`;
+
+    const topicId = \`topic_mail_\${Date.now()}_\${Math.random().toString(36).substr(2, 6)}\`;
+    const newTopic = {
+      id: topicId,
+      title: mailSubject,
+      content: formattedContent,
+      category: 'general',
+      tags: Array.from(extractedTags),
+      office: targetOffice,
+      division: targetDivision,
+      scope: targetOffice === '全社' && targetDivision === '全部署' ? '全社' : '特定部署',
+      author: {
+        id: matchedUser.id,
+        name: matchedUser.name,
+        department: matchedUser.department || matchedUser.division,
+        office: matchedUser.office,
+        avatarUrl: matchedUser.avatarUrl,
+        position: matchedUser.position
+      },
+      attachments: attachmentsList,
+      hasPeriod: false,
+      isPinned: false,
+      views: 0,
+      createdAt: parsed.date ? new Date(parsed.date).toISOString() : new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    // SQL Serverへ保存
+    let savedToDb = false;
+    try {
+      const pool = await getPool();
+      if (pool) {
+        const tagStr = Array.from(extractedTags).join(',');
+        const attachStr = attachmentsList.length > 0 ? JSON.stringify(attachmentsList) : null;
+        const now = parsed.date ? new Date(parsed.date) : new Date();
+        const scopeVal = (targetOffice === '全社' && targetDivision === '全部署') ? '全社' : '特定部署';
+
+        try {
+          await pool.request()
+            .input('id', sql.VarChar(100), String(topicId))
+            .input('title', sql.NVarChar(500), mailSubject)
+            .input('content', sql.NVarChar(sql.MAX), formattedContent)
+            .input('category', sql.NVarChar(100), 'general')
+            .input('authorId', sql.VarChar(100), String(matchedUser.id))
+            .input('isPinned', sql.Bit, 0)
+            .input('office', sql.NVarChar(100), targetOffice)
+            .input('division', sql.NVarChar(100), targetDivision)
+            .input('scope', sql.NVarChar(100), scopeVal)
+            .input('tags', sql.NVarChar(sql.MAX), tagStr)
+            .input('attachments', sql.NVarChar(sql.MAX), attachStr)
+            .input('createdAt', sql.DateTime, now)
+            .query(\`
+              INSERT INTO dbo.Bulletins (id, title, content, category, authorId, isPinned, office, division, scope, tags, attachments, createdAt, views, likes)
+              VALUES (@id, @title, @content, @category, @authorId, @isPinned, @office, @division, @scope, @tags, @attachments, @createdAt, 0, 0)
+            \`);
+          savedToDb = true;
+          console.log('[POP3] SQL Server dbo.Bulletins への登録に成功しました:', topicId);
+        } catch (colErr) {
+          console.warn('[POP3] 標準INSERT試行失敗、フォールバックINSERTを実行:', colErr.message);
+          await pool.request()
+            .input('id', sql.VarChar(100), String(topicId))
+            .input('title', sql.NVarChar(500), mailSubject)
+            .input('content', sql.NVarChar(sql.MAX), formattedContent)
+            .input('category', sql.NVarChar(100), 'general')
+            .input('tags', sql.NVarChar(sql.MAX), tagStr)
+            .input('authorId', sql.VarChar(100), String(matchedUser.id))
+            .input('office', sql.NVarChar(100), targetOffice)
+            .input('division', sql.NVarChar(100), targetDivision)
+            .input('attachments', sql.NVarChar(sql.MAX), attachStr)
+            .input('createdAt', sql.DateTime, now)
+            .query(\`
+              IF COL_LENGTH('dbo.Bulletins', 'authorId') IS NOT NULL
+                INSERT INTO dbo.Bulletins (id, title, content, category, authorId, office, division, tags, attachments, createdAt)
+                VALUES (@id, @title, @content, @category, @authorId, @office, @division, @tags, @attachments, @createdAt);
+              ELSE
+                INSERT INTO dbo.Bulletins (id, title, content, category, author_id, office, division, tags, attachments, created_at)
+                VALUES (@id, @title, @content, @category, @authorId, @office, @division, @tags, @attachments, @createdAt);
+            \`);
+          savedToDb = true;
+        }
+
+        // 社内メンバーへの通知作成
+        try {
+          for (const u of allUsers) {
+            if (String(u.id) !== String(matchedUser.id)) {
+              await pool.request()
+                .input('nid', sql.VarChar(100), \`notif_\${Date.now()}_\${Math.random().toString(36).substr(2, 6)}\`)
+                .input('uid', sql.VarChar(100), String(u.id))
+                .input('senderId', sql.VarChar(100), String(matchedUser.id))
+                .input('type', sql.VarChar(50), 'bulletin')
+                .input('title', sql.NVarChar(255), \`【掲示板】\${matchedUser.name}さんからメール投稿がありました\`)
+                .input('contents', sql.NVarChar(sql.MAX), mailSubject)
+                .input('targetId', sql.VarChar(100), String(topicId))
+                .query(\`
+                  IF OBJECT_ID('dbo.notifications', 'U') IS NOT NULL
+                  BEGIN
+                    INSERT INTO dbo.notifications (id, user_id, sender_id, type, title, contents, target_id, is_read, created_at)
+                    VALUES (@nid, @uid, @senderId, @type, @title, @contents, @targetId, 0, GETDATE())
+                  END
+                \`);
+            }
+          }
+        } catch (nErr) {
+          console.warn('[POP3] 通知作成スキップ:', nErr.message);
+        }
+      }
+    } catch (sqlErr) {
+      console.warn('[POP3] SQL Serverへの掲示板INSERT失敗、JSONフォールバックを試行:', sqlErr.message);
+    }
+
+    // JSONフォールバック保存
+    try {
+      const pathsToSave = [
+        path.join(process.cwd(), 'bulletins.json'),
+        path.join(process.cwd(), 'data', 'bulletins.json')
+      ];
+      for (const bPath of pathsToSave) {
+        try {
+          const dir = path.dirname(bPath);
+          if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+          let bList = [];
+          if (fs.existsSync(bPath)) {
+            bList = JSON.parse(fs.readFileSync(bPath, 'utf8'));
+          }
+          if (!Array.isArray(bList)) bList = [];
+          // 既存同一IDがなければ先頭に追加
+          if (!bList.some(item => String(item.id) === String(newTopic.id))) {
+            bList.unshift(newTopic);
+            fs.writeFileSync(bPath, JSON.stringify(bList, null, 2), 'utf8');
+          }
+        } catch (_) {}
+      }
+    } catch (jsonErr) {}
+
+    pop3State.totalImportedCount++;
+    addPop3Log('success', \`メールを掲示板へ掲載しました: 「\${mailSubject}」（投稿者: \${matchedUser.name}様, 宛先: \${targetDisplay}, タグ: #\${Array.from(extractedTags).join(' #')}）\`);
+
+    return { imported: true, reason: '成功', topicId };
+  } catch (err) {
+    console.error('[POP3] メールパース・投稿エラー:', err);
+    addPop3Log('error', \`メールパースエラー: \${err.message}\`);
+    return { imported: false, reason: \`パースエラー: \${err.message}\` };
+  }
+}
+
+// POP3 メールボックス巡回・受信実行関数
+let lastPollStartedAt = 0;
+async function pollPop3InboundEmails() {
+  if (pop3State.isPolling && Date.now() - lastPollStartedAt > 30000) {
+    console.warn('[POP3] 前回のポーリング処理がタイムアウトしたため、ロックを強制解除しました。');
+    pop3State.isPolling = false;
+  }
+
+  if (pop3State.isPolling) {
+    return { checked: true, found: 0, imported: 0, deleted: 0, message: '現在POP3メール受信巡回を実行中です。数秒後に再確認してください。' };
+  }
+
+  pop3State.isPolling = true;
+  lastPollStartedAt = Date.now();
+  pop3State.lastCheckStatus = 'checking';
+  const client = new Pop3SocketClient();
+
+  try {
+    addPop3Log('info', \`POP3 サーバー (\${pop3Config.host}:\${pop3Config.port}) への接続を開始します (ユーザー: \${pop3Config.user})...\`);
+    
+    await client.connect(pop3Config.host, pop3Config.port, 12000);
+    await client.sendCommand(\`USER \${pop3Config.user}\`);
+    await client.sendCommand(\`PASS \${pop3Config.pass}\`);
+
+    const statRes = await client.sendCommand('STAT');
+    const statParts = statRes.split(' ');
+    const msgCount = parseInt(statParts[1] || '0', 10);
+
+    pop3State.lastCheckedAt = new Date().toISOString();
+
+    if (msgCount === 0) {
+      await client.sendCommand('QUIT');
+      client.close();
+      pop3State.lastCheckStatus = 'success';
+      pop3State.lastCheckMessage = '新着メールはありません (0 件)';
+      return { checked: true, found: 0, imported: 0, deleted: 0, message: '新着メールはありません (0 件)' };
+    }
+
+    addPop3Log('info', \`POP3 サーバー上に \${msgCount} 件の未処理メールを検出しました。受信・解析を開始します。\`);
+
+    let importedCount = 0;
+    let deletedCount = 0;
+
+    for (let i = 1; i <= msgCount; i++) {
+      try {
+        const retrRes = await client.sendMultilineCommand(\`RETR \${i}\`);
+        const res = await processIncomingEmail(retrRes.raw);
+        if (res.imported) {
+          importedCount++;
+        }
+
+        if (pop3Config.deleteAfterImport) {
+          await client.sendCommand(\`DELE \${i}\`);
+          deletedCount++;
+        }
+      } catch (msgErr) {
+        addPop3Log('error', \`メール #\${i} の取得エラー: \${msgErr.message}\`);
+      }
+    }
+
+    await client.sendCommand('QUIT');
+    client.close();
+
+    pop3State.lastCheckStatus = 'success';
+    const summaryMsg = \`受信完了: 検出 \${msgCount} 件, 掲示板掲載 \${importedCount} 件, サーバー削除 \${deletedCount} 件\`;
+    pop3State.lastCheckMessage = summaryMsg;
+    addPop3Log('success', summaryMsg);
+
+    return { checked: true, found: msgCount, imported: importedCount, deleted: deletedCount, message: summaryMsg };
+  } catch (err) {
+    client.close();
+    pop3State.lastCheckedAt = new Date().toISOString();
+    pop3State.lastCheckStatus = 'error';
+    const errMsg = \`POP3 接続・受信エラー: \${err.message}\`;
+    pop3State.lastCheckMessage = errMsg;
+    addPop3Log('error', errMsg);
+    return { checked: true, found: 0, imported: 0, deleted: 0, message: errMsg };
+  } finally {
+    pop3State.isPolling = false;
+  }
+}
+
+// 60秒ごと定期ポーリング
+if (pop3Config.checkIntervalSec > 0) {
+  setInterval(() => {
+    pollPop3InboundEmails().catch(e => {
+      console.error('[POP3 Background Interval Error]', e);
+    });
+  }, pop3Config.checkIntervalSec * 1000);
+  console.log(\`[POP3] Background inbound mail worker started (Interval: \${pop3Config.checkIntervalSec}s, Host: \${pop3Config.host}:\${pop3Config.port})\`);
+}
+
+// POP3 稼働状況・設定取得 API
+app.get(['/api/email/inbound/status', '/api/email/inbound/status/'], async (req, res) => {
+  let allUsers = [];
+  try {
+    if (dbConnected) {
+      const userRes = await pool.request().query('SELECT * FROM dbo.Users');
+      allUsers = userRes.recordset;
+    }
+  } catch (e) {}
+
+  if (!allUsers || allUsers.length === 0) {
+    allUsers = [
+      { id: 'u1', name: '山道 健介', email: 'yamamichi@teraoka-ads.co.jp', mobile_email: 'yamamichi.mobile@teraoka-ads.co.jp', department: '名古屋支店 総務部' },
+      { id: 'u2', name: '寺岡 伸悟', email: 'teraoka@teraoka-ads.co.jp', department: '本社 役員' },
+      { id: 'u3', name: '加藤 翼', email: 'kato@teraoka-ads.co.jp', department: '名古屋支店 営業部' },
+      { id: 'u4', name: '水野 浩二', email: 'mizuno@teraoka-ads.co.jp', department: '名古屋支店 工務部' },
+      { id: 'u5', name: '伊藤 美咲', email: 'ito@teraoka-ads.co.jp', department: '本社 管理部' },
+      { id: 'u6', name: '鈴木 大輔', email: 'suzuki@teraoka-ads.co.jp', department: '静岡営業所 営業部' },
+      { id: 'u7', name: '佐藤 雅人', email: 'sato@teraoka-ads.co.jp', department: '三河営業所 保守部' }
+    ];
+  }
+
+  const whitelistUsers = allUsers.filter(u => !!(u.email?.trim() || u.mobile_email?.trim() || u.mobileEmail?.trim()));
+  res.json({
+    config: {
+      host: pop3Config.host,
+      port: pop3Config.port,
+      secure: pop3Config.secure,
+      user: pop3Config.user,
+      fromAddress: pop3Config.fromAddress,
+      deleteAfterImport: pop3Config.deleteAfterImport,
+      checkIntervalSec: pop3Config.checkIntervalSec,
+      defaultTag: pop3Config.defaultTag
+    },
+    whitelist: {
+      totalMembers: allUsers.length,
+      whitelistedMembersCount: whitelistUsers.length,
+      members: whitelistUsers.map(u => ({
+        id: u.id,
+        name: u.name,
+        department: u.department || u.division,
+        email: u.email,
+        mobileEmail: u.mobile_email || u.mobileEmail
+      }))
+    },
+    state: pop3State
+  });
+});
+
+// POP3 即時メール受信実行 API
+app.post(['/api/email/inbound/check-now', '/api/email/inbound/check-now/'], async (req, res) => {
+  try {
+    const result = await pollPop3InboundEmails();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POP3 メール投稿テスト・シミュレーター API
+app.post(['/api/email/inbound/simulate', '/api/email/inbound/simulate/'], async (req, res) => {
+  try {
+    const senderEmail = req.body.senderEmail || req.body.from;
+    const subject = req.body.subject || '【連絡】社内メールからのテスト投稿';
+    const body = req.body.body || req.body.text || '社内メール受信連携のテスト投稿です。';
+
+    if (!senderEmail) {
+      return res.status(400).json({ error: '送信者メールアドレス (senderEmail) を指定してください。' });
+    }
+
+    const mockRawEmail = [
+      \`From: "テスト送信者" <\${senderEmail}>\`,
+      \`To: <\${pop3Config.fromAddress}>\`,
+      \`Subject: \${subject}\`,
+      \`Date: \${new Date().toUTCString()}\`,
+      \`Message-ID: <simulated-\${Date.now()}@teraoka-ads.co.jp>\`,
+      \`Content-Type: text/plain; charset=utf-8\`,
+      \`\`,
+      body
+    ].join('\\r\\n');
+
+    const processRes = await processIncomingEmail(Buffer.from(mockRawEmail, 'utf8'));
+    res.json({
+      success: processRes.imported,
+      message: processRes.imported ? 'テストメールを掲示板へ正常に投稿しました。' : \`投稿スキップ: \${processRes.reason}\`,
+      details: processRes
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

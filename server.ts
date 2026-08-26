@@ -1582,12 +1582,126 @@ async function startServer() {
   // ==========================================
   const usersPath = path.join(dataDir, 'users.json');
 
+  const defaultInitialUsers = [
+    {
+      id: 'u1',
+      loginId: 'yamamichi',
+      password: 'password123',
+      name: '山道 健介',
+      office: '名古屋支店',
+      division: '総務部',
+      position: '課長補佐',
+      department: '名古屋支店 総務部 課長補佐',
+      email: 'yamamichi@teraoka-ads.co.jp',
+      mobileEmail: 'yamamichi.mobile@teraoka-ads.co.jp',
+      avatarUrl: '',
+      isAdmin: true,
+      role: 'admin'
+    },
+    {
+      id: 'u2',
+      loginId: 'teraoka',
+      password: 'password123',
+      name: '寺岡 伸悟',
+      office: '本社',
+      division: '役員',
+      position: '代表取締役社長',
+      department: '本社 役員 代表取締役社長',
+      email: 'teraoka@teraoka-ads.co.jp',
+      avatarUrl: '',
+      isAdmin: true,
+      role: 'admin'
+    },
+    {
+      id: 'u3',
+      loginId: 'kato',
+      password: 'password123',
+      name: '加藤 翼',
+      office: '名古屋支店',
+      division: '営業部',
+      position: '主任',
+      department: '名古屋支店 営業部 主任',
+      email: 'kato@teraoka-ads.co.jp',
+      avatarUrl: '',
+      isAdmin: false,
+      role: 'user'
+    },
+    {
+      id: 'u4',
+      loginId: 'mizuno',
+      password: 'password123',
+      name: '水野 浩二',
+      office: '名古屋支店',
+      division: '工務部',
+      position: '係長',
+      department: '名古屋支店 工務部 係長',
+      email: 'mizuno@teraoka-ads.co.jp',
+      avatarUrl: '',
+      isAdmin: false,
+      role: 'user'
+    },
+    {
+      id: 'u5',
+      loginId: 'ito',
+      password: 'password123',
+      name: '伊藤 美咲',
+      office: '本社',
+      division: '管理部',
+      position: '一般',
+      department: '本社 管理部 一般',
+      email: 'ito@teraoka-ads.co.jp',
+      avatarUrl: '',
+      isAdmin: false,
+      role: 'user'
+    },
+    {
+      id: 'u6',
+      loginId: 'suzuki',
+      password: 'password123',
+      name: '鈴木 大輔',
+      office: '静岡営業所',
+      division: '営業部',
+      position: '所長',
+      department: '静岡営業所 営業部 所長',
+      email: 'suzuki@teraoka-ads.co.jp',
+      avatarUrl: '',
+      isAdmin: false,
+      role: 'user'
+    },
+    {
+      id: 'u7',
+      loginId: 'sato',
+      password: 'password123',
+      name: '佐藤 雅人',
+      office: '三河営業所',
+      division: '保守部',
+      position: '主任',
+      department: '三河営業所 保守部 主任',
+      email: 'sato@teraoka-ads.co.jp',
+      avatarUrl: '',
+      isAdmin: false,
+      role: 'user'
+    }
+  ];
+
   function loadUsers(): any[] {
-    if (!fs.existsSync(usersPath)) return [];
+    if (!fs.existsSync(usersPath)) {
+      try {
+        fs.writeFileSync(usersPath, JSON.stringify(defaultInitialUsers, null, 2), 'utf8');
+        return defaultInitialUsers;
+      } catch (e) {
+        return defaultInitialUsers;
+      }
+    }
     try {
-      return JSON.parse(fs.readFileSync(usersPath, 'utf8'));
+      const data = JSON.parse(fs.readFileSync(usersPath, 'utf8'));
+      if (!Array.isArray(data) || data.length === 0) {
+        fs.writeFileSync(usersPath, JSON.stringify(defaultInitialUsers, null, 2), 'utf8');
+        return defaultInitialUsers;
+      }
+      return data;
     } catch (e) {
-      return [];
+      return defaultInitialUsers;
     }
   }
 
@@ -2336,26 +2450,39 @@ async function startServer() {
     }
   }
 
-  // 送信者アドレスのホワイトリスト判定（登録メンバーのPCメール & 携帯メール）
+  // 送信者アドレスのホワイトリスト判定（登録メンバーのPCメール & 携帯メール & ログインID照合）
   function matchSenderToWhitelist(candidateAddresses: string[], allUsers: any[]): any | null {
     if (!candidateAddresses || candidateAddresses.length === 0) return null;
 
     for (const rawAddr of candidateAddresses) {
       if (!rawAddr) continue;
-      const cleanAddr = rawAddr.trim().toLowerCase();
+      // <user@example.com> などのブラケットや引用符を除去
+      const cleanAddr = rawAddr.replace(/[<>\"\'\s]/g, '').trim().toLowerCase();
+      if (!cleanAddr) continue;
+
+      const addrUserPart = cleanAddr.split('@')[0] || '';
 
       // 1. メールアドレス完全一致 (PCメール / 携帯メール)
       const exactMatch = allUsers.find(u => {
-        const pc = (u.email || '').trim().toLowerCase();
-        const mobile = (u.mobileEmail || '').trim().toLowerCase();
+        const pc = (u.email || '').replace(/[<>\"\'\s]/g, '').trim().toLowerCase();
+        const mobile = (u.mobileEmail || '').replace(/[<>\"\'\s]/g, '').trim().toLowerCase();
         return (pc && pc === cleanAddr) || (mobile && mobile === cleanAddr);
       });
       if (exactMatch) return exactMatch;
 
-      // 2. 部分一致 (ヘッダー内の name <address> またはドメイン・ユーザー名一致)
+      // 2. ユーザー名・ログインID一致 (例: yamamichi@teraoka-ads.co.jp -> loginId: yamamichi)
+      if (addrUserPart) {
+        const loginMatch = allUsers.find(u => {
+          const loginId = (u.loginId || u.username || '').trim().toLowerCase();
+          return loginId && loginId === addrUserPart;
+        });
+        if (loginMatch) return loginMatch;
+      }
+
+      // 3. 部分一致 (ヘッダー内の name <address> またはドメイン・ユーザー名一致)
       const partialMatch = allUsers.find(u => {
-        const pc = (u.email || '').trim().toLowerCase();
-        const mobile = (u.mobileEmail || '').trim().toLowerCase();
+        const pc = (u.email || '').replace(/[<>\"\'\s]/g, '').trim().toLowerCase();
+        const mobile = (u.mobileEmail || '').replace(/[<>\"\'\s]/g, '').trim().toLowerCase();
         return (pc && (cleanAddr.includes(pc) || pc.includes(cleanAddr))) ||
                (mobile && (cleanAddr.includes(mobile) || mobile.includes(cleanAddr)));
       });
@@ -2618,6 +2745,7 @@ async function startServer() {
 
       // 掲示板トピック作成
       const topicId = `topic_mail_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+      const nowIso = parsed.date ? new Date(parsed.date).toISOString() : new Date().toISOString();
       const newTopic = {
         id: topicId,
         title: mailSubject,
@@ -2626,26 +2754,51 @@ async function startServer() {
         tags: Array.from(extractedTags),
         office: targetOffice,
         division: targetDivision,
-        scope: targetOffice === '全社' && targetDivision === '全部署' ? '全社' : '特定部署',
+        scope: (targetOffice === '全社' && targetDivision === '全部署') ? '全社' : '特定部署',
+        authorId: matchedUser.id,
+        author_id: matchedUser.id,
         author: {
           id: matchedUser.id,
           name: matchedUser.name,
           department: matchedUser.department || matchedUser.division,
           office: matchedUser.office,
-          avatarUrl: matchedUser.avatarUrl,
-          position: matchedUser.position
+          avatarUrl: matchedUser.avatarUrl || '',
+          position: matchedUser.position || ''
         },
         attachments: attachmentsList,
         hasPeriod: false,
         isPinned: false,
         views: 0,
-        createdAt: parsed.date ? new Date(parsed.date).toISOString() : new Date().toISOString(),
-        updatedAt: new Date().toISOString()
+        likes: 0,
+        comments: [],
+        commentsCount: 0,
+        viewers: [],
+        createdAt: nowIso,
+        created_at: nowIso,
+        updatedAt: new Date().toISOString(),
+        updated_at: new Date().toISOString()
       };
 
       const bulletinsList = loadBulletins();
-      bulletinsList.unshift(newTopic);
-      saveBulletins(bulletinsList);
+      // 重複登録防止
+      if (!bulletinsList.some((b: any) => String(b.id) === String(newTopic.id))) {
+        bulletinsList.unshift(newTopic);
+        saveBulletins(bulletinsList);
+      }
+
+      // ルートの bulletins.json にもフォールバック保存
+      try {
+        const rootBPath = path.join(process.cwd(), 'bulletins.json');
+        let rList = [];
+        if (fs.existsSync(rootBPath)) {
+          rList = JSON.parse(fs.readFileSync(rootBPath, 'utf8'));
+        }
+        if (!Array.isArray(rList)) rList = [];
+        if (!rList.some((b: any) => String(b.id) === String(newTopic.id))) {
+          rList.unshift(newTopic);
+          fs.writeFileSync(rootBPath, JSON.stringify(rList, null, 2), 'utf8');
+        }
+      } catch (_) {}
 
       pop3State.totalImportedCount++;
       addPop3Log('success', `メールを掲示板へ掲載しました: 「${mailSubject}」（投稿者: ${matchedUser.name}様, 宛先: ${targetDisplay}, タグ: #${Array.from(extractedTags).join(' #')}）`);
@@ -2687,12 +2840,20 @@ async function startServer() {
   }
 
   // POP3 メールボックス巡回・受信実行関数
+  let lastPollStartedAt = 0;
   async function pollPop3InboundEmails(): Promise<{ checked: boolean; found: number; imported: number; deleted: number; message: string }> {
+    // 30秒以上経過していたらロックを自動解除（安全弁）
+    if (pop3State.isPolling && Date.now() - lastPollStartedAt > 30000) {
+      console.warn('[POP3] 前回のポーリング処理がタイムアウトしたため、ロックを強制解除しました。');
+      pop3State.isPolling = false;
+    }
+
     if (pop3State.isPolling) {
-      return { checked: false, found: 0, imported: 0, deleted: 0, message: '既にPOP3巡回処理が実行中です。' };
+      return { checked: true, found: 0, imported: 0, deleted: 0, message: '現在POP3メール受信巡回を実行中です。数秒後に再確認してください。' };
     }
 
     pop3State.isPolling = true;
+    lastPollStartedAt = Date.now();
     pop3State.lastCheckStatus = 'checking';
     const client = new Pop3SocketClient();
 
