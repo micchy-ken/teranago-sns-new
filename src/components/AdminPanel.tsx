@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
-import { RECOMMEND_SERVER_JS } from './RecommendServerCode';
+import { RECOMMEND_SERVER_JS, SERVER_CODE_HISTORY } from './RecommendServerCode';
 import { getAvatarUrl, SILHOUETTE_SVG } from '../utils/avatar';
 import { API_BASE_URL } from '../config/api';
 import { 
@@ -3391,11 +3391,16 @@ END;`}
 
                 <div className="flex justify-between items-center pb-2">
                   <div>
-                    <h4 className="text-xs font-bold text-slate-800">
-                      推奨される `server.js` (Express + SQL Server) の全量
-                    </h4>
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-xs font-bold text-slate-800">
+                        推奨される `server.js` (Express + SQL Server) の全量
+                      </h4>
+                      <span className="px-2 py-0.5 text-[9px] font-bold bg-emerald-100 text-emerald-800 rounded-full border border-emerald-300">
+                        最新マスター ({SERVER_CODE_HISTORY[0]?.version})
+                      </span>
+                    </div>
                     <p className="text-[11px] text-slate-500 mt-0.5">
-                      不具合・制約バグを完全に解消した、Windows Server & Synology 用 Express バックエンドコードです。
+                      iCal同期・SQL Server接続を安定化した最新バックエンドコードです。古いキャッシュに依存せず常に最新マスターがコピーされます。
                     </p>
                   </div>
                   <button
@@ -3410,7 +3415,7 @@ END;`}
                     ) : (
                       <>
                         <Copy className="w-3.5 h-3.5" />
-                        server.js コードをコピー
+                        最新 server.js コードをコピー
                       </>
                     )}
                   </button>

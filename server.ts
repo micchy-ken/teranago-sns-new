@@ -4284,6 +4284,70 @@ async function startServer() {
     return `${yyyy}${mm}${dd}T${hh}${min}${ss}Z`;
   }
 
+  // iCal RRULE 生成ヘルパー (RFC 5545 準拠)
+  function buildIcsRRule(recurrenceInput: any, startIso: string, isAllDay: boolean): string {
+    let rule: any = recurrenceInput;
+    if (!rule) return '';
+    if (typeof rule === 'string') {
+      try { rule = JSON.parse(rule); } catch (_) {}
+    }
+    if (!rule || typeof rule !== 'object' || !rule.frequency || rule.frequency === 'none') {
+      return '';
+    }
+
+    const freq = String(rule.frequency).toUpperCase();
+    if (!['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'].includes(freq)) {
+      return '';
+    }
+
+    const parts: string[] = [`FREQ=${freq}`];
+
+    if (rule.interval && Number(rule.interval) > 1) {
+      parts.push(`INTERVAL=${rule.interval}`);
+    }
+
+    const dayMap = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+    if (freq === 'WEEKLY') {
+      if (Array.isArray(rule.daysOfWeek) && rule.daysOfWeek.length > 0) {
+        const days = rule.daysOfWeek.map((d: number) => dayMap[d]).filter(Boolean).join(',');
+        if (days) parts.push(`BYDAY=${days}`);
+      } else {
+        const d = new Date(startIso);
+        const dayIdx = !isNaN(d.getTime()) ? new Date(d.getTime() + 9 * 3600 * 1000).getUTCDay() : 0;
+        parts.push(`BYDAY=${dayMap[dayIdx]}`);
+      }
+    }
+
+    if (freq === 'MONTHLY') {
+      if (rule.monthlyType === 'day_of_week' && rule.weekOfMonth && rule.dayOfWeek !== undefined) {
+        const byDayCode = `${rule.weekOfMonth}${dayMap[rule.dayOfWeek]}`;
+        parts.push(`BYDAY=${byDayCode}`);
+      } else if (rule.monthDay) {
+        parts.push(`BYMONTHDAY=${rule.monthDay}`);
+      } else {
+        const d = new Date(startIso);
+        const day = !isNaN(d.getTime()) ? new Date(d.getTime() + 9 * 3600 * 1000).getUTCDate() : 1;
+        parts.push(`BYMONTHDAY=${day}`);
+      }
+    }
+
+    if (rule.endType === 'until_date' && rule.endDate) {
+      const endClean = String(rule.endDate).replace(/-/g, '');
+      if (isAllDay) {
+        parts.push(`UNTIL=${endClean}`);
+      } else {
+        const [y, m, d] = String(rule.endDate).split('-').map(Number);
+        // 日本時間の23:59:59 -> UTC 14:59:59
+        const utcUntil = new Date(Date.UTC(y, m - 1, d, 14, 59, 59));
+        parts.push(`UNTIL=${formatToUtc(utcUntil)}`);
+      }
+    } else if (rule.endType === 'count' && rule.count && Number(rule.count) > 0) {
+      parts.push(`COUNT=${rule.count}`);
+    }
+
+    return `RRULE:${parts.join(';')}`;
+  }
+
   // ==========================================
   // iCal (ICS) カレンダー外部連携 API
   // ==========================================
@@ -4323,6 +4387,20 @@ async function startServer() {
         if (e.description && typeof e.description === 'string' && e.description.startsWith('{')) {
           try { detailsObj = JSON.parse(e.description); } catch (_) {}
         }
+
+        let recurrenceObj = e.recurrence || detailsObj.recurrence;
+        if (typeof recurrenceObj === 'string') {
+          try { recurrenceObj = JSON.parse(recurrenceObj); } catch (_) {}
+        }
+
+        let exceptionsArr = e.recurrenceExceptions || detailsObj.recurrenceExceptions || [];
+        if (typeof exceptionsArr === 'string') {
+          try { exceptionsArr = JSON.parse(exceptionsArr); } catch (_) {}
+        }
+        if (!Array.isArray(exceptionsArr)) {
+          exceptionsArr = [];
+        }
+
         return {
           id: String(e.id),
           title: e.title || '予定',
@@ -4333,14 +4411,14 @@ async function startServer() {
           office: e.office || '全社',
           division: e.division || '全部署',
           location: e.location || detailsObj.location || '',
-          memo: e.memo || detailsObj.memo || e.description || '',
+          memo: e.memo || detailsObj.memo || (typeof e.description === 'string' && !e.description.startsWith('{') ? e.description : ''),
           attendees: e.attendees || detailsObj.attendees || [],
           createdBy: e.createdBy || detailsObj.createdBy,
           createdById: e.createdById || e.userId || detailsObj.createdById || detailsObj.userId,
-          recurrence: e.recurrence || detailsObj.recurrence,
+          recurrence: recurrenceObj,
           recurrenceParentId: e.recurrenceParentId || detailsObj.recurrenceParentId,
           recurrenceOriginalDate: e.recurrenceOriginalDate || detailsObj.recurrenceOriginalDate || e.instanceDate || detailsObj.instanceDate,
-          recurrenceExceptions: e.recurrenceExceptions || detailsObj.recurrenceExceptions,
+          recurrenceExceptions: exceptionsArr,
         };
       });
 
@@ -4351,8 +4429,8 @@ async function startServer() {
       const userEmail = targetUser?.email;
       const userMobileEmail = targetUser?.mobileEmail;
 
-      // Filter events: 厳密に自分が参加メンバー (attendees) に含まれている予定のみを抽出
-      const userEvents = normalizedEvents.filter((e: any) => {
+      // 参加者チェックヘルパー
+      const isUserAttendee = (e: any): boolean => {
         let attendeesList: any[] = [];
         if (Array.isArray(e.attendees)) {
           attendeesList = e.attendees;
@@ -4364,10 +4442,14 @@ async function startServer() {
         }
 
         if (!attendeesList || attendeesList.length === 0) {
+          // 作成者本人であれば参加とみなす
+          if (String(e.createdById) === String(userId) || (userName && e.createdBy?.name === userName)) {
+            return true;
+          }
           return false;
         }
 
-        const isAttendee = attendeesList.some((att: any) => {
+        return attendeesList.some((att: any) => {
           if (!att) return false;
           if (typeof att === 'object') {
             const attId = String(att.id || '');
@@ -4381,45 +4463,46 @@ async function startServer() {
           const attStr = String(att);
           return attStr === String(userId) || (userName && attStr === userName);
         });
+      };
 
-        return isAttendee;
+      // ユーザーが関係する予定を抽出
+      const userEvents = normalizedEvents.filter(e => {
+        if (isUserAttendee(e)) return true;
+        // 子イベントの場合、親が参加対象なら子も対象
+        if (e.recurrenceParentId) {
+          const parent = normalizedEvents.find(p => p.id === e.recurrenceParentId);
+          if (parent && isUserAttendee(parent)) return true;
+        }
+        return false;
       });
 
-      // Expand recurring events (-6 months ~ +18 months)
-      const viewStart = new Date();
-      viewStart.setMonth(viewStart.getMonth() - 6);
-      const viewEnd = new Date();
-      viewEnd.setMonth(viewEnd.getMonth() + 18);
+      // イベントの種別分類 (RFC 5545 準拠)
+      // 1. 繰り返し親イベント (Master)
+      // 2. 「この予定のみ変更」されたオーバーライドイベント (Exceptions)
+      // 3. 通常の単発イベント (Single)
+      const recurringMasters = userEvents.filter(e =>
+        !e.recurrenceParentId &&
+        e.recurrence &&
+        e.recurrence.frequency &&
+        e.recurrence.frequency !== 'none'
+      );
 
-      const expandedEvents = expandRecurringEvents(userEvents as any[], viewStart, viewEnd);
+      const recurringOverrides = userEvents.filter(e =>
+        !!e.recurrenceParentId &&
+        (e.recurrenceOriginalDate || (e.id && e.id.startsWith('e-ovr-')))
+      );
 
-      // 同一スロット・類似タイトルでの重複（過去の親レコード残骸や分割重複）を安全に排除
-      const seenSlotMap = new Map<string, any>();
-      for (const evt of expandedEvents) {
-        const startKey = evt.start ? new Date(evt.start).toISOString() : '';
-        const endKey = evt.end ? new Date(evt.end).toISOString() : startKey;
-        const normTitle = (evt.title || '').trim().replace(/\s+/g, ' ');
-        const slotKey = `${startKey}_${endKey}_${normTitle}`;
-
-        if (seenSlotMap.has(slotKey)) {
-          const prev = seenSlotMap.get(slotKey);
-          // 場所情報があるもの、またはより新しいレコードを優先採用
-          const prevScore = (prev.location ? 2 : 0) + (String(prev.id).includes('split') ? 1 : 0);
-          const currScore = (evt.location ? 2 : 0) + (String(evt.id).includes('split') ? 1 : 0);
-          if (currScore >= prevScore) {
-            seenSlotMap.set(slotKey, evt);
-          }
-        } else {
-          seenSlotMap.set(slotKey, evt);
-        }
-      }
-      const finalEvents = Array.from(seenSlotMap.values());
+      const singleEvents = userEvents.filter(e =>
+        !e.recurrenceParentId &&
+        (!e.recurrence || !e.recurrence.frequency || e.recurrence.frequency === 'none')
+      );
 
       const nowStr = formatToUtc(new Date());
       let icsContent = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Company SNS Calendar//JA\r\nCALSCALE:GREGORIAN\r\nMETHOD:PUBLISH\r\nX-WR-CALNAME:社内カレンダー同期\r\nX-WR-TIMEZONE:Asia/Tokyo\r\n";
 
-      for (const evt of finalEvents) {
-        const isAllDay = evt.isAllDay === true || (evt as any).isAllDay === 1 || (evt as any).isAllDay === 'true';
+      // A. 単発イベントの出力
+      for (const evt of singleEvents) {
+        const isAllDay = evt.isAllDay === true;
         let dtStartLine = '';
         let dtEndLine = '';
 
@@ -4429,8 +4512,6 @@ async function startServer() {
           if (startJst) {
             const startClean = startJst.replace(/-/g, '');
             dtStartLine = `DTSTART;VALUE=DATE:${startClean}\r\n`;
-
-            // Non-inclusive DTEND
             const endCleanNext = addDaysJstFormatted(endJst || startJst, 1);
             dtEndLine = `DTEND;VALUE=DATE:${endCleanNext}\r\n`;
           }
@@ -4443,24 +4524,155 @@ async function startServer() {
           }
         }
 
-        let descText = evt.memo || (evt as any).description || '';
-        if (typeof descText === 'string' && descText.startsWith('{')) {
-          try {
-            const parsed = JSON.parse(descText);
-            descText = parsed.memo || '';
-          } catch (_) {}
-        }
-
         const summaryEscaped = (evt.title || '').replace(/\r\n|\r|\n/g, ' ').replace(/[,;]/g, '\\$&');
-        const descEscaped = String(descText).replace(/\r\n|\r|\n/g, '\\n').replace(/[,;]/g, '\\$&');
+        const descEscaped = String(evt.memo || '').replace(/\r\n|\r|\n/g, '\\n').replace(/[,;]/g, '\\$&');
         const locEscaped = (evt.location || '').replace(/\r\n|\r|\n/g, ' ').replace(/[,;]/g, '\\$&');
 
         icsContent += "BEGIN:VEVENT\r\n";
         icsContent += `UID:evt-${evt.id}@company-sns\r\n`;
         icsContent += `DTSTAMP:${nowStr}\r\n`;
         icsContent += `SUMMARY:${summaryEscaped}\r\n`;
-        if (descText) icsContent += `DESCRIPTION:${descEscaped}\r\n`;
+        if (evt.memo) icsContent += `DESCRIPTION:${descEscaped}\r\n`;
         if (evt.location) icsContent += `LOCATION:${locEscaped}\r\n`;
+        if (dtStartLine) icsContent += dtStartLine;
+        if (dtEndLine) icsContent += dtEndLine;
+        icsContent += "END:VEVENT\r\n";
+      }
+
+      // B. 繰り返し親イベントの出力 (RRULE & EXDATE)
+      for (const master of recurringMasters) {
+        const isAllDay = master.isAllDay === true;
+        let dtStartLine = '';
+        let dtEndLine = '';
+
+        if (isAllDay) {
+          const startJst = getJstDateString(master.start);
+          const endJst = master.end ? getJstDateString(master.end) : startJst;
+          if (startJst) {
+            const startClean = startJst.replace(/-/g, '');
+            dtStartLine = `DTSTART;VALUE=DATE:${startClean}\r\n`;
+            const endCleanNext = addDaysJstFormatted(endJst || startJst, 1);
+            dtEndLine = `DTEND;VALUE=DATE:${endCleanNext}\r\n`;
+          }
+        } else {
+          const startD = master.start ? new Date(master.start) : null;
+          const endD = master.end ? new Date(master.end) : startD;
+          if (startD && endD) {
+            dtStartLine = `DTSTART:${formatToUtc(startD)}\r\n`;
+            dtEndLine = `DTEND:${formatToUtc(endD)}\r\n`;
+          }
+        }
+
+        const rrule = buildIcsRRule(master.recurrence, master.start, isAllDay);
+        if (!rrule) continue;
+
+        // この親に紐づくオーバーライド（この予定のみ変更）を検索
+        const relatedOverrides = recurringOverrides.filter(o => o.recurrenceParentId === master.id);
+        const overrideOrigDates = new Set(
+          relatedOverrides
+            .map(o => o.recurrenceOriginalDate || (o.id && o.id.startsWith('e-ovr-') ? o.id.split('-').pop() : ''))
+            .filter(Boolean)
+        );
+
+        // 純粋な削除日 (オーバーライドが存在しない exceptions) を EXDATE として抽出
+        const rawExceptions: string[] = Array.isArray(master.recurrenceExceptions) ? master.recurrenceExceptions : [];
+        const pureDeletedDates = rawExceptions.filter(exDate => !overrideOrigDates.has(exDate));
+
+        let exdateLines = '';
+        if (pureDeletedDates.length > 0) {
+          if (isAllDay) {
+            const datesFormatted = pureDeletedDates.map(d => d.replace(/-/g, '')).join(',');
+            exdateLines = `EXDATE;VALUE=DATE:${datesFormatted}\r\n`;
+          } else {
+            // 親の開始時刻 (UTC) の時分秒を取得し、除外日に適用
+            const masterD = new Date(master.start);
+            const mHours = masterD.getUTCHours();
+            const mMinutes = masterD.getUTCMinutes();
+            const mSeconds = masterD.getUTCSeconds();
+
+            const datesFormatted = pureDeletedDates.map(dStr => {
+              const [y, m, d] = dStr.split('-').map(Number);
+              const exUtc = new Date(Date.UTC(y, m - 1, d, mHours, mMinutes, mSeconds));
+              return formatToUtc(exUtc);
+            }).join(',');
+            exdateLines = `EXDATE:${datesFormatted}\r\n`;
+          }
+        }
+
+        const summaryEscaped = (master.title || '').replace(/\r\n|\r|\n/g, ' ').replace(/[,;]/g, '\\$&');
+        const descEscaped = String(master.memo || '').replace(/\r\n|\r|\n/g, '\\n').replace(/[,;]/g, '\\$&');
+        const locEscaped = (master.location || '').replace(/\r\n|\r|\n/g, ' ').replace(/[,;]/g, '\\$&');
+
+        icsContent += "BEGIN:VEVENT\r\n";
+        icsContent += `UID:evt-${master.id}@company-sns\r\n`;
+        icsContent += `DTSTAMP:${nowStr}\r\n`;
+        icsContent += `SUMMARY:${summaryEscaped}\r\n`;
+        if (master.memo) icsContent += `DESCRIPTION:${descEscaped}\r\n`;
+        if (master.location) icsContent += `LOCATION:${locEscaped}\r\n`;
+        if (dtStartLine) icsContent += dtStartLine;
+        if (dtEndLine) icsContent += dtEndLine;
+        icsContent += `${rrule}\r\n`;
+        if (exdateLines) icsContent += exdateLines;
+        icsContent += "END:VEVENT\r\n";
+      }
+
+      // C. 「この予定のみ変更」されたオーバーライド例外の出力 (RECURRENCE-ID)
+      for (const ovr of recurringOverrides) {
+        const parent = normalizedEvents.find(p => p.id === ovr.recurrenceParentId);
+        if (!parent) continue;
+
+        const isAllDay = ovr.isAllDay === true;
+        let dtStartLine = '';
+        let dtEndLine = '';
+
+        if (isAllDay) {
+          const startJst = getJstDateString(ovr.start);
+          const endJst = ovr.end ? getJstDateString(ovr.end) : startJst;
+          if (startJst) {
+            const startClean = startJst.replace(/-/g, '');
+            dtStartLine = `DTSTART;VALUE=DATE:${startClean}\r\n`;
+            const endCleanNext = addDaysJstFormatted(endJst || startJst, 1);
+            dtEndLine = `DTEND;VALUE=DATE:${endCleanNext}\r\n`;
+          }
+        } else {
+          const startD = ovr.start ? new Date(ovr.start) : null;
+          const endD = ovr.end ? new Date(ovr.end) : startD;
+          if (startD && endD) {
+            dtStartLine = `DTSTART:${formatToUtc(startD)}\r\n`;
+            dtEndLine = `DTEND:${formatToUtc(endD)}\r\n`;
+          }
+        }
+
+        // RECURRENCE-ID (親の元の予定日時) の算出
+        let recurrenceIdLine = '';
+        const origDateStr = ovr.recurrenceOriginalDate || (ovr.id.startsWith('e-ovr-') ? ovr.id.split('-').slice(2).join('-') : getJstDateString(ovr.start));
+
+        if (origDateStr && origDateStr.includes('-')) {
+          if (parent.isAllDay) {
+            recurrenceIdLine = `RECURRENCE-ID;VALUE=DATE:${origDateStr.replace(/-/g, '')}\r\n`;
+          } else {
+            const parentD = new Date(parent.start);
+            const pHours = parentD.getUTCHours();
+            const pMinutes = parentD.getUTCMinutes();
+            const pSeconds = parentD.getUTCSeconds();
+            const [y, m, d] = origDateStr.split('-').map(Number);
+            const origUtc = new Date(Date.UTC(y, m - 1, d, pHours, pMinutes, pSeconds));
+            recurrenceIdLine = `RECURRENCE-ID:${formatToUtc(origUtc)}\r\n`;
+          }
+        }
+
+        const summaryEscaped = (ovr.title || '').replace(/\r\n|\r|\n/g, ' ').replace(/[,;]/g, '\\$&');
+        const descEscaped = String(ovr.memo || '').replace(/\r\n|\r|\n/g, '\\n').replace(/[,;]/g, '\\$&');
+        const locEscaped = (ovr.location || '').replace(/\r\n|\r|\n/g, ' ').replace(/[,;]/g, '\\$&');
+
+        icsContent += "BEGIN:VEVENT\r\n";
+        // 親と同じ UID を持つことで、クライアントに「親の該当インスタンスの置換」と認識させる
+        icsContent += `UID:evt-${parent.id}@company-sns\r\n`;
+        icsContent += `DTSTAMP:${nowStr}\r\n`;
+        if (recurrenceIdLine) icsContent += recurrenceIdLine;
+        icsContent += `SUMMARY:${summaryEscaped}\r\n`;
+        if (ovr.memo) icsContent += `DESCRIPTION:${descEscaped}\r\n`;
+        if (ovr.location) icsContent += `LOCATION:${locEscaped}\r\n`;
         if (dtStartLine) icsContent += dtStartLine;
         if (dtEndLine) icsContent += dtEndLine;
         icsContent += "END:VEVENT\r\n";
@@ -4468,7 +4680,7 @@ async function startServer() {
 
       icsContent += "END:VCALENDAR\r\n";
 
-      // Folding 75 octets
+      // Folding 75 octets (RFC 5545 standard)
       const lines = icsContent.split("\r\n");
       const foldedLines = lines.map(line => {
         if (!line) return '';
