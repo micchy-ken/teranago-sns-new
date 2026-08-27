@@ -31,7 +31,10 @@ import {
   ShieldCheck,
   PhoneCall,
   UserX,
-  Sparkles
+  Sparkles,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
 import { User, OfficeMaster, DivisionMaster, DisasterType } from '../types';
 
@@ -150,11 +153,23 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
   const [searchKeyword, setSearchKeyword] = useState('');
   const [selectedOfficeFilter, setSelectedOfficeFilter] = useState('all');
 
-  // Filter in Targets Roster (対象者一覧タブ)
+  // Filter & Sort in Targets Roster (対象者一覧タブ)
   const [targetSearchKeyword, setTargetSearchKeyword] = useState('');
   const [targetOfficeFilter, setTargetOfficeFilter] = useState('all');
   const [targetDivisionFilter, setTargetDivisionFilter] = useState('all');
   const [targetRegistrationFilter, setTargetRegistrationFilter] = useState<'all' | 'both' | 'personalOnly' | 'mobileOnly' | 'none'>('all');
+  const [targetSortField, setTargetSortField] = useState<'name' | 'office' | 'division' | 'mobileEmail' | 'personalEmail' | 'status'>('name');
+  const [targetSortOrder, setTargetSortOrder] = useState<'asc' | 'desc'>('asc');
+
+  // Toggle sort handler
+  const handleToggleTargetSort = (field: 'name' | 'office' | 'division' | 'mobileEmail' | 'personalEmail' | 'status') => {
+    if (targetSortField === field) {
+      setTargetSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setTargetSortField(field);
+      setTargetSortOrder('asc');
+    }
+  };
 
   // Load events on mount
   useEffect(() => {
@@ -442,7 +457,7 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
   // Export Target Members List CSV
   const handleExportTargetsCSV = () => {
     const rows = [
-      ['社員番号/ID', '氏名', 'フリガナ', '営業所・拠点', '所属部署', '役職', 'PCメール', '携帯メール', '携帯メール登録状況', '個人メール(暗号化)', '個人メール登録状況', '緊急連絡先登録状況']
+      ['社員番号/ID', '氏名', '営業所・拠点', '所属部署', 'PCメール', '携帯メール', '携帯メール登録状況', '個人メール(暗号化)', '個人メール登録状況', '緊急連絡先登録状況']
     ];
 
     filteredTargets.forEach(u => {
@@ -459,10 +474,8 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
       rows.push([
         u.id,
         u.name,
-        u.kanaName || '',
         u.office || '',
         u.division || '',
-        u.position || '',
         u.email || '',
         u.mobileEmail || '',
         hasMobile ? '登録済' : '未登録',
@@ -514,7 +527,7 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
     return true;
   });
 
-  // Filtered targets list for Target Members Roster (対象者一覧タブ)
+  // Filtered & Sorted targets list for Target Members Roster (対象者一覧タブ)
   const filteredTargets = allUsers.filter(u => {
     if (targetOfficeFilter !== 'all' && u.office !== targetOfficeFilter) return false;
     if (targetDivisionFilter !== 'all' && u.division !== targetDivisionFilter) return false;
@@ -541,6 +554,34 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
       }
     }
     return true;
+  }).sort((a, b) => {
+    let comp = 0;
+    if (targetSortField === 'name') {
+      const aVal = (a.kanaName || a.name || '').toLowerCase();
+      const bVal = (b.kanaName || b.name || '').toLowerCase();
+      comp = aVal.localeCompare(bVal, 'ja');
+    } else if (targetSortField === 'office') {
+      const aVal = (a.office || '').toLowerCase();
+      const bVal = (b.office || '').toLowerCase();
+      comp = aVal.localeCompare(bVal, 'ja');
+    } else if (targetSortField === 'division') {
+      const aVal = (a.division || '').toLowerCase();
+      const bVal = (b.division || '').toLowerCase();
+      comp = aVal.localeCompare(bVal, 'ja');
+    } else if (targetSortField === 'mobileEmail') {
+      const aVal = (a.mobileEmail || '').toLowerCase();
+      const bVal = (b.mobileEmail || '').toLowerCase();
+      comp = aVal.localeCompare(bVal);
+    } else if (targetSortField === 'personalEmail') {
+      const aVal = (a.personalEmailMasked || '').toLowerCase();
+      const bVal = (b.personalEmailMasked || '').toLowerCase();
+      comp = aVal.localeCompare(bVal);
+    } else if (targetSortField === 'status') {
+      const aScore = (a.mobileEmail && (a.personalEmailMasked || a.personalEmailEncrypted)) ? 3 : (a.personalEmailMasked || a.personalEmailEncrypted) ? 2 : a.mobileEmail ? 1 : 0;
+      const bScore = (b.mobileEmail && (b.personalEmailMasked || b.personalEmailEncrypted)) ? 3 : (b.personalEmailMasked || b.personalEmailEncrypted) ? 2 : b.mobileEmail ? 1 : 0;
+      comp = aScore - bScore;
+    }
+    return targetSortOrder === 'asc' ? comp : -comp;
   });
 
   // Target registration statistics
@@ -1152,21 +1193,105 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
-                  <tr className="bg-slate-50/80 text-slate-500 font-bold border-b border-slate-200">
-                    <th className="py-3 px-4 whitespace-nowrap">社員名</th>
-                    <th className="py-3 px-4 whitespace-nowrap">営業所</th>
-                    <th className="py-3 px-4 whitespace-nowrap">所属部署</th>
-                    <th className="py-3 px-4 whitespace-nowrap">役職</th>
+                  <tr className="bg-slate-50/80 text-slate-600 font-bold border-b border-slate-200 select-none">
+                    {/* Name column with sort */}
+                    <th
+                      onClick={() => handleToggleTargetSort('name')}
+                      className="py-3 px-4 whitespace-nowrap cursor-pointer hover:bg-slate-100 transition-colors"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <span>社員名</span>
+                        {targetSortField === 'name' ? (
+                          targetSortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-indigo-600" /> : <ArrowDown className="w-3.5 h-3.5 text-indigo-600" />
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-300" />
+                        )}
+                      </div>
+                    </th>
+
+                    {/* Office column with sort */}
+                    <th
+                      onClick={() => handleToggleTargetSort('office')}
+                      className="py-3 px-4 whitespace-nowrap cursor-pointer hover:bg-slate-100 transition-colors"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <span>営業所</span>
+                        {targetSortField === 'office' ? (
+                          targetSortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-indigo-600" /> : <ArrowDown className="w-3.5 h-3.5 text-indigo-600" />
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-300" />
+                        )}
+                      </div>
+                    </th>
+
+                    {/* Division column with sort */}
+                    <th
+                      onClick={() => handleToggleTargetSort('division')}
+                      className="py-3 px-4 whitespace-nowrap cursor-pointer hover:bg-slate-100 transition-colors"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <span>所属部署</span>
+                        {targetSortField === 'division' ? (
+                          targetSortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-indigo-600" /> : <ArrowDown className="w-3.5 h-3.5 text-indigo-600" />
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-300" />
+                        )}
+                      </div>
+                    </th>
+
+                    {/* Company PC Email */}
                     <th className="py-3 px-4 whitespace-nowrap">会社PCメール</th>
-                    <th className="py-3 px-4 whitespace-nowrap">携帯メール</th>
-                    <th className="py-3 px-4 whitespace-nowrap">個人メール (暗号化)</th>
-                    <th className="py-3 px-4 whitespace-nowrap text-center">登録状況</th>
+
+                    {/* Mobile Email column with sort */}
+                    <th
+                      onClick={() => handleToggleTargetSort('mobileEmail')}
+                      className="py-3 px-4 whitespace-nowrap cursor-pointer hover:bg-slate-100 transition-colors"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <span>携帯メール</span>
+                        {targetSortField === 'mobileEmail' ? (
+                          targetSortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-indigo-600" /> : <ArrowDown className="w-3.5 h-3.5 text-indigo-600" />
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-300" />
+                        )}
+                      </div>
+                    </th>
+
+                    {/* Personal Email column with sort */}
+                    <th
+                      onClick={() => handleToggleTargetSort('personalEmail')}
+                      className="py-3 px-4 whitespace-nowrap cursor-pointer hover:bg-slate-100 transition-colors"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <span>個人メール (暗号化)</span>
+                        {targetSortField === 'personalEmail' ? (
+                          targetSortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-indigo-600" /> : <ArrowDown className="w-3.5 h-3.5 text-indigo-600" />
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-300" />
+                        )}
+                      </div>
+                    </th>
+
+                    {/* Registration Status column with sort */}
+                    <th
+                      onClick={() => handleToggleTargetSort('status')}
+                      className="py-3 px-4 whitespace-nowrap text-center cursor-pointer hover:bg-slate-100 transition-colors"
+                    >
+                      <div className="flex items-center justify-center gap-1.5">
+                        <span>登録状況</span>
+                        {targetSortField === 'status' ? (
+                          targetSortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-indigo-600" /> : <ArrowDown className="w-3.5 h-3.5 text-indigo-600" />
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-300" />
+                        )}
+                      </div>
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {filteredTargets.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="py-10 text-center text-slate-400 font-bold">
+                      <td colSpan={7} className="py-10 text-center text-slate-400 font-bold">
                         条件に一致する対象者は見つかりませんでした
                       </td>
                     </tr>
@@ -1175,48 +1300,35 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
                       const hasMobile = !!(user.mobileEmail && user.mobileEmail.trim());
                       const hasPersonal = !!(user.personalEmailMasked || user.personalEmailEncrypted);
                       const isBoth = hasMobile && hasPersonal;
-                      const isNone = !hasMobile && !hasPersonal;
 
                       return (
                         <tr key={user.id} className="hover:bg-slate-50/80 transition-colors">
-                          {/* Name */}
-                          <td className="py-3 px-4">
-                            <div className="flex items-center gap-2.5">
+                          {/* Name: Display in a single compact line */}
+                          <td className="py-2.5 px-4 whitespace-nowrap">
+                            <div className="flex items-center gap-2">
                               <img
                                 src={user.avatarUrl}
                                 alt={user.name}
-                                className="w-7 h-7 rounded-full object-cover border border-slate-200 shrink-0"
+                                className="w-6 h-6 rounded-full object-cover border border-slate-200 shrink-0"
                               />
-                              <div>
-                                <div className="font-bold text-slate-800">{user.name}</div>
-                                {user.kanaName && (
-                                  <div className="text-[10px] text-slate-400 font-mono">
-                                    {user.kanaName}
-                                  </div>
-                                )}
-                              </div>
+                              <span className="font-bold text-slate-800 text-xs">{user.name}</span>
                             </div>
                           </td>
 
                           {/* Office */}
-                          <td className="py-3 px-4 whitespace-nowrap">
+                          <td className="py-2.5 px-4 whitespace-nowrap">
                             <span className="px-2 py-0.5 rounded-md font-bold text-[11px] bg-slate-100 text-slate-700">
                               {user.office || '本社'}
                             </span>
                           </td>
 
                           {/* Division */}
-                          <td className="py-3 px-4 whitespace-nowrap">
+                          <td className="py-2.5 px-4 whitespace-nowrap">
                             <span className="font-bold text-slate-700">{user.division || '-'}</span>
                           </td>
 
-                          {/* Position */}
-                          <td className="py-3 px-4 whitespace-nowrap text-slate-500">
-                            {user.position || '-'}
-                          </td>
-
                           {/* Company PC Email */}
-                          <td className="py-3 px-4">
+                          <td className="py-2.5 px-4 whitespace-nowrap">
                             {user.email ? (
                               <div className="flex items-center gap-1 text-[11px] font-mono text-slate-600">
                                 <Mail className="w-3 h-3 text-slate-400 shrink-0" />
@@ -1228,7 +1340,7 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
                           </td>
 
                           {/* Mobile Email */}
-                          <td className="py-3 px-4">
+                          <td className="py-2.5 px-4 whitespace-nowrap">
                             {hasMobile ? (
                               <div className="flex items-center gap-1 text-[11px] font-mono text-indigo-700 font-bold bg-indigo-50/70 px-2 py-0.5 rounded border border-indigo-100 w-fit">
                                 <Smartphone className="w-3 h-3 text-indigo-500 shrink-0" />
@@ -1240,7 +1352,7 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
                           </td>
 
                           {/* Personal Email (Encrypted) */}
-                          <td className="py-3 px-4">
+                          <td className="py-2.5 px-4 whitespace-nowrap">
                             {hasPersonal ? (
                               <div className="flex items-center gap-1.5 text-[11px] font-mono text-emerald-800 font-bold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 w-fit">
                                 <Lock className="w-3 h-3 text-emerald-600 shrink-0" />
@@ -1252,24 +1364,24 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
                           </td>
 
                           {/* Registration Badge */}
-                          <td className="py-3 px-4 text-center whitespace-nowrap">
+                          <td className="py-2.5 px-4 text-center whitespace-nowrap">
                             {isBoth ? (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
                                 <CheckCircle2 className="w-3 h-3 text-emerald-600" />
                                 両方登録済
                               </span>
                             ) : hasPersonal ? (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-200">
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-200">
                                 <Lock className="w-3 h-3 text-indigo-600" />
                                 個人メール済
                               </span>
                             ) : hasMobile ? (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-blue-100 text-blue-800 border border-blue-200">
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-100 text-blue-800 border border-blue-200">
                                 <Smartphone className="w-3 h-3 text-blue-600" />
                                 携帯メール済
                               </span>
                             ) : (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-100 text-rose-700 border border-rose-200">
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-700 border border-rose-200">
                                 <AlertTriangle className="w-3 h-3 text-rose-500" />
                                 未登録
                               </span>
