@@ -26,7 +26,12 @@ import {
   EyeOff,
   Radio,
   FileSpreadsheet,
-  Info
+  Info,
+  UserCheck,
+  ShieldCheck,
+  PhoneCall,
+  UserX,
+  Sparkles
 } from 'lucide-react';
 import { User, OfficeMaster, DivisionMaster, DisasterType } from '../types';
 
@@ -105,8 +110,8 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
   divisions,
   onOpenConfirmModal,
 }) => {
-  // Tabs: 'dashboard' (発動中・集計), 'trigger' (安否確認発動), 'respond' (安否回答)
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'trigger' | 'respond'>('dashboard');
+  // Tabs: 'dashboard' (発動中・集計), 'targets' (対象者一覧・登録状況), 'trigger' (安否確認発動), 'respond' (安否回答)
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'targets' | 'trigger' | 'respond'>('dashboard');
 
   // Events & responses state
   const [events, setEvents] = useState<SafetyConfirmationEvent[]>([]);
@@ -144,6 +149,12 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
   const [statusFilter, setStatusFilter] = useState<'all' | 'safe' | 'unanswered' | 'danger'>('all');
   const [searchKeyword, setSearchKeyword] = useState('');
   const [selectedOfficeFilter, setSelectedOfficeFilter] = useState('all');
+
+  // Filter in Targets Roster (対象者一覧タブ)
+  const [targetSearchKeyword, setTargetSearchKeyword] = useState('');
+  const [targetOfficeFilter, setTargetOfficeFilter] = useState('all');
+  const [targetDivisionFilter, setTargetDivisionFilter] = useState('all');
+  const [targetRegistrationFilter, setTargetRegistrationFilter] = useState<'all' | 'both' | 'personalOnly' | 'mobileOnly' | 'none'>('all');
 
   // Load events on mount
   useEffect(() => {
@@ -428,6 +439,50 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
     document.body.removeChild(link);
   };
 
+  // Export Target Members List CSV
+  const handleExportTargetsCSV = () => {
+    const rows = [
+      ['社員番号/ID', '氏名', 'フリガナ', '営業所・拠点', '所属部署', '役職', 'PCメール', '携帯メール', '携帯メール登録状況', '個人メール(暗号化)', '個人メール登録状況', '緊急連絡先登録状況']
+    ];
+
+    filteredTargets.forEach(u => {
+      const hasMobile = !!(u.mobileEmail && u.mobileEmail.trim());
+      const hasPersonal = !!(u.personalEmailMasked || u.personalEmailEncrypted);
+      const regStatus = (hasMobile && hasPersonal)
+        ? '両方登録済'
+        : hasPersonal
+        ? '個人メールのみ登録'
+        : hasMobile
+        ? '携帯メールのみ登録'
+        : '未登録';
+
+      rows.push([
+        u.id,
+        u.name,
+        u.kanaName || '',
+        u.office || '',
+        u.division || '',
+        u.position || '',
+        u.email || '',
+        u.mobileEmail || '',
+        hasMobile ? '登録済' : '未登録',
+        u.personalEmailMasked || (hasPersonal ? '登録済(暗号化)' : ''),
+        hasPersonal ? '登録済' : '未登録',
+        regStatus
+      ]);
+    });
+
+    const csvContent = '\uFEFF' + rows.map(e => e.join(',')).join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `安否確認_対象者連絡先登録状況一覧_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   // Calculations for dashboard
   const answeredUserIds = new Set(responses.map(r => r.userId));
   const totalUsersCount = allUsers.length;
@@ -441,7 +496,7 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
   const remoteWorkCount = responses.filter(r => r.workAvailability === 'remote_only').length;
   const cannotWorkCount = responses.filter(r => r.workAvailability === 'unavailable').length;
 
-  // Filtered members list
+  // Filtered members list for dashboard
   const filteredMembers = allUsers.filter(u => {
     if (selectedOfficeFilter !== 'all' && u.office !== selectedOfficeFilter) return false;
     if (searchKeyword.trim()) {
@@ -458,6 +513,46 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
     if (statusFilter === 'danger' && (!resp || (resp.safetyStatus !== 'minor_injury' && resp.safetyStatus !== 'severe_injury' && resp.safetyStatus !== 'need_rescue'))) return false;
     return true;
   });
+
+  // Filtered targets list for Target Members Roster (対象者一覧タブ)
+  const filteredTargets = allUsers.filter(u => {
+    if (targetOfficeFilter !== 'all' && u.office !== targetOfficeFilter) return false;
+    if (targetDivisionFilter !== 'all' && u.division !== targetDivisionFilter) return false;
+    
+    const hasMobile = !!(u.mobileEmail && u.mobileEmail.trim());
+    const hasPersonal = !!(u.personalEmailMasked || u.personalEmailEncrypted);
+
+    if (targetRegistrationFilter === 'both' && (!hasMobile || !hasPersonal)) return false;
+    if (targetRegistrationFilter === 'personalOnly' && (!hasPersonal || hasMobile)) return false;
+    if (targetRegistrationFilter === 'mobileOnly' && (!hasMobile || hasPersonal)) return false;
+    if (targetRegistrationFilter === 'none' && (hasMobile || hasPersonal)) return false;
+
+    if (targetSearchKeyword.trim()) {
+      const kw = targetSearchKeyword.toLowerCase();
+      const matchName = u.name.toLowerCase().includes(kw);
+      const matchKana = (u.kanaName || '').toLowerCase().includes(kw);
+      const matchOffice = (u.office || '').toLowerCase().includes(kw);
+      const matchDivision = (u.division || '').toLowerCase().includes(kw);
+      const matchEmail = (u.email || '').toLowerCase().includes(kw);
+      const matchMobileEmail = (u.mobileEmail || '').toLowerCase().includes(kw);
+      const matchPersonalEmail = (u.personalEmailMasked || '').toLowerCase().includes(kw);
+      if (!matchName && !matchKana && !matchOffice && !matchDivision && !matchEmail && !matchMobileEmail && !matchPersonalEmail) {
+        return false;
+      }
+    }
+    return true;
+  });
+
+  // Target registration statistics
+  const targetTotalCount = allUsers.length;
+  const targetPersonalRegisteredCount = allUsers.filter(u => !!(u.personalEmailMasked || u.personalEmailEncrypted)).length;
+  const targetMobileRegisteredCount = allUsers.filter(u => !!(u.mobileEmail && u.mobileEmail.trim())).length;
+  const targetBothRegisteredCount = allUsers.filter(u => !!(u.personalEmailMasked || u.personalEmailEncrypted) && !!(u.mobileEmail && u.mobileEmail.trim())).length;
+  const targetAtLeastOneRegisteredCount = allUsers.filter(u => !!(u.personalEmailMasked || u.personalEmailEncrypted) || !!(u.mobileEmail && u.mobileEmail.trim())).length;
+  const targetNoneRegisteredCount = targetTotalCount - targetAtLeastOneRegisteredCount;
+  const targetPersonalRate = targetTotalCount > 0 ? Math.round((targetPersonalRegisteredCount / targetTotalCount) * 100) : 0;
+  const targetMobileRate = targetTotalCount > 0 ? Math.round((targetMobileRegisteredCount / targetTotalCount) * 100) : 0;
+  const targetOverallRate = targetTotalCount > 0 ? Math.round((targetAtLeastOneRegisteredCount / targetTotalCount) * 100) : 0;
 
   return (
     <div className="flex-1 max-w-7xl mx-auto space-y-6 pb-12">
@@ -494,6 +589,18 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
           >
             <Users className="w-4 h-4" />
             集計ダッシュボード
+          </button>
+
+          <button
+            onClick={() => setActiveTab('targets')}
+            className={`px-3.5 py-2 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+              activeTab === 'targets'
+                ? 'bg-white text-rose-700 shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <UserCheck className="w-4 h-4 text-indigo-600" />
+            対象者一覧・登録状況
           </button>
 
           <button
@@ -882,7 +989,326 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
       )}
 
       {/* ========================================================================= */}
-      {/* TAB 2: TRIGGER (安否確認発動) */}
+      {/* TAB 2: TARGETS ROSTER (対象者一覧・登録状況) */}
+      {/* ========================================================================= */}
+      {activeTab === 'targets' && (
+        <div className="space-y-6">
+          {/* Summary Stat Cards for Registration Status */}
+          <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-500">全社対象人数</span>
+                <span className="p-2 rounded-xl bg-slate-100 text-slate-700">
+                  <Users className="w-4 h-4" />
+                </span>
+              </div>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="text-2xl font-black text-slate-800">{targetTotalCount}</span>
+                <span className="text-xs font-bold text-slate-400">名</span>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-1">安否確認システムの対象全社員</p>
+            </div>
+
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-500">いずれか登録済</span>
+                <span className="p-2 rounded-xl bg-emerald-50 text-emerald-600">
+                  <ShieldCheck className="w-4 h-4" />
+                </span>
+              </div>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="text-2xl font-black text-emerald-600">{targetAtLeastOneRegisteredCount}</span>
+                <span className="text-xs font-bold text-slate-400">名 ({targetOverallRate}%)</span>
+              </div>
+              <div className="w-full bg-slate-100 h-1.5 rounded-full mt-2 overflow-hidden">
+                <div
+                  className="bg-emerald-500 h-full rounded-full transition-all duration-500"
+                  style={{ width: `${targetOverallRate}%` }}
+                />
+              </div>
+            </div>
+
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-500">暗号化個人メール</span>
+                <span className="p-2 rounded-xl bg-indigo-50 text-indigo-600">
+                  <Lock className="w-4 h-4" />
+                </span>
+              </div>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="text-2xl font-black text-indigo-600">{targetPersonalRegisteredCount}</span>
+                <span className="text-xs font-bold text-slate-400">名 ({targetPersonalRate}%)</span>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-1">私用アドレス(Gmail/キャリア等)</p>
+            </div>
+
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-500">緊急連絡先 未登録</span>
+                <span className="p-2 rounded-xl bg-rose-50 text-rose-600">
+                  <UserX className="w-4 h-4" />
+                </span>
+              </div>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="text-2xl font-black text-rose-600">{targetNoneRegisteredCount}</span>
+                <span className="text-xs font-bold text-slate-400">名</span>
+              </div>
+              <p className="text-[11px] text-rose-600 font-bold mt-1">
+                {targetNoneRegisteredCount > 0 ? '⚠️ 要登録アナウンス' : '全員登録完了'}
+              </p>
+            </div>
+          </div>
+
+          {/* Roster Table Card */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            {/* Table Filter and Action Toolbar */}
+            <div className="p-5 border-b border-slate-100 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+              <div className="flex items-center gap-2">
+                <UserCheck className="w-5 h-5 text-indigo-600" />
+                <div>
+                  <h3 className="text-sm font-extrabold text-slate-800">
+                    安否確認対象者・連絡先登録状況一覧
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    全社の営業所、部署、氏名、携帯メール、個人メール（暗号化）の登録具合を一覧で確認できます。
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2.5">
+                {/* Search Keyword */}
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={targetSearchKeyword}
+                    onChange={(e) => setTargetSearchKeyword(e.target.value)}
+                    placeholder="氏名・部署・アドレス検索..."
+                    className="pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white w-48"
+                  />
+                  {targetSearchKeyword && (
+                    <button
+                      onClick={() => setTargetSearchKeyword('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Office Filter */}
+                <select
+                  value={targetOfficeFilter}
+                  onChange={(e) => setTargetOfficeFilter(e.target.value)}
+                  className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                >
+                  <option value="all">全拠点・営業所</option>
+                  {offices.map((o) => (
+                    <option key={o.id} value={o.name}>
+                      {o.name}
+                    </option>
+                  ))}
+                </select>
+
+                {/* Division Filter */}
+                <select
+                  value={targetDivisionFilter}
+                  onChange={(e) => setTargetDivisionFilter(e.target.value)}
+                  className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                >
+                  <option value="all">全部署</option>
+                  {divisions.map((d) => (
+                    <option key={d.id} value={d.name}>
+                      {d.name}
+                    </option>
+                  ))}
+                </select>
+
+                {/* Registration Filter */}
+                <select
+                  value={targetRegistrationFilter}
+                  onChange={(e) => setTargetRegistrationFilter(e.target.value as any)}
+                  className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                >
+                  <option value="all">全登録状況 ({allUsers.length})</option>
+                  <option value="both">両方登録済 ({targetBothRegisteredCount})</option>
+                  <option value="personalOnly">個人メールのみ登録</option>
+                  <option value="mobileOnly">携帯メールのみ登録</option>
+                  <option value="none">未登録者のみ ({targetNoneRegisteredCount})</option>
+                </select>
+
+                {/* CSV Export Button */}
+                <button
+                  onClick={handleExportTargetsCSV}
+                  className="px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs shrink-0"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+                  CSV出力
+                </button>
+              </div>
+            </div>
+
+            {/* Target Members Table */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-50/80 text-slate-500 font-bold border-b border-slate-200">
+                    <th className="py-3 px-4 whitespace-nowrap">社員名</th>
+                    <th className="py-3 px-4 whitespace-nowrap">営業所</th>
+                    <th className="py-3 px-4 whitespace-nowrap">所属部署</th>
+                    <th className="py-3 px-4 whitespace-nowrap">役職</th>
+                    <th className="py-3 px-4 whitespace-nowrap">会社PCメール</th>
+                    <th className="py-3 px-4 whitespace-nowrap">携帯メール</th>
+                    <th className="py-3 px-4 whitespace-nowrap">個人メール (暗号化)</th>
+                    <th className="py-3 px-4 whitespace-nowrap text-center">登録状況</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredTargets.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="py-10 text-center text-slate-400 font-bold">
+                        条件に一致する対象者は見つかりませんでした
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredTargets.map((user) => {
+                      const hasMobile = !!(user.mobileEmail && user.mobileEmail.trim());
+                      const hasPersonal = !!(user.personalEmailMasked || user.personalEmailEncrypted);
+                      const isBoth = hasMobile && hasPersonal;
+                      const isNone = !hasMobile && !hasPersonal;
+
+                      return (
+                        <tr key={user.id} className="hover:bg-slate-50/80 transition-colors">
+                          {/* Name */}
+                          <td className="py-3 px-4">
+                            <div className="flex items-center gap-2.5">
+                              <img
+                                src={user.avatarUrl}
+                                alt={user.name}
+                                className="w-7 h-7 rounded-full object-cover border border-slate-200 shrink-0"
+                              />
+                              <div>
+                                <div className="font-bold text-slate-800">{user.name}</div>
+                                {user.kanaName && (
+                                  <div className="text-[10px] text-slate-400 font-mono">
+                                    {user.kanaName}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* Office */}
+                          <td className="py-3 px-4 whitespace-nowrap">
+                            <span className="px-2 py-0.5 rounded-md font-bold text-[11px] bg-slate-100 text-slate-700">
+                              {user.office || '本社'}
+                            </span>
+                          </td>
+
+                          {/* Division */}
+                          <td className="py-3 px-4 whitespace-nowrap">
+                            <span className="font-bold text-slate-700">{user.division || '-'}</span>
+                          </td>
+
+                          {/* Position */}
+                          <td className="py-3 px-4 whitespace-nowrap text-slate-500">
+                            {user.position || '-'}
+                          </td>
+
+                          {/* Company PC Email */}
+                          <td className="py-3 px-4">
+                            {user.email ? (
+                              <div className="flex items-center gap-1 text-[11px] font-mono text-slate-600">
+                                <Mail className="w-3 h-3 text-slate-400 shrink-0" />
+                                <span>{user.email}</span>
+                              </div>
+                            ) : (
+                              <span className="text-slate-300">-</span>
+                            )}
+                          </td>
+
+                          {/* Mobile Email */}
+                          <td className="py-3 px-4">
+                            {hasMobile ? (
+                              <div className="flex items-center gap-1 text-[11px] font-mono text-indigo-700 font-bold bg-indigo-50/70 px-2 py-0.5 rounded border border-indigo-100 w-fit">
+                                <Smartphone className="w-3 h-3 text-indigo-500 shrink-0" />
+                                <span>{user.mobileEmail}</span>
+                              </div>
+                            ) : (
+                              <span className="text-[11px] text-slate-400 italic">未登録</span>
+                            )}
+                          </td>
+
+                          {/* Personal Email (Encrypted) */}
+                          <td className="py-3 px-4">
+                            {hasPersonal ? (
+                              <div className="flex items-center gap-1.5 text-[11px] font-mono text-emerald-800 font-bold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 w-fit">
+                                <Lock className="w-3 h-3 text-emerald-600 shrink-0" />
+                                <span>{user.personalEmailMasked || '登録済(暗号化)'}</span>
+                              </div>
+                            ) : (
+                              <span className="text-[11px] text-slate-400 italic">未登録</span>
+                            )}
+                          </td>
+
+                          {/* Registration Badge */}
+                          <td className="py-3 px-4 text-center whitespace-nowrap">
+                            {isBoth ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                両方登録済
+                              </span>
+                            ) : hasPersonal ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-200">
+                                <Lock className="w-3 h-3 text-indigo-600" />
+                                個人メール済
+                              </span>
+                            ) : hasMobile ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-blue-100 text-blue-800 border border-blue-200">
+                                <Smartphone className="w-3 h-3 text-blue-600" />
+                                携帯メール済
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-100 text-rose-700 border border-rose-200">
+                                <AlertTriangle className="w-3 h-3 text-rose-500" />
+                                未登録
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Table Footer */}
+            <div className="p-3.5 bg-slate-50/50 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+              <span>
+                表示中: <strong className="text-slate-800">{filteredTargets.length}</strong> 名 / 全体 {allUsers.length} 名
+              </span>
+              <div className="flex items-center gap-4 text-[11px]">
+                <span className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                  両方登録: {targetBothRegisteredCount}名
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-indigo-500" />
+                  個人メール: {targetPersonalRegisteredCount}名
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-rose-500" />
+                  未登録: {targetNoneRegisteredCount}名
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* TAB 3: TRIGGER (安否確認発動) */}
       {/* ========================================================================= */}
       {activeTab === 'trigger' && (
         <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-6">
