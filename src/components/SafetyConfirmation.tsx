@@ -168,6 +168,15 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
   const [targetSortField, setTargetSortField] = useState<'name' | 'office' | 'division' | 'mobileEmail' | 'personalEmail' | 'status'>('name');
   const [targetSortOrder, setTargetSortOrder] = useState<'asc' | 'desc'>('asc');
 
+  // 対象者選択 & 個人メール登録依頼 State
+  const [selectedTargetUserIds, setSelectedTargetUserIds] = useState<string[]>([]);
+  const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
+  const [requestCustomMessage, setRequestCustomMessage] = useState('');
+  const [requestSendCompany, setRequestSendCompany] = useState(true);
+  const [requestSendMobile, setRequestSendMobile] = useState(true);
+  const [isSendingRequest, setIsSendingRequest] = useState(false);
+  const [requestResultModal, setRequestResultModal] = useState<{ open: boolean; success: boolean; message: string; details?: any } | null>(null);
+
   // Toggle sort handler
   const handleToggleTargetSort = (field: 'name' | 'office' | 'division' | 'mobileEmail' | 'personalEmail' | 'status') => {
     if (targetSortField === field) {
@@ -593,6 +602,103 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  // 対象者選択ハンドラー
+  const handleToggleTargetSelect = (userId: string) => {
+    setSelectedTargetUserIds(prev => 
+      prev.includes(userId) ? prev.filter(id => id !== userId) : [...prev, userId]
+    );
+  };
+
+  const handleSelectAllFilteredTargets = () => {
+    const allFilteredIds = filteredTargets.map(u => u.id);
+    const isAllSelected = allFilteredIds.every(id => selectedTargetUserIds.includes(id));
+    if (isAllSelected) {
+      setSelectedTargetUserIds(prev => prev.filter(id => !allFilteredIds.includes(id)));
+    } else {
+      setSelectedTargetUserIds(prev => Array.from(new Set([...prev, ...allFilteredIds])));
+    }
+  };
+
+  const handleSelectUnregisteredOnly = () => {
+    const unregisteredUsers = allUsers.filter(u => !u.personalEmailMasked && !u.personalEmailEncrypted);
+    const unregIds = unregisteredUsers.map(u => u.id);
+    setSelectedTargetUserIds(unregIds);
+    setActionMessage({
+      type: 'success',
+      text: `個人メール未登録の社員 ${unregIds.length} 名を選択しました。`
+    });
+  };
+
+  const handleClearTargetSelection = () => {
+    setSelectedTargetUserIds([]);
+  };
+
+  // 個人メール登録依頼メール送信実行
+  const handleSendRegistrationRequest = async () => {
+    if (selectedTargetUserIds.length === 0) {
+      alert('送信対象の社員を1名以上選択してください。');
+      return;
+    }
+
+    if (!requestSendCompany && !requestSendMobile) {
+      alert('会社PCメールまたは会社携帯メールのいずれか1つ以上を送信先として選択してください。');
+      return;
+    }
+
+    setIsSendingRequest(true);
+    setActionMessage(null);
+    try {
+      const appBaseUrl = window.location.origin + window.location.pathname.replace(/\/$/, '');
+      const payload = {
+        userIds: selectedTargetUserIds,
+        appBaseUrl,
+        customMessage: requestCustomMessage.trim(),
+        sendToCompanyEmail: requestSendCompany,
+        sendToMobileEmail: requestSendMobile,
+        senderName: currentUser.name ? `${currentUser.name} (${currentUser.office || ''} ${currentUser.division || ''})` : '安否確認管理者'
+      };
+
+      const res = await fetch(`${API_BASE_URL}/safety/request-registration`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        setIsRequestModalOpen(false);
+        setRequestResultModal({
+          open: true,
+          success: true,
+          message: data.message || `${data.sentCount} 名に登録依頼メールを送信しました。`,
+          details: data
+        });
+        setActionMessage({
+          type: 'success',
+          text: `【送信完了】${data.sentCount} 名の社員宛に個人メール登録依頼メールを送信しました。`
+        });
+        setSelectedTargetUserIds([]);
+      } else {
+        setRequestResultModal({
+          open: true,
+          success: false,
+          message: data.error || '登録依頼メールの送信に失敗しました。',
+          details: data
+        });
+      }
+    } catch (err: any) {
+      console.error('Request registration send error:', err);
+      setRequestResultModal({
+        open: true,
+        success: false,
+        message: `通信エラー: ${err.message || '送信できませんでした'}`
+      });
+    } finally {
+      setIsSendingRequest(false);
+    }
   };
 
   // Calculations for dashboard
@@ -1202,89 +1308,152 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
           {/* Roster Table Card */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
             {/* Table Filter and Action Toolbar */}
-            <div className="p-5 border-b border-slate-100 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-              <div className="flex items-center gap-2">
-                <UserCheck className="w-5 h-5 text-indigo-600" />
-                <div>
-                  <h3 className="text-sm font-extrabold text-slate-800">
-                    安否確認対象者・連絡先登録状況一覧
-                  </h3>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    全社の営業所、部署、氏名、携帯メール、個人メール（暗号化）の登録具合を一覧で確認できます。
-                  </p>
+            <div className="p-5 border-b border-slate-100 flex flex-col gap-4">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                <div className="flex items-center gap-2">
+                  <UserCheck className="w-5 h-5 text-indigo-600" />
+                  <div>
+                    <h3 className="text-sm font-extrabold text-slate-800">
+                      安否確認対象者・連絡先登録状況一覧
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      全社の営業所、部署、氏名、携帯メール、個人メール（暗号化）の登録具合を一覧で確認し、未登録者への個別・一括依頼が可能です。
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2.5">
+                  {/* Search Keyword */}
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={targetSearchKeyword}
+                      onChange={(e) => setTargetSearchKeyword(e.target.value)}
+                      placeholder="氏名・部署・アドレス検索..."
+                      className="pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white w-48"
+                    />
+                    {targetSearchKeyword && (
+                      <button
+                        onClick={() => setTargetSearchKeyword('')}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Office Filter */}
+                  <select
+                    value={targetOfficeFilter}
+                    onChange={(e) => setTargetOfficeFilter(e.target.value)}
+                    className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                  >
+                    <option value="all">全拠点・営業所</option>
+                    {offices.map((o) => (
+                      <option key={o.id} value={o.name}>
+                        {o.name}
+                      </option>
+                    ))}
+                  </select>
+
+                  {/* Division Filter */}
+                  <select
+                    value={targetDivisionFilter}
+                    onChange={(e) => setTargetDivisionFilter(e.target.value)}
+                    className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                  >
+                    <option value="all">全部署</option>
+                    {divisions.map((d) => (
+                      <option key={d.id} value={d.name}>
+                        {d.name}
+                      </option>
+                    ))}
+                  </select>
+
+                  {/* Registration Filter */}
+                  <select
+                    value={targetRegistrationFilter}
+                    onChange={(e) => setTargetRegistrationFilter(e.target.value as any)}
+                    className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                  >
+                    <option value="all">全登録状況 ({allUsers.length})</option>
+                    <option value="both">両方登録済 ({targetBothRegisteredCount})</option>
+                    <option value="personalOnly">個人メールのみ登録</option>
+                    <option value="mobileOnly">携帯メールのみ登録</option>
+                    <option value="none">未登録者のみ ({targetNoneRegisteredCount})</option>
+                  </select>
+
+                  {/* CSV Export Button */}
+                  <button
+                    onClick={handleExportTargetsCSV}
+                    className="px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs shrink-0"
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+                    CSV出力
+                  </button>
                 </div>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2.5">
-                {/* Search Keyword */}
-                <div className="relative">
-                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    value={targetSearchKeyword}
-                    onChange={(e) => setTargetSearchKeyword(e.target.value)}
-                    placeholder="氏名・部署・アドレス検索..."
-                    className="pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white w-48"
-                  />
-                  {targetSearchKeyword && (
+              {/* Action Bar for Registration Request & Selection */}
+              <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3 bg-slate-50/60 p-3 rounded-xl">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-bold text-slate-600">
+                    選択中: <strong className="text-indigo-600 text-sm font-black">{selectedTargetUserIds.length}</strong> / {filteredTargets.length} 名
+                  </span>
+
+                  <button
+                    onClick={handleSelectAllFilteredTargets}
+                    className="px-2.5 py-1 text-[11px] font-bold rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 transition-colors"
+                  >
+                    {filteredTargets.every(u => selectedTargetUserIds.includes(u.id)) && filteredTargets.length > 0
+                      ? '表示中の全解除'
+                      : '表示中の全選択'}
+                  </button>
+
+                  <button
+                    onClick={handleSelectUnregisteredOnly}
+                    className="px-2.5 py-1 text-[11px] font-bold rounded-lg border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 transition-colors flex items-center gap-1"
+                  >
+                    <UserX className="w-3 h-3" />
+                    未登録者を一括選択 ({allUsers.filter(u => !u.personalEmailMasked && !u.personalEmailEncrypted).length}名)
+                  </button>
+
+                  {selectedTargetUserIds.length > 0 && (
                     <button
-                      onClick={() => setTargetSearchKeyword('')}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                      onClick={handleClearTargetSelection}
+                      className="px-2 py-1 text-[11px] font-bold text-slate-500 hover:text-slate-700 underline"
                     >
-                      <X className="w-3.5 h-3.5" />
+                      選択クリア
                     </button>
                   )}
                 </div>
 
-                {/* Office Filter */}
-                <select
-                  value={targetOfficeFilter}
-                  onChange={(e) => setTargetOfficeFilter(e.target.value)}
-                  className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
-                >
-                  <option value="all">全拠点・営業所</option>
-                  {offices.map((o) => (
-                    <option key={o.id} value={o.name}>
-                      {o.name}
-                    </option>
-                  ))}
-                </select>
-
-                {/* Division Filter */}
-                <select
-                  value={targetDivisionFilter}
-                  onChange={(e) => setTargetDivisionFilter(e.target.value)}
-                  className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
-                >
-                  <option value="all">全部署</option>
-                  {divisions.map((d) => (
-                    <option key={d.id} value={d.name}>
-                      {d.name}
-                    </option>
-                  ))}
-                </select>
-
-                {/* Registration Filter */}
-                <select
-                  value={targetRegistrationFilter}
-                  onChange={(e) => setTargetRegistrationFilter(e.target.value as any)}
-                  className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
-                >
-                  <option value="all">全登録状況 ({allUsers.length})</option>
-                  <option value="both">両方登録済 ({targetBothRegisteredCount})</option>
-                  <option value="personalOnly">個人メールのみ登録</option>
-                  <option value="mobileOnly">携帯メールのみ登録</option>
-                  <option value="none">未登録者のみ ({targetNoneRegisteredCount})</option>
-                </select>
-
-                {/* CSV Export Button */}
-                <button
-                  onClick={handleExportTargetsCSV}
-                  className="px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs shrink-0"
-                >
-                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-                  CSV出力
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      if (selectedTargetUserIds.length === 0) {
+                        alert('依頼メールを送信する対象者を1名以上選択（チェック）してください。');
+                        return;
+                      }
+                      setIsRequestModalOpen(true);
+                    }}
+                    disabled={selectedTargetUserIds.length === 0}
+                    className={`px-4 py-2 rounded-xl text-xs font-black flex items-center gap-2 shadow-sm transition-all ${
+                      selectedTargetUserIds.length > 0
+                        ? 'bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer hover:shadow-md'
+                        : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                    }`}
+                  >
+                    <Mail className="w-4 h-4" />
+                    <span>個人メール登録の依頼メールを送信</span>
+                    {selectedTargetUserIds.length > 0 && (
+                      <span className="bg-white/20 px-2 py-0.5 rounded-full text-[11px]">
+                        {selectedTargetUserIds.length}名
+                      </span>
+                    )}
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -1293,6 +1462,17 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="bg-slate-50/80 text-slate-600 font-bold border-b border-slate-200 select-none">
+                    {/* Checkbox Column */}
+                    <th className="py-3 px-3 text-center w-10">
+                      <input
+                        type="checkbox"
+                        checked={filteredTargets.length > 0 && filteredTargets.every(u => selectedTargetUserIds.includes(u.id))}
+                        onChange={handleSelectAllFilteredTargets}
+                        className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                        title="表示中を全選択/解除"
+                      />
+                    </th>
+
                     {/* Name column with sort */}
                     <th
                       onClick={() => handleToggleTargetSort('name')}
@@ -1390,7 +1570,7 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
                 <tbody className="divide-y divide-slate-100">
                   {filteredTargets.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="py-10 text-center text-slate-400 font-bold">
+                      <td colSpan={8} className="py-10 text-center text-slate-400 font-bold">
                         条件に一致する対象者は見つかりませんでした
                       </td>
                     </tr>
@@ -1399,10 +1579,24 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
                       const hasMobile = !!(user.mobileEmail && user.mobileEmail.trim());
                       const hasPersonal = !!(user.personalEmailMasked || user.personalEmailEncrypted);
                       const isBoth = hasMobile && hasPersonal;
+                      const isSelected = selectedTargetUserIds.includes(user.id);
 
                       return (
-                        <tr key={user.id} className="hover:bg-slate-50/80 transition-colors">
-                          {/* Name: Display in a single compact line */}
+                        <tr 
+                          key={user.id} 
+                          className={`transition-colors ${isSelected ? 'bg-indigo-50/60 hover:bg-indigo-50' : 'hover:bg-slate-50/80'}`}
+                        >
+                          {/* Checkbox */}
+                          <td className="py-2.5 px-3 text-center">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => handleToggleTargetSelect(user.id)}
+                              className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                            />
+                          </td>
+
+                          {/* Name */}
                           <td className="py-2.5 px-4 whitespace-nowrap">
                             <div className="flex items-center gap-2">
                               <img
@@ -2087,6 +2281,254 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL: 個人メール登録依頼メール送信モーダル */}
+      {/* ========================================================================= */}
+      {isRequestModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-xl w-full overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95 duration-150">
+            {/* Modal Header */}
+            <div className="p-5 bg-gradient-to-r from-indigo-600 to-indigo-700 text-white flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center text-white">
+                  <Mail className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black">
+                    個人メール登録の依頼メールを送信
+                  </h3>
+                  <p className="text-xs text-indigo-100 mt-0.5">
+                    選択した対象者へ、緊急連絡先（個人メール）の登録を促す案内メールを一斉配信します
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsRequestModalOpen(false)}
+                className="p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-5 overflow-y-auto flex-1 text-xs">
+              {/* Target Count & List Preview */}
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-700 flex items-center gap-1.5">
+                    <Users className="w-4 h-4 text-indigo-600" />
+                    送信対象者: <strong className="text-indigo-600 text-sm font-black">{selectedTargetUserIds.length}</strong> 名
+                  </span>
+                  <span className="text-[11px] text-slate-500">
+                    （全社対象者一覧より選択中）
+                  </span>
+                </div>
+
+                <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto p-2 bg-white rounded-xl border border-slate-200">
+                  {selectedTargetUserIds.map(id => {
+                    const u = allUsers.find(user => user.id === id);
+                    if (!u) return null;
+                    const hasPersonal = !!(u.personalEmailMasked || u.personalEmailEncrypted);
+                    return (
+                      <span
+                        key={u.id}
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold border ${
+                          hasPersonal 
+                            ? 'bg-slate-100 text-slate-700 border-slate-200' 
+                            : 'bg-rose-50 text-rose-700 border-rose-200'
+                        }`}
+                      >
+                        {u.name}
+                        {!hasPersonal && <span className="text-[9px] bg-rose-200 text-rose-800 px-1 rounded">未</span>}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Delivery Channels */}
+              <div className="space-y-2">
+                <label className="font-bold text-slate-800 block">
+                  送信先チャネルの選択 <span className="text-rose-500">*</span>
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <label className="flex items-center justify-between p-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100/70 cursor-pointer transition-colors">
+                    <div className="flex items-center gap-2">
+                      <Mail className="w-4 h-4 text-slate-600" />
+                      <div>
+                        <span className="font-bold text-slate-800 block">会社PCメール宛</span>
+                        <span className="text-[10px] text-slate-400">社内アドレス (example@company.co.jp)</span>
+                      </div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={requestSendCompany}
+                      onChange={(e) => setRequestSendCompany(e.target.checked)}
+                      className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 cursor-pointer"
+                    />
+                  </label>
+
+                  <label className="flex items-center justify-between p-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100/70 cursor-pointer transition-colors">
+                    <div className="flex items-center gap-2">
+                      <Smartphone className="w-4 h-4 text-indigo-600" />
+                      <div>
+                        <span className="font-bold text-slate-800 block">会社携帯メール宛</span>
+                        <span className="text-[10px] text-slate-400">支給携帯のアドレス</span>
+                      </div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={requestSendMobile}
+                      onChange={(e) => setRequestSendMobile(e.target.checked)}
+                      className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 cursor-pointer"
+                    />
+                  </label>
+                </div>
+              </div>
+
+              {/* Custom Message input */}
+              <div className="space-y-1.5">
+                <label className="font-bold text-slate-800 block">
+                  管理者からの案内メッセージ（任意・追加文面）
+                </label>
+                <textarea
+                  value={requestCustomMessage}
+                  onChange={(e) => setRequestCustomMessage(e.target.value)}
+                  placeholder="例：来期のBCP対策および災害時初動体制強化のため、各自ご自身の私用メールアドレス（Gmailや携帯キャリアメール等）の登録にご協力をお願いいたします。"
+                  rows={3}
+                  className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white resize-none"
+                />
+              </div>
+
+              {/* Email Content Direct-link preview */}
+              <div className="p-3.5 bg-indigo-50/70 border border-indigo-100 rounded-2xl space-y-2">
+                <div className="flex items-center gap-2 font-bold text-indigo-900">
+                  <ShieldCheck className="w-4 h-4 text-indigo-600" />
+                  <span>スムーズなワンクリック登録の仕組み</span>
+                </div>
+                <p className="text-[11px] text-indigo-800 leading-relaxed">
+                  配信されるメールには、専用のディープリンクURLが記載されます。受信者がURLをクリックすると、<strong>マイページの「安否確認・緊急連絡先（個人メール）」が自動的に展開された状態</strong>で開くため、社員が迷わずスムーズに登録できます。
+                </p>
+                <div className="p-2 bg-white rounded-lg border border-indigo-200 font-mono text-[10px] text-indigo-700 break-all select-all">
+                  {window.location.origin + window.location.pathname}?tab=mypage&openEmergencyContact=true
+                </div>
+              </div>
+
+              {/* Privacy Notice */}
+              <div className="flex items-start gap-2 p-3 bg-emerald-50 rounded-xl border border-emerald-200 text-emerald-900">
+                <Lock className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                <p className="text-[11px] leading-relaxed">
+                  <strong>高度暗号化（AES-256-GCM）保護:</strong> 登録された個人メールはサーバー上で暗号化され、管理者を含め第三者からは伏字（<code>m***@gmail.com</code> 等）で保護されます。
+                </p>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => setIsRequestModalOpen(false)}
+                disabled={isSendingRequest}
+                className="px-4 py-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 font-bold transition-colors cursor-pointer"
+              >
+                キャンセル
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSendRegistrationRequest}
+                disabled={isSendingRequest || selectedTargetUserIds.length === 0}
+                className="px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold flex items-center gap-2 shadow-md shadow-indigo-200 transition-all cursor-pointer disabled:opacity-50"
+              >
+                {isSendingRequest ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>送信処理中...</span>
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-4 h-4" />
+                    <span>登録依頼メールを送信する ({selectedTargetUserIds.length}名)</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL: 登録依頼送信結果モーダル */}
+      {/* ========================================================================= */}
+      {requestResultModal && requestResultModal.open && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-md w-full overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className={`p-5 flex items-center gap-3 text-white ${
+              requestResultModal.success ? 'bg-emerald-600' : 'bg-rose-600'
+            }`}>
+              <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center text-white shrink-0">
+                {requestResultModal.success ? (
+                  <CheckCircle2 className="w-6 h-6" />
+                ) : (
+                  <AlertTriangle className="w-6 h-6" />
+                )}
+              </div>
+              <div>
+                <h3 className="text-base font-black">
+                  {requestResultModal.success ? '登録依頼メール送信完了' : '送信エラー'}
+                </h3>
+                <p className="text-xs text-white/90">
+                  {requestResultModal.success ? '対象社員への配信が正常に完了しました' : 'メールの送信中に問題が発生しました'}
+                </p>
+              </div>
+            </div>
+
+            <div className="p-5 space-y-4 text-xs">
+              <p className="font-bold text-slate-800 leading-relaxed">
+                {requestResultModal.message}
+              </p>
+
+              {requestResultModal.details && (
+                <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5 text-slate-600 font-mono text-[11px]">
+                  <div className="flex justify-between">
+                    <span>送信対象者数:</span>
+                    <strong className="text-slate-900">{requestResultModal.details.totalRequested || 0} 名</strong>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>正常配信数:</span>
+                    <strong className="text-emerald-700">{requestResultModal.details.sentCount || 0} 名</strong>
+                  </div>
+                  {requestResultModal.details.skippedCount > 0 && (
+                    <div className="flex justify-between text-amber-700">
+                      <span>スキップ (宛先なし):</span>
+                      <strong>{requestResultModal.details.skippedCount} 名</strong>
+                    </div>
+                  )}
+                  {requestResultModal.details.directUrl && (
+                    <div className="pt-2 border-t border-slate-200">
+                      <span className="text-[10px] text-slate-500 font-sans block mb-1">配信された登録先URL:</span>
+                      <div className="p-2 bg-white rounded border border-slate-200 text-[10px] break-all select-all">
+                        {requestResultModal.details.directUrl}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="flex justify-end pt-2">
+                <button
+                  type="button"
+                  onClick={() => setRequestResultModal(null)}
+                  className="px-6 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-bold transition-colors cursor-pointer text-xs"
+                >
+                  閉じる
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>

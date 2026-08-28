@@ -1975,6 +1975,165 @@ async function startServer() {
     }
   });
 
+  // 個人メール（緊急連絡先）登録依頼メール一斉送信 API
+  app.post(['/api/safety/request-registration', '/safety/request-registration'], async (req, res) => {
+    try {
+      const {
+        userIds = [],
+        appBaseUrl,
+        customMessage = '',
+        sendToCompanyEmail = true,
+        sendToMobileEmail = true,
+        senderName = '安否確認管理者'
+      } = req.body || {};
+
+      if (!Array.isArray(userIds) || userIds.length === 0) {
+        return res.status(400).json({ error: '送信対象の社員（ユーザー）が選択されていません。' });
+      }
+
+      const users = loadUsers();
+      const targetUsers = users.filter((u: any) => userIds.includes(String(u.id)));
+
+      if (targetUsers.length === 0) {
+        return res.status(404).json({ error: '該当するユーザーが見つかりませんでした。' });
+      }
+
+      // 基準URL（フロントエンドURLまたはリクエストオリジン）
+      let baseUrl = appBaseUrl || 'https://micchy-ken.github.io/teranago-sns-new';
+      if (baseUrl.endsWith('/')) {
+        baseUrl = baseUrl.slice(0, -1);
+      }
+      const directRegistrationUrl = `${baseUrl}/?tab=mypage&openEmergencyContact=true`;
+
+      let sentCount = 0;
+      let skippedCount = 0;
+      const results: Array<{ userId: string; name: string; sentEmails: string[]; error?: string }> = [];
+
+      for (const u of targetUsers) {
+        const targetEmails: string[] = [];
+
+        if (sendToCompanyEmail && u.email && u.email.includes('@')) {
+          targetEmails.push(u.email.trim());
+        }
+
+        if (sendToMobileEmail && u.mobileEmail && u.mobileEmail.includes('@')) {
+          const mob = u.mobileEmail.trim();
+          if (!targetEmails.includes(mob)) {
+            targetEmails.push(mob);
+          }
+        }
+
+        if (targetEmails.length === 0) {
+          skippedCount++;
+          results.push({ userId: u.id, name: u.name, sentEmails: [], error: '送信可能なPC/携帯メールアドレスが未設定です' });
+          continue;
+        }
+
+        const nowJst = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
+        const subject = '【安否確認・緊急連絡先登録のお願い】個人メールアドレスの登録手続きについて';
+
+        const textBody = `${u.name} 様\n\n寺岡オートドアSNS 安否確認システムより、緊急連絡先（個人メールアドレス）登録のお願いです。\n\n大地震や自然災害などの有事発生時、会社のPCメールや携帯電話が使用できない場合でも確実に安否確認通知をお届けできるよう、ご自身の個人メールアドレス（Gmailや携帯キャリアメール等）の事前登録をお願いしております。\n\n${customMessage ? `【連絡事項・依頼メッセージ】\n${customMessage}\n\n` : ''}▼ 以下のリンクをクリックすると、個人設定の緊急連絡先登録画面が直接開きます。\n${directRegistrationUrl}\n\n※ご登録いただいた個人メールアドレスは AES-256-GCM により最高水準で暗号化されて保管され、管理者やデータベース上でも平文は一切表示・閲覧できない仕様となっておりますのでご安心ください。\n\n送信日時: ${nowJst}\n発信元: ${senderName}`;
+
+        const htmlBody = `
+          <div style="font-family: sans-serif; padding: 24px; line-height: 1.6; color: #1e293b; max-width: 600px; border: 1px solid #cbd5e1; border-radius: 12px; background-color: #ffffff; margin: auto;">
+            <div style="background-color: #4f46e5; color: #ffffff; padding: 16px 20px; border-radius: 8px 8px 0 0; margin: -24px -24px 20px -24px;">
+              <h2 style="margin: 0; font-size: 18px; font-weight: 700; display: flex; align-items: center; gap: 8px;">
+                🛡️ 【安否確認】緊急連絡先（個人メール）登録のお願い
+              </h2>
+            </div>
+
+            <p style="font-size: 15px; font-weight: 600; color: #0f172a;">${u.name} 様</p>
+            
+            <p style="font-size: 14px; color: #334155;">
+              社内SNS安否確認システムより、緊急連絡先（個人メールアドレス）登録のお願いです。
+            </p>
+            <p style="font-size: 14px; color: #334155;">
+              大地震や台風などの大規模災害発生時、会社のメールサーバーや社用携帯が不通になった場合でも確実に安否確認通知をお届けするため、ご自身の個人メールアドレス（Gmail、Yahoo、キャリアメール等）の登録にご協力をお願いいたします。
+            </p>
+
+            ${customMessage ? `
+              <div style="background-color: #f1f5f9; padding: 14px 16px; border-radius: 8px; border-left: 4px solid #4f46e5; margin: 16px 0;">
+                <p style="margin: 0; font-size: 13px; font-weight: 600; color: #334155;">【管理者からのメッセージ】</p>
+                <p style="margin: 4px 0 0 0; font-size: 13px; color: #475569; white-space: pre-wrap;">${customMessage}</p>
+              </div>
+            ` : ''}
+
+            <div style="text-align: center; margin: 28px 0;">
+              <a href="${directRegistrationUrl}" style="display: inline-block; background-color: #4f46e5; color: #ffffff; font-weight: 700; font-size: 15px; padding: 12px 28px; border-radius: 8px; text-decoration: none; box-shadow: 0 4px 6px -1px rgba(79, 70, 229, 0.2);">
+                👉 個人設定を開いて個人メールを登録する
+              </a>
+              <p style="font-size: 12px; color: #64748b; margin-top: 10px;">
+                ※ボタンが開けない場合は、下記URLをブラウザに貼り付けてアクセスしてください：<br>
+                <a href="${directRegistrationUrl}" style="color: #4f46e5; word-break: break-all;">${directRegistrationUrl}</a>
+              </p>
+            </div>
+
+            <div style="background-color: #ecfdf5; padding: 14px 16px; border-radius: 8px; border: 1px solid #a7f3d0; margin: 20px 0;">
+              <p style="margin: 0 0 4px 0; font-size: 13px; font-weight: 700; color: #065f46;">🔒 個人情報の保護・暗号化について</p>
+              <p style="margin: 0; font-size: 12px; color: #047857; line-height: 1.5;">
+                ご登録いただいた個人メールアドレスは <b>AES-256-GCM</b> により強固に暗号化されて保存されます。<br>
+                社内の管理者や役員画面、データベース上でも平文は一切表示・閲覧できず、災害発生時の自動一斉配信時のみ安全に使用されます。
+              </p>
+            </div>
+
+            <div style="border-top: 1px solid #e2e8f0; padding-top: 12px; margin-top: 20px; font-size: 11px; color: #94a3b8;">
+              <p style="margin: 0 0 4px 0;">送信日時: ${nowJst}</p>
+              <p style="margin: 0;">発信元: ${senderName} (寺岡オートドアSNS 安否確認システム)</p>
+            </div>
+          </div>
+        `;
+
+        const sentToThisUser: string[] = [];
+        for (const addr of targetEmails) {
+          try {
+            await sendEmailNotification({
+              to: addr,
+              subject,
+              text: textBody,
+              html: htmlBody
+            });
+            sentToThisUser.push(addr);
+          } catch (mErr: any) {
+            console.error(`[RequestRegistration] Mail send failed for ${addr}:`, mErr);
+          }
+        }
+
+        if (sentToThisUser.length > 0) {
+          sentCount++;
+          results.push({ userId: u.id, name: u.name, sentEmails: sentToThisUser });
+
+          // 社内アプリ内通知も作成
+          try {
+            createNotification({
+              user_id: String(u.id),
+              sender_id: 'admin',
+              sender_name: senderName,
+              type: 'safety_confirmation',
+              title: '【安否確認】個人メールアドレス（緊急連絡先）の登録をお願いします',
+              contents: '有事の安否確認に備え、マイページより個人メールアドレスをご登録ください。',
+              target_id: 'emergency_contact_registration'
+            });
+          } catch (_) {}
+        } else {
+          skippedCount++;
+          results.push({ userId: u.id, name: u.name, sentEmails: [], error: 'メール送信に失敗しました' });
+        }
+      }
+
+      res.json({
+        success: true,
+        message: `${sentCount} 名の社員（PC/携帯メール）宛に登録依頼メールを送信しました。`,
+        sentCount,
+        skippedCount,
+        totalRequested: targetUsers.length,
+        results
+      });
+    } catch (err: any) {
+      console.error('[RequestRegistration] Error:', err);
+      res.status(500).json({ error: err.message || '登録依頼メールの送信中にエラーが発生しました。' });
+    }
+  });
+
   // ==========================================
   // 安否確認 (Safety Confirmation) ストレージ & API
   // ==========================================

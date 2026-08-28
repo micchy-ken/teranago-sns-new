@@ -378,7 +378,12 @@ export default function App() {
       setIsSidebarCollapsed(!!userState.preferences.isSidebarCollapsed);
     }
   }, [userState?.id, userState?.preferences?.isSidebarCollapsed]);
-  const [autoOpenSettings, setAutoOpenSettings] = useState(false);
+  const [autoOpenSettings, setAutoOpenSettings] = useState(() => {
+    return !!(initialUrlParams.openSettings || initialUrlParams.openEmergencyContact);
+  });
+  const [autoOpenEmergencyContact, setAutoOpenEmergencyContact] = useState(() => {
+    return !!initialUrlParams.openEmergencyContact;
+  });
 
   const handleOpenPersonalSettings = () => {
     setActiveTab('mypage');
@@ -3628,6 +3633,8 @@ export default function App() {
             onLogout={handleLogout}
             autoOpenSettings={autoOpenSettings}
             onCloseSettings={() => setAutoOpenSettings(false)}
+            autoOpenEmergencyContact={autoOpenEmergencyContact}
+            onCloseEmergencyContact={() => setAutoOpenEmergencyContact(false)}
             onAddEvent={handleAddEvent}
             onUpdateEvent={handleUpdateEvent}
             onDeleteEvent={handleDeleteEvent}

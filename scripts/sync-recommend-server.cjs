@@ -15,7 +15,7 @@ const escapedContent = serverContent
 const header = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年8月26日 (iCal繰り返し予定のRFC 5545標準準拠化：RRULE/EXDATE/RECURRENCE-ID対応版)
+ * 最終更新日時 (最終アップデート): 2026年8月27日 (安否確認システム ステップ1：対象者への個人メール登録依頼一斉配信API & ディープリンク連携対応版)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -34,7 +34,22 @@ const header = `/**
  * =====================================================================
  */\n`;
 
-const result = `export const RECOMMEND_SERVER_JS = \`${header}${escapedContent}\`;\n`;
+const result = `export const RECOMMEND_SERVER_JS = \`${header}${escapedContent}\`;
+
+export interface ServerCodeHistoryItem {
+  version: string;
+  date: string;
+  summary: string;
+}
+
+export const SERVER_CODE_HISTORY: ServerCodeHistoryItem[] = [
+  {
+    version: 'v2026.08.27',
+    date: '2026-08-27',
+    summary: '安否確認システム ステップ1：対象者への個人メール登録依頼一斉配信API & ディープリンク連携対応版',
+  },
+];
+`;
 
 fs.writeFileSync(recommendPath, result, 'utf-8');
 console.log('Successfully synced RecommendServerCode.ts with server.ts!');

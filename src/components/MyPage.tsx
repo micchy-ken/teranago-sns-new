@@ -135,6 +135,8 @@ interface MyPageProps {
   onLogout?: () => void;
   autoOpenSettings?: boolean;
   onCloseSettings?: () => void;
+  autoOpenEmergencyContact?: boolean;
+  onCloseEmergencyContact?: () => void;
 }
 
 export function MyPage({
@@ -165,6 +167,8 @@ export function MyPage({
   onLogout,
   autoOpenSettings,
   onCloseSettings,
+  autoOpenEmergencyContact,
+  onCloseEmergencyContact,
 }: MyPageProps) {
   // ローカル既読状態管理
   const [readEventIds, setReadEventIds] = useState<string[]>(() => getReadEventIds(user?.id));
@@ -350,20 +354,6 @@ export function MyPage({
     });
     return Array.from(tagsSet);
   }, [topics]);
-
-  useEffect(() => {
-    if (autoOpenSettings) {
-      setSettingsForm(user);
-      setIsSettingsOpen(true);
-    }
-  }, [autoOpenSettings, user]);
-
-  const handleCloseSettings = () => {
-    setIsSettingsOpen(false);
-    if (onCloseSettings) {
-      onCloseSettings();
-    }
-  };
 
   // アバターアップロード状態
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -660,11 +650,38 @@ export function MyPage({
   };
   const [copiedICal, setCopiedICal] = useState(false);
   const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
+  const emergencySectionRef = useRef<HTMLDivElement>(null);
+  const personalEmailInputRef = useRef<HTMLInputElement>(null);
 
   const handleOpenSettings = () => {
     setSettingsForm(user);
     setIsSettingsOpen(true);
   };
+
+  const handleCloseSettings = () => {
+    setIsSettingsOpen(false);
+    if (onCloseSettings) onCloseSettings();
+    if (onCloseEmergencyContact) onCloseEmergencyContact();
+  };
+
+  // autoOpenSettings または autoOpenEmergencyContact の自動オープン処理
+  useEffect(() => {
+    if (autoOpenSettings || autoOpenEmergencyContact) {
+      setSettingsForm(user);
+      setIsSettingsOpen(true);
+      if (autoOpenEmergencyContact) {
+        setIsEmergencyEmailOpen(true);
+        setTimeout(() => {
+          if (emergencySectionRef.current) {
+            emergencySectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+          if (personalEmailInputRef.current) {
+            personalEmailInputRef.current.focus();
+          }
+        }, 300);
+      }
+    }
+  }, [autoOpenSettings, autoOpenEmergencyContact, user]);
 
   const handleSaveSettings = (e: React.FormEvent) => {
     e.preventDefault();
@@ -2310,7 +2327,7 @@ export function MyPage({
               </div>
 
               {/* 🚨 安否確認・緊急連絡先（個人メールアドレス暗号化登録・トグル開閉） */}
-              <div className="pt-4 border-t border-slate-100">
+              <div ref={emergencySectionRef} className="pt-4 border-t border-slate-100">
                 <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs bg-white transition-all">
                   {/* アコーディオン・トグルヘッダー */}
                   <button
@@ -2455,6 +2472,7 @@ export function MyPage({
                         </label>
                         <div className="flex flex-col sm:flex-row gap-2">
                           <input
+                            ref={personalEmailInputRef}
                             type="email"
                             placeholder="例: private.account@gmail.com / icloud.com 等"
                             value={personalEmailInput}

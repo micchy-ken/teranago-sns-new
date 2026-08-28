@@ -20,6 +20,10 @@ export interface AppQueryParams {
   chatRoomId?: string;
   // Daily Report specific
   reportId?: string;
+  // Safety Confirmation & Personal Email Registration
+  safetyEventId?: string;
+  openEmergencyContact?: boolean;
+  openSettings?: boolean;
 }
 
 /**
@@ -38,7 +42,8 @@ export function normalizeTab(tabStr?: string | null): AppTab | undefined {
   if (['timeline', 'sns', 'posts', 'post', 'タイムライン'].includes(lower)) return 'timeline';
   if (['inspection_scheduler', 'inspection', 'scheduler', 'tenken', '点検'].includes(lower)) return 'inspection_scheduler';
   if (['files', 'file', 'nas', 'ファイル'].includes(lower)) return 'files';
-  if (['mypage', 'my', 'profile', 'マイページ'].includes(lower)) return 'mypage';
+  if (['mypage', 'my', 'profile', 'personal', 'マイページ', '個人設定'].includes(lower)) return 'mypage';
+  if (['safety_confirmation', 'safety', 'anpi', 'anzen', '安否確認', '安否'].includes(lower)) return 'safety_confirmation';
   if (['admin', 'kanri', 'settings', '管理'].includes(lower)) return 'admin';
 
   return undefined;
@@ -137,6 +142,25 @@ export function parseAppQueryParams(searchString?: string): AppQueryParams {
   const rawReportId = params.get('reportId') || params.get('report_id') || (result.tab === 'daily_report' ? params.get('id') : undefined);
   if (rawReportId) result.reportId = rawReportId;
 
+  // 8. Safety Confirmation Specific
+  const rawSafetyEventId = params.get('safetyEventId') || params.get('safety_event_id') || params.get('eventId') || (result.tab === 'safety_confirmation' ? params.get('id') : undefined);
+  if (rawSafetyEventId && (result.tab === 'safety_confirmation' || params.get('safetyEventId') || params.get('safety_event_id'))) {
+    result.safetyEventId = rawSafetyEventId;
+  }
+
+  // 9. Personal Email Registration / Emergency Contact Deep Link
+  const rawOpenEmergency = params.get('openEmergencyContact') || params.get('openEmergencyEmail') || params.get('emergencyEmail') || params.get('emergency');
+  if (rawOpenEmergency === 'true' || rawOpenEmergency === '1') {
+    result.openEmergencyContact = true;
+    if (!result.tab) result.tab = 'mypage';
+  }
+
+  const rawOpenSettings = params.get('openSettings') || params.get('settings');
+  if (rawOpenSettings === 'true' || rawOpenSettings === '1') {
+    result.openSettings = true;
+    if (!result.tab) result.tab = 'mypage';
+  }
+
   // If office/division/mode/view/eventId were specified but no explicit tab, imply tab=calendar
   if (!result.tab && (result.office || result.division || result.mode || result.view || result.eventId)) {
     result.tab = 'calendar';
@@ -155,6 +179,9 @@ export function parseAppQueryParams(searchString?: string): AppQueryParams {
   }
   if (!result.tab && result.reportId) {
     result.tab = 'daily_report';
+  }
+  if (!result.tab && result.safetyEventId) {
+    result.tab = 'safety_confirmation';
   }
 
   return result;
@@ -294,6 +321,15 @@ export function buildAppUrl(params?: AppQueryParams, baseUrl?: string): string {
   }
   if (params.reportId) {
     searchParams.set('reportId', params.reportId);
+  }
+  if (params.safetyEventId) {
+    searchParams.set('safetyEventId', params.safetyEventId);
+  }
+  if (params.openEmergencyContact) {
+    searchParams.set('openEmergencyContact', 'true');
+  }
+  if (params.openSettings) {
+    searchParams.set('openSettings', 'true');
   }
 
   const queryString = searchParams.toString();
