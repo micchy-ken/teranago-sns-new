@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { WorkflowApplication, ApplicationType, ApplicationStatus, User as UserType, ApprovalFlowRule, ApprovalStepConfig, ItemMaster, AttachmentFile } from '../types';
-import { FileText, CheckCircle2, XCircle, Clock, Plus, ArrowRight, GitMerge, UserCheck, AlertTriangle, Edit3, MessageSquare, Send, X, ShoppingBag, Building2, Hash, ExternalLink, Package, Calendar, RotateCcw, Trash2, Paperclip, ChevronDown, ChevronUp } from 'lucide-react';
+import { FileText, CheckCircle2, XCircle, Clock, Plus, ArrowRight, GitMerge, UserCheck, AlertTriangle, Edit3, MessageSquare, Send, X, ShoppingBag, Building2, Hash, ExternalLink, Package, Calendar, RotateCcw, Trash2, Paperclip, ChevronDown, ChevronUp, Zap, Store, CreditCard, UserPlus } from 'lucide-react';
 import { ApplicationModal } from './ApplicationModal';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { FilePreviewModal } from './FilePreviewModal';
@@ -21,9 +21,9 @@ interface WorkflowProps {
 }
 
 const typeLabels: Record<string, string> = {
-  business_trip: '出張申請',
+  purchase_order: '購入申請',
   inventory_issue: '補充申請',
-  purchase_order: '発注申請',
+  business_trip: '出張申請',
   other: 'その他',
 };
 
@@ -551,9 +551,77 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
                   </div>
                 </div>
 
-                <p className="text-sm text-slate-600 line-clamp-2 mb-3 leading-relaxed">
-                  {app.description}
-                </p>
+                {/* 購入申請の詳細情報（購入目的・購入時期・購入元・購入方法） */}
+                {app.type === 'purchase_order' && (
+                  <div className="mb-3 space-y-2">
+                    {app.purchasePurpose && (
+                      <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-xl text-xs">
+                        <span className="font-bold text-slate-700 block mb-0.5">購入目的:</span>
+                        <p className="text-slate-800 leading-relaxed font-medium">{app.purchasePurpose}</p>
+                      </div>
+                    )}
+
+                    <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                      {/* 購入時期 */}
+                      {app.purchaseTiming === 'urgent' && (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-rose-100/90 text-rose-800 border border-rose-200 shadow-2xs">
+                          <Zap className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                          <span>時期: 至急手配</span>
+                        </span>
+                      )}
+                      {app.purchaseTiming === 'by_date' && (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-indigo-50 text-indigo-900 border border-indigo-200 shadow-2xs">
+                          <Calendar className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                          <span>期日: {app.purchaseDueDate ? formatDate(app.purchaseDueDate) : '期日指定'} まで</span>
+                        </span>
+                      )}
+
+                      {/* 購入元 */}
+                      {app.purchaseVendor && (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 text-slate-800 border border-slate-200 shadow-2xs">
+                          <Store className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                          <span>購入元: <strong>{app.purchaseVendor}</strong></span>
+                        </span>
+                      )}
+
+                      {/* 購入方法 */}
+                      {app.purchaseMethod === 'self' && (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-2xs">
+                          <CreditCard className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          <span>購入方法: <strong>自分で購入</strong></span>
+                        </span>
+                      )}
+                      {app.purchaseMethod === 'delegate' && (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-indigo-50 text-indigo-800 border border-indigo-200 shadow-2xs">
+                          <UserPlus className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                          <span>購入依頼先: <strong>{app.purchaserDelegateUser?.name || '指定担当者'}</strong></span>
+                        </span>
+                      )}
+                    </div>
+
+                    {/* 決裁完了時かつ自分が購入依頼先の場合の通知バナー */}
+                    {app.status === 'approved' && app.purchaseMethod === 'delegate' && app.purchaserDelegateUserId === currentUser.id && (
+                      <div className="p-3 bg-gradient-to-r from-indigo-500 to-blue-600 text-white rounded-xl shadow-xs flex items-center justify-between gap-2 text-xs">
+                        <div className="flex items-center gap-2">
+                          <UserCheck className="w-4 h-4 text-amber-300 shrink-0" />
+                          <div>
+                            <span className="font-bold">【あなたへの購入手続き依頼】</span>
+                            <p className="text-[11px] text-indigo-100">本申請は決裁が完了しました。備品・機材の手配・購入手続きをお願いいたします。</p>
+                          </div>
+                        </div>
+                        <span className="px-2.5 py-1 bg-white/20 text-white font-bold rounded-lg text-[10px] shrink-0 border border-white/30">
+                          手配担当
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {app.type !== 'purchase_order' && app.description && (
+                  <p className="text-sm text-slate-600 line-clamp-2 mb-3 leading-relaxed">
+                    {app.description}
+                  </p>
+                )}
 
                 {/* 添付ファイルリスト */}
                 {app.attachments && app.attachments.length > 0 && (

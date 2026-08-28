@@ -759,6 +759,8 @@ export default function App() {
           const rawPo = app.purchaseOrderNumber || detailsObj.purchaseOrderNumber || undefined;
           const rawConstDate = app.constructionDate || detailsObj.constructionDate || undefined;
           const rawLinkedInv = app.linkedInventoryIssueId || detailsObj.linkedInventoryIssueId || undefined;
+          const rawDelegateUserId = app.purchaserDelegateUserId || detailsObj.purchaserDelegateUserId || undefined;
+          const rawDelegateUser = rawDelegateUserId ? currentUsers.find(u => u.id === rawDelegateUserId) : (detailsObj.purchaserDelegateUser || undefined);
 
           return {
             id: String(app.id),
@@ -770,6 +772,8 @@ export default function App() {
             purchaseOrderNumber: rawPo,
             constructionDate: rawConstDate,
             linkedInventoryIssueId: rawLinkedInv,
+            purchaserDelegateUserId: rawDelegateUserId,
+            purchaserDelegateUser: rawDelegateUser,
             status: rawStatus,
             category: rawType,
             type: rawType,
@@ -2399,6 +2403,13 @@ export default function App() {
             linkedInventoryIssueId: appData.linkedInventoryIssueId || null,
             reason: (appData as any).reason || '',
             purchaseItems: (appData as any).purchaseItems || [],
+            purchasePurpose: (appData as any).purchasePurpose || '',
+            purchaseTiming: (appData as any).purchaseTiming || 'urgent',
+            purchaseDueDate: (appData as any).purchaseDueDate || '',
+            purchaseVendor: (appData as any).purchaseVendor || '',
+            purchaseMethod: (appData as any).purchaseMethod || 'self',
+            purchaserDelegateUserId: (appData as any).purchaserDelegateUserId || '',
+            purchaserDelegateUser: (appData as any).purchaserDelegateUser || null,
             leaveStart: (appData as any).leaveStart || '',
             leaveEnd: (appData as any).leaveEnd || '',
             expenseType: (appData as any).expenseType || '',
@@ -2533,6 +2544,37 @@ export default function App() {
           ],
           pathParams: `tab=workflow&appId=${id}`,
         }, userState);
+
+        // 購入申請で購入依頼先が指定されている場合、依頼先ユーザーへ「購入手続き依頼」を通知
+        if (resultApp.type === 'purchase_order' && resultApp.purchaseMethod === 'delegate' && resultApp.purchaserDelegateUserId) {
+          const delegateUser = usersList.find(u => u.id === resultApp.purchaserDelegateUserId) || resultApp.purchaserDelegateUser;
+          if (delegateUser && delegateUser.id !== userState.id) {
+            triggerPushNotification({
+              targetUserId: delegateUser.id,
+              excludeUserId: userState.id,
+              title: `🛒 購入手続き依頼: ${resultApp.title}`,
+              body: `申請「${resultApp.title}」が決裁されました。購入・手配の手続きをお願いします。`,
+              url: `/?tab=workflow&appId=${id}`,
+              tag: `wf-delegate-${id}`
+            });
+
+            dispatchNotificationEmail([delegateUser], {
+              category: 'workflow',
+              categoryLabel: 'ワークフロー',
+              title: `【購入手続き依頼】申請承認完了: ${resultApp.title}`,
+              actorName: userState.name,
+              details: [
+                { label: '申請タイトル', value: resultApp.title },
+                { label: '申請者', value: resultApp.applicant.name },
+                { label: '購入元', value: resultApp.purchaseVendor || '未指定' },
+                { label: '購入時期', value: resultApp.purchaseTiming === 'urgent' ? '至急手配' : `${resultApp.purchaseDueDate || ''} まで` },
+                { label: '購入目的', value: resultApp.purchasePurpose || resultApp.description || '' },
+                { label: '最終承認者', value: userState.name },
+              ],
+              pathParams: `tab=workflow&appId=${id}`,
+            }, userState);
+          }
+        }
       }
     }
 
@@ -2591,6 +2633,13 @@ export default function App() {
             linkedInventoryIssueId: resultApp.linkedInventoryIssueId || null,
             reason: (resultApp as any).reason || '',
             purchaseItems: (resultApp as any).purchaseItems || [],
+            purchasePurpose: (resultApp as any).purchasePurpose || '',
+            purchaseTiming: (resultApp as any).purchaseTiming || 'urgent',
+            purchaseDueDate: (resultApp as any).purchaseDueDate || '',
+            purchaseVendor: (resultApp as any).purchaseVendor || '',
+            purchaseMethod: (resultApp as any).purchaseMethod || 'self',
+            purchaserDelegateUserId: (resultApp as any).purchaserDelegateUserId || '',
+            purchaserDelegateUser: (resultApp as any).purchaserDelegateUser || null,
             leaveStart: (resultApp as any).leaveStart || '',
             leaveEnd: (resultApp as any).leaveEnd || '',
             expenseType: (resultApp as any).expenseType || '',
@@ -2691,6 +2740,13 @@ export default function App() {
               linkedInventoryIssueId: finalAppObj.linkedInventoryIssueId || null,
               reason: (finalAppObj as any).reason || '',
               purchaseItems: (finalAppObj as any).purchaseItems || [],
+              purchasePurpose: (finalAppObj as any).purchasePurpose || '',
+              purchaseTiming: (finalAppObj as any).purchaseTiming || 'urgent',
+              purchaseDueDate: (finalAppObj as any).purchaseDueDate || '',
+              purchaseVendor: (finalAppObj as any).purchaseVendor || '',
+              purchaseMethod: (finalAppObj as any).purchaseMethod || 'self',
+              purchaserDelegateUserId: (finalAppObj as any).purchaserDelegateUserId || '',
+              purchaserDelegateUser: (finalAppObj as any).purchaserDelegateUser || null,
               leaveStart: (finalAppObj as any).leaveStart || '',
               leaveEnd: (finalAppObj as any).leaveEnd || '',
               expenseType: (finalAppObj as any).expenseType || '',

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, GitMerge, ArrowRight, CheckCircle2, UserCheck, ShieldCheck, AlertCircle, Plus, Trash2, Building2, ShoppingBag, Calculator, Calendar, Save, Send, Paperclip, Loader2, UploadCloud } from 'lucide-react';
+import { X, GitMerge, ArrowRight, CheckCircle2, UserCheck, ShieldCheck, AlertCircle, Plus, Trash2, Building2, ShoppingBag, Calculator, Calendar, Save, Send, Paperclip, Loader2, UploadCloud, Store, Clock, CreditCard, FileText, UserPlus, Zap } from 'lucide-react';
 import { ApplicationType, WorkflowApplication, User, ApprovalFlowRule, ApprovalStepConfig, ItemMaster, PurchaseOrderItem, ApplicationStatus, AttachmentFile } from '../types';
 import { filterStepsForApplicant, getSupervisorAtLevel, resolveApproverForStep, resolveApproverForStepDetails } from '../utils/workflowHelpers';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
@@ -21,9 +21,9 @@ interface ApplicationModalProps {
 }
 
 const typeLabels: Record<ApplicationType, string> = {
+  purchase_order: '購入申請',
   business_trip: '出張申請',
   inventory_issue: '補充申請',
-  purchase_order: '発注申請',
   other: 'その他',
 };
 
@@ -42,7 +42,7 @@ export function ApplicationModal({
   initialTitle,
   initialDescription,
 }: ApplicationModalProps) {
-  const [type, setType] = useState<ApplicationType>('business_trip');
+  const [type, setType] = useState<ApplicationType>('purchase_order');
   const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -52,7 +52,15 @@ export function ApplicationModal({
   const [endDate, setEndDate] = useState('');
   const [constructionDate, setConstructionDate] = useState('');
 
-  // 発注申請用の明細リスト
+  // 購入申請用拡張ステート
+  const [purchasePurpose, setPurchasePurpose] = useState('');
+  const [purchaseTiming, setPurchaseTiming] = useState<'urgent' | 'by_date'>('urgent');
+  const [purchaseDueDate, setPurchaseDueDate] = useState('');
+  const [purchaseVendor, setPurchaseVendor] = useState('');
+  const [purchaseMethod, setPurchaseMethod] = useState<'self' | 'delegate'>('self');
+  const [purchaserDelegateUserId, setPurchaserDelegateUserId] = useState('');
+
+  // 購入申請・補充申請用の明細リスト
   const [purchaseItems, setPurchaseItems] = useState<PurchaseOrderItem[]>([
     { itemName: '', quantity: 1, unitPrice: 0, amount: 0 }
   ]);
@@ -125,6 +133,12 @@ export function ApplicationModal({
         setType(initialData.type);
         setTitle(initialData.title);
         setDescription(initialData.description);
+        setPurchasePurpose(initialData.purchasePurpose || '');
+        setPurchaseTiming(initialData.purchaseTiming || 'urgent');
+        setPurchaseDueDate(initialData.purchaseDueDate ? initialData.purchaseDueDate.substring(0, 10) : '');
+        setPurchaseVendor(initialData.purchaseVendor || '');
+        setPurchaseMethod(initialData.purchaseMethod || 'self');
+        setPurchaserDelegateUserId(initialData.purchaserDelegateUserId || '');
         setAmount(initialData.amount !== undefined ? initialData.amount : '');
         setQuantity(initialData.quantity !== undefined ? initialData.quantity : '');
         setStartDate(initialData.startDate ? initialData.startDate.substring(0, 10) : '');
@@ -141,10 +155,16 @@ export function ApplicationModal({
           setPurchaseItems([{ itemName: '', quantity: 1, unitPrice: 0, amount: 0 }]);
         }
       } else {
-        const defaultType: ApplicationType = initialType || 'business_trip';
+        const defaultType: ApplicationType = initialType || 'purchase_order';
         setType(defaultType);
         setTitle(initialTitle || '');
         setDescription(initialDescription || '');
+        setPurchasePurpose('');
+        setPurchaseTiming('urgent');
+        setPurchaseDueDate('');
+        setPurchaseVendor('');
+        setPurchaseMethod('self');
+        setPurchaserDelegateUserId('');
         setAmount('');
         setAttachments([]);
         setQuantity('');
@@ -327,6 +347,13 @@ export function ApplicationModal({
       description,
       status: 'draft',
       amount: finalAmount,
+      purchasePurpose: type === 'purchase_order' ? purchasePurpose : undefined,
+      purchaseTiming: type === 'purchase_order' ? purchaseTiming : undefined,
+      purchaseDueDate: (type === 'purchase_order' && purchaseTiming === 'by_date' && purchaseDueDate) ? purchaseDueDate : undefined,
+      purchaseVendor: type === 'purchase_order' ? purchaseVendor : undefined,
+      purchaseMethod: type === 'purchase_order' ? purchaseMethod : undefined,
+      purchaserDelegateUserId: (type === 'purchase_order' && purchaseMethod === 'delegate' && purchaserDelegateUserId) ? purchaserDelegateUserId : undefined,
+      purchaserDelegateUser: (type === 'purchase_order' && purchaseMethod === 'delegate' && purchaserDelegateUserId) ? allUsers.find(u => u.id === purchaserDelegateUserId) : undefined,
       quantity: quantity !== '' ? Number(quantity) : undefined,
       startDate: startDate ? new Date(startDate).toISOString() : undefined,
       endDate: endDate ? new Date(endDate).toISOString() : undefined,
@@ -355,7 +382,18 @@ export function ApplicationModal({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title) return;
+    if (type === 'purchase_order' && !purchasePurpose) return;
     if (type !== 'purchase_order' && type !== 'inventory_issue' && !description) return;
+    if (type === 'purchase_order' && purchaseMethod === 'delegate' && !purchaserDelegateUserId) {
+      setConfirmModal({
+        isOpen: true,
+        title: '購入依頼先の指定',
+        message: '購入を依頼する担当者を選択してください。',
+        type: 'warning',
+        confirmText: '確認',
+      });
+      return;
+    }
 
     let initialApprover: User | undefined;
     let stepsConfig: ApprovalStepConfig[] | undefined;
@@ -383,7 +421,7 @@ export function ApplicationModal({
 
     if (!initialApprover) return;
 
-    // 発注申請・補充申請の場合は明細の合計額を amount に設定し、purchaseItems を格納
+    // 購入申請・補充申請の場合は明細の合計額を amount に設定し、purchaseItems を格納
     const sanitizedPurchaseItems = (type === 'purchase_order' || type === 'inventory_issue')
       ? purchaseItems.map(pi => {
           const qty = Math.max(1, Number(pi.quantity) || 1);
@@ -405,9 +443,16 @@ export function ApplicationModal({
       id: initialData?.id,
       type,
       title,
-      description,
+      description: type === 'purchase_order' ? (purchasePurpose || description) : description,
       status: 'pending',
       amount: finalAmount,
+      purchasePurpose: type === 'purchase_order' ? purchasePurpose : undefined,
+      purchaseTiming: type === 'purchase_order' ? purchaseTiming : undefined,
+      purchaseDueDate: (type === 'purchase_order' && purchaseTiming === 'by_date' && purchaseDueDate) ? purchaseDueDate : undefined,
+      purchaseVendor: type === 'purchase_order' ? purchaseVendor : undefined,
+      purchaseMethod: type === 'purchase_order' ? purchaseMethod : undefined,
+      purchaserDelegateUserId: (type === 'purchase_order' && purchaseMethod === 'delegate' && purchaserDelegateUserId) ? purchaserDelegateUserId : undefined,
+      purchaserDelegateUser: (type === 'purchase_order' && purchaseMethod === 'delegate' && purchaserDelegateUserId) ? allUsers.find(u => u.id === purchaserDelegateUserId) : undefined,
       quantity: quantity !== '' ? Number(quantity) : undefined,
       startDate: startDate ? new Date(startDate).toISOString() : undefined,
       endDate: endDate ? new Date(endDate).toISOString() : undefined,
@@ -423,9 +468,15 @@ export function ApplicationModal({
 
     onClose();
     // Reset form
-    setType('business_trip');
+    setType('purchase_order');
     setTitle('');
     setDescription('');
+    setPurchasePurpose('');
+    setPurchaseTiming('urgent');
+    setPurchaseDueDate('');
+    setPurchaseVendor('');
+    setPurchaseMethod('self');
+    setPurchaserDelegateUserId('');
     setAmount('');
     setAttachments([]);
     setQuantity('');
@@ -485,9 +536,10 @@ export function ApplicationModal({
             </select>
           </div>
 
+          {/* タイトル / 現場名 */}
           <div>
             <label className="block text-sm font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
-              {(type === 'purchase_order' || type === 'inventory_issue') ? (
+              {type === 'inventory_issue' ? (
                 <>
                   <Building2 className="w-4 h-4 text-indigo-600" />
                   <span>現場名 <span className="text-rose-500">*</span></span>
@@ -503,30 +555,199 @@ export function ApplicationModal({
               value={title}
               onChange={e => setTitle(e.target.value)}
               className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white font-medium text-slate-800 transition-colors"
-              placeholder={(type === 'purchase_order' || type === 'inventory_issue') ? '例: 名駅一丁目ビル新築工事現場' : '例: 関西営業所出張（顧客訪問）'}
+              placeholder={
+                type === 'purchase_order' 
+                  ? '例: 4K 27インチモニター・開発備品購入' 
+                  : type === 'inventory_issue' 
+                    ? '例: 名駅一丁目ビル新築工事現場' 
+                    : '例: 関西営業所出張（顧客訪問）'
+              }
             />
-            {(type === 'purchase_order' || type === 'inventory_issue') && (
+            {type === 'inventory_issue' && (
               <p className="text-[11px] text-slate-500 mt-1">※対象となる現場名や工事名を入力してください。</p>
             )}
           </div>
 
-          {/* 工事予定日 (発注申請時) */}
+          {/* 購入申請 専用フィールド群 */}
           {type === 'purchase_order' && (
-            <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
-                <Calendar className="w-4 h-4 text-indigo-600" />
-                <span>工事予定日</span>
-              </label>
-              <input
-                type="date"
-                autoComplete="off"
-                value={constructionDate}
-                onChange={e => setConstructionDate(e.target.value)}
-                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white font-medium text-slate-800 transition-colors"
-              />
+            <div className="space-y-4 pt-1">
+              {/* 購入目的 */}
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
+                  <FileText className="w-4 h-4 text-indigo-600" />
+                  <span>購入目的 <span className="text-rose-500">*</span></span>
+                </label>
+                <textarea
+                  required
+                  value={purchasePurpose}
+                  onChange={e => setPurchasePurpose(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white text-xs leading-relaxed resize-none h-20"
+                  placeholder="例: 業務効率化および開発環境の整備のため、高解像度モニターと周辺機器を導入したく申請いたします。"
+                />
+              </div>
+
+              {/* 購入時期 (至急 / 期日指定) */}
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
+                  <Clock className="w-4 h-4 text-indigo-600" />
+                  <span>購入時期 <span className="text-rose-500">*</span></span>
+                </label>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setPurchaseTiming('urgent')}
+                    className={`p-3 rounded-xl border text-left flex items-center gap-2.5 transition-all cursor-pointer ${
+                      purchaseTiming === 'urgent'
+                        ? 'border-rose-300 bg-rose-50/80 ring-2 ring-rose-200 text-rose-900 font-bold'
+                        : 'border-slate-200 bg-slate-50/60 hover:bg-slate-100 text-slate-700 font-medium'
+                    }`}
+                  >
+                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                      purchaseTiming === 'urgent' ? 'bg-rose-500 text-white' : 'bg-slate-200 text-slate-600'
+                    }`}>
+                      <Zap className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold">至急</div>
+                      <div className="text-[10px] text-slate-500">直ちに手配・購入が必要</div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPurchaseTiming('by_date')}
+                    className={`p-3 rounded-xl border text-left flex items-center gap-2.5 transition-all cursor-pointer ${
+                      purchaseTiming === 'by_date'
+                        ? 'border-indigo-300 bg-indigo-50/80 ring-2 ring-indigo-200 text-indigo-900 font-bold'
+                        : 'border-slate-200 bg-slate-50/60 hover:bg-slate-100 text-slate-700 font-medium'
+                    }`}
+                  >
+                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                      purchaseTiming === 'by_date' ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-600'
+                    }`}>
+                      <Calendar className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold">期日指定</div>
+                      <div className="text-[10px] text-slate-500">◯日までに必要</div>
+                    </div>
+                  </button>
+                </div>
+
+                {purchaseTiming === 'by_date' && (
+                  <div className="mt-2.5 p-3 bg-indigo-50/50 border border-indigo-100 rounded-xl space-y-1">
+                    <label className="block text-[11px] font-bold text-indigo-900">
+                      必要期日（◯日までに必要） <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="date"
+                      required
+                      value={purchaseDueDate}
+                      onChange={e => setPurchaseDueDate(e.target.value)}
+                      className="w-full px-3 py-2 bg-white border border-indigo-200 rounded-lg text-xs font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* 購入元 */}
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
+                  <Store className="w-4 h-4 text-indigo-600" />
+                  <span>購入元 <span className="text-slate-400 font-normal">(店舗・ECサイト・取引先名)</span></span>
+                </label>
+                <input
+                  type="text"
+                  value={purchaseVendor}
+                  onChange={e => setPurchaseVendor(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white font-medium text-slate-800 transition-colors"
+                  placeholder="例: Amazon, アスクル, モノタロウ, 〇〇商事など"
+                />
+              </div>
+
+              {/* 購入方法 (自分で購入 / ◯さんに購入を依頼) */}
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
+                  <CreditCard className="w-4 h-4 text-indigo-600" />
+                  <span>購入方法 <span className="text-rose-500">*</span></span>
+                </label>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setPurchaseMethod('self')}
+                    className={`p-3 rounded-xl border text-left flex items-center gap-2.5 transition-all cursor-pointer ${
+                      purchaseMethod === 'self'
+                        ? 'border-emerald-300 bg-emerald-50/80 ring-2 ring-emerald-200 text-emerald-900 font-bold'
+                        : 'border-slate-200 bg-slate-50/60 hover:bg-slate-100 text-slate-700 font-medium'
+                    }`}
+                  >
+                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                      purchaseMethod === 'self' ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-600'
+                    }`}>
+                      <CreditCard className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold">自分で購入</div>
+                      <div className="text-[10px] text-slate-500">立替精算 / 自社カード等</div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPurchaseMethod('delegate')}
+                    className={`p-3 rounded-xl border text-left flex items-center gap-2.5 transition-all cursor-pointer ${
+                      purchaseMethod === 'delegate'
+                        ? 'border-indigo-300 bg-indigo-50/80 ring-2 ring-indigo-200 text-indigo-900 font-bold'
+                        : 'border-slate-200 bg-slate-50/60 hover:bg-slate-100 text-slate-700 font-medium'
+                    }`}
+                  >
+                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                      purchaseMethod === 'delegate' ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-600'
+                    }`}>
+                      <UserPlus className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold">◯さんに購入を依頼</div>
+                      <div className="text-[10px] text-slate-500">決裁後、担当者へ発注依頼</div>
+                    </div>
+                  </button>
+                </div>
+
+                {/* 依頼先ユーザー選択 */}
+                {purchaseMethod === 'delegate' && (
+                  <div className="mt-2.5 p-3.5 bg-indigo-50/70 border border-indigo-200 rounded-xl space-y-2">
+                    <label className="block text-xs font-bold text-indigo-950 flex items-center gap-1.5">
+                      <UserCheck className="w-4 h-4 text-indigo-600" />
+                      <span>購入を依頼する担当者 <span className="text-rose-500">*</span></span>
+                    </label>
+                    <select
+                      required
+                      value={purchaserDelegateUserId}
+                      onChange={e => setPurchaserDelegateUserId(e.target.value)}
+                      className="w-full px-3 py-2 bg-white border border-indigo-200 rounded-lg text-xs font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none cursor-pointer"
+                    >
+                      <option value="">-- 購入依頼先を選択してください (総務・購買担当など) --</option>
+                      {allUsers
+                        .filter(u => u.id !== currentUser.id)
+                        .map(u => (
+                          <option key={u.id} value={u.id}>
+                            {u.name} ({u.office || ''} / {u.division || ''} / {u.position || ''})
+                          </option>
+                        ))}
+                    </select>
+                    <div className="flex items-start gap-1.5 text-[11px] text-indigo-800 bg-white/80 p-2 rounded-lg border border-indigo-100">
+                      <ShieldCheck className="w-3.5 h-3.5 text-indigo-600 shrink-0 mt-0.5" />
+                      <span>
+                        ※決裁（最終承認）が完了した時点で、指定された担当者様へ自動的に<strong>「購入手続き依頼」</strong>のプッシュ通知およびメールが送信されます。
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
+          {/* 出張申請・その他の詳細説明 */}
           {type !== 'purchase_order' && type !== 'inventory_issue' && (
             <div>
               <label className="block text-sm font-bold text-slate-700 mb-1.5">
@@ -631,13 +852,13 @@ export function ApplicationModal({
             )}
           </div>
 
-          {/* 発注申請・補充申請の場合は明細リスト編集フォームを表示 */}
+          {/* 購入申請・補充申請の場合は明細リスト編集フォームを表示 */}
           {(type === 'purchase_order' || type === 'inventory_issue') ? (
             <div className="space-y-3 pt-2 border-t border-slate-100">
               <div className="flex items-center justify-between">
                 <label className="block text-sm font-bold text-slate-800 flex items-center gap-2">
                   <ShoppingBag className="w-4 h-4 text-indigo-600" />
-                  <span>{type === 'purchase_order' ? '発注品名・明細内訳' : '補充品名・明細内訳'}</span>
+                  <span>{type === 'purchase_order' ? '購入品明細' : '補充品名・明細内訳'}</span>
                 </label>
                 <button
                   type="button"
@@ -669,7 +890,7 @@ export function ApplicationModal({
                     <div className="grid grid-cols-12 gap-2">
                       <div className="col-span-12 sm:col-span-5">
                         <label className="block text-[10px] font-bold text-slate-600 mb-1">
-                          品名 <span className="text-slate-400 font-normal">(マスタサジェスト/ベタ打ち可)</span>
+                          品名 <span className="text-slate-400 font-normal">(マスタサジェスト/直接入力)</span>
                         </label>
                         <input
                           type="text"
@@ -678,7 +899,7 @@ export function ApplicationModal({
                           autoComplete="off"
                           value={item.itemName}
                           onChange={e => handlePurchaseItemChange(idx, 'itemName', e.target.value)}
-                          placeholder="例: M3戸車セット"
+                          placeholder="例: 27インチ4Kモニター、ワイヤレスマウス等"
                           className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                         />
                       </div>
@@ -725,7 +946,7 @@ export function ApplicationModal({
                         autoComplete="off"
                         value={item.note || ''}
                         onChange={e => handlePurchaseItemChange(idx, 'note', e.target.value)}
-                        placeholder="備考（例: A棟2階設置用、規格指定あり等）"
+                        placeholder="備考（例: 型番指定、色指定、納品先指定等）"
                         className="w-full px-2.5 py-1 bg-white/80 border border-slate-200 rounded-lg text-[11px] text-slate-600 focus:ring-1 focus:ring-indigo-500 focus:outline-none"
                       />
                     </div>
@@ -737,7 +958,7 @@ export function ApplicationModal({
               <div className="p-3.5 bg-indigo-50/70 border border-indigo-100 rounded-xl flex items-center justify-between">
                 <div className="flex items-center gap-2 text-indigo-900 font-bold text-xs">
                   <Calculator className="w-4 h-4 text-indigo-600" />
-                  <span>{type === 'purchase_order' ? '発注' : '補充'}想定合計額 （数量 × 単価）</span>
+                  <span>合計金額 （数量 × 単価）</span>
                 </div>
                 <div className="text-base font-black text-indigo-700">
                   ¥{totalPurchaseAmount.toLocaleString()}

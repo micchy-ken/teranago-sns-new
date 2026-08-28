@@ -207,7 +207,14 @@ export interface WorkflowApplication {
   endDate?: string; // ISO string
   createdAt: string; // ISO string
 
-  // 発注申請用明細・関連情報
+  // 購入申請・発注申請用明細・拡張情報
+  purchasePurpose?: string; // 購入目的
+  purchaseTiming?: 'urgent' | 'by_date'; // 購入時期 ('urgent': 至急, 'by_date': ◯までに必要)
+  purchaseDueDate?: string; // 期日指定時の必要期日 (YYYY-MM-DD)
+  purchaseVendor?: string; // 購入元 (例: Amazon, アスクル, モノタロウ, 〇〇商事など)
+  purchaseMethod?: 'self' | 'delegate'; // 購入方法 ('self': 自分で購入, 'delegate': ◯さんに購入を依頼)
+  purchaserDelegateUserId?: string; // 購入依頼先ユーザーID
+  purchaserDelegateUser?: User; // 購入依頼先ユーザー情報
   constructionDate?: string; // 工事予定日 (YYYY-MM-DD)
   purchaseItems?: PurchaseOrderItem[];
   purchaseOrderNumber?: string; // 発注No (承認ルート/管理で付与)

@@ -1,7 +1,7 @@
 export const RECOMMEND_SERVER_JS = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年8月28日 (気象庁・地震速報連動による安否確認自動発動エンジン・疑似テストシミュレーター・自動発動設定API搭載版)
+ * 最終更新日時 (最終アップデート): 2026年8月28日 (購入申請の目的・時期・購入元・購入方法・手配依頼先連携および気象庁地震連動安定化対応版)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -2897,7 +2897,7 @@ async function startServer() {
           emailAddresses.push(u.email.trim());
         }
         if (settings.notifyPersonalEmail && (u.personalEmailEncrypted || u.personal_email_encrypted)) {
-          const dec = decryptPersonalEmail(u.personalEmailEncrypted || u.personal_email_encrypted);
+          const dec = decryptText(u.personalEmailEncrypted || u.personal_email_encrypted);
           if (dec && dec.includes('@') && !emailAddresses.includes(dec)) {
             emailAddresses.push(dec.trim());
           }
@@ -2907,7 +2907,7 @@ async function startServer() {
         const mailText = \`\${u.name} 様\\n\\n\${eventMessage}\\n\\n▼ 安否状況の回答URL (1タップ回答):\\n\${directLink}\\n\\n発動日時: \${new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}\`;
 
         for (const addr of emailAddresses) {
-          sendMailSafely({
+          sendEmailNotification({
             to: addr,
             subject: mailSubject,
             text: mailText
