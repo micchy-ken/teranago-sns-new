@@ -120,7 +120,14 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
   initialTab,
   onOpenConfirmModal,
 }) => {
-  const isAdmin = currentUser.role === 'admin' || currentUser.isAdmin === true || (currentUser as any).id === 'u1';
+  // 安否確認の管理権限（システム管理者 または 個別権限「安否確認」がONのユーザー）
+  const isAdmin = 
+    currentUser.role === 'admin' || 
+    currentUser.isAdmin === true || 
+    (currentUser as any).id === 'u1' ||
+    currentUser.preferences?.showSafetyConfirmation === true ||
+    (currentUser as any).showSafetyConfirmation === true ||
+    currentUser.preferences?.safetyConfirmationPermission === true;
 
   // Tabs: 'dashboard' (発動中・集計), 'targets' (対象者一覧・登録状況), 'trigger' (安否確認発動), 'jma_auto' (気象庁連動)
   const [activeTab, setActiveTab] = useState<'dashboard' | 'targets' | 'trigger' | 'jma_auto'>(
