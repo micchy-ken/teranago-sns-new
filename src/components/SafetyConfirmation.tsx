@@ -122,10 +122,47 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
 }) => {
   const isAdmin = currentUser.role === 'admin' || currentUser.isAdmin === true || (currentUser as any).id === 'u1';
 
-  // Tabs: 'dashboard' (発動中・集計), 'targets' (対象者一覧・登録状況), 'trigger' (安否確認発動)
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'targets' | 'trigger'>(
-    initialTab && initialTab !== 'respond' ? initialTab : 'dashboard'
+  // Tabs: 'dashboard' (発動中・集計), 'targets' (対象者一覧・登録状況), 'trigger' (安否確認発動), 'jma_auto' (気象庁連動)
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'targets' | 'trigger' | 'jma_auto'>(
+    initialTab && initialTab !== 'respond' ? (initialTab as any) : 'dashboard'
   );
+
+  // JMA Auto-Trigger State
+  const [jmaSettings, setJmaSettings] = useState<{
+    enabled: boolean;
+    minIntensity: string;
+    targetScope: string;
+    targetOffices: string[];
+    notifyWebPush: boolean;
+    notifyCompanyEmail: boolean;
+    notifyPersonalEmail: boolean;
+    isDrillMode: boolean;
+    lastTriggeredQuakeId: string;
+    lastCheckedAt: string;
+    logs: any[];
+  }>({
+    enabled: true,
+    minIntensity: '5minus',
+    targetScope: 'all',
+    targetOffices: ['名古屋', '東京', '大阪', '静岡', '浜松', '本社'],
+    notifyWebPush: true,
+    notifyCompanyEmail: true,
+    notifyPersonalEmail: true,
+    isDrillMode: false,
+    lastTriggeredQuakeId: '',
+    lastCheckedAt: '',
+    logs: []
+  });
+  const [isLoadingJmaSettings, setIsLoadingJmaSettings] = useState(false);
+  const [isSavingJmaSettings, setIsSavingJmaSettings] = useState(false);
+  const [recentQuakes, setRecentQuakes] = useState<any[]>([]);
+  const [isLoadingQuakes, setIsLoadingQuakes] = useState(false);
+
+  // JMA Simulation state
+  const [simEpicenter, setSimEpicenter] = useState('愛知県西部');
+  const [simScale, setSimScale] = useState(50); // 50 = 震度5強
+  const [simMagnitude, setSimMagnitude] = useState(6.2);
+  const [isRunningSimulation, setIsRunningSimulation] = useState(false);
 
   // Modals for Answer and Response Detail View
   const [isMyAnswerModalOpen, setIsMyAnswerModalOpen] = useState(initialTab === 'respond' || !!initialEventId);
@@ -210,7 +247,88 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
   // Load events on mount
   useEffect(() => {
     fetchEvents();
+    fetchJmaSettings();
+    fetchRecentQuakes();
   }, []);
+
+  const fetchJmaSettings = async () => {
+    try {
+      setIsLoadingJmaSettings(true);
+      const res = await fetch(`${API_BASE_URL}/safety/auto-trigger-settings`);
+      if (res.ok) {
+        const data = await res.json();
+        setJmaSettings(prev => ({ ...prev, ...data }));
+      }
+    } catch (err) {
+      console.error('Failed to fetch JMA settings:', err);
+    } finally {
+      setIsLoadingJmaSettings(false);
+    }
+  };
+
+  const handleSaveJmaSettings = async () => {
+    try {
+      setIsSavingJmaSettings(true);
+      const res = await fetch(`${API_BASE_URL}/safety/auto-trigger-settings`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(jmaSettings)
+      });
+      if (res.ok) {
+        setActionMessage({ type: 'success', text: '気象庁連動・自動発動設定を正常に保存・反映しました。' });
+        setTimeout(() => setActionMessage(null), 5000);
+      } else {
+        setActionMessage({ type: 'error', text: '設定の保存に失敗しました。' });
+      }
+    } catch (err) {
+      setActionMessage({ type: 'error', text: '通信エラーが発生しました。' });
+    } finally {
+      setIsSavingJmaSettings(false);
+    }
+  };
+
+  const fetchRecentQuakes = async () => {
+    try {
+      setIsLoadingQuakes(true);
+      const res = await fetch(`${API_BASE_URL}/safety/latest-earthquakes`);
+      if (res.ok) {
+        const data = await res.json();
+        setRecentQuakes(Array.isArray(data) ? data : []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch earthquakes:', err);
+    } finally {
+      setIsLoadingQuakes(false);
+    }
+  };
+
+  const handleRunSimulation = async () => {
+    try {
+      setIsRunningSimulation(true);
+      const res = await fetch(`${API_BASE_URL}/safety/test-jma-trigger`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          epicenter: simEpicenter,
+          scale: Number(simScale),
+          magnitude: Number(simMagnitude)
+        })
+      });
+      const result = await res.json();
+      if (res.ok && result.success) {
+        setActionMessage({ type: 'success', text: result.message || '疑似地震テスト発動が完了しました！' });
+        setTimeout(() => setActionMessage(null), 6000);
+        fetchEvents();
+        fetchJmaSettings();
+      } else {
+        setActionMessage({ type: 'error', text: result.error || 'テスト発動に失敗しました。' });
+      }
+    } catch (err) {
+      setActionMessage({ type: 'error', text: 'テスト発動通信エラーが発生しました。' });
+    } finally {
+      setIsRunningSimulation(false);
+    }
+  };
 
   // Quick 1-tap Answer Presets
   const applyQuickPreset = (preset: 'safe' | 'remote' | 'injured' | 'rescue') => {
@@ -1077,6 +1195,21 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
               </button>
 
               <button
+                onClick={() => setActiveTab('jma_auto')}
+                className={`px-3.5 py-2 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+                  activeTab === 'jma_auto'
+                    ? 'bg-white text-amber-700 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Radio className={`w-4 h-4 ${jmaSettings.enabled ? 'text-amber-500 animate-pulse' : 'text-slate-400'}`} />
+                気象庁連動
+                {jmaSettings.enabled && (
+                  <span className="w-2 h-2 rounded-full bg-emerald-500" title="気象庁連動: 監視中" />
+                )}
+              </button>
+
+              <button
                 onClick={() => setActiveTab('trigger')}
                 className={`px-3.5 py-2 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
                   activeTab === 'trigger'
@@ -1085,7 +1218,7 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
                 }`}
               >
                 <Send className="w-4 h-4" />
-                安否確認を発動
+                手動発動
               </button>
             </>
           )}
@@ -2066,6 +2199,452 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
                   <span className="w-2 h-2 rounded-full bg-rose-500" />
                   未登録: {targetNoneRegisteredCount}名
                 </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* TAB 2.5: JMA AUTO TRIGGER (気象庁連動・自動発動設定 & モニター) */}
+      {/* ========================================================================= */}
+      {activeTab === 'jma_auto' && (
+        <div className="space-y-6">
+          {/* Top Status & Settings Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Left 2 Cols: Master Settings */}
+            <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-6">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 border border-amber-200 flex items-center justify-center">
+                    <Radio className="w-5 h-5 animate-pulse" />
+                  </div>
+                  <div>
+                    <h2 className="text-base font-extrabold text-slate-800">
+                      気象庁・地震速報連動 自動発動設定
+                    </h2>
+                    <p className="text-xs text-slate-500">
+                      気象庁および防災地震情報APIを1分周期で自動監視し、指定震度以上の地震発生時に安否確認を自動起票・一斉配信します。
+                    </p>
+                  </div>
+                </div>
+
+                {/* Main Switch */}
+                <button
+                  onClick={() => setJmaSettings(prev => ({ ...prev, enabled: !prev.enabled }))}
+                  className={`relative inline-flex h-7 w-14 items-center rounded-full transition-colors cursor-pointer shrink-0 ${
+                    jmaSettings.enabled ? 'bg-emerald-600' : 'bg-slate-300'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+                      jmaSettings.enabled ? 'translate-x-8' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {/* Status Banner */}
+              <div className={`p-4 rounded-xl border flex items-center justify-between text-xs font-bold ${
+                jmaSettings.enabled 
+                  ? 'bg-emerald-50 text-emerald-900 border-emerald-200'
+                  : 'bg-slate-50 text-slate-600 border-slate-200'
+              }`}>
+                <div className="flex items-center gap-2">
+                  <span className={`w-2.5 h-2.5 rounded-full ${jmaSettings.enabled ? 'bg-emerald-500 animate-ping' : 'bg-slate-400'}`} />
+                  <span>
+                    {jmaSettings.enabled 
+                      ? '気象庁連動エンジン：稼働中（1分周期で地震情報を自動ポーリング監視中）' 
+                      : '気象庁連動エンジン：現在無効（自動発動は停止しています）'}
+                  </span>
+                </div>
+                {jmaSettings.lastCheckedAt && (
+                  <span className="text-[11px] font-mono text-slate-500">
+                    最終確認: {new Date(jmaSettings.lastCheckedAt).toLocaleTimeString('ja-JP')}
+                  </span>
+                )}
+              </div>
+
+              {/* Settings Form */}
+              <div className="space-y-5">
+                {/* Trigger Threshold */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-2">
+                    自動発動トリガー（最小震度基準）
+                  </label>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
+                    {[
+                      { id: '4', label: '震度4 以上', sub: '注意報レベル' },
+                      { id: '5minus', label: '震度5弱 以上', sub: '【標準推奨】' },
+                      { id: '5plus', label: '震度5強 以上', sub: '明確な被害' },
+                      { id: '6minus', label: '震度6弱 以上', sub: '大規模災害' },
+                      { id: '6plus', label: '震度6強 以上', sub: '激甚災害' },
+                      { id: '7', label: '震度7 (最大)', sub: '壊滅的被害' }
+                    ].map(item => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setJmaSettings(prev => ({ ...prev, minIntensity: item.id }))}
+                        className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                          jmaSettings.minIntensity === item.id
+                            ? 'bg-rose-50 border-rose-400 ring-2 ring-rose-200 text-rose-900'
+                            : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                        }`}
+                      >
+                        <div className="font-extrabold text-xs">{item.label}</div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">{item.sub}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Target Scope */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-2">
+                    自動発動時の対象者範囲
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setJmaSettings(prev => ({ ...prev, targetScope: 'all' }))}
+                      className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between ${
+                        jmaSettings.targetScope === 'all'
+                          ? 'bg-indigo-50 border-indigo-300 ring-2 ring-indigo-100 text-indigo-900'
+                          : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <div>
+                        <div className="font-bold text-xs">全社一斉発動（全事業所・全部署）</div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">全社員（{allUsers.length}名）に回答依頼を通知（推奨）</div>
+                      </div>
+                      {jmaSettings.targetScope === 'all' && <Check className="w-4 h-4 text-indigo-600 shrink-0" />}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setJmaSettings(prev => ({ ...prev, targetScope: 'affected_offices' }))}
+                      className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between ${
+                        jmaSettings.targetScope === 'affected_offices'
+                          ? 'bg-indigo-50 border-indigo-300 ring-2 ring-indigo-100 text-indigo-900'
+                          : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <div>
+                        <div className="font-bold text-xs">震源周辺・主要拠点のみ</div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">名古屋・東京・大阪・静岡など該当エリア拠点のみ</div>
+                      </div>
+                      {jmaSettings.targetScope === 'affected_offices' && <Check className="w-4 h-4 text-indigo-600 shrink-0" />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Delivery Channels */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-2">
+                    自動配信チャネル（複数選択）
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <label className={`flex items-center gap-2.5 p-3 rounded-xl border cursor-pointer transition-all ${
+                      jmaSettings.notifyWebPush ? 'bg-amber-50/60 border-amber-300 text-amber-900' : 'bg-slate-50 border-slate-200 text-slate-500'
+                    }`}>
+                      <input
+                        type="checkbox"
+                        checked={jmaSettings.notifyWebPush}
+                        onChange={e => setJmaSettings(prev => ({ ...prev, notifyWebPush: e.target.checked }))}
+                        className="rounded text-amber-600 focus:ring-amber-500 w-4 h-4"
+                      />
+                      <div>
+                        <div className="text-xs font-bold flex items-center gap-1">
+                          <Bell className="w-3.5 h-3.5 text-amber-600" />
+                          Web Push 通知
+                        </div>
+                        <div className="text-[10px] text-slate-500">スマホ・ブラウザ即時通知</div>
+                      </div>
+                    </label>
+
+                    <label className={`flex items-center gap-2.5 p-3 rounded-xl border cursor-pointer transition-all ${
+                      jmaSettings.notifyCompanyEmail ? 'bg-blue-50/60 border-blue-300 text-blue-900' : 'bg-slate-50 border-slate-200 text-slate-500'
+                    }`}>
+                      <input
+                        type="checkbox"
+                        checked={jmaSettings.notifyCompanyEmail}
+                        onChange={e => setJmaSettings(prev => ({ ...prev, notifyCompanyEmail: e.target.checked }))}
+                        className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4"
+                      />
+                      <div>
+                        <div className="text-xs font-bold flex items-center gap-1">
+                          <Mail className="w-3.5 h-3.5 text-blue-600" />
+                          社用・携帯メール
+                        </div>
+                        <div className="text-[10px] text-slate-500">会社アドレスへ直通URL送信</div>
+                      </div>
+                    </label>
+
+                    <label className={`flex items-center gap-2.5 p-3 rounded-xl border cursor-pointer transition-all ${
+                      jmaSettings.notifyPersonalEmail ? 'bg-emerald-50/60 border-emerald-300 text-emerald-900' : 'bg-slate-50 border-slate-200 text-slate-500'
+                    }`}>
+                      <input
+                        type="checkbox"
+                        checked={jmaSettings.notifyPersonalEmail}
+                        onChange={e => setJmaSettings(prev => ({ ...prev, notifyPersonalEmail: e.target.checked }))}
+                        className="rounded text-emerald-600 focus:ring-emerald-500 w-4 h-4"
+                      />
+                      <div>
+                        <div className="text-xs font-bold flex items-center gap-1">
+                          <Lock className="w-3.5 h-3.5 text-emerald-600" />
+                          個人メール (暗号化)
+                        </div>
+                        <div className="text-[10px] text-slate-500">私用アドレスへ伏字配信</div>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Drill mode option */}
+                <div className="pt-2">
+                  <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={jmaSettings.isDrillMode}
+                      onChange={e => setJmaSettings(prev => ({ ...prev, isDrillMode: e.target.checked }))}
+                      className="rounded text-rose-600 focus:ring-rose-500 w-4 h-4"
+                    />
+                    <span>自動発動時に【訓練】フラグを付与する（テスト訓練期間用）</span>
+                  </label>
+                </div>
+
+                {/* Save Button */}
+                <div className="flex items-center justify-end pt-4 border-t border-slate-100">
+                  <button
+                    onClick={handleSaveJmaSettings}
+                    disabled={isSavingJmaSettings}
+                    className="px-6 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-sm transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                  >
+                    {isSavingJmaSettings ? (
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Check className="w-4 h-4 text-emerald-400" />
+                    )}
+                    気象庁連動設定を保存して反映
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Right 1 Col: Test Simulation Sandbox */}
+            <div className="bg-gradient-to-br from-rose-50 to-orange-50/50 rounded-2xl border border-rose-200 p-6 shadow-sm flex flex-col justify-between space-y-5">
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <Sparkles className="w-5 h-5 text-rose-600" />
+                  <h3 className="text-sm font-black text-rose-950">
+                    疑似地震テスト発動シミュレーター
+                  </h3>
+                </div>
+                <p className="text-xs text-rose-800/80 leading-relaxed">
+                  「もし今、愛知県や首都圏で震度6弱が発生したら」を安全に疑似テストできます。実際にイベント起票と回答直通メール配信が実行されます。
+                </p>
+
+                <div className="mt-5 space-y-4">
+                  {/* Epicenter selector */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-800 mb-1.5">
+                      想定震源地
+                    </label>
+                    <div className="flex flex-wrap gap-1.5 mb-2">
+                      {['愛知県西部', '静岡県東部', '東京湾', '大阪府北部', '能登半島', '日向灘'].map(place => (
+                        <button
+                          key={place}
+                          type="button"
+                          onClick={() => setSimEpicenter(place)}
+                          className={`text-[11px] px-2 py-0.5 rounded-md border font-bold transition-all cursor-pointer ${
+                            simEpicenter === place
+                              ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
+                              : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                          }`}
+                        >
+                          {place}
+                        </button>
+                      ))}
+                    </div>
+                    <input
+                      type="text"
+                      value={simEpicenter}
+                      onChange={e => setSimEpicenter(e.target.value)}
+                      className="w-full text-xs font-bold border border-slate-300 rounded-lg p-2 bg-white"
+                      placeholder="震源地を入力"
+                    />
+                  </div>
+
+                  {/* Intensity selector */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-800 mb-1.5">
+                      想定最大震度
+                    </label>
+                    <select
+                      value={simScale}
+                      onChange={e => setSimScale(Number(e.target.value))}
+                      className="w-full text-xs font-bold border border-slate-300 rounded-lg p-2 bg-white"
+                    >
+                      <option value={40}>震度4</option>
+                      <option value={45}>震度5弱</option>
+                      <option value={50}>震度5強 (標準テスト)</option>
+                      <option value={55}>震度6弱</option>
+                      <option value={60}>震度6強</option>
+                      <option value={70}>震度7</option>
+                    </select>
+                  </div>
+
+                  {/* Magnitude */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-800 mb-1.5">
+                      想定マグニチュード: M{simMagnitude}
+                    </label>
+                    <input
+                      type="range"
+                      min="4.0"
+                      max="8.5"
+                      step="0.1"
+                      value={simMagnitude}
+                      onChange={e => setSimMagnitude(Number(e.target.value))}
+                      className="w-full accent-rose-600"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-rose-200/60">
+                <button
+                  type="button"
+                  onClick={handleRunSimulation}
+                  disabled={isRunningSimulation}
+                  className="w-full py-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs shadow-md shadow-rose-300 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  {isRunningSimulation ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Send className="w-4 h-4" />
+                  )}
+                  疑似地震で連動テスト発動を実行
+                </button>
+                <p className="text-[10px] text-center text-rose-700 mt-2 font-medium">
+                  ※【テスト】表示付きで全社に回答URL付き通知が送信されます
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Bottom Grid: Real-time Quake Monitor & Auto-trigger History */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Real-time Quake Feed */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Radio className="w-5 h-5 text-amber-500 animate-pulse" />
+                  <h3 className="text-sm font-extrabold text-slate-800">
+                    気象庁・最新地震速報モニター (直近の観測フィード)
+                  </h3>
+                </div>
+                <button
+                  onClick={fetchRecentQuakes}
+                  disabled={isLoadingQuakes}
+                  className="text-xs text-indigo-600 hover:text-indigo-800 font-bold flex items-center gap-1 cursor-pointer"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingQuakes ? 'animate-spin' : ''}`} />
+                  更新
+                </button>
+              </div>
+
+              <div className="divide-y divide-slate-100 max-h-[360px] overflow-y-auto">
+                {recentQuakes && recentQuakes.length > 0 ? (
+                  recentQuakes.map((q, idx) => {
+                    const maxScale = q.earthquake?.maxScale || q.maxScale || 0;
+                    const scaleStr = maxScale >= 70 ? '震度7' : maxScale >= 60 ? '震度6強' : maxScale >= 55 ? '震度6弱' : maxScale >= 50 ? '震度5強' : maxScale >= 45 ? '震度5弱' : maxScale >= 40 ? '震度4' : maxScale >= 30 ? '震度3' : maxScale >= 20 ? '震度2' : '震度1';
+                    const isOverThreshold = maxScale >= 45;
+                    const time = q.earthquake?.time || q.time || '';
+                    const name = q.earthquake?.hypocenter?.name || q.hypocenter?.name || '震源地不明';
+                    const mag = q.earthquake?.hypocenter?.magnitude || q.hypocenter?.magnitude || '-';
+
+                    return (
+                      <div key={q.id || idx} className="py-3 flex items-center justify-between text-xs">
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-2">
+                            <span className="font-extrabold text-slate-800">{name}</span>
+                            <span className="text-[11px] font-mono text-slate-500">M{mag}</span>
+                          </div>
+                          <div className="text-[11px] text-slate-400 font-mono">{time}</div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <span className={`px-2.5 py-1 rounded-full text-xs font-black border ${
+                            isOverThreshold 
+                              ? 'bg-rose-100 text-rose-800 border-rose-300 animate-bounce' 
+                              : maxScale >= 30 
+                              ? 'bg-amber-100 text-amber-800 border-amber-200' 
+                              : 'bg-slate-100 text-slate-700 border-slate-200'
+                          }`}>
+                            {scaleStr}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="py-8 text-center text-xs text-slate-400">
+                    現在取得可能な地震速報データはありません。
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Auto-Trigger History Logs */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-5 h-5 text-indigo-600" />
+                  <h3 className="text-sm font-extrabold text-slate-800">
+                    自動発動・シミュレーション履歴ログ
+                  </h3>
+                </div>
+                <span className="text-[11px] text-slate-400 font-mono">
+                  直近 {jmaSettings.logs?.length || 0} 件
+                </span>
+              </div>
+
+              <div className="divide-y divide-slate-100 max-h-[360px] overflow-y-auto">
+                {jmaSettings.logs && jmaSettings.logs.length > 0 ? (
+                  jmaSettings.logs.map((log: any, idx: number) => (
+                    <div key={log.id || idx} className="py-3 flex items-center justify-between text-xs">
+                      <div className="space-y-0.5">
+                        <div className="flex items-center gap-2">
+                          <span className="font-extrabold text-slate-800">{log.epicenter}</span>
+                          <span className="font-bold text-rose-700">{log.maxScaleText}</span>
+                          {log.isSimulated && (
+                            <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 font-bold border border-amber-200">
+                              疑似テスト
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-slate-400 font-mono">
+                          {new Date(log.time).toLocaleString('ja-JP')}
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          setSelectedEventId(log.eventId);
+                          setActiveTab('dashboard');
+                        }}
+                        className="text-xs text-indigo-600 hover:text-indigo-800 font-bold px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 transition-colors cursor-pointer"
+                      >
+                        集計を表示 →
+                      </button>
+                    </div>
+                  ))
+                ) : (
+                  <div className="py-8 text-center text-xs text-slate-400">
+                    自動発動の履歴ログはまだありません。
+                  </div>
+                )}
               </div>
             </div>
           </div>

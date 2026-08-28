@@ -1,7 +1,7 @@
 export const RECOMMEND_SERVER_JS = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年8月28日 (安否確認システム：回答データ正規化・集計と回答内容の完全同期・全フィールド互換性対応版)
+ * 最終更新日時 (最終アップデート): 2026年8月28日 (気象庁・地震速報連動による安否確認自動発動エンジン・疑似テストシミュレーター・自動発動設定API搭載版)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -2726,6 +2726,316 @@ async function startServer() {
       });
     } catch (err: any) {
       console.error('Safety respond error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ==========================================
+  // 気象庁 / 地震速報連動 自動発動エンジン (JMA Earthquake Auto-Trigger)
+  // ==========================================
+  const safetyAutoSettingsPath = path.join(dataDir, 'safety_auto_settings.json');
+
+  const defaultAutoSettings = {
+    enabled: true,
+    minIntensity: '5minus', // '4' (震度4), '5minus' (震度5弱), '5plus' (震度5強), '6minus' (震度6弱), '6plus' (震度6強), '7' (震度7)
+    targetScope: 'all', // 'all' | 'affected_offices'
+    targetOffices: ['名古屋', '東京', '大阪', '静岡', '浜松', '本社'],
+    notifyWebPush: true,
+    notifyCompanyEmail: true,
+    notifyPersonalEmail: true,
+    isDrillMode: false,
+    lastTriggeredQuakeId: '',
+    lastCheckedAt: new Date().toISOString(),
+    logs: [] as any[]
+  };
+
+  function loadSafetyAutoSettings() {
+    if (!fs.existsSync(safetyAutoSettingsPath)) {
+      try {
+        fs.writeFileSync(safetyAutoSettingsPath, JSON.stringify(defaultAutoSettings, null, 2), 'utf8');
+      } catch (e) {}
+      return defaultAutoSettings;
+    }
+    try {
+      const data = JSON.parse(fs.readFileSync(safetyAutoSettingsPath, 'utf8'));
+      return { ...defaultAutoSettings, ...data };
+    } catch (e) {
+      return defaultAutoSettings;
+    }
+  }
+
+  function saveSafetyAutoSettings(settings: any) {
+    try {
+      fs.writeFileSync(safetyAutoSettingsPath, JSON.stringify(settings, null, 2), 'utf8');
+    } catch (e) {
+      console.error('Failed to save safety auto settings:', e);
+    }
+  }
+
+  const INTENSITY_NUMERIC: Record<string, number> = {
+    '1': 10,
+    '2': 20,
+    '3': 30,
+    '4': 40,
+    '5minus': 45,
+    '5plus': 50,
+    '6minus': 55,
+    '6plus': 60,
+    '7': 70
+  };
+
+  function intensityToText(scale: number): string {
+    if (scale >= 70) return '震度7';
+    if (scale >= 60) return '震度6強';
+    if (scale >= 55) return '震度6弱';
+    if (scale >= 50) return '震度5強';
+    if (scale >= 45) return '震度5弱';
+    if (scale >= 40) return '震度4';
+    if (scale >= 30) return '震度3';
+    if (scale >= 20) return '震度2';
+    if (scale >= 10) return '震度1';
+    return '不明';
+  }
+
+  // 最新地震情報を取得 (P2P地震情報 API)
+  async function fetchLatestEarthquakes(): Promise<any[]> {
+    try {
+      const response = await fetch('https://api.p2pquake.net/v2/history?codes=551&limit=10', {
+        headers: { 'User-Agent': 'Teranago-SNS-SafetyConfirmation/1.0' }
+      });
+      if (!response.ok) return [];
+      const data: any = await response.json();
+      return Array.isArray(data) ? data : [];
+    } catch (err) {
+      return [];
+    }
+  }
+
+  // 地震データに基づく自動安否確認発動ロジック
+  async function processEarthquakeTrigger(quake: any, isSimulated = false) {
+    const settings = loadSafetyAutoSettings();
+    if (!settings.enabled && !isSimulated) {
+      return { triggered: false, reason: '自動連動が無効になっています' };
+    }
+
+    const quakeId = quake.id || \`sim_\${Date.now()}\`;
+    if (!isSimulated && settings.lastTriggeredQuakeId === quakeId) {
+      return { triggered: false, reason: 'すでに発動済みの地震データです' };
+    }
+
+    const maxScale = quake.earthquake?.maxScale || quake.maxScale || 0;
+    const threshold = INTENSITY_NUMERIC[settings.minIntensity] || 45;
+
+    if (maxScale < threshold && !isSimulated) {
+      return { triggered: false, reason: \`最大震度(\${intensityToText(maxScale)})が設定閾値(\${intensityToText(threshold)})未満です\` };
+    }
+
+    const epicenter = quake.earthquake?.hypocenter?.name || quake.hypocenter?.name || '国内震源';
+    const magnitude = quake.earthquake?.hypocenter?.magnitude || quake.hypocenter?.magnitude || '不明';
+    const maxScaleText = intensityToText(maxScale);
+    const quakeTime = quake.earthquake?.time || quake.time || new Date().toLocaleString('ja-JP');
+
+    const eventTitle = \`【緊急安否確認(気象庁連動)】\${epicenter}で最大\${maxScaleText}観測\`;
+    const eventMessage = \`気象庁より\${epicenter}を震源とする地震（最大\${maxScaleText}、M\${magnitude}、発生時刻: \${quakeTime}）が検知されました。\\nシステムにより安否確認が自動発動されました。身の安全を最優先に確保した上で、現在の安否状況をご回答ください。\`;
+
+    const newEventId = \`safety_jma_\${Date.now()}_\${Math.random().toString(36).substring(2, 6)}\`;
+    const nowIso = new Date().toISOString();
+
+    const newEvent = {
+      id: newEventId,
+      title: eventTitle,
+      type: 'earthquake',
+      disasterType: 'earthquake',
+      severity: maxScaleText,
+      level: maxScaleText,
+      targetOffice: '全社',
+      targetDivision: '全部署',
+      message: eventMessage,
+      notifyWebPush: settings.notifyWebPush,
+      notifyCompanyEmail: settings.notifyCompanyEmail,
+      notifyPersonalEmail: settings.notifyPersonalEmail,
+      isDrill: settings.isDrillMode || isSimulated,
+      isTest: isSimulated,
+      status: 'active',
+      createdBy: 'jma_system',
+      createdById: 'jma_system',
+      createdByName: isSimulated ? '気象庁連動シミュレーター' : '気象庁 地震速報自動連動システム',
+      createdAt: nowIso,
+      updatedAt: nowIso
+    };
+
+    const events = loadSafetyEvents();
+    events.unshift(newEvent);
+    saveSafetyEvents(events);
+
+    // 設定の最新発動IDを記録
+    settings.lastTriggeredQuakeId = quakeId;
+    settings.lastCheckedAt = nowIso;
+    settings.logs = [
+      {
+        id: \`log_\${Date.now()}\`,
+        time: nowIso,
+        quakeId,
+        epicenter,
+        maxScaleText,
+        eventId: newEventId,
+        isSimulated
+      },
+      ...(settings.logs || []).slice(0, 19)
+    ];
+    saveSafetyAutoSettings(settings);
+
+    // ユーザーへの通知配信
+    const allUsers = loadUsers();
+    const targetUsers = allUsers;
+    const directLink = \`https://micchy-ken.github.io/teranago-sns-new/?tab=safety_confirmation&safetyEventId=\${newEventId}\`;
+
+    if (settings.notifyCompanyEmail || settings.notifyPersonalEmail) {
+      for (const u of targetUsers) {
+        const emailAddresses: string[] = [];
+        if (settings.notifyCompanyEmail && u.email && u.email.includes('@')) {
+          emailAddresses.push(u.email.trim());
+        }
+        if (settings.notifyPersonalEmail && (u.personalEmailEncrypted || u.personal_email_encrypted)) {
+          const dec = decryptPersonalEmail(u.personalEmailEncrypted || u.personal_email_encrypted);
+          if (dec && dec.includes('@') && !emailAddresses.includes(dec)) {
+            emailAddresses.push(dec.trim());
+          }
+        }
+
+        const mailSubject = \`【緊急安否確認(自動発動)】\${eventTitle}\`;
+        const mailText = \`\${u.name} 様\\n\\n\${eventMessage}\\n\\n▼ 安否状況の回答URL (1タップ回答):\\n\${directLink}\\n\\n発動日時: \${new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}\`;
+
+        for (const addr of emailAddresses) {
+          sendMailSafely({
+            to: addr,
+            subject: mailSubject,
+            text: mailText
+          }).catch(() => {});
+        }
+      }
+    }
+
+    return {
+      triggered: true,
+      eventId: newEventId,
+      event: newEvent,
+      targetsCount: targetUsers.length,
+      epicenter,
+      maxScaleText
+    };
+  }
+
+  // 1分ごとの気象庁地震情報ポーリング監視ワーカー
+  let jmaPollingTimer: NodeJS.Timeout | null = null;
+  function startJmaMonitor() {
+    if (jmaPollingTimer) clearInterval(jmaPollingTimer);
+    jmaPollingTimer = setInterval(async () => {
+      try {
+        const settings = loadSafetyAutoSettings();
+        if (!settings.enabled) return;
+        const quakes = await fetchLatestEarthquakes();
+        if (quakes && quakes.length > 0) {
+          const latestQuake = quakes[0];
+          // 発生から10分以内の地震のみ対象
+          const quakeTime = new Date(latestQuake.time || latestQuake.earthquake?.time || 0).getTime();
+          const tenMinutesAgo = Date.now() - 10 * 60 * 1000;
+          if (quakeTime > tenMinutesAgo) {
+            await processEarthquakeTrigger(latestQuake, false);
+          }
+        }
+        settings.lastCheckedAt = new Date().toISOString();
+        saveSafetyAutoSettings(settings);
+      } catch (err) {
+        console.error('[JMA Monitor] Polling error:', err);
+      }
+    }, 60 * 1000);
+  }
+  startJmaMonitor();
+
+  // API 1: 気象庁自動発動設定 取得
+  app.get([
+    '/api/safety/auto-trigger-settings',
+    '/api/safety-auto-trigger-settings',
+    '/api/safety/auto-settings'
+  ], (req, res) => {
+    try {
+      const settings = loadSafetyAutoSettings();
+      res.json(settings);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // API 2: 気象庁自動発動設定 保存・更新
+  app.post([
+    '/api/safety/auto-trigger-settings',
+    '/api/safety-auto-trigger-settings',
+    '/api/safety/auto-settings'
+  ], (req, res) => {
+    try {
+      const data = req.body || {};
+      const current = loadSafetyAutoSettings();
+      const updated = {
+        ...current,
+        ...data,
+        updatedAt: new Date().toISOString()
+      };
+      saveSafetyAutoSettings(updated);
+      res.json({ success: true, message: '気象庁連動・自動発動設定を保存しました。', settings: updated });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // API 3: 直近の地震情報フィード取得 (API経由)
+  app.get([
+    '/api/safety/latest-earthquakes',
+    '/api/safety-latest-earthquakes'
+  ], async (req, res) => {
+    try {
+      const quakes = await fetchLatestEarthquakes();
+      res.json(quakes);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // API 4: 疑似地震テスト発動シミュレーション
+  app.post([
+    '/api/safety/test-jma-trigger',
+    '/api/safety-test-jma-trigger'
+  ], async (req, res) => {
+    try {
+      const {
+        epicenter = '愛知県西部',
+        scale = 50, // 50 = 震度5強
+        magnitude = 6.2,
+        depth = 10
+      } = req.body || {};
+
+      const mockQuake = {
+        id: \`sim_\${Date.now()}\`,
+        time: new Date().toLocaleString('ja-JP'),
+        earthquake: {
+          time: new Date().toLocaleString('ja-JP'),
+          hypocenter: {
+            name: epicenter,
+            depth,
+            magnitude
+          },
+          maxScale: scale
+        }
+      };
+
+      const result = await processEarthquakeTrigger(mockQuake, true);
+      res.json({
+        success: true,
+        message: \`疑似地震（\${epicenter} / 最大\${intensityToText(scale)}）の連動テスト発動が完了しました。\`,
+        result
+      });
+    } catch (err: any) {
+      console.error('Test JMA trigger error:', err);
       res.status(500).json({ error: err.message });
     }
   });
