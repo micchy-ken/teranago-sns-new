@@ -1,266 +1,114 @@
+/**
+ * routes/safety.js (本番環境・MS SQL Server & 暗号化完全連携版)
+ * 寺岡オートドアSNS 安否確認モジュール (MS SQL Server & AES-256-GCM暗号化対応)
+ * 最終更新: 2026年8月28日 (回答直通URL・集計ダッシュボード個別削除・リマインド・個人メール登録対応 完全版)
+ */
 import { Router } from 'express';
 import crypto from 'crypto';
-import path from 'path';
-import fs from 'fs';
+import sql from 'mssql';
 import { getPool } from '../db.js';
-import { dataDir } from '../config.js';
-import { sendEmailNotification, sendPushNotificationToUser } from '../server.js';
+import { sendEmailNotification } from './email.js';
 
 const router = Router();
 
-const safetyEventsPath = path.join(dataDir, 'safety_events.json');
-const safetyResponsesPath = path.join(dataDir, 'safety_responses.json');
-const usersPath = path.join(dataDir, 'users.json');
-
-// 暗号化キーの取得（環境変数またはデフォルトキー）
-const PERSONAL_EMAIL_SECRET_KEY = process.env.PERSONAL_EMAIL_SECRET_KEY || 'teranago-safety-secret-key-32ch!';
-const AES_KEY = crypto.createHash('sha256').update(PERSONAL_EMAIL_SECRET_KEY).digest();
-
-/**
- * 復号関数 (AES-256-GCM)
- */
-function decryptText(encryptedText) {
-  if (!encryptedText || typeof encryptedText !== 'string' || !encryptedText.includes(':')) {
-    return null;
-  }
-  try {
-    const parts = encryptedText.split(':');
-    if (parts.length < 3) return null;
-    const iv = Buffer.from(parts[0], 'hex');
-    const authTag = Buffer.from(parts[1], 'hex');
-    const cipherText = parts[2];
-    const decipher = crypto.createDecipheriv('aes-256-gcm', AES_KEY, iv);
-    decipher.setAuthTag(authTag);
-    let decrypted = decipher.update(cipherText, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-    return decrypted;
-  } catch (e) {
-    console.error('[SafetyModule] Decryption error:', e.message);
-    return null;
-  }
-}
+const EMAIL_ENCRYPTION_SECRET = process.env.PERSONAL_EMAIL_SECRET_KEY || 'teraoka-safety-confirmation-secret-2026-auth-v1';
+const ENCRYPTION_KEY = crypto.createHash('sha256').update(EMAIL_ENCRYPTION_SECRET).digest();
 
 /**
  * 暗号化関数 (AES-256-GCM)
  */
-function encryptText(plainText) {
-  if (!plainText || typeof plainText !== 'string') return null;
+export function encryptText(plainText) {
+  if (!plainText) return '';
   try {
     const iv = crypto.randomBytes(12);
-    const cipher = crypto.createCipheriv('aes-256-gcm', AES_KEY, iv);
-    let encrypted = cipher.update(plainText.trim(), 'utf8', 'hex');
+    const cipher = crypto.createCipheriv('aes-256-gcm', ENCRYPTION_KEY, iv);
+    let encrypted = cipher.update(String(plainText).trim(), 'utf8', 'hex');
     encrypted += cipher.final('hex');
     const authTag = cipher.getAuthTag().toString('hex');
     return `${iv.toString('hex')}:${authTag}:${encrypted}`;
-  } catch (e) {
-    console.error('[SafetyModule] Encryption error:', e.message);
-    return null;
+  } catch (err) {
+    console.error('Encryption error:', err);
+    return '';
   }
 }
 
 /**
- * メールアドレスのマスキング (例: m***y@gmail.com)
+ * 復号関数 (AES-256-GCM)
  */
-function maskEmail(email) {
-  if (!email || !email.includes('@')) return '未登録';
+export function decryptText(cipherText) {
+  if (!cipherText || typeof cipherText !== 'string' || !cipherText.includes(':')) return '';
+  try {
+    const parts = cipherText.split(':');
+    if (parts.length !== 3) return '';
+    const [ivHex, authTagHex, encryptedHex] = parts;
+    const decipher = crypto.createDecipheriv('aes-256-gcm', ENCRYPTION_KEY, Buffer.from(ivHex, 'hex'));
+    decipher.setAuthTag(Buffer.from(authTagHex, 'hex'));
+    let decrypted = decipher.update(encryptedHex, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
+  } catch (err) {
+    return '';
+  }
+}
+
+/**
+ * メールアドレスの伏字化 (例: mi***y@gmail.com)
+ */
+export function maskEmail(email) {
+  if (!email || !email.includes('@')) return '';
   const [local, domain] = email.split('@');
   if (local.length <= 2) {
     return `${local[0]}***@${domain}`;
   }
-  return `${local[0]}***${local[local.length - 1]}@${domain}`;
+  return `${local.slice(0, 2)}***@${domain}`;
 }
 
-// ==========================================
-// ファイル・DB読み書きヘルパー
-// ==========================================
-function loadSafetyEventsFromFile() {
-  if (!fs.existsSync(safetyEventsPath)) return [];
+// -------------------------------------------------------------
+// 1. 安否確認イベント一覧取得
+// 対応URL: /api/safety-events, /api/safety/events, /api/events
+// -------------------------------------------------------------
+router.get(['/safety-events', '/safety-events/', '/safety/events', '/safety/events/', '/events', '/events/'], async (req, res) => {
   try {
-    const data = JSON.parse(fs.readFileSync(safetyEventsPath, 'utf8'));
-    return Array.isArray(data) ? data : [];
-  } catch (e) {
-    return [];
-  }
-}
-
-function saveSafetyEventsToFile(events) {
-  try {
-    fs.writeFileSync(safetyEventsPath, JSON.stringify(events, null, 2), 'utf8');
-  } catch (e) {
-    console.error('[SafetyModule] Failed to save safety events:', e);
-  }
-}
-
-function loadSafetyResponsesFromFile() {
-  if (!fs.existsSync(safetyResponsesPath)) return [];
-  try {
-    const data = JSON.parse(fs.readFileSync(safetyResponsesPath, 'utf8'));
-    return Array.isArray(data) ? data : [];
-  } catch (e) {
-    return [];
-  }
-}
-
-function saveSafetyResponsesToFile(responses) {
-  try {
-    fs.writeFileSync(safetyResponsesPath, JSON.stringify(responses, null, 2), 'utf8');
-  } catch (e) {
-    console.error('[SafetyModule] Failed to save safety responses:', e);
-  }
-}
-
-function loadUsersFromFile() {
-  if (!fs.existsSync(usersPath)) return [];
-  try {
-    const data = JSON.parse(fs.readFileSync(usersPath, 'utf8'));
-    return Array.isArray(data) ? data : [];
-  } catch (e) {
-    return [];
-  }
-}
-
-// =========================================================================
-// 1. 個人メール登録依頼メール一斉送信 API
-// =========================================================================
-router.post(['/safety/request-registration', '/safety-request-registration', '/request-registration'], async (req, res) => {
-  try {
-    const {
-      userIds,
-      customMessage = '',
-      sendToCompanyEmail = true,
-      sendToMobileEmail = true,
-      senderName = '安否確認管理者',
-      appBaseUrl
-    } = req.body || {};
-
-    if (!Array.isArray(userIds) || userIds.length === 0) {
-      return res.status(400).json({ error: '送信対象のユーザーID（userIds）を配列で指定してください。' });
+    const pool = await getPool();
+    if (pool) {
+      const result = await pool.request().query('SELECT * FROM dbo.SafetyEvents ORDER BY createdAt DESC');
+      return res.json(result.recordset || []);
     }
-
-    const allUsers = loadUsersFromFile();
-    const targetUsers = allUsers.filter((u) => userIds.includes(String(u.id)));
-
-    if (targetUsers.length === 0) {
-      return res.status(404).json({ error: '対象のユーザーが見つかりませんでした。' });
-    }
-
-    const resolvedBaseUrl = (appBaseUrl && typeof appBaseUrl === 'string' && appBaseUrl.startsWith('http'))
-      ? appBaseUrl.replace(/\/$/, '')
-      : 'https://micchy-ken.github.io/teranago-sns-new';
-
-    const directRegistrationLink = `${resolvedBaseUrl}/?tab=mypage&openEmergencyContact=true`;
-    const nowJst = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
-
-    let sentCount = 0;
-    let skippedCount = 0;
-    const results = [];
-
-    for (const u of targetUsers) {
-      const targetEmails = [];
-      if (sendToCompanyEmail && u.email && u.email.includes('@')) {
-        targetEmails.push(u.email);
-      }
-      if (sendToMobileEmail && u.mobileEmail && u.mobileEmail.includes('@') && !targetEmails.includes(u.mobileEmail)) {
-        targetEmails.push(u.mobileEmail);
-      }
-
-      if (targetEmails.length === 0) {
-        skippedCount++;
-        results.push({ userId: u.id, name: u.name, sentEmails: [], error: '送信先アドレス（PC/携帯）が未設定です' });
-        continue;
-      }
-
-      const subject = `【重要】安否確認用・個人メールアドレス（緊急連絡先）の登録のお願い`;
-      const textBody = `${u.name} 様\n\n寺岡オートドアSNS 安否確認システムよりお知らせです。\n\n大地震や災害時、会社のPCメールや携帯電話網が寸断された場合でも迅速に安否確認を受信・回答できるよう、私用メールアドレス（Gmailや携帯キャリアメール等）の緊急連絡先登録をお願いしております。\n\n登録された個人メールアドレスは最高強度の暗号化（AES-256-GCM）により厳重に保護され、管理者を含め誰にもアドレスが開示されることはありません（有事の緊急一斉発動時のみシステムから自動配信されます）。\n\n以下のURLを開き、マイページから個人メールアドレスのご登録をお願いいたします。\n\n▼ 個人メールアドレス登録画面を開く:\n${directRegistrationLink}\n\n${customMessage ? `【管理者からのメッセージ】\n${customMessage}\n\n` : ''}送信日時: ${nowJst}\n発信元: ${senderName}`;
-
-      const htmlBody = `
-        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; padding: 24px; line-height: 1.6; color: #1e293b; max-width: 600px; border: 2px solid #6366f1; border-radius: 16px; background-color: #ffffff; margin: 0 auto;">
-          <div style="background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%); color: #ffffff; padding: 18px 20px; border-radius: 12px 12px 0 0; margin: -24px -24px 20px -24px;">
-            <h2 style="margin: 0; font-size: 18px; font-weight: 800; letter-spacing: -0.02em;">🛡️ 【安否確認】個人メールアドレス（緊急連絡先）登録のお願い</h2>
-          </div>
-          <p style="font-size: 16px; font-weight: 700; color: #0f172a; margin-top: 0;">${u.name} 様</p>
-          <p style="font-size: 14px; color: #334155;">
-            大規模地震や自然災害時の迅速な安否確認・連絡網確保のため、<strong>私用メールアドレス（Gmail, iCloud, キャリアメール等）の緊急連絡先登録</strong>へのご協力をお願いいたします。
-          </p>
-          <div style="background-color: #e0e7ff; border-left: 4px solid #4f46e5; padding: 14px 16px; border-radius: 0 8px 8px 0; margin: 16px 0;">
-            <p style="margin: 0; font-size: 13px; color: #3730a3; font-weight: 600;">
-              🔒 <strong>安心の暗号化セキュリティ</strong><br>
-              登録されたアドレスはAES-256暗号化により保護され、管理者を含む第三者には一切開示されません。災害発生時の緊急安否確認メールの自動配信にのみ使用されます。
-            </p>
-          </div>
-          ${customMessage ? `
-            <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; padding: 12px 16px; border-radius: 8px; margin: 16px 0;">
-              <p style="margin: 0 0 4px 0; font-size: 12px; font-weight: 700; color: #64748b;">管理者からの連絡事項:</p>
-              <p style="margin: 0; font-size: 13px; color: #1e293b; white-space: pre-wrap;">${customMessage}</p>
-            </div>
-          ` : ''}
-          <div style="text-align: center; margin: 28px 0;">
-            <a href="${directRegistrationLink}" style="display: inline-block; background-color: #4f46e5; color: #ffffff; padding: 14px 32px; font-size: 15px; font-weight: 800; text-decoration: none; border-radius: 12px; box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);">
-              👉 今すぐ個人メールアドレスを登録する
-            </a>
-            <p style="font-size: 11px; color: #64748b; margin-top: 10px;">
-              ※上記ボタンをクリックすると、社内SNSの個人設定（緊急連絡先）画面が直接開きます。
-            </p>
-          </div>
-          <div style="background-color: #f8fafc; padding: 12px 16px; border-radius: 8px; border: 1px solid #e2e8f0; font-size: 11px; color: #64748b;">
-            <p style="margin: 0 0 4px 0;">送信日時: ${nowJst}</p>
-            <p style="margin: 0;">発信元: ${senderName} (寺岡オートドアSNS 安否確認システム)</p>
-          </div>
-        </div>
-      `;
-
-      const sentToThisUser = [];
-      for (const addr of targetEmails) {
-        try {
-          if (typeof sendEmailNotification === 'function') {
-            await sendEmailNotification({ to: addr, subject, text: textBody, html: htmlBody });
-            sentToThisUser.push(addr);
-          }
-        } catch (mErr) {
-          console.error(`[SafetyModule] Mail send failed for ${addr}:`, mErr.message);
-        }
-      }
-
-      if (sentToThisUser.length > 0) {
-        sentCount++;
-        results.push({ userId: u.id, name: u.name, sentEmails: sentToThisUser });
-      } else {
-        skippedCount++;
-        results.push({ userId: u.id, name: u.name, sentEmails: [], error: 'メール送信に失敗しました' });
-      }
-    }
-
-    res.json({
-      success: true,
-      message: `${sentCount} 名の社員（PC/携帯メール）宛に登録依頼メールを送信しました。`,
-      sentCount,
-      skippedCount,
-      totalRequested: targetUsers.length,
-      results
-    });
+    res.json([]);
   } catch (err) {
-    console.error('[SafetyModule] Request registration error:', err);
-    res.status(500).json({ error: err.message || '登録依頼メールの送信中にエラーが発生しました。' });
+    console.error('Fetch safety events error:', err);
+    res.status(500).json({ error: err.message });
   }
 });
 
-// =========================================================================
-// 2. 安否確認イベント一覧取得 API
-// =========================================================================
-router.get(['/safety-events', '/safety/events'], async (req, res) => {
+// -------------------------------------------------------------
+// 1-2. 特定の安否確認イベント詳細取得
+// 対応URL: /api/safety-events/:id, /api/safety/events/:id, /api/events/:id
+// -------------------------------------------------------------
+router.get(['/safety-events/:id', '/safety-events/:id/', '/safety/events/:id', '/safety/events/:id/', '/events/:id', '/events/:id/'], async (req, res) => {
   try {
-    const events = loadSafetyEventsFromFile();
-    events.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-    res.json(events);
+    const { id } = req.params;
+    const pool = await getPool();
+    if (pool) {
+      const result = await pool.request()
+        .input('id', sql.NVarChar(100), id)
+        .query('SELECT * FROM dbo.SafetyEvents WHERE id = @id');
+      if (result.recordset && result.recordset.length > 0) {
+        return res.json(result.recordset[0]);
+      }
+      return res.status(404).json({ error: '安否確認イベントが見つかりません。' });
+    }
+    res.status(404).json({ error: '安否確認イベントが見つかりません。' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// =========================================================================
-// 3. 安否確認発動 API (POST)
-// =========================================================================
-router.post(['/safety-events', '/safety/events'], async (req, res) => {
+// -------------------------------------------------------------
+// 2. 安否確認の一斉発動 (回答用URL・直通ボタン付きメール配信)
+// 対応URL: /api/safety-events, /api/safety/events, /api/events
+// -------------------------------------------------------------
+router.post(['/safety-events', '/safety-events/', '/safety/events', '/safety/events/', '/events', '/events/'], async (req, res) => {
   try {
     const {
       title,
@@ -270,189 +118,497 @@ router.post(['/safety-events', '/safety/events'], async (req, res) => {
       level,
       targetOffice,
       targetDivision,
+      targetScope = 'all',
+      targetOffices,
+      targetDivisions,
       message,
       notifyWebPush = true,
       notifyCompanyEmail = true,
       notifyPersonalEmail = true,
+      channels,
       isDrill = false,
       isTest = false,
+      appBaseUrl,
       createdBy,
       createdById,
-      createdByName,
-      appBaseUrl
+      createdByName
     } = req.body || {};
 
     const eventType = type || disasterType || 'earthquake';
-    if (!title || !eventType) {
-      return res.status(400).json({ error: 'タイトルおよび災害種別は必須です。' });
-    }
+    const eventSeverity = severity || level || 'warning';
+    const eventOffice = targetOffice || (targetOffices && targetOffices[0]) || '全社';
+    const eventDivision = targetDivision || (targetDivisions && targetDivisions[0]) || '全部署';
+    const pushFlag = channels?.webPush !== undefined ? channels.webPush : !!notifyWebPush;
+    const compMailFlag = channels?.companyEmail !== undefined ? channels.companyEmail : !!notifyCompanyEmail;
+    const persMailFlag = channels?.personalEmail !== undefined ? channels.personalEmail : !!notifyPersonalEmail;
+    const drillFlag = !!(isDrill || isTest);
 
     const newId = `safety_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const nowIso = new Date().toISOString();
 
-    const newEvent = {
-      id: newId,
-      title,
-      type: eventType,
-      disasterType: eventType,
-      severity: severity || level || 'warning',
-      level: level || severity || '警戒',
-      targetOffice: targetOffice || '全社',
-      targetDivision: targetDivision || '全部署',
-      message: message || '',
-      notifyWebPush: !!notifyWebPush,
-      notifyCompanyEmail: !!notifyCompanyEmail,
-      notifyPersonalEmail: !!notifyPersonalEmail,
-      isDrill: !!(isDrill || isTest),
-      isTest: !!(isDrill || isTest),
-      status: 'active',
-      createdBy: createdBy || createdById || 'admin',
-      createdByName: createdByName || '管理者',
-      createdAt: nowIso,
-      updatedAt: nowIso
-    };
+    const pool = await getPool();
+    let targetUsers = [];
 
-    const events = loadSafetyEventsFromFile();
-    events.unshift(newEvent);
-    saveSafetyEventsToFile(events);
+    if (pool) {
+      // ① イベントのDB登録
+      await pool.request()
+        .input('id', sql.NVarChar(100), newId)
+        .input('title', sql.NVarChar(200), title || '緊急安否確認')
+        .input('type', sql.NVarChar(50), eventType)
+        .input('severity', sql.NVarChar(50), eventSeverity)
+        .input('targetOffice', sql.NVarChar(100), eventOffice)
+        .input('targetDivision', sql.NVarChar(100), eventDivision)
+        .input('message', sql.NVarChar(sql.MAX), message || '')
+        .input('notifyWebPush', sql.Bit, pushFlag ? 1 : 0)
+        .input('notifyCompanyEmail', sql.Bit, compMailFlag ? 1 : 0)
+        .input('notifyPersonalEmail', sql.Bit, persMailFlag ? 1 : 0)
+        .input('isDrill', sql.Bit, drillFlag ? 1 : 0)
+        .input('status', sql.NVarChar(50), 'active')
+        .input('createdBy', sql.NVarChar(100), createdBy || createdById || 'admin')
+        .input('createdByName', sql.NVarChar(100), createdByName || '管理者')
+        .input('createdAt', sql.DateTimeOffset, nowIso)
+        .input('updatedAt', sql.DateTimeOffset, nowIso)
+        .query(`
+          INSERT INTO dbo.SafetyEvents (id, title, type, severity, targetOffice, targetDivision, message, notifyWebPush, notifyCompanyEmail, notifyPersonalEmail, isDrill, status, createdBy, createdByName, createdAt, updatedAt)
+          VALUES (@id, @title, @type, @severity, @targetOffice, @targetDivision, @message, @notifyWebPush, @notifyCompanyEmail, @notifyPersonalEmail, @isDrill, @status, @createdBy, @createdByName, @createdAt, @updatedAt)
+        `);
 
-    // 全社ユーザーを読み込み、対象ユーザーをフィルタリング
-    const allUsers = loadUsersFromFile();
-    const targetUsers = allUsers.filter((u) => {
-      const matchOffice = (!targetOffice || targetOffice === '全社' || u.office === targetOffice);
-      const matchDivision = (!targetDivision || targetDivision === '全部署' || u.division === targetDivision);
-      return matchOffice && matchDivision;
+      // ② 対象ユーザー一覧の取得
+      const usersResult = await pool.request().query('SELECT * FROM dbo.Users');
+      const allUsers = (usersResult.recordset || []).map(u => ({
+        id: String(u.id),
+        name: u.name,
+        email: u.email,
+        mobileEmail: u.mobileEmail || u.mobile_email || '',
+        personalEmailEncrypted: u.personalEmailEncrypted || u.personal_email_encrypted || '',
+        office: u.office || '',
+        division: u.division || u.department || ''
+      }));
+
+      targetUsers = allUsers.filter((u) => {
+        const uOffice = u.office || '';
+        const uDivision = u.division || '';
+        if (targetScope === 'offices' && targetOffices && targetOffices.length > 0) {
+          return targetOffices.includes(uOffice);
+        }
+        if (targetScope === 'divisions' && targetDivisions && targetDivisions.length > 0) {
+          return targetDivisions.includes(uDivision);
+        }
+        const matchOffice = (!targetOffice || targetOffice === '全社' || uOffice === targetOffice);
+        const matchDivision = (!targetDivision || targetDivision === '全部署' || uDivision === targetDivision);
+        return matchOffice && matchDivision;
+      });
+    }
+
+    // クライアントへ即座に応答
+    res.status(201).json({
+      success: true,
+      eventId: newId,
+      event: { id: newId, title, type: eventType, status: 'active' },
+      totalTargets: targetUsers.length,
+      targetUserCount: targetUsers.length,
+      message: '安否確認を発動しました。'
     });
 
-    console.log(`[SafetyModule] 発動: ${title} (対象者数: ${targetUsers.length} 名)`);
+    // バックグラウンドで回答用URL直通リンク付きメール一斉配信
+    (async () => {
+      if ((compMailFlag || persMailFlag) && targetUsers.length > 0) {
+        const resolvedBaseUrl = (appBaseUrl && typeof appBaseUrl === 'string' && appBaseUrl.startsWith('http'))
+          ? appBaseUrl.replace(/\/+$/, '')
+          : 'https://micchy-ken.github.io/teranago-sns-new';
 
-    const resolvedBaseUrl = (appBaseUrl && typeof appBaseUrl === 'string' && appBaseUrl.startsWith('http'))
-      ? appBaseUrl.replace(/\/$/, '')
-      : 'https://micchy-ken.github.io/teranago-sns-new';
+        const directAnswerLink = `${resolvedBaseUrl}/?tab=safety_confirmation&safetyEventId=${newId}`;
+        const nowJst = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
+        const mailSubject = `【緊急安否確認】${drillFlag ? '【訓練】' : ''}${title}`;
 
-    const directAnswerLink = `${resolvedBaseUrl}/?tab=safety_confirmation&safetyEventId=${newId}`;
-    const nowJst = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
+        for (const u of targetUsers) {
+          const emailAddresses = [];
+          if (compMailFlag) {
+            if (u.email && u.email.includes('@')) emailAddresses.push(u.email.trim());
+            if (u.mobileEmail && u.mobileEmail.includes('@') && u.mobileEmail.trim() !== u.email?.trim()) {
+              emailAddresses.push(u.mobileEmail.trim());
+            }
+          }
+          if (persMailFlag && u.personalEmailEncrypted) {
+            const dec = decryptText(u.personalEmailEncrypted);
+            if (dec && dec.includes('@') && !emailAddresses.includes(dec)) {
+              emailAddresses.push(dec.trim());
+            }
+          }
 
-    // 1. Web Push 通知の一斉配信
-    if (notifyWebPush && typeof sendPushNotificationToUser === 'function') {
-      for (const u of targetUsers) {
-        try {
-          await sendPushNotificationToUser({
-            targetUserId: String(u.id),
-            title: `🚨【安否確認】${title}`,
-            body: message || 'ただちに安否確認画面を開き、状況を回答してください。',
-            url: `/?tab=safety_confirmation&safetyEventId=${newId}`,
-            data: { eventId: newId, tab: 'safety_confirmation' },
-            tag: `safety_${newId}`
-          });
-        } catch (pushErr) {
-          console.warn('[SafetyModule] Push notification error:', pushErr.message);
+          const textBody = `${u.name} 様\n\n【緊急安否確認】${drillFlag ? '【訓練】' : ''}${title}\n\n${message ? `■ 本部からの連絡事項:\n${message}\n\n` : ''}至急、以下のURLを開き現在の安否状況をご回答ください。\n（スマートフォンまたはPCから1タップで簡単に回答・報告できます）\n\n▼ 安否回答用URL:\n${directAnswerLink}\n\n発動日時: ${nowJst}\n発信本部: ${createdByName || '安否確認本部'}`;
+
+          const htmlBody = `
+            <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; padding: 24px; line-height: 1.6; color: #1e293b; max-width: 600px; border: 2px solid #dc2626; border-radius: 16px; background-color: #ffffff; margin: 0 auto;">
+              <div style="background-color: #dc2626; color: #ffffff; padding: 16px 20px; border-radius: 12px 12px 0 0; margin: -24px -24px 20px -24px;">
+                <h2 style="margin: 0; font-size: 18px; font-weight: 800;">🚨 【緊急安否確認】${drillFlag ? '【訓練】' : ''}${title}</h2>
+              </div>
+              <p style="font-size: 16px; font-weight: 700; color: #0f172a; margin-top: 0;">${u.name} 様</p>
+              <p style="font-size: 14px; color: #334155;">安否確認が発動されました。身の安全を確保した上で、速やかに以下のURLより現在の安否状況・出社可否をご回答ください。</p>
+              ${message ? `
+                <div style="background-color: #fef2f2; padding: 14px 16px; border-radius: 8px; border-left: 4px solid #dc2626; margin: 16px 0;">
+                  <p style="margin: 0 0 4px 0; font-size: 12px; font-weight: 700; color: #991b1b;">本部からの連絡事項:</p>
+                  <p style="margin: 0; font-size: 14px; color: #991b1b; white-space: pre-wrap; font-weight: 600;">${message}</p>
+                </div>
+              ` : ''}
+              <div style="text-align: center; margin: 28px 0; background-color: #fff1f2; padding: 20px; border-radius: 12px; border: 1px dashed #f43f5e;">
+                <a href="${directAnswerLink}" style="display: inline-block; background-color: #dc2626; color: #ffffff; padding: 15px 36px; font-size: 16px; font-weight: 800; text-decoration: none; border-radius: 12px; box-shadow: 0 4px 14px rgba(220, 38, 38, 0.4);">
+                  👉 今すぐ安否状況を回答する (1タップ報告)
+                </a>
+                <p style="font-size: 12px; color: #475569; margin: 14px 0 4px 0; font-weight: 700;">
+                  ※ボタンが開けない場合は下記の回答URLを直接ブラウザで開いてください：
+                </p>
+                <a href="${directAnswerLink}" style="font-size: 12px; color: #dc2626; word-break: break-all; text-decoration: underline; font-weight: 600;">
+                  ${directAnswerLink}
+                </a>
+              </div>
+              <div style="background-color: #f8fafc; padding: 12px 16px; border-radius: 8px; border: 1px solid #e2e8f0; font-size: 11px; color: #64748b;">
+                <p style="margin: 0 0 4px 0;"><b>発動日時:</b> ${nowJst}</p>
+                <p style="margin: 0;"><b>発信本部:</b> ${createdByName || '安否確認本部'} (寺岡オートドアSNS 安否確認システム)</p>
+              </div>
+            </div>
+          `;
+
+          for (const addr of emailAddresses) {
+            try {
+              await sendEmailNotification({
+                to: addr,
+                subject: mailSubject,
+                text: textBody,
+                html: htmlBody
+              });
+            } catch (mErr) {
+              console.warn(`[Safety Mail Fail] ${addr}:`, mErr.message);
+            }
+          }
         }
+      }
+    })().catch((bgErr) => console.error('[Safety Background Delivery Error]:', bgErr));
+
+  } catch (err) {
+    console.error('Safety trigger fatal error:', err);
+    res.status(500).json({ error: '発動処理エラー: ' + err.message });
+  }
+});
+
+// -------------------------------------------------------------
+// 3. 個人メール（緊急連絡先）登録依頼メール一斉送信
+// 対応URL: /api/safety/request-registration, /api/request-registration
+// -------------------------------------------------------------
+router.post([
+  '/safety/request-registration',
+  '/safety/request-registration/',
+  '/request-registration',
+  '/request-registration/'
+], async (req, res) => {
+  try {
+    const {
+      userIds = [],
+      appBaseUrl,
+      customMessage = '',
+      sendToCompanyEmail = true,
+      sendToMobileEmail = true,
+      senderName = '安否確認管理者'
+    } = req.body || {};
+
+    if (!Array.isArray(userIds) || userIds.length === 0) {
+      return res.status(400).json({ error: '送信対象の社員が選択されていません。' });
+    }
+
+    const pool = await getPool();
+    let targetUsers = [];
+
+    if (pool) {
+      const usersResult = await pool.request().query('SELECT * FROM dbo.Users');
+      const allUsers = (usersResult.recordset || []).map(u => ({
+        id: String(u.id),
+        name: u.name,
+        email: u.email,
+        mobileEmail: u.mobileEmail || u.mobile_email || '',
+        personalEmailEncrypted: u.personalEmailEncrypted || u.personal_email_encrypted || '',
+        office: u.office || '',
+        division: u.division || u.department || ''
+      }));
+      targetUsers = allUsers.filter(u => userIds.includes(String(u.id)));
+    }
+
+    if (targetUsers.length === 0) {
+      return res.status(404).json({ error: '該当するユーザーが見つかりませんでした。' });
+    }
+
+    let baseUrl = appBaseUrl || 'https://micchy-ken.github.io/teranago-sns-new';
+    if (baseUrl.endsWith('/')) {
+      baseUrl = baseUrl.slice(0, -1);
+    }
+    const directRegistrationUrl = `${baseUrl}/?tab=mypage&openEmergencyContact=true`;
+
+    let sentCount = 0;
+    let skippedCount = 0;
+    const results = [];
+
+    for (const u of targetUsers) {
+      const targetEmails = [];
+
+      if (sendToCompanyEmail && u.email && u.email.includes('@')) {
+        targetEmails.push(u.email.trim());
+      }
+      if (sendToMobileEmail && u.mobileEmail && u.mobileEmail.includes('@')) {
+        const mob = u.mobileEmail.trim();
+        if (!targetEmails.includes(mob)) {
+          targetEmails.push(mob);
+        }
+      }
+
+      if (targetEmails.length === 0) {
+        skippedCount++;
+        results.push({ userId: u.id, name: u.name, sentEmails: [], error: '送信可能なアドレスがありません' });
+        continue;
+      }
+
+      const nowJst = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
+      const subject = '【安否確認・緊急連絡先登録のお願い】個人メールアドレスの登録手続きについて';
+
+      const textBody = `${u.name} 様\n\n寺岡オートドアSNS 安否確認システムより、緊急連絡先（個人メールアドレス）登録のお願いです。\n\n大地震や自然災害などの有事発生時、会社のPCメールや携帯電話が使用できない場合でも確実に安否確認通知をお届けできるよう、ご自身の個人メールアドレス（Gmailや携帯キャリアメール等）の事前登録をお願いしております。\n\n${customMessage ? `【連絡事項・依頼メッセージ】\n${customMessage}\n\n` : ''}▼ 以下のリンクをクリックすると、個人設定の緊急連絡先登録画面が直接開きます。\n${directRegistrationUrl}\n\n※ご登録いただいた個人メールアドレスは AES-256-GCM により最高水準で暗号化されて保管され、管理者やデータベース上でも平文は一切表示・閲覧できない仕様となっておりますのでご安心ください。\n\n送信日時: ${nowJst}\n発信元: ${senderName}`;
+
+      const htmlBody = `
+        <div style="font-family: sans-serif; padding: 24px; line-height: 1.6; color: #1e293b; max-width: 600px; border: 1px solid #cbd5e1; border-radius: 12px; background-color: #ffffff; margin: auto;">
+          <div style="background-color: #4f46e5; color: #ffffff; padding: 16px 20px; border-radius: 8px 8px 0 0; margin: -24px -24px 20px -24px;">
+            <h2 style="margin: 0; font-size: 18px; font-weight: 700;">
+              🛡️ 【安否確認】緊急連絡先（個人メール）登録のお願い
+            </h2>
+          </div>
+          <p style="font-size: 15px; font-weight: 600; color: #0f172a;">${u.name} 様</p>
+          <p style="font-size: 14px; color: #334155;">
+            大地震や自然災害発生時、会社のPCメールや社用携帯が使用できない場合でも確実に安否確認通知をお届けするため、ご自身の個人メールアドレスの事前登録をお願いいたします。
+          </p>
+          ${customMessage ? `
+            <div style="background-color: #f1f5f9; padding: 12px 16px; border-radius: 8px; border-left: 4px solid #4f46e5; margin: 16px 0;">
+              <p style="margin: 0; font-size: 13px; font-weight: 600; color: #334155;">【管理者からのメッセージ】</p>
+              <p style="margin: 4px 0 0 0; font-size: 13px; color: #475569; white-space: pre-wrap;">${customMessage}</p>
+            </div>
+          ` : ''}
+          <div style="text-align: center; margin: 28px 0;">
+            <a href="${directRegistrationUrl}" style="display: inline-block; background-color: #4f46e5; color: #ffffff; font-weight: 700; font-size: 15px; padding: 12px 28px; border-radius: 8px; text-decoration: none;">
+              👉 個人設定を開いて個人メールを登録する
+            </a>
+          </div>
+          <div style="background-color: #ecfdf5; padding: 12px 16px; border-radius: 8px; border: 1px solid #a7f3d0; margin: 16px 0;">
+            <p style="margin: 0 0 4px 0; font-size: 12px; font-weight: 700; color: #065f46;">🔒 個人情報の暗号化保護について</p>
+            <p style="margin: 0; font-size: 11px; color: #047857; line-height: 1.5;">
+              個人メールアドレスは AES-256-GCM で暗号化されて保管され、管理者やデータベース上でも伏字表示され閲覧できない仕組みになっています。
+            </p>
+          </div>
+          <div style="border-top: 1px solid #e2e8f0; padding-top: 12px; font-size: 11px; color: #94a3b8;">
+            <p style="margin: 0 0 2px 0;">送信日時: ${nowJst}</p>
+            <p style="margin: 0;">発信元: ${senderName}</p>
+          </div>
+        </div>
+      `;
+
+      const sentToThisUser = [];
+      for (const addr of targetEmails) {
+        try {
+          await sendEmailNotification({
+            to: addr,
+            subject,
+            text: textBody,
+            html: htmlBody
+          });
+          sentToThisUser.push(addr);
+        } catch (mErr) {
+          console.warn(`[RequestRegistration Mail Fail] ${addr}:`, mErr.message);
+        }
+      }
+
+      if (sentToThisUser.length > 0) {
+        sentCount++;
+        results.push({ userId: u.id, name: u.name, sentEmails: sentToThisUser });
+      } else {
+        skippedCount++;
+        results.push({ userId: u.id, name: u.name, sentEmails: [], error: '送信失敗' });
       }
     }
 
-    // 2. メール一斉配信（会社PC・携帯メール + 暗号化個人メール）
-    if (notifyCompanyEmail || notifyPersonalEmail) {
-      const mailPromises = targetUsers.map(async (u) => {
-        const emailAddresses = [];
-
-        if (notifyCompanyEmail) {
-          if (u.email && u.email.includes('@')) emailAddresses.push(u.email);
-          if (u.mobileEmail && u.mobileEmail.includes('@') && u.mobileEmail !== u.email) {
-            emailAddresses.push(u.mobileEmail);
-          }
-        }
-
-        if (notifyPersonalEmail && u.personalEmailEncrypted) {
-          const decrypted = decryptText(u.personalEmailEncrypted);
-          if (decrypted && decrypted.includes('@') && !emailAddresses.includes(decrypted)) {
-            emailAddresses.push(decrypted);
-          }
-        }
-
-        if (emailAddresses.length === 0) return;
-
-        const subject = `【緊急安否確認】${isDrill ? '【訓練】' : ''}${title}`;
-        const text = `${u.name} 様\n\n【安否確認システムからの緊急連絡】\n\n${title}\n\n${message || ''}\n\n至急、以下のURLより現在の安否状況をご回答ください。\n1タップで簡単に回答・報告できます。\n\n▼ 安否状況を回答する:\n${directAnswerLink}\n\n発動日時: ${nowJst}\n発信者: ${createdByName || '安否確認本部'}`;
-
-        const html = `
-          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; padding: 24px; line-height: 1.6; color: #1e293b; max-width: 600px; border: 2px solid #dc2626; border-radius: 16px; background-color: #ffffff; margin: 0 auto;">
-            <div style="background-color: #dc2626; color: #ffffff; padding: 16px 20px; border-radius: 12px 12px 0 0; margin: -24px -24px 20px -24px;">
-              <h2 style="margin: 0; font-size: 18px; font-weight: 800;">🚨 【緊急安否確認】${isDrill ? '【訓練】' : ''}${title}</h2>
-            </div>
-            <p style="font-size: 16px; font-weight: 700; color: #0f172a; margin-top: 0;">${u.name} 様</p>
-            <p style="font-size: 14px; color: #334155;">安否確認が発動されました。身の安全を確保した上で、速やかに現在の安否状況・出社可否をご回答ください。</p>
-            ${message ? `
-              <div style="background-color: #fef2f2; padding: 14px 16px; border-radius: 8px; border-left: 4px solid #dc2626; margin: 16px 0;">
-                <p style="margin: 0; font-size: 14px; color: #991b1b; white-space: pre-wrap; font-weight: 600;">${message}</p>
-              </div>
-            ` : ''}
-            <div style="text-align: center; margin: 28px 0;">
-              <a href="${directAnswerLink}" style="display: inline-block; background-color: #dc2626; color: #ffffff; padding: 15px 34px; font-size: 16px; font-weight: 800; text-decoration: none; border-radius: 12px; box-shadow: 0 4px 14px rgba(220, 38, 38, 0.4);">
-                👉 今すぐ安否状況を回答する (1タップ報告)
-              </a>
-              <p style="font-size: 11px; color: #64748b; margin-top: 10px;">
-                URL: <a href="${directAnswerLink}" style="color: #dc2626; word-break: break-all;">${directAnswerLink}</a>
-              </p>
-            </div>
-            <div style="background-color: #f8fafc; padding: 12px 16px; border-radius: 8px; border: 1px solid #e2e8f0; font-size: 11px; color: #64748b;">
-              <p style="margin: 0 0 4px 0;"><b>発動日時:</b> ${nowJst}</p>
-              <p style="margin: 0;"><b>発動本部:</b> ${createdByName || '安否確認本部'}</p>
-            </div>
-          </div>
-        `;
-
-        for (const addr of emailAddresses) {
-          try {
-            if (typeof sendEmailNotification === 'function') {
-              await sendEmailNotification({ to: addr, subject, text, html });
-            }
-          } catch (mailErr) {
-            console.warn(`[SafetyModule] Mail error to ${maskEmail(addr)}:`, mailErr.message);
-          }
-        }
-      });
-
-      Promise.all(mailPromises).catch((err) => console.error('[SafetyModule] Batch mail error:', err));
-    }
-
-    res.status(201).json({
+    res.json({
       success: true,
-      message: '安否確認を発動し、対象者へ一斉通知を開始しました。',
-      event: newEvent,
-      targetUserCount: targetUsers.length
+      message: `${sentCount} 名の社員宛に登録依頼メールを送信しました。`,
+      sentCount,
+      skippedCount,
+      totalRequested: targetUsers.length,
+      directUrl: directRegistrationUrl,
+      results
     });
   } catch (err) {
-    console.error('[SafetyModule] Safety trigger error:', err);
+    console.error('Request registration error:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// =========================================================================
-// 4. 安否確認 未回答者へのリマインド一斉送信 API
-// =========================================================================
-router.post(['/safety-events/:id/remind', '/safety/events/:id/remind'], async (req, res) => {
+// -------------------------------------------------------------
+// 4. 安否回答の送信・更新 (MERGE)
+// 対応URL: /api/safety-events/:id/respond, /api/safety/events/:id/respond, /api/events/:id/respond
+// -------------------------------------------------------------
+router.post([
+  '/safety-events/:id/respond',
+  '/safety-events/:id/respond/',
+  '/safety/events/:id/respond',
+  '/safety/events/:id/respond/',
+  '/events/:id/respond',
+  '/events/:id/respond/',
+  '/safety-events/:id/responses',
+  '/safety/events/:id/responses',
+  '/events/:id/responses'
+], async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      userId,
+      userName,
+      userOffice,
+      userDivision,
+      status,
+      safetyStatus,
+      familyStatus,
+      houseStatus,
+      workAvailability,
+      canWork,
+      currentLocation,
+      location,
+      comment,
+      locationCoordinates
+    } = req.body || {};
+
+    const nowIso = new Date().toISOString();
+    const respId = `resp_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const effectiveStatus = status || safetyStatus || 'safe';
+    const effectiveCanWork = canWork || workAvailability || 'available';
+    const effectiveLocation = currentLocation || location || '自宅';
+
+    const pool = await getPool();
+    if (pool) {
+      await pool.request()
+        .input('id', sql.NVarChar(100), respId)
+        .input('eventId', sql.NVarChar(100), id)
+        .input('userId', sql.NVarChar(100), String(userId))
+        .input('userName', sql.NVarChar(100), userName || '')
+        .input('userOffice', sql.NVarChar(100), userOffice || '')
+        .input('userDivision', sql.NVarChar(100), userDivision || '')
+        .input('status', sql.NVarChar(50), effectiveStatus)
+        .input('canWork', sql.NVarChar(50), effectiveCanWork)
+        .input('currentLocation', sql.NVarChar(100), effectiveLocation)
+        .input('comment', sql.NVarChar(sql.MAX), comment || '')
+        .input('locationCoordinates', sql.NVarChar(200), locationCoordinates || null)
+        .input('respondedAt', sql.DateTimeOffset, nowIso)
+        .query(`
+          MERGE dbo.SafetyResponses AS target
+          USING (SELECT @eventId AS eventId, @userId AS userId) AS source
+          ON (target.eventId = source.eventId AND target.userId = source.userId)
+          WHEN MATCHED THEN
+            UPDATE SET 
+              userName = @userName,
+              userOffice = @userOffice,
+              userDivision = @userDivision,
+              status = @status,
+              canWork = @canWork,
+              currentLocation = @currentLocation,
+              comment = @comment,
+              locationCoordinates = @locationCoordinates,
+              respondedAt = @respondedAt
+          WHEN NOT MATCHED THEN
+            INSERT (id, eventId, userId, userName, userOffice, userDivision, status, canWork, currentLocation, comment, locationCoordinates, respondedAt)
+            VALUES (@id, @eventId, @userId, @userName, @userOffice, @userDivision, @status, @canWork, @currentLocation, @comment, @locationCoordinates, @respondedAt);
+        `);
+    }
+    res.json({ success: true, message: '安否確認の回答を受け付けました。' });
+  } catch (err) {
+    console.error('Safety respond error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// -------------------------------------------------------------
+// 5. 指定イベントの回答一覧取得
+// 対応URL: /api/safety-events/:id/responses, /api/safety/events/:id/responses, /api/events/:id/responses
+// -------------------------------------------------------------
+router.get([
+  '/safety-events/:id/responses',
+  '/safety-events/:id/responses/',
+  '/safety/events/:id/responses',
+  '/safety/events/:id/responses/',
+  '/events/:id/responses',
+  '/events/:id/responses/'
+], async (req, res) => {
+  try {
+    const { id } = req.params;
+    const pool = await getPool();
+    if (pool) {
+      const result = await pool.request()
+        .input('eventId', sql.NVarChar(100), id)
+        .query('SELECT * FROM dbo.SafetyResponses WHERE eventId = @eventId ORDER BY respondedAt DESC');
+      return res.json(result.recordset || []);
+    }
+    res.json([]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// -------------------------------------------------------------
+// 6. 未回答者へのリマインド一斉送信 (回答URL直通リンク付き)
+// 対応URL: /api/safety-events/:id/remind, /api/safety/events/:id/remind, /api/events/:id/remind
+// -------------------------------------------------------------
+router.post([
+  '/safety-events/:id/remind',
+  '/safety-events/:id/remind/',
+  '/safety/events/:id/remind',
+  '/safety/events/:id/remind/',
+  '/events/:id/remind',
+  '/events/:id/remind/'
+], async (req, res) => {
   try {
     const { id } = req.params;
     const { appBaseUrl, senderName } = req.body || {};
 
-    const events = loadSafetyEventsFromFile();
-    const event = events.find((e) => e.id === id);
+    const pool = await getPool();
+    if (!pool) {
+      return res.status(500).json({ error: 'DB接続が利用できません。' });
+    }
+
+    // イベント情報取得
+    const eventRes = await pool.request()
+      .input('id', sql.NVarChar(100), id)
+      .query('SELECT * FROM dbo.SafetyEvents WHERE id = @id');
+    const event = (eventRes.recordset || [])[0];
+
     if (!event) {
       return res.status(404).json({ error: '対象の安否確認イベントが見つかりません。' });
     }
 
-    const responses = loadSafetyResponsesFromFile().filter((r) => r.eventId === id);
-    const answeredUserIds = new Set(responses.map((r) => String(r.userId)));
+    // 回答済みユーザー取得
+    const respRes = await pool.request()
+      .input('eventId', sql.NVarChar(100), id)
+      .query('SELECT userId FROM dbo.SafetyResponses WHERE eventId = @eventId');
+    const answeredUserIds = new Set((respRes.recordset || []).map(r => String(r.userId)));
 
-    const allUsers = loadUsersFromFile();
+    // 全ユーザーから対象かつ未回答のユーザーを抽出
+    const usersRes = await pool.request().query('SELECT * FROM dbo.Users');
+    const allUsers = (usersRes.recordset || []).map(u => ({
+      id: String(u.id),
+      name: u.name,
+      email: u.email,
+      mobileEmail: u.mobileEmail || u.mobile_email || '',
+      personalEmailEncrypted: u.personalEmailEncrypted || u.personal_email_encrypted || '',
+      office: u.office || '',
+      division: u.division || u.department || ''
+    }));
+
     const targetUsers = allUsers.filter((u) => {
       const matchOffice = (!event.targetOffice || event.targetOffice === '全社' || u.office === event.targetOffice);
       const matchDivision = (!event.targetDivision || event.targetDivision === '全部署' || u.division === event.targetDivision);
       return matchOffice && matchDivision;
     });
 
-    const unansweredUsers = targetUsers.filter((u) => !answeredUserIds.has(String(u.id)));
+    const unansweredUsers = targetUsers.filter(u => !answeredUserIds.has(String(u.id)));
 
     if (unansweredUsers.length === 0) {
       return res.json({
@@ -463,48 +619,33 @@ router.post(['/safety-events/:id/remind', '/safety/events/:id/remind'], async (r
     }
 
     const resolvedBaseUrl = (appBaseUrl && typeof appBaseUrl === 'string' && appBaseUrl.startsWith('http'))
-      ? appBaseUrl.replace(/\/$/, '')
+      ? appBaseUrl.replace(/\/+$/, '')
       : 'https://micchy-ken.github.io/teranago-sns-new';
 
     const directAnswerLink = `${resolvedBaseUrl}/?tab=safety_confirmation&safetyEventId=${event.id}`;
     const nowJst = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
 
-    // WebPush 再送
-    if (typeof sendPushNotificationToUser === 'function') {
-      for (const u of unansweredUsers) {
-        try {
-          await sendPushNotificationToUser({
-            targetUserId: String(u.id),
-            title: `⚠️【未回答・再送】安否確認: ${event.title}`,
-            body: 'まだ安否確認の回答が完了していません。至急ご回答をお願いします。',
-            url: `/?tab=safety_confirmation&safetyEventId=${event.id}`,
-            tag: `safety_remind_${event.id}`
-          });
-        } catch (_) {}
-      }
-    }
-
-    // メール再送
     let remindedCount = 0;
-    const mailPromises = unansweredUsers.map(async (u) => {
+    const mailSubject = `【再送・至急】⚠️【安否確認】未回答の確認 (${event.title})`;
+
+    for (const u of unansweredUsers) {
       const emailAddresses = [];
-      if (u.email && u.email.includes('@')) emailAddresses.push(u.email);
-      if (u.mobileEmail && u.mobileEmail.includes('@') && !emailAddresses.includes(u.mobileEmail)) {
-        emailAddresses.push(u.mobileEmail);
+      if (u.email && u.email.includes('@')) emailAddresses.push(u.email.trim());
+      if (u.mobileEmail && u.mobileEmail.includes('@') && !emailAddresses.includes(u.mobileEmail.trim())) {
+        emailAddresses.push(u.mobileEmail.trim());
       }
       if (u.personalEmailEncrypted) {
-        const decrypted = decryptText(u.personalEmailEncrypted);
-        if (decrypted && decrypted.includes('@') && !emailAddresses.includes(decrypted)) {
-          emailAddresses.push(decrypted);
+        const dec = decryptText(u.personalEmailEncrypted);
+        if (dec && dec.includes('@') && !emailAddresses.includes(dec)) {
+          emailAddresses.push(dec.trim());
         }
       }
 
-      if (emailAddresses.length === 0) return;
+      if (emailAddresses.length === 0) continue;
 
-      const subject = `【再送・至急】⚠️【安否確認】未回答の確認 (${event.title})`;
-      const text = `${u.name} 様\n\n【安否確認システムからの再送連絡】\n\n発動中の安否確認（${event.title}）について、まだ回答が確認できておりません。\n\n身の安全を確保した上で、至急以下のURLより安否状況をご回答ください。\n\n▼ 安否状況を回答する:\n${directAnswerLink}\n\n発動本部: ${senderName || event.createdByName || '安否確認本部'}\n送信日時: ${nowJst}`;
+      const textBody = `${u.name} 様\n\n【安否確認システムからの再送連絡】\n\n発動中の安否確認（${event.title}）について、まだ回答が確認できておりません。\n\n身の安全を確保した上で、至急以下のURLより安否状況をご回答ください。\n\n▼ 安否回答用URL:\n${directAnswerLink}\n\n発動本部: ${senderName || event.createdByName || '安否確認本部'}\n送信日時: ${nowJst}`;
 
-      const html = `
+      const htmlBody = `
         <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; padding: 24px; line-height: 1.6; color: #1e293b; max-width: 600px; border: 2px solid #e11d48; border-radius: 16px; background-color: #ffffff; margin: 0 auto;">
           <div style="background-color: #e11d48; color: #ffffff; padding: 16px 20px; border-radius: 12px 12px 0 0; margin: -24px -24px 20px -24px;">
             <h2 style="margin: 0; font-size: 18px; font-weight: 800;">⚠️ 【再送・至急】安否状況のご回答をお願いします</h2>
@@ -514,9 +655,15 @@ router.post(['/safety-events/:id/remind', '/safety/events/:id/remind'], async (r
             発動中の安否確認<strong>「${event.title}」</strong>について、まだご回答をいただいておりません。<br>
             会社の安全確認および支援体制確保のため、至急現在の状況をご回答ください。
           </p>
-          <div style="text-align: center; margin: 28px 0;">
-            <a href="${directAnswerLink}" style="display: inline-block; background-color: #e11d48; color: #ffffff; padding: 15px 34px; font-size: 16px; font-weight: 800; text-decoration: none; border-radius: 12px; box-shadow: 0 4px 14px rgba(225, 29, 72, 0.4);">
+          <div style="text-align: center; margin: 28px 0; background-color: #fff1f2; padding: 20px; border-radius: 12px; border: 1px dashed #f43f5e;">
+            <a href="${directAnswerLink}" style="display: inline-block; background-color: #e11d48; color: #ffffff; padding: 15px 36px; font-size: 16px; font-weight: 800; text-decoration: none; border-radius: 12px; box-shadow: 0 4px 14px rgba(225, 29, 72, 0.4);">
               👉 今すぐ安否状況を回答する
+            </a>
+            <p style="font-size: 12px; color: #475569; margin: 14px 0 4px 0; font-weight: 700;">
+              ※ボタンが開けない場合は下記の回答URLを直接開いてください：
+            </p>
+            <a href="${directAnswerLink}" style="font-size: 12px; color: #e11d48; word-break: break-all; text-decoration: underline; font-weight: 600;">
+              ${directAnswerLink}
             </a>
           </div>
           <div style="background-color: #f8fafc; padding: 12px 16px; border-radius: 8px; border: 1px solid #e2e8f0; font-size: 11px; color: #64748b;">
@@ -526,186 +673,277 @@ router.post(['/safety-events/:id/remind', '/safety/events/:id/remind'], async (r
         </div>
       `;
 
-      let sent = false;
+      let sentSuccess = false;
       for (const addr of emailAddresses) {
         try {
-          if (typeof sendEmailNotification === 'function') {
-            await sendEmailNotification({ to: addr, subject, text, html });
-            sent = true;
-          }
-        } catch (_) {}
+          await sendEmailNotification({
+            to: addr,
+            subject: mailSubject,
+            text: textBody,
+            html: htmlBody
+          });
+          sentSuccess = true;
+        } catch (mErr) {
+          console.warn(`[Safety Remind Fail] ${addr}:`, mErr.message);
+        }
       }
-      if (sent) remindedCount++;
-    });
-
-    await Promise.all(mailPromises);
+      if (sentSuccess) remindedCount++;
+    }
 
     res.json({
       success: true,
       message: `未回答者 ${unansweredUsers.length} 名にリマインド通知を再送しました。`,
-      remindedCount: unansweredUsers.length
+      remindedCount
     });
   } catch (err) {
-    console.error('[SafetyModule] Remind error:', err);
+    console.error('Safety remind error:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// =========================================================================
-// 5. 安否確認イベント更新 API (ステータス完了化・終了など)
-// =========================================================================
-router.put(['/safety-events/:id', '/safety/events/:id'], (req, res) => {
+// -------------------------------------------------------------
+// 7. 安否確認イベント更新 (ステータス変更・終了・アーカイブ)
+// 対応URL: /api/safety-events/:id, /api/safety/events/:id, /api/events/:id
+// -------------------------------------------------------------
+router.put([
+  '/safety-events/:id',
+  '/safety-events/:id/',
+  '/safety/events/:id',
+  '/safety/events/:id/',
+  '/events/:id',
+  '/events/:id/'
+], async (req, res) => {
   try {
     const { id } = req.params;
-    const data = req.body || {};
-    const events = loadSafetyEventsFromFile();
-    const idx = events.findIndex((e) => e.id === id);
-
-    if (idx === -1) {
-      return res.status(404).json({ error: '安否確認イベントが見つかりません' });
-    }
-
-    events[idx] = {
-      ...events[idx],
-      ...data,
-      id,
-      updatedAt: new Date().toISOString()
-    };
-    saveSafetyEventsToFile(events);
-
-    res.json({ success: true, event: events[idx] });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// =========================================================================
-// 6. 安否確認イベント削除 API
-// =========================================================================
-router.delete(['/safety-events/:id', '/safety/events/:id', '/safety-events/:id/delete', '/safety/events/:id/delete'], (req, res) => {
-  try {
-    const { id } = req.params;
-    let events = loadSafetyEventsFromFile();
-    events = events.filter((e) => e.id !== id);
-    saveSafetyEventsToFile(events);
-
-    let responses = loadSafetyResponsesFromFile();
-    responses = responses.filter((r) => r.eventId !== id);
-    saveSafetyResponsesToFile(responses);
-
-    res.json({ success: true, message: '安否確認イベントおよび回答データを削除しました。' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-router.post(['/safety-events/:id/delete', '/safety/events/:id/delete'], (req, res) => {
-  try {
-    const { id } = req.params;
-    let events = loadSafetyEventsFromFile();
-    events = events.filter((e) => e.id !== id);
-    saveSafetyEventsToFile(events);
-
-    let responses = loadSafetyResponsesFromFile();
-    responses = responses.filter((r) => r.eventId !== id);
-    saveSafetyResponsesToFile(responses);
-
-    res.json({ success: true, message: '安否確認イベントおよび回答データを削除しました。' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// =========================================================================
-// 7. 安否確認回答一覧取得 API
-// =========================================================================
-router.get(['/safety-events/:id/responses', '/safety/events/:id/responses'], (req, res) => {
-  try {
-    const { id } = req.params;
-    const responses = loadSafetyResponsesFromFile().filter((r) => r.eventId === id);
-    res.json(responses);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// =========================================================================
-// 8. 安否確認回答送信 API (ユーザーの回答登録・更新)
-// =========================================================================
-router.post(['/safety-events/:id/respond', '/safety/events/:id/respond'], (req, res) => {
-  try {
-    const { id } = req.params;
-    const {
-      userId,
-      userName,
-      userOffice,
-      userDivision,
-      safetyStatus,
-      familyStatus,
-      houseStatus,
-      workAvailability,
-      locationStatus,
-      message,
-      status, // fallback
-      canWork, // fallback
-      currentLocation, // fallback
-      comment // fallback
-    } = req.body || {};
-
-    const finalSafetyStatus = safetyStatus || status || 'safe';
-    const finalWorkAvailability = workAvailability || canWork || 'available';
-
-    if (!userId) {
-      return res.status(400).json({ error: 'ユーザーIDは必須です。' });
-    }
-
-    const events = loadSafetyEventsFromFile();
-    const event = events.find((e) => e.id === id);
-    if (!event) {
-      return res.status(404).json({ error: '安否確認イベントが存在しません。' });
-    }
-
-    const responses = loadSafetyResponsesFromFile();
+    const { status, title, message } = req.body || {};
     const nowIso = new Date().toISOString();
-    const idx = responses.findIndex((r) => r.eventId === id && r.userId === userId);
 
-    const responseRecord = {
-      id: idx >= 0 ? responses[idx].id : `resp_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      eventId: id,
-      userId,
-      userName: userName || '社員',
-      userOffice: userOffice || '',
-      userDivision: userDivision || '',
-      safetyStatus: finalSafetyStatus,
-      familyStatus: familyStatus || 'all_safe',
-      houseStatus: houseStatus || 'no_damage',
-      workAvailability: finalWorkAvailability,
-      locationStatus: locationStatus || currentLocation || '自宅',
-      message: message || comment || '',
-      // 後方互換性用
-      status: finalSafetyStatus,
-      canWork: finalWorkAvailability,
-      currentLocation: locationStatus || currentLocation || '自宅',
-      comment: message || comment || '',
-      respondedAt: nowIso,
-      updatedAt: nowIso
-    };
+    const pool = await getPool();
+    if (pool) {
+      await pool.request()
+        .input('id', sql.NVarChar(100), id)
+        .input('status', sql.NVarChar(50), status || 'closed')
+        .input('updatedAt', sql.DateTimeOffset, nowIso)
+        .query(`
+          UPDATE dbo.SafetyEvents
+          SET status = @status, updatedAt = @updatedAt
+          WHERE id = @id
+        `);
+      return res.json({ success: true, message: '安否確認イベントを更新しました。' });
+    }
+    res.status(500).json({ error: 'DB接続が利用できません。' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
-    if (idx >= 0) {
-      responses[idx] = responseRecord;
-    } else {
-      responses.unshift(responseRecord);
+// -------------------------------------------------------------
+// 8. 安否確認イベント個別削除 API (全集計回答データも完全カスケード削除)
+// 対応URL: /api/safety-events/:id, /api/safety/events/:id, /api/events/:id
+// -------------------------------------------------------------
+router.delete([
+  '/safety-events/:id',
+  '/safety-events/:id/',
+  '/safety/events/:id',
+  '/safety/events/:id/',
+  '/events/:id',
+  '/events/:id/',
+  '/safety-events/:id/delete',
+  '/safety/events/:id/delete',
+  '/events/:id/delete'
+], async (req, res) => {
+  try {
+    const { id } = req.params;
+    const pool = await getPool();
+    if (pool) {
+      await pool.request()
+        .input('id', sql.NVarChar(100), id)
+        .query(`
+          DELETE FROM dbo.SafetyResponses WHERE eventId = @id;
+          DELETE FROM dbo.SafetyEvents WHERE id = @id;
+        `);
+      return res.json({ success: true, message: '安否確認イベントおよび全回答データを完全に削除しました。' });
+    }
+    res.status(500).json({ error: 'DB接続が利用できません。' });
+  } catch (err) {
+    console.error('Delete safety event error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post([
+  '/safety-events/:id/delete',
+  '/safety/events/:id/delete',
+  '/events/:id/delete'
+], async (req, res) => {
+  try {
+    const { id } = req.params;
+    const pool = await getPool();
+    if (pool) {
+      await pool.request()
+        .input('id', sql.NVarChar(100), id)
+        .query(`
+          DELETE FROM dbo.SafetyResponses WHERE eventId = @id;
+          DELETE FROM dbo.SafetyEvents WHERE id = @id;
+        `);
+      return res.json({ success: true, message: '安否確認イベントおよび全回答データを完全に削除しました。' });
+    }
+    res.status(500).json({ error: 'DB接続が利用できません。' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// -------------------------------------------------------------
+// 9. 個別回答レコード削除 API (特定ユーザーの回答取り消し・未回答リセット)
+// 対応URL: /api/safety-events/:eventId/responses/:userId
+// -------------------------------------------------------------
+router.delete([
+  '/safety-events/:eventId/responses/:userId',
+  '/safety-events/:eventId/responses/:userId/',
+  '/safety/events/:eventId/responses/:userId',
+  '/safety/events/:eventId/responses/:userId/',
+  '/events/:eventId/responses/:userId',
+  '/events/:eventId/responses/:userId/',
+  '/safety-events/:eventId/responses/:userId/delete',
+  '/safety/events/:eventId/responses/:userId/delete',
+  '/events/:eventId/responses/:userId/delete',
+  '/safety-responses/:id',
+  '/safety/responses/:id'
+], async (req, res) => {
+  try {
+    const { eventId, userId, id } = req.params;
+    const pool = await getPool();
+    if (pool) {
+      if (id) {
+        await pool.request()
+          .input('id', sql.NVarChar(100), id)
+          .query('DELETE FROM dbo.SafetyResponses WHERE id = @id');
+      } else if (eventId && userId) {
+        await pool.request()
+          .input('eventId', sql.NVarChar(100), eventId)
+          .input('userId', sql.NVarChar(100), String(userId))
+          .query('DELETE FROM dbo.SafetyResponses WHERE eventId = @eventId AND userId = @userId');
+      }
+      return res.json({ success: true, message: '安否回答レコードを削除し、未回答にリセットしました。' });
+    }
+    res.status(500).json({ error: 'DB接続が利用できません。' });
+  } catch (err) {
+    console.error('Delete safety response error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post([
+  '/safety-events/:eventId/responses/:userId/delete',
+  '/safety/events/:eventId/responses/:userId/delete',
+  '/events/:eventId/responses/:userId/delete',
+  '/safety-responses/:id/delete',
+  '/safety/responses/:id/delete'
+], async (req, res) => {
+  try {
+    const { eventId, userId, id } = req.params;
+    const pool = await getPool();
+    if (pool) {
+      if (id) {
+        await pool.request()
+          .input('id', sql.NVarChar(100), id)
+          .query('DELETE FROM dbo.SafetyResponses WHERE id = @id');
+      } else if (eventId && userId) {
+        await pool.request()
+          .input('eventId', sql.NVarChar(100), eventId)
+          .input('userId', sql.NVarChar(100), String(userId))
+          .query('DELETE FROM dbo.SafetyResponses WHERE eventId = @eventId AND userId = @userId');
+      }
+      return res.json({ success: true, message: '安否回答レコードを削除し、未回答にリセットしました。' });
+    }
+    res.status(500).json({ error: 'DB接続が利用できません。' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// -------------------------------------------------------------
+// 10. 個人メールアドレス登録・暗号化保存 API (マイページ・個人設定用)
+// 対応URL: /api/safety/personal-email, /api/safety-personal-email, /api/personal-email
+// -------------------------------------------------------------
+router.post([
+  '/safety/personal-email',
+  '/safety/personal-email/',
+  '/safety-personal-email',
+  '/safety-personal-email/',
+  '/personal-email',
+  '/personal-email/'
+], async (req, res) => {
+  try {
+    const { userId, email } = req.body || {};
+    if (!userId) {
+      return res.status(400).json({ error: 'ユーザーIDが指定されていません。' });
     }
 
-    saveSafetyResponsesToFile(responses);
+    const encrypted = email ? encryptText(email.trim()) : '';
+    const masked = email ? maskEmail(email.trim()) : '';
+    const nowIso = new Date().toISOString();
 
-    res.json({
-      success: true,
-      message: '安否確認の回答を受け付けました。',
-      response: responseRecord
-    });
+    const pool = await getPool();
+    if (pool) {
+      await pool.request()
+        .input('userId', sql.NVarChar(100), String(userId))
+        .input('personalEmailEncrypted', sql.NVarChar(500), encrypted)
+        .input('updatedAt', sql.DateTimeOffset, nowIso)
+        .query(`
+          UPDATE dbo.Users
+          SET personalEmailEncrypted = @personalEmailEncrypted,
+              updatedAt = @updatedAt
+          WHERE id = @userId
+        `);
+
+      return res.json({
+        success: true,
+        message: email ? '個人メールアドレスを暗号化して安全に保存しました。' : '個人メールアドレスの登録を解除しました。',
+        personalEmailMasked: masked
+      });
+    }
+    res.status(500).json({ error: 'DB接続が利用できません。' });
   } catch (err) {
-    console.error('[SafetyModule] Safety respond error:', err);
+    console.error('Save personal email error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// -------------------------------------------------------------
+// 11. 安否確認対象者・個人メール登録状況一覧取得 API
+// 対応URL: /api/safety-targets, /api/safety/targets, /api/targets
+// -------------------------------------------------------------
+router.get([
+  '/safety-targets',
+  '/safety-targets/',
+  '/safety/targets',
+  '/safety/targets/',
+  '/targets',
+  '/targets/'
+], async (req, res) => {
+  try {
+    const pool = await getPool();
+    if (pool) {
+      const result = await pool.request().query('SELECT * FROM dbo.Users ORDER BY name ASC');
+      const users = (result.recordset || []).map(u => ({
+        id: String(u.id),
+        name: u.name,
+        email: u.email || '',
+        mobileEmail: u.mobileEmail || u.mobile_email || '',
+        hasPersonalEmail: !!(u.personalEmailEncrypted || u.personal_email_encrypted),
+        personalEmailMasked: (u.personalEmailEncrypted || u.personal_email_encrypted)
+          ? maskEmail(decryptText(u.personalEmailEncrypted || u.personal_email_encrypted))
+          : '未登録',
+        office: u.office || '',
+        division: u.division || u.department || '',
+        role: u.role || 'user'
+      }));
+      return res.json(users);
+    }
+    res.json([]);
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });

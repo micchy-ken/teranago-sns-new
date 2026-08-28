@@ -121,10 +121,14 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
 }) => {
   const isAdmin = currentUser.role === 'admin' || currentUser.isAdmin === true || (currentUser as any).id === 'u1';
 
-  // Tabs: 'dashboard' (発動中・集計), 'targets' (対象者一覧・登録状況), 'trigger' (安否確認発動), 'respond' (安否回答)
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'targets' | 'trigger' | 'respond'>(
-    initialTab || (initialEventId ? 'respond' : (!isAdmin ? 'respond' : 'dashboard'))
+  // Tabs: 'dashboard' (発動中・集計), 'targets' (対象者一覧・登録状況), 'trigger' (安否確認発動)
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'targets' | 'trigger'>(
+    initialTab && initialTab !== 'respond' ? initialTab : 'dashboard'
   );
+
+  // Modals for Answer and Response Detail View
+  const [isMyAnswerModalOpen, setIsMyAnswerModalOpen] = useState(initialTab === 'respond' || !!initialEventId);
+  const [viewingResponseData, setViewingResponseData] = useState<{ user: User; response?: SafetyConfirmationResponse } | null>(null);
 
   // Events & responses state
   const [events, setEvents] = useState<SafetyConfirmationEvent[]>([]);
@@ -648,6 +652,7 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
 
       if (res.ok) {
         setActionMessage({ type: 'success', text: '安否状況を回答・登録しました。ご無事をお祈りいたします。' });
+        setIsMyAnswerModalOpen(false);
         await fetchResponses(activeEvent.id);
         await fetchEvents();
       } else {
@@ -1005,18 +1010,6 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
         {/* Global Action Navigation Tabs */}
         <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-bold shrink-0">
           <button
-            onClick={() => setActiveTab('respond')}
-            className={`px-3.5 py-2 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
-              activeTab === 'respond'
-                ? 'bg-rose-600 text-white shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <HeartHandshake className="w-4 h-4" />
-            自分の安否を回答
-          </button>
-
-          <button
             onClick={() => setActiveTab('dashboard')}
             className={`px-3.5 py-2 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
               activeTab === 'dashboard'
@@ -1185,6 +1178,62 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
                 </div>
               </div>
 
+              {/* Current User Response Status Card / Action Banner */}
+              {activeEvent && (
+                <div className={`p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm transition-all ${
+                  myResp
+                    ? 'bg-gradient-to-r from-emerald-50/80 via-white to-teal-50/50 border-emerald-200'
+                    : 'bg-gradient-to-r from-rose-50 via-white to-amber-50/60 border-rose-200 ring-2 ring-rose-500/10'
+                }`}>
+                  <div className="flex items-start sm:items-center gap-3.5">
+                    <div className={`p-2.5 rounded-xl shrink-0 ${
+                      myResp ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white animate-pulse'
+                    }`}>
+                      <HeartHandshake className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs font-bold text-slate-500">あなたの安否回答状況:</span>
+                        {myResp ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
+                            <Check className="w-3 h-3" />
+                            回答済み ({myResp.safetyStatus === 'safe' ? '無事' : myResp.safetyStatus === 'minor_injury' ? '軽傷' : '重傷・要救助'})
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-black bg-rose-100 text-rose-800 border border-rose-300 animate-pulse">
+                            <AlertCircle className="w-3 h-3" />
+                            未回答 (要回答)
+                          </span>
+                        )}
+                        <span className="text-xs font-bold text-slate-700">
+                          {currentUser.name} さん ({currentUser.office || '本社'} / {currentUser.division || '所属'})
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500 mt-1">
+                        {myResp
+                          ? `出社可否: ${myResp.workAvailability === 'available' ? '通常出社可' : myResp.workAvailability === 'remote_only' ? '在宅勤務可' : '出社不可'} | 現在地: ${myResp.locationStatus || '未記入'} (最終回答: ${new Date(myResp.respondedAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })})`
+                          : '災害発生時の速やかな状況把握のため、現在の安全状況・出社可否をご回答ください。'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setIsMyAnswerModalOpen(true)}
+                      className={`px-4 py-2.5 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all shadow-xs cursor-pointer ${
+                        myResp
+                          ? 'bg-white border border-emerald-300 text-emerald-800 hover:bg-emerald-50 hover:shadow-sm'
+                          : 'bg-rose-600 hover:bg-rose-700 text-white shadow-rose-200 shadow-md animate-bounce'
+                      }`}
+                    >
+                      <HeartHandshake className="w-4 h-4" />
+                      {myResp ? '回答内容を変更・更新する' : '今すぐ安否を回答する'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Statistics Bento Grid */}
               <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3.5">
                 {/* 1. 回答率 */}
@@ -1341,10 +1390,33 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
                     <tbody className="divide-y divide-slate-100">
                       {filteredMembers.map((member) => {
                         const resp = responses.find(r => r.userId === member.id);
+                        const isMe = currentUser.id === member.id;
                         return (
-                          <tr key={member.id} className="hover:bg-slate-50/80 transition-colors">
+                          <tr
+                            key={member.id}
+                            onClick={() => {
+                              if (isMe) {
+                                setIsMyAnswerModalOpen(true);
+                              } else {
+                                setViewingResponseData({ user: member, response: resp });
+                              }
+                            }}
+                            className={`group cursor-pointer transition-colors ${
+                              isMe
+                                ? 'bg-rose-50/30 hover:bg-rose-50/70'
+                                : 'hover:bg-slate-50/90'
+                            }`}
+                            title={isMe ? 'クリックして自分の安否状況を回答・変更' : `クリックして ${member.name} さんの回答詳細を確認`}
+                          >
                             <td className="py-3 px-4">
-                              <div className="font-bold text-slate-900">{member.name}</div>
+                              <div className="flex items-center gap-1.5 font-bold text-slate-900">
+                                <span>{member.name}</span>
+                                {isMe && (
+                                  <span className="text-[10px] font-black px-1.5 py-0.2 rounded bg-rose-100 text-rose-700 border border-rose-200">
+                                    あなた
+                                  </span>
+                                )}
+                              </div>
                               <div className="text-[10px] text-slate-400">
                                 {[member.office, member.division, member.position].filter(Boolean).join(' / ')}
                               </div>
@@ -1352,17 +1424,17 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
                             <td className="py-3 px-4">
                               {resp ? (
                                 resp.safetyStatus === 'safe' ? (
-                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
                                     <Check className="w-3 h-3 text-emerald-600" />
                                     無事
                                   </span>
                                 ) : resp.safetyStatus === 'minor_injury' ? (
-                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200 shadow-2xs">
                                     <AlertTriangle className="w-3 h-3 text-amber-600" />
                                     軽傷・対応中
                                   </span>
                                 ) : (
-                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-50 text-rose-700 border border-rose-200 animate-pulse">
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-50 text-rose-700 border border-rose-200 animate-pulse shadow-2xs">
                                     <AlertOctagon className="w-3 h-3 text-rose-600" />
                                     重傷・要救助
                                   </span>
@@ -1416,7 +1488,7 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
                             </td>
                             <td className="py-3 px-4 text-slate-700 max-w-xs">
                               {resp?.message ? (
-                                <span className="line-clamp-2">{resp.message}</span>
+                                <span className="line-clamp-2 text-slate-800">{resp.message}</span>
                               ) : (
                                 <span className="text-slate-400">-</span>
                               )}
@@ -1434,21 +1506,40 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
                               )}
                             </td>
                             <td className="py-3 px-3 text-center whitespace-nowrap">
-                              {resp ? (
-                                (isAdmin || currentUser.id === member.id) ? (
+                              <div className="flex items-center justify-center gap-1" onClick={(e) => e.stopPropagation()}>
+                                {isMe ? (
                                   <button
+                                    type="button"
+                                    onClick={() => setIsMyAnswerModalOpen(true)}
+                                    className="px-2.5 py-1 rounded-lg text-xs font-bold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                                    title="自分の安否状況を回答・変更"
+                                  >
+                                    <HeartHandshake className="w-3 h-3" />
+                                    {resp ? '変更' : '回答'}
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => setViewingResponseData({ user: member, response: resp })}
+                                    className="px-2 py-1 rounded-lg text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-slate-200 transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                                    title="回答詳細をポップアップ表示"
+                                  >
+                                    <Eye className="w-3 h-3 text-slate-500" />
+                                    詳細
+                                  </button>
+                                )}
+
+                                {resp && (isAdmin || isMe) && (
+                                  <button
+                                    type="button"
                                     onClick={() => handleDeleteResponse(activeEvent.id, member.id, member.name)}
                                     className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
                                     title={`${member.name} さんの回答を削除（未回答にリセット）`}
                                   >
                                     <Trash2 className="w-3.5 h-3.5" />
                                   </button>
-                                ) : (
-                                  <span className="text-slate-300">-</span>
-                                )
-                              ) : (
-                                <span className="text-slate-300">-</span>
-                              )}
+                                )}
+                              </div>
                             </td>
                           </tr>
                         );
@@ -2292,312 +2383,514 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
       )}
 
       {/* ========================================================================= */}
-      {/* TAB 3: RESPOND (自分の安否を回答) */}
+      {/* MODAL 1: 自分の安否を回答・変更するポップアップモーダル */}
       {/* ========================================================================= */}
-      {activeTab === 'respond' && (
-        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-6">
-          <div className="border-b border-slate-100 pb-4 flex items-center justify-between">
-            <div>
-              <h2 className="text-base font-extrabold text-slate-800 flex items-center gap-2">
-                <HeartHandshake className="w-5 h-5 text-rose-600" />
-                安否状況の回答
-              </h2>
-              <p className="text-xs text-slate-500 mt-1">
-                回答者: <strong className="text-slate-800">{currentUser.name}</strong> ({currentUser.office || '本社'} / {currentUser.division || '所属'})
-              </p>
-            </div>
-            {activeEvent && (
-              <span className="text-xs font-bold text-rose-700 bg-rose-50 px-3 py-1 rounded-full border border-rose-200">
-                対象: {activeEvent.title}
-              </span>
-            )}
-          </div>
-
-          {/* 個人メール設定案内バナー */}
-          <div className="p-3 bg-indigo-50/70 rounded-xl border border-indigo-100 flex items-center justify-between gap-3 text-xs text-indigo-900">
-            <div className="flex items-center gap-2">
-              <ShieldAlert className="w-4 h-4 text-indigo-600 shrink-0" />
-              <span>
-                <strong>緊急時の個人メール連絡網:</strong> 私用メール（Gmail/iCloud等）への暗号化配信設定・テストは、画面右上の「<strong>マイページ（個人設定）</strong>」から安全に登録・変更できます。
-              </span>
-            </div>
-            {currentUser.personalEmailMasked && (
-              <span className="text-[10px] font-mono font-bold text-emerald-800 bg-emerald-100/80 px-2 py-0.5 rounded border border-emerald-200 shrink-0">
-                登録済: {currentUser.personalEmailMasked}
-              </span>
-            )}
-          </div>
-
-          {/* 1タップ・クイック入力プリセット */}
-          <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-2.5">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-black text-slate-700 flex items-center gap-1.5">
-                ⚡ 1タップ・クイック選択プリセット (急ぎの場合に便利)
-              </span>
-              <span className="text-[11px] text-slate-500">
-                タップすると下の項目が一括自動入力されます
-              </span>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+      {isMyAnswerModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-2xl w-full overflow-hidden flex flex-col max-h-[92vh] animate-in zoom-in-95 duration-150">
+            {/* Modal Header */}
+            <div className="p-5 bg-gradient-to-r from-rose-600 to-rose-700 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-white/20 flex items-center justify-center text-white shrink-0">
+                  <HeartHandshake className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-base font-extrabold text-white flex items-center gap-2">
+                    安否状況の回答・変更
+                  </h2>
+                  <p className="text-xs text-rose-100 mt-0.5">
+                    回答者: <strong className="text-white font-bold">{currentUser.name}</strong> ({currentUser.office || '本社'} / {currentUser.division || '所属'})
+                    {activeEvent && ` | 対象: ${activeEvent.title}`}
+                  </p>
+                </div>
+              </div>
               <button
                 type="button"
-                onClick={() => applyQuickPreset('safe')}
-                className="p-2.5 rounded-xl border border-emerald-200 bg-emerald-50 hover:bg-emerald-100/80 text-emerald-900 text-left transition-all cursor-pointer flex flex-col justify-between"
+                onClick={() => setIsMyAnswerModalOpen(false)}
+                className="p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                title="閉じる"
               >
-                <div className="flex items-center gap-1.5 font-black text-xs text-emerald-800">
-                  <span>🟢</span>
-                  <span>自身・家族とも無事</span>
-                </div>
-                <span className="text-[10px] text-emerald-700 mt-1">
-                  無事 / 被害なし / 通常出社可
-                </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => applyQuickPreset('remote')}
-                className="p-2.5 rounded-xl border border-blue-200 bg-blue-50 hover:bg-blue-100/80 text-blue-900 text-left transition-all cursor-pointer flex flex-col justify-between"
-              >
-                <div className="flex items-center gap-1.5 font-black text-xs text-blue-800">
-                  <span>🟡</span>
-                  <span>無事・在宅勤務可</span>
-                </div>
-                <span className="text-[10px] text-blue-700 mt-1">
-                  無事 / 軽微被害 / テレワーク
-                </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => applyQuickPreset('injured')}
-                className="p-2.5 rounded-xl border border-amber-200 bg-amber-50 hover:bg-amber-100/80 text-amber-900 text-left transition-all cursor-pointer flex flex-col justify-between"
-              >
-                <div className="flex items-center gap-1.5 font-black text-xs text-amber-800">
-                  <span>🟠</span>
-                  <span>軽傷・要確認</span>
-                </div>
-                <span className="text-[10px] text-amber-700 mt-1">
-                  軽傷 / 家族対応 / 出社未定
-                </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => applyQuickPreset('rescue')}
-                className="p-2.5 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100/80 text-rose-900 text-left transition-all cursor-pointer flex flex-col justify-between"
-              >
-                <div className="flex items-center gap-1.5 font-black text-xs text-rose-800">
-                  <span>🔴</span>
-                  <span>被害大・要救助</span>
-                </div>
-                <span className="text-[10px] text-rose-700 mt-1">
-                  要救助 / 損壊 / 避難所 / 出社不可
-                </span>
+                <X className="w-5 h-5" />
               </button>
             </div>
-          </div>
 
-          <form onSubmit={handleResponseSubmit} className="space-y-6">
-            {/* 1. 本人の安否 */}
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-2">
-                1. ご自身の安否状況 <span className="text-rose-500">*</span>
-              </label>
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                {[
-                  { value: 'safe', label: '無事 (怪我なし)', desc: '身体に支障なし', color: 'emerald' },
-                  { value: 'minor_injury', label: '軽傷 (自力対応可)', desc: '治療・応急手当対応中', color: 'amber' },
-                  { value: 'severe_injury', label: '重傷 (要手当て)', desc: '病院・手当が必要', color: 'rose' },
-                  { value: 'need_rescue', label: '要救助 (緊急)', desc: '閉じ込め・救助要請', color: 'rose' },
-                ].map((opt) => (
-                  <label
-                    key={opt.value}
-                    className={`p-3.5 rounded-xl border flex flex-col justify-between cursor-pointer transition-all ${
-                      mySafetyStatus === opt.value
-                        ? 'bg-rose-50/50 border-rose-500 ring-2 ring-rose-500/20'
-                        : 'bg-slate-50 border-slate-200 hover:bg-slate-100/70'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs font-bold text-slate-800">{opt.label}</span>
-                      <input
-                        type="radio"
-                        name="safetyStatus"
-                        value={opt.value}
-                        checked={mySafetyStatus === opt.value}
-                        onChange={() => setMySafetyStatus(opt.value as any)}
-                        className="text-rose-600 focus:ring-rose-500"
-                      />
-                    </div>
-                    <span className="text-[10px] text-slate-500">{opt.desc}</span>
-                  </label>
-                ))}
+            {/* Modal Body */}
+            <div className="p-5 sm:p-6 overflow-y-auto space-y-6 flex-1">
+              {/* 個人メール設定案内バナー */}
+              <div className="p-3 bg-indigo-50/80 rounded-2xl border border-indigo-100 flex items-center justify-between gap-3 text-xs text-indigo-900">
+                <div className="flex items-center gap-2">
+                  <ShieldAlert className="w-4 h-4 text-indigo-600 shrink-0" />
+                  <span>
+                    <strong>緊急連絡網:</strong> 私用メールへの暗号化配信設定は「<strong>マイページ</strong>」から設定できます。
+                  </span>
+                </div>
+                {currentUser.personalEmailMasked && (
+                  <span className="text-[10px] font-mono font-bold text-emerald-800 bg-emerald-100/80 px-2 py-0.5 rounded-lg border border-emerald-200 shrink-0">
+                    登録済: {currentUser.personalEmailMasked}
+                  </span>
+                )}
               </div>
-            </div>
 
-            {/* 2. 家族の安否 */}
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-2">
-                2. 同居家族・ご親族の状況
-              </label>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                {[
-                  { value: 'all_safe', label: '全員無事' },
-                  { value: 'injured', label: '負傷者あり' },
-                  { value: 'unreachable', label: '連絡取れず・確認中' },
-                  { value: 'none', label: '単身 / 該当なし' },
-                ].map((opt) => (
-                  <label
-                    key={opt.value}
-                    className={`p-2.5 rounded-xl border text-xs font-bold text-center cursor-pointer transition-all ${
-                      myFamilyStatus === opt.value
-                        ? 'bg-slate-800 text-white border-slate-800'
-                        : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="familyStatus"
-                      value={opt.value}
-                      checked={myFamilyStatus === opt.value}
-                      onChange={() => setMyFamilyStatus(opt.value as any)}
-                      className="hidden"
-                    />
-                    {opt.label}
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            {/* 3. 家屋・自宅の状況 */}
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-2">
-                3. 自宅・家屋の被害状況
-              </label>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                {[
-                  { value: 'no_damage', label: '被害なし' },
-                  { value: 'partial_damage', label: '一部損壊 / 停電・断水' },
-                  { value: 'severe_damage', label: '大規模損壊 / 倒壊' },
-                  { value: 'evacuated', label: '避難所へ避難中' },
-                ].map((opt) => (
-                  <label
-                    key={opt.value}
-                    className={`p-2.5 rounded-xl border text-xs font-bold text-center cursor-pointer transition-all ${
-                      myHouseStatus === opt.value
-                        ? 'bg-slate-800 text-white border-slate-800'
-                        : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="houseStatus"
-                      value={opt.value}
-                      checked={myHouseStatus === opt.value}
-                      onChange={() => setMyHouseStatus(opt.value as any)}
-                      className="hidden"
-                    />
-                    {opt.label}
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            {/* 4. 出社・就業可否 */}
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-2">
-                4. 今後の出社・テレワーク可否 <span className="text-rose-500">*</span>
-              </label>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                {[
-                  { value: 'available', label: '通常通り出社可' },
-                  { value: 'remote_only', label: '在宅勤務・リモート可' },
-                  { value: 'unavailable', label: '出社不可 (対応優先)' },
-                  { value: 'undecided', label: '未定 / 状況判断中' },
-                ].map((opt) => (
-                  <label
-                    key={opt.value}
-                    className={`p-2.5 rounded-xl border text-xs font-bold text-center cursor-pointer transition-all ${
-                      myWorkAvailability === opt.value
-                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
-                        : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="workAvailability"
-                      value={opt.value}
-                      checked={myWorkAvailability === opt.value}
-                      onChange={() => setMyWorkAvailability(opt.value as any)}
-                      className="hidden"
-                    />
-                    {opt.label}
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            {/* 5. 現在地 */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-xs font-bold text-slate-700">
-                    5. 現在地・避難場所
-                  </label>
+              {/* 1タップ・クイック入力プリセット */}
+              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black text-slate-700 flex items-center gap-1.5">
+                    ⚡ 1タップ・クイック選択プリセット
+                  </span>
+                  <span className="text-[11px] text-slate-500">
+                    タップで下の項目が一括入力されます
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   <button
                     type="button"
-                    onClick={handleGetLocation}
-                    disabled={isGettingLocation}
-                    className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer disabled:opacity-50"
-                    title="スマートフォンのGPS位置情報を取得して現在地に自動入力します"
+                    onClick={() => applyQuickPreset('safe')}
+                    className="p-2.5 rounded-xl border border-emerald-200 bg-emerald-50 hover:bg-emerald-100/80 text-emerald-900 text-left transition-all cursor-pointer flex flex-col justify-between"
                   >
-                    {isGettingLocation ? (
-                      <>
-                        <RefreshCw className="w-3 h-3 animate-spin" />
-                        <span>GPS取得中...</span>
-                      </>
-                    ) : (
-                      <>
-                        <span>📍 GPS現在地を取得</span>
-                      </>
-                    )}
+                    <div className="flex items-center gap-1.5 font-black text-xs text-emerald-800">
+                      <span>🟢</span>
+                      <span>自身・家族とも無事</span>
+                    </div>
+                    <span className="text-[10px] text-emerald-700 mt-1">
+                      無事 / 通常出社可
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => applyQuickPreset('remote')}
+                    className="p-2.5 rounded-xl border border-blue-200 bg-blue-50 hover:bg-blue-100/80 text-blue-900 text-left transition-all cursor-pointer flex flex-col justify-between"
+                  >
+                    <div className="flex items-center gap-1.5 font-black text-xs text-blue-800">
+                      <span>🟡</span>
+                      <span>無事・在宅勤務可</span>
+                    </div>
+                    <span className="text-[10px] text-blue-700 mt-1">
+                      無事 / テレワーク
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => applyQuickPreset('injured')}
+                    className="p-2.5 rounded-xl border border-amber-200 bg-amber-50 hover:bg-amber-100/80 text-amber-900 text-left transition-all cursor-pointer flex flex-col justify-between"
+                  >
+                    <div className="flex items-center gap-1.5 font-black text-xs text-amber-800">
+                      <span>🟠</span>
+                      <span>軽傷・要確認</span>
+                    </div>
+                    <span className="text-[10px] text-amber-700 mt-1">
+                      軽傷 / 出社未定
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => applyQuickPreset('rescue')}
+                    className="p-2.5 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100/80 text-rose-900 text-left transition-all cursor-pointer flex flex-col justify-between"
+                  >
+                    <div className="flex items-center gap-1.5 font-black text-xs text-rose-800">
+                      <span>🔴</span>
+                      <span>被害大・要救助</span>
+                    </div>
+                    <span className="text-[10px] text-rose-700 mt-1">
+                      要救助 / 出社不可
+                    </span>
                   </button>
                 </div>
-                <input
-                  type="text"
-                  value={myLocation}
-                  onChange={(e) => setMyLocation(e.target.value)}
-                  placeholder="自宅 / 〇〇小学校体育館 / 営業先 等"
-                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-rose-500 focus:bg-white"
-                />
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  6. 連絡事項・会社への要望・特記事項
-                </label>
-                <input
-                  type="text"
-                  value={myComment}
-                  onChange={(e) => setMyComment(e.target.value)}
-                  placeholder="家族の状況や必要支援、出社目処など"
-                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-rose-500 focus:bg-white"
-                />
-              </div>
+              <form id="my-safety-response-form" onSubmit={handleResponseSubmit} className="space-y-6">
+                {/* 1. 本人の安否 */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-2">
+                    1. ご自身の安否状況 <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+                    {[
+                      { value: 'safe', label: '無事 (怪我なし)', desc: '身体に支障なし' },
+                      { value: 'minor_injury', label: '軽傷 (自力対応可)', desc: '治療・手当対応中' },
+                      { value: 'severe_injury', label: '重傷 (要手当て)', desc: '病院・手当が必要' },
+                      { value: 'need_rescue', label: '要救助 (緊急)', desc: '救助・支援要請' },
+                    ].map((opt) => (
+                      <label
+                        key={opt.value}
+                        className={`p-3 rounded-xl border flex flex-col justify-between cursor-pointer transition-all ${
+                          mySafetyStatus === opt.value
+                            ? 'bg-rose-50/70 border-rose-500 ring-2 ring-rose-500/20'
+                            : 'bg-slate-50 border-slate-200 hover:bg-slate-100/70'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-bold text-slate-800">{opt.label}</span>
+                          <input
+                            type="radio"
+                            name="safetyStatus"
+                            value={opt.value}
+                            checked={mySafetyStatus === opt.value}
+                            onChange={() => setMySafetyStatus(opt.value as any)}
+                            className="text-rose-600 focus:ring-rose-500"
+                          />
+                        </div>
+                        <span className="text-[10px] text-slate-500">{opt.desc}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 2. 家族の安否 */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-2">
+                    2. 同居家族・ご親族の状況
+                  </label>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {[
+                      { value: 'all_safe', label: '全員無事' },
+                      { value: 'injured', label: '負傷者あり' },
+                      { value: 'unreachable', label: '連絡取れず・確認中' },
+                      { value: 'none', label: '単身 / 該当なし' },
+                    ].map((opt) => (
+                      <label
+                        key={opt.value}
+                        className={`p-2.5 rounded-xl border text-xs font-bold text-center cursor-pointer transition-all ${
+                          myFamilyStatus === opt.value
+                            ? 'bg-slate-800 text-white border-slate-800 shadow-xs'
+                            : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="familyStatus"
+                          value={opt.value}
+                          checked={myFamilyStatus === opt.value}
+                          onChange={() => setMyFamilyStatus(opt.value as any)}
+                          className="hidden"
+                        />
+                        {opt.label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 3. 家屋・自宅の状況 */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-2">
+                    3. 自宅・家屋の被害状況
+                  </label>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {[
+                      { value: 'no_damage', label: '被害なし' },
+                      { value: 'partial_damage', label: '一部損壊 / ライフライン寸断' },
+                      { value: 'severe_damage', label: '大規模損壊 / 倒壊' },
+                      { value: 'evacuated', label: '避難所へ避難中' },
+                    ].map((opt) => (
+                      <label
+                        key={opt.value}
+                        className={`p-2.5 rounded-xl border text-xs font-bold text-center cursor-pointer transition-all ${
+                          myHouseStatus === opt.value
+                            ? 'bg-slate-800 text-white border-slate-800 shadow-xs'
+                            : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="houseStatus"
+                          value={opt.value}
+                          checked={myHouseStatus === opt.value}
+                          onChange={() => setMyHouseStatus(opt.value as any)}
+                          className="hidden"
+                        />
+                        {opt.label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 4. 出社・就業可否 */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-2">
+                    4. 今後の出社・テレワーク可否 <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {[
+                      { value: 'available', label: '通常通り出社可' },
+                      { value: 'remote_only', label: '在宅勤務・リモート可' },
+                      { value: 'unavailable', label: '出社不可 (対応優先)' },
+                      { value: 'undecided', label: '未定 / 状況判断中' },
+                    ].map((opt) => (
+                      <label
+                        key={opt.value}
+                        className={`p-2.5 rounded-xl border text-xs font-bold text-center cursor-pointer transition-all ${
+                          myWorkAvailability === opt.value
+                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                            : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="workAvailability"
+                          value={opt.value}
+                          checked={myWorkAvailability === opt.value}
+                          onChange={() => setMyWorkAvailability(opt.value as any)}
+                          className="hidden"
+                        />
+                        {opt.label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 5. 現在地 ＆ 6. 特記事項 */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-bold text-slate-700">
+                        5. 現在地・避難場所
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handleGetLocation}
+                        disabled={isGettingLocation}
+                        className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                        title="スマートフォンのGPS位置情報を取得して現在地に自動入力します"
+                      >
+                        {isGettingLocation ? (
+                          <>
+                            <RefreshCw className="w-3 h-3 animate-spin" />
+                            <span>GPS取得中...</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>📍 GPS現在地を取得</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                    <input
+                      type="text"
+                      value={myLocation}
+                      onChange={(e) => setMyLocation(e.target.value)}
+                      placeholder="自宅 / 〇〇小学校体育館 / 営業先 等"
+                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-rose-500 focus:bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      6. 連絡事項・会社への要望・特記事項
+                    </label>
+                    <input
+                      type="text"
+                      value={myComment}
+                      onChange={(e) => setMyComment(e.target.value)}
+                      placeholder="家族の状況や必要支援、出社目処など"
+                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-rose-500 focus:bg-white"
+                    />
+                  </div>
+                </div>
+              </form>
             </div>
 
-            {/* Submit */}
-            <div className="pt-3 border-t border-slate-100 flex justify-end">
+            {/* Modal Footer */}
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-3 shrink-0">
+              <button
+                type="button"
+                onClick={() => setIsMyAnswerModalOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-200/70 transition-colors cursor-pointer"
+              >
+                キャンセル・閉じる
+              </button>
               <button
                 type="submit"
+                form="my-safety-response-form"
                 disabled={isSubmittingResponse}
-                className="px-8 py-3 bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold rounded-xl shadow-md shadow-rose-200 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                className="px-6 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold rounded-xl shadow-md shadow-rose-200 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
               >
                 <CheckCircle2 className="w-4 h-4" />
                 {isSubmittingResponse ? '送信中...' : '安否状況を回答・登録する'}
               </button>
             </div>
-          </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL 2: 社員の回答詳細ポップアップ（閲覧専用・編集不可） */}
+      {/* ========================================================================= */}
+      {viewingResponseData && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-lg w-full overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-150">
+            {/* Modal Header */}
+            <div className="p-5 bg-gradient-to-r from-slate-800 to-slate-900 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-white/10 flex items-center justify-center text-white shrink-0 font-black text-sm">
+                  {viewingResponseData.user.name.slice(0, 1)}
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-white flex items-center gap-2">
+                    {viewingResponseData.user.name} さんの安否詳細
+                  </h3>
+                  <p className="text-xs text-slate-300 mt-0.5">
+                    {[viewingResponseData.user.office, viewingResponseData.user.division, viewingResponseData.user.position].filter(Boolean).join(' / ')}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setViewingResponseData(null)}
+                className="p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                title="閉じる"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto space-y-5 flex-1 text-xs">
+              {/* 安否ステータス 大バッジ */}
+              <div className="p-4 rounded-2xl border flex items-center justify-between gap-3 bg-slate-50 border-slate-200">
+                <span className="font-bold text-slate-600">本人の安否状況:</span>
+                {viewingResponseData.response ? (
+                  viewingResponseData.response.safetyStatus === 'safe' ? (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
+                      <Check className="w-4 h-4 text-emerald-600" />
+                      無事 (怪我なし)
+                    </span>
+                  ) : viewingResponseData.response.safetyStatus === 'minor_injury' ? (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-black bg-amber-100 text-amber-800 border border-amber-300">
+                      <AlertTriangle className="w-4 h-4 text-amber-600" />
+                      軽傷 (自力対応中)
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-black bg-rose-100 text-rose-800 border border-rose-300 animate-pulse">
+                      <AlertOctagon className="w-4 h-4 text-rose-600" />
+                      重傷・要救助 (最優先)
+                    </span>
+                  )
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-slate-200 text-slate-600 border border-slate-300">
+                    <Clock className="w-4 h-4" />
+                    未回答
+                  </span>
+                )}
+              </div>
+
+              {viewingResponseData.response ? (
+                <>
+                  {/* Detailed Items Grid */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                      <span className="text-[11px] text-slate-400 font-bold block mb-1">同居家族の状況</span>
+                      <span className="font-bold text-slate-800 text-xs">
+                        {viewingResponseData.response.familyStatus === 'all_safe' ? '全員無事' : viewingResponseData.response.familyStatus === 'injured' ? '負傷者あり' : viewingResponseData.response.familyStatus === 'unreachable' ? '連絡取れず・確認中' : '単身 / 該当なし'}
+                      </span>
+                    </div>
+
+                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                      <span className="text-[11px] text-slate-400 font-bold block mb-1">自宅・家屋の被害</span>
+                      <span className="font-bold text-slate-800 text-xs">
+                        {viewingResponseData.response.houseStatus === 'no_damage' ? '被害なし' : viewingResponseData.response.houseStatus === 'partial_damage' ? '一部破損 / ライフライン寸断' : viewingResponseData.response.houseStatus === 'severe_damage' ? '大規模損壊 / 倒壊' : '避難所へ避難中'}
+                      </span>
+                    </div>
+
+                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                      <span className="text-[11px] text-slate-400 font-bold block mb-1">今後の出社・就業</span>
+                      <span className="font-bold text-indigo-700 text-xs">
+                        {viewingResponseData.response.workAvailability === 'available' ? '通常通り出社可' : viewingResponseData.response.workAvailability === 'remote_only' ? '在宅勤務・テレワーク可' : viewingResponseData.response.workAvailability === 'unavailable' ? '出社不可 (対応優先)' : '未定 / 状況判断中'}
+                      </span>
+                    </div>
+
+                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                      <span className="text-[11px] text-slate-400 font-bold block mb-1">現在地・避難場所</span>
+                      <span className="font-bold text-slate-800 text-xs">
+                        {viewingResponseData.response.locationStatus || '自宅'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Comments / Requests */}
+                  <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
+                    <span className="text-[11px] text-slate-400 font-bold block">連絡事項・会社への要望</span>
+                    <p className="text-slate-800 whitespace-pre-wrap leading-relaxed">
+                      {viewingResponseData.response.message || '（特記事項なし）'}
+                    </p>
+                  </div>
+
+                  {/* Responded At */}
+                  <div className="flex items-center justify-between text-[11px] text-slate-400 px-1">
+                    <span>回答日時:</span>
+                    <span className="font-mono font-bold text-slate-600">
+                      {new Date(viewingResponseData.response.respondedAt).toLocaleString('ja-JP')}
+                    </span>
+                  </div>
+                </>
+              ) : (
+                <div className="p-6 text-center text-slate-400 space-y-2 bg-slate-50 rounded-2xl border border-slate-100">
+                  <AlertCircle className="w-8 h-8 mx-auto text-slate-300" />
+                  <p className="font-bold text-slate-600">まだ回答が送信されていません</p>
+                  <p className="text-[11px] text-slate-400">
+                    一斉安否通知が送信されているか、または登録連絡先を確認してください。
+                  </p>
+                </div>
+              )}
+
+              {/* 連絡先状況 (暗号化保護) */}
+              <div className="p-3.5 bg-indigo-50/50 rounded-2xl border border-indigo-100 space-y-2">
+                <span className="text-[11px] font-bold text-indigo-900 block">登録連絡先情報</span>
+                <div className="space-y-1 text-[11px] font-mono text-slate-600">
+                  {viewingResponseData.user.email && (
+                    <div className="flex items-center gap-1.5">
+                      <Mail className="w-3 h-3 text-slate-400" />
+                      <span>社内: {viewingResponseData.user.email}</span>
+                    </div>
+                  )}
+                  {viewingResponseData.user.mobileEmail && (
+                    <div className="flex items-center gap-1.5">
+                      <Smartphone className="w-3 h-3 text-indigo-500" />
+                      <span>携帯: {viewingResponseData.user.mobileEmail}</span>
+                    </div>
+                  )}
+                  {viewingResponseData.user.personalEmailMasked ? (
+                    <div className="flex items-center gap-1.5 text-emerald-800 font-bold">
+                      <Lock className="w-3 h-3 text-emerald-600" />
+                      <span>個人(暗号化): {viewingResponseData.user.personalEmailMasked}</span>
+                    </div>
+                  ) : (
+                    <div className="text-slate-400">個人メール: 未登録</div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-3 shrink-0">
+              {viewingResponseData.response && (isAdmin || currentUser.id === viewingResponseData.user.id) ? (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (activeEvent) {
+                      await handleDeleteResponse(activeEvent.id, viewingResponseData.user.id, viewingResponseData.user.name);
+                      setViewingResponseData(null);
+                    }
+                  }}
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold text-rose-600 hover:bg-rose-50 border border-rose-200 transition-colors cursor-pointer flex items-center gap-1.5"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  回答を削除（未回答にリセット）
+                </button>
+              ) : (
+                <div />
+              )}
+
+              <button
+                type="button"
+                onClick={() => setViewingResponseData(null)}
+                className="px-5 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer"
+              >
+                閉じる
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
