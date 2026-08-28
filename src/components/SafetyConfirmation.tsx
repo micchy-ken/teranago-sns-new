@@ -34,7 +34,8 @@ import {
   Sparkles,
   ArrowUpDown,
   ArrowUp,
-  ArrowDown
+  ArrowDown,
+  Trash2
 } from 'lucide-react';
 import { User, OfficeMaster, DivisionMaster, DisasterType } from '../types';
 import { API_BASE_URL } from '../config/api';
@@ -292,6 +293,83 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
     }
   };
 
+  // Delete Event Handler (安否確認イベントの個別削除)
+  const handleDeleteEvent = async (eventId: string) => {
+    const targetEv = events.find(e => e.id === eventId);
+    const evTitle = targetEv ? targetEv.title : 'この安否確認イベント';
+
+    const doDelete = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/safety-events/${eventId}`, {
+          method: 'DELETE',
+        });
+        if (res.ok) {
+          setActionMessage({ type: 'success', text: `安否確認イベント「${evTitle}」を削除しました。` });
+          const updatedEvents = events.filter(e => e.id !== eventId);
+          setEvents(updatedEvents);
+          if (updatedEvents.length > 0) {
+            setSelectedEventId(updatedEvents[0].id);
+          } else {
+            setSelectedEventId(null);
+          }
+        } else {
+          setActionMessage({ type: 'error', text: 'イベントの削除に失敗しました。' });
+        }
+      } catch (e: any) {
+        setActionMessage({ type: 'error', text: 'エラー: ' + e.message });
+      }
+    };
+
+    if (onOpenConfirmModal) {
+      onOpenConfirmModal({
+        title: '安否確認イベントの削除',
+        message: `安否確認イベント「${evTitle}」およびこれに紐づくすべての回答集計データを完全に削除しますか？\n（※この操作は取り消せません）`,
+        confirmLabel: '完全に削除する',
+        cancelLabel: 'キャンセル',
+        isDangerous: true,
+        onConfirm: doDelete,
+      });
+    } else {
+      if (window.confirm(`安否確認イベント「${evTitle}」およびすべての回答データを完全に削除しますか？`)) {
+        await doDelete();
+      }
+    }
+  };
+
+  // Delete Individual Response Handler (個別回答レコードの削除・未回答リセット)
+  const handleDeleteResponse = async (eventId: string, userId: string, userName: string) => {
+    const doDelete = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/safety-events/${eventId}/responses/${userId}`, {
+          method: 'DELETE',
+        });
+        if (res.ok) {
+          setActionMessage({ type: 'success', text: `${userName} さんの安否回答を削除（未回答にリセット）しました。` });
+          await fetchResponses(eventId);
+        } else {
+          setActionMessage({ type: 'error', text: '回答の削除に失敗しました。' });
+        }
+      } catch (e: any) {
+        setActionMessage({ type: 'error', text: 'エラー: ' + e.message });
+      }
+    };
+
+    if (onOpenConfirmModal) {
+      onOpenConfirmModal({
+        title: '安否回答の個別削除・取消',
+        message: `${userName} さんの安否回答データを削除し、未回答ステータスに戻しますか？`,
+        confirmLabel: '回答を削除する',
+        cancelLabel: 'キャンセル',
+        isDangerous: true,
+        onConfirm: doDelete,
+      });
+    } else {
+      if (window.confirm(`${userName} さんの安否回答データを削除しますか？`)) {
+        await doDelete();
+      }
+    }
+  };
+
   // Update response form when selected event changes or user has already answered
   const activeEvent = events.find(e => e.id === selectedEventId) || events.find(e => e.status === 'active') || events[0];
 
@@ -484,6 +562,7 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
       },
       isDrill: isTestMode,
       isTest: isTestMode,
+      appBaseUrl: window.location.origin + window.location.pathname.replace(/\/+$/, ''),
       createdBy: currentUser.id,
       createdById: currentUser.id,
       createdByName: currentUser.name,
@@ -1080,6 +1159,17 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
                           終了・完了
                         </button>
                       )}
+
+                      {activeEvent && (
+                        <button
+                          onClick={() => handleDeleteEvent(activeEvent.id)}
+                          className="px-3 py-1.5 rounded-lg border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+                          title="この安否確認イベントおよび全集計データを完全に削除します"
+                        >
+                          <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                          イベント削除
+                        </button>
+                      )}
                     </>
                   )}
 
@@ -1245,6 +1335,7 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
                         <th className="py-3 px-4">連絡先 (暗号化保護)</th>
                         <th className="py-3 px-4">コメント・要望</th>
                         <th className="py-3 px-4">回答日時</th>
+                        <th className="py-3 px-3 text-center">操作</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -1340,6 +1431,23 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
                                 })
                               ) : (
                                 '-'
+                              )}
+                            </td>
+                            <td className="py-3 px-3 text-center whitespace-nowrap">
+                              {resp ? (
+                                (isAdmin || currentUser.id === member.id) ? (
+                                  <button
+                                    onClick={() => handleDeleteResponse(activeEvent.id, member.id, member.name)}
+                                    className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                                    title={`${member.name} さんの回答を削除（未回答にリセット）`}
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                ) : (
+                                  <span className="text-slate-300">-</span>
+                                )
+                              ) : (
+                                <span className="text-slate-300">-</span>
                               )}
                             </td>
                           </tr>
