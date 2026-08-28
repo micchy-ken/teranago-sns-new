@@ -24,9 +24,10 @@
 - **禁止事項**: フロントエンド（React / 各コンポーネント内）で `fetch('/api/...')` や `fetch(\`/api/...\`)` のように**相対パスを直接ハードコードすることは厳禁**です（GitHub Pages は静的ホスティングのため POST リクエスト時に `405 Method Not Allowed` となり通信が失敗します）。
 - **実装ルール**: すべての API 通信は必ず `import { API_BASE_URL } from '../config/api'`（または `./config/api`）をインポートし、`fetch(\`${API_BASE_URL}/...\`)` の形式で呼び出さなければなりません。
 
-### ⑤ モジュール分割サーバー（`routes/*.js`）提供時の「全交換・完全版」提示義務
-- **必須要件**: ユーザー環境のバックエンドは `routes/safety.js` 等の Express Router によるモジュール分割構成（MS SQL Server `mssql` 連携・AES-256-GCM暗号化・ES Modules/CJS）を採用しています。
-- **完全版の提供**: サーバー側のコード変更や新エンドポイント追加時は、部分切り貼りではなく、**該当モジュール（例: `routes/safety.js`）の全交換が可能な完全版コード**を提示してください。
+### ⑤ モジュール分割サーバー（`routes/*.js`）の完全同期＆「更新モジュール全文」提示義務
+- **必須要件**: ユーザー環境のAPIサーバーは `routes/*.js`（例: `routes/safety.js`, `routes/reports.js`, `routes/events.js`, `routes/ical.js` 等）による Express Router モジュール分割構成（MS SQL Server `mssql` 連携・AES-256-GCM暗号化・ES Modules/CJS）で本番稼働しています。
+- **モジュール全文（完全版）の必須提示**: サーバー側のAPI追加・ロジック変更・バグ修正などが発生した場合は、部分的な差分や切り貼り用スニペットではなく、**そのままファイルに上書き（全交換）できる「該当更新モジュール（`routes/*.js`）の全文（1行目から末尾まで）の完全版コード」をチャット上で必ず提示**してください。
+- **リポジトリ内ファイルの更新**: プロジェクト内の `/routes/*.js`（例: `routes/safety.js`）、`/server.ts`、および `/src/components/RecommendServerCode.ts` をすべて整合性を保って更新してください。
 - **ルーティング耐障害性**: `app.use('/api', safetyRouter)` と `app.use('/api/safety', safetyRouter)` のどちらのマウント方式でも動作するよう、ルーター側のパス定義は `router.get(['/safety-events', '/safety/events', '/events'], ...)` のように複数パスを配列で受け付ける設計を徹底してください。
 
 ---
@@ -64,7 +65,7 @@
 
 1. **要求確認**: ユーザーの要望範囲を正確に把握し、不要な機能の勝手な追加を避ける。
 2. **実装 & 同期**:
-   - サーバー変更時は `server.ts` と `RecommendServerCode.ts` をセットで更新。
+   - サーバー変更時は `server.ts`、`RecommendServerCode.ts`、および該当する `routes/*.js`（例: `routes/safety.js`）をセットで更新・同期。
    - パッケージ追加時はインストールを実行し、内容をユーザーへ提示。
 3. **ビルド検証**: `compile_applet` または `lint_applet` を実行し、TypeScript コンパイルエラーやビルド破壊がないことを確認する。
-4. **完了報告**: 実装内容および `package.json` の変更点等を簡潔かつ分かりやすくユーザーに報告する。
+4. **完了報告**: 実装内容および `package.json` の変更点等を簡潔に報告するとともに、**変更のあったモジュール（`routes/*.js`）の全文（完全版コード）を必ず提示**する。

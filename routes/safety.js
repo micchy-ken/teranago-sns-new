@@ -483,6 +483,9 @@ router.post([
     const effectiveStatus = status || safetyStatus || 'safe';
     const effectiveCanWork = canWork || workAvailability || 'available';
     const effectiveLocation = currentLocation || location || '自宅';
+    const effectiveOffice = userOffice || req.body?.office || '';
+    const effectiveDivision = userDivision || req.body?.division || '';
+    const effectiveComment = comment || req.body?.message || '';
 
     const pool = await getPool();
     if (pool) {
@@ -491,12 +494,12 @@ router.post([
         .input('eventId', sql.NVarChar(100), id)
         .input('userId', sql.NVarChar(100), String(userId))
         .input('userName', sql.NVarChar(100), userName || '')
-        .input('userOffice', sql.NVarChar(100), userOffice || '')
-        .input('userDivision', sql.NVarChar(100), userDivision || '')
+        .input('userOffice', sql.NVarChar(100), effectiveOffice)
+        .input('userDivision', sql.NVarChar(100), effectiveDivision)
         .input('status', sql.NVarChar(50), effectiveStatus)
         .input('canWork', sql.NVarChar(50), effectiveCanWork)
         .input('currentLocation', sql.NVarChar(100), effectiveLocation)
-        .input('comment', sql.NVarChar(sql.MAX), comment || '')
+        .input('comment', sql.NVarChar(sql.MAX), effectiveComment)
         .input('locationCoordinates', sql.NVarChar(200), locationCoordinates || null)
         .input('respondedAt', sql.DateTimeOffset, nowIso)
         .query(`
@@ -519,7 +522,33 @@ router.post([
             VALUES (@id, @eventId, @userId, @userName, @userOffice, @userDivision, @status, @canWork, @currentLocation, @comment, @locationCoordinates, @respondedAt);
         `);
     }
-    res.json({ success: true, message: '安否確認の回答を受け付けました。' });
+    res.json({
+      success: true,
+      message: '安否確認の回答を受け付けました。',
+      response: {
+        id: respId,
+        eventId: id,
+        userId: String(userId),
+        userName: userName || '',
+        office: effectiveOffice,
+        division: effectiveDivision,
+        userOffice: effectiveOffice,
+        userDivision: effectiveDivision,
+        safetyStatus: effectiveStatus,
+        status: effectiveStatus,
+        familyStatus: familyStatus || 'all_safe',
+        houseStatus: houseStatus || 'no_damage',
+        workAvailability: effectiveCanWork,
+        canWork: effectiveCanWork,
+        locationStatus: effectiveLocation,
+        currentLocation: effectiveLocation,
+        location: effectiveLocation,
+        message: effectiveComment,
+        comment: effectiveComment,
+        locationCoordinates: locationCoordinates || undefined,
+        respondedAt: nowIso
+      }
+    });
   } catch (err) {
     console.error('Safety respond error:', err);
     res.status(500).json({ error: err.message });

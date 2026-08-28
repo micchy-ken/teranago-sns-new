@@ -386,17 +386,27 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
   useEffect(() => {
     if (activeEvent) {
       fetchResponses(activeEvent.id);
-      const myResp = responses.find(r => r.userId === currentUser.id);
-      if (myResp) {
-        setMySafetyStatus(myResp.safetyStatus);
-        setMyFamilyStatus(myResp.familyStatus || 'all_safe');
-        setMyHouseStatus(myResp.houseStatus || 'no_damage');
-        setMyWorkAvailability(myResp.workAvailability);
-        setMyLocation(myResp.locationStatus || '自宅');
-        setMyComment(myResp.message || '');
-      }
     }
   }, [selectedEventId, activeEvent?.id]);
+
+  // Sync current user's form state whenever currentUserResponse changes or modal opens
+  useEffect(() => {
+    if (currentUserResponse) {
+      setMySafetyStatus(currentUserResponse.safetyStatus);
+      setMyFamilyStatus(currentUserResponse.familyStatus || 'all_safe');
+      setMyHouseStatus(currentUserResponse.houseStatus || 'no_damage');
+      setMyWorkAvailability(currentUserResponse.workAvailability);
+      setMyLocation(currentUserResponse.locationStatus || '自宅');
+      setMyComment(currentUserResponse.message || '');
+    } else {
+      setMySafetyStatus('safe');
+      setMyFamilyStatus('all_safe');
+      setMyHouseStatus('no_damage');
+      setMyWorkAvailability('available');
+      setMyLocation('自宅');
+      setMyComment('');
+    }
+  }, [currentUserResponse, isMyAnswerModalOpen]);
 
   const fetchEvents = async () => {
     setIsLoading(true);
@@ -420,8 +430,26 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
     try {
       const res = await fetch(`${API_BASE_URL}/safety-events/${eventId}/responses`);
       if (res.ok) {
-        const data = await res.json();
-        setResponses(data);
+        const rawData = await res.json();
+        if (Array.isArray(rawData)) {
+          // Normalize responses so that any backend format (status/canWork vs safetyStatus/workAvailability) matches 100%
+          const normalized: SafetyConfirmationResponse[] = rawData.map((r: any) => ({
+            id: r.id || `resp_${r.userId}`,
+            eventId: r.eventId || eventId,
+            userId: String(r.userId),
+            userName: r.userName || '匿名',
+            office: r.office || r.userOffice || '',
+            division: r.division || r.userDivision || '',
+            safetyStatus: (r.safetyStatus || r.status || 'safe') as any,
+            familyStatus: r.familyStatus || 'all_safe',
+            houseStatus: r.houseStatus || 'no_damage',
+            workAvailability: (r.workAvailability || r.canWork || 'available') as any,
+            locationStatus: r.locationStatus || r.currentLocation || r.location || '自宅',
+            message: r.message || r.comment || '',
+            respondedAt: r.respondedAt || r.updatedAt || new Date().toISOString()
+          }));
+          setResponses(normalized);
+        }
       }
     } catch (err) {
       console.error('Failed to fetch responses:', err);
@@ -642,12 +670,19 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
         userName: currentUser.name,
         office: currentUser.office,
         division: currentUser.division,
+        userOffice: currentUser.office,
+        userDivision: currentUser.division,
         safetyStatus: mySafetyStatus,
+        status: mySafetyStatus,
         familyStatus: myFamilyStatus,
         houseStatus: myHouseStatus,
         workAvailability: myWorkAvailability,
+        canWork: myWorkAvailability,
         locationStatus: myLocation,
+        currentLocation: myLocation,
+        location: myLocation,
         message: myComment.trim(),
+        comment: myComment.trim(),
       };
 
       const res = await fetch(`${API_BASE_URL}/safety-events/${activeEvent.id}/respond`, {

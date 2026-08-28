@@ -2615,23 +2615,44 @@ async function startServer() {
   });
 
   // 安否確認回答送信 API (ユーザーの回答登録・更新)
-  app.post('/api/safety-events/:id/respond', (req, res) => {
+  app.post([
+    '/api/safety-events/:id/respond',
+    '/api/safety-events/:id/respond/',
+    '/api/safety/events/:id/respond',
+    '/api/safety/events/:id/respond/'
+  ], (req, res) => {
     try {
       const { id } = req.params;
       const {
         userId,
         userName,
+        office,
+        division,
         userOffice,
         userDivision,
         status,
+        safetyStatus,
+        familyStatus,
+        houseStatus,
+        workAvailability,
         canWork,
         currentLocation,
+        locationStatus,
+        location,
         comment,
+        message,
         locationCoordinates
       } = req.body || {};
 
-      if (!userId || !status || !canWork) {
-        return res.status(400).json({ error: 'ユーザーID、安否状態、出勤可否は必須です。' });
+      const effectiveStatus = status || safetyStatus || 'safe';
+      const effectiveCanWork = canWork || workAvailability || 'available';
+      const effectiveLocation = currentLocation || locationStatus || location || '自宅';
+      const effectiveComment = comment || message || '';
+      const effectiveOffice = userOffice || office || '';
+      const effectiveDivision = userDivision || division || '';
+
+      if (!userId) {
+        return res.status(400).json({ error: 'ユーザーIDは必須です。' });
       }
 
       const events = loadSafetyEvents();
@@ -2642,19 +2663,28 @@ async function startServer() {
 
       const responses = loadSafetyResponses();
       const nowIso = new Date().toISOString();
-      const idx = responses.findIndex(r => r.eventId === id && r.userId === userId);
+      const idx = responses.findIndex(r => r.eventId === id && String(r.userId) === String(userId));
 
       const responseRecord = {
         id: idx >= 0 ? responses[idx].id : `resp_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
         eventId: id,
-        userId,
+        userId: String(userId),
         userName: userName || '匿名',
-        userOffice: userOffice || '',
-        userDivision: userDivision || '',
-        status,
-        canWork,
-        currentLocation: currentLocation || 'home',
-        comment: comment || '',
+        office: effectiveOffice,
+        division: effectiveDivision,
+        userOffice: effectiveOffice,
+        userDivision: effectiveDivision,
+        safetyStatus: effectiveStatus,
+        status: effectiveStatus,
+        familyStatus: familyStatus || 'all_safe',
+        houseStatus: houseStatus || 'no_damage',
+        workAvailability: effectiveCanWork,
+        canWork: effectiveCanWork,
+        locationStatus: effectiveLocation,
+        currentLocation: effectiveLocation,
+        location: effectiveLocation,
+        message: effectiveComment,
+        comment: effectiveComment,
         locationCoordinates: locationCoordinates || undefined,
         respondedAt: nowIso,
         updatedAt: nowIso
