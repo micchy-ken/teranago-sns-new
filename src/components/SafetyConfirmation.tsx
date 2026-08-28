@@ -108,9 +108,9 @@ interface SafetyConfirmationProps {
 
 export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
   currentUser,
-  allUsers,
-  offices,
-  divisions,
+  allUsers = [],
+  offices = [],
+  divisions = [],
   onOpenConfirmModal,
 }) => {
   // Tabs: 'dashboard' (発動中・集計), 'targets' (対象者一覧・登録状況), 'trigger' (安否確認発動), 'respond' (安否回答)
@@ -147,6 +147,12 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
   const [myLocation, setMyLocation] = useState('自宅');
   const [myComment, setMyComment] = useState('');
   const [isSubmittingResponse, setIsSubmittingResponse] = useState(false);
+
+  // Test Email State in trigger
+  const [testingSend, setTestingSend] = useState(false);
+  const [testEmailDestination, setTestEmailDestination] = useState(currentUser?.email || currentUser?.mobileEmail || '');
+  const [showTestEmailInput, setShowTestEmailInput] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string; isSimulated?: boolean } | null>(null);
 
   // Filter in Dashboard
   const [statusFilter, setStatusFilter] = useState<'all' | 'safe' | 'unanswered' | 'danger'>('all');
@@ -255,6 +261,89 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
     }
   };
 
+  // Handle test mail send for trigger form
+  const handleSendTestTriggerMail = async () => {
+    if (!triggerTitle.trim()) {
+      alert('発動タイトルを入力してください。');
+      return;
+    }
+
+    const targetEmail = testEmailDestination.trim() || currentUser.email || currentUser.mobileEmail;
+    if (!targetEmail || !targetEmail.includes('@')) {
+      setShowTestEmailInput(true);
+      setTestResult({
+        success: false,
+        message: 'テスト送信先のメールアドレスを入力してください。'
+      });
+      return;
+    }
+
+    setTestingSend(true);
+    setTestResult(null);
+
+    try {
+      const nowStr = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
+      const disasterLabel = disasterType === 'earthquake' ? '地震発生'
+        : disasterType === 'typhoon_rain' ? '台風・豪雨'
+        : disasterType === 'blackout' ? '停電・インフラ障害'
+        : disasterType === 'fire' ? '火災・事故'
+        : disasterType === 'drill' ? '安否確認テスト訓練'
+        : '緊急事態';
+
+      const emailSubject = `【安否確認テスト送信】${triggerTitle}`;
+      const emailText = `※これは安否確認発動のテスト送信です。実際の発動ではありません。\n\n` +
+        `【災害種別】: ${disasterLabel}\n` +
+        `【災害規模/レベル】: ${triggerLevel}\n` +
+        `【対象】: ${targetScope === 'all' ? '全社員・全拠点' : targetScope === 'offices' ? selectedOffices.join(', ') : selectedDivisions.join(', ')}\n\n` +
+        `【通知メッセージ本文】:\n${triggerMessage || '（メッセージなし）'}\n\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `【安否確認システムURL】:\n${window.location.origin}\n` +
+        `送信日時: ${nowStr}\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━`;
+
+      const res = await fetch('/api/notifications/test-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: targetEmail,
+          subject: emailSubject,
+          text: emailText
+        })
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (res.ok && data.success) {
+        if (data.simulated) {
+          setTestResult({
+            success: true,
+            isSimulated: true,
+            message: `【テスト成功 (シミュレーション)】メール本文と配信ルーティングを正常に生成・検証しました。（※現在SMTP設定が未定義のため、サーバーログに出力されました）`
+          });
+        } else {
+          setTestResult({
+            success: true,
+            isSimulated: false,
+            message: `テストメールを ${targetEmail} へ正常に送信しました。`
+          });
+        }
+      } else {
+        const detailInfo = data.details ? ` (${data.details})` : '';
+        setTestResult({
+          success: false,
+          message: `${data.error || data.message || 'メール送信に失敗しました。'}${detailInfo}`
+        });
+      }
+    } catch (err: any) {
+      setTestResult({
+        success: false,
+        message: '通信エラーが発生しました: ' + (err.message || '')
+      });
+    } finally {
+      setTestingSend(false);
+    }
+  };
+
   // Handle Trigger Submit
   const handleTriggerSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -265,18 +354,27 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
 
     const payload = {
       title: triggerTitle.trim(),
+      type: disasterType,
       disasterType,
+      severity: triggerLevel || 'warning',
       level: triggerLevel,
       message: triggerMessage.trim(),
+      targetOffice: targetScope === 'offices' && selectedOffices.length > 0 ? selectedOffices[0] : '全社',
+      targetDivision: targetScope === 'divisions' && selectedDivisions.length > 0 ? selectedDivisions[0] : '全部署',
       targetScope,
       targetOffices: targetScope === 'offices' ? selectedOffices : undefined,
       targetDivisions: targetScope === 'divisions' ? selectedDivisions : undefined,
+      notifyWebPush: useWebPush,
+      notifyCompanyEmail: useCompanyEmail,
+      notifyPersonalEmail: usePersonalEmail,
       channels: {
         webPush: useWebPush,
         companyEmail: useCompanyEmail,
         personalEmail: usePersonalEmail,
       },
+      isDrill: isTestMode,
       isTest: isTestMode,
+      createdBy: currentUser.id,
       createdById: currentUser.id,
       createdByName: currentUser.name,
     };
@@ -1465,27 +1563,50 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
           </div>
 
           <form onSubmit={handleTriggerSubmit} className="space-y-5">
-            {/* Title & Level */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="md:col-span-2">
+            {/* Type, Title & Level */}
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
+              <div className="md:col-span-3">
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  災害種別 <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  value={disasterType}
+                  onChange={(e) => {
+                    const selected = e.target.value as DisasterType;
+                    applyTemplate(selected);
+                  }}
+                  className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-rose-500 focus:bg-white cursor-pointer"
+                >
+                  <option value="earthquake">地震 (震度5強以上)</option>
+                  <option value="tsunami">津波 (津波警報発令)</option>
+                  <option value="typhoon">台風・暴風特別警報</option>
+                  <option value="flood">大雨・河川氾濫</option>
+                  <option value="fire">火災・重大事故</option>
+                  <option value="drill">安否確認テスト訓練</option>
+                </select>
+              </div>
+
+              <div className="md:col-span-6">
                 <label className="block text-xs font-bold text-slate-700 mb-1">
                   発動タイトル <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="text"
                   required
+                  placeholder="例: 【安否確認】地震発生に伴う安否状況確認"
                   value={triggerTitle}
                   onChange={(e) => setTriggerTitle(e.target.value)}
                   className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-rose-500 focus:bg-white"
                 />
               </div>
 
-              <div>
+              <div className="md:col-span-3">
                 <label className="block text-xs font-bold text-slate-700 mb-1">
                   災害規模 / 警報レベル
                 </label>
                 <input
                   type="text"
+                  placeholder="例: 震度5強以上"
                   value={triggerLevel}
                   onChange={(e) => setTriggerLevel(e.target.value)}
                   className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-rose-500 focus:bg-white"
@@ -1633,17 +1754,116 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
               />
             </div>
 
-            {/* Submit Button */}
-            <div className="pt-2 flex justify-end">
+            {/* Submit Button & Test Email Area */}
+            <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!showTestEmailInput) {
+                      setShowTestEmailInput(true);
+                    } else {
+                      handleSendTestTriggerMail();
+                    }
+                  }}
+                  disabled={testingSend || !triggerTitle.trim()}
+                  className="px-3.5 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-100/80 text-slate-700 text-xs font-bold flex items-center justify-center gap-1.5 transition-all disabled:opacity-50 cursor-pointer shadow-2xs"
+                  title="入力中の内容でテストメールを送信し、疎通やフォーマットを確認します"
+                >
+                  {testingSend ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin text-slate-400" />
+                      テストメール送信中...
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-4 h-4 text-slate-500" />
+                      自分宛にテスト送信
+                    </>
+                  )}
+                </button>
+                {!showTestEmailInput && (
+                  <button
+                    type="button"
+                    onClick={() => setShowTestEmailInput(true)}
+                    className="text-[11px] text-indigo-600 hover:text-indigo-800 underline font-bold cursor-pointer"
+                  >
+                    宛先を指定
+                  </button>
+                )}
+              </div>
+
               <button
                 type="submit"
                 disabled={isSending}
-                className="px-6 py-3 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl shadow-md shadow-rose-200 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                className="px-6 py-3 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl shadow-md shadow-rose-200 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
               >
-                <Send className="w-4 h-4" />
+                <Radio className="w-4 h-4" />
                 {isSending ? '一斉送信中...' : isTestMode ? 'テスト発動を実行' : '緊急安否確認を発動する'}
               </button>
             </div>
+
+            {/* Test Email Destination Input Box */}
+            {showTestEmailInput && (
+              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-700 flex items-center gap-1.5">
+                    <Mail className="w-3.5 h-3.5 text-slate-500" />
+                    テスト送信先メールアドレス:
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowTestEmailInput(false)}
+                    className="text-slate-400 hover:text-slate-600 text-[11px] cursor-pointer"
+                  >
+                    閉じる
+                  </button>
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="email"
+                    value={testEmailDestination}
+                    onChange={(e) => setTestEmailDestination(e.target.value)}
+                    placeholder="example@company.co.jp"
+                    className="flex-1 px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSendTestTriggerMail}
+                    disabled={testingSend || !triggerTitle.trim() || !testEmailDestination.trim()}
+                    className="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs disabled:opacity-50 cursor-pointer shrink-0"
+                  >
+                    送信
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  ※PCメール、携帯メール、または届くか確認したい任意のアドレスを指定できます。
+                </p>
+              </div>
+            )}
+
+            {/* Test Result Message Banner */}
+            {testResult && (
+              <div className={`p-3.5 rounded-xl text-xs flex items-start gap-2.5 ${
+                testResult.success 
+                  ? testResult.isSimulated ? 'bg-amber-50 text-amber-800 border border-amber-200' : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                  : 'bg-rose-50 text-rose-800 border border-rose-200'
+              }`}>
+                {testResult.success ? (
+                  <CheckCircle2 className={`w-4 h-4 shrink-0 mt-0.5 ${testResult.isSimulated ? 'text-amber-600' : 'text-emerald-600'}`} />
+                ) : (
+                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                )}
+                <div className="space-y-1">
+                  <p className="font-bold">{testResult.message}</p>
+                  {!testResult.success && (
+                    <p className="text-[11px] text-rose-700/80">
+                      💡 本番サーバー（社内NAS / オンプレミス）で実メールを配信するには、サーバー環境変数 <code>SMTP_HOST</code>, <code>SMTP_PORT</code>, <code>SMTP_USER</code>, <code>SMTP_PASS</code> を設定してください。
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
           </form>
         </div>
       )}

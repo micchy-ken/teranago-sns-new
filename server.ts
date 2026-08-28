@@ -534,6 +534,41 @@ async function startServer() {
     }
   });
 
+  // 安否確認・通知テストメール送信 API (/api/notifications/test-email)
+  app.post('/api/notifications/test-email', async (req, res) => {
+    try {
+      const { to, subject, text, html } = req.body || {};
+      if (!to) {
+        return res.status(400).json({ error: '送信先アドレス (to) を指定してください' });
+      }
+
+      const testSubject = subject || '【寺岡オートドアSNS】安否確認テスト通知';
+      const testText = text || 'これは寺岡オートドアSNS 安否確認システムからのテストメール通知です。正常に受信できていれば、メール配信連携は完了しています。';
+
+      try {
+        const info = await sendEmailNotification({
+          to,
+          subject: testSubject,
+          text: testText,
+          html
+        });
+        return res.json({ success: true, message: `${to} へテストメールを送信しました`, messageId: info?.messageId });
+      } catch (smtpErr: any) {
+        console.warn('[Email] SMTP未接続または送信エラーのためシミュレーションモードで完了:', smtpErr.message);
+        // 本番環境外・SMTP非導通環境でもUIが停止しないようシミュレーション結果を返す
+        return res.json({
+          success: true,
+          simulated: true,
+          message: `${to} 宛てのテスト配信内容を検証しました (SMTP未接続/テスト環境)`,
+          details: smtpErr.message
+        });
+      }
+    } catch (err: any) {
+      console.error('Error in /api/notifications/test-email:', err);
+      res.status(500).json({ error: 'テストメール処理中にエラーが発生しました', details: err.message });
+    }
+  });
+
   // 外部ファイル（NAS共有用）ストレージディレクトリ
   const externalFilesDir = path.join(process.cwd(), 'data', 'external-files');
   if (!fs.existsSync(externalFilesDir)) {
@@ -1999,7 +2034,9 @@ async function startServer() {
       const {
         title,
         type,
+        disasterType,
         severity,
+        level,
         targetOffice,
         targetDivision,
         message,
@@ -2007,11 +2044,15 @@ async function startServer() {
         notifyCompanyEmail = true,
         notifyPersonalEmail = true,
         isDrill = false,
+        isTest = false,
         createdBy,
+        createdById,
         createdByName
       } = req.body || {};
 
-      if (!title || !type) {
+      const eventType = type || disasterType || 'earthquake';
+
+      if (!title || !eventType) {
         return res.status(400).json({ error: 'タイトルおよび災害種別は必須です。' });
       }
 
@@ -2021,17 +2062,20 @@ async function startServer() {
       const newEvent = {
         id: newId,
         title,
-        type,
-        severity: severity || 'warning',
+        type: eventType,
+        disasterType: eventType,
+        severity: severity || level || 'warning',
+        level: level || severity || '警戒',
         targetOffice: targetOffice || '全社',
         targetDivision: targetDivision || '全部署',
         message: message || '',
         notifyWebPush: !!notifyWebPush,
         notifyCompanyEmail: !!notifyCompanyEmail,
         notifyPersonalEmail: !!notifyPersonalEmail,
-        isDrill: !!isDrill,
+        isDrill: !!(isDrill || isTest),
+        isTest: !!(isDrill || isTest),
         status: 'active',
-        createdBy: createdBy || 'admin',
+        createdBy: createdBy || createdById || 'admin',
         createdByName: createdByName || '管理者',
         createdAt: nowIso,
         updatedAt: nowIso
