@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   ShieldAlert,
   Send,
   AlertTriangle,
+  AlertCircle,
   Users,
   CheckCircle2,
   Clock,
@@ -200,6 +201,11 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
       setTargetSortOrder('asc');
     }
   };
+
+  // Current logged in user response
+  const currentUserResponse = useMemo(() => {
+    return responses.find(r => r.userId === currentUser.id);
+  }, [responses, currentUser.id]);
 
   // Load events on mount
   useEffect(() => {
@@ -1181,23 +1187,23 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
               {/* Current User Response Status Card / Action Banner */}
               {activeEvent && (
                 <div className={`p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm transition-all ${
-                  myResp
+                  currentUserResponse
                     ? 'bg-gradient-to-r from-emerald-50/80 via-white to-teal-50/50 border-emerald-200'
                     : 'bg-gradient-to-r from-rose-50 via-white to-amber-50/60 border-rose-200 ring-2 ring-rose-500/10'
                 }`}>
                   <div className="flex items-start sm:items-center gap-3.5">
                     <div className={`p-2.5 rounded-xl shrink-0 ${
-                      myResp ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white animate-pulse'
+                      currentUserResponse ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white animate-pulse'
                     }`}>
                       <HeartHandshake className="w-5 h-5" />
                     </div>
                     <div>
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-xs font-bold text-slate-500">あなたの安否回答状況:</span>
-                        {myResp ? (
+                        {currentUserResponse ? (
                           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
                             <Check className="w-3 h-3" />
-                            回答済み ({myResp.safetyStatus === 'safe' ? '無事' : myResp.safetyStatus === 'minor_injury' ? '軽傷' : '重傷・要救助'})
+                            回答済み ({currentUserResponse.safetyStatus === 'safe' ? '無事' : currentUserResponse.safetyStatus === 'minor_injury' ? '軽傷' : '重傷・要救助'})
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-black bg-rose-100 text-rose-800 border border-rose-300 animate-pulse">
@@ -1210,8 +1216,8 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
                         </span>
                       </div>
                       <p className="text-xs text-slate-500 mt-1">
-                        {myResp
-                          ? `出社可否: ${myResp.workAvailability === 'available' ? '通常出社可' : myResp.workAvailability === 'remote_only' ? '在宅勤務可' : '出社不可'} | 現在地: ${myResp.locationStatus || '未記入'} (最終回答: ${new Date(myResp.respondedAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })})`
+                        {currentUserResponse
+                          ? `出社可否: ${currentUserResponse.workAvailability === 'available' ? '通常出社可' : currentUserResponse.workAvailability === 'remote_only' ? '在宅勤務可' : '出社不可'} | 現在地: ${currentUserResponse.locationStatus || '未記入'} (最終回答: ${new Date(currentUserResponse.respondedAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })})`
                           : '災害発生時の速やかな状況把握のため、現在の安全状況・出社可否をご回答ください。'}
                       </p>
                     </div>
@@ -1222,13 +1228,13 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
                       type="button"
                       onClick={() => setIsMyAnswerModalOpen(true)}
                       className={`px-4 py-2.5 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all shadow-xs cursor-pointer ${
-                        myResp
+                        currentUserResponse
                           ? 'bg-white border border-emerald-300 text-emerald-800 hover:bg-emerald-50 hover:shadow-sm'
                           : 'bg-rose-600 hover:bg-rose-700 text-white shadow-rose-200 shadow-md animate-bounce'
                       }`}
                     >
                       <HeartHandshake className="w-4 h-4" />
-                      {myResp ? '回答内容を変更・更新する' : '今すぐ安否を回答する'}
+                      {currentUserResponse ? '回答内容を変更・更新する' : '今すぐ安否を回答する'}
                     </button>
                   </div>
                 </div>
