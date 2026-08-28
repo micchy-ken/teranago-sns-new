@@ -37,6 +37,7 @@ import {
   ArrowDown
 } from 'lucide-react';
 import { User, OfficeMaster, DivisionMaster, DisasterType } from '../types';
+import { API_BASE_URL } from '../config/api';
 
 export interface SafetyConfirmationEvent {
   id: string;
@@ -203,7 +204,7 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
   const fetchEvents = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch('/api/safety-events');
+      const res = await fetch(`${API_BASE_URL}/safety-events`);
       if (res.ok) {
         const data = await res.json();
         setEvents(data);
@@ -220,7 +221,7 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
 
   const fetchResponses = async (eventId: string) => {
     try {
-      const res = await fetch(`/api/safety-events/${eventId}/responses`);
+      const res = await fetch(`${API_BASE_URL}/safety-events/${eventId}/responses`);
       if (res.ok) {
         const data = await res.json();
         setResponses(data);
@@ -301,7 +302,7 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
         `送信日時: ${nowStr}\n` +
         `━━━━━━━━━━━━━━━━━━━━━━`;
 
-      const res = await fetch('/api/notifications/test-email', {
+      const res = await fetch(`${API_BASE_URL}/notifications/test-email`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -404,7 +405,7 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
     setIsSending(true);
     setActionMessage(null);
     try {
-      const res = await fetch('/api/safety-events', {
+      const res = await fetch(`${API_BASE_URL}/safety-events`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -451,7 +452,7 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
         message: myComment.trim(),
       };
 
-      const res = await fetch(`/api/safety-events/${activeEvent.id}/respond`, {
+      const res = await fetch(`${API_BASE_URL}/safety-events/${activeEvent.id}/respond`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -481,7 +482,7 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
     setIsSending(true);
     setActionMessage(null);
     try {
-      const res = await fetch(`/api/safety-events/${activeEvent.id}/remind`, {
+      const res = await fetch(`${API_BASE_URL}/safety-events/${activeEvent.id}/remind`, {
         method: 'POST',
       });
       const data = await res.json();
