@@ -19,16 +19,22 @@
 - **必須要件**: ユーザーからの問いかけが「質問です」「確認ですが」「〜はどうなっていますか？」等の質問・相談・調査依頼である場合、**コード（ファイル）を編集・修正せず、現状の仕様・コードの該当箇所の解説・回答のみ**を行ってください。
 - **改変のタイミング**: ユーザーから「修正してください」「反映をお願いします」「〜を実装してください」等の明示的な変更指示・修正依頼を受けた段階でのみ、コードの改変・ビルド作業を実施してください。
 
+### ④ フロントエンド通信時の `API_BASE_URL` 必須利用義務（相対パス `/api` の禁止）
+- **必須要件**: 本システムは **GitHub Pages（フロントエンド: `https://micchy-ken.github.io/teranago-sns-new/`）** から **Synology NAS（バックエンド: `https://sns.teranago.synology.me/api`）** へクロスオリジンで API 通信を行うアーキテクチャです。
+- **禁止事項**: フロントエンド（React / 各コンポーネント内）で `fetch('/api/...')` や `fetch(\`/api/...\`)` のように**相対パスを直接ハードコードすることは厳禁**です（GitHub Pages は静的ホスティングのため POST リクエスト時に `405 Method Not Allowed` となり通信が失敗します）。
+- **実装ルール**: すべての API 通信は必ず `import { API_BASE_URL } from '../config/api'`（または `./config/api`）をインポートし、`fetch(\`${API_BASE_URL}/...\`)` の形式で呼び出さなければなりません。
+
 ---
 
 ## 2. システム構成・アーキテクチャ仕様
 
 | 区分 | 採用技術 / 仕様 | 備考 |
 | :--- | :--- | :--- |
-| **フロントエンド** | React 19 + TypeScript + Vite + Tailwind CSS v4 + Motion | SPA 構成、PWA 対応 (`/public/sw.js`, `manifest.json`) |
+| **フロントエンド** | GitHub Pages (`https://micchy-ken.github.io/teranago-sns-new/`) | React 19 + TypeScript + Vite + Tailwind CSS v4 + Motion、SPA 構成、PWA 対応 (`/public/sw.js`, `manifest.json`) |
+| **バックエンド** | Synology NAS (`https://sns.teranago.synology.me/api`) | Express (Node.js) on `http://0.0.0.0:3000` / 開発環境 `tsx server.ts` / 本番環境 `node dist/server.cjs` |
+| **API 通信** | `API_BASE_URL` 経由のクロスオリジン通信 | `/src/config/api.ts` で環境に応じたベースURLを一元管理 |
 | **アイコン** | `lucide-react` | カスタム SVG アイコンの作成は禁止、Lucide から Named Import |
 | **アニメーション** | `motion/react` (Motion) | スムーズな遷移・モーダルアニメーション |
-| **バックエンド** | Express (Node.js) on `http://0.0.0.0:3000` | 開発環境 `tsx server.ts` / 本番環境 `node dist/server.cjs` |
 | **データベース** | MS SQL Server (Primary) / Local JSON (Fallback) | `/data/*.json` と SQL Server 両対応のハイブリッド構造 |
 | **通知機能** | Web Push (VAPID) & SMTP メール通知 (Nodemailer) | プッシュ購読情報は DB とローカルファイルで二重永続化 |
 
