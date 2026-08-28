@@ -1,7 +1,9 @@
 {
   "name": "Remix: 社内ナレッジSNS",
   "description": "タイムライン型ナレッジ共有アプリのプロトタイプ",
-  "requestFramePermissions": [],
+  "requestFramePermissions": [
+    "geolocation"
+  ],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
   ]

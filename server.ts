@@ -2308,26 +2308,34 @@ async function startServer() {
 
           if (emailAddresses.length === 0) return;
 
+          const directAnswerLink = (req.body && req.body.appBaseUrl)
+            ? `${req.body.appBaseUrl.replace(/\/$/, '')}/?tab=safety_confirmation&safetyEventId=${newId}`
+            : `https://micchy-ken.github.io/teranago-sns-new/?tab=safety_confirmation&safetyEventId=${newId}`;
           const nowJst = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
           const subject = `【緊急安否確認】${isDrill ? '【訓練】' : ''}${title}`;
-          const text = `${u.name} 様\n\n【安否確認システムからの緊急連絡】\n\n${title}\n\n${message || ''}\n\n至急、以下のURLより現在の安否状況をご回答ください。\n社内SNSへアクセスし、「ユーティリティ」→「安否確認」より回答をお願いいたします。\n\n発動日時: ${nowJst}\n発信者: ${createdByName || '安否確認本部'}`;
+          const text = `${u.name} 様\n\n【安否確認システムからの緊急連絡】\n\n${title}\n\n${message || ''}\n\n至急、以下のURLより現在の安否状況をご回答ください。\n1タップで簡単に報告できます。\n\n▼ 安否状況を回答する:\n${directAnswerLink}\n\n発動日時: ${nowJst}\n発信者: ${createdByName || '安否確認本部'}`;
 
           const html = `
-            <div style="font-family: sans-serif; padding: 24px; line-height: 1.6; color: #1e293b; max-width: 600px; border: 2px solid #dc2626; border-radius: 12px; background-color: #ffffff;">
-              <div style="background-color: #dc2626; color: #ffffff; padding: 14px 18px; border-radius: 8px 8px 0 0; margin: -24px -24px 20px -24px;">
-                <h2 style="margin: 0; font-size: 19px; font-weight: 700;">🚨 【緊急安否確認】${isDrill ? '【訓練】' : ''}${title}</h2>
+            <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; padding: 24px; line-height: 1.6; color: #1e293b; max-width: 600px; border: 2px solid #dc2626; border-radius: 16px; background-color: #ffffff; margin: 0 auto;">
+              <div style="background-color: #dc2626; color: #ffffff; padding: 16px 20px; border-radius: 12px 12px 0 0; margin: -24px -24px 20px -24px;">
+                <h2 style="margin: 0; font-size: 18px; font-weight: 800;">🚨 【緊急安否確認】${isDrill ? '【訓練】' : ''}${title}</h2>
               </div>
-              <p style="font-size: 16px; font-weight: 600; color: #0f172a;">${u.name} 様</p>
+              <p style="font-size: 16px; font-weight: 700; color: #0f172a; margin-top: 0;">${u.name} 様</p>
               <p style="font-size: 14px; color: #334155;">安否確認が発動されました。身の安全を確保した上で、速やかに現在の状況をご回答ください。</p>
               ${message ? `
-                <div style="background-color: #fef2f2; padding: 14px; border-radius: 8px; border-left: 4px solid #dc2626; margin: 16px 0;">
-                  <p style="margin: 0; font-size: 14px; color: #991b1b; white-space: pre-wrap;">${message}</p>
+                <div style="background-color: #fef2f2; padding: 14px 16px; border-radius: 8px; border-left: 4px solid #dc2626; margin: 16px 0;">
+                  <p style="margin: 0; font-size: 14px; color: #991b1b; white-space: pre-wrap; font-weight: 600;">${message}</p>
                 </div>
               ` : ''}
-              <div style="text-align: center; margin: 24px 0;">
-                <p style="font-size: 13px; color: #64748b; margin-bottom: 8px;">社内SNSにログインし、安否確認メニューから回答してください。</p>
+              <div style="text-align: center; margin: 28px 0;">
+                <a href="${directAnswerLink}" style="display: inline-block; background-color: #dc2626; color: #ffffff; padding: 15px 34px; font-size: 16px; font-weight: 800; text-decoration: none; border-radius: 12px; box-shadow: 0 4px 14px rgba(220, 38, 38, 0.4);">
+                  👉 今すぐ安否状況を回答する (1タップ報告)
+                </a>
+                <p style="font-size: 11px; color: #64748b; margin-top: 10px;">
+                  URL: <a href="${directAnswerLink}" style="color: #dc2626; word-break: break-all;">${directAnswerLink}</a>
+                </p>
               </div>
-              <div style="background-color: #f8fafc; padding: 12px 16px; border-radius: 8px; border: 1px solid #e2e8f0; font-size: 12px; color: #64748b;">
+              <div style="background-color: #f8fafc; padding: 12px 16px; border-radius: 8px; border: 1px solid #e2e8f0; font-size: 11px; color: #64748b;">
                 <p style="margin: 0 0 4px 0;"><b>発動日時:</b> ${nowJst}</p>
                 <p style="margin: 0;"><b>発動本部:</b> ${createdByName || '安否確認本部'}</p>
               </div>
@@ -2359,8 +2367,125 @@ async function startServer() {
     }
   });
 
+  // 安否確認 未回答者へのリマインド一斉送信 API
+  app.post(['/api/safety-events/:id/remind', '/api/safety/events/:id/remind'], async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { appBaseUrl, senderName } = req.body || {};
+
+      const events = loadSafetyEvents();
+      const event = events.find((e: any) => e.id === id);
+      if (!event) {
+        return res.status(404).json({ error: '対象の安否確認イベントが見つかりません。' });
+      }
+
+      const responses = loadSafetyResponses().filter((r: any) => r.eventId === id);
+      const answeredUserIds = new Set(responses.map((r: any) => String(r.userId)));
+
+      const allUsers = loadUsers();
+      const targetUsers = allUsers.filter((u: any) => {
+        const matchOffice = (!event.targetOffice || event.targetOffice === '全社' || u.office === event.targetOffice);
+        const matchDivision = (!event.targetDivision || event.targetDivision === '全部署' || u.division === event.targetDivision);
+        return matchOffice && matchDivision;
+      });
+
+      const unansweredUsers = targetUsers.filter((u: any) => !answeredUserIds.has(String(u.id)));
+
+      if (unansweredUsers.length === 0) {
+        return res.json({
+          success: true,
+          message: '対象の全社員が回答済みです。未回答者はいません。',
+          remindedCount: 0
+        });
+      }
+
+      const resolvedBaseUrl = (appBaseUrl && typeof appBaseUrl === 'string' && appBaseUrl.startsWith('http'))
+        ? appBaseUrl.replace(/\/$/, '')
+        : 'https://micchy-ken.github.io/teranago-sns-new';
+
+      const directAnswerLink = `${resolvedBaseUrl}/?tab=safety_confirmation&safetyEventId=${event.id}`;
+      const nowJst = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
+
+      // WebPush 再送
+      for (const u of unansweredUsers) {
+        try {
+          await sendPushNotificationToUser({
+            targetUserId: String(u.id),
+            title: `⚠️【未回答・再送】安否確認: ${event.title}`,
+            body: 'まだ安否確認の回答が完了していません。至急ご回答をお願いします。',
+            url: `/?tab=safety_confirmation&safetyEventId=${event.id}`,
+            tag: `safety_remind_${event.id}`
+          });
+        } catch (_) {}
+      }
+
+      // メール再送
+      let remindedCount = 0;
+      const mailPromises = unansweredUsers.map(async (u: any) => {
+        const emailAddresses: string[] = [];
+        if (u.email && u.email.includes('@')) emailAddresses.push(u.email);
+        if (u.mobileEmail && u.mobileEmail.includes('@') && !emailAddresses.includes(u.mobileEmail)) {
+          emailAddresses.push(u.mobileEmail);
+        }
+        if (u.personalEmailEncrypted) {
+          const decrypted = decryptText(u.personalEmailEncrypted);
+          if (decrypted && decrypted.includes('@') && !emailAddresses.includes(decrypted)) {
+            emailAddresses.push(decrypted);
+          }
+        }
+
+        if (emailAddresses.length === 0) return;
+
+        const subject = `【再送・至急】⚠️【安否確認】未回答の確認 (${event.title})`;
+        const text = `${u.name} 様\n\n【安否確認システムからの再送連絡】\n\n発動中の安否確認（${event.title}）について、まだ回答が確認できておりません。\n\n身の安全を確保した上で、至急以下のURLより安否状況をご回答ください。\n\n▼ 安否状況を回答する:\n${directAnswerLink}\n\n発動本部: ${senderName || event.createdByName || '安否確認本部'}\n送信日時: ${nowJst}`;
+
+        const html = `
+          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; padding: 24px; line-height: 1.6; color: #1e293b; max-width: 600px; border: 2px solid #e11d48; border-radius: 16px; background-color: #ffffff; margin: 0 auto;">
+            <div style="background-color: #e11d48; color: #ffffff; padding: 16px 20px; border-radius: 12px 12px 0 0; margin: -24px -24px 20px -24px;">
+              <h2 style="margin: 0; font-size: 18px; font-weight: 800;">⚠️ 【再送・至急】安否状況のご回答をお願いします</h2>
+            </div>
+            <p style="font-size: 16px; font-weight: 700; color: #0f172a; margin-top: 0;">${u.name} 様</p>
+            <p style="font-size: 14px; color: #334155;">
+              発動中の安否確認<strong>「${event.title}」</strong>について、まだご回答をいただいておりません。<br>
+              会社の安全確認および支援体制確保のため、至急現在の状況をご回答ください。
+            </p>
+            <div style="text-align: center; margin: 28px 0;">
+              <a href="${directAnswerLink}" style="display: inline-block; background-color: #e11d48; color: #ffffff; padding: 15px 34px; font-size: 16px; font-weight: 800; text-decoration: none; border-radius: 12px; box-shadow: 0 4px 14px rgba(225, 29, 72, 0.4);">
+                👉 今すぐ安否状況を回答する
+              </a>
+            </div>
+            <div style="background-color: #f8fafc; padding: 12px 16px; border-radius: 8px; border: 1px solid #e2e8f0; font-size: 11px; color: #64748b;">
+              <p style="margin: 0 0 4px 0;">送信日時: ${nowJst}</p>
+              <p style="margin: 0;">発信元: ${senderName || event.createdByName || '安否確認本部'}</p>
+            </div>
+          </div>
+        `;
+
+        let sent = false;
+        for (const addr of emailAddresses) {
+          try {
+            await sendEmailNotification({ to: addr, subject, text, html });
+            sent = true;
+          } catch (_) {}
+        }
+        if (sent) remindedCount++;
+      });
+
+      await Promise.all(mailPromises);
+
+      res.json({
+        success: true,
+        message: `未回答者 ${unansweredUsers.length} 名にリマインド通知を再送しました。`,
+        remindedCount: unansweredUsers.length
+      });
+    } catch (err: any) {
+      console.error('Safety remind error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // 安否確認イベント更新 API (ステータス完了化など)
-  app.put('/api/safety-events/:id', (req, res) => {
+  app.put(['/api/safety-events/:id', '/api/safety/events/:id'], (req, res) => {
     try {
       const { id } = req.params;
       const data = req.body || {};

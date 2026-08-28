@@ -176,6 +176,7 @@ export default function App() {
   const [targetApplicationId, setTargetApplicationId] = useState<string | undefined>(initialUrlParams.applicationId);
   const [targetEventId, setTargetEventId] = useState<string | undefined>(initialUrlParams.eventId);
   const [targetReportId, setTargetReportId] = useState<string | undefined>(initialUrlParams.reportId);
+  const [targetSafetyEventId, setTargetSafetyEventId] = useState<string | undefined>(initialUrlParams.safetyEventId);
 
   // グローバル詳細ポップアップ表示用の状態
   const [globalSelectedEvent, setGlobalSelectedEvent] = useState<CalendarEvent | null>(null);
@@ -3603,6 +3604,7 @@ export default function App() {
             offices={offices}
             divisions={divisions}
             onOpenConfirmModal={handleOpenConfirmModal}
+            initialEventId={targetSafetyEventId}
           />
         )}
         {activeTab === 'mypage' && (

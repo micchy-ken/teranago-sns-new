@@ -97,6 +97,8 @@ interface SafetyConfirmationProps {
   allUsers: User[];
   offices: OfficeMaster[];
   divisions: DivisionMaster[];
+  initialEventId?: string;
+  initialTab?: 'dashboard' | 'targets' | 'trigger' | 'respond';
   onOpenConfirmModal?: (options: {
     title: string;
     message: string;
@@ -112,17 +114,24 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
   allUsers = [],
   offices = [],
   divisions = [],
+  initialEventId,
+  initialTab,
   onOpenConfirmModal,
 }) => {
+  const isAdmin = currentUser.role === 'admin' || currentUser.isAdmin === true || (currentUser as any).id === 'u1';
+
   // Tabs: 'dashboard' (発動中・集計), 'targets' (対象者一覧・登録状況), 'trigger' (安否確認発動), 'respond' (安否回答)
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'targets' | 'trigger' | 'respond'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'targets' | 'trigger' | 'respond'>(
+    initialTab || (initialEventId ? 'respond' : (!isAdmin ? 'respond' : 'dashboard'))
+  );
 
   // Events & responses state
   const [events, setEvents] = useState<SafetyConfirmationEvent[]>([]);
-  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(initialEventId || null);
   const [responses, setResponses] = useState<SafetyConfirmationResponse[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [isGettingLocation, setIsGettingLocation] = useState(false);
   const [actionMessage, setActionMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Trigger Form State
@@ -191,6 +200,97 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
   useEffect(() => {
     fetchEvents();
   }, []);
+
+  // Quick 1-tap Answer Presets
+  const applyQuickPreset = (preset: 'safe' | 'remote' | 'injured' | 'rescue') => {
+    if (preset === 'safe') {
+      setMySafetyStatus('safe');
+      setMyFamilyStatus('all_safe');
+      setMyHouseStatus('no_damage');
+      setMyWorkAvailability('available');
+      setMyLocation(prev => prev && prev !== '自宅' ? prev : '自宅');
+      setMyComment('本人・家族ともに無事です。通常通り出社・業務可能です。');
+    } else if (preset === 'remote') {
+      setMySafetyStatus('safe');
+      setMyFamilyStatus('all_safe');
+      setMyHouseStatus('partial_damage');
+      setMyWorkAvailability('remote_only');
+      setMyLocation(prev => prev && prev !== '自宅' ? prev : '自宅');
+      setMyComment('本人は無事ですが、交通機関の乱れまたは周辺状況のため在宅勤務にて対応します。');
+    } else if (preset === 'injured') {
+      setMySafetyStatus('minor_injury');
+      setMyFamilyStatus('injured');
+      setMyHouseStatus('partial_damage');
+      setMyWorkAvailability('undecided');
+      setMyLocation(prev => prev && prev !== '自宅' ? prev : '自宅');
+      setMyComment('軽傷または家族の対応中です。状況が落ち着き次第再度連絡します。');
+    } else if (preset === 'rescue') {
+      setMySafetyStatus('need_rescue');
+      setMyFamilyStatus('injured');
+      setMyHouseStatus('severe_damage');
+      setMyWorkAvailability('unavailable');
+      setMyLocation('避難所');
+      setMyComment('被害が大きく出社できません。支援・救助が必要です。');
+    }
+  };
+
+  // GPS Location Handler
+  const handleGetLocation = () => {
+    if (!navigator.geolocation) {
+      alert('お使いのブラウザはGPS位置情報取得に対応していません。');
+      return;
+    }
+    setIsGettingLocation(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude } = pos.coords;
+        setMyLocation(`現在地 (GPS: 北緯${latitude.toFixed(4)}°, 東経${longitude.toFixed(4)}°)`);
+        setIsGettingLocation(false);
+      },
+      (err) => {
+        console.warn('GPS error:', err);
+        alert('位置情報を取得できませんでした。ブラウザの位置情報アクセスを許可してください。');
+        setIsGettingLocation(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
+  // Close Event Handler
+  const handleCloseEvent = async (eventId: string) => {
+    const doClose = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/safety-events/${eventId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'closed' }),
+        });
+        if (res.ok) {
+          setActionMessage({ type: 'success', text: '安否確認イベントを終了（アーカイブ）しました。' });
+          await fetchEvents();
+        } else {
+          setActionMessage({ type: 'error', text: '終了処理に失敗しました。' });
+        }
+      } catch (e: any) {
+        setActionMessage({ type: 'error', text: 'エラー: ' + e.message });
+      }
+    };
+
+    if (onOpenConfirmModal) {
+      onOpenConfirmModal({
+        title: '安否確認の終了（アーカイブ）',
+        message: 'この安否確認イベントを終了（ステータス完了）にしますか？終了後も集計結果の閲覧やCSV出力は可能です。',
+        confirmLabel: '終了する',
+        cancelLabel: 'キャンセル',
+        isDangerous: false,
+        onConfirm: doClose,
+      });
+    } else {
+      if (window.confirm('この安否確認イベントを終了（アーカイブ）にしますか？')) {
+        await doClose();
+      }
+    }
+  };
 
   // Update response form when selected event changes or user has already answered
   const activeEvent = events.find(e => e.id === selectedEventId) || events.find(e => e.status === 'active') || events[0];
@@ -826,30 +926,6 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
         {/* Global Action Navigation Tabs */}
         <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-bold shrink-0">
           <button
-            onClick={() => setActiveTab('dashboard')}
-            className={`px-3.5 py-2 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
-              activeTab === 'dashboard'
-                ? 'bg-white text-rose-700 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Users className="w-4 h-4" />
-            集計ダッシュボード
-          </button>
-
-          <button
-            onClick={() => setActiveTab('targets')}
-            className={`px-3.5 py-2 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
-              activeTab === 'targets'
-                ? 'bg-white text-rose-700 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <UserCheck className="w-4 h-4 text-indigo-600" />
-            対象者一覧・登録状況
-          </button>
-
-          <button
             onClick={() => setActiveTab('respond')}
             className={`px-3.5 py-2 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
               activeTab === 'respond'
@@ -862,16 +938,44 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
           </button>
 
           <button
-            onClick={() => setActiveTab('trigger')}
+            onClick={() => setActiveTab('dashboard')}
             className={`px-3.5 py-2 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
-              activeTab === 'trigger'
-                ? 'bg-slate-900 text-white shadow-xs'
+              activeTab === 'dashboard'
+                ? 'bg-white text-rose-700 shadow-xs'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            <Send className="w-4 h-4" />
-            安否確認を発動
+            <Users className="w-4 h-4" />
+            集計ダッシュボード
           </button>
+
+          {isAdmin && (
+            <>
+              <button
+                onClick={() => setActiveTab('targets')}
+                className={`px-3.5 py-2 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+                  activeTab === 'targets'
+                    ? 'bg-white text-rose-700 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <UserCheck className="w-4 h-4 text-indigo-600" />
+                対象者・登録管理
+              </button>
+
+              <button
+                onClick={() => setActiveTab('trigger')}
+                className={`px-3.5 py-2 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+                  activeTab === 'trigger'
+                    ? 'bg-slate-900 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Send className="w-4 h-4" />
+                安否確認を発動
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -951,17 +1055,33 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
                     className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
                   >
                     <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-                    CSVエクスポート
+                    CSV出力
                   </button>
 
-                  <button
-                    onClick={handleSendReminder}
-                    disabled={isSending}
-                    className="px-3.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs disabled:opacity-50"
-                  >
-                    <Bell className="w-3.5 h-3.5" />
-                    未回答者へ一括再通知 ({totalUsersCount - answeredCount}名)
-                  </button>
+                  {isAdmin && (
+                    <>
+                      <button
+                        onClick={handleSendReminder}
+                        disabled={isSending || (totalUsersCount - answeredCount) === 0}
+                        className="px-3.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs disabled:opacity-50"
+                        title="未回答者に対してプッシュ通知・メール通知を再送します"
+                      >
+                        <Bell className="w-3.5 h-3.5" />
+                        未回答者へ再通知 ({totalUsersCount - answeredCount}名)
+                      </button>
+
+                      {activeEvent && activeEvent.status === 'active' && (
+                        <button
+                          onClick={() => handleCloseEvent(activeEvent.id)}
+                          className="px-3 py-1.5 rounded-lg border border-slate-300 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+                          title="安否確認イベントを終了（アーカイブ）します"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5 text-slate-600" />
+                          終了・完了
+                        </button>
+                      )}
+                    </>
+                  )}
 
                   <button
                     onClick={() => {
@@ -2100,6 +2220,75 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
             )}
           </div>
 
+          {/* 1タップ・クイック入力プリセット */}
+          <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-black text-slate-700 flex items-center gap-1.5">
+                ⚡ 1タップ・クイック選択プリセット (急ぎの場合に便利)
+              </span>
+              <span className="text-[11px] text-slate-500">
+                タップすると下の項目が一括自動入力されます
+              </span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+              <button
+                type="button"
+                onClick={() => applyQuickPreset('safe')}
+                className="p-2.5 rounded-xl border border-emerald-200 bg-emerald-50 hover:bg-emerald-100/80 text-emerald-900 text-left transition-all cursor-pointer flex flex-col justify-between"
+              >
+                <div className="flex items-center gap-1.5 font-black text-xs text-emerald-800">
+                  <span>🟢</span>
+                  <span>自身・家族とも無事</span>
+                </div>
+                <span className="text-[10px] text-emerald-700 mt-1">
+                  無事 / 被害なし / 通常出社可
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => applyQuickPreset('remote')}
+                className="p-2.5 rounded-xl border border-blue-200 bg-blue-50 hover:bg-blue-100/80 text-blue-900 text-left transition-all cursor-pointer flex flex-col justify-between"
+              >
+                <div className="flex items-center gap-1.5 font-black text-xs text-blue-800">
+                  <span>🟡</span>
+                  <span>無事・在宅勤務可</span>
+                </div>
+                <span className="text-[10px] text-blue-700 mt-1">
+                  無事 / 軽微被害 / テレワーク
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => applyQuickPreset('injured')}
+                className="p-2.5 rounded-xl border border-amber-200 bg-amber-50 hover:bg-amber-100/80 text-amber-900 text-left transition-all cursor-pointer flex flex-col justify-between"
+              >
+                <div className="flex items-center gap-1.5 font-black text-xs text-amber-800">
+                  <span>🟠</span>
+                  <span>軽傷・要確認</span>
+                </div>
+                <span className="text-[10px] text-amber-700 mt-1">
+                  軽傷 / 家族対応 / 出社未定
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => applyQuickPreset('rescue')}
+                className="p-2.5 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100/80 text-rose-900 text-left transition-all cursor-pointer flex flex-col justify-between"
+              >
+                <div className="flex items-center gap-1.5 font-black text-xs text-rose-800">
+                  <span>🔴</span>
+                  <span>被害大・要救助</span>
+                </div>
+                <span className="text-[10px] text-rose-700 mt-1">
+                  要救助 / 損壊 / 避難所 / 出社不可
+                </span>
+              </button>
+            </div>
+          </div>
+
           <form onSubmit={handleResponseSubmit} className="space-y-6">
             {/* 1. 本人の安否 */}
             <div>
@@ -2243,9 +2432,29 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
             {/* 5. 現在地 */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  5. 現在地・避難場所
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-bold text-slate-700">
+                    5. 現在地・避難場所
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleGetLocation}
+                    disabled={isGettingLocation}
+                    className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                    title="スマートフォンのGPS位置情報を取得して現在地に自動入力します"
+                  >
+                    {isGettingLocation ? (
+                      <>
+                        <RefreshCw className="w-3 h-3 animate-spin" />
+                        <span>GPS取得中...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>📍 GPS現在地を取得</span>
+                      </>
+                    )}
+                  </button>
+                </div>
                 <input
                   type="text"
                   value={myLocation}

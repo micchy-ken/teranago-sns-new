@@ -24,6 +24,11 @@
 - **禁止事項**: フロントエンド（React / 各コンポーネント内）で `fetch('/api/...')` や `fetch(\`/api/...\`)` のように**相対パスを直接ハードコードすることは厳禁**です（GitHub Pages は静的ホスティングのため POST リクエスト時に `405 Method Not Allowed` となり通信が失敗します）。
 - **実装ルール**: すべての API 通信は必ず `import { API_BASE_URL } from '../config/api'`（または `./config/api`）をインポートし、`fetch(\`${API_BASE_URL}/...\`)` の形式で呼び出さなければなりません。
 
+### ⑤ モジュール分割サーバー（`routes/*.js`）提供時の「全交換・完全版」提示義務
+- **必須要件**: ユーザー環境のバックエンドは `routes/safety.js` 等の Express Router によるモジュール分割構成（MS SQL Server `mssql` 連携・AES-256-GCM暗号化・ES Modules/CJS）を採用しています。
+- **完全版の提供**: サーバー側のコード変更や新エンドポイント追加時は、部分切り貼りではなく、**該当モジュール（例: `routes/safety.js`）の全交換が可能な完全版コード**を提示してください。
+- **ルーティング耐障害性**: `app.use('/api', safetyRouter)` と `app.use('/api/safety', safetyRouter)` のどちらのマウント方式でも動作するよう、ルーター側のパス定義は `router.get(['/safety-events', '/safety/events', '/events'], ...)` のように複数パスを配列で受け付ける設計を徹底してください。
+
 ---
 
 ## 2. システム構成・アーキテクチャ仕様
