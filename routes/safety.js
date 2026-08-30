@@ -1,7 +1,7 @@
 /**
- * routes/safety.js (本番環境・MS SQL Server & 暗号化完全連携版)
- * 寺岡オートドアSNS 安否確認モジュール (MS SQL Server & AES-256-GCM暗号化対応)
- * 最終更新: 2026年8月28日 (回答直通URL・集計ダッシュボード個別削除・リマインド・個人メール登録対応 完全版)
+ * routes/safety.js (本番環境・MS SQL Server & 暗号化 & 気象庁地震連動 完全連携版)
+ * 寺岡オートドアSNS 安否確認モジュール (MS SQL Server & AES-256-GCM暗号化 & 気象庁地震速報自動発動 & ログイン不要ゲスト直接回答URL対応)
+ * 最終更新: 2026年8月28日 (安否確認メールのログイン不要ゲスト即時回答URL & 他画面アクセス完全隔離セキュリティ & 気象庁連動 完全版)
  */
 import { Router } from 'express';
 import crypto from 'crypto';
@@ -210,18 +210,18 @@ router.post(['/safety-events', '/safety-events/', '/safety/events', '/safety/eve
       message: '安否確認を発動しました。'
     });
 
-    // バックグラウンドで回答用URL直通リンク付きメール一斉配信
+    // バックグラウンドで回答用URL直通リンク付きメール一斉配信 (社員ごとの固有回答リンク)
     (async () => {
       if ((compMailFlag || persMailFlag) && targetUsers.length > 0) {
         const resolvedBaseUrl = (appBaseUrl && typeof appBaseUrl === 'string' && appBaseUrl.startsWith('http'))
           ? appBaseUrl.replace(/\/+$/, '')
           : 'https://micchy-ken.github.io/teranago-sns-new';
 
-        const directAnswerLink = `${resolvedBaseUrl}/?tab=safety_confirmation&safetyEventId=${newId}`;
         const nowJst = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
         const mailSubject = `【緊急安否確認】${drillFlag ? '【訓練】' : ''}${title}`;
 
         for (const u of targetUsers) {
+          const directAnswerLink = `${resolvedBaseUrl}/?tab=safety_confirmation&safetyEventId=${newId}&safetyUserId=${u.id}`;
           const emailAddresses = [];
           if (compMailFlag) {
             if (u.email && u.email.includes('@')) emailAddresses.push(u.email.trim());
@@ -651,13 +651,13 @@ router.post([
       ? appBaseUrl.replace(/\/+$/, '')
       : 'https://micchy-ken.github.io/teranago-sns-new';
 
-    const directAnswerLink = `${resolvedBaseUrl}/?tab=safety_confirmation&safetyEventId=${event.id}`;
     const nowJst = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
 
     let remindedCount = 0;
     const mailSubject = `【再送・至急】⚠️【安否確認】未回答の確認 (${event.title})`;
 
     for (const u of unansweredUsers) {
+      const directAnswerLink = `${resolvedBaseUrl}/?tab=safety_confirmation&safetyEventId=${event.id}&safetyUserId=${u.id}`;
       const emailAddresses = [];
       if (u.email && u.email.includes('@')) emailAddresses.push(u.email.trim());
       if (u.mobileEmail && u.mobileEmail.includes('@') && !emailAddresses.includes(u.mobileEmail.trim())) {
@@ -1116,13 +1116,13 @@ async function executeEarthquakeAutoTrigger(quake, isSimulated = false) {
     ...(memoryAutoSettings.logs || []).slice(0, 19)
   ];
 
-  // メール通知
+  // メール通知 (各社員固有の回答URL)
   if ((memoryAutoSettings.notifyCompanyEmail || memoryAutoSettings.notifyPersonalEmail) && targetUsers.length > 0) {
-    const directLink = `https://micchy-ken.github.io/teranago-sns-new/?tab=safety_confirmation&safetyEventId=${newId}`;
     const nowJst = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
     const mailSubject = `【緊急安否確認(気象庁連動)】${title}`;
 
     for (const u of targetUsers) {
+      const directLink = `https://micchy-ken.github.io/teranago-sns-new/?tab=safety_confirmation&safetyEventId=${newId}&safetyUserId=${u.id}`;
       const emailAddresses = [];
       if (memoryAutoSettings.notifyCompanyEmail && u.email && u.email.includes('@')) {
         emailAddresses.push(u.email.trim());

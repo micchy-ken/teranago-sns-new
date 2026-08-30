@@ -2,15 +2,14 @@
  * routes/workflows.js (本番環境・MS SQL Server & JSON ストレージ ハイブリッド対応版)
  * 寺岡オートドアSNS / 寺子屋SNS ワークフロー・各種申請APIモジュール
  * 
- * 最終更新: 2026年8月28日 (購入申請の目的・時期・購入元・購入方法・手配依頼先連携および通知対応版)
+ * 最終更新: 2026年8月28日 (SQL結合による申請者オブジェクト生成・attachments/description対応・耐障害ルーティング完全対応版)
  */
 import { Router } from 'express';
 import path from 'path';
 import fs from 'fs';
 import sql from 'mssql';
 import { getPool } from '../db.js';
-import { dataDir } from '../config.js';
-import { sendEmailNotification } from './email.js';
+import { dataDir, safeParseJSON } from '../config.js';
 
 const router = Router();
 const workflowsPath = path.join(dataDir, 'workflows.json');
@@ -24,6 +23,12 @@ function getInitialWorkflowsSample() {
       id: 'wf-101',
       title: '備品（モニタ・キーボード）購入申請',
       applicantId: 'u2',
+      applicant: {
+        id: 'u2',
+        name: '山田 太郎',
+        department: '開発部',
+        avatarUrl: ''
+      },
       approverId: 'u1',
       status: 'pending',
       category: 'purchase_order',
@@ -31,6 +36,8 @@ function getInitialWorkflowsSample() {
       purchaseOrderNumber: 'PO-2026-0801',
       constructionDate: null,
       linkedInventoryIssueId: null,
+      description: '業務効率化および開発環境の整備のため、高解像度モニターと周辺機器を導入したく申請いたします。',
+      attachments: [],
       createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
       updatedAt: new Date(Date.now() - 86400000 * 2).toISOString(),
       details: JSON.stringify({
@@ -104,33 +111,47 @@ router.get(['/workflows', '/workflows/', ''], async (req, res) => {
     let workflows = [];
     let dbSuccess = false;
 
-    // 1. MS SQL Server からの取得を試行
+    // 1. MS SQL Server からの取得を試行 (Users テーブルと LEFT JOIN)
     if (pool) {
       try {
         const result = await pool.request().query(`
           SELECT 
-            id, title, applicantId, approverId, status, category, type,
-            purchaseOrderNumber, constructionDate, linkedInventoryIssueId,
-            details, createdAt, updatedAt
-          FROM dbo.Workflows
-          ORDER BY createdAt DESC
+            w.*, 
+            u.name AS applicantName, 
+            u.department AS applicantDepartment, 
+            u.avatarUrl AS applicantAvatarUrl
+          FROM dbo.Workflows w
+          LEFT JOIN dbo.Users u ON w.applicantId = u.id
+          ORDER BY w.createdAt DESC
         `);
+
         if (result.recordset) {
-          workflows = result.recordset.map(row => ({
-            id: String(row.id),
-            title: row.title || '無題の申請',
-            applicantId: String(row.applicantId),
-            approverId: row.approverId ? String(row.approverId) : undefined,
-            status: row.status || 'pending',
-            category: row.category || row.type || 'other',
-            type: row.type || row.category || 'other',
-            purchaseOrderNumber: row.purchaseOrderNumber || null,
-            constructionDate: row.constructionDate ? (typeof row.constructionDate === 'string' ? row.constructionDate.slice(0, 10) : new Date(row.constructionDate).toISOString().slice(0, 10)) : null,
-            linkedInventoryIssueId: row.linkedInventoryIssueId || null,
-            details: row.details || '{}',
-            createdAt: row.createdAt ? (typeof row.createdAt === 'string' ? row.createdAt : new Date(row.createdAt).toISOString()) : new Date().toISOString(),
-            updatedAt: row.updatedAt ? (typeof row.updatedAt === 'string' ? row.updatedAt : new Date(row.updatedAt).toISOString()) : undefined
-          }));
+          workflows = result.recordset.map(row => {
+            const parsedAttachments = safeParseJSON ? safeParseJSON(row.attachments, []) : (typeof row.attachments === 'string' ? JSON.parse(row.attachments || '[]') : (row.attachments || []));
+            return {
+              id: String(row.id),
+              title: row.title || '無題の申請',
+              applicantId: String(row.applicantId),
+              applicant: {
+                id: String(row.applicantId),
+                name: row.applicantName || '不明',
+                department: row.applicantDepartment || '',
+                avatarUrl: row.applicantAvatarUrl || ''
+              },
+              approverId: row.approverId ? String(row.approverId) : undefined,
+              status: row.status || 'pending',
+              category: row.category || row.type || 'other',
+              type: row.type || row.category || 'other',
+              description: row.description || '',
+              purchaseOrderNumber: row.purchaseOrderNumber || undefined,
+              constructionDate: row.constructionDate ? (typeof row.constructionDate === 'string' ? row.constructionDate.slice(0, 10) : new Date(row.constructionDate).toISOString().slice(0, 10)) : undefined,
+              linkedInventoryIssueId: row.linkedInventoryIssueId || undefined,
+              details: row.details || '{}',
+              attachments: parsedAttachments,
+              createdAt: row.createdAt ? (typeof row.createdAt === 'string' ? row.createdAt : new Date(row.createdAt).toISOString()) : new Date().toISOString(),
+              updatedAt: row.updatedAt ? (typeof row.updatedAt === 'string' ? row.updatedAt : new Date(row.updatedAt).toISOString()) : undefined
+            };
+          });
           dbSuccess = true;
         }
       } catch (dbErr) {
@@ -156,59 +177,56 @@ router.get(['/workflows', '/workflows/', ''], async (req, res) => {
  */
 router.post(['/workflows', '/workflows/', ''], async (req, res) => {
   try {
-    const data = req.body || {};
+    const { 
+      title, 
+      description, 
+      applicantId, 
+      approverId, 
+      status, 
+      category, 
+      details, 
+      attachments, 
+      purchaseOrderNumber, 
+      constructionDate, 
+      linkedInventoryIssueId 
+    } = req.body || {};
+
+    const pool = await getPool();
+    const id = req.body.id || `w-${Date.now()}`;
     const nowIso = new Date().toISOString();
-    const newId = data.id || `wf-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
-    const applicantId = String(data.applicantId || (data.applicant && data.applicant.id) || 'u1');
-    const approverId = data.approverId || (data.approver && data.approver.id) || undefined;
-    const status = data.status || 'pending';
-    const category = data.category || data.type || 'other';
+    const finalApplicantId = String(applicantId || (req.body.applicant && req.body.applicant.id) || 'u1');
+    const finalApproverId = approverId || (req.body.approver && req.body.approver.id) || 'u1';
+    const finalStatus = status || '承認待ち';
+    const finalCategory = category || req.body.type || 'general';
+    const finalTitle = title || '無題の申請';
+    const finalDesc = description || title || '';
 
-    let detailsStr = '';
-    if (typeof data.details === 'string') {
-      detailsStr = data.details;
-    } else if (typeof data.details === 'object' && data.details !== null) {
-      detailsStr = JSON.stringify(data.details);
-    } else {
-      const { id, title, applicantId: _a, approverId: _ap, status: _s, category: _c, type: _t, ...rest } = data;
-      detailsStr = JSON.stringify(rest);
-    }
+    const detailsStr = typeof details === 'object' && details !== null 
+      ? JSON.stringify(details) 
+      : (details || '');
 
-    const newWorkflow = {
-      id: newId,
-      title: data.title || '無題の申請',
-      applicantId,
-      approverId,
-      status,
-      category,
-      type: category,
-      purchaseOrderNumber: data.purchaseOrderNumber || null,
-      constructionDate: data.constructionDate || null,
-      linkedInventoryIssueId: data.linkedInventoryIssueId || null,
-      details: detailsStr,
-      createdAt: data.createdAt || nowIso,
-      updatedAt: nowIso
-    };
+    const attachmentsStr = attachments 
+      ? (typeof attachments === 'object' ? JSON.stringify(attachments) : String(attachments))
+      : null;
 
     // 1. MS SQL Server へ保存
-    const pool = await getPool();
     if (pool) {
       try {
         await pool.request()
-          .input('id', sql.NVarChar(100), newId)
-          .input('title', sql.NVarChar(sql.MAX), newWorkflow.title)
-          .input('applicantId', sql.NVarChar(100), applicantId)
-          .input('approverId', sql.NVarChar(100), approverId || null)
-          .input('status', sql.NVarChar(50), status)
-          .input('category', sql.NVarChar(50), category)
-          .input('type', sql.NVarChar(50), category)
-          .input('purchaseOrderNumber', sql.NVarChar(100), newWorkflow.purchaseOrderNumber)
-          .input('constructionDate', sql.NVarChar(50), newWorkflow.constructionDate)
-          .input('linkedInventoryIssueId', sql.NVarChar(100), newWorkflow.linkedInventoryIssueId)
-          .input('details', sql.NVarChar(sql.MAX), detailsStr)
-          .input('createdAt', sql.DateTime2, new Date(newWorkflow.createdAt))
-          .input('updatedAt', sql.DateTime2, new Date(nowIso))
+          .input('id', sql.VarChar, String(id))
+          .input('title', sql.NVarChar, finalTitle)
+          .input('description', sql.NVarChar, finalDesc)
+          .input('applicantId', sql.VarChar, finalApplicantId)
+          .input('approverId', sql.VarChar, finalApproverId)
+          .input('status', sql.NVarChar, finalStatus)
+          .input('category', sql.NVarChar, finalCategory)
+          .input('type', sql.NVarChar, finalCategory)
+          .input('purchaseOrderNumber', sql.NVarChar, purchaseOrderNumber || null)
+          .input('constructionDate', sql.NVarChar, constructionDate || null)
+          .input('linkedInventoryIssueId', sql.VarChar, linkedInventoryIssueId || null)
+          .input('details', sql.NVarChar, detailsStr)
+          .input('attachments', sql.NVarChar, attachmentsStr)
           .query(`
             MERGE dbo.Workflows AS target
             USING (SELECT @id AS id) AS source
@@ -216,6 +234,7 @@ router.post(['/workflows', '/workflows/', ''], async (req, res) => {
             WHEN MATCHED THEN
               UPDATE SET 
                 title = @title,
+                description = @description,
                 applicantId = @applicantId,
                 approverId = @approverId,
                 status = @status,
@@ -225,10 +244,11 @@ router.post(['/workflows', '/workflows/', ''], async (req, res) => {
                 constructionDate = @constructionDate,
                 linkedInventoryIssueId = @linkedInventoryIssueId,
                 details = @details,
-                updatedAt = @updatedAt
+                attachments = @attachments,
+                updatedAt = GETDATE()
             WHEN NOT MATCHED THEN
-              INSERT (id, title, applicantId, approverId, status, category, type, purchaseOrderNumber, constructionDate, linkedInventoryIssueId, details, createdAt, updatedAt)
-              VALUES (@id, @title, @applicantId, @approverId, @status, @category, @type, @purchaseOrderNumber, @constructionDate, @linkedInventoryIssueId, @details, @createdAt, @updatedAt);
+              INSERT (id, title, description, applicantId, approverId, status, createdAt, category, type, purchaseOrderNumber, constructionDate, linkedInventoryIssueId, details, attachments)
+              VALUES (@id, @title, @description, @applicantId, @approverId, @status, GETDATE(), @category, @type, @purchaseOrderNumber, @constructionDate, @linkedInventoryIssueId, @details, @attachments);
           `);
       } catch (dbErr) {
         console.warn('[Workflows] DB insert warning:', dbErr.message);
@@ -237,7 +257,25 @@ router.post(['/workflows', '/workflows/', ''], async (req, res) => {
 
     // 2. JSON ファイルへも二重保存
     const fileList = loadWorkflowsFromFile();
-    const existingIdx = fileList.findIndex(w => w.id === newId);
+    const newWorkflow = {
+      id: String(id),
+      title: finalTitle,
+      description: finalDesc,
+      applicantId: finalApplicantId,
+      approverId: finalApproverId,
+      status: finalStatus,
+      category: finalCategory,
+      type: finalCategory,
+      purchaseOrderNumber: purchaseOrderNumber || null,
+      constructionDate: constructionDate || null,
+      linkedInventoryIssueId: linkedInventoryIssueId || null,
+      details: detailsStr,
+      attachments: attachments || [],
+      createdAt: req.body.createdAt || nowIso,
+      updatedAt: nowIso
+    };
+
+    const existingIdx = fileList.findIndex(w => w.id === String(id));
     if (existingIdx >= 0) {
       fileList[existingIdx] = newWorkflow;
     } else {
@@ -245,7 +283,7 @@ router.post(['/workflows', '/workflows/', ''], async (req, res) => {
     }
     saveWorkflowsToFile(fileList);
 
-    res.status(201).json(newWorkflow);
+    res.status(201).json({ id: String(id), message: '申請完了', ...newWorkflow });
   } catch (err) {
     console.error('Create workflow error:', err);
     res.status(500).json({ error: err.message });
@@ -258,78 +296,57 @@ router.post(['/workflows', '/workflows/', ''], async (req, res) => {
  */
 router.put(['/workflows/:id', '/:id'], async (req, res) => {
   try {
-    const { id } = req.params;
-    const data = req.body || {};
-    const fileList = loadWorkflowsFromFile();
-    const idx = fileList.findIndex(w => w.id === id);
+    const { 
+      status, 
+      approverId, 
+      details, 
+      attachments, 
+      purchaseOrderNumber, 
+      constructionDate, 
+      linkedInventoryIssueId, 
+      title, 
+      category,
+      description 
+    } = req.body || {};
+
+    const pool = await getPool();
+    const id = req.params.id;
     const nowIso = new Date().toISOString();
 
-    let detailsStr = '';
-    if (typeof data.details === 'string') {
-      detailsStr = data.details;
-    } else if (typeof data.details === 'object' && data.details !== null) {
-      detailsStr = JSON.stringify(data.details);
-    }
-
-    let existing = idx >= 0 ? fileList[idx] : null;
-
-    let mergedDetailsStr = detailsStr || (existing ? existing.details : '{}');
-    if (detailsStr) {
-      try {
-        const parsedDetails = JSON.parse(detailsStr);
-        parsedDetails.status = data.status || (existing ? existing.status : 'pending');
-        mergedDetailsStr = JSON.stringify(parsedDetails);
-      } catch (e) {}
-    }
-
-    const updatedWorkflow = {
-      id,
-      title: data.title !== undefined ? data.title : (existing ? existing.title : '無題の申請'),
-      applicantId: data.applicantId ? String(data.applicantId) : (existing ? existing.applicantId : 'u1'),
-      approverId: data.approverId !== undefined ? data.approverId : (existing ? existing.approverId : undefined),
-      status: data.status !== undefined ? data.status : (existing ? existing.status : 'pending'),
-      category: data.category || data.type || (existing ? existing.category : 'other'),
-      type: data.category || data.type || (existing ? existing.type : 'other'),
-      purchaseOrderNumber: data.purchaseOrderNumber !== undefined ? data.purchaseOrderNumber : (existing ? existing.purchaseOrderNumber : null),
-      constructionDate: data.constructionDate !== undefined ? data.constructionDate : (existing ? existing.constructionDate : null),
-      linkedInventoryIssueId: data.linkedInventoryIssueId !== undefined ? data.linkedInventoryIssueId : (existing ? existing.linkedInventoryIssueId : null),
-      details: mergedDetailsStr,
-      createdAt: data.createdAt || (existing ? existing.createdAt : nowIso),
-      updatedAt: nowIso
-    };
+    const detailsVal = details ? (typeof details === 'object' ? JSON.stringify(details) : details) : null;
+    const attachmentsVal = attachments ? (typeof attachments === 'object' ? JSON.stringify(attachments) : attachments) : null;
 
     // 1. MS SQL Server へ反映
-    const pool = await getPool();
     if (pool) {
       try {
         await pool.request()
-          .input('id', sql.NVarChar(100), id)
-          .input('title', sql.NVarChar(sql.MAX), updatedWorkflow.title)
-          .input('applicantId', sql.NVarChar(100), updatedWorkflow.applicantId)
-          .input('approverId', sql.NVarChar(100), updatedWorkflow.approverId || null)
-          .input('status', sql.NVarChar(50), updatedWorkflow.status)
-          .input('category', sql.NVarChar(50), updatedWorkflow.category)
-          .input('type', sql.NVarChar(50), updatedWorkflow.type)
-          .input('purchaseOrderNumber', sql.NVarChar(100), updatedWorkflow.purchaseOrderNumber)
-          .input('constructionDate', sql.NVarChar(50), updatedWorkflow.constructionDate)
-          .input('linkedInventoryIssueId', sql.NVarChar(100), updatedWorkflow.linkedInventoryIssueId)
-          .input('details', sql.NVarChar(sql.MAX), mergedDetailsStr)
-          .input('updatedAt', sql.DateTime2, new Date(nowIso))
+          .input('id', sql.VarChar, String(id))
+          .input('status', sql.NVarChar, status || null)
+          .input('title', sql.NVarChar, title || null)
+          .input('description', sql.NVarChar, description || null)
+          .input('category', sql.NVarChar, category || null)
+          .input('type', sql.NVarChar, category || null)
+          .input('approverId', sql.VarChar, approverId || null)
+          .input('details', sql.NVarChar, detailsVal)
+          .input('attachments', sql.NVarChar, attachmentsVal)
+          .input('purchaseOrderNumber', sql.NVarChar, purchaseOrderNumber || null)
+          .input('constructionDate', sql.NVarChar, constructionDate || null)
+          .input('linkedInventoryIssueId', sql.VarChar, linkedInventoryIssueId || null)
           .query(`
-            UPDATE dbo.Workflows
-            SET 
-              title = @title,
-              applicantId = @applicantId,
-              approverId = @approverId,
-              status = @status,
-              category = @category,
-              type = @type,
-              purchaseOrderNumber = @purchaseOrderNumber,
-              constructionDate = @constructionDate,
-              linkedInventoryIssueId = @linkedInventoryIssueId,
-              details = @details,
-              updatedAt = @updatedAt
-            WHERE id = @id;
+            UPDATE dbo.Workflows 
+            SET status = COALESCE(@status, status),
+                title = COALESCE(@title, title),
+                description = COALESCE(@description, description),
+                category = COALESCE(@category, category),
+                type = COALESCE(@type, type),
+                approverId = COALESCE(@approverId, approverId),
+                details = COALESCE(@details, details),
+                attachments = COALESCE(@attachments, attachments),
+                purchaseOrderNumber = COALESCE(@purchaseOrderNumber, purchaseOrderNumber),
+                constructionDate = COALESCE(@constructionDate, constructionDate),
+                linkedInventoryIssueId = COALESCE(@linkedInventoryIssueId, linkedInventoryIssueId),
+                updatedAt = GETDATE()
+            WHERE id = @id
           `);
       } catch (dbErr) {
         console.warn('[Workflows] DB update warning:', dbErr.message);
@@ -337,14 +354,29 @@ router.put(['/workflows/:id', '/:id'], async (req, res) => {
     }
 
     // 2. JSON ファイルへ反映
+    const fileList = loadWorkflowsFromFile();
+    const idx = fileList.findIndex(w => w.id === String(id));
     if (idx >= 0) {
-      fileList[idx] = updatedWorkflow;
-    } else {
-      fileList.unshift(updatedWorkflow);
+      const existing = fileList[idx];
+      fileList[idx] = {
+        ...existing,
+        status: status !== undefined ? status : existing.status,
+        title: title !== undefined ? title : existing.title,
+        description: description !== undefined ? description : existing.description,
+        category: category !== undefined ? category : existing.category,
+        type: category !== undefined ? category : existing.type,
+        approverId: approverId !== undefined ? approverId : existing.approverId,
+        details: detailsVal !== null ? detailsVal : existing.details,
+        attachments: attachments !== undefined ? attachments : existing.attachments,
+        purchaseOrderNumber: purchaseOrderNumber !== undefined ? purchaseOrderNumber : existing.purchaseOrderNumber,
+        constructionDate: constructionDate !== undefined ? constructionDate : existing.constructionDate,
+        linkedInventoryIssueId: linkedInventoryIssueId !== undefined ? linkedInventoryIssueId : existing.linkedInventoryIssueId,
+        updatedAt: nowIso
+      };
+      saveWorkflowsToFile(fileList);
     }
-    saveWorkflowsToFile(fileList);
 
-    res.json(updatedWorkflow);
+    res.json({ message: '更新完了' });
   } catch (err) {
     console.error('Update workflow error:', err);
     res.status(500).json({ error: err.message });
@@ -353,47 +385,43 @@ router.put(['/workflows/:id', '/:id'], async (req, res) => {
 
 /**
  * ワークフロー削除 API
- * DELETE /api/workflows/:id
+ * DELETE /api/workflows/:id または POST /api/workflows/:id/delete
  */
 router.delete(['/workflows/:id', '/:id'], async (req, res) => {
   try {
-    const { id } = req.params;
-
-    // 1. MS SQL Server から削除
     const pool = await getPool();
+    const id = req.params.id;
+
     if (pool) {
       try {
         await pool.request()
-          .input('id', sql.NVarChar(100), id)
+          .input('id', sql.VarChar, String(id))
           .query('DELETE FROM dbo.Workflows WHERE id = @id');
       } catch (dbErr) {
         console.warn('[Workflows] DB delete warning:', dbErr.message);
       }
     }
 
-    // 2. JSON ファイルから削除
     let fileList = loadWorkflowsFromFile();
-    const initialCount = fileList.length;
-    fileList = fileList.filter(w => w.id !== id);
+    fileList = fileList.filter(w => w.id !== String(id));
     saveWorkflowsToFile(fileList);
 
-    res.json({ success: true, deleted: initialCount - fileList.length });
+    res.json({ message: '削除完了' });
   } catch (err) {
     console.error('Delete workflow error:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// POST 経由の削除互換
 router.post(['/workflows/:id/delete', '/:id/delete'], async (req, res) => {
   try {
-    const { id } = req.params;
-
     const pool = await getPool();
+    const id = req.params.id;
+
     if (pool) {
       try {
         await pool.request()
-          .input('id', sql.NVarChar(100), id)
+          .input('id', sql.VarChar, String(id))
           .query('DELETE FROM dbo.Workflows WHERE id = @id');
       } catch (dbErr) {
         console.warn('[Workflows] DB delete warning:', dbErr.message);
@@ -401,11 +429,10 @@ router.post(['/workflows/:id/delete', '/:id/delete'], async (req, res) => {
     }
 
     let fileList = loadWorkflowsFromFile();
-    const initialCount = fileList.length;
-    fileList = fileList.filter(w => w.id !== id);
+    fileList = fileList.filter(w => w.id !== String(id));
     saveWorkflowsToFile(fileList);
 
-    res.json({ success: true, deleted: initialCount - fileList.length });
+    res.json({ message: '削除完了' });
   } catch (err) {
     console.error('Delete workflow error:', err);
     res.status(500).json({ error: err.message });

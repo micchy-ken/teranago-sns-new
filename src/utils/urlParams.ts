@@ -22,6 +22,8 @@ export interface AppQueryParams {
   reportId?: string;
   // Safety Confirmation & Personal Email Registration
   safetyEventId?: string;
+  safetyUserId?: string;
+  safetyToken?: string;
   openEmergencyContact?: boolean;
   openSettings?: boolean;
 }
@@ -144,8 +146,16 @@ export function parseAppQueryParams(searchString?: string): AppQueryParams {
 
   // 8. Safety Confirmation Specific
   const rawSafetyEventId = params.get('safetyEventId') || params.get('safety_event_id') || params.get('eventId') || (result.tab === 'safety_confirmation' ? params.get('id') : undefined);
-  if (rawSafetyEventId && (result.tab === 'safety_confirmation' || params.get('safetyEventId') || params.get('safety_event_id'))) {
+  if (rawSafetyEventId) {
     result.safetyEventId = rawSafetyEventId;
+  }
+  const rawSafetyUserId = params.get('safetyUserId') || params.get('safety_user_id') || params.get('uid') || params.get('userId');
+  if (rawSafetyUserId) {
+    result.safetyUserId = rawSafetyUserId;
+  }
+  const rawSafetyToken = params.get('safetyToken') || params.get('token') || params.get('t');
+  if (rawSafetyToken) {
+    result.safetyToken = rawSafetyToken;
   }
 
   // 9. Personal Email Registration / Emergency Contact Deep Link

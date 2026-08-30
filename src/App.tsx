@@ -12,6 +12,7 @@ import { MemoList } from './components/MemoList';
 import { DailyReportView } from './components/DailyReport';
 import { InspectionScheduler } from './components/InspectionScheduler';
 import { SafetyConfirmation } from './components/SafetyConfirmation';
+import { GuestSafetyResponse } from './components/GuestSafetyResponse';
 import { MyPage } from './components/MyPage';
 import { AdminPanel } from './components/AdminPanel';
 import { LoginScreen } from './components/LoginScreen';
@@ -177,6 +178,8 @@ export default function App() {
   const [targetEventId, setTargetEventId] = useState<string | undefined>(initialUrlParams.eventId);
   const [targetReportId, setTargetReportId] = useState<string | undefined>(initialUrlParams.reportId);
   const [targetSafetyEventId, setTargetSafetyEventId] = useState<string | undefined>(initialUrlParams.safetyEventId);
+  const [targetSafetyUserId, setTargetSafetyUserId] = useState<string | undefined>(initialUrlParams.safetyUserId);
+  const [dismissGuestSafety, setDismissGuestSafety] = useState<boolean>(false);
 
   // グローバル詳細ポップアップ表示用の状態
   const [globalSelectedEvent, setGlobalSelectedEvent] = useState<CalendarEvent | null>(null);
@@ -1437,6 +1440,18 @@ export default function App() {
   };
 
   if (!isAuthenticated) {
+    // 安否確認メール・直通URLからのゲスト回答モード（ログイン不要・他画面隔離）
+    if (targetSafetyEventId && !dismissGuestSafety) {
+      return (
+        <GuestSafetyResponse
+          eventId={targetSafetyEventId}
+          userId={targetSafetyUserId}
+          allUsers={usersList}
+          onGoToLogin={() => setDismissGuestSafety(true)}
+        />
+      );
+    }
+
     return <LoginScreen users={usersList} onLogin={handleLogin} />;
   }
 

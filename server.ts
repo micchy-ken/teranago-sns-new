@@ -2311,7 +2311,7 @@ async function startServer() {
           const appBaseUrl = (req.body && req.body.appBaseUrl && typeof req.body.appBaseUrl === 'string' && req.body.appBaseUrl.startsWith('http'))
             ? req.body.appBaseUrl.replace(/\/+$/, '')
             : 'https://micchy-ken.github.io/teranago-sns-new';
-          const directAnswerLink = `${appBaseUrl}/?tab=safety_confirmation&safetyEventId=${newId}`;
+          const directAnswerLink = `${appBaseUrl}/?tab=safety_confirmation&safetyEventId=${newId}&safetyUserId=${u.id}`;
           const nowJst = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
           const subject = `【緊急安否確認】${isDrill ? '【訓練】' : ''}${title}`;
           const text = `${u.name} 様\n\n【緊急安否確認】${isDrill ? '【訓練】' : ''}${title}\n\n${message ? `■ 本部からの連絡事項:\n${message}\n\n` : ''}至急、以下のURLを開き現在の安否状況をご回答ください。\n（スマートフォンまたはPCから1タップで簡単に回答・報告できます）\n\n▼ 安否回答用URL:\n${directAnswerLink}\n\n発動日時: ${nowJst}\n発信本部: ${createdByName || '安否確認本部'}`;
@@ -2427,6 +2427,7 @@ async function startServer() {
       // メール再送
       let remindedCount = 0;
       const mailPromises = unansweredUsers.map(async (u: any) => {
+        const directAnswerLink = `${resolvedBaseUrl}/?tab=safety_confirmation&safetyEventId=${event.id}&safetyUserId=${u.id}`;
         const emailAddresses: string[] = [];
         if (u.email && u.email.includes('@')) emailAddresses.push(u.email);
         if (u.mobileEmail && u.mobileEmail.includes('@') && !emailAddresses.includes(u.mobileEmail)) {
@@ -2867,10 +2868,10 @@ async function startServer() {
     // ユーザーへの通知配信
     const allUsers = loadUsers();
     const targetUsers = allUsers;
-    const directLink = `https://micchy-ken.github.io/teranago-sns-new/?tab=safety_confirmation&safetyEventId=${newEventId}`;
 
     if (settings.notifyCompanyEmail || settings.notifyPersonalEmail) {
       for (const u of targetUsers) {
+        const directLink = `https://micchy-ken.github.io/teranago-sns-new/?tab=safety_confirmation&safetyEventId=${newEventId}&safetyUserId=${u.id}`;
         const emailAddresses: string[] = [];
         if (settings.notifyCompanyEmail && u.email && u.email.includes('@')) {
           emailAddresses.push(u.email.trim());
@@ -4731,6 +4732,8 @@ async function startServer() {
     status: string; // 'pending' | 'approved' | 'rejected' | 'draft'
     category?: string;
     type?: string;
+    description?: string;
+    attachments?: any;
     purchaseOrderNumber?: string | null;
     constructionDate?: string | null;
     linkedInventoryIssueId?: string | null;
@@ -4749,6 +4752,8 @@ async function startServer() {
         status: 'pending',
         category: 'purchase_order',
         type: 'purchase_order',
+        description: '業務効率化および開発環境の整備のため、高解像度モニターと周辺機器を導入したく申請いたします。',
+        attachments: [],
         purchaseOrderNumber: 'PO-2026-0801',
         constructionDate: null,
         linkedInventoryIssueId: null,
@@ -4760,11 +4765,15 @@ async function startServer() {
           currentStepIndex: 1,
           totalSteps: 2,
           reason: '開発受託業務用モニターおよびキーボードの購入',
+          purchasePurpose: '業務効率化および開発環境の整備のため、高解像度モニターと周辺機器を導入したく申請いたします。',
+          purchaseTiming: 'urgent',
+          purchaseVendor: 'Amazon / アスクル',
+          purchaseMethod: 'self',
           amount: 45000,
           expenseType: '備品消耗品費',
           purchaseItems: [
-            { name: '4K 27インチモニター', count: 1, price: 35000 },
-            { name: 'メカニカルキーボード', count: 1, price: 10000 }
+            { itemName: '4K 27インチモニター', quantity: 1, unitPrice: 35000, amount: 35000 },
+            { itemName: 'メカニカルキーボード', quantity: 1, unitPrice: 10000, amount: 10000 }
           ],
           stepsConfig: [
             { stepNumber: 1, approverType: 'supervisor_1', stepName: '一次承認（直属上長）' },
@@ -4809,7 +4818,21 @@ async function startServer() {
   app.get(['/api/workflows', '/api/workflows/', '/workflows', '/workflows/'], (req, res) => {
     try {
       const list = loadWorkflows();
-      res.json(list);
+      const users = loadUsers();
+      const enriched = list.map(item => {
+        const u = users.find(usr => usr.id === item.applicantId);
+        return {
+          ...item,
+          applicant: {
+            id: item.applicantId,
+            name: u?.name || '不明',
+            department: u?.department || u?.division || '',
+            avatarUrl: u?.avatarUrl || ''
+          },
+          attachments: typeof item.attachments === 'string' ? JSON.parse(item.attachments || '[]') : (item.attachments || [])
+        };
+      });
+      res.json(enriched);
     } catch (err: any) {
       console.error('Get workflows error:', err);
       res.status(500).json({ error: err.message });
