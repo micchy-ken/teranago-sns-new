@@ -4822,6 +4822,250 @@ async function startServer() {
     }
   }
 
+  // ==========================================
+  // マスター管理 (Office, Division, Position, ItemMaster, ApprovalFlow)
+  // ==========================================
+  const officesFilePath = path.join(dataDir, 'offices.json');
+  const divisionsFilePath = path.join(dataDir, 'divisions.json');
+  const positionsFilePath = path.join(dataDir, 'positions.json');
+  const itemMastersFilePath = path.join(dataDir, 'item-masters.json');
+  const approvalFlowsFilePath = path.join(dataDir, 'approval-flows.json');
+
+  const defaultOffices = [
+    { id: 'off-1', name: '本社', type: 'headquarters', code: 'HQ', location: '愛知県名古屋市', phone: '052-000-0000' },
+    { id: 'off-2', name: '名古屋支店', type: 'branch', code: 'NGO', location: '愛知県名古屋市', phone: '052-000-0001' },
+    { id: 'off-3', name: '静岡営業所', type: 'office', code: 'SZK', location: '静岡県静岡市', phone: '054-000-0000' },
+    { id: 'off-4', name: '浜松営業所', type: 'office', code: 'HMS', location: '静岡県浜松市', phone: '053-000-0000' },
+    { id: 'off-5', name: '三河営業所', type: 'office', code: 'MKW', location: '愛知県岡崎市', phone: '0564-00-0000' },
+  ];
+
+  const defaultDivisions = [
+    { id: 'div-1', name: '管理部', code: 'ADM', description: '総務・人事・経理等' },
+    { id: 'div-2', name: '営業部', code: 'SAL', description: '営業・顧客対応' },
+    { id: 'div-3', name: '設計部', code: 'DES', description: '設計・開発' },
+    { id: 'div-4', name: '工務部', code: 'CON', description: '施工・施工管理' },
+    { id: 'div-5', name: '保守部', code: 'MNT', description: '保守・メンテナンス' },
+  ];
+
+  const defaultPositions = [
+    { id: 'pos-1', name: '社長', level: 10 },
+    { id: 'pos-2', name: '役員', level: 9 },
+    { id: 'pos-3', name: '部長', level: 8 },
+    { id: 'pos-4', name: '課長', level: 6 },
+    { id: 'pos-5', name: '係長', level: 4 },
+    { id: 'pos-6', name: '主任', level: 2 },
+    { id: 'pos-7', name: '一般社員', level: 1 },
+  ];
+
+  const defaultItemMasters = [
+    { id: 'itm-1', code: 'EQ-001', name: '4K 27インチモニター', category: '開発備品', unit: '台', unitPrice: 45000, description: '作業用ディスプレイ', spec: '27inch 4K', minStock: 2, currentStock: 5 },
+    { id: 'itm-2', code: 'EQ-002', name: 'ノートPC Core-i7', category: 'OA機器', unit: '台', unitPrice: 180000, description: '標準支給PC', spec: 'Core-i7 16GB', minStock: 3, currentStock: 8 },
+  ];
+
+  const defaultApprovalFlows = [
+    { id: 'flow-1', name: '基本承認フロー', description: '全申請向けの共通承認フロー', targetApplicationType: 'all', isDefault: true, steps: [{ stepNumber: 1, approverRole: 'supervisor', title: '直属上長承認' }] }
+  ];
+
+  const loadJsonMaster = (filePath: string, defaultData: any[]) => {
+    if (!fs.existsSync(filePath)) {
+      try {
+        fs.writeFileSync(filePath, JSON.stringify(defaultData, null, 2), 'utf8');
+      } catch (e) {
+        console.error(`Failed to write default master (${filePath}):`, e);
+      }
+      return defaultData;
+    }
+    try {
+      const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      return Array.isArray(data) ? data : defaultData;
+    } catch (e) {
+      return defaultData;
+    }
+  };
+
+  const saveJsonMaster = (filePath: string, data: any[]) => {
+    try {
+      fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
+    } catch (e) {
+      console.error(`Failed to save master (${filePath}):`, e);
+    }
+  };
+
+  // 拠点マスター (Offices)
+  app.get(['/api/masters/offices', '/api/masters/offices/', '/api/offices', '/api/offices/'], (req, res) => {
+    res.json(loadJsonMaster(officesFilePath, defaultOffices));
+  });
+
+  app.post(['/api/masters/offices', '/api/masters/offices/', '/api/offices', '/api/offices/'], (req, res) => {
+    const list = loadJsonMaster(officesFilePath, defaultOffices);
+    const item = req.body || {};
+    const id = item.id || `off-${Date.now()}`;
+    const newItem = { ...item, id };
+    const idx = list.findIndex((i: any) => i.id === id);
+    if (idx >= 0) list[idx] = newItem; else list.push(newItem);
+    saveJsonMaster(officesFilePath, list);
+    res.json({ success: true, ...newItem });
+  });
+
+  app.put(['/api/masters/offices/:id', '/api/masters/offices/:id/', '/api/offices/:id', '/api/offices/:id/'], (req, res) => {
+    const list = loadJsonMaster(officesFilePath, defaultOffices);
+    const id = req.params.id;
+    const item = req.body || {};
+    const newItem = { ...item, id };
+    const idx = list.findIndex((i: any) => i.id === id);
+    if (idx >= 0) list[idx] = newItem; else list.push(newItem);
+    saveJsonMaster(officesFilePath, list);
+    res.json({ success: true, ...newItem });
+  });
+
+  app.delete(['/api/masters/offices/:id', '/api/masters/offices/:id/', '/api/offices/:id', '/api/offices/:id/'], (req, res) => {
+    let list = loadJsonMaster(officesFilePath, defaultOffices);
+    const id = req.params.id;
+    list = list.filter((i: any) => i.id !== id);
+    saveJsonMaster(officesFilePath, list);
+    res.json({ success: true, id });
+  });
+
+  // 部署マスター (Divisions)
+  app.get(['/api/masters/divisions', '/api/masters/divisions/', '/api/divisions', '/api/divisions/'], (req, res) => {
+    res.json(loadJsonMaster(divisionsFilePath, defaultDivisions));
+  });
+
+  app.post(['/api/masters/divisions', '/api/masters/divisions/', '/api/divisions', '/api/divisions/'], (req, res) => {
+    const list = loadJsonMaster(divisionsFilePath, defaultDivisions);
+    const item = req.body || {};
+    const id = item.id || `div-${Date.now()}`;
+    const newItem = { ...item, id };
+    const idx = list.findIndex((i: any) => i.id === id);
+    if (idx >= 0) list[idx] = newItem; else list.push(newItem);
+    saveJsonMaster(divisionsFilePath, list);
+    res.json({ success: true, ...newItem });
+  });
+
+  app.put(['/api/masters/divisions/:id', '/api/masters/divisions/:id/', '/api/divisions/:id', '/api/divisions/:id/'], (req, res) => {
+    const list = loadJsonMaster(divisionsFilePath, defaultDivisions);
+    const id = req.params.id;
+    const item = req.body || {};
+    const newItem = { ...item, id };
+    const idx = list.findIndex((i: any) => i.id === id);
+    if (idx >= 0) list[idx] = newItem; else list.push(newItem);
+    saveJsonMaster(divisionsFilePath, list);
+    res.json({ success: true, ...newItem });
+  });
+
+  app.delete(['/api/masters/divisions/:id', '/api/masters/divisions/:id/', '/api/divisions/:id', '/api/divisions/:id/'], (req, res) => {
+    let list = loadJsonMaster(divisionsFilePath, defaultDivisions);
+    const id = req.params.id;
+    list = list.filter((i: any) => i.id !== id);
+    saveJsonMaster(divisionsFilePath, list);
+    res.json({ success: true, id });
+  });
+
+  // 役職マスター (Positions)
+  app.get(['/api/masters/positions', '/api/masters/positions/', '/api/positions', '/api/positions/'], (req, res) => {
+    res.json(loadJsonMaster(positionsFilePath, defaultPositions));
+  });
+
+  app.post(['/api/masters/positions', '/api/masters/positions/', '/api/positions', '/api/positions/'], (req, res) => {
+    const list = loadJsonMaster(positionsFilePath, defaultPositions);
+    const item = req.body || {};
+    const id = item.id || `pos-${Date.now()}`;
+    const newItem = { ...item, id };
+    const idx = list.findIndex((i: any) => i.id === id);
+    if (idx >= 0) list[idx] = newItem; else list.push(newItem);
+    saveJsonMaster(positionsFilePath, list);
+    res.json({ success: true, ...newItem });
+  });
+
+  app.put(['/api/masters/positions/:id', '/api/masters/positions/:id/', '/api/positions/:id', '/api/positions/:id/'], (req, res) => {
+    const list = loadJsonMaster(positionsFilePath, defaultPositions);
+    const id = req.params.id;
+    const item = req.body || {};
+    const newItem = { ...item, id };
+    const idx = list.findIndex((i: any) => i.id === id);
+    if (idx >= 0) list[idx] = newItem; else list.push(newItem);
+    saveJsonMaster(positionsFilePath, list);
+    res.json({ success: true, ...newItem });
+  });
+
+  app.delete(['/api/masters/positions/:id', '/api/masters/positions/:id/', '/api/positions/:id', '/api/positions/:id/'], (req, res) => {
+    let list = loadJsonMaster(positionsFilePath, defaultPositions);
+    const id = req.params.id;
+    list = list.filter((i: any) => i.id !== id);
+    saveJsonMaster(positionsFilePath, list);
+    res.json({ success: true, id });
+  });
+
+  // 品目マスター (ItemMasters)
+  app.get(['/api/masters/item-masters', '/api/masters/item-masters/', '/api/item-masters', '/api/item-masters/'], (req, res) => {
+    res.json(loadJsonMaster(itemMastersFilePath, defaultItemMasters));
+  });
+
+  app.post(['/api/masters/item-masters', '/api/masters/item-masters/', '/api/item-masters', '/api/item-masters/'], (req, res) => {
+    const list = loadJsonMaster(itemMastersFilePath, defaultItemMasters);
+    const item = req.body || {};
+    const id = item.id || `itm-${Date.now()}`;
+    const newItem = { ...item, id };
+    const idx = list.findIndex((i: any) => i.id === id);
+    if (idx >= 0) list[idx] = newItem; else list.push(newItem);
+    saveJsonMaster(itemMastersFilePath, list);
+    res.json({ success: true, ...newItem });
+  });
+
+  app.put(['/api/masters/item-masters/:id', '/api/masters/item-masters/:id/', '/api/item-masters/:id', '/api/item-masters/:id/'], (req, res) => {
+    const list = loadJsonMaster(itemMastersFilePath, defaultItemMasters);
+    const id = req.params.id;
+    const item = req.body || {};
+    const newItem = { ...item, id };
+    const idx = list.findIndex((i: any) => i.id === id);
+    if (idx >= 0) list[idx] = newItem; else list.push(newItem);
+    saveJsonMaster(itemMastersFilePath, list);
+    res.json({ success: true, ...newItem });
+  });
+
+  app.delete(['/api/masters/item-masters/:id', '/api/masters/item-masters/:id/', '/api/item-masters/:id', '/api/item-masters/:id/'], (req, res) => {
+    let list = loadJsonMaster(itemMastersFilePath, defaultItemMasters);
+    const id = req.params.id;
+    list = list.filter((i: any) => i.id !== id);
+    saveJsonMaster(itemMastersFilePath, list);
+    res.json({ success: true, id });
+  });
+
+  // 承認フロー設定 (ApprovalFlows)
+  app.get(['/api/masters/approval-flows', '/api/masters/approval-flows/', '/api/approval-flows', '/api/approval-flows/'], (req, res) => {
+    res.json(loadJsonMaster(approvalFlowsFilePath, defaultApprovalFlows));
+  });
+
+  app.post(['/api/masters/approval-flows', '/api/masters/approval-flows/', '/api/approval-flows', '/api/approval-flows/'], (req, res) => {
+    const list = loadJsonMaster(approvalFlowsFilePath, defaultApprovalFlows);
+    const item = req.body || {};
+    const id = item.id || `flow-${Date.now()}`;
+    const newItem = { ...item, id };
+    const idx = list.findIndex((i: any) => i.id === id);
+    if (idx >= 0) list[idx] = newItem; else list.push(newItem);
+    saveJsonMaster(approvalFlowsFilePath, list);
+    res.json({ success: true, ...newItem });
+  });
+
+  app.put(['/api/masters/approval-flows/:id', '/api/masters/approval-flows/:id/', '/api/approval-flows/:id', '/api/approval-flows/:id/'], (req, res) => {
+    const list = loadJsonMaster(approvalFlowsFilePath, defaultApprovalFlows);
+    const id = req.params.id;
+    const item = req.body || {};
+    const newItem = { ...item, id };
+    const idx = list.findIndex((i: any) => i.id === id);
+    if (idx >= 0) list[idx] = newItem; else list.push(newItem);
+    saveJsonMaster(approvalFlowsFilePath, list);
+    res.json({ success: true, ...newItem });
+  });
+
+  app.delete(['/api/masters/approval-flows/:id', '/api/masters/approval-flows/:id/', '/api/approval-flows/:id', '/api/approval-flows/:id/'], (req, res) => {
+    let list = loadJsonMaster(approvalFlowsFilePath, defaultApprovalFlows);
+    const id = req.params.id;
+    list = list.filter((i: any) => i.id !== id);
+    saveJsonMaster(approvalFlowsFilePath, list);
+    res.json({ success: true, id });
+  });
+
   // ワークフロー一覧取得 API
   app.get(['/api/workflows', '/api/workflows/', '/workflows', '/workflows/'], (req, res) => {
     try {
