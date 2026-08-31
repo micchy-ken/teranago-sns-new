@@ -403,7 +403,7 @@ async function startServer() {
     secure: process.env.SMTP_SECURE === 'true',
     auth: {
       user: process.env.SMTP_USER || 'nagoya-soumu2',
-      pass: process.env.SMTP_PASS || 'km5WitaN'
+      pass: process.env.SMTP_PASS || ''
     },
     tls: {
       rejectUnauthorized: false
@@ -3499,7 +3499,7 @@ async function startServer() {
     port: Number(process.env.POP3_PORT || 110),
     secure: false, // ポート110・セキュリティなし (平文TCP)
     user: process.env.POP3_USER || process.env.SMTP_USER || 'nagoya-soumu2',
-    pass: process.env.POP3_PASS || process.env.SMTP_PASS || 'EJ2brys7',
+    pass: process.env.POP3_PASS || process.env.SMTP_PASS || '',
     fromAddress: process.env.SMTP_FROM_EMAIL || 'nagoya-soumu2@teraoka-ads.co.jp',
     deleteAfterImport: process.env.POP3_DELETE_AFTER_IMPORT !== 'false', // サーバーのメールボックス容量圧迫防止のため取り込み後/不要メールを自動削除
     checkIntervalSec: Number(process.env.POP3_CHECK_INTERVAL_SEC || 60), // 60秒ごと自動巡回
@@ -4074,6 +4074,14 @@ async function startServer() {
     if (pop3State.isPolling && Date.now() - lastPollStartedAt > 30000) {
       console.warn('[POP3] 前回のポーリング処理がタイムアウトしたため、ロックを強制解除しました。');
       pop3State.isPolling = false;
+    }
+
+    if (!pop3Config.pass || !pop3Config.pass.trim()) {
+      pop3State.lastCheckedAt = new Date().toISOString();
+      pop3State.lastCheckStatus = 'idle';
+      const skipMsg = 'POP3受信用のパスワード(POP3_PASS/SMTP_PASS)が設定されていないため、メール巡回を待機しています。';
+      pop3State.lastCheckMessage = skipMsg;
+      return { checked: false, found: 0, imported: 0, deleted: 0, message: skipMsg };
     }
 
     if (pop3State.isPolling) {
