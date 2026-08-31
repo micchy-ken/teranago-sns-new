@@ -59,6 +59,7 @@ export function Sidebar({ posts, selectedTag, onSelectTag, activeTab, onChangeTa
   };
 
   const hasUtilityItems = 
+    isTabAllowed('members') ||
     isTabAllowed('inspection_scheduler') || 
     isTabAllowed('files') || 
     isTabAllowed('safety_confirmation') || 
@@ -184,20 +185,6 @@ export function Sidebar({ posts, selectedTag, onSelectTag, activeTab, onChangeTa
             <span>{reportLabel}</span>
           </button>
         )}
-        {isTabAllowed('members') && (
-          <button
-            onClick={() => onChangeTab('members')}
-            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${
-              activeTab === 'members'
-                ? 'bg-indigo-50 text-indigo-700'
-                : 'text-slate-600 hover:bg-slate-50'
-            }`}
-          >
-            <Users className="w-4 h-4 text-indigo-600" />
-            社員名簿
-          </button>
-        )}
-
         {/* ユーティリティ（各種管理・拡張ツール） */}
         {hasUtilityItems && (
           <div className="pt-2 border-t border-slate-100 space-y-1">
@@ -219,6 +206,20 @@ export function Sidebar({ posts, selectedTag, onSelectTag, activeTab, onChangeTa
 
             {isUtilityOpen && (
               <div className="pl-2 space-y-0.5 pt-0.5">
+                {isTabAllowed('members') && (
+                  <button
+                    type="button"
+                    onClick={() => onChangeTab('members')}
+                    className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${
+                      activeTab === 'members'
+                        ? 'bg-indigo-50 text-indigo-700 font-bold shadow-2xs'
+                        : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                    }`}
+                  >
+                    <Users className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                    <span className="truncate">社員名簿</span>
+                  </button>
+                )}
                 {isTabAllowed('inspection_scheduler') && (
                   <button
                     type="button"
