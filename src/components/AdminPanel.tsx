@@ -2231,9 +2231,11 @@ export function AdminPanel({
               approvalFlows.map((flow) => {
                 const appTypeLabels: Record<string, string> = {
                   all: '全申請共通',
-                  business_trip: '出張申請',
-                  inventory_issue: '補充申請',
                   purchase_order: '発注申請',
+                  purchase_request: '購入申請',
+                  inventory_issue: '補充申請',
+                  business_trip: '出張申請',
+                  gold_silver_daily_report: '金銀日報',
                   other: 'その他',
                 };
 
@@ -4195,9 +4197,11 @@ END;`}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
                   >
                     <option value="all">全申請共通</option>
-                    <option value="business_trip">出張申請</option>
-                    <option value="inventory_issue">補充申請</option>
                     <option value="purchase_order">発注申請</option>
+                    <option value="purchase_request">購入申請</option>
+                    <option value="inventory_issue">補充申請</option>
+                    <option value="business_trip">出張申請</option>
+                    <option value="gold_silver_daily_report">金銀日報</option>
                     <option value="other">その他</option>
                   </select>
                 </div>

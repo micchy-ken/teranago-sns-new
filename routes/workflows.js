@@ -2,7 +2,7 @@
  * routes/workflows.js (本番環境・MS SQL Server & JSON ストレージ ハイブリッド対応版)
  * 寺岡オートドアSNS / 寺子屋SNS ワークフロー・各種申請APIモジュール
  * 
- * 最終更新: 2026年8月28日 (SQL結合による申請者オブジェクト生成・attachments/description対応・耐障害ルーティング完全対応版)
+ * 最終更新: 2026年8月30日 (発注申請 purchase_order と 購入申請 purchase_request の完全分離・両立対応版)
  */
 import { Router } from 'express';
 import path from 'path';

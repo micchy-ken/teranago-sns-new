@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, GitMerge, ArrowRight, CheckCircle2, UserCheck, ShieldCheck, AlertCircle, Plus, Trash2, Building2, ShoppingBag, Calculator, Calendar, Save, Send, Paperclip, Loader2, UploadCloud, Store, Clock, CreditCard, FileText, UserPlus, Zap } from 'lucide-react';
+import { X, GitMerge, ArrowRight, CheckCircle2, UserCheck, ShieldCheck, AlertCircle, Plus, Trash2, Building2, ShoppingBag, Calculator, Calendar, Save, Send, Paperclip, Loader2, UploadCloud, Store, Clock, CreditCard, FileText, UserPlus, Zap, Coins } from 'lucide-react';
 import { ApplicationType, WorkflowApplication, User, ApprovalFlowRule, ApprovalStepConfig, ItemMaster, PurchaseOrderItem, ApplicationStatus, AttachmentFile } from '../types';
 import { filterStepsForApplicant, getSupervisorAtLevel, resolveApproverForStep, resolveApproverForStepDetails } from '../utils/workflowHelpers';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
@@ -18,12 +18,15 @@ interface ApplicationModalProps {
   initialType?: ApplicationType;
   initialTitle?: string;
   initialDescription?: string;
+  applications?: WorkflowApplication[];
 }
 
 const typeLabels: Record<ApplicationType, string> = {
-  purchase_order: '購入申請',
-  business_trip: '出張申請',
+  purchase_order: '発注申請',
+  purchase_request: '購入申請',
   inventory_issue: '補充申請',
+  business_trip: '出張申請',
+  gold_silver_daily_report: '金銀日報',
   other: 'その他',
 };
 
@@ -41,6 +44,7 @@ export function ApplicationModal({
   initialType,
   initialTitle,
   initialDescription,
+  applications = [],
 }: ApplicationModalProps) {
   const [type, setType] = useState<ApplicationType>('purchase_order');
   const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
@@ -51,6 +55,46 @@ export function ApplicationModal({
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [constructionDate, setConstructionDate] = useState('');
+
+  // 金銀日報用拡張ステート
+  const [previousBalance, setPreviousBalance] = useState<number | ''>('');
+  const [currentBalance, setCurrentBalance] = useState<number | ''>('');
+  const [reportOffice, setReportOffice] = useState<string>('');
+
+  // 今日の日付 (YYYY/MM/DD)
+  const getTodayFormatted = () => {
+    const d = new Date();
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}/${mm}/${dd}`;
+  };
+
+  // 金銀日報のタイトル自動生成
+  const getGoldSilverReportTitle = (officeName?: string) => {
+    const off = officeName || currentUser.office || '本社';
+    return `金銀日報-${off} (${getTodayFormatted()})`;
+  };
+
+  // 同一拠点の直近の金銀日報から「今回残高」を検索して「前回残高」として引き継ぐ
+  const findLatestBalanceForOffice = (targetOffice?: string) => {
+    if (!applications || applications.length === 0) return undefined;
+    const off = (targetOffice || currentUser.office || '').trim();
+    const matched = applications.filter(a => {
+      if (a.type !== 'gold_silver_daily_report') return false;
+      if (a.status === 'draft' || a.status === 'rejected') return false;
+      if (a.currentBalance === undefined || a.currentBalance === null) return false;
+      const appOffice = (a.location || a.applicant?.office || '').trim();
+      if (off && appOffice && appOffice === off) return true;
+      if (off && a.title?.includes(off)) return true;
+      if (!off) return true;
+      return false;
+    });
+    if (matched.length === 0) return undefined;
+    // 作成日時が新しい順にソート
+    matched.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+    return matched[0].currentBalance;
+  };
 
   // 購入申請用拡張ステート
   const [purchasePurpose, setPurchasePurpose] = useState('');
@@ -133,6 +177,9 @@ export function ApplicationModal({
         setType(initialData.type);
         setTitle(initialData.title);
         setDescription(initialData.description);
+        setPreviousBalance(initialData.previousBalance !== undefined ? initialData.previousBalance : '');
+        setCurrentBalance(initialData.currentBalance !== undefined ? initialData.currentBalance : '');
+        setReportOffice(initialData.location || initialData.applicant?.office || currentUser.office || '本社');
         setPurchasePurpose(initialData.purchasePurpose || '');
         setPurchaseTiming(initialData.purchaseTiming || 'urgent');
         setPurchaseDueDate(initialData.purchaseDueDate ? initialData.purchaseDueDate.substring(0, 10) : '');
@@ -156,8 +203,21 @@ export function ApplicationModal({
         }
       } else {
         const defaultType: ApplicationType = initialType || 'purchase_order';
+        const initialOffice = currentUser.office || '本社';
+        setReportOffice(initialOffice);
         setType(defaultType);
-        setTitle(initialTitle || '');
+        
+        if (defaultType === 'gold_silver_daily_report') {
+          setTitle(initialTitle || getGoldSilverReportTitle(initialOffice));
+          const latestPrev = findLatestBalanceForOffice(initialOffice);
+          setPreviousBalance(latestPrev !== undefined ? latestPrev : '');
+          setCurrentBalance('');
+        } else {
+          setTitle(initialTitle || '');
+          setPreviousBalance('');
+          setCurrentBalance('');
+        }
+
         setDescription(initialDescription || '');
         setPurchasePurpose('');
         setPurchaseTiming('urgent');
@@ -267,6 +327,20 @@ export function ApplicationModal({
   // 申請種別変更ハンドラー（対応するフローを自動マッチング）
   const handleTypeChange = (newType: ApplicationType) => {
     setType(newType);
+    if (!initialData) {
+      if (newType === 'gold_silver_daily_report') {
+        const off = reportOffice || currentUser.office || '本社';
+        setTitle(getGoldSilverReportTitle(off));
+        if (previousBalance === '') {
+          const latestPrev = findLatestBalanceForOffice(off);
+          if (latestPrev !== undefined) {
+            setPreviousBalance(latestPrev);
+          }
+        }
+      } else if (title.startsWith('金銀日報-')) {
+        setTitle('');
+      }
+    }
     if (!initialData && approvalFlows.length > 0) {
       const matched =
         approvalFlows.find(f => f.targetApplicationType === newType) ||
@@ -292,7 +366,7 @@ export function ApplicationModal({
   }));
 
   const handleSaveDraft = () => {
-    const draftTitle = (title || '').trim() || '(無題の下書き)';
+    const draftTitle = (title || '').trim() || (type === 'gold_silver_daily_report' ? getGoldSilverReportTitle(reportOffice) : '(無題の下書き)');
 
     let initialApprover: User | undefined;
     let stepsConfig: ApprovalStepConfig[] | undefined;
@@ -323,7 +397,10 @@ export function ApplicationModal({
         : currentUser;
     }
 
-    const sanitizedPurchaseItems = (type === 'purchase_order' || type === 'inventory_issue')
+    const isItemType = type === 'purchase_order' || type === 'purchase_request' || type === 'inventory_issue';
+    const isGoldSilver = type === 'gold_silver_daily_report';
+
+    const sanitizedPurchaseItems = isItemType
       ? purchaseItems.map(pi => {
           const qty = Math.max(1, Number(pi.quantity) || 1);
           const price = Math.max(0, Number(pi.unitPrice) || 0);
@@ -336,9 +413,11 @@ export function ApplicationModal({
         })
       : undefined;
 
-    const finalAmount = (type === 'purchase_order' || type === 'inventory_issue') 
+    const finalAmount = isItemType 
       ? (sanitizedPurchaseItems?.reduce((sum, item) => sum + item.amount, 0) ?? totalPurchaseAmount)
-      : (amount !== '' ? Number(amount) : undefined);
+      : isGoldSilver
+        ? (currentBalance !== '' ? Number(currentBalance) : undefined)
+        : (amount !== '' ? Number(amount) : undefined);
 
     onSave({
       id: initialData?.id,
@@ -347,13 +426,16 @@ export function ApplicationModal({
       description,
       status: 'draft',
       amount: finalAmount,
-      purchasePurpose: type === 'purchase_order' ? purchasePurpose : undefined,
-      purchaseTiming: type === 'purchase_order' ? purchaseTiming : undefined,
-      purchaseDueDate: (type === 'purchase_order' && purchaseTiming === 'by_date' && purchaseDueDate) ? purchaseDueDate : undefined,
-      purchaseVendor: type === 'purchase_order' ? purchaseVendor : undefined,
-      purchaseMethod: type === 'purchase_order' ? purchaseMethod : undefined,
-      purchaserDelegateUserId: (type === 'purchase_order' && purchaseMethod === 'delegate' && purchaserDelegateUserId) ? purchaserDelegateUserId : undefined,
-      purchaserDelegateUser: (type === 'purchase_order' && purchaseMethod === 'delegate' && purchaserDelegateUserId) ? allUsers.find(u => u.id === purchaserDelegateUserId) : undefined,
+      previousBalance: isGoldSilver ? (previousBalance !== '' ? Number(previousBalance) : undefined) : undefined,
+      currentBalance: isGoldSilver ? (currentBalance !== '' ? Number(currentBalance) : undefined) : undefined,
+      location: isGoldSilver ? (reportOffice || currentUser.office || '本社') : undefined,
+      purchasePurpose: type === 'purchase_request' ? purchasePurpose : undefined,
+      purchaseTiming: type === 'purchase_request' ? purchaseTiming : undefined,
+      purchaseDueDate: (type === 'purchase_request' && purchaseTiming === 'by_date' && purchaseDueDate) ? purchaseDueDate : undefined,
+      purchaseVendor: type === 'purchase_request' ? purchaseVendor : undefined,
+      purchaseMethod: type === 'purchase_request' ? purchaseMethod : undefined,
+      purchaserDelegateUserId: (type === 'purchase_request' && purchaseMethod === 'delegate' && purchaserDelegateUserId) ? purchaserDelegateUserId : undefined,
+      purchaserDelegateUser: (type === 'purchase_request' && purchaseMethod === 'delegate' && purchaserDelegateUserId) ? allUsers.find(u => u.id === purchaserDelegateUserId) : undefined,
       quantity: quantity !== '' ? Number(quantity) : undefined,
       startDate: startDate ? new Date(startDate).toISOString() : undefined,
       endDate: endDate ? new Date(endDate).toISOString() : undefined,
@@ -382,9 +464,31 @@ export function ApplicationModal({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title) return;
-    if (type === 'purchase_order' && !purchasePurpose) return;
-    if (type !== 'purchase_order' && type !== 'inventory_issue' && !description) return;
-    if (type === 'purchase_order' && purchaseMethod === 'delegate' && !purchaserDelegateUserId) {
+    if (type === 'purchase_request' && !purchasePurpose) return;
+    if (type === 'business_trip' && !description) return;
+    if (type === 'gold_silver_daily_report') {
+      if (previousBalance === '') {
+        setConfirmModal({
+          isOpen: true,
+          title: '前回残高の入力',
+          message: '前回残高を入力してください（0円の場合は「0」と入力してください）。',
+          type: 'warning',
+          confirmText: '確認',
+        });
+        return;
+      }
+      if (currentBalance === '') {
+        setConfirmModal({
+          isOpen: true,
+          title: '今回残高の入力',
+          message: '今回残高を入力してください（0円の場合は「0」と入力してください）。',
+          type: 'warning',
+          confirmText: '確認',
+        });
+        return;
+      }
+    }
+    if (type === 'purchase_request' && purchaseMethod === 'delegate' && !purchaserDelegateUserId) {
       setConfirmModal({
         isOpen: true,
         title: '購入依頼先の指定',
@@ -421,8 +525,11 @@ export function ApplicationModal({
 
     if (!initialApprover) return;
 
-    // 購入申請・補充申請の場合は明細の合計額を amount に設定し、purchaseItems を格納
-    const sanitizedPurchaseItems = (type === 'purchase_order' || type === 'inventory_issue')
+    // 発注申請・購入申請・補充申請の場合は明細の合計額を amount に設定し、purchaseItems を格納
+    const isItemType = type === 'purchase_order' || type === 'purchase_request' || type === 'inventory_issue';
+    const isGoldSilver = type === 'gold_silver_daily_report';
+
+    const sanitizedPurchaseItems = isItemType
       ? purchaseItems.map(pi => {
           const qty = Math.max(1, Number(pi.quantity) || 1);
           const price = Math.max(0, Number(pi.unitPrice) || 0);
@@ -435,24 +542,29 @@ export function ApplicationModal({
         })
       : undefined;
 
-    const finalAmount = (type === 'purchase_order' || type === 'inventory_issue') 
+    const finalAmount = isItemType 
       ? (sanitizedPurchaseItems?.reduce((sum, item) => sum + item.amount, 0) ?? totalPurchaseAmount)
-      : (amount !== '' ? Number(amount) : undefined);
+      : isGoldSilver
+        ? Number(currentBalance)
+        : (amount !== '' ? Number(amount) : undefined);
 
     onSave({
       id: initialData?.id,
       type,
       title,
-      description: type === 'purchase_order' ? (purchasePurpose || description) : description,
+      description: type === 'purchase_request' ? (purchasePurpose || description) : description,
       status: 'pending',
       amount: finalAmount,
-      purchasePurpose: type === 'purchase_order' ? purchasePurpose : undefined,
-      purchaseTiming: type === 'purchase_order' ? purchaseTiming : undefined,
-      purchaseDueDate: (type === 'purchase_order' && purchaseTiming === 'by_date' && purchaseDueDate) ? purchaseDueDate : undefined,
-      purchaseVendor: type === 'purchase_order' ? purchaseVendor : undefined,
-      purchaseMethod: type === 'purchase_order' ? purchaseMethod : undefined,
-      purchaserDelegateUserId: (type === 'purchase_order' && purchaseMethod === 'delegate' && purchaserDelegateUserId) ? purchaserDelegateUserId : undefined,
-      purchaserDelegateUser: (type === 'purchase_order' && purchaseMethod === 'delegate' && purchaserDelegateUserId) ? allUsers.find(u => u.id === purchaserDelegateUserId) : undefined,
+      previousBalance: isGoldSilver ? Number(previousBalance) : undefined,
+      currentBalance: isGoldSilver ? Number(currentBalance) : undefined,
+      location: isGoldSilver ? (reportOffice || currentUser.office || '本社') : undefined,
+      purchasePurpose: type === 'purchase_request' ? purchasePurpose : undefined,
+      purchaseTiming: type === 'purchase_request' ? purchaseTiming : undefined,
+      purchaseDueDate: (type === 'purchase_request' && purchaseTiming === 'by_date' && purchaseDueDate) ? purchaseDueDate : undefined,
+      purchaseVendor: type === 'purchase_request' ? purchaseVendor : undefined,
+      purchaseMethod: type === 'purchase_request' ? purchaseMethod : undefined,
+      purchaserDelegateUserId: (type === 'purchase_request' && purchaseMethod === 'delegate' && purchaserDelegateUserId) ? purchaserDelegateUserId : undefined,
+      purchaserDelegateUser: (type === 'purchase_request' && purchaseMethod === 'delegate' && purchaserDelegateUserId) ? allUsers.find(u => u.id === purchaserDelegateUserId) : undefined,
       quantity: quantity !== '' ? Number(quantity) : undefined,
       startDate: startDate ? new Date(startDate).toISOString() : undefined,
       endDate: endDate ? new Date(endDate).toISOString() : undefined,
@@ -539,10 +651,20 @@ export function ApplicationModal({
           {/* タイトル / 現場名 */}
           <div>
             <label className="block text-sm font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
-              {type === 'inventory_issue' ? (
+              {(type === 'purchase_order' || type === 'inventory_issue') ? (
                 <>
                   <Building2 className="w-4 h-4 text-indigo-600" />
                   <span>現場名 <span className="text-rose-500">*</span></span>
+                </>
+              ) : type === 'purchase_request' ? (
+                <>
+                  <ShoppingBag className="w-4 h-4 text-indigo-600" />
+                  <span>タイトル・購入品概要 <span className="text-rose-500">*</span></span>
+                </>
+              ) : type === 'gold_silver_daily_report' ? (
+                <>
+                  <Coins className="w-4 h-4 text-amber-600" />
+                  <span>申請タイトル <span className="text-rose-500">*</span></span>
                 </>
               ) : (
                 <span>タイトル <span className="text-rose-500">*</span></span>
@@ -556,20 +678,71 @@ export function ApplicationModal({
               onChange={e => setTitle(e.target.value)}
               className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white font-medium text-slate-800 transition-colors"
               placeholder={
-                type === 'purchase_order' 
-                  ? '例: 4K 27インチモニター・開発備品購入' 
-                  : type === 'inventory_issue' 
-                    ? '例: 名駅一丁目ビル新築工事現場' 
-                    : '例: 関西営業所出張（顧客訪問）'
+                (type === 'purchase_order' || type === 'inventory_issue')
+                  ? '例: 名駅一丁目ビル新築工事現場' 
+                  : type === 'purchase_request'
+                    ? '例: 4K 27インチモニター・開発備品購入'
+                    : type === 'gold_silver_daily_report'
+                      ? `金銀日報-${currentUser.office || '本社'} (${getTodayFormatted()})`
+                      : '例: 関西営業所出張（顧客訪問）'
               }
             />
-            {type === 'inventory_issue' && (
+            {(type === 'purchase_order' || type === 'inventory_issue') && (
               <p className="text-[11px] text-slate-500 mt-1">※対象となる現場名や工事名を入力してください。</p>
+            )}
+            {type === 'gold_silver_daily_report' && (
+              <p className="text-[11px] text-amber-700 mt-1 font-medium">※「金銀日報-拠点 (YYYY/MM/DD)」の形式で自動設定されています。必要に応じて変更も可能です。</p>
             )}
           </div>
 
-          {/* 購入申請 専用フィールド群 */}
+          {/* 発注申請 専用フィールド (工事予定日・備考) */}
           {type === 'purchase_order' && (
+            <div className="space-y-4 pt-1">
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
+                  <Calendar className="w-4 h-4 text-indigo-600" />
+                  <span>工事予定日</span>
+                </label>
+                <input
+                  type="date"
+                  autoComplete="off"
+                  value={constructionDate}
+                  onChange={e => setConstructionDate(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white text-xs font-semibold text-slate-800"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-1.5">
+                  発注備考・特記事項
+                </label>
+                <textarea
+                  value={description}
+                  onChange={e => setDescription(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white text-xs leading-relaxed resize-none h-20"
+                  placeholder="現場への配送指定、納期、特記事項など..."
+                />
+              </div>
+            </div>
+          )}
+
+          {/* 補充申請 専用備考 */}
+          {type === 'inventory_issue' && (
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-1.5">
+                補充理由・現場備考
+              </label>
+              <textarea
+                value={description}
+                onChange={e => setDescription(e.target.value)}
+                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white text-xs leading-relaxed resize-none h-20"
+                placeholder="補充が必要な理由、現場への持ち込み希望日など..."
+              />
+            </div>
+          )}
+
+          {/* 購入申請 専用フィールド群 */}
+          {type === 'purchase_request' && (
             <div className="space-y-4 pt-1">
               {/* 購入目的 */}
               <div>
@@ -747,8 +920,102 @@ export function ApplicationModal({
             </div>
           )}
 
+          {/* 金銀日報 専用フィールド (前回残高・今回残高・拠点表示) */}
+          {type === 'gold_silver_daily_report' && (
+            <div className="p-4 bg-gradient-to-br from-amber-50/90 to-yellow-50/60 border border-amber-200/90 rounded-2xl space-y-4">
+              <div className="flex items-center justify-between border-b border-amber-200/70 pb-2.5">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 bg-amber-500 text-white rounded-lg shadow-xs">
+                    <Coins className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-black text-amber-950">金銀日報 保管残高入力</h4>
+                    <p className="text-[11px] text-amber-800 font-medium">
+                      対象拠点: <span className="font-bold underline">{reportOffice || currentUser.office || '本社'}</span>
+                    </p>
+                  </div>
+                </div>
+                {findLatestBalanceForOffice(reportOffice || currentUser.office || '本社') !== undefined && (
+                  <span className="text-[10px] font-bold text-amber-900 bg-amber-100/90 px-2 py-1 rounded-md border border-amber-300">
+                    同拠点の直近残高を自動引継
+                  </span>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* 前回残高 */}
+                <div>
+                  <label className="block text-xs font-bold text-amber-950 mb-1.5 flex items-center justify-between">
+                    <span>前回残高 (円) <span className="text-rose-500">*</span></span>
+                    <span className="text-[10px] font-medium text-amber-700">※0円入力可</span>
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-amber-700">¥</span>
+                    <input
+                      type="number"
+                      required
+                      value={previousBalance}
+                      onChange={e => setPreviousBalance(e.target.value === '' ? '' : Number(e.target.value))}
+                      className="w-full pl-8 pr-3.5 py-2.5 bg-white border border-amber-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 text-sm font-extrabold text-slate-900"
+                      placeholder="0"
+                    />
+                  </div>
+                  <p className="text-[10px] text-amber-800 mt-1">※同拠点の直近の金銀日報「今回残高」が自動セットされます（手動変更可能）。</p>
+                </div>
+
+                {/* 今回残高 */}
+                <div>
+                  <label className="block text-xs font-bold text-amber-950 mb-1.5 flex items-center justify-between">
+                    <span>今回残高 (円) <span className="text-rose-500">*</span></span>
+                    <span className="text-[10px] font-medium text-amber-700">※0円入力可</span>
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-amber-700">¥</span>
+                    <input
+                      type="number"
+                      required
+                      value={currentBalance}
+                      onChange={e => setCurrentBalance(e.target.value === '' ? '' : Number(e.target.value))}
+                      className="w-full pl-8 pr-3.5 py-2.5 bg-white border border-amber-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 text-sm font-extrabold text-slate-900"
+                      placeholder="0"
+                    />
+                  </div>
+                  <p className="text-[10px] text-amber-800 mt-1">※本日締め時点での金銀の保管残高を入力してください。</p>
+                </div>
+              </div>
+
+              {/* 残高の増減プレビュー */}
+              {previousBalance !== '' && currentBalance !== '' && (() => {
+                const diff = Number(currentBalance) - Number(previousBalance);
+                return (
+                  <div className="p-3 bg-white/90 rounded-xl border border-amber-200/80 flex items-center justify-between text-xs">
+                    <span className="font-bold text-slate-700">残高の受払・増減差額:</span>
+                    <span className={`font-black text-sm ${diff > 0 ? 'text-emerald-600' : diff < 0 ? 'text-rose-600' : 'text-slate-600'}`}>
+                      {diff > 0 ? `+¥${diff.toLocaleString()}` : diff < 0 ? `-¥${Math.abs(diff).toLocaleString()}` : '±¥0 (増減なし)'}
+                    </span>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+
+          {/* 金銀日報 詳細説明 */}
+          {type === 'gold_silver_daily_report' && (
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-1.5">
+                詳細説明・受払内訳・特記事項 <span className="text-slate-400 font-normal">(任意)</span>
+              </label>
+              <textarea
+                value={description}
+                onChange={e => setDescription(e.target.value)}
+                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 focus:bg-white text-xs leading-relaxed resize-none h-20"
+                placeholder="本日分の受払内訳、出納理由、保管状態の特記事項、異常の有無など..."
+              />
+            </div>
+          )}
+
           {/* 出張申請・その他の詳細説明 */}
-          {type !== 'purchase_order' && type !== 'inventory_issue' && (
+          {(type === 'business_trip' || type === 'other') && (
             <div>
               <label className="block text-sm font-bold text-slate-700 mb-1.5">
                 詳細説明 <span className="text-rose-500">*</span>
@@ -852,13 +1119,15 @@ export function ApplicationModal({
             )}
           </div>
 
-          {/* 購入申請・補充申請の場合は明細リスト編集フォームを表示 */}
-          {(type === 'purchase_order' || type === 'inventory_issue') ? (
+          {/* 発注申請・購入申請・補充申請の場合は明細リスト編集フォームを表示 */}
+          {(type === 'purchase_order' || type === 'purchase_request' || type === 'inventory_issue') ? (
             <div className="space-y-3 pt-2 border-t border-slate-100">
               <div className="flex items-center justify-between">
                 <label className="block text-sm font-bold text-slate-800 flex items-center gap-2">
                   <ShoppingBag className="w-4 h-4 text-indigo-600" />
-                  <span>{type === 'purchase_order' ? '購入品明細' : '補充品名・明細内訳'}</span>
+                  <span>
+                    {type === 'purchase_order' ? '発注品名・明細内訳' : type === 'purchase_request' ? '購入品明細' : '補充品名・明細内訳'}
+                  </span>
                 </label>
                 <button
                   type="button"

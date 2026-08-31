@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { WorkflowApplication, ApplicationType, ApplicationStatus, User as UserType, ApprovalFlowRule, ApprovalStepConfig, ItemMaster, AttachmentFile } from '../types';
-import { FileText, CheckCircle2, XCircle, Clock, Plus, ArrowRight, GitMerge, UserCheck, AlertTriangle, Edit3, MessageSquare, Send, X, ShoppingBag, Building2, Hash, ExternalLink, Package, Calendar, RotateCcw, Trash2, Paperclip, ChevronDown, ChevronUp, Zap, Store, CreditCard, UserPlus } from 'lucide-react';
+import { FileText, CheckCircle2, XCircle, Clock, Plus, ArrowRight, GitMerge, UserCheck, AlertTriangle, Edit3, MessageSquare, Send, X, ShoppingBag, Building2, Hash, ExternalLink, Package, Calendar, RotateCcw, Trash2, Paperclip, ChevronDown, ChevronUp, Zap, Store, CreditCard, UserPlus, Coins } from 'lucide-react';
 import { ApplicationModal } from './ApplicationModal';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { FilePreviewModal } from './FilePreviewModal';
@@ -21,9 +21,11 @@ interface WorkflowProps {
 }
 
 const typeLabels: Record<string, string> = {
-  purchase_order: '購入申請',
+  purchase_order: '発注申請',
+  purchase_request: '購入申請',
   inventory_issue: '補充申請',
   business_trip: '出張申請',
+  gold_silver_daily_report: '金銀日報',
   other: 'その他',
 };
 
@@ -527,6 +529,7 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
                     </div>
                     <h3 className="text-base font-bold text-slate-900 leading-tight group-hover:text-indigo-600 transition-colors flex items-center gap-1.5">
                       {app.type === 'purchase_order' && <Building2 className="w-4 h-4 text-indigo-600 shrink-0 inline" />}
+                      {app.type === 'gold_silver_daily_report' && <Coins className="w-4 h-4 text-amber-600 shrink-0 inline" />}
                       <span>{app.title}</span>
                     </h3>
                   </div>
@@ -552,7 +555,7 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
                 </div>
 
                 {/* 購入申請の詳細情報（購入目的・購入時期・購入元・購入方法） */}
-                {app.type === 'purchase_order' && (
+                {app.type === 'purchase_request' && (
                   <div className="mb-3 space-y-2">
                     {app.purchasePurpose && (
                       <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-xl text-xs">
@@ -617,7 +620,42 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
                   </div>
                 )}
 
-                {app.type !== 'purchase_order' && app.description && (
+                {/* 金銀日報の残高報告サマリーカード */}
+                {app.type === 'gold_silver_daily_report' && (
+                  <div className="mb-3.5 p-3.5 bg-gradient-to-br from-amber-50/80 to-yellow-50/40 border border-amber-200/80 rounded-2xl space-y-2.5">
+                    <div className="flex items-center justify-between text-xs font-bold text-amber-950 border-b border-amber-200/50 pb-1.5">
+                      <span className="flex items-center gap-1.5">
+                        <Coins className="w-4 h-4 text-amber-600" />
+                        <span>金銀日報 保管残高 {app.location ? `(${app.location})` : ''}</span>
+                      </span>
+                      {app.currentBalance !== undefined && app.previousBalance !== undefined && (() => {
+                        const diff = app.currentBalance - app.previousBalance;
+                        return (
+                          <span className={`font-black text-xs ${diff > 0 ? 'text-emerald-700' : diff < 0 ? 'text-rose-700' : 'text-slate-600'}`}>
+                            受払増減: {diff > 0 ? `+¥${diff.toLocaleString()}` : diff < 0 ? `-¥${Math.abs(diff).toLocaleString()}` : '±¥0'}
+                          </span>
+                        );
+                      })()}
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3 text-xs">
+                      <div className="bg-white/80 p-2.5 rounded-xl border border-amber-100/80">
+                        <span className="text-[10px] text-slate-500 font-bold block">前回残高</span>
+                        <span className="text-sm font-extrabold text-slate-800">
+                          ¥{(app.previousBalance ?? 0).toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="bg-white/90 p-2.5 rounded-xl border border-amber-300 shadow-2xs">
+                        <span className="text-[10px] text-amber-700 font-bold block">今回残高</span>
+                        <span className="text-sm font-black text-amber-950">
+                          ¥{(app.currentBalance ?? 0).toLocaleString()}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {app.type !== 'purchase_request' && app.description && (
                   <p className="text-sm text-slate-600 line-clamp-2 mb-3 leading-relaxed">
                     {app.description}
                   </p>
@@ -672,13 +710,15 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
                   </div>
                 )}
 
-                {/* 発注申請・補充申請明細テーブル */}
-                {(app.type === 'purchase_order' || app.type === 'inventory_issue') && app.purchaseItems && app.purchaseItems.length > 0 && (
+                {/* 発注申請・購入申請・補充申請明細テーブル */}
+                {(app.type === 'purchase_order' || app.type === 'purchase_request' || app.type === 'inventory_issue') && app.purchaseItems && app.purchaseItems.length > 0 && (
                   <div className="mb-4 p-3 bg-indigo-50/50 border border-indigo-100 rounded-2xl space-y-2">
                     <div className="flex items-center justify-between text-xs font-bold text-indigo-950 pb-1.5 border-b border-indigo-100">
                       <span className="flex items-center gap-1.5">
                         <ShoppingBag className="w-3.5 h-3.5 text-indigo-600" />
-                        <span>{app.type === 'purchase_order' ? '発注品名・明細内訳' : '補充品名・明細内訳'} ({app.purchaseItems.length}件)</span>
+                        <span>
+                          {app.type === 'purchase_order' ? '発注品名・明細内訳' : app.type === 'purchase_request' ? '購入品名・明細内訳' : '補充品名・明細内訳'} ({app.purchaseItems.length}件)
+                        </span>
                       </span>
                       <span className="text-xs font-black text-indigo-700">
                         合計: ¥{(app.amount || 0).toLocaleString()}
@@ -1152,6 +1192,7 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
         currentUser={currentUser}
         approvalFlows={approvalFlows}
         itemMasters={itemMasters}
+        applications={applications}
       />
 
       {/* 編集・再申請用モーダル */}
@@ -1173,6 +1214,7 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
         approvalFlows={approvalFlows}
         initialData={editingApp}
         itemMasters={itemMasters}
+        applications={applications}
       />
 
       {/* 却下理由入力ダイアログ */}

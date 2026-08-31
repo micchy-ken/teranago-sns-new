@@ -145,7 +145,7 @@ export interface CalendarEvent {
   instanceDate?: string;           // 展開されたインスタンスの日付 (YYYY-MM-DD)
 }
 
-export type ApplicationType = 'business_trip' | 'inventory_issue' | 'purchase_order' | 'other';
+export type ApplicationType = 'purchase_order' | 'purchase_request' | 'inventory_issue' | 'business_trip' | 'gold_silver_daily_report' | 'other';
 export type ApplicationStatus = 'pending' | 'approved' | 'rejected' | 'draft';
 
 export type ApproverType = 'supervisor_1' | 'supervisor_2' | 'supervisor_n' | 'specific_user' | 'supervisor';
@@ -219,6 +219,11 @@ export interface WorkflowApplication {
   purchaseItems?: PurchaseOrderItem[];
   purchaseOrderNumber?: string; // 発注No (承認ルート/管理で付与)
   linkedInventoryIssueId?: string; // 移行作成された出庫依頼のID
+
+  // 金銀日報用拡張情報
+  previousBalance?: number; // 前回残高
+  currentBalance?: number;  // 今回残高
+  location?: string;        // 拠点
 
   // 承認フロー拡張
   flowId?: string;
