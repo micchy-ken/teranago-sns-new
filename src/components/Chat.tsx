@@ -1190,7 +1190,7 @@ export function Chat({
                           <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm max-w-xs sm:max-w-sm">
                             <div className="relative group cursor-pointer" onClick={() => setLightboxImage(msg.imageUrl || null)}>
                               <img
-                                src={msg.imageUrl}
+                                src={msg.imageUrl || undefined}
                                 alt="添付写真"
                                 className="w-full max-h-56 sm:max-h-64 object-cover hover:opacity-95 transition-opacity"
                               />
@@ -1441,7 +1441,7 @@ export function Chat({
             {/* 写真添付プレビューモーダル / ポップアップ */}
             {pendingPhotoUrl && (
               <div className="mb-2 p-2.5 bg-indigo-50/80 border border-indigo-200 rounded-xl flex flex-col sm:flex-row items-start sm:items-center gap-2.5">
-                <img src={pendingPhotoUrl} alt="送信プレビュー" className="w-14 h-14 sm:w-16 sm:h-16 rounded-lg object-cover border border-indigo-200 shrink-0" />
+                <img src={pendingPhotoUrl || undefined} alt="送信プレビュー" className="w-14 h-14 sm:w-16 sm:h-16 rounded-lg object-cover border border-indigo-200 shrink-0" />
                 <div className="flex-1 w-full min-w-0">
                   <input
                     type="text"
@@ -1796,7 +1796,7 @@ export function Chat({
           onClick={() => setLightboxImage(null)}
         >
           <div className="relative max-w-4xl max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
-            <img src={lightboxImage} alt="拡大写真" className="max-w-full max-h-[85vh] rounded-xl object-contain shadow-2xl" />
+            <img src={lightboxImage || undefined} alt="拡大写真" className="max-w-full max-h-[85vh] rounded-xl object-contain shadow-2xl" />
             <button
               onClick={() => setLightboxImage(null)}
               className="absolute -top-10 right-0 p-1.5 bg-white/20 hover:bg-white/40 text-white rounded-full transition-colors"

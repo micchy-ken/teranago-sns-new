@@ -85,7 +85,7 @@ export function FilePreviewModal({ isOpen, onClose, file }: FilePreviewModalProp
           {isImage && resolvedUrl ? (
             <div className="max-w-full max-h-[70vh] flex items-center justify-center">
               <img
-                src={resolvedUrl}
+                src={resolvedUrl || undefined}
                 alt={file.name}
                 referrerPolicy="no-referrer"
                 className="max-w-full max-h-[70vh] rounded-lg shadow-sm border border-slate-200/50 object-contain bg-white"

@@ -905,7 +905,7 @@ export default function FileManager({ currentUser }: FileManagerProps) {
               ) : PREVIEW_IMAGE_EXTS.includes(previewFile.extension) ? (
                 // 画像プレビュー
                 <img 
-                  src={getFileUrl(previewFile)}
+                  src={getFileUrl(previewFile) || undefined}
                   alt={previewFile.name}
                   referrerPolicy="no-referrer"
                   className="max-w-full max-h-full object-contain rounded-lg shadow-sm"
@@ -913,7 +913,7 @@ export default function FileManager({ currentUser }: FileManagerProps) {
               ) : previewFile.extension === 'pdf' ? (
                 // PDFプレビュー (iframe)
                 <iframe
-                  src={getFileUrl(previewFile)}
+                  src={getFileUrl(previewFile) || undefined}
                   className="w-full h-full border-none rounded-lg bg-white shadow-sm"
                   title="PDFプレビュー"
                 />

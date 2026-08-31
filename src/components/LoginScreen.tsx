@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { User } from '../types';
 import { Lock, User as UserIcon, LogIn, AlertCircle, Eye, EyeOff, ShieldCheck, Sparkles } from 'lucide-react';
+import { getAvatarUrl } from '../utils/avatar';
 
 interface LoginScreenProps {
   users: User[];
@@ -143,7 +144,7 @@ export function LoginScreen({ users, onLogin }: LoginScreenProps) {
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     <img
-                      src={u.avatarUrl}
+                      src={getAvatarUrl(u.avatarUrl)}
                       alt={u.name}
                       className="w-8 h-8 rounded-full object-cover border border-slate-600 shrink-0"
                     />

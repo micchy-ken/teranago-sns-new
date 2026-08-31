@@ -88,7 +88,7 @@ export function RichLinkCard({ url, className = '', showToggle = true }: RichLin
 
   const title = ogp?.title || hostname;
   const description = ogp?.description;
-  const hasImage = ogp?.image && !imageError;
+  const hasImage = Boolean(ogp?.image) && !imageError;
 
   return (
     <div className={`my-2 group relative block max-w-xl ${className}`}>

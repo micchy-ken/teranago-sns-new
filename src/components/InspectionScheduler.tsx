@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
   FileSpreadsheet,
   Upload,
@@ -122,6 +122,91 @@ export function InspectionScheduler({
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'placed' | 'registered' | 'hidden' | 'carried_over'>('pending');
 
+  // 拠点自動フィルタリング (デフォルト: ログインユーザーの自拠点)
+  const userOffice = currentUser.office || (currentUser.department ? currentUser.department.split(/\s+/)[0] : '') || '';
+
+  const [selectedOfficeFilter, setSelectedOfficeFilter] = useState<string>(() => {
+    return userOffice || 'all';
+  });
+
+  const getDraftKey = useCallback((ym: string, officeFilter: string) => {
+    if (!officeFilter || officeFilter === 'all') return ym;
+    return `${ym}_${officeFilter}`;
+  }, []);
+
+  const activeDraftKey = useMemo(() => {
+    return getDraftKey(targetYearMonth, selectedOfficeFilter);
+  }, [targetYearMonth, selectedOfficeFilter, getDraftKey]);
+
+  const availableOffices = useMemo(() => {
+    const set = new Set<string>();
+    if (userOffice) set.add(userOffice);
+
+    allUsers.forEach((u) => {
+      if (u.office) set.add(u.office);
+      if (u.department) {
+        const depName = u.department.split(/\s+/)[0];
+        if (depName) set.add(depName);
+      }
+    });
+
+    items.forEach((item) => {
+      if ((item as any).office) set.add((item as any).office);
+      if (item.department) {
+        set.add(item.department);
+        const depName = item.department.split(/\s+/)[0];
+        if (depName) set.add(depName);
+      }
+    });
+
+    ['本社', '名古屋支店', '静岡営業所', '三河営業所', '大阪支社', '東京本社'].forEach((o) => set.add(o));
+
+    return Array.from(set).filter(Boolean);
+  }, [allUsers, items, userOffice]);
+
+  const isItemInOffice = useCallback((item: InspectionItem, filter: string) => {
+    if (!filter || filter === 'all') return true;
+
+    const f = filter.trim().toLowerCase();
+    const fCore = f.replace(/(支店|営業所|本社|事業所|拠点)$/, '');
+
+    if ((item as any).office) {
+      const io = String((item as any).office).toLowerCase();
+      const ioCore = io.replace(/(支店|営業所|本社|事業所|拠点)$/, '');
+      if (io.includes(f) || f.includes(io) || (fCore && ioCore && (io.includes(fCore) || fCore.includes(ioCore)))) {
+        return true;
+      }
+    }
+
+    if (item.department) {
+      const dep = item.department.toLowerCase();
+      const depCore = dep.replace(/(支店|営業所|本社|事業所|拠点)$/, '');
+      if (dep.includes(f) || f.includes(dep) || (fCore && depCore && (dep.includes(fCore) || fCore.includes(depCore)))) {
+        return true;
+      }
+    }
+
+    if (item.area && (item.area.toLowerCase().includes(f) || (fCore && item.area.toLowerCase().includes(fCore)))) {
+      return true;
+    }
+
+    if (item.address && (item.address.toLowerCase().includes(f) || (fCore && item.address.toLowerCase().includes(fCore)))) {
+      return true;
+    }
+
+    // 拠点情報が存在しないデータの場合は隠さず表示する
+    if (!item.department && !(item as any).office && !item.area) {
+      return true;
+    }
+
+    return false;
+  }, []);
+
+  const officeFilteredItems = useMemo(() => {
+    if (selectedOfficeFilter === 'all') return items;
+    return items.filter((item) => isItemInOffice(item, selectedOfficeFilter));
+  }, [items, selectedOfficeFilter, isItemInOffice]);
+
   // 仮配置ゾーンでの確定済みスケジュール表示切替（チェックマークで非表示化可能）
   const [showRegisteredInCalendar, setShowRegisteredInCalendar] = useState<boolean>(true);
 
@@ -194,12 +279,14 @@ export function InspectionScheduler({
   };
 
   // ==========================================
-  // 下書きロード & 前月繰越自動引き継ぎ処理
+  // 下書きロード & 前月繰越自動引き継ぎ処理 (拠点×年月キー対応)
   // ==========================================
-  const loadDraftAndCarryOver = useCallback(async (ym: string, isManualSync = false) => {
+  const loadDraftAndCarryOver = useCallback(async (ym: string, officeFilter: string, isManualSync = false) => {
     if (isImportingRef.current) return;
     if (isManualSync) setIsSyncing(true);
     else setIsLoadingDraft(true);
+
+    const draftKey = getDraftKey(ym, officeFilter);
 
     try {
       // 1. APIから下書きを取得
@@ -209,10 +296,10 @@ export function InspectionScheduler({
       let storageType = 'file';
 
       try {
-        const resDraft = await fetch(`${API_BASE_URL}/inspection/drafts?targetYearMonth=${encodeURIComponent(ym)}`, {
+        const resDraft = await fetch(`${API_BASE_URL}/inspection/drafts?targetYearMonth=${encodeURIComponent(draftKey)}`, {
           headers: {
             'Accept': 'application/json',
-            'X-Target-Year-Month': ym
+            'X-Target-Year-Month': draftKey
           }
         });
         if (resDraft.ok) {
@@ -237,7 +324,7 @@ export function InspectionScheduler({
       // 2. サーバーにない場合、ローカルストレージを確認
       if (loadedItems.length === 0) {
         try {
-          const localSaved = localStorage.getItem(`inspection_draft_${ym}`);
+          const localSaved = localStorage.getItem(`inspection_draft_${draftKey}`);
           if (localSaved) {
             const parsed = JSON.parse(localSaved);
             if (Array.isArray(parsed) && parsed.length > 0) {
@@ -250,10 +337,10 @@ export function InspectionScheduler({
 
       // 3. 前月からの「翌月繰越」アイテムを確認
       try {
-        const resCarry = await fetch(`${API_BASE_URL}/inspection/carry-overs?targetYearMonth=${encodeURIComponent(ym)}`, {
+        const resCarry = await fetch(`${API_BASE_URL}/inspection/carry-overs?targetYearMonth=${encodeURIComponent(draftKey)}`, {
           headers: {
             'Accept': 'application/json',
-            'X-Target-Year-Month': ym
+            'X-Target-Year-Month': draftKey
           }
         });
         if (resCarry.ok) {
@@ -307,26 +394,26 @@ export function InspectionScheduler({
       setIsSyncing(false);
       isInitialMountRef.current = false;
     }
-  }, []);
+  }, [getDraftKey]);
 
   // 即座にサーバーへ直接永続保存する関数
-  const saveDraftDirect = async (ym: string, itemsToSave: InspectionItem[], step?: StepType) => {
+  const saveDraftDirect = async (draftKey: string, itemsToSave: InspectionItem[], step?: StepType) => {
     setSaveStatus('saving');
     const jsonStr = JSON.stringify(itemsToSave);
     try {
-      localStorage.setItem(`inspection_draft_${ym}`, jsonStr);
+      localStorage.setItem(`inspection_draft_${draftKey}`, jsonStr);
     } catch (_) {}
 
     try {
-      const res = await fetch(`${API_BASE_URL}/inspection/drafts?targetYearMonth=${encodeURIComponent(ym)}`, {
+      const res = await fetch(`${API_BASE_URL}/inspection/drafts?targetYearMonth=${encodeURIComponent(draftKey)}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
-          'X-Target-Year-Month': ym
+          'X-Target-Year-Month': draftKey
         },
         body: JSON.stringify({
-          targetYearMonth: ym,
+          targetYearMonth: draftKey,
           items: itemsToSave,
           currentStep: step || currentStep,
           savedByUserId: currentUser.id,
@@ -367,10 +454,10 @@ export function InspectionScheduler({
     }
   };
 
-  // 月変更時・初回マウント時に自動ロード
+  // 月変更・拠点変更時に自動ロード
   useEffect(() => {
-    loadDraftAndCarryOver(targetYearMonth);
-  }, [targetYearMonth, loadDraftAndCarryOver]);
+    loadDraftAndCarryOver(targetYearMonth, selectedOfficeFilter);
+  }, [targetYearMonth, selectedOfficeFilter, loadDraftAndCarryOver]);
 
   // ==========================================
   // デバウンス自動保存 (Auto-Save)
@@ -383,9 +470,11 @@ export function InspectionScheduler({
     const currentJson = JSON.stringify(items);
     if (currentJson === lastSavedJsonRef.current) return;
 
+    const draftKey = getDraftKey(targetYearMonth, selectedOfficeFilter);
+
     // 1. ローカルストレージ(ブラウザ)へは即座に書き込み（画面描画のレスポンス爆速化＆ブラウザ閉じ対策）
     try {
-      localStorage.setItem(`inspection_draft_${targetYearMonth}`, currentJson);
+      localStorage.setItem(`inspection_draft_${draftKey}`, currentJson);
     } catch (_) {}
 
     // 操作待機中ステータスに更新
@@ -399,15 +488,15 @@ export function InspectionScheduler({
     // 2. サーバーAPIへの同期送信は、D&D・操作が静止した 2500ms (2.5秒) 後に1回だけ一括送信
     autoSaveTimerRef.current = setTimeout(async () => {
       try {
-        const res = await fetch(`${API_BASE_URL}/inspection/drafts?targetYearMonth=${encodeURIComponent(targetYearMonth)}`, {
+        const res = await fetch(`${API_BASE_URL}/inspection/drafts?targetYearMonth=${encodeURIComponent(draftKey)}`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
-            'X-Target-Year-Month': targetYearMonth
+            'X-Target-Year-Month': draftKey
           },
           body: JSON.stringify({
-            targetYearMonth,
+            targetYearMonth: draftKey,
             items,
             savedByUserId: currentUser.id,
             savedByUserName: currentUser.name,
@@ -454,22 +543,25 @@ export function InspectionScheduler({
         clearTimeout(autoSaveTimerRef.current);
       }
     };
-  }, [items, targetYearMonth, isLoadingDraft, currentUser, currentStep]);
+  }, [items, targetYearMonth, selectedOfficeFilter, isLoadingDraft, currentUser, currentStep, getDraftKey]);
 
   // 下書きクリア（リセット）
   const handleClearDraft = async () => {
     if (items.length === 0) return;
-    if (confirm(`${targetYearMonth} の下書き作業データを初期化しますか？\n（配置・未配置・繰越状態がクリアされます）`)) {
+    const draftKey = getDraftKey(targetYearMonth, selectedOfficeFilter);
+    const officeLabel = selectedOfficeFilter !== 'all' ? ` [${selectedOfficeFilter}]` : '';
+
+    if (confirm(`${targetYearMonth}${officeLabel} の下書き作業データを初期化しますか？\n（配置・未配置・繰越状態がクリアされます）`)) {
       try {
-        await fetch(`${API_BASE_URL}/inspection/drafts?targetYearMonth=${encodeURIComponent(targetYearMonth)}`, {
+        await fetch(`${API_BASE_URL}/inspection/drafts?targetYearMonth=${encodeURIComponent(draftKey)}`, {
           method: 'DELETE',
           headers: {
             'Content-Type': 'application/json',
-            'X-Target-Year-Month': targetYearMonth
+            'X-Target-Year-Month': draftKey
           },
-          body: JSON.stringify({ targetYearMonth })
+          body: JSON.stringify({ targetYearMonth: draftKey })
         });
-        localStorage.removeItem(`inspection_draft_${targetYearMonth}`);
+        localStorage.removeItem(`inspection_draft_${draftKey}`);
         setItems([]);
         lastSavedJsonRef.current = JSON.stringify([]);
         setSaveStatus('idle');
@@ -483,7 +575,7 @@ export function InspectionScheduler({
 
   // 手動同期
   const handleManualSync = () => {
-    loadDraftAndCarryOver(targetYearMonth, true);
+    loadDraftAndCarryOver(targetYearMonth, selectedOfficeFilter, true);
   };
 
   // ==========================================
@@ -919,7 +1011,8 @@ export function InspectionScheduler({
     setTimeout(() => setCopySuccessToast(null), 4000);
 
     // 即座にサーバー（SQL/ファイル）に直接永続保存
-    await saveDraftDirect(chosenYm, nextItems, 'assign_date');
+    const draftKey = getDraftKey(chosenYm, selectedOfficeFilter);
+    await saveDraftDirect(draftKey, nextItems, 'assign_date');
     setTimeout(() => {
       isImportingRef.current = false;
     }, 1200);
@@ -938,7 +1031,7 @@ export function InspectionScheduler({
     isImportingRef.current = true;
     setItems(demoItems);
     setCurrentStep('assign_date');
-    await saveDraftDirect(targetYearMonth, demoItems, 'assign_date');
+    await saveDraftDirect(activeDraftKey, demoItems, 'assign_date');
     setTimeout(() => {
       isImportingRef.current = false;
     }, 1200);
@@ -1019,7 +1112,7 @@ export function InspectionScheduler({
     setTimeout(() => setCopySuccessToast(null), 4000);
 
     // サーバーへ直接保存
-    await saveDraftDirect(targetYearMonth, nextItems, 'assign_date');
+    await saveDraftDirect(activeDraftKey, nextItems, 'assign_date');
     setTimeout(() => {
       isImportingRef.current = false;
     }, 1200);
@@ -1050,14 +1143,14 @@ export function InspectionScheduler({
   // ------------------------------------------
   // ステータス・カウント集計
   // ------------------------------------------
-  const pendingItems = items.filter((i) => i.status === 'pending');
-  const placedItems = items.filter((i) => i.status === 'placed');
-  const registeredItems = items.filter((i) => i.status === 'registered');
-  const hiddenItems = items.filter((i) => i.status === 'hidden');
-  const carriedOverItems = items.filter((i) => i.status === 'carried_over');
+  const pendingItems = officeFilteredItems.filter((i) => i.status === 'pending');
+  const placedItems = officeFilteredItems.filter((i) => i.status === 'placed');
+  const registeredItems = officeFilteredItems.filter((i) => i.status === 'registered');
+  const hiddenItems = officeFilteredItems.filter((i) => i.status === 'hidden');
+  const carriedOverItems = officeFilteredItems.filter((i) => i.status === 'carried_over');
 
   // 表示フィルタリングアイテム
-  const filteredListItems = items.filter((item) => {
+  const filteredListItems = officeFilteredItems.filter((item) => {
     if (statusFilter !== 'all' && item.status !== statusFilter) return false;
 
     if (searchQuery.trim()) {
@@ -1317,7 +1410,7 @@ export function InspectionScheduler({
 
   // 確定登録（CalendarEventへ変換・反映し、該当アイテムをregisteredとして下書き保存）
   const handleFinalConfirmRegistration = () => {
-    const itemsToRegister = items.filter((i) => i.status === 'placed' && i.assignedDate);
+    const itemsToRegister = officeFilteredItems.filter((i) => i.status === 'placed' && i.assignedDate);
     if (itemsToRegister.length === 0) {
       alert('カレンダーに仮配置された未確定の点検予定がありません。');
       return;
@@ -1391,7 +1484,7 @@ export function InspectionScheduler({
     });
 
     setItems(updatedItems);
-    saveDraftDirect(targetYearMonth, updatedItems, 'assign_date');
+    saveDraftDirect(activeDraftKey, updatedItems, 'assign_date');
     setCompletedCount(createdEvents.length);
     setCurrentStep('completed');
   };
@@ -1492,6 +1585,38 @@ export function InspectionScheduler({
               >
                 <ChevronRight className="w-4 h-4" />
               </button>
+            </div>
+
+            {/* 担当拠点フィルター（デフォルト: ログインユーザーの自拠点） */}
+            <div className="flex items-center bg-indigo-50/80 p-1 rounded-xl border border-indigo-200/80">
+              <div className="flex items-center gap-1.5 px-2.5 py-0.5">
+                <Building className="w-4 h-4 text-indigo-600 shrink-0" />
+                <span className="font-bold text-slate-700">担当拠点:</span>
+                <select
+                  value={selectedOfficeFilter}
+                  onChange={(e) => setSelectedOfficeFilter(e.target.value)}
+                  className="font-black text-indigo-900 bg-transparent border-none focus:outline-none cursor-pointer text-xs"
+                >
+                  {userOffice && (
+                    <option value={userOffice}>
+                      📍 自拠点 ({userOffice})
+                    </option>
+                  )}
+                  {availableOffices
+                    .filter((o) => o !== userOffice)
+                    .map((off) => (
+                      <option key={off} value={off}>
+                        {off}
+                      </option>
+                    ))}
+                  <option value="all">🏢 全拠点表示 ({items.length}件)</option>
+                </select>
+              </div>
+              {selectedOfficeFilter !== 'all' && userOffice && selectedOfficeFilter === userOffice && (
+                <span className="text-[10px] font-bold px-1.5 py-0.5 mr-1 rounded bg-indigo-100 text-indigo-800 border border-indigo-200 shrink-0">
+                  自拠点フィルター適用中
+                </span>
+              )}
             </div>
 
             {/* 自動保存・同期ステータスバッジ（クリックで詳細表示） */}
@@ -2455,11 +2580,11 @@ export function InspectionScheduler({
               {/* 日付行リスト（日付は縦並び、予定は右側へ横並び追加） */}
               <div className="space-y-3 max-h-[75vh] overflow-y-auto pr-1">
                 {monthDays.map((day) => {
-                  const dayPlacedItems = items.filter(
+                  const dayPlacedItems = officeFilteredItems.filter(
                     (i) => i.status === 'placed' && i.assignedDate === day.dateKey
                   );
                   const dayRegisteredItems = showRegisteredInCalendar
-                    ? items.filter(
+                    ? officeFilteredItems.filter(
                         (i) => i.status === 'registered' && i.assignedDate === day.dateKey
                       )
                     : [];
@@ -3438,7 +3563,7 @@ export function InspectionScheduler({
                 type="button"
                 disabled={isSyncing || items.length === 0}
                 onClick={async () => {
-                  await loadDraftAndCarryOver(targetYearMonth, true);
+                  await loadDraftAndCarryOver(targetYearMonth, selectedOfficeFilter, true);
                 }}
                 className="px-5 py-2 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition-all cursor-pointer shadow-md shadow-indigo-200 flex items-center gap-1.5 disabled:opacity-50"
               >

@@ -40,6 +40,7 @@ import {
 } from 'lucide-react';
 import { User, OfficeMaster, DivisionMaster, DisasterType } from '../types';
 import { API_BASE_URL } from '../config/api';
+import { getAvatarUrl } from '../utils/avatar';
 
 export interface SafetyConfirmationEvent {
   id: string;
@@ -2100,7 +2101,7 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
                           <td className="py-2.5 px-4 whitespace-nowrap">
                             <div className="flex items-center gap-2">
                               <img
-                                src={user.avatarUrl}
+                                src={getAvatarUrl(user.avatarUrl)}
                                 alt={user.name}
                                 className="w-6 h-6 rounded-full object-cover border border-slate-200 shrink-0"
                               />
