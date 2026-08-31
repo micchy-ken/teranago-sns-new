@@ -3563,6 +3563,7 @@ export default function App() {
           <InspectionScheduler
             allUsers={usersList}
             currentUser={userState}
+            offices={offices}
             onAddEvents={(newEvents) => {
               newEvents.forEach((evt) => {
                 const { id, ...eventData } = evt;

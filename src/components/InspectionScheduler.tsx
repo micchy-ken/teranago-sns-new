@@ -56,7 +56,7 @@ import {
   Edit3,
   Copy
 } from 'lucide-react';
-import { User, CalendarEvent } from '../types';
+import { User, CalendarEvent, OfficeMaster } from '../types';
 import {
   InspectionItem,
   InspectionMetaA,
@@ -82,6 +82,7 @@ import { API_BASE_URL } from '../config/api';
 interface InspectionSchedulerProps {
   allUsers: User[];
   currentUser: User;
+  offices?: OfficeMaster[];
   onAddEvents: (events: CalendarEvent[]) => void;
   onNavigateToCalendar?: () => void;
 }
@@ -91,6 +92,7 @@ type StepType = 'import' | 'assign_date' | 'assign_member' | 'completed';
 export function InspectionScheduler({
   allUsers,
   currentUser,
+  offices,
   onAddEvents,
   onNavigateToCalendar
 }: InspectionSchedulerProps) {
@@ -113,6 +115,7 @@ export function InspectionScheduler({
   const [isLoadingDraft, setIsLoadingDraft] = useState<boolean>(false);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [carriedOverBanner, setCarriedOverBanner] = useState<{ prevMonth: string; count: number } | null>(null);
+  const [migratedBanner, setMigratedBanner] = useState<{ sourceYm: string; count: number; officeName: string } | null>(null);
   const isInitialMountRef = useRef<boolean>(true);
   const isImportingRef = useRef<boolean>(false);
   const lastSavedJsonRef = useRef<string>('');
@@ -140,29 +143,23 @@ export function InspectionScheduler({
 
   const availableOffices = useMemo(() => {
     const set = new Set<string>();
+
+    // 1. 管理者メニューの拠点マスターからアクティブな拠点を追加
+    if (offices && offices.length > 0) {
+      offices.filter((o) => (o as any).isActive !== false).forEach((o) => set.add(o.name));
+    } else {
+      // マスター未登録・ロード前のフォールバック
+      if (userOffice) set.add(userOffice);
+      allUsers.forEach((u) => {
+        if (u.office) set.add(u.office);
+      });
+    }
+
+    // ログインユーザーの自拠点も選択肢に確実に含める
     if (userOffice) set.add(userOffice);
 
-    allUsers.forEach((u) => {
-      if (u.office) set.add(u.office);
-      if (u.department) {
-        const depName = u.department.split(/\s+/)[0];
-        if (depName) set.add(depName);
-      }
-    });
-
-    items.forEach((item) => {
-      if ((item as any).office) set.add((item as any).office);
-      if (item.department) {
-        set.add(item.department);
-        const depName = item.department.split(/\s+/)[0];
-        if (depName) set.add(depName);
-      }
-    });
-
-    ['本社', '名古屋支店', '静岡営業所', '三河営業所', '大阪支社', '東京本社'].forEach((o) => set.add(o));
-
     return Array.from(set).filter(Boolean);
-  }, [allUsers, items, userOffice]);
+  }, [offices, allUsers, userOffice]);
 
   const isItemInOffice = useCallback((item: InspectionItem, filter: string) => {
     if (!filter || filter === 'all') return true;
@@ -333,6 +330,55 @@ export function InspectionScheduler({
             }
           }
         } catch (_) {}
+      }
+
+      // 2.5 拠点キー（draftKey）にデータがない場合、全拠点共通キー（ym）の旧データを検索して引き継ぎ
+      if (loadedItems.length === 0 && draftKey !== ym) {
+        let isMigrated = false;
+        try {
+          const resOld = await fetch(`${API_BASE_URL}/inspection/drafts?targetYearMonth=${encodeURIComponent(ym)}`, {
+            headers: {
+              'Accept': 'application/json',
+              'X-Target-Year-Month': ym
+            }
+          });
+          if (resOld.ok) {
+            const oldData = await resOld.json();
+            if (Array.isArray(oldData.items) && oldData.items.length > 0) {
+              loadedItems = oldData.items;
+              fromServer = true;
+              isMigrated = true;
+            }
+          }
+        } catch (_) {}
+
+        if (loadedItems.length === 0) {
+          try {
+            const localOld = localStorage.getItem(`inspection_draft_${ym}`);
+            if (localOld) {
+              const parsedOld = JSON.parse(localOld);
+              if (Array.isArray(parsedOld) && parsedOld.length > 0) {
+                loadedItems = parsedOld;
+                fromServer = false;
+                isMigrated = true;
+              }
+            }
+          } catch (_) {}
+        }
+
+        // 旧データを取得できた場合、即座に該当拠点のドラフトキー（draftKey）へ直接保存（自動マイグレーション）
+        if (isMigrated && loadedItems.length > 0) {
+          saveDraftDirect(draftKey, loadedItems, 'assign_date');
+          setMigratedBanner({
+            sourceYm: ym,
+            count: loadedItems.length,
+            officeName: officeFilter
+          });
+        } else {
+          setMigratedBanner(null);
+        }
+      } else {
+        setMigratedBanner(null);
       }
 
       // 3. 前月からの「翌月繰越」アイテムを確認
@@ -1790,6 +1836,34 @@ export function InspectionScheduler({
           <button
             onClick={() => setCarriedOverBanner(null)}
             className="px-3 py-1.5 text-xs font-bold text-indigo-700 hover:bg-indigo-100 rounded-xl transition-colors cursor-pointer"
+          >
+            閉じる
+          </button>
+        </div>
+      )}
+
+      {/* 既存全拠点データの特定拠点への引き継ぎ通知バナー */}
+      {migratedBanner && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex items-center justify-between gap-4 text-xs shadow-2xs animate-in fade-in slide-in-from-top-2">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold shadow-xs">
+              <Sparkles className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="font-black text-emerald-950 text-sm flex items-center gap-2">
+                取り込み済みデータ（{migratedBanner.sourceYm}）を【{migratedBanner.officeName}】の作業データとして自動引き継ぎしました
+                <span className="px-2 py-0.5 bg-emerald-200 text-emerald-900 rounded-full text-[11px] font-bold">
+                  {migratedBanner.count}件
+                </span>
+              </div>
+              <p className="text-xs text-emerald-700 mt-0.5">
+                全拠点表示で読み込まれていた既存のエクセル作業データを【{migratedBanner.officeName}】の専用データとして自動補正・引き継ぎ保存しました。
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setMigratedBanner(null)}
+            className="px-3 py-1.5 text-xs font-bold text-emerald-700 hover:bg-emerald-100 rounded-xl transition-colors cursor-pointer"
           >
             閉じる
           </button>
