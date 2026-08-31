@@ -129,13 +129,13 @@ export function InspectionScheduler({
   const userOffice = currentUser.office || (currentUser.department ? currentUser.department.split(/\s+/)[0] : '') || '';
 
   const [selectedOfficeFilter, setSelectedOfficeFilter] = useState<string>(() => {
-    return userOffice || 'all';
+    return userOffice || '本社';
   });
 
   const getDraftKey = useCallback((ym: string, officeFilter: string) => {
-    if (!officeFilter || officeFilter === 'all') return ym;
-    return `${ym}_${officeFilter}`;
-  }, []);
+    const off = (!officeFilter || officeFilter === 'all') ? (userOffice || '本社') : officeFilter;
+    return `${ym}_${off}`;
+  }, [userOffice]);
 
   const activeDraftKey = useMemo(() => {
     return getDraftKey(targetYearMonth, selectedOfficeFilter);
@@ -296,7 +296,7 @@ export function InspectionScheduler({
         const resDraft = await fetch(`${API_BASE_URL}/inspection/drafts?targetYearMonth=${encodeURIComponent(draftKey)}`, {
           headers: {
             'Accept': 'application/json',
-            'X-Target-Year-Month': draftKey
+            'X-Target-Year-Month': encodeURIComponent(draftKey)
           }
         });
         if (resDraft.ok) {
@@ -339,7 +339,7 @@ export function InspectionScheduler({
           const resOld = await fetch(`${API_BASE_URL}/inspection/drafts?targetYearMonth=${encodeURIComponent(ym)}`, {
             headers: {
               'Accept': 'application/json',
-              'X-Target-Year-Month': ym
+              'X-Target-Year-Month': encodeURIComponent(ym)
             }
           });
           if (resOld.ok) {
@@ -386,7 +386,7 @@ export function InspectionScheduler({
         const resCarry = await fetch(`${API_BASE_URL}/inspection/carry-overs?targetYearMonth=${encodeURIComponent(draftKey)}`, {
           headers: {
             'Accept': 'application/json',
-            'X-Target-Year-Month': draftKey
+            'X-Target-Year-Month': encodeURIComponent(draftKey)
           }
         });
         if (resCarry.ok) {
@@ -456,7 +456,7 @@ export function InspectionScheduler({
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
-          'X-Target-Year-Month': draftKey
+          'X-Target-Year-Month': encodeURIComponent(draftKey)
         },
         body: JSON.stringify({
           targetYearMonth: draftKey,
@@ -539,7 +539,7 @@ export function InspectionScheduler({
           headers: {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
-            'X-Target-Year-Month': draftKey
+            'X-Target-Year-Month': encodeURIComponent(draftKey)
           },
           body: JSON.stringify({
             targetYearMonth: draftKey,
@@ -603,7 +603,7 @@ export function InspectionScheduler({
           method: 'DELETE',
           headers: {
             'Content-Type': 'application/json',
-            'X-Target-Year-Month': draftKey
+            'X-Target-Year-Month': encodeURIComponent(draftKey)
           },
           body: JSON.stringify({ targetYearMonth: draftKey })
         });
@@ -1051,9 +1051,14 @@ export function InspectionScheduler({
       ? pendingExcelImport.fileYearMonth
       : targetYearMonth;
 
+    const targetOffice = selectedOfficeFilter && selectedOfficeFilter !== 'all'
+      ? selectedOfficeFilter
+      : (userOffice || '本社');
+
     const importedItems = pendingExcelImport.items.map(item => ({
       ...item,
       targetYearMonth: chosenYm,
+      office: item.office || targetOffice,
     }));
 
     let nextItems: InspectionItem[] = [];
@@ -1127,7 +1132,7 @@ export function InspectionScheduler({
     let loaded: InspectionItem[] = [];
     try {
       const res = await fetch(`${API_BASE_URL}/inspection/drafts?targetYearMonth=${encodeURIComponent(sourceYm)}`, {
-        headers: { 'Accept': 'application/json', 'X-Target-Year-Month': sourceYm }
+        headers: { 'Accept': 'application/json', 'X-Target-Year-Month': encodeURIComponent(sourceYm) }
       });
       if (res.ok) {
         const data = await res.json();
@@ -1691,7 +1696,6 @@ export function InspectionScheduler({
                         {off}
                       </option>
                     ))}
-                  <option value="all">🏢 全拠点表示 ({items.length}件)</option>
                 </select>
               </div>
               {selectedOfficeFilter !== 'all' && userOffice && selectedOfficeFilter === userOffice && (

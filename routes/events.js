@@ -131,7 +131,9 @@ function saveInspectionDraftsToFile(drafts) {
 
 function getPreviousYearMonth(yearMonthStr) {
   if (!yearMonthStr) return '';
-  const [ymPart, ...suffixParts] = String(yearMonthStr).split('_');
+  let str = String(yearMonthStr);
+  try { str = decodeURIComponent(str); } catch (_) {}
+  const [ymPart, ...suffixParts] = str.split('_');
   const suffix = suffixParts.length > 0 ? '_' + suffixParts.join('_') : '';
 
   const [y, m] = ymPart.split('-').map(Number);
@@ -140,6 +142,13 @@ function getPreviousYearMonth(yearMonthStr) {
   const prevY = date.getFullYear();
   const prevM = String(date.getMonth() + 1).padStart(2, '0');
   return `${prevY}-${prevM}${suffix}`;
+}
+
+function normalizeYmParam(raw) {
+  if (!raw) return new Date().toISOString().slice(0, 7);
+  let str = String(raw);
+  try { str = decodeURIComponent(str); } catch (_) {}
+  return str;
 }
 
 const ensureInspectionDraftsTable = async (pool) => {
@@ -184,7 +193,7 @@ const ensureInspectionDraftsTable = async (pool) => {
 // 指定年月の下書き保存状態取得
 router.get(['/inspection/drafts', '/inspection/drafts/:targetYearMonth'], async (req, res) => {
   try {
-    const targetYearMonth = req.params.targetYearMonth || req.query.targetYearMonth || req.headers['x-target-year-month'] || (req.body && req.body.targetYearMonth) || new Date().toISOString().slice(0, 7);
+    const targetYearMonth = normalizeYmParam(req.params.targetYearMonth || req.query.targetYearMonth || req.headers['x-target-year-month'] || (req.body && req.body.targetYearMonth));
 
     // 1. SQL Server から検索
     try {
@@ -249,7 +258,7 @@ router.get(['/inspection/drafts', '/inspection/drafts/:targetYearMonth'], async 
 // 下書き自動保存・一時保存
 router.post(['/inspection/drafts', '/inspection/drafts/:targetYearMonth'], async (req, res) => {
   try {
-    const targetYearMonth = req.body?.targetYearMonth || req.params?.targetYearMonth || req.query?.targetYearMonth || req.headers['x-target-year-month'] || new Date().toISOString().slice(0, 7);
+    const targetYearMonth = normalizeYmParam(req.body?.targetYearMonth || req.params?.targetYearMonth || req.query?.targetYearMonth || req.headers['x-target-year-month']);
     const items = Array.isArray(req.body?.items) ? req.body.items : [];
     const currentStep = req.body?.currentStep || 'assign_date';
     const nowIso = req.body?.lastSavedAt || new Date().toISOString();
@@ -327,7 +336,7 @@ router.post(['/inspection/drafts', '/inspection/drafts/:targetYearMonth'], async
 // 下書きクリア
 router.delete(['/inspection/drafts', '/inspection/drafts/:targetYearMonth'], async (req, res) => {
   try {
-    const targetYearMonth = req.params.targetYearMonth || req.query.targetYearMonth || req.headers['x-target-year-month'] || req.body?.targetYearMonth;
+    const targetYearMonth = normalizeYmParam(req.params.targetYearMonth || req.query.targetYearMonth || req.headers['x-target-year-month'] || req.body?.targetYearMonth);
     if (!targetYearMonth) {
       return res.json({ success: true, message: '対象年月なし' });
     }
@@ -357,7 +366,7 @@ router.delete(['/inspection/drafts', '/inspection/drafts/:targetYearMonth'], asy
 // 翌月繰越 (carried_over) 自動取得 API
 router.get(['/inspection/carry-overs', '/inspection/carry-overs/:targetYearMonth'], async (req, res) => {
   try {
-    const targetYearMonth = req.params.targetYearMonth || req.query.targetYearMonth || req.headers['x-target-year-month'] || (req.body && req.body.targetYearMonth) || new Date().toISOString().slice(0, 7);
+    const targetYearMonth = normalizeYmParam(req.params.targetYearMonth || req.query.targetYearMonth || req.headers['x-target-year-month'] || (req.body && req.body.targetYearMonth));
     const prevMonth = getPreviousYearMonth(targetYearMonth);
     if (!prevMonth) {
       return res.json({ currentMonth: targetYearMonth, prevMonth: '', carriedOverCount: 0, carriedOverItems: [] });
