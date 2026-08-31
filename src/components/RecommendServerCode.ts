@@ -1,7 +1,7 @@
 export const RECOMMEND_SERVER_JS = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年8月31日 (マスター管理API(拠点・部署・役職・品目・承認フロー)の追加・復旧版)
+ * 最終更新日時 (最終アップデート): 2026年8月31日 (点検下書き保存時の拠点サフィックスキー拡張および自動同期互換性修復版)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -1282,13 +1282,17 @@ async function startServer() {
     }
   }
 
-  function getPreviousYearMonth(yearMonth: string): string {
-    const [y, m] = yearMonth.split('-').map(Number);
+  function getPreviousYearMonth(yearMonthStr: string): string {
+    if (!yearMonthStr) return '';
+    const [ymPart, ...suffixParts] = String(yearMonthStr).split('_');
+    const suffix = suffixParts.length > 0 ? '_' + suffixParts.join('_') : '';
+
+    const [y, m] = ymPart.split('-').map(Number);
     if (!y || !m) return '';
     const date = new Date(y, m - 2, 1);
     const prevY = date.getFullYear();
     const prevM = String(date.getMonth() + 1).padStart(2, '0');
-    return \`\${prevY}-\${prevM}\`;
+    return \`\${prevY}-\${prevM}\${suffix}\`;
   }
 
   // 指定年月の下書き保存状態取得 (クエリ, パス, ヘッダー, フォールバック対応)

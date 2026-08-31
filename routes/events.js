@@ -129,13 +129,17 @@ function saveInspectionDraftsToFile(drafts) {
   }
 }
 
-function getPreviousYearMonth(yearMonth) {
-  const [y, m] = String(yearMonth).split('-').map(Number);
+function getPreviousYearMonth(yearMonthStr) {
+  if (!yearMonthStr) return '';
+  const [ymPart, ...suffixParts] = String(yearMonthStr).split('_');
+  const suffix = suffixParts.length > 0 ? '_' + suffixParts.join('_') : '';
+
+  const [y, m] = ymPart.split('-').map(Number);
   if (!y || !m) return '';
   const date = new Date(y, m - 2, 1);
   const prevY = date.getFullYear();
   const prevM = String(date.getMonth() + 1).padStart(2, '0');
-  return `${prevY}-${prevM}`;
+  return `${prevY}-${prevM}${suffix}`;
 }
 
 const ensureInspectionDraftsTable = async (pool) => {
@@ -144,7 +148,7 @@ const ensureInspectionDraftsTable = async (pool) => {
       IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'InspectionDrafts' AND schema_id = SCHEMA_ID('dbo'))
       BEGIN
         CREATE TABLE dbo.InspectionDrafts (
-          targetYearMonth VARCHAR(10) NOT NULL PRIMARY KEY,
+          targetYearMonth NVARCHAR(100) NOT NULL PRIMARY KEY,
           itemsJson NVARCHAR(MAX) NOT NULL,
           currentStep VARCHAR(50) NULL,
           lastSavedAt DATETIME2 NOT NULL DEFAULT GETDATE(),
@@ -153,8 +157,28 @@ const ensureInspectionDraftsTable = async (pool) => {
           updatedBy NVARCHAR(100) NULL
         );
       END
+      ELSE
+      BEGIN
+        IF EXISTS (
+          SELECT * FROM sys.columns 
+          WHERE object_id = OBJECT_ID('dbo.InspectionDrafts') 
+            AND name = 'targetYearMonth' 
+            AND (max_length < 200 OR system_type_id = 167)
+        )
+        BEGIN
+          DECLARE @pkName NVARCHAR(200);
+          SELECT @pkName = name FROM sys.key_constraints WHERE parent_object_id = OBJECT_ID('dbo.InspectionDrafts') AND type = 'PK';
+          IF @pkName IS NOT NULL
+            EXEC('ALTER TABLE dbo.InspectionDrafts DROP CONSTRAINT ' + @pkName);
+          
+          ALTER TABLE dbo.InspectionDrafts ALTER COLUMN targetYearMonth NVARCHAR(100) NOT NULL;
+          ALTER TABLE dbo.InspectionDrafts ADD CONSTRAINT PK_InspectionDrafts PRIMARY KEY (targetYearMonth);
+        END
+      END
     `);
-  } catch (e) {}
+  } catch (e) {
+    console.warn('[SQL] ensureInspectionDraftsTable warning:', e.message);
+  }
 };
 
 // 指定年月の下書き保存状態取得
@@ -168,7 +192,7 @@ router.get(['/inspection/drafts', '/inspection/drafts/:targetYearMonth'], async 
       if (pool) {
         await ensureInspectionDraftsTable(pool);
         const sqlRes = await pool.request()
-          .input('targetYearMonth', sql.VarChar, String(targetYearMonth))
+          .input('targetYearMonth', sql.NVarChar(100), String(targetYearMonth))
           .query('SELECT * FROM dbo.InspectionDrafts WHERE targetYearMonth = @targetYearMonth');
         
         if (sqlRes.recordset && sqlRes.recordset.length > 0) {
@@ -241,7 +265,7 @@ router.post(['/inspection/drafts', '/inspection/drafts/:targetYearMonth'], async
       if (pool) {
         await ensureInspectionDraftsTable(pool);
         await pool.request()
-          .input('targetYearMonth', sql.VarChar, String(targetYearMonth))
+          .input('targetYearMonth', sql.NVarChar(100), String(targetYearMonth))
           .input('itemsJson', sql.NVarChar(sql.MAX), itemsJson)
           .input('currentStep', sql.VarChar, currentStep)
           .input('savedByUserId', sql.VarChar, savedByUserId)
@@ -313,7 +337,7 @@ router.delete(['/inspection/drafts', '/inspection/drafts/:targetYearMonth'], asy
       if (pool) {
         await ensureInspectionDraftsTable(pool);
         await pool.request()
-          .input('targetYearMonth', sql.VarChar, String(targetYearMonth))
+          .input('targetYearMonth', sql.NVarChar(100), String(targetYearMonth))
           .query('DELETE FROM dbo.InspectionDrafts WHERE targetYearMonth = @targetYearMonth');
       }
     } catch (_) {}
@@ -346,7 +370,7 @@ router.get(['/inspection/carry-overs', '/inspection/carry-overs/:targetYearMonth
       if (pool) {
         await ensureInspectionDraftsTable(pool);
         const sqlRes = await pool.request()
-          .input('targetYearMonth', sql.VarChar, String(prevMonth))
+          .input('targetYearMonth', sql.NVarChar(100), String(prevMonth))
           .query('SELECT itemsJson FROM dbo.InspectionDrafts WHERE targetYearMonth = @targetYearMonth');
         if (sqlRes.recordset && sqlRes.recordset.length > 0) {
           try { prevItems = JSON.parse(sqlRes.recordset[0].itemsJson); } catch (_) { prevItems = null; }

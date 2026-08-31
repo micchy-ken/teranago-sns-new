@@ -619,6 +619,42 @@ export function InspectionScheduler({
     }
   };
 
+  // ローカル保存データ（localStorage）の完全消去・クリア
+  const handleClearLocalData = (clearAll = false) => {
+    const draftKey = getDraftKey(targetYearMonth, selectedOfficeFilter);
+    const officeLabel = selectedOfficeFilter !== 'all' ? ` [${selectedOfficeFilter}]` : '';
+
+    const message = clearAll
+      ? 'このブラウザ（PC）内に保存されている【すべての年月・拠点】の点検下書きローカルデータを全削除（クリア）しますか？\n\n※サーバー上のデータには影響しませんが、ブラウザに一時保存されていた未同期のデータは消去されます。'
+      : `${targetYearMonth}${officeLabel} のブラウザ内（ローカル）保存データを削除してリセットしますか？\n\n※サーバーデータとの不整合を解消したい場合や、ブラウザのキャッシュを初期化したい場合に実行してください。`;
+
+    if (confirm(message)) {
+      if (clearAll) {
+        const keysToRemove: string[] = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && (key.startsWith('inspection_draft_') || key === 'inspection_drafts')) {
+            keysToRemove.push(key);
+          }
+        }
+        keysToRemove.forEach((k) => localStorage.removeItem(k));
+      } else {
+        localStorage.removeItem(`inspection_draft_${draftKey}`);
+        localStorage.removeItem(`inspection_draft_${targetYearMonth}`);
+      }
+
+      setItems([]);
+      lastSavedJsonRef.current = JSON.stringify([]);
+      setSaveStatus('idle');
+      setLastSavedTime(null);
+      setCarriedOverBanner(null);
+      setMigratedBanner(null);
+
+      // サーバーからの再取得を試行
+      loadDraftAndCarryOver(targetYearMonth, selectedOfficeFilter, true);
+    }
+  };
+
   // 手動同期
   const handleManualSync = () => {
     loadDraftAndCarryOver(targetYearMonth, selectedOfficeFilter, true);
@@ -1793,7 +1829,16 @@ export function InspectionScheduler({
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+          <div className="flex items-center gap-2 self-end sm:self-center shrink-0 flex-wrap">
+            <button
+              type="button"
+              onClick={() => handleClearLocalData(false)}
+              className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 rounded-xl font-bold transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
+              title="このブラウザ内（localStorage）にのみ保存されているキャッシュデータを消去してリセットします"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+              <span>ローカルデータ削除</span>
+            </button>
             <button
               type="button"
               onClick={handleManualSync}
@@ -3605,6 +3650,39 @@ export function InspectionScheduler({
                 <span className="font-mono text-[11px] text-slate-600 truncate max-w-[220px]">
                   {API_BASE_URL}/inspection/drafts
                 </span>
+              </div>
+            </div>
+
+            {/* ローカル保存データのクリアセクション */}
+            <div className="bg-rose-50/80 border border-rose-200 rounded-2xl p-4 space-y-2 text-xs">
+              <div className="font-bold text-rose-900 flex items-center gap-1.5">
+                <Trash2 className="w-4 h-4 text-rose-600" />
+                <span>ブラウザ内（ローカル）キャッシュの消去</span>
+              </div>
+              <p className="text-rose-700 text-[11px] leading-relaxed">
+                サーバーのデータとブラウザ内の保存内容に不整合が生じた場合や、このPC上のローカルキャッシュを消去してサーバーのデータでやり直したい場合に実行してください。
+              </p>
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowSyncInfoModal(false);
+                    handleClearLocalData(false);
+                  }}
+                  className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl transition-all shadow-xs cursor-pointer text-xs"
+                >
+                  【{targetYearMonth}】のローカルキャッシュを削除
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowSyncInfoModal(false);
+                    handleClearLocalData(true);
+                  }}
+                  className="px-3 py-1.5 bg-rose-100 hover:bg-rose-200 text-rose-900 font-bold rounded-xl transition-all cursor-pointer text-xs border border-rose-300"
+                >
+                  全年月・拠点のローカル保存を完全クリア
+                </button>
               </div>
             </div>
 
