@@ -278,7 +278,10 @@ BEGIN
         type NVARCHAR(50) NULL,
         details NVARCHAR(MAX) NULL,
         description NVARCHAR(MAX) NULL,
-        attachments NVARCHAR(MAX) NULL
+        attachments NVARCHAR(MAX) NULL,
+        purchaseOrderNumber NVARCHAR(100) NULL,
+        constructionDate NVARCHAR(50) NULL,
+        linkedInventoryIssueId VARCHAR(50) NULL
     );
 END
 ELSE
@@ -291,6 +294,9 @@ BEGIN
     IF COL_LENGTH('dbo.Workflows', 'type') IS NULL ALTER TABLE dbo.Workflows ADD type NVARCHAR(50) NULL;
     IF COL_LENGTH('dbo.Workflows', 'details') IS NULL ALTER TABLE dbo.Workflows ADD details NVARCHAR(MAX) NULL;
     IF COL_LENGTH('dbo.Workflows', 'attachments') IS NULL ALTER TABLE dbo.Workflows ADD attachments NVARCHAR(MAX) NULL;
+    IF COL_LENGTH('dbo.Workflows', 'purchaseOrderNumber') IS NULL ALTER TABLE dbo.Workflows ADD purchaseOrderNumber NVARCHAR(100) NULL;
+    IF COL_LENGTH('dbo.Workflows', 'constructionDate') IS NULL ALTER TABLE dbo.Workflows ADD constructionDate NVARCHAR(50) NULL;
+    IF COL_LENGTH('dbo.Workflows', 'linkedInventoryIssueId') IS NULL ALTER TABLE dbo.Workflows ADD linkedInventoryIssueId VARCHAR(50) NULL;
     
     -- Ensure description is added and is nullable (to fix any NOT NULL constraint issue)
     IF COL_LENGTH('dbo.Workflows', 'description') IS NULL

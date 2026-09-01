@@ -15,7 +15,7 @@ const escapedContent = serverContent
 const header = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年8月27日 (安否確認システム ステップ1：対象者への個人メール登録依頼一斉配信API & ディープリンク連携対応版)
+ * 最終更新日時 (最終アップデート): 2026年9月1日 (ワークフロー補充申請・各種申請登録・表示バグ修正 & DB自動カラム追加対応版)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -43,6 +43,11 @@ export interface ServerCodeHistoryItem {
 }
 
 export const SERVER_CODE_HISTORY: ServerCodeHistoryItem[] = [
+  {
+    version: 'v2026.09.01',
+    date: '2026-09-01',
+    summary: 'ワークフロー補充申請・各種申請登録・表示バグ修正 & DB自動カラム追加対応版',
+  },
   {
     version: 'v2026.08.27',
     date: '2026-08-27',

@@ -2,7 +2,7 @@
  * routes/workflows.js (本番環境・MS SQL Server & JSON ストレージ ハイブリッド対応版)
  * 寺岡オートドアSNS / 寺子屋SNS ワークフロー・各種申請APIモジュール
  * 
- * 最終更新: 2026年8月30日 (発注申請 purchase_order と 購入申請 purchase_request の完全分離・両立対応版)
+ * 最終更新: 2026年9月1日 (SSMS定義完全一致: updatedAt非存在対応 & 個別カラム高精度バインド版)
  */
 import { Router } from 'express';
 import path from 'path';
@@ -31,9 +31,9 @@ function getInitialWorkflowsSample() {
       },
       approverId: 'u1',
       status: 'pending',
-      category: 'purchase_order',
-      type: 'purchase_order',
-      purchaseOrderNumber: 'PO-2026-0801',
+      category: 'purchase_request',
+      type: 'purchase_request',
+      purchaseOrderNumber: null,
       constructionDate: null,
       linkedInventoryIssueId: null,
       description: '業務効率化および開発環境の整備のため、高解像度モニターと周辺機器を導入したく申請いたします。',
@@ -128,6 +128,24 @@ router.get(['/workflows', '/workflows/', ''], async (req, res) => {
         if (result.recordset) {
           workflows = result.recordset.map(row => {
             const parsedAttachments = safeParseJSON ? safeParseJSON(row.attachments, []) : (typeof row.attachments === 'string' ? JSON.parse(row.attachments || '[]') : (row.attachments || []));
+            
+            let detailsObj = safeParseJSON ? safeParseJSON(row.details, {}) : {};
+            if (typeof detailsObj !== 'object' || detailsObj === null) detailsObj = {};
+
+            // DB上の個別カラムと detailsObj を統合
+            if (row.flowId && !detailsObj.flowId) detailsObj.flowId = row.flowId;
+            if (row.flowName && !detailsObj.flowName) detailsObj.flowName = row.flowName;
+            if (row.currentStepIndex !== null && detailsObj.currentStepIndex === undefined) detailsObj.currentStepIndex = row.currentStepIndex;
+            if (row.totalSteps !== null && detailsObj.totalSteps === undefined) detailsObj.totalSteps = row.totalSteps;
+            if (row.amount !== null && detailsObj.amount === undefined) detailsObj.amount = row.amount;
+            if (row.quantity !== null && detailsObj.quantity === undefined) detailsObj.quantity = row.quantity;
+            if (row.purchaseItemsJson && !detailsObj.purchaseItems) detailsObj.purchaseItems = safeParseJSON ? safeParseJSON(row.purchaseItemsJson, []) : [];
+            if (row.stepsConfigJson && !detailsObj.stepsConfig) detailsObj.stepsConfig = safeParseJSON ? safeParseJSON(row.stepsConfigJson, []) : [];
+            if (row.historyJson && !detailsObj.history) detailsObj.history = safeParseJSON ? safeParseJSON(row.historyJson, []) : [];
+            if (row.rejectReason && !detailsObj.rejectReason) detailsObj.rejectReason = row.rejectReason;
+
+            const createdAtIso = row.createdAt ? (typeof row.createdAt === 'string' ? row.createdAt : new Date(row.createdAt).toISOString()) : new Date().toISOString();
+
             return {
               id: String(row.id),
               title: row.title || '無題の申請',
@@ -143,13 +161,17 @@ router.get(['/workflows', '/workflows/', ''], async (req, res) => {
               category: row.category || row.type || 'other',
               type: row.type || row.category || 'other',
               description: row.description || '',
+              amount: row.amount !== null ? row.amount : undefined,
+              quantity: row.quantity !== null ? row.quantity : undefined,
+              startDate: row.startDate ? (typeof row.startDate === 'string' ? row.startDate : new Date(row.startDate).toISOString()) : undefined,
+              endDate: row.endDate ? (typeof row.endDate === 'string' ? row.endDate : new Date(row.endDate).toISOString()) : undefined,
               purchaseOrderNumber: row.purchaseOrderNumber || undefined,
               constructionDate: row.constructionDate ? (typeof row.constructionDate === 'string' ? row.constructionDate.slice(0, 10) : new Date(row.constructionDate).toISOString().slice(0, 10)) : undefined,
               linkedInventoryIssueId: row.linkedInventoryIssueId || undefined,
-              details: row.details || '{}',
+              details: JSON.stringify(detailsObj),
               attachments: parsedAttachments,
-              createdAt: row.createdAt ? (typeof row.createdAt === 'string' ? row.createdAt : new Date(row.createdAt).toISOString()) : new Date().toISOString(),
-              updatedAt: row.updatedAt ? (typeof row.updatedAt === 'string' ? row.updatedAt : new Date(row.updatedAt).toISOString()) : undefined
+              createdAt: createdAtIso,
+              updatedAt: createdAtIso
             };
           });
           dbSuccess = true;
@@ -159,9 +181,17 @@ router.get(['/workflows', '/workflows/', ''], async (req, res) => {
       }
     }
 
-    // 2. DB未接続またはレコードなしの場合は JSON ファイルフォールバック
+    // 2. DB未接続またはレコードなしの場合は JSON ファイルフォールバック。DB接続時もファイル保存の未同期データを補完。
+    const fileWorkflows = loadWorkflowsFromFile();
     if (!dbSuccess || workflows.length === 0) {
-      workflows = loadWorkflowsFromFile();
+      workflows = fileWorkflows;
+    } else if (Array.isArray(fileWorkflows) && fileWorkflows.length > 0) {
+      const dbIds = new Set(workflows.map(w => String(w.id)));
+      for (const fw of fileWorkflows) {
+        if (fw && fw.id && !dbIds.has(String(fw.id))) {
+          workflows.push(fw);
+        }
+      }
     }
 
     res.json(workflows);
@@ -184,6 +214,7 @@ router.post(['/workflows', '/workflows/', ''], async (req, res) => {
       approverId, 
       status, 
       category, 
+      type,
       details, 
       attachments, 
       purchaseOrderNumber, 
@@ -196,35 +227,76 @@ router.post(['/workflows', '/workflows/', ''], async (req, res) => {
     const nowIso = new Date().toISOString();
 
     const finalApplicantId = String(applicantId || (req.body.applicant && req.body.applicant.id) || 'u1');
-    const finalApproverId = approverId || (req.body.approver && req.body.approver.id) || 'u1';
-    const finalStatus = status || '承認待ち';
-    const finalCategory = category || req.body.type || 'general';
-    const finalTitle = title || '無題の申請';
+    const finalApproverId = String(approverId || (req.body.approver && req.body.approver.id) || 'u1');
+    const finalStatus = String(status || 'pending');
+    const finalCategory = String(category || type || req.body.type || 'other');
+    const finalType = String(type || category || req.body.category || 'other');
+    const finalTitle = String(title || '無題の申請');
     const finalDesc = description || title || '';
 
-    const detailsStr = typeof details === 'object' && details !== null 
-      ? JSON.stringify(details) 
-      : (details || '');
+    let d = {};
+    if (typeof details === 'object' && details !== null) {
+      d = details;
+    } else if (typeof details === 'string' && details.trim().startsWith('{')) {
+      try { d = JSON.parse(details); } catch (_) {}
+    }
+
+    const detailsStr = JSON.stringify({
+      ...d,
+      applicantId: finalApplicantId,
+      approverId: finalApproverId,
+      applicant: req.body.applicant || d.applicant,
+      approver: req.body.approver || d.approver,
+      status: finalStatus,
+      category: finalCategory,
+      type: finalType
+    });
 
     const attachmentsStr = attachments 
       ? (typeof attachments === 'object' ? JSON.stringify(attachments) : String(attachments))
       : null;
 
-    // 1. MS SQL Server へ保存
+    // 個別カラムデータの抽出
+    const amountVal = d.amount !== undefined && d.amount !== null ? Number(d.amount) : (req.body.amount !== undefined ? Number(req.body.amount) : null);
+    const quantityVal = d.quantity !== undefined && d.quantity !== null ? Number(d.quantity) : (req.body.quantity !== undefined ? Number(req.body.quantity) : null);
+    const startDateVal = d.startDate ? new Date(d.startDate) : (req.body.startDate ? new Date(req.body.startDate) : null);
+    const endDateVal = d.endDate ? new Date(d.endDate) : (req.body.endDate ? new Date(req.body.endDate) : null);
+    const flowIdVal = d.flowId || req.body.flowId || null;
+    const flowNameVal = d.flowName || req.body.flowName || null;
+    const currentStepIndexVal = d.currentStepIndex !== undefined ? Number(d.currentStepIndex) : (req.body.currentStepIndex !== undefined ? Number(req.body.currentStepIndex) : null);
+    const totalStepsVal = d.totalSteps !== undefined ? Number(d.totalSteps) : (req.body.totalSteps !== undefined ? Number(req.body.totalSteps) : null);
+    const purchaseItemsJsonVal = d.purchaseItems ? JSON.stringify(d.purchaseItems) : (req.body.purchaseItems ? JSON.stringify(req.body.purchaseItems) : null);
+    const stepsConfigJsonVal = d.stepsConfig ? JSON.stringify(d.stepsConfig) : (req.body.stepsConfig ? JSON.stringify(req.body.stepsConfig) : null);
+    const historyJsonVal = d.history ? JSON.stringify(d.history) : (req.body.history ? JSON.stringify(req.body.history) : null);
+    const rejectReasonVal = d.rejectReason || req.body.rejectReason || null;
+
+    // 1. MS SQL Server へ保存 (SSMSの全カラムとデータ型に厳密バインド・updatedAt除外)
     if (pool) {
       try {
         await pool.request()
           .input('id', sql.VarChar, String(id))
+          .input('type', sql.NVarChar, finalType)
           .input('title', sql.NVarChar, finalTitle)
           .input('description', sql.NVarChar, finalDesc)
           .input('applicantId', sql.VarChar, finalApplicantId)
           .input('approverId', sql.VarChar, finalApproverId)
-          .input('status', sql.NVarChar, finalStatus)
-          .input('category', sql.NVarChar, finalCategory)
-          .input('type', sql.NVarChar, finalCategory)
-          .input('purchaseOrderNumber', sql.NVarChar, purchaseOrderNumber || null)
+          .input('status', sql.VarChar, finalStatus)
+          .input('amount', sql.Int, amountVal)
+          .input('quantity', sql.Int, quantityVal)
+          .input('startDate', sql.DateTime2, startDateVal)
+          .input('endDate', sql.DateTime2, endDateVal)
           .input('constructionDate', sql.NVarChar, constructionDate || null)
+          .input('purchaseItemsJson', sql.NVarChar, purchaseItemsJsonVal)
+          .input('purchaseOrderNumber', sql.NVarChar, purchaseOrderNumber || null)
           .input('linkedInventoryIssueId', sql.VarChar, linkedInventoryIssueId || null)
+          .input('flowId', sql.VarChar, flowIdVal)
+          .input('flowName', sql.NVarChar, flowNameVal)
+          .input('currentStepIndex', sql.Int, currentStepIndexVal)
+          .input('totalSteps', sql.Int, totalStepsVal)
+          .input('stepsConfigJson', sql.NVarChar, stepsConfigJsonVal)
+          .input('historyJson', sql.NVarChar, historyJsonVal)
+          .input('rejectReason', sql.NVarChar, rejectReasonVal)
+          .input('category', sql.NVarChar, finalCategory)
           .input('details', sql.NVarChar, detailsStr)
           .input('attachments', sql.NVarChar, attachmentsStr)
           .query(`
@@ -233,22 +305,45 @@ router.post(['/workflows', '/workflows/', ''], async (req, res) => {
             ON (target.id = source.id)
             WHEN MATCHED THEN
               UPDATE SET 
+                type = @type,
                 title = @title,
                 description = @description,
                 applicantId = @applicantId,
                 approverId = @approverId,
                 status = @status,
-                category = @category,
-                type = @type,
-                purchaseOrderNumber = @purchaseOrderNumber,
+                amount = @amount,
+                quantity = @quantity,
+                startDate = @startDate,
+                endDate = @endDate,
                 constructionDate = @constructionDate,
+                purchaseItemsJson = @purchaseItemsJson,
+                purchaseOrderNumber = @purchaseOrderNumber,
                 linkedInventoryIssueId = @linkedInventoryIssueId,
+                flowId = @flowId,
+                flowName = @flowName,
+                currentStepIndex = @currentStepIndex,
+                totalSteps = @totalSteps,
+                stepsConfigJson = @stepsConfigJson,
+                historyJson = @historyJson,
+                rejectReason = @rejectReason,
+                category = @category,
                 details = @details,
-                attachments = @attachments,
-                updatedAt = GETDATE()
+                attachments = @attachments
             WHEN NOT MATCHED THEN
-              INSERT (id, title, description, applicantId, approverId, status, createdAt, category, type, purchaseOrderNumber, constructionDate, linkedInventoryIssueId, details, attachments)
-              VALUES (@id, @title, @description, @applicantId, @approverId, @status, GETDATE(), @category, @type, @purchaseOrderNumber, @constructionDate, @linkedInventoryIssueId, @details, @attachments);
+              INSERT (
+                id, type, title, description, applicantId, approverId, status,
+                amount, quantity, startDate, endDate, createdAt, constructionDate,
+                purchaseItemsJson, purchaseOrderNumber, linkedInventoryIssueId,
+                flowId, flowName, currentStepIndex, totalSteps, stepsConfigJson,
+                historyJson, rejectReason, category, details, attachments
+              )
+              VALUES (
+                @id, @type, @title, @description, @applicantId, @approverId, @status,
+                @amount, @quantity, @startDate, @endDate, GETDATE(), @constructionDate,
+                @purchaseItemsJson, @purchaseOrderNumber, @linkedInventoryIssueId,
+                @flowId, @flowName, @currentStepIndex, @totalSteps, @stepsConfigJson,
+                @historyJson, @rejectReason, @category, @details, @attachments
+              );
           `);
       } catch (dbErr) {
         console.warn('[Workflows] DB insert warning:', dbErr.message);
@@ -265,7 +360,7 @@ router.post(['/workflows', '/workflows/', ''], async (req, res) => {
       approverId: finalApproverId,
       status: finalStatus,
       category: finalCategory,
-      type: finalCategory,
+      type: finalType,
       purchaseOrderNumber: purchaseOrderNumber || null,
       constructionDate: constructionDate || null,
       linkedInventoryIssueId: linkedInventoryIssueId || null,
@@ -306,6 +401,7 @@ router.put(['/workflows/:id', '/:id'], async (req, res) => {
       linkedInventoryIssueId, 
       title, 
       category,
+      type,
       description 
     } = req.body || {};
 
@@ -321,11 +417,11 @@ router.put(['/workflows/:id', '/:id'], async (req, res) => {
       try {
         await pool.request()
           .input('id', sql.VarChar, String(id))
-          .input('status', sql.NVarChar, status || null)
+          .input('status', sql.VarChar, status || null)
           .input('title', sql.NVarChar, title || null)
           .input('description', sql.NVarChar, description || null)
-          .input('category', sql.NVarChar, category || null)
-          .input('type', sql.NVarChar, category || null)
+          .input('category', sql.NVarChar, category || type || null)
+          .input('type', sql.NVarChar, type || category || null)
           .input('approverId', sql.VarChar, approverId || null)
           .input('details', sql.NVarChar, detailsVal)
           .input('attachments', sql.NVarChar, attachmentsVal)
@@ -344,8 +440,7 @@ router.put(['/workflows/:id', '/:id'], async (req, res) => {
                 attachments = COALESCE(@attachments, attachments),
                 purchaseOrderNumber = COALESCE(@purchaseOrderNumber, purchaseOrderNumber),
                 constructionDate = COALESCE(@constructionDate, constructionDate),
-                linkedInventoryIssueId = COALESCE(@linkedInventoryIssueId, linkedInventoryIssueId),
-                updatedAt = GETDATE()
+                linkedInventoryIssueId = COALESCE(@linkedInventoryIssueId, linkedInventoryIssueId)
             WHERE id = @id
           `);
       } catch (dbErr) {
@@ -364,7 +459,7 @@ router.put(['/workflows/:id', '/:id'], async (req, res) => {
         title: title !== undefined ? title : existing.title,
         description: description !== undefined ? description : existing.description,
         category: category !== undefined ? category : existing.category,
-        type: category !== undefined ? category : existing.type,
+        type: type !== undefined ? type : existing.type,
         approverId: approverId !== undefined ? approverId : existing.approverId,
         details: detailsVal !== null ? detailsVal : existing.details,
         attachments: attachments !== undefined ? attachments : existing.attachments,
@@ -440,3 +535,4 @@ router.post(['/workflows/:id/delete', '/:id/delete'], async (req, res) => {
 });
 
 export default router;
+

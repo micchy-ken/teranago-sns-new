@@ -740,8 +740,8 @@ export default function App() {
           if (app.details && typeof app.details === 'string' && app.details.startsWith('{')) {
             try { detailsObj = JSON.parse(app.details); } catch (_) {}
           }
-          const applicantUser = currentUsers.find(u => u.id === app.applicantId) || app.applicant || userState;
-          const approverUserObj = currentUsers.find(u => u.id === app.approverId) || app.approver;
+          const applicantUser = currentUsers.find(u => u.id === app.applicantId || u.id === detailsObj.applicantId || u.id === detailsObj.applicant?.id) || app.applicant || detailsObj.applicant || userState;
+          const approverUserObj = currentUsers.find(u => u.id === app.approverId || u.id === detailsObj.approverId || u.id === detailsObj.approver?.id) || app.approver || detailsObj.approver;
           
           let rawStatus = app.status || detailsObj.status || 'pending';
           if (rawStatus.includes('approved') || rawStatus.includes('承認済')) rawStatus = 'approved';
@@ -751,7 +751,7 @@ export default function App() {
           else rawStatus = 'pending';
 
           let rawType = app.category || app.type || detailsObj.type || 'other';
-          if (['business_trip', 'inventory_issue', 'purchase_order', 'other'].includes(rawType)) {
+          if (['business_trip', 'inventory_issue', 'purchase_order', 'purchase_request', 'gold_silver_daily_report', 'other'].includes(rawType)) {
             /* keep */
           } else if (rawType === 'general') {
             rawType = 'other';
@@ -2389,7 +2389,6 @@ export default function App() {
     }
 
     try {
-      const { applicant, approver, ...restDetails } = appData as any;
       const response = await fetch(`${API_BASE_URL}/workflows`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2405,7 +2404,11 @@ export default function App() {
           constructionDate: appData.constructionDate || null,
           linkedInventoryIssueId: appData.linkedInventoryIssueId || null,
           details: JSON.stringify({
-            ...restDetails,
+            ...appData,
+            applicantId: appData.applicant.id,
+            approverId: initialApprover.id,
+            applicant: appData.applicant,
+            approver: initialApprover,
             status: appData.status || 'pending',
             flowId: appData.flowId || selectedFlow?.id,
             flowName: appData.flowName || selectedFlow?.name || '標準承認フロー',

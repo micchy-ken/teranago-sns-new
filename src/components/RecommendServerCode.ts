@@ -1,7 +1,7 @@
 export const RECOMMEND_SERVER_JS = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年8月31日 (自拠点専用登録・取り込み対応、全拠点表示廃止、およびURLエンコード対応版)
+ * 最終更新日時 (最終アップデート): 2026年9月1日 (ワークフロー補充申請・各種申請登録・表示バグ修正 & DB自動カラム追加対応版)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -5776,6 +5776,11 @@ export interface ServerCodeHistoryItem {
 }
 
 export const SERVER_CODE_HISTORY: ServerCodeHistoryItem[] = [
+  {
+    version: 'v2026.09.01',
+    date: '2026-09-01',
+    summary: 'ワークフロー補充申請・各種申請登録・表示バグ修正 & DB自動カラム追加対応版',
+  },
   {
     version: 'v2026.08.27',
     date: '2026-08-27',
