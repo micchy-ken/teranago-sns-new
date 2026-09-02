@@ -496,36 +496,33 @@ export function Chat({
     if (isNewRoomOrView) {
       lastScrolledKeyRef.current = scrollKey;
 
-      const performScroll = (smooth = false) => {
+      const performScroll = () => {
         const c = chatContainerRef.current;
         if (!c) return;
 
         const unreadEl = document.getElementById('unread-line-divider');
         if (unreadEl) {
-          // scrollIntoViewはモバイルWebでwindow全体をスクロールさせてしまう場合があるため、直接scrollTopを計算設定
+          // 未読バーの真上へスクロール
           const containerRect = c.getBoundingClientRect();
           const unreadRect = unreadEl.getBoundingClientRect();
-          const relativeTop = unreadRect.top - containerRect.top + c.scrollTop;
-          
-          c.scrollTo({
-            top: Math.max(0, relativeTop - 12),
-            behavior: smooth ? 'smooth' : 'auto'
-          });
+          const targetTop = unreadRect.top - containerRect.top + c.scrollTop;
+          c.scrollTop = Math.max(0, targetTop - 12);
         } else {
-          c.scrollTo({
-            top: c.scrollHeight,
-            behavior: smooth ? 'smooth' : 'auto'
-          });
+          // 未読がない場合は既読の最後（最下部）へ確実にスクロール
+          c.scrollTop = c.scrollHeight;
+          if (messagesEndRef.current) {
+            messagesEndRef.current.scrollIntoView({ block: 'end' });
+          }
         }
       };
 
-      // 即時描画＋レイアウト安定化タイミングに合わせた段階的スクロール
-      performScroll(false);
-
-      const anim1 = requestAnimationFrame(() => performScroll(false));
-      const t1 = setTimeout(() => performScroll(false), 50);
-      const t2 = setTimeout(() => performScroll(true), 150);
-      const t3 = setTimeout(() => performScroll(true), 350);
+      // スマホの描画タイミング・画像読み込みに合わせて複数回確実に直接代入
+      performScroll();
+      const anim1 = requestAnimationFrame(performScroll);
+      const t1 = setTimeout(performScroll, 50);
+      const t2 = setTimeout(performScroll, 150);
+      const t3 = setTimeout(performScroll, 300);
+      const t4 = setTimeout(performScroll, 600);
 
       prevRoomIdRef.current = activeRoom.id;
       prevMessagesLengthRef.current = msgCount;
@@ -535,14 +532,15 @@ export function Chat({
         clearTimeout(t1);
         clearTimeout(t2);
         clearTimeout(t3);
+        clearTimeout(t4);
       };
     } else if (lengthIncreased) {
-      const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 150;
+      const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 200;
       if (sentByMe || isNearBottom) {
-        container.scrollTo({
-          top: container.scrollHeight,
-          behavior: 'smooth'
-        });
+        container.scrollTop = container.scrollHeight;
+        if (messagesEndRef.current) {
+          messagesEndRef.current.scrollIntoView({ block: 'end' });
+        }
       }
     }
 
@@ -1488,6 +1486,16 @@ export function Chat({
                               <img
                                 src={msg.imageUrl || undefined}
                                 alt="添付写真"
+                                onLoad={() => {
+                                  // 画像読み込み完了時に未読がない場合は最下部に留まるよう補正
+                                  const c = chatContainerRef.current;
+                                  if (c && !firstUnreadMessageId) {
+                                    const isNearBottom = c.scrollHeight - c.scrollTop - c.clientHeight < 300;
+                                    if (isNearBottom) {
+                                      c.scrollTop = c.scrollHeight;
+                                    }
+                                  }
+                                }}
                                 className="w-full max-h-56 sm:max-h-64 object-cover hover:opacity-95 transition-opacity"
                               />
                               <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-bold gap-1">
