@@ -1,4 +1,6 @@
-const CACHE_NAME = 'teranago-sns-v1';
+// Service Worker for Terakoya SNS / Groupware
+// Version: 2026.09.02.1
+const CACHE_NAME = 'teranago-sns-v20260902-1';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -158,7 +160,7 @@ self.addEventListener('push', (event) => {
     }
   }
 
-  // アクティブなクライアントタブへ即時メッセージを中継（フォアグラウンド表示中のリアルタイム即時更新）
+  // アクティブなクライアントタブへ即時メッセージを中継
   const notifyClientsPromise = clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
     clientList.forEach((client) => {
       client.postMessage({
@@ -184,13 +186,9 @@ self.addEventListener('push', (event) => {
       msgCount = (existingData.messageCount || 1) + 1;
 
       if (isChat) {
-        // 同じチャットルームで既存の未読通知がある場合：
-        // 通知音・バイブの連打を防ぎ、通知カードの本文を最新メッセージに更新
         finalRenotify = false;
         finalSilent = true;
         finalVibrate = [];
-        
-        // タイトルに新着件数をスマートに付与 (例: 💬 田中 (営業部) [3件])
         if (!finalTitle.includes(`[${msgCount}件`)) {
           finalTitle = `${finalTitle.replace(/\s*\[\d+件\]$/, '')} [${msgCount}件]`;
         }
@@ -236,14 +234,22 @@ self.addEventListener('notificationclick', (event) => {
   const targetUrl = resolveSwUrl(rawUrl);
 
   event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-      // 既に開いているタブがあればフォーカスしてURLを遷移
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(async (clientList) => {
+      // 既に開いているタブがあればフォーカスしてメッセージ送信＆遷移
       for (const client of clientList) {
         if ('focus' in client) {
           if (client.url.startsWith(self.registration.scope) || client.url.includes(self.location.origin)) {
-            client.focus();
-            if (targetUrl) {
-              client.navigate(targetUrl);
+            await client.focus();
+            client.postMessage({
+              type: 'NOTIFICATION_NAVIGATE',
+              url: targetUrl
+            });
+            if ('navigate' in client && targetUrl) {
+              try {
+                await client.navigate(targetUrl);
+              } catch (e) {
+                // navigate非対応または同一URL時は無視
+              }
             }
             return;
           }
@@ -256,4 +262,3 @@ self.addEventListener('notificationclick', (event) => {
     })
   );
 });
-
