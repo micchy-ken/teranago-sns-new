@@ -417,6 +417,7 @@ export function Chat({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const prevRoomIdRef = useRef<string | null>(null);
   const prevMessagesLengthRef = useRef<number>(0);
+  const lastScrolledKeyRef = useRef<string>('');
 
   useEffect(() => {
     const container = chatContainerRef.current;
@@ -424,37 +425,55 @@ export function Chat({
 
     const messages = activeRoom.messages || [];
     const msgCount = messages.length;
-    const roomChanged = prevRoomIdRef.current !== activeRoom.id;
+    
+    // スクロール判定用キー (部屋ID、モバイル画面状態、未読メッセージID)
+    const scrollKey = `${activeRoom.id}_${mobileView}_${firstUnreadMessageId || 'none'}`;
+    const isNewRoomOrView = lastScrolledKeyRef.current !== scrollKey;
     const lengthIncreased = msgCount > prevMessagesLengthRef.current;
     
     // 最終メッセージが自分のものであるか確認
     const lastMessage = messages[msgCount - 1];
     const sentByMe = lastMessage && lastMessage.sender.id === currentUser.id;
 
-    if (roomChanged || mobileView === 'room') {
-      // 部屋変更時またはモバイルでの表示時：未読ラインの真上へスクロール、無ければ最下部へスクロール
-      const doScroll = () => {
-        const currentContainer = chatContainerRef.current;
-        if (!currentContainer) return;
+    if (isNewRoomOrView) {
+      lastScrolledKeyRef.current = scrollKey;
+
+      const performScroll = (smooth = false) => {
+        const c = chatContainerRef.current;
+        if (!c) return;
 
         const unreadEl = document.getElementById('unread-line-divider');
         if (unreadEl) {
-          unreadEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          // scrollIntoViewはモバイルWebでwindow全体をスクロールさせてしまう場合があるため、直接scrollTopを計算設定
+          const containerRect = c.getBoundingClientRect();
+          const unreadRect = unreadEl.getBoundingClientRect();
+          const relativeTop = unreadRect.top - containerRect.top + c.scrollTop;
+          
+          c.scrollTo({
+            top: Math.max(0, relativeTop - 12),
+            behavior: smooth ? 'smooth' : 'auto'
+          });
         } else {
-          currentContainer.scrollTop = currentContainer.scrollHeight;
+          c.scrollTo({
+            top: c.scrollHeight,
+            behavior: smooth ? 'smooth' : 'auto'
+          });
         }
       };
 
-      // モバイル画面描画や画像読み込みタイミングに対応するため複数タイマーでスクロール実行
-      doScroll();
-      const t1 = setTimeout(doScroll, 50);
-      const t2 = setTimeout(doScroll, 150);
-      const t3 = setTimeout(doScroll, 350);
+      // 即時描画＋レイアウト安定化タイミングに合わせた段階的スクロール
+      performScroll(false);
+
+      const anim1 = requestAnimationFrame(() => performScroll(false));
+      const t1 = setTimeout(() => performScroll(true), 60);
+      const t2 = setTimeout(() => performScroll(true), 180);
+      const t3 = setTimeout(() => performScroll(true), 400);
 
       prevRoomIdRef.current = activeRoom.id;
       prevMessagesLengthRef.current = msgCount;
 
       return () => {
+        cancelAnimationFrame(anim1);
         clearTimeout(t1);
         clearTimeout(t2);
         clearTimeout(t3);
@@ -462,7 +481,10 @@ export function Chat({
     } else if (lengthIncreased) {
       const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 150;
       if (sentByMe || isNearBottom) {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        container.scrollTo({
+          top: container.scrollHeight,
+          behavior: 'smooth'
+        });
       }
     }
 
