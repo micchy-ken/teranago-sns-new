@@ -455,6 +455,18 @@ export function Calendar({
       return false;
     }
 
+    // 「他人から隠す」(isPrivate または isSecret) が有効な非公開予定の制御
+    if (e.isPrivate || (e as any).isSecret) {
+      const isParticipant = currentUser && (
+        (e.attendees && e.attendees.some(a => a && (a.id === currentUser.id || String(a.id) === String(currentUser.id) || a.name === currentUser.name))) ||
+        (e.createdBy && (e.createdBy.id === currentUser.id || String(e.createdBy.id) === String(currentUser.id))) ||
+        (e.createdById && String(e.createdById) === String(currentUser.id))
+      );
+      if (!isParticipant) {
+        return false;
+      }
+    }
+
     // 自分のカレンダー表示（personal mode）の場合：自分が参加者に含まれる予定のみ表示
     if (calendarMode === 'personal' && currentUser) {
       const isAttendee = e.attendees ? e.attendees.some(a => {

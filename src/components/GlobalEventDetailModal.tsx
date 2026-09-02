@@ -15,7 +15,8 @@ import {
   Copy, 
   Trash2, 
   UserCheck, 
-  Link2 
+  Link2,
+  Lock
 } from 'lucide-react';
 import { CalendarEvent, EventType, User } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
@@ -146,6 +147,12 @@ export function GlobalEventDetailModal({
               <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-purple-50 text-purple-700 border border-purple-200 flex items-center gap-1">
                 <Repeat className="w-3 h-3" />
                 定期予定
+              </span>
+            )}
+            {(event.isPrivate || (event as any).isSecret) && (
+              <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-200 flex items-center gap-1">
+                <Lock className="w-3 h-3 text-amber-600" />
+                非公開（他人から隠す）
               </span>
             )}
             {isIcal && (

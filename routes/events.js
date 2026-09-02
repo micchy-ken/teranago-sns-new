@@ -13,6 +13,14 @@ const router = Router();
 router.get('/events', async (req, res) => {
   try {
     const pool = await getPool();
+    try {
+      await pool.request().query(`
+        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Events') AND name = 'isPrivate')
+        BEGIN
+          ALTER TABLE dbo.Events ADD isPrivate BIT NULL DEFAULT 0;
+        END
+      `);
+    } catch (_) {}
     const result = await pool.request().query`SELECT * FROM dbo.Events ORDER BY startAt ASC`;
     const events = (result.recordset || []).map(row => ({
       id: String(row.id),
@@ -20,6 +28,7 @@ router.get('/events', async (req, res) => {
       startAt: row.startAt,
       endAt: row.endAt,
       isAllDay: !!row.isAllDay,
+      isPrivate: !!(row.isPrivate || row.isSecret),
       category: row.category || 'general',
       description: row.description || '',
       location: row.location || '',
@@ -37,15 +46,24 @@ router.get('/events', async (req, res) => {
 
 router.post('/events', async (req, res) => {
   try {
-    const { title, startAt, endAt, isAllDay, category, description, location, office, division, attachments, recurrence, recurrenceParentId, recurrenceOriginalDate, recurrenceExceptions } = req.body;
+    const { title, startAt, endAt, isAllDay, isPrivate, category, description, location, office, division, attachments, recurrence, recurrenceParentId, recurrenceOriginalDate, recurrenceExceptions } = req.body;
     const pool = await getPool();
     const id = req.body.id || `e-${Date.now()}`;
+    try {
+      await pool.request().query(`
+        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Events') AND name = 'isPrivate')
+        BEGIN
+          ALTER TABLE dbo.Events ADD isPrivate BIT NULL DEFAULT 0;
+        END
+      `);
+    } catch (_) {}
     await pool.request()
       .input('id', sql.VarChar, String(id))
       .input('title', sql.NVarChar, title || '予定')
       .input('startAt', sql.DateTime2, new Date(startAt || Date.now()))
       .input('endAt', sql.DateTime2, new Date(endAt || startAt || Date.now()))
       .input('isAllDay', sql.Bit, isAllDay ? 1 : 0)
+      .input('isPrivate', sql.Bit, isPrivate ? 1 : 0)
       .input('category', sql.NVarChar, category || 'general')
       .input('description', sql.NVarChar, typeof description === 'object' ? JSON.stringify(description) : (description || ''))
       .input('location', sql.NVarChar, location || '')
@@ -57,8 +75,8 @@ router.post('/events', async (req, res) => {
       .input('recurrenceOriginalDate', sql.VarChar, recurrenceOriginalDate || null)
       .input('recurrenceExceptions', sql.NVarChar, recurrenceExceptions ? JSON.stringify(recurrenceExceptions) : null)
       .query(`
-        INSERT INTO dbo.Events (id, title, startAt, endAt, isAllDay, category, description, location, office, division, attachments, recurrence, recurrenceParentId, recurrenceOriginalDate, recurrenceExceptions) 
-        VALUES (@id, @title, @startAt, @endAt, @isAllDay, @category, @description, @location, @office, @division, @attachments, @recurrence, @recurrenceParentId, @recurrenceOriginalDate, @recurrenceExceptions)
+        INSERT INTO dbo.Events (id, title, startAt, endAt, isAllDay, isPrivate, category, description, location, office, division, attachments, recurrence, recurrenceParentId, recurrenceOriginalDate, recurrenceExceptions) 
+        VALUES (@id, @title, @startAt, @endAt, @isAllDay, @isPrivate, @category, @description, @location, @office, @division, @attachments, @recurrence, @recurrenceParentId, @recurrenceOriginalDate, @recurrenceExceptions)
       `);
     res.status(201).json({ id, message: '予定登録完了' });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -66,15 +84,24 @@ router.post('/events', async (req, res) => {
 
 router.put('/events/:id', async (req, res) => {
   try {
-    const { title, startAt, endAt, isAllDay, category, description, location, office, division, attachments, recurrence, recurrenceParentId, recurrenceOriginalDate, recurrenceExceptions } = req.body;
+    const { title, startAt, endAt, isAllDay, isPrivate, category, description, location, office, division, attachments, recurrence, recurrenceParentId, recurrenceOriginalDate, recurrenceExceptions } = req.body;
     const pool = await getPool();
     const id = req.params.id;
+    try {
+      await pool.request().query(`
+        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Events') AND name = 'isPrivate')
+        BEGIN
+          ALTER TABLE dbo.Events ADD isPrivate BIT NULL DEFAULT 0;
+        END
+      `);
+    } catch (_) {}
     await pool.request()
       .input('id', sql.VarChar, String(id))
       .input('title', sql.NVarChar, title || '予定')
       .input('startAt', sql.DateTime2, new Date(startAt || Date.now()))
       .input('endAt', sql.DateTime2, new Date(endAt || startAt || Date.now()))
       .input('isAllDay', sql.Bit, isAllDay ? 1 : 0)
+      .input('isPrivate', sql.Bit, isPrivate ? 1 : 0)
       .input('category', sql.NVarChar, category || 'general')
       .input('description', sql.NVarChar, typeof description === 'object' ? JSON.stringify(description) : (description || ''))
       .input('location', sql.NVarChar, location || '')
@@ -87,7 +114,7 @@ router.put('/events/:id', async (req, res) => {
       .input('recurrenceExceptions', sql.NVarChar, recurrenceExceptions ? JSON.stringify(recurrenceExceptions) : null)
       .query(`
         UPDATE dbo.Events 
-        SET title = @title, startAt = @startAt, endAt = @endAt, isAllDay = @isAllDay, 
+        SET title = @title, startAt = @startAt, endAt = @endAt, isAllDay = @isAllDay, isPrivate = @isPrivate,
             category = @category, description = @description, location = @location, 
             office = @office, division = @division, attachments = @attachments,
             recurrence = @recurrence, recurrenceParentId = @recurrenceParentId,

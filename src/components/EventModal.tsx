@@ -153,6 +153,7 @@ export function EventModal({
   const [office, setOffice] = useState<string>('全社');
   const [division, setDivision] = useState<string>('全部署');
   const [isAllDay, setIsAllDay] = useState(false);
+  const [isPrivate, setIsPrivate] = useState(false);
   const [start, setStart] = useState('');
   const [end, setEnd] = useState('');
   const [location, setLocation] = useState('');
@@ -279,6 +280,7 @@ export function EventModal({
 
         const isMultiDay = !!(startDateStr && endDateStr && startDateStr !== endDateStr);
         setIsAllDay(isAllDayEv || isMultiDay);
+        setIsPrivate(!!(editingEvent.isPrivate || (editingEvent as any).isSecret));
 
         setStart(startLocal);
         setEnd(endLocal);
@@ -327,6 +329,7 @@ export function EventModal({
 
         const useAllDay = defaultIsAllDay !== undefined ? defaultIsAllDay : isMulti;
         setIsAllDay(useAllDay);
+        setIsPrivate(false);
 
         setLocation('');
         setMemo('');
@@ -451,6 +454,15 @@ export function EventModal({
       setStart(newStart);
       setEnd(newEnd);
       setDurationMinutes(60);
+    }
+  };
+
+  // 他人から隠す（非公開）トグルハンドラー
+  const handlePrivateToggle = (checked: boolean) => {
+    setIsPrivate(checked);
+    setError(null);
+    if (checked && currentUser) {
+      setSelectedAttendees([currentUser]);
     }
   };
 
@@ -604,12 +616,13 @@ export function EventModal({
       start: startIso,
       end: endIso,
       isAllDay,
+      isPrivate,
       office,
       division,
       location,
       memo,
       isGoogleSynced: false,
-      attendees: selectedAttendees,
+      attendees: isPrivate && currentUser ? [currentUser] : selectedAttendees,
       createdBy: editingEvent?.createdBy || currentUser,
       attachments,
       recurrence: recurrenceObj,
@@ -775,22 +788,42 @@ export function EventModal({
             </select>
           </div>
 
-          <div className="flex items-center gap-2 pt-1">
-            <input
-              type="checkbox"
-              id="isAllDay"
-              disabled={isIcal}
-              checked={isAllDay}
-              onChange={e => handleAllDayToggle(e.target.checked)}
-              className={`w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 ${
-                isIcal ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
-              }`}
-            />
-            <label htmlFor="isAllDay" className={`text-sm font-semibold select-none ${
-              isIcal ? 'text-slate-400 cursor-not-allowed' : 'text-slate-700 cursor-pointer'
-            }`}>
-              終日予定として設定
-            </label>
+          <div className="flex items-center gap-6 pt-1 flex-wrap">
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="isAllDay"
+                disabled={isIcal}
+                checked={isAllDay}
+                onChange={e => handleAllDayToggle(e.target.checked)}
+                className={`w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 ${
+                  isIcal ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
+                }`}
+              />
+              <label htmlFor="isAllDay" className={`text-sm font-semibold select-none ${
+                isIcal ? 'text-slate-400 cursor-not-allowed' : 'text-slate-700 cursor-pointer'
+              }`}>
+                終日予定として設定
+              </label>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="isPrivate"
+                disabled={isIcal}
+                checked={isPrivate}
+                onChange={e => handlePrivateToggle(e.target.checked)}
+                className={`w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 ${
+                  isIcal ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
+                }`}
+              />
+              <label htmlFor="isPrivate" className={`text-sm font-semibold select-none flex items-center gap-1 ${
+                isIcal ? 'text-slate-400 cursor-not-allowed' : 'text-slate-700 cursor-pointer'
+              }`}>
+                <span>他人から隠す</span>
+              </label>
+            </div>
           </div>
 
           {isAllDay ? (
@@ -1203,16 +1236,22 @@ export function EventModal({
 
           {/* 参加者の選択 */}
           <div>
+            {isPrivate && (
+              <p className="text-xs font-semibold text-slate-600 bg-slate-100 border border-slate-200 px-3 py-1.5 rounded-lg mb-2 flex items-center gap-1.5">
+                🔒 「他人から隠す」がONのため、参加メンバーはあなたのみに固定されています。
+              </p>
+            )}
             <MemberSelector
               allUsers={allUsers}
               selectedUserIds={selectedAttendees.map(u => u.id)}
               onChangeSelectedUserIds={(ids) => {
+                if (isPrivate) return;
                 const updated = allUsers.filter(u => ids.includes(u.id));
                 setSelectedAttendees(updated);
               }}
               offices={offices}
               divisions={divisions}
-              disabled={isIcal}
+              disabled={isIcal || isPrivate}
               label="参加メンバー設定"
             />
           </div>

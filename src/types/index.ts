@@ -114,6 +114,8 @@ export interface CalendarEvent {
   start: string; // ISO string
   end?: string; // ISO string (optional)
   isAllDay?: boolean; // 終日フラグ
+  isPrivate?: boolean; // 他人から隠す（非公開）フラグ
+  isSecret?: boolean;  // 互換用非公開フラグ
   type: EventType;
   office?: string;    // 対象拠点 (例: 全社, 名古屋支店, 本社)
   division?: string;  // 対象部署 (例: 全部署, 営業, 設計)
