@@ -1768,30 +1768,53 @@ export default function App() {
       };
     } else {
       // 承認アクション (actionStatus === 'approved')
-      const currentStep = targetApp.currentStepIndex || 1;
+      let currentStep = targetApp.currentStepIndex || 1;
       const stepsConfig = (targetApp.stepsConfig && targetApp.stepsConfig.length > 0) ? targetApp.stepsConfig : null;
       const totalSteps = stepsConfig ? stepsConfig.length : (targetApp.totalSteps || 1);
 
-      if (currentStep < totalSteps && stepsConfig) {
-        const nextStepConfig = stepsConfig[currentStep];
+      let newHistory = [...(targetApp.history || [])];
+
+      // 現在のステップを承認履歴に追加
+      newHistory.push({
+        stepNumber: currentStep,
+        approver: userState,
+        status: 'approved',
+        actionAt: new Date().toISOString(),
+        comment: comment,
+      });
+
+      // 次のステップへ
+      currentStep++;
+
+      // 次のステップが存在し、かつ次のステップの承認者が今回の承認者(userState)と同一人物の場合、自動スキップ承認
+      while (currentStep <= totalSteps && stepsConfig) {
+        const nextStepConfig = stepsConfig[currentStep - 1];
         const nextApprover = resolveApproverForStep(targetApp.applicant, nextStepConfig, usersList);
 
+        if (nextApprover && nextApprover.id === userState.id) {
+          newHistory.push({
+            stepNumber: currentStep,
+            approver: nextApprover,
+            status: 'approved',
+            actionAt: new Date().toISOString(),
+            comment: '（同一承認者のため自動スキップ）',
+          });
+          currentStep++;
+        } else {
+          break;
+        }
+      }
+
+      if (currentStep <= totalSteps && stepsConfig) {
+        const nextStepConfig = stepsConfig[currentStep - 1];
+        const nextApprover = resolveApproverForStep(targetApp.applicant, nextStepConfig, usersList);
         resultApp = {
           ...targetApp,
-          currentStepIndex: currentStep + 1,
+          currentStepIndex: currentStep,
           totalSteps: totalSteps,
           approver: nextApprover,
           status: 'pending',
-          history: [
-            ...(targetApp.history || []),
-            {
-              stepNumber: currentStep,
-              approver: userState,
-              status: 'approved',
-              actionAt: new Date().toISOString(),
-              comment: comment,
-            }
-          ]
+          history: newHistory,
         };
       } else {
         resultApp = {
@@ -1799,16 +1822,7 @@ export default function App() {
           status: 'approved',
           currentStepIndex: totalSteps,
           totalSteps: totalSteps,
-          history: [
-            ...(targetApp.history || []),
-            {
-              stepNumber: currentStep,
-              approver: userState,
-              status: 'approved',
-              actionAt: new Date().toISOString(),
-              comment: comment,
-            }
-          ]
+          history: newHistory,
         };
       }
     }

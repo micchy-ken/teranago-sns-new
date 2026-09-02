@@ -132,6 +132,26 @@ export async function getOrRegisterSW(): Promise<ServiceWorkerRegistration | nul
 }
 
 /**
+ * 安全にJSONレスポンスをパースするヘルパー（HTMLエラーページの例外を防止）
+ */
+async function parseJsonResponse(res: Response): Promise<any> {
+  const contentType = res.headers.get('content-type') || '';
+  const text = await res.text().catch(() => '');
+
+  if (!contentType.includes('application/json') || text.trim().startsWith('<')) {
+    throw new Error(
+      `APIサーバーからの応答がJSON形式ではありませんでした (HTTP ${res.status})。API_BASE_URL (${API_BASE_URL}) またはバックエンドサーバーの稼働状況をご確認ください。`
+    );
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch (e: any) {
+    throw new Error(`JSON解析エラー: ${e.message}`);
+  }
+}
+
+/**
  * 端末のPush通知状態を取得
  */
 export async function getPushNotificationStatus(userId?: string): Promise<PushStatus> {
@@ -173,7 +193,7 @@ export async function getPushNotificationStatus(userId?: string): Promise<PushSt
         'ステータス通信タイムアウト'
       );
       if (res.ok) {
-        const data = await res.json();
+        const data = await parseJsonResponse(res);
         subscriptionCount = data.subscriptionCount || 0;
       }
     } catch (e) {
@@ -283,10 +303,16 @@ export async function subscribeToPushNotifications(
       'サーバーからVAPID公開鍵の取得でタイムアウトしました。'
     );
 
-    if (!keyRes.ok) {
-      throw new Error('サーバーからVAPID公開鍵を取得できませんでした。');
+    const keyData = await parseJsonResponse(keyRes).catch((err) => {
+      if (!keyRes.ok) throw err;
+      return null;
+    });
+
+    if (!keyRes.ok || !keyData) {
+      throw new Error(keyData?.error || `サーバーからVAPID公開鍵を取得できませんでした (HTTP ${keyRes.status})。`);
     }
-    const { publicKey } = await keyRes.json();
+
+    const { publicKey } = keyData;
     if (!publicKey) {
       throw new Error('有効なVAPID公開鍵がサーバーから返されませんでした。');
     }
@@ -338,9 +364,13 @@ export async function subscribeToPushNotifications(
       'サーバーへの通知端末登録でタイムアウトしました。'
     );
 
+    const subData = await parseJsonResponse(subRes).catch((err) => {
+      if (!subRes.ok) throw err;
+      return null;
+    });
+
     if (!subRes.ok) {
-      const errJson = await subRes.json().catch(() => ({}));
-      throw new Error(errJson.error || 'サーバーへの通知購読登録に失敗しました。');
+      throw new Error(subData?.error || `サーバーへの通知購読登録に失敗しました (HTTP ${subRes.status})。`);
     }
 
     return {
@@ -384,7 +414,7 @@ export async function unsubscribeFromPushNotifications(userId?: string): Promise
           endpoint,
           userId: userId ? String(userId) : undefined,
         }),
-      });
+      }).catch(() => {});
     }
 
     return {
@@ -415,9 +445,9 @@ export async function sendTestPushNotification(userId: string): Promise<{
       body: JSON.stringify({ userId: String(userId) }),
     });
 
-    const data = await res.json();
+    const data = await parseJsonResponse(res);
     if (!res.ok) {
-      throw new Error(data.error || 'テスト通知の送信に失敗しました。');
+      throw new Error(data?.error || `テスト通知の送信に失敗しました (HTTP ${res.status})。`);
     }
 
     return {

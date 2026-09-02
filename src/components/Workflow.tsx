@@ -5,7 +5,7 @@ import { ApplicationModal } from './ApplicationModal';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { FilePreviewModal } from './FilePreviewModal';
 import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
-import { filterStepsForApplicant, getSupervisorAtLevel, resolveApproverForStep } from '../utils/workflowHelpers';
+import { filterStepsForApplicant, getSupervisorAtLevel, resolveApproverForStep, isDuplicateApproverStep } from '../utils/workflowHelpers';
 
 interface WorkflowProps {
   applications: WorkflowApplication[];
@@ -844,6 +844,7 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
                               const stepNum = idx + 1;
                               const currentStep = app.currentStepIndex || 1;
                               const userInfo = resolveStepUserInfo(app, step, idx);
+                              const isDuplicate = isDuplicateApproverStep(app.applicant, displaySteps, idx, allUsers);
 
                               let stepState: 'completed' | 'current' | 'upcoming' = 'upcoming';
                               if (app.status === 'approved') {
@@ -863,7 +864,9 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
 
                                   <div
                                     className={`flex items-center gap-2 px-2.5 py-1.5 rounded-xl border text-xs transition-all ${
-                                      stepState === 'completed'
+                                      isDuplicate
+                                        ? 'bg-slate-100/90 border-dashed border-slate-300 text-slate-400 opacity-60'
+                                        : stepState === 'completed'
                                         ? 'bg-emerald-50/80 border-emerald-200 text-emerald-900'
                                         : stepState === 'current'
                                         ? 'bg-amber-50 border-amber-300 ring-2 ring-amber-200/80 text-amber-950 font-bold shadow-xs'
@@ -872,7 +875,9 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
                                   >
                                     <div
                                       className={`w-5 h-5 rounded-full text-[10px] font-extrabold flex items-center justify-center shrink-0 ${
-                                        stepState === 'completed'
+                                        isDuplicate
+                                          ? 'bg-slate-300 text-slate-600'
+                                          : stepState === 'completed'
                                           ? 'bg-emerald-600 text-white'
                                           : stepState === 'current'
                                           ? 'bg-amber-600 text-white'
@@ -884,20 +889,25 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
 
                                     <div className="flex flex-col">
                                       <div className="flex items-center gap-1">
-                                        <span className="font-bold">{userInfo.name}</span>
-                                        {stepState === 'current' && (
+                                        <span className={`font-bold ${isDuplicate ? 'line-through text-slate-500' : ''}`}>
+                                          {userInfo.name}
+                                        </span>
+                                        {isDuplicate ? (
+                                          <span className="text-[9px] font-extrabold bg-slate-200 text-slate-600 px-1 rounded">
+                                            自動スキップ
+                                          </span>
+                                        ) : stepState === 'current' ? (
                                           <span className="text-[9px] font-extrabold bg-amber-200 text-amber-900 px-1 rounded">
                                             確認待ち
                                           </span>
-                                        )}
-                                        {stepState === 'completed' && (
+                                        ) : stepState === 'completed' ? (
                                           <span className="text-[9px] font-extrabold bg-emerald-200 text-emerald-900 px-1 rounded">
                                             承認済
                                           </span>
-                                        )}
+                                        ) : null}
                                       </div>
                                       <span className="text-[9px] text-slate-500 font-normal">
-                                        {step.stepName || `${stepNum}次承認`} ({userInfo.roleLabel})
+                                        {step.stepName || `${stepNum}次承認`} {isDuplicate ? '(前ステップ重複パス)' : `(${userInfo.roleLabel})`}
                                       </span>
                                     </div>
                                   </div>

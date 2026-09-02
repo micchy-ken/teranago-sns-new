@@ -133,3 +133,21 @@ export const resolveApproverForStepDetails = (
     isFallback: true
   };
 };
+
+/**
+ * 対象ステップの承認者が直前ステップの承認者と同一人物かどうか判定する
+ */
+export const isDuplicateApproverStep = (
+  applicant: User,
+  stepsConfig: ApprovalStepConfig[] | undefined,
+  stepIdx: number,
+  users: User[]
+): boolean => {
+  if (!stepsConfig || stepIdx <= 0 || stepIdx >= stepsConfig.length) return false;
+
+  const currentApprover = resolveApproverForStep(applicant, stepsConfig[stepIdx], users);
+  const prevApprover = resolveApproverForStep(applicant, stepsConfig[stepIdx - 1], users);
+
+  return Boolean(currentApprover && prevApprover && currentApprover.id === prevApprover.id);
+};
+

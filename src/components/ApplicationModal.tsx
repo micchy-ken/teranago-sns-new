@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, GitMerge, ArrowRight, CheckCircle2, UserCheck, ShieldCheck, AlertCircle, Plus, Trash2, Building2, ShoppingBag, Calculator, Calendar, Save, Send, Paperclip, Loader2, UploadCloud, Store, Clock, CreditCard, FileText, UserPlus, Zap, Coins } from 'lucide-react';
 import { ApplicationType, WorkflowApplication, User, ApprovalFlowRule, ApprovalStepConfig, ItemMaster, PurchaseOrderItem, ApplicationStatus, AttachmentFile } from '../types';
-import { filterStepsForApplicant, getSupervisorAtLevel, resolveApproverForStep, resolveApproverForStepDetails } from '../utils/workflowHelpers';
+import { filterStepsForApplicant, getSupervisorAtLevel, resolveApproverForStep, resolveApproverForStepDetails, isDuplicateApproverStep } from '../utils/workflowHelpers';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { uploadMultipleFiles } from '../utils/fileUpload';
 import { markWorkflowAsRead } from '../utils/notifications';
@@ -270,11 +270,16 @@ export function ApplicationModal({
     if (field === 'itemName') {
       const nameVal = String(value);
       targetItem.itemName = nameVal;
-      // 品名マスタと一致するものがあれば標準単価を自動補完
-      const matchedMaster = itemMasters.find(m => m.name === nameVal);
-      if (matchedMaster && matchedMaster.defaultUnitPrice !== undefined) {
-        targetItem.unitPrice = matchedMaster.defaultUnitPrice;
-        targetItem.amount = (Number(targetItem.quantity) || 1) * matchedMaster.defaultUnitPrice;
+      // 購入申請 (purchase_request) の場合は品名マスターとの自動連動を行わず、完全手入力とする
+      if (type !== 'purchase_request') {
+        const matchedMaster = itemMasters.find(m => m.name === nameVal);
+        if (matchedMaster && matchedMaster.defaultUnitPrice !== undefined) {
+          targetItem.unitPrice = matchedMaster.defaultUnitPrice;
+          targetItem.amount = (Number(targetItem.quantity) || 1) * matchedMaster.defaultUnitPrice;
+        } else {
+          const p = Number(targetItem.unitPrice) || 0;
+          targetItem.amount = (Number(targetItem.quantity) || 0) * p;
+        }
       } else {
         const p = Number(targetItem.unitPrice) || 0;
         targetItem.amount = (Number(targetItem.quantity) || 0) * p;
@@ -359,11 +364,16 @@ export function ApplicationModal({
   const activeStepsConfig = currentFlow ? filterStepsForApplicant(currentUser, currentFlow.steps, allUsers) : [];
 
   // 申請者(currentUser)の実際の承認ルートを計算
-  const actualRoute = activeStepsConfig.map((step, idx) => ({
-    stepNumber: idx + 1,
-    stepName: step.stepName || `${idx + 1}次承認`,
-    ...resolveApproverForStepDetails(currentUser, step, idx, allUsers)
-  }));
+  const actualRoute = activeStepsConfig.map((step, idx) => {
+    const details = resolveApproverForStepDetails(currentUser, step, idx, allUsers);
+    const isDuplicate = isDuplicateApproverStep(currentUser, activeStepsConfig, idx, allUsers);
+    return {
+      stepNumber: idx + 1,
+      stepName: step.stepName || `${idx + 1}次承認`,
+      isDuplicate,
+      ...details
+    };
+  });
 
   const handleSaveDraft = () => {
     const draftTitle = (title || '').trim() || (type === 'gold_silver_daily_report' ? getGoldSilverReportTitle(reportOffice) : '(無題の下書き)');
@@ -1159,16 +1169,16 @@ export function ApplicationModal({
                     <div className="grid grid-cols-12 gap-2">
                       <div className="col-span-12 sm:col-span-5">
                         <label className="block text-[10px] font-bold text-slate-600 mb-1">
-                          品名 <span className="text-slate-400 font-normal">(マスタサジェスト/直接入力)</span>
+                          品名 {type === 'purchase_request' ? <span className="text-slate-400 font-normal">(手入力)</span> : <span className="text-slate-400 font-normal">(マスタサジェスト/直接入力)</span>}
                         </label>
                         <input
                           type="text"
-                          list="item-master-list"
+                          list={type === 'purchase_request' ? undefined : "item-master-list"}
                           required
                           autoComplete="off"
                           value={item.itemName}
                           onChange={e => handlePurchaseItemChange(idx, 'itemName', e.target.value)}
-                          placeholder="例: 27インチ4Kモニター、ワイヤレスマウス等"
+                          placeholder={type === 'purchase_request' ? "品名を手入力（例: 27インチ4Kモニター）" : "例: 27インチ4Kモニター、ワイヤレスマウス等"}
                           className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                         />
                       </div>
@@ -1361,20 +1371,39 @@ export function ApplicationModal({
                   {/* ステップ順序展開 */}
                   {actualRoute.map((rt, idx) => (
                     <React.Fragment key={idx}>
-                      <div className="pl-2.5 border-l-2 border-indigo-200 ml-3 py-1">
-                        <div className="flex items-center gap-2.5 bg-white p-2.5 rounded-xl border border-slate-200 shadow-2xs">
+                      <div className={`pl-2.5 border-l-2 ml-3 py-1 ${rt.isDuplicate ? 'border-slate-300' : 'border-indigo-200'}`}>
+                        <div className={`flex items-center gap-2.5 p-2.5 rounded-xl border transition-all ${
+                          rt.isDuplicate 
+                            ? 'bg-slate-100/90 border-dashed border-slate-300 text-slate-400 opacity-60 shadow-none' 
+                            : 'bg-white border-slate-200 shadow-2xs'
+                        }`}>
                           <div className={`w-6 h-6 rounded-full font-bold text-[11px] flex items-center justify-center shrink-0 ${
-                            idx === 0 ? 'bg-indigo-600 text-white ring-2 ring-indigo-200' : 'bg-slate-100 text-slate-700'
+                            rt.isDuplicate
+                              ? 'bg-slate-300 text-slate-600'
+                              : idx === 0 
+                              ? 'bg-indigo-600 text-white ring-2 ring-indigo-200' 
+                              : 'bg-slate-100 text-slate-700'
                           }`}>
                             {rt.stepNumber}
                           </div>
 
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="font-extrabold text-xs text-slate-900">{rt.user.name}</span>
-                              <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.2 rounded border border-indigo-100">
+                              <span className={`font-extrabold text-xs ${rt.isDuplicate ? 'text-slate-500 line-through' : 'text-slate-900'}`}>
+                                {rt.user.name}
+                              </span>
+                              <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded border ${
+                                rt.isDuplicate 
+                                  ? 'bg-slate-200/80 text-slate-600 border-slate-300' 
+                                  : 'text-indigo-700 bg-indigo-50 border-indigo-100'
+                              }`}>
                                 {rt.stepName}
                               </span>
+                              {rt.isDuplicate && (
+                                <span className="text-[10px] font-extrabold text-slate-500 bg-slate-200/90 px-1.5 py-0.2 rounded border border-slate-300">
+                                  同一承認者のため自動スキップ
+                                </span>
+                              )}
                             </div>
                             <p className="text-[10px] text-slate-500 truncate mt-0.5">
                               {rt.user.office || ''} / {rt.user.division || ''} / {rt.user.position || ''}
@@ -1396,11 +1425,21 @@ export function ApplicationModal({
 
                 {/* 初回確認待ちの注意アナウンス */}
                 {actualRoute.length > 0 && (
-                  <div className="pt-2 border-t border-slate-200/60 flex items-start gap-1.5 text-[11px] text-indigo-900">
-                    <ShieldCheck className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
-                    <span>
-                      申請提出後は、まず 1次承認者の <strong className="font-extrabold underline text-indigo-700">{actualRoute[0].user.name}</strong> さんに承認依頼が届きます。
-                    </span>
+                  <div className="pt-2 border-t border-slate-200/60 space-y-1 text-[11px] text-indigo-900">
+                    <div className="flex items-start gap-1.5">
+                      <ShieldCheck className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
+                      <span>
+                        申請提出後は、まず 1次承認者の <strong className="font-extrabold underline text-indigo-700">{actualRoute[0].user.name}</strong> さんに承認依頼が届きます。
+                      </span>
+                    </div>
+                    {actualRoute.some(r => r.isDuplicate) && (
+                      <div className="flex items-start gap-1.5 text-slate-600 pl-0.5 font-medium">
+                        <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+                        <span>
+                          ※グレー表示のステップは前ステップの承認者と同一人物のため、前ステップ承認時に自動でスキップ（パス）されます。
+                        </span>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

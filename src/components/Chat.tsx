@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { ChatRoom, ChatMessage, User, OfficeMaster, DivisionMaster, AttachmentFile } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
 import { MemberSelector } from './MemberSelector';
-import { markChatRoomAsRead } from '../utils/notifications';
+import { markChatRoomAsRead, getReadChatTimestamps } from '../utils/notifications';
 import { API_BASE_URL } from '../config/api';
 import { 
   Search, 
@@ -241,6 +241,70 @@ export function Chat({
     }
   }, [initialRoomId, rooms]);
 
+  // 「ここから未読メッセージ」ライン用の最初の未読メッセージIDを記録するステート
+  const [firstUnreadMessageId, setFirstUnreadMessageId] = useState<string | null>(null);
+  const currentRoomIdForUnreadRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!activeRoom || !currentUser?.id) {
+      setFirstUnreadMessageId(null);
+      currentRoomIdForUnreadRef.current = null;
+      return;
+    }
+
+    // ルームが切り替わったタイミング（または未選択状態からの入室時）にのみ「最初の未読メッセージ」を固定特定
+    if (currentRoomIdForUnreadRef.current !== activeRoom.id) {
+      currentRoomIdForUnreadRef.current = activeRoom.id;
+      const messages = activeRoom.messages || [];
+
+      // ローカルストレージに保存されている前回の閲覧タイムスタンプを取得
+      const storageKey = `teranago_chat_last_visited_${currentUser.id}`;
+      let storedTimestamps: Record<string, string> = {};
+      try {
+        const raw = localStorage.getItem(storageKey);
+        if (raw) storedTimestamps = JSON.parse(raw);
+      } catch (e) {}
+
+      const lastVisitedIso = storedTimestamps[activeRoom.id];
+      const serverReadTime = activeRoom.readStatus?.[currentUser.id] || (activeRoom as any).lastReadTimestamps?.[currentUser.id];
+
+      // 前回の閲覧タイムスタンプ（ローカルの記録を優先し、無ければサーバーの記録）
+      const baseReadIso = lastVisitedIso || serverReadTime;
+
+      let unreadMsg: ChatMessage | undefined;
+
+      if (baseReadIso) {
+        const baseReadTime = new Date(baseReadIso).getTime();
+        unreadMsg = messages.find((msg) => {
+          if (msg.sender.id === currentUser.id) return false;
+          const msgTime = new Date(msg.createdAt || 0).getTime();
+          // メッセージ作成日時が前回の閲覧日時より新しいか（精度向上：1秒以上の差）
+          return msgTime > baseReadTime + 500;
+        });
+      }
+
+      // タイムスタンプで未検出の場合は msg.viewers（閲覧履歴）によるフォールバック検索
+      if (!unreadMsg) {
+        unreadMsg = messages.find((msg) => {
+          if (msg.sender.id === currentUser.id) return false;
+          const viewers = msg.viewers || [];
+          const isViewed = viewers.some((v: any) =>
+            v?.user?.id === currentUser.id || v?.userId === currentUser.id || v?.id === currentUser.id
+          );
+          return !isViewed;
+        });
+      }
+
+      setFirstUnreadMessageId(unreadMsg ? unreadMsg.id : null);
+
+      // 今回の訪問完了として、現在日時をローカルに更新保存
+      try {
+        storedTimestamps[activeRoom.id] = new Date().toISOString();
+        localStorage.setItem(storageKey, JSON.stringify(storedTimestamps));
+      } catch (e) {}
+    }
+  }, [activeRoom?.id, currentUser?.id]);
+
   useEffect(() => {
     if (activeRoomId && currentUser?.id) {
       markChatRoomAsRead(currentUser.id, activeRoomId);
@@ -309,8 +373,15 @@ export function Chat({
     const sentByMe = lastMessage && lastMessage.sender.id === currentUser.id;
 
     if (roomChanged) {
-      // 部屋が変わったときは瞬時に一番下へスクロール
-      container.scrollTop = container.scrollHeight;
+      // 部屋が変わったとき：未読ラインが存在すればそこへスクロール、無ければ最下部へスクロール
+      setTimeout(() => {
+        const unreadEl = document.getElementById('unread-line-divider');
+        if (unreadEl && container) {
+          unreadEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        } else if (container) {
+          container.scrollTop = container.scrollHeight;
+        }
+      }, 60);
     } else if (lengthIncreased) {
       const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 150;
       if (sentByMe || isNearBottom) {
@@ -1134,14 +1205,27 @@ export function Chat({
               {(activeRoom?.messages || []).map((msg, index) => {
                 const isMine = msg.sender.id === currentUser.id;
                 const isSystem = msg.id.startsWith('sys_') || msg.id.startsWith('m_init_');
+                const isFirstUnread = Boolean(firstUnreadMessageId && msg.id === firstUnreadMessageId);
 
                 if (isSystem) {
                   return (
-                    <div key={msg.id} className="flex justify-center my-2 sm:my-3">
-                      <span className="px-2.5 py-0.5 sm:px-3 sm:py-1 bg-slate-200/80 text-slate-600 text-[10px] sm:text-[11px] font-medium rounded-full shadow-2xs">
-                        {msg.content}
-                      </span>
-                    </div>
+                    <React.Fragment key={msg.id}>
+                      {isFirstUnread && (
+                        <div id="unread-line-divider" className="flex items-center gap-3 my-4 px-2 select-none">
+                          <div className="flex-1 h-px bg-rose-300/80" />
+                          <div className="flex items-center gap-1.5 px-3 py-1 bg-rose-50 border border-rose-200 text-rose-600 text-[11px] font-extrabold rounded-full shadow-2xs">
+                            <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+                            ここから未読メッセージ
+                          </div>
+                          <div className="flex-1 h-px bg-rose-300/80" />
+                        </div>
+                      )}
+                      <div className="flex justify-center my-2 sm:my-3">
+                        <span className="px-2.5 py-0.5 sm:px-3 sm:py-1 bg-slate-200/80 text-slate-600 text-[10px] sm:text-[11px] font-medium rounded-full shadow-2xs">
+                          {msg.content}
+                        </span>
+                      </div>
+                    </React.Fragment>
                   );
                 }
 
@@ -1149,7 +1233,18 @@ export function Chat({
                 const showSenderName = !isMine && (!prevMsg || prevMsg.sender.id !== msg.sender.id || prevMsg.id.startsWith('sys_'));
 
                 return (
-                  <div key={msg.id} className={`flex gap-2 sm:gap-2.5 ${isMine ? 'flex-row-reverse' : 'flex-row'}`}>
+                  <React.Fragment key={msg.id}>
+                    {isFirstUnread && (
+                      <div id="unread-line-divider" className="flex items-center gap-3 my-4 px-2 select-none">
+                        <div className="flex-1 h-px bg-rose-300/80" />
+                        <div className="flex items-center gap-1.5 px-3 py-1 bg-rose-50 border border-rose-200 text-rose-600 text-[11px] font-extrabold rounded-full shadow-2xs">
+                          <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+                          ここから未読メッセージ
+                        </div>
+                        <div className="flex-1 h-px bg-rose-300/80" />
+                      </div>
+                    )}
+                    <div className={`flex gap-2 sm:gap-2.5 ${isMine ? 'flex-row-reverse' : 'flex-row'}`}>
                     {/* 相手のアバター */}
                     {!isMine && (
                       <div className="w-7 h-7 sm:w-8 sm:h-8 shrink-0">
@@ -1327,6 +1422,7 @@ export function Chat({
                       </div>
                     </div>
                   </div>
+                </React.Fragment>
                 );
               })}
               <div ref={messagesEndRef} />
