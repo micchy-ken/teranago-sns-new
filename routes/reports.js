@@ -177,7 +177,16 @@ router.get(['/work-reports', '/daily-reports', '/reports'], async (req, res) => 
       reports = reports.filter(r => r.author_id === String(targetAuthor) || r.authorId === String(targetAuthor));
     }
     if (targetSupervisor) {
-      reports = reports.filter(r => r.supervisor_id === String(targetSupervisor) || r.supervisorId === String(targetSupervisor));
+      reports = reports.filter(r => {
+        const isMatchSup = r.supervisor_id === String(targetSupervisor) || r.supervisorId === String(targetSupervisor);
+        if (!isMatchSup) return false;
+        // 上長宛ての報告書で、本人のものでない「下書き(draft)」のものは非開示
+        const isAuthorMe = r.author_id === String(targetSupervisor) || r.authorId === String(targetSupervisor);
+        if (!isAuthorMe && r.status === 'draft') {
+          return false;
+        }
+        return true;
+      });
     }
     if (department) {
       reports = reports.filter(r => r.department === String(department));

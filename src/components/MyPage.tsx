@@ -888,7 +888,15 @@ export function MyPage({
       .filter((r) => {
         const authorId = r.author?.id || (r as any).authorId;
         const supervisorId = r.supervisorId || r.supervisor?.id || (r.author as any)?.supervisorId;
-        return authorId === user?.id || supervisorId === user?.id;
+        const isMine = authorId === user?.id;
+        const isSupervisor = supervisorId === user?.id;
+
+        // 自分以外（部下等）の報告書で「下書き (draft)」のものは非開示
+        if (!isMine && r.status === 'draft') {
+          return false;
+        }
+
+        return isMine || isSupervisor;
       })
       .sort((a, b) => {
         const aTime = a.reviewedAt || a.submittedAt || a.createdAt || '';

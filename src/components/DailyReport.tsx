@@ -206,6 +206,11 @@ export function DailyReportView({
       const isMine = authorId === currentUser.id;
       const isMySubordinate = supervisorId === currentUser.id;
 
+      // 自分以外（部下等）の週報で「下書き (draft)」のものは非開示（提出済み submitted / 確認済み reviewed のみ開示）
+      if (!isMine && report.status === 'draft') {
+        return false;
+      }
+
       // 自分自身または自分が上長として指定されている部下の週報のみ
       return isMine || isMySubordinate;
     });
@@ -220,6 +225,12 @@ export function DailyReportView({
       const isMine = authorId === currentUser.id;
       const isMySubordinate = supervisorId === currentUser.id;
       const isMaintenanceDept = (currentUser.department || currentUser.division || '').includes('保守');
+
+      // 自分以外（部下等）の保守日報で「下書き (draft)」のものは非開示
+      if (!isMine && report.status === 'draft') {
+        return false;
+      }
+
       return isMine || isMySubordinate || isMaintenanceDept;
     });
   }, [reports, currentUser.id, currentUser.department, currentUser.division]);

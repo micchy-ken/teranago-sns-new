@@ -1,22 +1,29 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { API_BASE_URL } from './config/api';
 import { getAvatarUrl, sanitizeAvatarUrlForSave } from './utils/avatar';
 import { Header } from './components/Header';
 import { Sidebar, AppTab } from './components/Sidebar';
 import { Timeline } from './components/Timeline';
-import { Calendar } from './components/Calendar';
-import { Workflow } from './components/Workflow';
-import { Board } from './components/Board';
-import { Chat } from './components/Chat';
-import { MemoList } from './components/MemoList';
-import { DailyReportView } from './components/DailyReport';
-import { InspectionScheduler } from './components/InspectionScheduler';
-import { SafetyConfirmation } from './components/SafetyConfirmation';
-import { GuestSafetyResponse } from './components/GuestSafetyResponse';
-import { MyPage } from './components/MyPage';
-import { AdminPanel } from './components/AdminPanel';
 import { LoginScreen } from './components/LoginScreen';
-import FileManager from './components/FileManager';
+import { LazyTabFallback } from './components/common/LazyTabFallback';
+import { useMasterManagement } from './hooks/useMasterManagement';
+import { usePostManagement } from './hooks/usePostManagement';
+import { useMemoManagement } from './hooks/useMemoManagement';
+import { useReportManagement } from './hooks/useReportManagement';
+
+// 遅延読み込み (React.lazy) によるコード分割
+const Calendar = lazy(() => import('./components/Calendar').then(m => ({ default: m.Calendar })));
+const Workflow = lazy(() => import('./components/Workflow').then(m => ({ default: m.Workflow })));
+const Board = lazy(() => import('./components/Board').then(m => ({ default: m.Board })));
+const Chat = lazy(() => import('./components/Chat').then(m => ({ default: m.Chat })));
+const MemoList = lazy(() => import('./components/MemoList').then(m => ({ default: m.MemoList })));
+const DailyReportView = lazy(() => import('./components/DailyReport').then(m => ({ default: m.DailyReportView })));
+const InspectionScheduler = lazy(() => import('./components/InspectionScheduler').then(m => ({ default: m.InspectionScheduler })));
+const SafetyConfirmation = lazy(() => import('./components/SafetyConfirmation').then(m => ({ default: m.SafetyConfirmation })));
+const GuestSafetyResponse = lazy(() => import('./components/GuestSafetyResponse').then(m => ({ default: m.GuestSafetyResponse })));
+const MyPage = lazy(() => import('./components/MyPage').then(m => ({ default: m.MyPage })));
+const AdminPanel = lazy(() => import('./components/AdminPanel').then(m => ({ default: m.AdminPanel })));
+const FileManager = lazy(() => import('./components/FileManager'));
 import { Post, CalendarEvent, WorkflowApplication, User, OfficeMaster, DivisionMaster, PositionMaster, BoardTopic, ChatRoom, ApprovalFlowRule, ApprovalStepConfig, ItemMaster, ApplicationStatus, DailyReport, Memo } from './types';
 import { 
   syncUserReadStatusesFromServer, 
@@ -393,172 +400,123 @@ export default function App() {
     setActiveTab('mypage');
     setAutoOpenSettings(true);
   };
-  const [offices, setOffices] = useState<OfficeMaster[]>([]);
-  const [divisions, setDivisions] = useState<DivisionMaster[]>([]);
-  const [positions, setPositions] = useState<PositionMaster[]>([]);
-  const [approvalFlows, setApprovalFlows] = useState<ApprovalFlowRule[]>([]);
-  const [itemMasters, setItemMasters] = useState<ItemMaster[]>([]);
 
-  // Item Master Handlers
-  const handleAddItemMaster = async (item: Omit<ItemMaster, 'id'>) => {
-    const newItem: ItemMaster = {
-      ...item,
-      id: `itm_${Date.now()}`
-    };
-    setItemMasters(prev => [...prev, newItem]);
-    try {
-      await fetch(`${API_BASE_URL}/masters/item-masters`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newItem)
+  const handleRecordError = (key: string, message: string) => {
+    setFetchErrors(prev => ({ ...prev, [key]: message }));
+  };
+
+  const handleClearError = (key: string) => {
+    setFetchErrors(prev => {
+      if (!prev[key]) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  };
+
+  const openConfirmModalHelper = (opts: {
+    title: string;
+    message: string;
+    type?: 'info' | 'warning' | 'danger';
+    confirmText?: string;
+    cancelText?: string;
+    onConfirm: () => void;
+  }) => {
+    setConfirmModal({
+      isOpen: true,
+      cancelText: 'キャンセル',
+      ...opts,
+    });
+  };
+
+  // Master Data Management Hook
+  const {
+    offices,
+    divisions,
+    positions,
+    approvalFlows,
+    itemMasters,
+    refetchMasters,
+    handleAddOffice,
+    handleUpdateOffice,
+    handleDeleteOffice,
+    handleAddDivision,
+    handleUpdateDivision,
+    handleDeleteDivision,
+    handleAddPosition,
+    handleUpdatePosition,
+    handleDeletePosition,
+    handleAddItemMaster,
+    handleUpdateItemMaster,
+    handleDeleteItemMaster,
+    handleAddApprovalFlow,
+    handleUpdateApprovalFlow,
+    handleDeleteApprovalFlow,
+  } = useMasterManagement({
+    onRecordError: handleRecordError,
+    onClearError: handleClearError,
+    showMasterErrorModal: (title, errorMsg) => {
+      let suggestion = '管理者様は SSMS (SQL Server Management Studio) から `ssms-db-setup.sql` を実行して、データベースのテーブルスキーマ（カラムの追加等）を最新に更新してください。';
+      const lowerMsg = errorMsg.toLowerCase();
+      if (lowerMsg.includes('phone') || lowerMsg.includes('location') || lowerMsg.includes('type') || lowerMsg.includes('code')) {
+        suggestion = 'SQL Server の `dbo.Offices` テーブルに `phone` などの新カラムが不足しているようです。`ssms-db-setup.sql` をお使いのデータベース（SSMS 等）に対して実行し、テーブルスキーマを最新の構成にアップデートしてください。';
+      } else if (lowerMsg.includes('description') || lowerMsg.includes('code')) {
+        suggestion = 'SQL Server の `dbo.Divisions` または `dbo.Positions` テーブルに `description` や `code` などの新カラムが不足しているようです。`ssms-db-setup.sql` をお使いのデータベースに対して実行し、テーブルスキーマをアップデートしてください。';
+      }
+      setConfirmModal({
+        isOpen: true,
+        title: `${title}に失敗しました`,
+        message: `データベースの同期中にエラーが発生したため、変更をロールバックしました。\n\n【詳細なエラー】\n${errorMsg}\n\n【推奨される解決策】\n${suggestion}`,
+        type: 'danger',
+        confirmText: '閉じる',
       });
-      await refetchMasters();
-    } catch (e) { console.error('Failed to save item master:', e); }
-  };
+    },
+  });
 
-  const handleUpdateItemMaster = async (updatedItem: ItemMaster) => {
-    setItemMasters(prev => prev.map(i => i.id === updatedItem.id ? updatedItem : i));
-    try {
-      await fetch(`${API_BASE_URL}/masters/item-masters/${updatedItem.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedItem)
-      });
-      await refetchMasters();
-    } catch (e) { console.error('Failed to update item master:', e); }
-  };
+  const {
+    posts,
+    setPosts,
+    isPostsLoading,
+    postsError,
+    refetchPosts,
+    handlePost,
+    handleToggleLike,
+    handleDeletePost,
+  } = usePostManagement({
+    currentUser: userState,
+    usersList,
+    onRecordError: handleRecordError,
+    onClearError: handleClearError,
+    openConfirmModal: openConfirmModalHelper,
+  });
 
-  const handleDeleteItemMaster = async (id: string) => {
-    setItemMasters(prev => prev.filter(i => i.id !== id));
-    try {
-      await fetch(`${API_BASE_URL}/masters/item-masters/${id}`, { method: 'DELETE' });
-      await refetchMasters();
-    } catch (e) { console.error('Failed to delete item master:', e); }
-  };
+  const {
+    memos,
+    setMemos,
+    refetchMemos,
+    handleDeleteMemo,
+    handleUpdateMemos,
+  } = useMemoManagement({
+    currentUser: userState,
+    usersList,
+    onRecordError: handleRecordError,
+    onClearError: handleClearError,
+  });
 
-  const refetchMasters = async () => {
-    const parseError = async (res: Response, label: string) => {
-      let msg = `${label}取得エラー (HTTP ${res.status})`;
-      try {
-        const clone = res.clone();
-        const errData = await clone.json();
-        if (errData && errData.error) {
-          return `${msg}: ${errData.error}${errData.details ? ' (' + errData.details + ')' : ''}`;
-        }
-      } catch (_) {}
-      try {
-        const errText = await res.text();
-        if (errText) {
-          return `${msg}: ${errText.slice(0, 150)}`;
-        }
-      } catch (_) {}
-      return msg;
-    };
-
-    try {
-      const offRes = await fetch(`${API_BASE_URL}/masters/offices`);
-      if (offRes.ok) {
-        const data = await offRes.json();
-        if (Array.isArray(data)) {
-          setOffices(data);
-          setFetchErrors(prev => { if (!prev.offices) return prev; const next = { ...prev }; delete next.offices; return next; });
-        }
-      } else {
-        const errMsg = await parseError(offRes, '拠点マスタ');
-        setFetchErrors(prev => ({ ...prev, offices: errMsg }));
-      }
-    } catch (e: any) { setFetchErrors(prev => ({ ...prev, offices: '拠点マスタ接続エラー: ' + e.message })); }
-
-    try {
-      const divRes = await fetch(`${API_BASE_URL}/masters/divisions`);
-      if (divRes.ok) {
-        const data = await divRes.json();
-        if (Array.isArray(data)) {
-          setDivisions(data);
-          setFetchErrors(prev => { if (!prev.divisions) return prev; const next = { ...prev }; delete next.divisions; return next; });
-        }
-      } else {
-        const errMsg = await parseError(divRes, '部署マスタ');
-        setFetchErrors(prev => ({ ...prev, divisions: errMsg }));
-      }
-    } catch (e: any) { setFetchErrors(prev => ({ ...prev, divisions: '部署マスタ接続エラー: ' + e.message })); }
-
-    try {
-      const posRes = await fetch(`${API_BASE_URL}/masters/positions`);
-      if (posRes.ok) {
-        const data = await posRes.json();
-        if (Array.isArray(data)) {
-          setPositions(data.filter((p: any) => p && p.name !== '一般'));
-          setFetchErrors(prev => { if (!prev.positions) return prev; const next = { ...prev }; delete next.positions; return next; });
-        }
-      } else {
-        const errMsg = await parseError(posRes, '役職マスタ');
-        setFetchErrors(prev => ({ ...prev, positions: errMsg }));
-      }
-    } catch (e: any) { setFetchErrors(prev => ({ ...prev, positions: '役職マスタ接続エラー: ' + e.message })); }
-
-    try {
-      const itemRes = await fetch(`${API_BASE_URL}/masters/item-masters`);
-      if (itemRes.ok) {
-        const data = await itemRes.json();
-        if (Array.isArray(data)) {
-          setItemMasters(data);
-          setFetchErrors(prev => { if (!prev.items) return prev; const next = { ...prev }; delete next.items; return next; });
-        }
-      } else {
-        const errMsg = await parseError(itemRes, '品目マスタ');
-        setFetchErrors(prev => ({ ...prev, items: errMsg }));
-      }
-    } catch (e: any) { setFetchErrors(prev => ({ ...prev, items: '品目マスタ接続エラー: ' + e.message })); }
-
-    try {
-      const flowRes = await fetch(`${API_BASE_URL}/masters/approval-flows`);
-      if (flowRes.ok) {
-        const data = await flowRes.json();
-        if (Array.isArray(data)) {
-          setApprovalFlows(data);
-          setFetchErrors(prev => { if (!prev.flows) return prev; const next = { ...prev }; delete next.flows; return next; });
-        }
-      } else {
-        const errMsg = await parseError(flowRes, '承認フロー');
-        setFetchErrors(prev => ({ ...prev, flows: errMsg }));
-      }
-    } catch (e: any) { setFetchErrors(prev => ({ ...prev, flows: '承認フロー接続エラー: ' + e.message })); }
-  };
-  
-  const [posts, setPosts] = useState<Post[]>([]);
-  const [isPostsLoading, setIsPostsLoading] = useState(false);
-  const [postsError, setPostsError] = useState<string | null>(null);
-
-  const refetchPosts = async (currentUsers = usersList) => {
-    setIsPostsLoading(true);
-    setPostsError(null);
-    try {
-      const response = await fetch(`${API_BASE_URL}/posts`, {
-        headers: {
-          'Accept': 'application/json'
-        }
-      });
-      if (!response.ok) {
-        throw new Error(`HTTP status ${response.status}`);
-      }
-      const data = await response.json();
-      if (Array.isArray(data)) {
-        const mapped = data.map(p => mapPostFromApi(p, currentUsers));
-        setPosts(mapped);
-        setPostsError(null);
-        setFetchErrors(prev => { if (!prev.posts) return prev; const next = { ...prev }; delete next.posts; return next; });
-      } else {
-        throw new Error('Received posts data is not an array');
-      }
-    } catch (err: any) {
-      console.warn('Failed to load posts from API:', err);
-      setPostsError(err?.message || 'Failed to sync with API. Check connectivity.');
-      setFetchErrors(prev => ({ ...prev, posts: `タイムライン取得エラー: ${err?.message || '接続エラー'}` }));
-    } finally {
-      setIsPostsLoading(false);
-    }
-  };
+  const {
+    reports,
+    setReports,
+    refetchReports,
+    handleAddReport,
+    handleUpdateReport,
+    handleReviewReport,
+    handleDeleteReport,
+  } = useReportManagement({
+    currentUser: userState,
+    usersList,
+    onRecordError: handleRecordError,
+    onClearError: handleClearError,
+  });
 
   const refetchUsers = async () => {
     try {
@@ -598,8 +556,6 @@ export default function App() {
   const [applications, setApplications] = useState<WorkflowApplication[]>([]);
   const [topics, setTopics] = useState<BoardTopic[]>([]);
   const [chatRooms, setChatRooms] = useState<ChatRoom[]>([]);
-  const [memos, setMemos] = useState<Memo[]>([]);
-  const [reports, setReports] = useState<DailyReport[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
 
@@ -949,245 +905,7 @@ export default function App() {
     }
   };
 
-  const refetchMemos = async (currentUsers = usersList) => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/memos`, {
-        headers: { 'Accept': 'application/json' }
-      });
 
-      if (!response.ok) {
-        throw new Error(`HTTP status ${response.status}`);
-      }
-      const data = await response.json();
-      if (Array.isArray(data)) {
-        let deletedMemoIds: string[] = [];
-        try {
-          const stored = localStorage.getItem('deleted_memo_ids');
-          if (stored) deletedMemoIds = JSON.parse(stored);
-        } catch (_) {}
-
-        const mapped = data
-          .filter((m: any) => !deletedMemoIds.includes(String(m.id)))
-          .map((m: any) => {
-            let detailsObj: any = {};
-          if (m.details) {
-            if (typeof m.details === 'object') {
-              detailsObj = m.details;
-            } else if (typeof m.details === 'string') {
-              try { detailsObj = JSON.parse(m.details); } catch (_) {}
-            }
-          }
-          if (m.content && typeof m.content === 'string' && m.content.startsWith('{')) {
-            try { detailsObj = { ...detailsObj, ...JSON.parse(m.content) }; } catch (_) {}
-          }
-          const activeUsers = currentUsers;
-          const targetUser = activeUsers.find(u => u.id === m.receiverId || u.id === m.toUserId) || activeUsers[0];
-
-          // Determine overall status
-          const isHandledStatus = m.status === 'handled' || (detailsObj && detailsObj.status === 'handled');
-          const isReadStatus = isHandledStatus || m.status === 'read' || (detailsObj && detailsObj.status === 'read') || m.isRead === 1 || m.isRead === true;
-
-          const defaultRecipientStatus = [{
-            userId: targetUser?.id || 'u1',
-            userName: targetUser?.name || '担当者',
-            avatarUrl: targetUser?.avatarUrl || '',
-            department: targetUser?.department || '',
-            office: targetUser?.office || '',
-            division: targetUser?.division || '',
-            isViewed: isReadStatus,
-            isHandled: isHandledStatus
-          }];
-
-          // Parse recipientStatusesJson / recipient_statuses_json / recipientStatuses
-          let parsedRecipientStatuses: any[] | null = null;
-          const repJson = m.recipientStatusesJson || m.recipient_statuses_json || m.recipientStatuses || (detailsObj && (detailsObj.recipientStatuses || detailsObj.recipientStatusesJson || detailsObj.recipient_statuses_json));
-          if (repJson) {
-            try {
-              const parsed = typeof repJson === 'string' ? JSON.parse(repJson) : repJson;
-              if (Array.isArray(parsed)) {
-                parsedRecipientStatuses = parsed;
-              } else if (parsed && typeof parsed === 'object') {
-                // DB stores as { "u3": { "isRead": false, "readAt": null } }
-                parsedRecipientStatuses = Object.entries(parsed).map(([uid, val]: [string, any]) => {
-                  const uObj = activeUsers.find(u => u.id === uid);
-                  return {
-                    userId: uid,
-                    userName: uObj?.name || '担当者',
-                    avatarUrl: uObj?.avatarUrl || '',
-                    department: uObj?.department || '',
-                    office: uObj?.office || '',
-                    division: uObj?.division || '',
-                    isViewed: val.isRead || val.isViewed || false,
-                    viewedAt: val.readAt || val.viewedAt || undefined,
-                    isHandled: val.isHandled !== undefined ? val.isHandled : (val.isRead || false),
-                    handledAt: val.handledAt || undefined,
-                  };
-                });
-              }
-            } catch (_) {}
-          }
-
-          const mergedRecipientStatuses = (parsedRecipientStatuses && parsedRecipientStatuses.length > 0)
-            ? parsedRecipientStatuses
-            : defaultRecipientStatus;
-
-          const mergedTargetOffices = (Array.isArray(m.targetOffices) && m.targetOffices.length > 0)
-            ? m.targetOffices
-            : (detailsObj && Array.isArray(detailsObj.targetOffices) ? detailsObj.targetOffices : []);
-
-          const mergedTargetDivisions = (Array.isArray(m.targetDivisions) && m.targetDivisions.length > 0)
-            ? m.targetDivisions
-            : (detailsObj && Array.isArray(detailsObj.targetDivisions) ? detailsObj.targetDivisions : []);
-
-          let parsedToUsers: any[] | null = null;
-          const toUsersJsonStr = m.toUsersJson || m.to_users_json;
-          if (toUsersJsonStr) {
-            try {
-              const parsed = typeof toUsersJsonStr === 'string' ? JSON.parse(toUsersJsonStr) : toUsersJsonStr;
-              if (Array.isArray(parsed)) {
-                parsedToUsers = parsed.map((uid: string) => activeUsers.find(u => u.id === uid)).filter(Boolean);
-              }
-            } catch (_) {}
-          }
-
-          const mergedToUsers = parsedToUsers || (Array.isArray(m.toUsers) ? m.toUsers : (detailsObj && Array.isArray(detailsObj.toUsers) ? detailsObj.toUsers : (targetUser ? [targetUser] : [])));
-
-          return {
-            id: String(m.id),
-            fromName: m.fromName || (detailsObj && detailsObj.fromName) || '不詳',
-            fromCompany: m.fromCompany || (detailsObj && detailsObj.fromCompany) || '',
-            fromPhone: m.fromPhone || (detailsObj && detailsObj.fromPhone) || '',
-            content: m.content || (detailsObj && detailsObj.content) || '',
-            createdAt: m.createdAt || (detailsObj && detailsObj.createdAt) || new Date().toISOString(),
-            ...detailsObj,
-            ...m,
-            targetOffices: mergedTargetOffices,
-            targetDivisions: mergedTargetDivisions,
-            recipientStatuses: mergedRecipientStatuses,
-            toUsers: mergedToUsers,
-            toUser: targetUser,
-            createdByUser: activeUsers.find(u => u.id === (m.senderId || (detailsObj && detailsObj.senderId))),
-            status: m.status ? m.status : ((detailsObj && detailsObj.status) ? detailsObj.status : (isHandledStatus ? 'handled' : (isReadStatus ? 'read' : 'unread'))),
-          };
-        });
-
-        setMemos(mapped);
-        setFetchErrors(prev => { if (!prev.memos) return prev; const next = { ...prev }; delete next.memos; return next; });
-      }
-    } catch (err: any) {
-      console.warn('Failed to load memos from API:', err);
-      setFetchErrors(prev => ({ ...prev, memos: `伝言メモ取得エラー: ${err?.message || '接続エラー'}` }));
-    }
-  };
-
-  const refetchReports = async (currentUsers = usersList) => {
-    try {
-      let response = await fetch(`${API_BASE_URL}/work-reports`, {
-        headers: { 'Accept': 'application/json' }
-      });
-      if (!response.ok) {
-        response = await fetch(`${API_BASE_URL}/daily-reports`, {
-          headers: { 'Accept': 'application/json' }
-        });
-      }
-      if (!response.ok) {
-        response = await fetch(`${API_BASE_URL}/reports`, {
-          headers: { 'Accept': 'application/json' }
-        });
-      }
-      if (!response.ok) {
-        throw new Error(`HTTP status ${response.status}`);
-      }
-      const data = await response.json();
-      if (Array.isArray(data)) {
-        let deletedReportIds: string[] = [];
-        try {
-          const stored = localStorage.getItem('deleted_report_ids');
-          if (stored) deletedReportIds = JSON.parse(stored);
-        } catch (_) {}
-
-        const mapped = data
-          .filter((r: any) => !deletedReportIds.includes(String(r.id)))
-          .map((r: any) => {
-          const authorUser = currentUsers.find(u => u.id === r.authorId) || r.author || userState;
-          const supervisorUser = r.supervisorId ? (currentUsers.find(u => u.id === r.supervisorId) || r.supervisor) : undefined;
-          let parsedTasks = r.tasks || '';
-          let parsedResults = r.results || '';
-          let parsedIssues = r.issues || '';
-          let parsedOngoing = r.ongoingProjects || '';
-          let parsedTomorrow = r.tomorrowPlan || '';
-          if (r.content && (!r.tasks || !r.results)) {
-            if (r.content.startsWith('{')) {
-              try {
-                const p = JSON.parse(r.content);
-                parsedTasks = p.tasks || parsedTasks;
-                parsedResults = p.results || parsedResults;
-                parsedIssues = p.issues || parsedIssues;
-                parsedOngoing = p.ongoingProjects || parsedOngoing;
-                parsedTomorrow = p.tomorrowPlan || parsedTomorrow;
-              } catch (_) {}
-            } else {
-              parsedTasks = r.content;
-            }
-          }
-          let mData = r.maintenanceData || r.maintenance_data || r.Maintenance_Data;
-          if (typeof mData === 'string') {
-            try { mData = JSON.parse(mData); } catch (_) {}
-            if (typeof mData === 'string') {
-              try { mData = JSON.parse(mData); } catch (_) {}
-            }
-          }
-
-          let cData = r.constructionData || r.construction_data || r.Construction_Data;
-          if (typeof cData === 'string') {
-            try { cData = JSON.parse(cData); } catch (_) {}
-            if (typeof cData === 'string') {
-              try { cData = JSON.parse(cData); } catch (_) {}
-            }
-          }
-
-          let sData = r.salesData || r.sales_data || r.Sales_Data;
-          if (typeof sData === 'string') {
-            try { sData = JSON.parse(sData); } catch (_) {}
-            if (typeof sData === 'string') {
-              try { sData = JSON.parse(sData); } catch (_) {}
-            }
-          }
-
-          return {
-            id: String(r.id),
-            author: authorUser,
-            authorId: authorUser?.id || r.authorId || r.author_id,
-            reportType: r.reportType || r.report_type || (r.weekStartDate || r.week_start_date ? 'weekly' : 'daily'),
-            date: r.date || r.reportDate || r.report_date || (r.createdAt ? String(r.createdAt).substring(0, 10) : ''),
-            weekStartDate: r.weekStartDate || r.week_start_date,
-            weekLabel: r.weekLabel || r.week_label,
-            department: r.department || authorUser?.department || '',
-            tasks: parsedTasks,
-            results: parsedResults,
-            issues: parsedIssues,
-            ongoingProjects: parsedOngoing,
-            tomorrowPlan: parsedTomorrow,
-            supervisorId: r.supervisorId || r.supervisor_id,
-            supervisor: supervisorUser,
-            status: r.status || 'submitted',
-            feedbackComment: r.feedbackComment || r.feedback_comment || '',
-            maintenanceData: mData,
-            constructionData: cData,
-            salesData: sData,
-            submittedAt: r.submittedAt || r.submitted_at,
-            reviewedAt: r.reviewedAt || r.reviewed_at,
-            createdAt: r.createdAt || r.created_at || new Date().toISOString()
-          };
-        });
-        setReports(mapped);
-        setFetchErrors(prev => { if (!prev.reports) return prev; const next = { ...prev }; delete next.reports; return next; });
-      }
-    } catch (err: any) {
-      console.warn('Failed to load reports from API:', err);
-      setFetchErrors(prev => ({ ...prev, reports: `日報・週報取得エラー: ${err?.message || '接続エラー'}` }));
-    }
-  };
 
   const refetchAll = async () => {
     const latestUsers = await refetchUsers();
@@ -1671,351 +1389,7 @@ export default function App() {
     }
   };
 
-  // Helpers for Master error handling & rollback
-  const getMasterErrorMessage = async (response: Response): Promise<string> => {
-    try {
-      const data = await response.json();
-      return data.error || data.message || `HTTP ${response.status}`;
-    } catch (_) {
-      try {
-        const text = await response.text();
-        return text || `HTTP ${response.status}`;
-      } catch (_) {
-        return `HTTP ${response.status}`;
-      }
-    }
-  };
 
-  const showMasterErrorModal = (title: string, errorMsg: string) => {
-    let suggestion = '管理者様は SSMS (SQL Server Management Studio) から `ssms-db-setup.sql` を実行して、データベースのテーブルスキーマ（カラムの追加等）を最新に更新してください。';
-    
-    const lowerMsg = errorMsg.toLowerCase();
-    if (lowerMsg.includes('phone') || lowerMsg.includes('location') || lowerMsg.includes('type') || lowerMsg.includes('code')) {
-      suggestion = 'SQL Server の `dbo.Offices` テーブルに `phone` などの新カラムが不足しているようです。`ssms-db-setup.sql` をお使いのデータベース（SSMS 等）に対して実行し、テーブルスキーマを最新の構成にアップデートしてください。';
-    } else if (lowerMsg.includes('description') || lowerMsg.includes('code')) {
-      suggestion = 'SQL Server の `dbo.Divisions` または `dbo.Positions` テーブルに `description` や `code` などの新カラムが不足しているようです。`ssms-db-setup.sql` をお使いのデータベースに対して実行し、テーブルスキーマをアップデートしてください。';
-    }
-    
-    setConfirmModal({
-      isOpen: true,
-      title: `${title}に失敗しました`,
-      message: `データベースの同期中にエラーが発生したため、変更をロールバックしました。\n\n【詳細なエラー】\n${errorMsg}\n\n【推奨される解決策】\n${suggestion}`,
-      type: 'danger',
-      confirmText: '閉じる',
-    });
-  };
-
-  // Office Master Handlers
-  const handleAddOffice = async (officeData: Omit<OfficeMaster, 'id'>) => {
-    const originalOffices = [...offices];
-    const newOffice: OfficeMaster = {
-      ...officeData,
-      id: `off-${Date.now()}`,
-    };
-    setOffices(prev => [...prev, newOffice]);
-    try {
-      const response = await fetch(`${API_BASE_URL}/masters/offices`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newOffice)
-      });
-      if (!response.ok) {
-        const errMsg = await getMasterErrorMessage(response);
-        throw new Error(errMsg);
-      }
-      await refetchMasters();
-    } catch (e: any) {
-      console.error('Failed to add office:', e);
-      setOffices(originalOffices);
-      showMasterErrorModal('拠点マスターの追加', e.message || 'ネットワークエラーが発生しました。');
-    }
-  };
-
-  const handleUpdateOffice = async (updatedOffice: OfficeMaster) => {
-    const originalOffices = [...offices];
-    setOffices(prev => prev.map((o) => (o.id === updatedOffice.id ? updatedOffice : o)));
-    try {
-      const response = await fetch(`${API_BASE_URL}/masters/offices/${updatedOffice.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedOffice)
-      });
-      if (!response.ok) {
-        const errMsg = await getMasterErrorMessage(response);
-        throw new Error(errMsg);
-      }
-      await refetchMasters();
-    } catch (e: any) {
-      console.error('Failed to update office:', e);
-      setOffices(originalOffices);
-      showMasterErrorModal('拠点マスターの更新', e.message || 'ネットワークエラーが発生しました。');
-    }
-  };
-
-  const handleDeleteOffice = async (officeId: string) => {
-    const originalOffices = [...offices];
-    setOffices(prev => prev.filter((o) => o.id !== officeId));
-    try {
-      const response = await fetch(`${API_BASE_URL}/masters/offices/${officeId}`, { method: 'DELETE' });
-      if (!response.ok) {
-        const errMsg = await getMasterErrorMessage(response);
-        throw new Error(errMsg);
-      }
-      await refetchMasters();
-    } catch (e: any) {
-      console.error('Failed to delete office:', e);
-      setOffices(originalOffices);
-      showMasterErrorModal('拠点マスターの削除', e.message || 'ネットワークエラーが発生しました。');
-    }
-  };
-
-  // Division Master Handlers
-  const handleAddDivision = async (divisionData: Omit<DivisionMaster, 'id'>) => {
-    const originalDivisions = [...divisions];
-    const newDivision: DivisionMaster = {
-      ...divisionData,
-      id: `div-${Date.now()}`,
-    };
-    setDivisions(prev => [...prev, newDivision]);
-    try {
-      const response = await fetch(`${API_BASE_URL}/masters/divisions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newDivision)
-      });
-      if (!response.ok) {
-        const errMsg = await getMasterErrorMessage(response);
-        throw new Error(errMsg);
-      }
-      await refetchMasters();
-    } catch (e: any) {
-      console.error('Failed to add division:', e);
-      setDivisions(originalDivisions);
-      showMasterErrorModal('部署マスターの追加', e.message || 'ネットワークエラーが発生しました。');
-    }
-  };
-
-  const handleUpdateDivision = async (updatedDivision: DivisionMaster) => {
-    const originalDivisions = [...divisions];
-    setDivisions(prev => prev.map((d) => (d.id === updatedDivision.id ? updatedDivision : d)));
-    try {
-      const response = await fetch(`${API_BASE_URL}/masters/divisions/${updatedDivision.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedDivision)
-      });
-      if (!response.ok) {
-        const errMsg = await getMasterErrorMessage(response);
-        throw new Error(errMsg);
-      }
-      await refetchMasters();
-    } catch (e: any) {
-      console.error('Failed to update division:', e);
-      setDivisions(originalDivisions);
-      showMasterErrorModal('部署マスターの更新', e.message || 'ネットワークエラーが発生しました。');
-    }
-  };
-
-  const handleDeleteDivision = async (divisionId: string) => {
-    const originalDivisions = [...divisions];
-    setDivisions(prev => prev.filter((d) => d.id !== divisionId));
-    try {
-      const response = await fetch(`${API_BASE_URL}/masters/divisions/${divisionId}`, { method: 'DELETE' });
-      if (!response.ok) {
-        const errMsg = await getMasterErrorMessage(response);
-        throw new Error(errMsg);
-      }
-      await refetchMasters();
-    } catch (e: any) {
-      console.error('Failed to delete division:', e);
-      setDivisions(originalDivisions);
-      showMasterErrorModal('部署マスターの削除', e.message || 'ネットワークエラーが発生しました。');
-    }
-  };
-
-  // Position Master Handlers
-  const handleAddPosition = async (positionData: Omit<PositionMaster, 'id'>) => {
-    const originalPositions = [...positions];
-    const newPosition: PositionMaster = {
-      ...positionData,
-      id: `pos-${Date.now()}`,
-    };
-    setPositions(prev => [...prev, newPosition]);
-    try {
-      const response = await fetch(`${API_BASE_URL}/masters/positions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newPosition)
-      });
-      if (!response.ok) {
-        const errMsg = await getMasterErrorMessage(response);
-        throw new Error(errMsg);
-      }
-      await refetchMasters();
-    } catch (e: any) {
-      console.error('Failed to add position:', e);
-      setPositions(originalPositions);
-      showMasterErrorModal('役職マスターの追加', e.message || 'ネットワークエラーが発生しました。');
-    }
-  };
-
-  const handleUpdatePosition = async (updatedPosition: PositionMaster) => {
-    const originalPositions = [...positions];
-    setPositions(prev => prev.map((p) => (p.id === updatedPosition.id ? updatedPosition : p)));
-    try {
-      const response = await fetch(`${API_BASE_URL}/masters/positions/${updatedPosition.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedPosition)
-      });
-      if (!response.ok) {
-        const errMsg = await getMasterErrorMessage(response);
-        throw new Error(errMsg);
-      }
-      await refetchMasters();
-    } catch (e: any) {
-      console.error('Failed to update position:', e);
-      setPositions(originalPositions);
-      showMasterErrorModal('役職マスターの更新', e.message || 'ネットワークエラーが発生しました。');
-    }
-  };
-
-  const handleDeletePosition = async (positionId: string) => {
-    const originalPositions = [...positions];
-    setPositions(prev => prev.filter((p) => p.id !== positionId));
-    try {
-      const response = await fetch(`${API_BASE_URL}/masters/positions/${positionId}`, { method: 'DELETE' });
-      if (!response.ok) {
-        const errMsg = await getMasterErrorMessage(response);
-        throw new Error(errMsg);
-      }
-      await refetchMasters();
-    } catch (e: any) {
-      console.error('Failed to delete position:', e);
-      setPositions(originalPositions);
-      showMasterErrorModal('役職マスターの削除', e.message || 'ネットワークエラーが発生しました。');
-    }
-  };
-
-  // Handle new post creation with API
-  const handlePost = async (content: string, tags: string[], nasLink?: string) => {
-    // Optimistic local post for instant response
-    const tempId = `p-temp-${Date.now()}`;
-    const newPost: Post = {
-      id: tempId,
-      author: userState,
-      content,
-      tags,
-      createdAt: new Date().toISOString(),
-      likes: 0,
-      isLiked: false,
-      nasLink,
-    };
-    setPosts(prev => [newPost, ...prev]);
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/posts`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: JSON.stringify({
-          authorId: userState.id,
-          content,
-          tags,
-          nasLink: nasLink || "",
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to create post: HTTP status ${response.status}`);
-      }
-
-      // Refetch posts to get the actual server-saved posts with correct IDs
-      await refetchAll();
-    } catch (err) {
-      console.error('Error creating post on API:', err);
-      // Fallback: keep the local post or trigger refetch
-      await refetchAll();
-    }
-  };
-
-  // Handle like toggle with API
-  const handleToggleLike = async (postId: string) => {
-    if (postId.startsWith('p-temp-')) return;
-
-    // Optimistically update local state
-    setPosts(prev => prev.map(post => {
-      if (post.id === postId) {
-        return {
-          ...post,
-          isLiked: !post.isLiked,
-          likes: post.isLiked ? Math.max(0, post.likes - 1) : post.likes + 1,
-        };
-      }
-      return post;
-    }));
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/posts/${postId}/like`, {
-        method: 'POST',
-        headers: {
-          'Accept': 'application/json',
-        }
-      });
-      if (!response.ok) {
-        throw new Error(`Failed to like: HTTP status ${response.status}`);
-      }
-      
-      const updatedPostData = await response.json();
-      setPosts(prev => prev.map(post => {
-        if (post.id === postId) {
-          return mapPostFromApi(updatedPostData, usersList);
-        }
-        return post;
-      }));
-    } catch (err) {
-      console.error('Error liking post on API:', err);
-      await refetchAll();
-    }
-  };
-
-  // Handle delete post with API
-  const handleDeletePost = async (postId: string) => {
-    if (postId.startsWith('p-temp-')) return;
-
-    setConfirmModal({
-      isOpen: true,
-      title: '投稿の削除',
-      message: 'この投稿を削除してもよろしいですか？',
-      type: 'danger',
-      confirmText: '削除する',
-      cancelText: 'キャンセル',
-      onConfirm: async () => {
-        // Optimistically remove from state
-        setPosts(prev => prev.filter(post => post.id !== postId));
-
-        try {
-          const response = await fetch(`${API_BASE_URL}/posts/${postId}`, {
-            method: 'DELETE',
-            headers: {
-              'Accept': 'application/json',
-            }
-          });
-
-          if (!response.ok) {
-            throw new Error(`Failed to delete: HTTP status ${response.status}`);
-          }
-
-          await refetchAll();
-        } catch (err) {
-          console.error('Error deleting post on API:', err);
-          await refetchAll();
-        }
-      }
-    });
-  };
 
   // Helper to persist event to API
   const saveEventToApi = async (ev: CalendarEvent, isNew = false) => {
@@ -2248,80 +1622,6 @@ export default function App() {
         onConfirm: performDelete
       });
     }
-  };
-
-  // 承認フロー マスター管理
-  const handleAddApprovalFlow = async (flowData: Omit<ApprovalFlowRule, 'id'>) => {
-    const newFlow: ApprovalFlowRule = {
-      ...flowData,
-      id: `flow-${Date.now()}`,
-    };
-    setApprovalFlows(prev => [...prev, newFlow]);
-    try {
-      await fetch(`${API_BASE_URL}/masters/approval-flows`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newFlow)
-      });
-      await refetchMasters();
-    } catch (e) { console.error('Failed to add approval flow:', e); }
-  };
-
-  const handleUpdateApprovalFlow = async (updatedFlow: ApprovalFlowRule) => {
-    setApprovalFlows(prev => prev.map(f => f.id === updatedFlow.id ? updatedFlow : f));
-    try {
-      await fetch(`${API_BASE_URL}/masters/approval-flows/${updatedFlow.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedFlow)
-      });
-      await refetchMasters();
-    } catch (e) { console.error('Failed to update approval flow:', e); }
-  };
-
-  const handleDeleteApprovalFlow = async (id: string) => {
-    setApprovalFlows(prev => prev.filter(f => f.id !== id));
-    try {
-      await fetch(`${API_BASE_URL}/masters/approval-flows/${id}`, { method: 'DELETE' });
-      await refetchMasters();
-    } catch (e) { console.error('Failed to delete approval flow:', e); }
-  };
-
-  // 申請者から N 階層目の上長を辿るヘルパー関数 (level=1: 1次上長, level=2: 2次上長...)
-  const getSupervisorAtLevel = (applicant: User, targetLevel: number, users: User[]): User | null => {
-    let curr: User | undefined = applicant;
-    for (let i = 0; i < targetLevel; i++) {
-      if (!curr || !curr.supervisorId) {
-        // 指定された階層の上長が存在しない場合は最後に辿れた上長を保持
-        break;
-      }
-      const sup = users.find(u => u.id === curr.supervisorId);
-      if (!sup) break;
-      curr = sup;
-    }
-    return (curr && curr.id !== applicant.id) ? curr : null;
-  };
-
-  // ステップ設定に基づき具体的な承認者を動的解決する関数
-  const resolveApproverForStep = (applicant: User, stepConfig: ApprovalStepConfig, users: User[]): User => {
-    if (stepConfig.approverType === 'specific_user' && stepConfig.specificUserId) {
-      const found = users.find(u => u.id === stepConfig.specificUserId);
-      if (found) return found;
-    }
-
-    let targetLevel = stepConfig.supervisorLevel;
-    if (!targetLevel) {
-      if (stepConfig.approverType === 'supervisor_1') targetLevel = 1;
-      else if (stepConfig.approverType === 'supervisor_2') targetLevel = 2;
-      else targetLevel = stepConfig.stepNumber || 1;
-    }
-
-    const sup = getSupervisorAtLevel(applicant, targetLevel, users);
-    if (sup) return sup;
-
-    // 該当階層の上長未登録時のフォールバック (直近の上長、または管理者)
-    const fallbackSup = getSupervisorAtLevel(applicant, 1, users);
-    return fallbackSup || users.find(u => u.id === 'u4' || u.isAdmin) || users[0];
   };
 
   // Handle new workflow application
@@ -2892,27 +2192,7 @@ export default function App() {
     }
   };
 
-  const handleDeleteMemo = async (memoId: string) => {
-    try {
-      let deletedIds: string[] = [];
-      const stored = localStorage.getItem('deleted_memo_ids');
-      if (stored) deletedIds = JSON.parse(stored);
-      if (!deletedIds.includes(memoId)) {
-        deletedIds.push(memoId);
-        localStorage.setItem('deleted_memo_ids', JSON.stringify(deletedIds));
-      }
-    } catch (_) {}
 
-    setMemos(prevMemos => prevMemos.filter(memo => memo.id !== memoId));
-    try {
-      await fetch(`${API_BASE_URL}/memos/${memoId}`, {
-        method: 'DELETE'
-      });
-      await refetchMemos();
-    } catch (err) {
-      console.error('Failed to delete memo via API:', err);
-    }
-  };
 
   const handleUpdateRooms = async (updatedRooms: ChatRoom[]) => {
     const prevRooms = [...chatRooms];
@@ -3013,371 +2293,7 @@ export default function App() {
     }
   };
 
-  const handleUpdateMemos = async (updatedMemos: any[]) => {
-    // 1. 楽観的UIアップデート: まずstateを即時更新してユーザー体験を高速化する
-    setMemos(updatedMemos);
-    window.dispatchEvent(new CustomEvent('notifications_updated'));
 
-    try {
-      // 変更があったメモ、または新規メモのみを抽出してAPIリクエストを投げる
-      const changedMemos = updatedMemos.filter(updatedMemo => {
-        const originalMemo = memos.find(m => m.id === updatedMemo.id);
-        if (!originalMemo) return true; // 新規メモ
-
-        // status または recipientStatuses の中身に変更があるか判定
-        const isStatusChanged = originalMemo.status !== updatedMemo.status;
-        const isRecipientStatusesChanged = JSON.stringify(originalMemo.recipientStatuses) !== JSON.stringify(updatedMemo.recipientStatuses);
-        
-        return isStatusChanged || isRecipientStatusesChanged;
-      });
-
-      // 変更がなければ即終了
-      if (changedMemos.length === 0) {
-        return;
-      }
-
-      const existingIds = new Set(memos.map(m => m.id));
-
-      // 変更されたメモのみに対してAPIリクエストをPromise.allで並列実行
-      await Promise.all(
-        changedMemos.map(async (memo) => {
-          const recipientStatusesJsonStr = JSON.stringify(memo.recipientStatuses);
-          if (!existingIds.has(memo.id)) {
-            // 新規メモ作成
-            await fetch(`${API_BASE_URL}/memos`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                id: memo.id,
-                senderId: userState.id,
-                receiverId: memo.toUserId || memo.toUser?.id || 'u1',
-                fromName: memo.fromName,
-                fromCompany: memo.fromCompany,
-                fromPhone: memo.fromPhone,
-                content: memo.content,
-                requirementType: memo.requirementType || 'phone_called',
-                requirementText: memo.requirementText || '',
-                recipientStatusesJson: recipientStatusesJsonStr,
-                recipient_statuses_json: recipientStatusesJsonStr,
-                recipientStatuses: recipientStatusesJsonStr,
-                details: {
-                  requirementType: memo.requirementType,
-                  requirementText: memo.requirementText,
-                  targetOffices: memo.targetOffices,
-                  targetDivisions: memo.targetDivisions,
-                  recipientStatuses: memo.recipientStatuses,
-                },
-                isRead: (memo.status === 'handled' || memo.status === 'read') ? 1 : 0,
-                status: memo.status,
-                createdAt: memo.createdAt || new Date().toISOString()
-              })
-            });
-          } else {
-            // 既存メモの更新（既読・対応フラグ等）
-            await fetch(`${API_BASE_URL}/memos/${memo.id}`, {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                isRead: (memo.status === 'handled' || memo.status === 'read') ? 1 : 0,
-                status: memo.status,
-                recipientStatusesJson: recipientStatusesJsonStr,
-                recipient_statuses_json: recipientStatusesJsonStr,
-                recipientStatuses: recipientStatusesJsonStr,
-                details: {
-                  requirementType: memo.requirementType,
-                  requirementText: memo.requirementText,
-                  targetOffices: memo.targetOffices,
-                  targetDivisions: memo.targetDivisions,
-                  recipientStatuses: memo.recipientStatuses,
-                }
-              })
-            });
-          }
-        })
-      );
-
-      // バックグラウンドで最新データを同期
-      await refetchMemos();
-    } catch (err) {
-      console.warn('Failed to sync memos via API:', err);
-    } finally {
-      window.dispatchEvent(new CustomEvent('notifications_updated'));
-    }
-  };
-
-  const handleAddReport = async (reportData: {
-    reportType?: any;
-    date?: string;
-    weekStartDate?: string;
-    weekLabel?: string;
-    department?: string;
-    tasks: string;
-    results: string;
-    issues: string;
-    ongoingProjects?: string;
-    tomorrowPlan?: string;
-    supervisorId?: string;
-    status?: any;
-  }) => {
-    const tempId = `rep_${Date.now()}`;
-    const targetSupervisor = reportData.supervisorId ? usersList.find(u => u.id === reportData.supervisorId) : undefined;
-    const newReport: DailyReport = {
-      id: tempId,
-      author: userState,
-      reportType: reportData.reportType || 'weekly',
-      date: reportData.date || new Date().toISOString().split('T')[0],
-      weekStartDate: reportData.weekStartDate,
-      weekLabel: reportData.weekLabel,
-      department: reportData.department || userState.department || '総務',
-      tasks: reportData.tasks,
-      results: reportData.results,
-      issues: reportData.issues,
-      ongoingProjects: reportData.ongoingProjects || '',
-      tomorrowPlan: reportData.tomorrowPlan || '',
-      supervisorId: reportData.supervisorId,
-      supervisor: targetSupervisor,
-      status: reportData.status || 'submitted',
-      submittedAt: reportData.status === 'submitted' ? new Date().toISOString() : undefined,
-      maintenanceData: (reportData as any).maintenanceData,
-      constructionData: (reportData as any).constructionData,
-      salesData: (reportData as any).salesData,
-      createdAt: new Date().toISOString(),
-    };
-    setReports([newReport, ...reports]);
-
-    // 週報・日報提出時のプッシュ通知送信 (下書き以外)
-    if (newReport.status === 'submitted') {
-      const typeLabel = newReport.reportType === 'weekly' ? '週報' : '日報';
-      const dateLabel = newReport.reportType === 'weekly' ? (newReport.weekLabel || `${newReport.weekStartDate}週`) : newReport.date;
-      
-      // 上長が指定されている場合は上長宛、未指定の場合は同部署の承認者または管理者宛
-      if (newReport.supervisorId && newReport.supervisorId !== userState.id) {
-        triggerPushNotification({
-          targetUserId: newReport.supervisorId,
-          excludeUserId: userState.id,
-          title: `📝 ${typeLabel}提出: ${userState.name}さん`,
-          body: `${dateLabel}の${typeLabel}が提出されました。確認をお願いします。`,
-          url: `/?tab=daily_report&reportId=${tempId}`,
-          tag: `report-${tempId}`
-        });
-
-        const supervisorUser = usersList.find(u => u.id === newReport.supervisorId);
-        if (supervisorUser) {
-          dispatchNotificationEmail([supervisorUser], {
-            category: 'inspection',
-            categoryLabel: '点検・報告書',
-            title: `${typeLabel}提出: ${userState.name}さん`,
-            actorName: userState.name,
-            details: [
-              { label: '報告種別', value: typeLabel },
-              { label: '対象日付', value: dateLabel },
-              { label: '提出者', value: userState.name },
-            ],
-            mainContent: newReport.results || newReport.tasks,
-            pathParams: `tab=daily_report&reportId=${tempId}`,
-          }, userState);
-        }
-      } else {
-        // 同部署の管理職/リーダーまたは全管理者に通知
-        const approvers = usersList.filter(u => 
-          u.id !== userState.id && 
-          (u.role === 'admin' || (u.role as any) === 'manager' || (u.division === userState.division && ['課長', '部長', '所長', 'リーダー'].some(pos => u.position?.includes(pos))))
-        );
-        if (approvers.length > 0) {
-          triggerPushNotification({
-            targetUserIds: approvers.map(u => u.id),
-            excludeUserId: userState.id,
-            title: `📝 ${typeLabel}提出: ${userState.name}さん`,
-            body: `${dateLabel}の${typeLabel}が提出されました。確認をお願いします。`,
-            url: `/?tab=daily_report&reportId=${tempId}`,
-            tag: `report-${tempId}`
-          });
-
-          dispatchNotificationEmail(approvers, {
-            category: 'inspection',
-            categoryLabel: '点検・報告書',
-            title: `${typeLabel}提出: ${userState.name}さん`,
-            actorName: userState.name,
-            details: [
-              { label: '報告種別', value: typeLabel },
-              { label: '対象日付', value: dateLabel },
-              { label: '提出者', value: userState.name },
-            ],
-            mainContent: newReport.results || newReport.tasks,
-            pathParams: `tab=daily_report&reportId=${tempId}`,
-          }, userState);
-        }
-      }
-    }
-
-    try {
-      const payload = {
-        id: tempId,
-        authorId: userState.id,
-        reportType: reportData.reportType || 'weekly',
-        reportDate: reportData.date,
-        date: reportData.date,
-        weekStartDate: reportData.weekStartDate,
-        weekLabel: reportData.weekLabel,
-        department: reportData.department || userState.department || '総務',
-        tasks: reportData.tasks,
-        results: reportData.results,
-        issues: reportData.issues,
-        ongoingProjects: reportData.ongoingProjects,
-        tomorrowPlan: reportData.tomorrowPlan,
-        supervisorId: reportData.supervisorId,
-        status: reportData.status || 'submitted',
-        maintenanceData: (reportData as any).maintenanceData,
-        constructionData: (reportData as any).constructionData,
-        salesData: (reportData as any).salesData,
-      };
-
-      let response = await fetch(`${API_BASE_URL}/work-reports`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      if (!response.ok) {
-        response = await fetch(`${API_BASE_URL}/daily-reports`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-      }
-      if (response.ok) {
-        await refetchReports();
-      }
-    } catch (err) {
-      console.error('Failed to save report via API, keeping locally:', err);
-    }
-  };
-
-  const handleUpdateReport = async (id: string, reportData: Partial<DailyReport>) => {
-    setReports(prev => prev.map(r => r.id === id ? { ...r, ...reportData } : r));
-    try {
-      const payload = {
-        ...reportData,
-        id,
-        author_id: (reportData.author && reportData.author.id) || userState.id,
-        supervisor_id: reportData.supervisorId || (reportData.supervisor && reportData.supervisor.id),
-        week_start_date: reportData.weekStartDate,
-        week_label: reportData.weekLabel,
-        achievements: reportData.results !== undefined ? reportData.results : (reportData as any).achievements,
-        continued_items: reportData.ongoingProjects !== undefined ? reportData.ongoingProjects : (reportData as any).continued_items,
-        next_week_plans: reportData.tomorrowPlan !== undefined ? reportData.tomorrowPlan : (reportData as any).next_week_plans,
-        maintenance_data: (reportData as any).maintenanceData !== undefined ? (reportData as any).maintenanceData : (reportData as any).maintenance_data,
-        maintenanceData: (reportData as any).maintenanceData !== undefined ? (reportData as any).maintenanceData : (reportData as any).maintenance_data,
-        construction_data: (reportData as any).constructionData !== undefined ? (reportData as any).constructionData : (reportData as any).construction_data,
-        constructionData: (reportData as any).constructionData !== undefined ? (reportData as any).constructionData : (reportData as any).construction_data,
-        sales_data: (reportData as any).salesData !== undefined ? (reportData as any).salesData : (reportData as any).sales_data,
-        salesData: (reportData as any).salesData !== undefined ? (reportData as any).salesData : (reportData as any).sales_data,
-      };
-      let response = await fetch(`${API_BASE_URL}/work-reports/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      if (!response.ok) {
-        response = await fetch(`${API_BASE_URL}/daily-reports/${id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-      }
-      if (response.ok) {
-        await refetchReports();
-      }
-    } catch (err) {
-      console.error('Failed to update report via API:', err);
-    }
-  };
-
-  const handleReviewReport = async (id: string, feedbackComment?: string) => {
-    const targetReport = reports.find(r => r.id === id);
-    setReports(prev => prev.map(r => r.id === id ? { ...r, status: 'reviewed', feedbackComment, reviewedAt: new Date().toISOString() } : r));
-
-    // 作成者宛に確認・フィードバック完了のプッシュ通知を送信
-    if (targetReport && targetReport.author && targetReport.author.id !== userState.id) {
-      const typeLabel = targetReport.reportType === 'weekly' ? '週報' : '日報';
-      const dateLabel = targetReport.reportType === 'weekly' ? (targetReport.weekLabel || `${targetReport.weekStartDate}週`) : targetReport.date;
-      triggerPushNotification({
-        targetUserId: targetReport.author.id,
-        excludeUserId: userState.id,
-        title: `✍️ ${typeLabel}確認完了: ${userState.name}さん`,
-        body: `${userState.name}さんが${dateLabel}の${typeLabel}を確認しました。${feedbackComment ? `「${feedbackComment.slice(0, 40)}」` : ''}`,
-        url: `/?tab=daily_report&reportId=${id}`,
-        tag: `report-rev-${id}`
-      });
-
-      const authorUser = usersList.find(u => u.id === targetReport.author.id) || targetReport.author;
-      dispatchNotificationEmail([authorUser], {
-        category: 'inspection',
-        categoryLabel: '点検・報告書',
-        title: `${typeLabel}確認完了: ${userState.name}さん`,
-        actorName: userState.name,
-        details: [
-          { label: '報告種別', value: typeLabel },
-          { label: '対象日付', value: dateLabel },
-          { label: '確認者', value: userState.name },
-          { label: 'フィードバック', value: feedbackComment || '確認完了' },
-        ],
-        pathParams: `tab=daily_report&reportId=${id}`,
-      }, userState);
-    }
-
-    try {
-      let response = await fetch(`${API_BASE_URL}/work-reports/${id}/review`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ feedbackComment })
-      });
-      if (!response.ok) {
-        response = await fetch(`${API_BASE_URL}/daily-reports/${id}/review`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ feedbackComment })
-        });
-      }
-      if (response.ok) {
-        await refetchReports();
-      }
-    } catch (err) {
-      console.error('Failed to review report via API:', err);
-    }
-  };
-
-  const handleDeleteReport = async (id: string) => {
-    setReports(prev => prev.filter(r => r.id !== id));
-    try {
-      const stored = localStorage.getItem('deleted_report_ids');
-      const list = stored ? JSON.parse(stored) : [];
-      if (!list.includes(id)) {
-        list.push(id);
-        localStorage.setItem('deleted_report_ids', JSON.stringify(list));
-      }
-    } catch (_) {}
-
-    try {
-      let response = await fetch(`${API_BASE_URL}/work-reports/${id}`, {
-        method: 'DELETE'
-      });
-      if (!response.ok) {
-        response = await fetch(`${API_BASE_URL}/daily-reports/${id}`, {
-          method: 'DELETE'
-        });
-      }
-      if (!response.ok) {
-        response = await fetch(`${API_BASE_URL}/reports/${id}`, {
-          method: 'DELETE'
-        });
-      }
-      if (response.ok) {
-        await refetchReports();
-      }
-    } catch (err) {
-      console.error('Failed to delete report via API:', err);
-    }
-  };
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans selection:bg-indigo-100 selection:text-indigo-900 overflow-x-hidden" style={{ backgroundColor: '#f8fafc' }}>
@@ -3519,241 +2435,243 @@ export default function App() {
         )}
 
         {/* Main Content Area */}
-        {activeTab === 'timeline' && (
-          <Timeline 
-            posts={posts}
-            events={events}
-            topics={topics}
-            offices={offices}
-            divisions={divisions}
-            searchQuery={searchQuery}
-            selectedTag={selectedTag}
-            onPost={handlePost}
-            onToggleLike={handleToggleLike}
-            onSelectTag={setSelectedTag}
-            onChangeTab={setActiveTab}
-            isLoading={isPostsLoading}
-            error={postsError}
-            onRefetchPosts={refetchAll}
-            onDeletePost={handleDeletePost}
-            currentUser={userState}
-          />
-        )}
-        {activeTab === 'calendar' && (
-          <Calendar 
-            events={events}
-            onAddEvent={handleAddEvent}
-            onUpdateEvent={handleUpdateEvent}
-            onDeleteEvent={handleDeleteEvent}
-            currentUser={userState}
-            allUsers={usersList}
-            offices={offices}
-            divisions={divisions}
-            initialEventId={targetEventId}
-            initialOffice={calendarParams.office}
-            initialDivision={calendarParams.division}
-            initialMode={calendarParams.mode}
-            initialView={calendarParams.view}
-            initialDate={calendarParams.date}
-            initialTypeFilter={calendarParams.type}
-            memos={memos}
-            onUpdateMemos={handleUpdateMemos}
-            onRefetchEvents={refetchEvents}
-            onNavigateToInspectionScheduler={() => setActiveTab('inspection_scheduler')}
-          />
-        )}
-        {activeTab === 'inspection_scheduler' && (
-          <InspectionScheduler
-            allUsers={usersList}
-            currentUser={userState}
-            offices={offices}
-            onAddEvents={(newEvents) => {
-              newEvents.forEach((evt) => {
-                const { id, ...eventData } = evt;
-                handleAddEvent(eventData);
-              });
-            }}
-            onNavigateToCalendar={() => setActiveTab('calendar')}
-          />
-        )}
-        {activeTab === 'workflow' && (
-          <Workflow 
-            applications={applications}
-            onAddApplication={handleAddApplication}
-            onUpdateApplication={handleUpdateApplication}
-            onDeleteApplication={handleDeleteApplication}
-            allUsers={usersList}
-            currentUser={userState}
-            approvalFlows={approvalFlows}
-            onWorkflowAction={handleWorkflowAction}
-            itemMasters={itemMasters}
-            initialAppId={targetApplicationId}
-          />
-        )}
-        {activeTab === 'board' && (
-          <Board
-            topics={topics}
-            onAddTopic={handleAddTopic}
-            onUpdateTopic={handleUpdateTopic}
-            onDeleteTopic={handleDeleteTopic}
-            currentUser={userState}
-            offices={offices}
-            divisions={divisions}
-            initialTopicId={targetTopicId}
-          />
-        )}
-        {activeTab === 'chat' && (
-          <Chat 
-            rooms={chatRooms} 
-            users={usersList}
-            currentUser={userState}
-            offices={offices}
-            divisions={divisions}
-            onUpdateRooms={handleUpdateRooms}
-            onDeleteRoom={handleDeleteChatRoom}
-            onDeleteMessage={handleDeleteChatMessage}
-            initialRoomId={targetChatRoomId}
-            refetchRooms={refetchChatRooms}
-          />
-        )}
-        {activeTab === 'memo' && (
-          <MemoList 
-            memos={memos}
-            offices={offices}
-            divisions={divisions}
-            users={usersList}
-            currentUser={userState}
-            onUpdateMemos={handleUpdateMemos}
-            onDeleteMemo={handleDeleteMemo}
-            initialMemoId={targetMemoId}
-            initialOpenCreate={autoOpenCreateMemo}
-            initialRecipientId={memoInitialRecipientId}
-            onCloseCreateModal={() => {
-              setAutoOpenCreateMemo(false);
-              setMemoInitialRecipientId(undefined);
-            }}
-            onSelectUser={handleOpenUserDetail}
-          />
-        )}
-        {activeTab === 'members' && (
-          <UserDirectory
-            users={usersList}
-            offices={offices}
-            divisions={divisions}
-            currentUser={userState}
-            onSelectUser={handleOpenUserDetail}
-            onSendMemo={handleSendMemoFromModal}
-            onViewSchedule={handleViewScheduleFromModal}
-            onOpenChat={handleOpenChatFromModal}
-          />
-        )}
-        {activeTab === 'daily_report' && (
-          <DailyReportView 
-            reports={reports} 
-            onAddReport={handleAddReport}
-            onUpdateReport={handleUpdateReport}
-            onReviewReport={handleReviewReport}
-            onDeleteReport={handleDeleteReport}
-            currentUser={userState}
-            allUsers={usersList}
-            divisions={divisions}
-            refetchReports={refetchReports}
-            calendarEvents={events}
-            initialReportId={targetReportId}
-            applications={applications}
-            onAddApplication={handleAddApplication}
-            onUpdateApplication={handleUpdateApplication}
-            approvalFlows={approvalFlows}
-            itemMasters={itemMasters}
-          />
-        )}
-        {activeTab === 'files' && (
-          <FileManager 
-            currentUser={userState}
-          />
-        )}
-        {activeTab === 'safety_confirmation' && (
-          <SafetyConfirmation
-            currentUser={userState}
-            allUsers={usersList}
-            offices={offices}
-            divisions={divisions}
-            onOpenConfirmModal={handleOpenConfirmModal}
-            initialEventId={targetSafetyEventId}
-          />
-        )}
-        {activeTab === 'mypage' && (
-          <MyPage 
-            user={userState} 
-            events={events}
-            topics={topics}
-            memos={memos}
-            applications={applications}
-            chatRooms={chatRooms}
-            reports={reports}
-            offices={offices}
-            divisions={divisions}
-            positions={positions}
-            allUsers={usersList}
-            onChangeTab={setActiveTab}
-            onNavigateToContent={handleNavigateToContent}
-            onUpdateUser={handleUpdateUser}
-            onUpdateMemo={handleUpdateMemos}
-            onUpdateTopic={handleUpdateTopic}
-            onUpdateApplication={(updatedApp) => {
-              if (updatedApp.status === 'approved' || updatedApp.status === 'rejected') {
-                handleWorkflowAction(updatedApp.id, updatedApp.status);
-              } else {
-                setApplications(applications.map(a => a.id === updatedApp.id ? updatedApp : a));
-              }
-            }}
-            onLogout={handleLogout}
-            autoOpenSettings={autoOpenSettings}
-            onCloseSettings={() => setAutoOpenSettings(false)}
-            autoOpenEmergencyContact={autoOpenEmergencyContact}
-            onCloseEmergencyContact={() => setAutoOpenEmergencyContact(false)}
-            onAddEvent={handleAddEvent}
-            onUpdateEvent={handleUpdateEvent}
-            onDeleteEvent={handleDeleteEvent}
-            onAddTopic={handleAddTopic}
-            onAddApplication={handleAddApplication}
-            approvalFlows={approvalFlows}
-            itemMasters={itemMasters}
-          />
-        )}
-        {activeTab === 'admin' && (
-          <AdminPanel 
-            currentUser={userState}
-            allUsers={usersList}
-            offices={offices}
-            divisions={divisions}
-            positions={positions}
-            approvalFlows={approvalFlows}
-            itemMasters={itemMasters}
-            applications={applications}
-            onDeleteApplication={handleDeleteApplication}
-            onAddOffice={handleAddOffice}
-            onUpdateOffice={handleUpdateOffice}
-            onDeleteOffice={handleDeleteOffice}
-            onAddDivision={handleAddDivision}
-            onUpdateDivision={handleUpdateDivision}
-            onDeleteDivision={handleDeleteDivision}
-            onAddPosition={handleAddPosition}
-            onUpdatePosition={handleUpdatePosition}
-            onDeletePosition={handleDeletePosition}
-            onAddUser={handleAddUser}
-            onUpdateUser={handleUpdateUser}
-            onDeleteUser={handleDeleteUser}
-            onToggleUserAdmin={handleToggleUserAdmin}
-            onSwitchUser={handleSwitchUser}
-            onAddApprovalFlow={handleAddApprovalFlow}
-            onUpdateApprovalFlow={handleUpdateApprovalFlow}
-            onDeleteApprovalFlow={handleDeleteApprovalFlow}
-            onAddItemMaster={handleAddItemMaster}
-            onUpdateItemMaster={handleUpdateItemMaster}
-            onDeleteItemMaster={handleDeleteItemMaster}
-          />
-        )}
+        <Suspense fallback={<LazyTabFallback message="画面を読み込み中..." />}>
+          {activeTab === 'timeline' && (
+            <Timeline 
+              posts={posts}
+              events={events}
+              topics={topics}
+              offices={offices}
+              divisions={divisions}
+              searchQuery={searchQuery}
+              selectedTag={selectedTag}
+              onPost={handlePost}
+              onToggleLike={handleToggleLike}
+              onSelectTag={setSelectedTag}
+              onChangeTab={setActiveTab}
+              isLoading={isPostsLoading}
+              error={postsError}
+              onRefetchPosts={refetchAll}
+              onDeletePost={handleDeletePost}
+              currentUser={userState}
+            />
+          )}
+          {activeTab === 'calendar' && (
+            <Calendar 
+              events={events}
+              onAddEvent={handleAddEvent}
+              onUpdateEvent={handleUpdateEvent}
+              onDeleteEvent={handleDeleteEvent}
+              currentUser={userState}
+              allUsers={usersList}
+              offices={offices}
+              divisions={divisions}
+              initialEventId={targetEventId}
+              initialOffice={calendarParams.office}
+              initialDivision={calendarParams.division}
+              initialMode={calendarParams.mode}
+              initialView={calendarParams.view}
+              initialDate={calendarParams.date}
+              initialTypeFilter={calendarParams.type}
+              memos={memos}
+              onUpdateMemos={handleUpdateMemos}
+              onRefetchEvents={refetchEvents}
+              onNavigateToInspectionScheduler={() => setActiveTab('inspection_scheduler')}
+            />
+          )}
+          {activeTab === 'inspection_scheduler' && (
+            <InspectionScheduler
+              allUsers={usersList}
+              currentUser={userState}
+              offices={offices}
+              onAddEvents={(newEvents) => {
+                newEvents.forEach((evt) => {
+                  const { id, ...eventData } = evt;
+                  handleAddEvent(eventData);
+                });
+              }}
+              onNavigateToCalendar={() => setActiveTab('calendar')}
+            />
+          )}
+          {activeTab === 'workflow' && (
+            <Workflow 
+              applications={applications}
+              onAddApplication={handleAddApplication}
+              onUpdateApplication={handleUpdateApplication}
+              onDeleteApplication={handleDeleteApplication}
+              allUsers={usersList}
+              currentUser={userState}
+              approvalFlows={approvalFlows}
+              onWorkflowAction={handleWorkflowAction}
+              itemMasters={itemMasters}
+              initialAppId={targetApplicationId}
+            />
+          )}
+          {activeTab === 'board' && (
+            <Board
+              topics={topics}
+              onAddTopic={handleAddTopic}
+              onUpdateTopic={handleUpdateTopic}
+              onDeleteTopic={handleDeleteTopic}
+              currentUser={userState}
+              offices={offices}
+              divisions={divisions}
+              initialTopicId={targetTopicId}
+            />
+          )}
+          {activeTab === 'chat' && (
+            <Chat 
+              rooms={chatRooms} 
+              users={usersList}
+              currentUser={userState}
+              offices={offices}
+              divisions={divisions}
+              onUpdateRooms={handleUpdateRooms}
+              onDeleteRoom={handleDeleteChatRoom}
+              onDeleteMessage={handleDeleteChatMessage}
+              initialRoomId={targetChatRoomId}
+              refetchRooms={refetchChatRooms}
+            />
+          )}
+          {activeTab === 'memo' && (
+            <MemoList 
+              memos={memos}
+              offices={offices}
+              divisions={divisions}
+              users={usersList}
+              currentUser={userState}
+              onUpdateMemos={handleUpdateMemos}
+              onDeleteMemo={handleDeleteMemo}
+              initialMemoId={targetMemoId}
+              initialOpenCreate={autoOpenCreateMemo}
+              initialRecipientId={memoInitialRecipientId}
+              onCloseCreateModal={() => {
+                setAutoOpenCreateMemo(false);
+                setMemoInitialRecipientId(undefined);
+              }}
+              onSelectUser={handleOpenUserDetail}
+            />
+          )}
+          {activeTab === 'members' && (
+            <UserDirectory
+              users={usersList}
+              offices={offices}
+              divisions={divisions}
+              currentUser={userState}
+              onSelectUser={handleOpenUserDetail}
+              onSendMemo={handleSendMemoFromModal}
+              onViewSchedule={handleViewScheduleFromModal}
+              onOpenChat={handleOpenChatFromModal}
+            />
+          )}
+          {activeTab === 'daily_report' && (
+            <DailyReportView 
+              reports={reports} 
+              onAddReport={handleAddReport}
+              onUpdateReport={handleUpdateReport}
+              onReviewReport={handleReviewReport}
+              onDeleteReport={handleDeleteReport}
+              currentUser={userState}
+              allUsers={usersList}
+              divisions={divisions}
+              refetchReports={refetchReports}
+              calendarEvents={events}
+              initialReportId={targetReportId}
+              applications={applications}
+              onAddApplication={handleAddApplication}
+              onUpdateApplication={handleUpdateApplication}
+              approvalFlows={approvalFlows}
+              itemMasters={itemMasters}
+            />
+          )}
+          {activeTab === 'files' && (
+            <FileManager 
+              currentUser={userState}
+            />
+          )}
+          {activeTab === 'safety_confirmation' && (
+            <SafetyConfirmation
+              currentUser={userState}
+              allUsers={usersList}
+              offices={offices}
+              divisions={divisions}
+              onOpenConfirmModal={handleOpenConfirmModal}
+              initialEventId={targetSafetyEventId}
+            />
+          )}
+          {activeTab === 'mypage' && (
+            <MyPage 
+              user={userState} 
+              events={events}
+              topics={topics}
+              memos={memos}
+              applications={applications}
+              chatRooms={chatRooms}
+              reports={reports}
+              offices={offices}
+              divisions={divisions}
+              positions={positions}
+              allUsers={usersList}
+              onChangeTab={setActiveTab}
+              onNavigateToContent={handleNavigateToContent}
+              onUpdateUser={handleUpdateUser}
+              onUpdateMemo={handleUpdateMemos}
+              onUpdateTopic={handleUpdateTopic}
+              onUpdateApplication={(updatedApp) => {
+                if (updatedApp.status === 'approved' || updatedApp.status === 'rejected') {
+                  handleWorkflowAction(updatedApp.id, updatedApp.status);
+                } else {
+                  setApplications(applications.map(a => a.id === updatedApp.id ? updatedApp : a));
+                }
+              }}
+              onLogout={handleLogout}
+              autoOpenSettings={autoOpenSettings}
+              onCloseSettings={() => setAutoOpenSettings(false)}
+              autoOpenEmergencyContact={autoOpenEmergencyContact}
+              onCloseEmergencyContact={() => setAutoOpenEmergencyContact(false)}
+              onAddEvent={handleAddEvent}
+              onUpdateEvent={handleUpdateEvent}
+              onDeleteEvent={handleDeleteEvent}
+              onAddTopic={handleAddTopic}
+              onAddApplication={handleAddApplication}
+              approvalFlows={approvalFlows}
+              itemMasters={itemMasters}
+            />
+          )}
+          {activeTab === 'admin' && (
+            <AdminPanel 
+              currentUser={userState}
+              allUsers={usersList}
+              offices={offices}
+              divisions={divisions}
+              positions={positions}
+              approvalFlows={approvalFlows}
+              itemMasters={itemMasters}
+              applications={applications}
+              onDeleteApplication={handleDeleteApplication}
+              onAddOffice={handleAddOffice}
+              onUpdateOffice={handleUpdateOffice}
+              onDeleteOffice={handleDeleteOffice}
+              onAddDivision={handleAddDivision}
+              onUpdateDivision={handleUpdateDivision}
+              onDeleteDivision={handleDeleteDivision}
+              onAddPosition={handleAddPosition}
+              onUpdatePosition={handleUpdatePosition}
+              onDeletePosition={handleDeletePosition}
+              onAddUser={handleAddUser}
+              onUpdateUser={handleUpdateUser}
+              onDeleteUser={handleDeleteUser}
+              onToggleUserAdmin={handleToggleUserAdmin}
+              onSwitchUser={handleSwitchUser}
+              onAddApprovalFlow={handleAddApprovalFlow}
+              onUpdateApprovalFlow={handleUpdateApprovalFlow}
+              onDeleteApprovalFlow={handleDeleteApprovalFlow}
+              onAddItemMaster={handleAddItemMaster}
+              onUpdateItemMaster={handleUpdateItemMaster}
+              onDeleteItemMaster={handleDeleteItemMaster}
+            />
+          )}
+        </Suspense>
       </main>
 
       <ConfirmModal
