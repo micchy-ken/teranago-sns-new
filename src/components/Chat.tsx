@@ -304,14 +304,22 @@ export function Chat({
   const [firstUnreadMessageId, setFirstUnreadMessageId] = useState<string | null>(null);
   const currentRoomIdForUnreadRef = useRef<string | null>(null);
 
+  // 表示開始インデックス（過去ログのオンデマンド遡り読み込み用）
+  const [visibleStartIndex, setVisibleStartIndex] = useState<number>(0);
+  const [isLoadingMorePrevious, setIsLoadingMorePrevious] = useState<boolean>(false);
+  const prevScrollHeightRef = useRef<number>(0);
+  const prevScrollTopRef = useRef<number>(0);
+  const isPrependingRef = useRef<boolean>(false);
+
   useEffect(() => {
     if (!activeRoom || !currentUser?.id) {
       setFirstUnreadMessageId(null);
       currentRoomIdForUnreadRef.current = null;
+      setVisibleStartIndex(0);
       return;
     }
 
-    // ルームが切り替わったタイミング（または未選択状態からの入室時）にのみ「最初の未読メッセージ」を固定特定
+    // ルームが切り替わったタイミング（または未選択状態からの入室時）にのみ「最初の未読メッセージ」と初期表示インデックスを特定
     if (currentRoomIdForUnreadRef.current !== activeRoom.id) {
       currentRoomIdForUnreadRef.current = activeRoom.id;
       const messages = activeRoom.messages || [];
@@ -354,7 +362,19 @@ export function Chat({
         });
       }
 
-      setFirstUnreadMessageId(unreadMsg ? unreadMsg.id : null);
+      const unreadId = unreadMsg ? unreadMsg.id : null;
+      setFirstUnreadMessageId(unreadId);
+
+      // 初期表示範囲の計算:
+      // 未読がある場合: 未読メッセージの直前5件〜最新までを表示
+      // 未読がない場合: 最新25件を表示
+      if (unreadId) {
+        const unreadIdx = messages.findIndex(m => m.id === unreadId);
+        const initStart = unreadIdx >= 0 ? Math.max(0, unreadIdx - 5) : Math.max(0, messages.length - 25);
+        setVisibleStartIndex(initStart);
+      } else {
+        setVisibleStartIndex(Math.max(0, messages.length - 25));
+      }
 
       // 今回の訪問完了として、現在日時をローカルに更新保存
       try {
@@ -363,6 +383,44 @@ export function Chat({
       } catch (e) {}
     }
   }, [activeRoom?.id, currentUser?.id]);
+
+  // 過去メッセージ追加時のスクロール位置補正（位置跳躍の防止）
+  useEffect(() => {
+    if (isPrependingRef.current && chatContainerRef.current) {
+      const container = chatContainerRef.current;
+      const heightDiff = container.scrollHeight - prevScrollHeightRef.current;
+      if (heightDiff > 0) {
+        container.scrollTop = prevScrollTopRef.current + heightDiff;
+      }
+      isPrependingRef.current = false;
+    }
+  }, [visibleStartIndex]);
+
+  // 上スクロールによる過去ログの自動追加読み込み
+  const loadMorePreviousMessages = () => {
+    if (visibleStartIndex <= 0 || isLoadingMorePrevious) return;
+    const container = chatContainerRef.current;
+    if (!container) return;
+
+    setIsLoadingMorePrevious(true);
+    prevScrollHeightRef.current = container.scrollHeight;
+    prevScrollTopRef.current = container.scrollTop;
+    isPrependingRef.current = true;
+
+    // 読み込みの演出とレンダリング安定化
+    setTimeout(() => {
+      setVisibleStartIndex(prev => Math.max(0, prev - 25));
+      setIsLoadingMorePrevious(false);
+    }, 180);
+  };
+
+  const handleTimelineScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const container = e.currentTarget;
+    // 上部付近（50px以内）にスクロールした際に過去メッセージを自動読み込み
+    if (container.scrollTop < 60 && visibleStartIndex > 0 && !isLoadingMorePrevious) {
+      loadMorePreviousMessages();
+    }
+  };
 
   useEffect(() => {
     if (activeRoomId && currentUser?.id) {
@@ -426,8 +484,8 @@ export function Chat({
     const messages = activeRoom.messages || [];
     const msgCount = messages.length;
     
-    // スクロール判定用キー (部屋ID、モバイル画面状態、未読メッセージID)
-    const scrollKey = `${activeRoom.id}_${mobileView}_${firstUnreadMessageId || 'none'}`;
+    // スクロール判定用キー (部屋ID、モバイル画面状態、未読メッセージID、表示開始位置)
+    const scrollKey = `${activeRoom.id}_${mobileView}_${firstUnreadMessageId || 'none'}_${visibleStartIndex}`;
     const isNewRoomOrView = lastScrolledKeyRef.current !== scrollKey;
     const lengthIncreased = msgCount > prevMessagesLengthRef.current;
     
@@ -465,9 +523,9 @@ export function Chat({
       performScroll(false);
 
       const anim1 = requestAnimationFrame(() => performScroll(false));
-      const t1 = setTimeout(() => performScroll(true), 60);
-      const t2 = setTimeout(() => performScroll(true), 180);
-      const t3 = setTimeout(() => performScroll(true), 400);
+      const t1 = setTimeout(() => performScroll(false), 50);
+      const t2 = setTimeout(() => performScroll(true), 150);
+      const t3 = setTimeout(() => performScroll(true), 350);
 
       prevRoomIdRef.current = activeRoom.id;
       prevMessagesLengthRef.current = msgCount;
@@ -490,7 +548,7 @@ export function Chat({
 
     prevRoomIdRef.current = activeRoom.id;
     prevMessagesLengthRef.current = msgCount;
-  }, [activeRoom?.id, activeRoom?.messages, firstUnreadMessageId, mobileView, currentUser?.id]);
+  }, [activeRoom?.id, activeRoom?.messages, firstUnreadMessageId, mobileView, visibleStartIndex, currentUser?.id]);
 
   // グループチャットかどうかを判定する安全な関数（参加者が3人以上、または明示的にgroupである場合）
   const isGroupRoom = (room: ChatRoom) => {
@@ -1299,17 +1357,75 @@ export function Chat({
             )}
 
             {/* メッセージ本文エリア (LINEスタイルトーク画面) */}
-            <div ref={chatContainerRef} className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-3 sm:space-y-4 bg-[#e2e8f0]/40">
-              {(activeRoom?.messages || []).map((msg, index) => {
-                const isMine = msg.sender.id === currentUser.id;
-                const isSystem = msg.id.startsWith('sys_') || msg.id.startsWith('m_init_');
-                const isFirstUnread = Boolean(firstUnreadMessageId && msg.id === firstUnreadMessageId);
-                const prevMsg = index > 0 ? (activeRoom?.messages || [])[index - 1] : undefined;
-                const isDifferentDate = Boolean(
-                  msg.createdAt && (!prevMsg || !prevMsg.createdAt || new Date(msg.createdAt).toDateString() !== new Date(prevMsg.createdAt).toDateString())
-                );
+            <div 
+              ref={chatContainerRef} 
+              onScroll={handleTimelineScroll}
+              className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-3 sm:space-y-4 bg-[#e2e8f0]/40"
+            >
+              {/* 過去ログ読み込みインジケーター */}
+              {visibleStartIndex > 0 && (
+                <div className="flex justify-center py-2 select-none">
+                  {isLoadingMorePrevious ? (
+                    <div className="flex items-center gap-2 px-3.5 py-1.5 bg-white/90 backdrop-blur-xs rounded-full shadow-2xs text-xs font-semibold text-indigo-600 border border-indigo-100 animate-in fade-in duration-150">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600" />
+                      <span>過去のメッセージを読み込み中...</span>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={loadMorePreviousMessages}
+                      className="text-[11px] text-slate-500 hover:text-indigo-600 bg-white/60 hover:bg-white/90 px-3 py-1 rounded-full border border-slate-200/80 transition-colors font-medium shadow-2xs cursor-pointer"
+                    >
+                      ↑ 過去のメッセージをさらに表示（残り {visibleStartIndex} 件）
+                    </button>
+                  )}
+                </div>
+              )}
 
-                if (isSystem) {
+              {(() => {
+                const allMsgs = activeRoom?.messages || [];
+                const displayedMsgs = allMsgs.slice(visibleStartIndex);
+
+                return displayedMsgs.map((msg, index) => {
+                  const globalIndex = visibleStartIndex + index;
+                  const isMine = msg.sender.id === currentUser.id;
+                  const isSystem = msg.id.startsWith('sys_') || msg.id.startsWith('m_init_');
+                  const isFirstUnread = Boolean(firstUnreadMessageId && msg.id === firstUnreadMessageId);
+                  const prevMsg = globalIndex > 0 ? allMsgs[globalIndex - 1] : undefined;
+                  const isDifferentDate = Boolean(
+                    msg.createdAt && (!prevMsg || !prevMsg.createdAt || new Date(msg.createdAt).toDateString() !== new Date(prevMsg.createdAt).toDateString())
+                  );
+
+                  if (isSystem) {
+                    return (
+                      <React.Fragment key={msg.id}>
+                        {isDifferentDate && (
+                          <div className="flex justify-center my-3 sm:my-4 select-none">
+                            <span className="px-3 py-1 bg-slate-200/90 text-slate-600 text-[11px] font-bold rounded-full shadow-2xs border border-slate-300/50">
+                              {formatDateDividerLabel(msg.createdAt)}
+                            </span>
+                          </div>
+                        )}
+                        {isFirstUnread && (
+                          <div id="unread-line-divider" className="flex items-center gap-3 my-4 px-2 select-none">
+                            <div className="flex-1 h-px bg-rose-300/80" />
+                            <div className="flex items-center gap-1.5 px-3 py-1 bg-rose-50 border border-rose-200 text-rose-600 text-[11px] font-extrabold rounded-full shadow-2xs">
+                              <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+                              ここから未読メッセージ
+                            </div>
+                            <div className="flex-1 h-px bg-rose-300/80" />
+                          </div>
+                        )}
+                        <div className="flex justify-center my-2 sm:my-3">
+                          <span className="px-2.5 py-0.5 sm:px-3 sm:py-1 bg-slate-200/80 text-slate-600 text-[10px] sm:text-[11px] font-medium rounded-full shadow-2xs">
+                            {msg.content}
+                          </span>
+                        </div>
+                      </React.Fragment>
+                    );
+                  }
+
+                  const showSenderName = !isMine && (!prevMsg || prevMsg.sender.id !== msg.sender.id || prevMsg.id.startsWith('sys_'));
+
                   return (
                     <React.Fragment key={msg.id}>
                       {isDifferentDate && (
@@ -1329,36 +1445,6 @@ export function Chat({
                           <div className="flex-1 h-px bg-rose-300/80" />
                         </div>
                       )}
-                      <div className="flex justify-center my-2 sm:my-3">
-                        <span className="px-2.5 py-0.5 sm:px-3 sm:py-1 bg-slate-200/80 text-slate-600 text-[10px] sm:text-[11px] font-medium rounded-full shadow-2xs">
-                          {msg.content}
-                        </span>
-                      </div>
-                    </React.Fragment>
-                  );
-                }
-
-                const showSenderName = !isMine && (!prevMsg || prevMsg.sender.id !== msg.sender.id || prevMsg.id.startsWith('sys_'));
-
-                return (
-                  <React.Fragment key={msg.id}>
-                    {isDifferentDate && (
-                      <div className="flex justify-center my-3 sm:my-4 select-none">
-                        <span className="px-3 py-1 bg-slate-200/90 text-slate-600 text-[11px] font-bold rounded-full shadow-2xs border border-slate-300/50">
-                          {formatDateDividerLabel(msg.createdAt)}
-                        </span>
-                      </div>
-                    )}
-                    {isFirstUnread && (
-                      <div id="unread-line-divider" className="flex items-center gap-3 my-4 px-2 select-none">
-                        <div className="flex-1 h-px bg-rose-300/80" />
-                        <div className="flex items-center gap-1.5 px-3 py-1 bg-rose-50 border border-rose-200 text-rose-600 text-[11px] font-extrabold rounded-full shadow-2xs">
-                          <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
-                          ここから未読メッセージ
-                        </div>
-                        <div className="flex-1 h-px bg-rose-300/80" />
-                      </div>
-                    )}
                     <div className={`flex gap-2 sm:gap-2.5 ${isMine ? 'flex-row-reverse' : 'flex-row'}`}>
                     {/* 相手のアバター */}
                     {!isMine && (
@@ -1539,7 +1625,8 @@ export function Chat({
                   </div>
                 </React.Fragment>
                 );
-              })}
+              });
+            })()}
               <div ref={messagesEndRef} />
             </div>
 
