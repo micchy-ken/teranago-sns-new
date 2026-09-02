@@ -99,17 +99,21 @@ export function TopicDetailModal({
       if (currentUser?.id) {
         markTopicAsRead(currentUser.id, topic.id);
       }
-      setIsEditing(false);
-      setEditTitle(topic.title);
-      setEditContent(topic.content);
-      setEditOffice(topic.office || '全社');
-      setEditDivision(topic.division || '全部署');
-      setEditIsPinned(!!topic.isPinned);
-      setEditHasPeriod(!!topic.hasPeriod);
-      setEditStartDate(topic.startDate || '');
-      setEditEndDate(topic.endDate || '');
-      setEditTags(topic.tags || []);
-      setEditAttachments(topic.attachments || []);
+      if (!isEditing) {
+        setEditTitle(topic.title);
+        setEditContent(topic.content);
+        setEditOffice(topic.office || '全社');
+        setEditDivision(topic.division || '全部署');
+        setEditIsPinned(!!topic.isPinned);
+        setEditHasPeriod(!!topic.hasPeriod);
+        setEditStartDate(topic.startDate || '');
+        setEditEndDate(topic.endDate || '');
+        setEditTags(topic.tags || []);
+        setEditAttachments((topic.attachments || []).map((a, i) => ({
+          ...a,
+          id: a.id || `att-${i}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`
+        })));
+      }
       setCommentAttachments([]);
       setIsCommentUploading(false);
       setIsEditingUploading(false);
@@ -127,8 +131,10 @@ export function TopicDetailModal({
         };
         onUpdateTopic(updatedTopic);
       }
+    } else if (!isOpen) {
+      setIsEditing(false);
     }
-  }, [isOpen, topic?.id]);
+  }, [isOpen, topic]);
 
   if (!isOpen || !topic) return null;
 
@@ -358,7 +364,22 @@ export function TopicDetailModal({
             )}
             {isAuthor && !isEditing && (
               <button
-                onClick={() => setIsEditing(true)}
+                onClick={() => {
+                  setEditTitle(topic.title);
+                  setEditContent(topic.content);
+                  setEditOffice(topic.office || '全社');
+                  setEditDivision(topic.division || '全部署');
+                  setEditIsPinned(!!topic.isPinned);
+                  setEditHasPeriod(!!topic.hasPeriod);
+                  setEditStartDate(topic.startDate || '');
+                  setEditEndDate(topic.endDate || '');
+                  setEditTags(topic.tags || []);
+                  setEditAttachments((topic.attachments || []).map((a, i) => ({
+                    ...a,
+                    id: a.id || `att-${i}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`
+                  })));
+                  setIsEditing(true);
+                }}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs rounded-xl border border-indigo-200 transition-colors"
               >
                 <Edit3 className="w-3.5 h-3.5" />
@@ -653,17 +674,23 @@ export function TopicDetailModal({
                       )}
 
                       <div className="space-y-1.5">
-                        {editAttachments.map(att => (
-                          <div key={att.id} className="flex items-center justify-between p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+                        {editAttachments.map((att, attIdx) => (
+                          <div key={att.id || att.url || `edit-att-${attIdx}`} className="flex items-center justify-between p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs">
                             <span className="font-semibold text-slate-700 truncate">{att.name}</span>
                             <button
                               type="button"
                               disabled={isEditingUploading}
-                              onClick={async () => {
-                                if (att.url) {
-                                  await deleteAttachmentFile(att.url);
+                              onClick={() => {
+                                const target = att;
+                                // UI状態から即座に取り除く (レスポンス待ちによる保存データの競合を防ぐ)
+                                setEditAttachments(prev => prev.filter(a => {
+                                  if (target.id && a.id) return a.id !== target.id;
+                                  if (target.url && a.url) return a.url !== target.url;
+                                  return a.name !== target.name;
+                                }));
+                                if (target.url) {
+                                  deleteAttachmentFile(target.url).catch(err => console.error('Attachment delete file error:', err));
                                 }
-                                setEditAttachments(editAttachments.filter(a => a.id !== att.id));
                               }}
                               className="text-slate-400 hover:text-red-600 p-0.5 disabled:opacity-50"
                             >

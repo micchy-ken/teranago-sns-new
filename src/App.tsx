@@ -1099,6 +1099,9 @@ export default function App() {
   };
 
   const handleUpdateTopic = async (updatedTopic: BoardTopic) => {
+    // ローカル状態を即座に更新し、UIやモーダルに確実に反映させる
+    setTopics(prev => prev.map(t => t.id === updatedTopic.id ? updatedTopic : t));
+
     try {
       const response = await fetch(`${API_BASE_URL}/bulletins/${updatedTopic.id}`, {
         method: 'PUT',
@@ -1121,12 +1124,9 @@ export default function App() {
       });
       if (response.ok) {
         await refetchTopics();
-      } else {
-        setTopics(prev => prev.map(t => t.id === updatedTopic.id ? updatedTopic : t));
       }
     } catch (err) {
       console.warn('Failed to update bulletin via API:', err);
-      setTopics(prev => prev.map(t => t.id === updatedTopic.id ? updatedTopic : t));
     } finally {
       window.dispatchEvent(new CustomEvent('notifications_updated'));
     }

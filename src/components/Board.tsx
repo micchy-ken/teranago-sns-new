@@ -78,6 +78,16 @@ export function Board({
     }
   }, [initialTopicId, topics]);
 
+  // topicsプロパティ更新時に選択中のトピック(selectedTopic)も最新化
+  React.useEffect(() => {
+    if (selectedTopic) {
+      const updated = topics.find(t => t.id === selectedTopic.id);
+      if (updated && updated !== selectedTopic) {
+        setSelectedTopic(updated);
+      }
+    }
+  }, [topics]);
+
   // 作成者および管理者のみ削除可能
   const canDeleteTopic = (topic: BoardTopic) => {
     if (!currentUser) return false;
