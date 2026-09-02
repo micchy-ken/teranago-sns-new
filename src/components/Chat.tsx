@@ -57,6 +57,65 @@ interface ChatProps {
   refetchRooms?: () => void;
 }
 
+/**
+ * チャット用日時フォーマット関数
+ * - 本日: "14:30"
+ * - 昨日: "昨日 14:30" (isShort: "昨日")
+ * - 今年 (過去): "8/15 14:30" (isShort: "8/15")
+ * - 前年以前: "2025/8/15 14:30" (isShort: "2025/8/15")
+ */
+export function formatChatTimestamp(isoDateStr: string | undefined | null, isShort = false): string {
+  if (!isoDateStr) return '';
+  const date = new Date(isoDateStr);
+  if (isNaN(date.getTime())) return '';
+
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const targetDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const diffDays = Math.round((today.getTime() - targetDate.getTime()) / (1000 * 60 * 60 * 24));
+
+  const timeStr = date.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+
+  if (diffDays === 0) {
+    return timeStr;
+  } else if (diffDays === 1) {
+    return isShort ? '昨日' : `昨日 ${timeStr}`;
+  } else if (date.getFullYear() === now.getFullYear()) {
+    const monthDay = `${date.getMonth() + 1}/${date.getDate()}`;
+    return isShort ? monthDay : `${monthDay} ${timeStr}`;
+  } else {
+    const yearMonthDay = `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}`;
+    return isShort ? yearMonthDay : `${yearMonthDay} ${timeStr}`;
+  }
+}
+
+/**
+ * チャットタイムラインの日付ヘッダー表示用
+ */
+export function formatDateDividerLabel(isoDateStr: string | undefined | null): string {
+  if (!isoDateStr) return '';
+  const d = new Date(isoDateStr);
+  if (isNaN(d.getTime())) return '';
+
+  const days = ['日', '月', '火', '水', '木', '金', '土'];
+  const dayOfWeek = days[d.getDay()];
+
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const targetDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const diffDays = Math.round((today.getTime() - targetDate.getTime()) / (1000 * 60 * 60 * 24));
+
+  if (diffDays === 0) {
+    return `今日 (${dayOfWeek})`;
+  } else if (diffDays === 1) {
+    return `昨日 (${dayOfWeek})`;
+  } else if (d.getFullYear() === now.getFullYear()) {
+    return `${d.getMonth() + 1}月${d.getDate()}日(${dayOfWeek})`;
+  } else {
+    return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日(${dayOfWeek})`;
+  }
+}
+
 // スタンプの定義
 const STAMP_CATEGORIES = [
   {
@@ -364,24 +423,42 @@ export function Chat({
     if (!container || !activeRoom) return;
 
     const messages = activeRoom.messages || [];
-    const roomChanged = prevRoomIdRef.current !== activeRoom.id;
     const msgCount = messages.length;
+    const roomChanged = prevRoomIdRef.current !== activeRoom.id;
     const lengthIncreased = msgCount > prevMessagesLengthRef.current;
     
     // 最終メッセージが自分のものであるか確認
     const lastMessage = messages[msgCount - 1];
     const sentByMe = lastMessage && lastMessage.sender.id === currentUser.id;
 
-    if (roomChanged) {
-      // 部屋が変わったとき：未読ラインが存在すればそこへスクロール、無ければ最下部へスクロール
-      setTimeout(() => {
+    if (roomChanged || mobileView === 'room') {
+      // 部屋変更時またはモバイルでの表示時：未読ラインの真上へスクロール、無ければ最下部へスクロール
+      const doScroll = () => {
+        const currentContainer = chatContainerRef.current;
+        if (!currentContainer) return;
+
         const unreadEl = document.getElementById('unread-line-divider');
-        if (unreadEl && container) {
-          unreadEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        } else if (container) {
-          container.scrollTop = container.scrollHeight;
+        if (unreadEl) {
+          unreadEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } else {
+          currentContainer.scrollTop = currentContainer.scrollHeight;
         }
-      }, 60);
+      };
+
+      // モバイル画面描画や画像読み込みタイミングに対応するため複数タイマーでスクロール実行
+      doScroll();
+      const t1 = setTimeout(doScroll, 50);
+      const t2 = setTimeout(doScroll, 150);
+      const t3 = setTimeout(doScroll, 350);
+
+      prevRoomIdRef.current = activeRoom.id;
+      prevMessagesLengthRef.current = msgCount;
+
+      return () => {
+        clearTimeout(t1);
+        clearTimeout(t2);
+        clearTimeout(t3);
+      };
     } else if (lengthIncreased) {
       const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 150;
       if (sentByMe || isNearBottom) {
@@ -389,10 +466,9 @@ export function Chat({
       }
     }
 
-    // 次回の比較のためにリファレンスを更新
     prevRoomIdRef.current = activeRoom.id;
     prevMessagesLengthRef.current = msgCount;
-  }, [activeRoom?.messages, activeRoom?.id, currentUser?.id]);
+  }, [activeRoom?.id, activeRoom?.messages, firstUnreadMessageId, mobileView, currentUser?.id]);
 
   // グループチャットかどうかを判定する安全な関数（参加者が3人以上、または明示的にgroupである場合）
   const isGroupRoom = (room: ChatRoom) => {
@@ -1010,7 +1086,7 @@ export function Chat({
                         </h4>
                         {lastMsg && (
                           <span className="text-[10px] font-medium text-slate-400 shrink-0 ml-1">
-                            {new Date(lastMsg.createdAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}
+                            {formatChatTimestamp(lastMsg.createdAt, true)}
                           </span>
                         )}
                       </div>
@@ -1206,10 +1282,21 @@ export function Chat({
                 const isMine = msg.sender.id === currentUser.id;
                 const isSystem = msg.id.startsWith('sys_') || msg.id.startsWith('m_init_');
                 const isFirstUnread = Boolean(firstUnreadMessageId && msg.id === firstUnreadMessageId);
+                const prevMsg = index > 0 ? (activeRoom?.messages || [])[index - 1] : undefined;
+                const isDifferentDate = Boolean(
+                  msg.createdAt && (!prevMsg || !prevMsg.createdAt || new Date(msg.createdAt).toDateString() !== new Date(prevMsg.createdAt).toDateString())
+                );
 
                 if (isSystem) {
                   return (
                     <React.Fragment key={msg.id}>
+                      {isDifferentDate && (
+                        <div className="flex justify-center my-3 sm:my-4 select-none">
+                          <span className="px-3 py-1 bg-slate-200/90 text-slate-600 text-[11px] font-bold rounded-full shadow-2xs border border-slate-300/50">
+                            {formatDateDividerLabel(msg.createdAt)}
+                          </span>
+                        </div>
+                      )}
                       {isFirstUnread && (
                         <div id="unread-line-divider" className="flex items-center gap-3 my-4 px-2 select-none">
                           <div className="flex-1 h-px bg-rose-300/80" />
@@ -1229,11 +1316,17 @@ export function Chat({
                   );
                 }
 
-                const prevMsg = index > 0 ? (activeRoom?.messages || [])[index - 1] : undefined;
                 const showSenderName = !isMine && (!prevMsg || prevMsg.sender.id !== msg.sender.id || prevMsg.id.startsWith('sys_'));
 
                 return (
                   <React.Fragment key={msg.id}>
+                    {isDifferentDate && (
+                      <div className="flex justify-center my-3 sm:my-4 select-none">
+                        <span className="px-3 py-1 bg-slate-200/90 text-slate-600 text-[11px] font-bold rounded-full shadow-2xs border border-slate-300/50">
+                          {formatDateDividerLabel(msg.createdAt)}
+                        </span>
+                      </div>
+                    )}
                     {isFirstUnread && (
                       <div id="unread-line-divider" className="flex items-center gap-3 my-4 px-2 select-none">
                         <div className="flex-1 h-px bg-rose-300/80" />
@@ -1406,7 +1499,7 @@ export function Chat({
                             );
                           })()}
                           <span>
-                            {new Date(msg.createdAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}
+                            {formatChatTimestamp(msg.createdAt, false)}
                           </span>
                           {isMine && (
                             <button
