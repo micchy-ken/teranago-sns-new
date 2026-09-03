@@ -1,0 +1,20 @@
+{
+  "enabled": true,
+  "minIntensity": "5minus",
+  "targetScope": "all",
+  "targetOffices": [
+    "名古屋",
+    "東京",
+    "大阪",
+    "静岡",
+    "浜松",
+    "本社"
+  ],
+  "notifyWebPush": true,
+  "notifyCompanyEmail": true,
+  "notifyPersonalEmail": true,
+  "isDrillMode": false,
+  "lastTriggeredQuakeId": "",
+  "lastCheckedAt": "2026-09-03T23:40:00.710Z",
+  "logs": []
+}

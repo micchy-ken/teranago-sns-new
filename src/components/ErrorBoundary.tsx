@@ -41,13 +41,21 @@ export class ErrorBoundary extends React.Component<Props, State> {
 
   public render() {
     if (this.state.hasError) {
-      const errorMsg = (this.state.error?.message || '') + ' ' + (this.state.error?.stack || '');
+      const errorMsg = (
+        (this.state.error?.name || '') + ' ' +
+        (this.state.error?.message || '') + ' ' +
+        (this.state.error?.stack || '') + ' ' +
+        String(this.state.error || '')
+      ).toLowerCase();
+
       const isChunkLoadError = 
-        errorMsg.includes('Failed to fetch dynamically imported module') ||
-        errorMsg.includes('Importing a module script failed') ||
+        errorMsg.includes('failed to fetch dynamically imported module') ||
+        errorMsg.includes('importing a module script failed') ||
         errorMsg.includes('error loading dynamically imported module') ||
-        errorMsg.includes('Loading chunk') ||
-        errorMsg.includes('CSS chunk load failed');
+        errorMsg.includes('loading chunk') ||
+        errorMsg.includes('css chunk load failed') ||
+        errorMsg.includes('chunkloaderror') ||
+        (errorMsg.includes('failed to fetch') && errorMsg.includes('.js'));
 
       // バージョン更新（チャンクロードエラー）時の穏やかで分かりやすい画面
       if (isChunkLoadError) {

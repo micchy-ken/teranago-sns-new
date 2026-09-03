@@ -11,19 +11,21 @@ import { usePostManagement } from './hooks/usePostManagement';
 import { useMemoManagement } from './hooks/useMemoManagement';
 import { useReportManagement } from './hooks/useReportManagement';
 
-// 遅延読み込み (React.lazy) によるコード分割
-const Calendar = lazy(() => import('./components/Calendar').then(m => ({ default: m.Calendar })));
-const Workflow = lazy(() => import('./components/Workflow').then(m => ({ default: m.Workflow })));
-const Board = lazy(() => import('./components/Board').then(m => ({ default: m.Board })));
-const Chat = lazy(() => import('./components/Chat').then(m => ({ default: m.Chat })));
-const MemoList = lazy(() => import('./components/MemoList').then(m => ({ default: m.MemoList })));
-const DailyReportView = lazy(() => import('./components/DailyReport').then(m => ({ default: m.DailyReportView })));
-const InspectionScheduler = lazy(() => import('./components/InspectionScheduler').then(m => ({ default: m.InspectionScheduler })));
-const SafetyConfirmation = lazy(() => import('./components/SafetyConfirmation').then(m => ({ default: m.SafetyConfirmation })));
-const GuestSafetyResponse = lazy(() => import('./components/GuestSafetyResponse').then(m => ({ default: m.GuestSafetyResponse })));
-const MyPage = lazy(() => import('./components/MyPage').then(m => ({ default: m.MyPage })));
-const AdminPanel = lazy(() => import('./components/AdminPanel').then(m => ({ default: m.AdminPanel })));
-const FileManager = lazy(() => import('./components/FileManager'));
+import { lazyWithRetry } from './utils/lazyWithRetry';
+
+// 遅延読み込み (React.lazy + 自動リロード・再試行) によるコード分割
+const Calendar = lazyWithRetry(() => import('./components/Calendar').then(m => ({ default: m.Calendar })));
+const Workflow = lazyWithRetry(() => import('./components/Workflow').then(m => ({ default: m.Workflow })));
+const Board = lazyWithRetry(() => import('./components/Board').then(m => ({ default: m.Board })));
+const Chat = lazyWithRetry(() => import('./components/Chat').then(m => ({ default: m.Chat })));
+const MemoList = lazyWithRetry(() => import('./components/MemoList').then(m => ({ default: m.MemoList })));
+const DailyReportView = lazyWithRetry(() => import('./components/DailyReport').then(m => ({ default: m.DailyReportView })));
+const InspectionScheduler = lazyWithRetry(() => import('./components/InspectionScheduler').then(m => ({ default: m.InspectionScheduler })));
+const SafetyConfirmation = lazyWithRetry(() => import('./components/SafetyConfirmation').then(m => ({ default: m.SafetyConfirmation })));
+const GuestSafetyResponse = lazyWithRetry(() => import('./components/GuestSafetyResponse').then(m => ({ default: m.GuestSafetyResponse })));
+const MyPage = lazyWithRetry(() => import('./components/MyPage').then(m => ({ default: m.MyPage })));
+const AdminPanel = lazyWithRetry(() => import('./components/AdminPanel').then(m => ({ default: m.AdminPanel })));
+const FileManager = lazyWithRetry(() => import('./components/FileManager'));
 import { Post, CalendarEvent, WorkflowApplication, User, OfficeMaster, DivisionMaster, PositionMaster, BoardTopic, ChatRoom, ApprovalFlowRule, ApprovalStepConfig, ItemMaster, ApplicationStatus, DailyReport, Memo } from './types';
 import { 
   syncUserReadStatusesFromServer, 
