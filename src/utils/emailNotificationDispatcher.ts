@@ -15,17 +15,37 @@ export interface EmailDispatchItem {
 }
 
 /**
- * Gets the full share link URL (clean URL without trailing query parameters)
+ * Gets the full share link URL with query parameters preserved
  */
 export function getFullShareUrl(pathParamsOrUrl?: string): string {
-  if (pathParamsOrUrl && (pathParamsOrUrl.startsWith('http://') || pathParamsOrUrl.startsWith('https://'))) {
-    return pathParamsOrUrl.split('?')[0];
+  const base = typeof window !== 'undefined'
+    ? (window.location.origin + window.location.pathname)
+    : 'https://micchy-ken.github.io/teranago-sns-new/';
+  const cleanBase = base.endsWith('/') ? base : `${base}/`;
+
+  if (!pathParamsOrUrl) {
+    return cleanBase;
   }
 
-  if (typeof window !== 'undefined') {
-    return (window.location.origin + window.location.pathname).split('?')[0];
+  // If already a full HTTP/HTTPS URL, preserve it completely
+  if (pathParamsOrUrl.startsWith('http://') || pathParamsOrUrl.startsWith('https://')) {
+    return pathParamsOrUrl;
   }
-  return '';
+
+  // Clean leading ?, /?, or /
+  let query = pathParamsOrUrl;
+  if (query.startsWith('/?')) {
+    query = query.slice(2);
+  } else if (query.startsWith('?') || query.startsWith('/')) {
+    query = query.slice(1);
+  }
+
+  // If query contains parameters like tab=board&topicId=123
+  if (query.includes('=')) {
+    return `${cleanBase}?${query}`;
+  }
+
+  return `${cleanBase}${query}`;
 }
 
 /**

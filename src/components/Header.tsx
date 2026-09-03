@@ -910,13 +910,15 @@ export function Header({
               return (
                 <button
                   type="button"
+                  id="header-theme-picker-button"
                   onClick={() => setIsThemePickerOpen(!isThemePickerOpen)}
-                  className={`p-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer border ${
+                  className={`p-2 rounded-xl transition-all flex items-center justify-center cursor-pointer border ${
                     isThemePickerOpen
                       ? 'bg-slate-100/90 border-slate-300 ring-2 ring-indigo-500/20'
                       : 'border-slate-200/80 bg-white/80 hover:bg-slate-50 hover:border-slate-300 shadow-2xs'
                   }`}
                   title={`配色・背景色設定（現在: ${activeOpt.name}）`}
+                  aria-label={`配色・背景色設定（現在: ${activeOpt.name}）`}
                 >
                   <div
                     className="w-5 h-5 rounded-lg border border-slate-300/80 shadow-2xs flex items-center justify-center relative overflow-hidden"
@@ -926,12 +928,9 @@ export function Header({
                     <div className="flex items-center -space-x-1 scale-75">
                       <span className="w-2.5 h-2.5 rounded-full inline-block shadow-2xs ring-1 ring-white" style={{ backgroundColor: activeOpt.previewColors[1] }} />
                       <span className="w-2 h-2 rounded-full inline-block shadow-2xs ring-1 ring-white" style={{ backgroundColor: activeOpt.previewColors[0] }} />
-                      <span className="w-2 h-2 rounded-full inline-block shadow-2xs ring-1 ring-white" style={{ backgroundColor: activeOpt.previewColors[2] }} />
+                      <span className="w-2.5 h-2.5 rounded-full inline-block shadow-2xs ring-1 ring-white" style={{ backgroundColor: activeOpt.previewColors[2] }} />
                     </div>
                   </div>
-                  <span className="text-[11px] font-semibold text-slate-700 hidden md:inline max-w-[80px] truncate">
-                    {activeOpt.name.split('（')[0]}
-                  </span>
                 </button>
               );
             })()}

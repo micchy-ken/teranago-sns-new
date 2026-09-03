@@ -1,7 +1,7 @@
 export const RECOMMEND_SERVER_JS = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年9月2日 (Web Push通知エラー対策 & JSON例外防止 & Web Push専用モジュール /routes/push.js 完全対応)
+ * 最終更新日時 (最終アップデート): 2026年9月3日 (通知共有リンク・ディープリンクURL自動解決・パラメータ保持対応 & routes/push.js 完全対応)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -106,6 +106,39 @@ async function startServer() {
     }
   }
 
+  // 共有ディープリンクURLの自動解決ヘルパー
+  function resolveDeepLinkUrl(url?: string, data: any = {}) {
+    if (url && url !== '/' && url !== '' && url !== '/index.html') {
+      return url;
+    }
+    const tab = data.tab || data.category;
+    if (data.topicId || data.bulletinId) {
+      return \`/?tab=board&topicId=\${data.topicId || data.bulletinId}\`;
+    }
+    if (data.eventId) {
+      return \`/?tab=calendar&eventId=\${data.eventId}\`;
+    }
+    if (data.applicationId || data.appId) {
+      return \`/?tab=workflow&appId=\${data.applicationId || data.appId}\`;
+    }
+    if (data.memoId) {
+      return \`/?tab=memo&memoId=\${data.memoId}\`;
+    }
+    if (data.chatRoomId || data.roomId) {
+      return \`/?tab=chat&chatRoomId=\${data.chatRoomId || data.roomId}\`;
+    }
+    if (data.reportId) {
+      return \`/?tab=daily_report&reportId=\${data.reportId}\`;
+    }
+    if (data.safetyEventId) {
+      return \`/?tab=safety_confirmation&safetyEventId=\${data.safetyEventId}\`;
+    }
+    if (tab) {
+      return \`/?tab=\${tab}\`;
+    }
+    return url || '/';
+  }
+
   // Push通知送信ヘルパー関数 (高優先度 & 確実な配信)
   async function sendPushNotificationToUser(params: {
     targetUserId?: string;
@@ -152,16 +185,17 @@ async function startServer() {
 
     if (targets.length === 0) return { sentCount: 0, failureCount: 0, totalTargets: 0 };
 
+    const finalUrl = resolveDeepLinkUrl(url, data);
     const notificationTag = tag || \`notif_\${Date.now()}\`;
     const payload = JSON.stringify({
       title,
       body,
       icon,
       badge,
-      url,
+      url: finalUrl,
       data: {
         ...data,
-        url
+        url: finalUrl
       },
       tag: notificationTag,
       requireInteraction,

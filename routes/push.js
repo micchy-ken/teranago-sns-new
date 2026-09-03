@@ -61,6 +61,44 @@ function saveSubscriptions(subs) {
   }
 }
 
+// 共有ディープリンクURLの自動解決ヘルパー
+function resolveDeepLinkUrl(url, data = {}) {
+  // すでにクエリパラメータ付きURLまたは絶対URLが指定されている場合はそれを尊重
+  if (url && url !== '/' && url !== '' && url !== '/index.html') {
+    return url;
+  }
+
+  // data に詳細識別情報がある場合は自動的に共有リンクパラメータを構築
+  const tab = data.tab || data.category;
+  if (data.topicId || data.bulletinId) {
+    return `/?tab=board&topicId=${data.topicId || data.bulletinId}`;
+  }
+  if (data.eventId) {
+    return `/?tab=calendar&eventId=${data.eventId}`;
+  }
+  if (data.applicationId || data.appId) {
+    return `/?tab=workflow&appId=${data.applicationId || data.appId}`;
+  }
+  if (data.memoId) {
+    return `/?tab=memo&memoId=${data.memoId}`;
+  }
+  if (data.chatRoomId || data.roomId) {
+    return `/?tab=chat&chatRoomId=${data.chatRoomId || data.roomId}`;
+  }
+  if (data.reportId) {
+    return `/?tab=daily_report&reportId=${data.reportId}`;
+  }
+  if (data.safetyEventId) {
+    return `/?tab=safety_confirmation&safetyEventId=${data.safetyEventId}`;
+  }
+
+  if (tab) {
+    return `/?tab=${tab}`;
+  }
+
+  return url || '/';
+}
+
 export async function sendPushNotificationToUser(params) {
   const {
     targetUserId,
@@ -92,14 +130,15 @@ export async function sendPushNotificationToUser(params) {
 
   if (targets.length === 0) return { sentCount: 0, failureCount: 0, totalTargets: 0 };
 
+  const finalUrl = resolveDeepLinkUrl(url, data);
   const notificationTag = tag || `notif_${Date.now()}`;
   const payload = JSON.stringify({
     title,
     body,
     icon,
     badge,
-    url,
-    data: { ...data, url },
+    url: finalUrl,
+    data: { ...data, url: finalUrl },
     tag: notificationTag,
     requireInteraction,
     renotify,

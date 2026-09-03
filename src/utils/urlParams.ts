@@ -232,41 +232,51 @@ export function getAppBasePath(): string {
 
 /**
  * Normalizes notification or link URLs ensuring repository subdirectories (like GitHub Pages) are preserved
- * Always returns a clean, complete URL without any trailing query parameters.
+ * and query parameters for deep linking (e.g., ?tab=board&topicId=123) are kept intact.
  */
 export function resolveNotificationUrl(url?: string): string {
   const basePath = getAppBasePath();
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
-  const baseWithOrigin = origin ? `${origin}${basePath.endsWith('/') ? basePath : `${basePath}/`}` : basePath;
+  const prefix = basePath.endsWith('/') ? basePath : `${basePath}/`;
+  const baseWithOrigin = origin ? `${origin}${prefix}` : prefix;
 
   if (!url || url === '/' || url === './') {
-    return baseWithOrigin.split('?')[0];
+    return baseWithOrigin;
   }
   
-  // If already absolute URL with protocol (https:// or http://)
-  if (/^https?:\/\//i.test(url)) {
-    const cleanUrl = url.split('?')[0];
-    if (origin && cleanUrl.startsWith(origin) && basePath !== '/' && !cleanUrl.includes(basePath)) {
-      const prefix = basePath.endsWith('/') ? basePath : `${basePath}/`;
-      return `${origin}${prefix}`;
-    }
-    return cleanUrl;
+  // Separate path from query/hash so query parameters are strictly preserved
+  let mainUrl = url;
+  let queryAndHash = '';
+  const qIndex = url.indexOf('?');
+  const hIndex = url.indexOf('#');
+  const splitIndex = qIndex >= 0 ? qIndex : (hIndex >= 0 ? hIndex : -1);
+
+  if (splitIndex >= 0) {
+    mainUrl = url.substring(0, splitIndex);
+    queryAndHash = url.substring(splitIndex);
   }
 
-  let target = url.split('?')[0];
+  // If already absolute URL with protocol (https:// or http://)
+  if (/^https?:\/\//i.test(mainUrl)) {
+    if (origin && mainUrl.startsWith(origin) && basePath !== '/' && !mainUrl.includes(basePath)) {
+      return `${origin}${prefix}${queryAndHash}`;
+    }
+    return `${mainUrl}${queryAndHash}`;
+  }
+
+  let target = mainUrl;
   if (target.startsWith('/')) {
     if (basePath !== '/' && target.startsWith(basePath)) {
-      return origin ? `${origin}${target}` : target;
+      return origin ? `${origin}${target}${queryAndHash}` : `${target}${queryAndHash}`;
     }
     target = target.replace(/^\/+/, '');
   } else if (target.startsWith('./')) {
     target = target.replace(/^\.\/+/, '');
   }
 
-  const prefix = basePath.endsWith('/') ? basePath : `${basePath}/`;
-  const fullPath = `${prefix}${target}`;
-  const finalUrl = origin ? `${origin}${fullPath}` : fullPath;
-  return finalUrl.split('?')[0];
+  const fullPath = target ? `${prefix}${target}` : prefix;
+  const finalBase = origin ? `${origin}${fullPath}` : fullPath;
+  return `${finalBase}${queryAndHash}`;
 }
 
 /**
