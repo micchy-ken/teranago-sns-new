@@ -1,4 +1,5 @@
 import React, { ErrorInfo, ReactNode } from 'react';
+import { RefreshCw, Trash2, Sparkles } from 'lucide-react';
 
 interface Props {
   children: ReactNode;
@@ -40,6 +41,66 @@ export class ErrorBoundary extends React.Component<Props, State> {
 
   public render() {
     if (this.state.hasError) {
+      const errorMsg = (this.state.error?.message || '') + ' ' + (this.state.error?.stack || '');
+      const isChunkLoadError = 
+        errorMsg.includes('Failed to fetch dynamically imported module') ||
+        errorMsg.includes('Importing a module script failed') ||
+        errorMsg.includes('error loading dynamically imported module') ||
+        errorMsg.includes('Loading chunk') ||
+        errorMsg.includes('CSS chunk load failed');
+
+      // バージョン更新（チャンクロードエラー）時の穏やかで分かりやすい画面
+      if (isChunkLoadError) {
+        return (
+          <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans">
+            <div className="max-w-md w-full bg-white rounded-2xl shadow-xl border border-indigo-100 p-6 sm:p-8 text-center animate-fade-in">
+              <div className="w-16 h-16 bg-indigo-50 rounded-2xl flex items-center justify-center mx-auto mb-5 text-indigo-600 shadow-xs border border-indigo-100/80">
+                <Sparkles className="w-8 h-8 text-indigo-600" />
+              </div>
+              
+              <span className="inline-block px-3 py-1 bg-indigo-50 text-indigo-700 text-xs font-semibold rounded-full mb-3 border border-indigo-200/60">
+                システム更新
+              </span>
+
+              <h1 className="text-xl font-bold text-slate-800 mb-2">
+                新しいバージョンが公開されました
+              </h1>
+              
+              <p className="text-sm text-slate-600 leading-relaxed mb-6">
+                アプリの最新プログラムが配信されたため、現在の画面との同期が必要です。<br />
+                下のボタンを押して最新の状態で再読み込みしてください。
+              </p>
+
+              <div className="space-y-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    window.location.reload();
+                  }}
+                  className="w-full flex items-center justify-center gap-2 py-3.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-xl transition-all shadow-md hover:shadow-lg cursor-pointer active:scale-98"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  <span>最新バージョンにリロードして更新</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={this.handleReset}
+                  className="w-full flex items-center justify-center gap-1.5 py-2 px-3 text-xs text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>うまく表示されない場合はキャッシュをクリアして再起動</span>
+                </button>
+              </div>
+
+              <div className="mt-6 pt-4 border-t border-slate-100 text-[11px] text-slate-400">
+                寺子屋 SNS ポータル
+              </div>
+            </div>
+          </div>
+        );
+      }
+
       return (
         <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6 font-sans">
           <div className="w-full max-w-2xl bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden">
