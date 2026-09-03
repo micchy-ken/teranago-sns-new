@@ -2317,7 +2317,7 @@ export default function App() {
 
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans selection:bg-indigo-100 selection:text-indigo-900 overflow-x-hidden" style={{ backgroundColor: '#f8fafc' }}>
+    <div className="min-h-screen text-slate-900 font-sans selection:bg-indigo-100 selection:text-indigo-900 overflow-x-hidden transition-colors duration-300" style={{ backgroundColor: 'var(--app-bg, #f5f7fa)' }}>
       <InstallPwaPrompt />
       <Header 
         searchQuery={searchQuery} 
