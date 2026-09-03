@@ -1,1 +1,172 @@
 @import "tailwindcss";
+
+/* ==========================================================================
+   Color Theme Overrides (Data attribute based)
+   ========================================================================== */
+
+/* 1. ソフト（くすみ・マイルド）モード【デフォルト・推奨】 */
+:root,
+[data-color-theme="soft"] {
+  /* Schedule / Calendar (Amber / Orange) */
+  --color-amber-400: #e08e2b;
+  --color-amber-500: #d97706;
+  --color-amber-600: #b45309;
+  --color-orange-500: #c2410c;
+  --color-orange-600: #9a3412;
+
+  /* Board / Core UI (Indigo / Blue) */
+  --color-indigo-400: #818cf8;
+  --color-indigo-500: #5752d1;
+  --color-indigo-600: #4338ca;
+  --color-indigo-700: #3730a3;
+  --color-blue-500: #2563eb;
+  --color-blue-600: #1d4ed8;
+
+  /* Memo / Bulletin (Rose / Pink) */
+  --color-rose-400: #f43f5e;
+  --color-rose-500: #cc2b4e;
+  --color-rose-600: #9f1239;
+  --color-pink-500: #db2777;
+  --color-pink-600: #be185d;
+
+  /* Daily Report / Inspection (Emerald / Teal / Violet) */
+  --color-emerald-500: #0d9488;
+  --color-emerald-600: #0f766e;
+  --color-teal-500: #0d9488;
+  --color-teal-600: #0f766e;
+  --color-violet-500: #6d28d9;
+  --color-violet-600: #5b21b6;
+}
+
+/* 2. スモーキー・パステル（彩度をより落としたくすみニュアンスカラー） */
+[data-color-theme="muted"] {
+  /* Amber / Orange */
+  --color-amber-400: #b8864e;
+  --color-amber-500: #9d6d39;
+  --color-amber-600: #825628;
+  --color-orange-500: #96522c;
+  --color-orange-600: #7b3e1d;
+
+  /* Indigo / Blue */
+  --color-indigo-400: #7e85a6;
+  --color-indigo-500: #5a6288;
+  --color-indigo-600: #464d70;
+  --color-indigo-700: #363b57;
+  --color-blue-500: #4a6785;
+  --color-blue-600: #37516d;
+
+  /* Rose / Pink */
+  --color-rose-400: #c2697b;
+  --color-rose-500: #a34e60;
+  --color-rose-600: #87394a;
+  --color-pink-500: #9e526d;
+  --color-pink-600: #853f58;
+
+  /* Emerald / Teal */
+  --color-emerald-500: #3f7063;
+  --color-emerald-600: #30594e;
+  --color-teal-500: #3f7063;
+  --color-teal-600: #30594e;
+  --color-violet-500: #685a7d;
+  --color-violet-600: #534666;
+}
+
+/* 3. セージ・アッシュ（オリーブ・グリーン系アースカラー） */
+[data-color-theme="sage"] {
+  /* Amber / Orange */
+  --color-amber-400: #a39572;
+  --color-amber-500: #887a58;
+  --color-amber-600: #706344;
+  --color-orange-500: #826c51;
+  --color-orange-600: #6b573e;
+
+  /* Indigo / Blue */
+  --color-indigo-400: #74877d;
+  --color-indigo-500: #56685f;
+  --color-indigo-600: #43544c;
+  --color-indigo-700: #33423b;
+  --color-blue-500: #506963;
+  --color-blue-600: #3d544f;
+
+  /* Rose / Pink */
+  --color-rose-400: #9e8382;
+  --color-rose-500: #856968;
+  --color-rose-600: #6d5251;
+  --color-pink-500: #856a73;
+  --color-pink-600: #6d535b;
+
+  /* Emerald / Teal */
+  --color-emerald-500: #496b5d;
+  --color-emerald-600: #375449;
+  --color-teal-500: #496b5d;
+  --color-teal-600: #375449;
+  --color-violet-500: #5d6170;
+  --color-violet-600: #4a4d5c;
+}
+
+/* 4. シック・モノトーン（灰調・無彩色に近いトーン） */
+[data-color-theme="monochrome"] {
+  /* Amber / Orange */
+  --color-amber-400: #71717a;
+  --color-amber-500: #52525b;
+  --color-amber-600: #3f3f46;
+  --color-orange-500: #52525b;
+  --color-orange-600: #3f3f46;
+
+  /* Indigo / Blue */
+  --color-indigo-400: #6b7280;
+  --color-indigo-500: #4b5563;
+  --color-indigo-600: #374151;
+  --color-indigo-700: #1f2937;
+  --color-blue-500: #4b5563;
+  --color-blue-600: #374151;
+
+  /* Rose / Pink */
+  --color-rose-400: #78716c;
+  --color-rose-500: #57534e;
+  --color-rose-600: #44403c;
+  --color-pink-500: #57534e;
+  --color-pink-600: #44403c;
+
+  /* Emerald / Teal */
+  --color-emerald-500: #4b5563;
+  --color-emerald-600: #374151;
+  --color-teal-500: #4b5563;
+  --color-teal-600: #374151;
+  --color-violet-500: #4b5563;
+  --color-violet-600: #374151;
+}
+
+/* 5. 鮮やか（標準・ビビッド） */
+[data-color-theme="vivid"] {
+  /* Amber / Orange */
+  --color-amber-400: #fbbf24;
+  --color-amber-500: #f59e0b;
+  --color-amber-600: #d97706;
+  --color-orange-500: #f97316;
+  --color-orange-600: #ea580c;
+
+  /* Indigo / Blue */
+  --color-indigo-400: #818cf8;
+  --color-indigo-500: #6366f1;
+  --color-indigo-600: #4f46e5;
+  --color-indigo-700: #4338ca;
+  --color-blue-500: #3b82f6;
+  --color-blue-600: #2563eb;
+
+  /* Rose / Pink */
+  --color-rose-400: #fb7185;
+  --color-rose-500: #f43f5e;
+  --color-rose-600: #e11d48;
+  --color-pink-500: #ec4899;
+  --color-pink-600: #db2777;
+
+  /* Emerald / Teal */
+  --color-emerald-500: #10b981;
+  --color-emerald-600: #059669;
+  --color-teal-500: #14b8a6;
+  --color-teal-600: #0d9488;
+  --color-violet-500: #8b5cf6;
+  --color-violet-600: #7c3aed;
+}
+

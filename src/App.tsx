@@ -54,6 +54,10 @@ import { filterStepsForApplicant, resolveApproverForStep, getSupervisorAtLevel }
 import { planRecurrenceSave, planRecurrenceDelete, safeParseRecurrence, safeParseExceptions, expandRecurringEvents } from './utils/recurrenceUtils';
 import { RecurrenceActionScope } from './components/RecurrenceActionModal';
 import { parseAppQueryParams, updateBrowserUrl, AppQueryParams } from './utils/urlParams';
+import { initColorTheme } from './utils/theme';
+
+// Initialize saved color theme
+initColorTheme();
 
 // Helper to map and sanitize API user objects to match frontend types safely
 const mapUserFromApi = (apiUser: any): User => {
