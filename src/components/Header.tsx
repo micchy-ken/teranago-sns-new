@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Search, Bell, Menu, Phone, FileText, Monitor, Calendar as CalendarIcon, MessageSquare, CheckCheck, ChevronRight, X, Smartphone, Users, MessageCircle, Palette, Check } from 'lucide-react';
+import { Search, Bell, Menu, Phone, FileText, Monitor, Calendar as CalendarIcon, MessageSquare, CheckCheck, ChevronRight, X, Smartphone, Users, MessageCircle, Palette, Check, Minimize2, Pin } from 'lucide-react';
 import { User, Memo, WorkflowApplication, BoardTopic, CalendarEvent, ChatRoom, Post, DailyReport } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
 import { AppTab } from './Sidebar';
 import { expandRecurringEvents } from '../utils/recurrenceUtils';
 import { ColorTheme, THEME_OPTIONS, getSavedTheme, applyColorTheme } from '../utils/theme';
+import { MiniNotificationMode } from './MiniNotificationMode';
 import {
   getUnreadNotifications,
   getReadEventIds,
@@ -135,6 +136,7 @@ export function Header({
   onToggleMobileMenu,
 }: HeaderProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [isMiniNotificationOpen, setIsMiniNotificationOpen] = useState(false);
   const [filterType, setFilterType] = useState<'all' | 'memo' | 'workflow' | 'board' | 'event' | 'chat' | 'report'>('all');
   const [readEventIds, setReadEventIds] = useState<string[]>(() => getReadEventIds(currentUser?.id));
   const [readTopicIds, setReadTopicIds] = useState<string[]>(() => getReadTopicIds(currentUser?.id));
@@ -1072,6 +1074,23 @@ export function Header({
             )}
           </div>
 
+          {/* Mini Notification Mode Button */}
+          <button
+            type="button"
+            onClick={() => {
+              setIsMiniNotificationOpen((prev) => !prev);
+              setIsOpen(false);
+            }}
+            className={`p-2.5 rounded-full transition-all cursor-pointer ${
+              isMiniNotificationOpen
+                ? 'bg-indigo-600 text-white shadow-xs'
+                : 'text-slate-500 hover:bg-slate-100 hover:text-indigo-600'
+            }`}
+            title="最前面ミニ通知モード (小さくして通知のみ常駐表示)"
+          >
+            <Minimize2 className="w-5 h-5" />
+          </button>
+
           {/* Notifications Bell */}
           <div className="relative" ref={popoverRef}>
             <button
@@ -1110,11 +1129,23 @@ export function Header({
                     )}
                   </div>
                   <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsMiniNotificationOpen(true);
+                        setIsOpen(false);
+                      }}
+                      className="flex items-center gap-1 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 hover:text-indigo-900 px-2 py-1 rounded-lg transition-colors border border-indigo-200/80 cursor-pointer"
+                      title="最前面ミニウィンドウで通知のみ常駐表示 (PiP)"
+                    >
+                      <Minimize2 className="w-3.5 h-3.5" />
+                      <span>最前面ミニ表示</span>
+                    </button>
                     {unreadCount > 0 && (
                       <button
                         type="button"
                         onClick={handleMarkAllAsRead}
-                        className="flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 px-2 py-1 rounded-lg transition-colors"
+                        className="flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 px-2 py-1 rounded-lg transition-colors cursor-pointer"
                         title="すべて既読にする"
                       >
                         <CheckCheck className="w-3.5 h-3.5" />
@@ -1124,7 +1155,7 @@ export function Header({
                     <button
                       type="button"
                       onClick={() => setIsOpen(false)}
-                      className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-200/60 rounded-lg transition-colors ml-1"
+                      className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-200/60 rounded-lg transition-colors ml-1 cursor-pointer"
                     >
                       <X className="w-4 h-4" />
                     </button>
@@ -1332,6 +1363,21 @@ export function Header({
           </div>
         </div>
       </div>
+
+      {/* 最前面ミニ通知ウィンドウ (Picture-in-Picture / コンパクトモード) */}
+      <MiniNotificationMode
+        notifications={allNotifications}
+        unreadCount={unreadCount}
+        currentUser={currentUser}
+        onNotificationClick={handleNotificationClick}
+        onMarkAllAsRead={handleMarkAllAsRead}
+        isOpen={isMiniNotificationOpen}
+        onClose={() => setIsMiniNotificationOpen(false)}
+        onRestoreMain={() => {
+          setIsMiniNotificationOpen(false);
+          window.focus();
+        }}
+      />
     </header>
   );
 }
