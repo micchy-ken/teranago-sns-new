@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   X, 
   Calendar as CalendarIcon, 
@@ -16,14 +16,16 @@ import {
   Trash2, 
   UserCheck, 
   Link2,
-  Lock
+  Lock,
+  Eye
 } from 'lucide-react';
-import { CalendarEvent, EventType, User } from '../types';
+import { CalendarEvent, EventType, User, AttachmentFile } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
 import { getRecurrenceLabel, isRecurringEvent } from '../utils/recurrenceUtils';
 import { renderContentWithLinks } from '../utils/renderContentWithLinks';
 import { markEventAsRead } from '../utils/notifications';
 import { triggerOpenUserModal } from '../utils/userModal';
+import { FilePreviewModal } from './FilePreviewModal';
 
 export interface GlobalEventDetailModalProps {
   isOpen: boolean;
@@ -66,6 +68,9 @@ export function GlobalEventDetailModal({
   onEditInCalendar,
   currentUser,
 }: GlobalEventDetailModalProps) {
+  const [previewFile, setPreviewFile] = useState<AttachmentFile | null>(null);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+
   useEffect(() => {
     if (isOpen && event && currentUser?.id) {
       markEventAsRead(currentUser.id, event.id);
@@ -349,6 +354,19 @@ export function GlobalEventDetailModal({
                       </div>
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
+                      {(att.type?.startsWith('image/') || /\.pdf$/i.test(att.name) || /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(att.name)) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPreviewFile(att);
+                            setIsPreviewOpen(true);
+                          }}
+                          className="px-2.5 py-1 text-[11px] font-bold text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors shrink-0 flex items-center gap-1 cursor-pointer border border-emerald-200"
+                        >
+                          <Eye className="w-3 h-3" />
+                          プレビュー
+                        </button>
+                      )}
                       <a
                         href={att.url || '#'}
                         target="_blank"
@@ -437,6 +455,12 @@ export function GlobalEventDetailModal({
         </div>
 
       </div>
+
+      <FilePreviewModal
+        isOpen={isPreviewOpen}
+        onClose={() => setIsPreviewOpen(false)}
+        file={previewFile}
+      />
     </div>
   );
 }

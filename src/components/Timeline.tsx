@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Post, CalendarEvent, BoardTopic, OfficeMaster, DivisionMaster, User } from '../types';
+import { Post, CalendarEvent, BoardTopic, OfficeMaster, DivisionMaster, User, AttachmentFile } from '../types';
 import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
 import { AppTab } from './Sidebar';
 import { 
@@ -21,12 +21,14 @@ import {
   ChevronRight,
   Share2,
   UserCheck,
-  MessageSquare
+  MessageSquare,
+  Paperclip
 } from 'lucide-react';
 import { formatRelativeTime, formatEventScheduleBadge } from '../utils';
 import { API_BASE_URL } from '../config/api';
 import { renderContentWithLinks } from '../utils/renderContentWithLinks';
 import { buildAppUrl, copyTextToClipboard } from '../utils/urlParams';
+import { FilePreviewModal } from './FilePreviewModal';
 
 interface TimelineProps {
   posts?: Post[];
@@ -75,6 +77,8 @@ export function Timeline({
   // 選択詳細アイテム
   const [selectedDetailItem, setSelectedDetailItem] = useState<TimelineFeedItem | null>(null);
   const [copiedDetailLink, setCopiedDetailLink] = useState(false);
+  const [previewFile, setPreviewFile] = useState<AttachmentFile | null>(null);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
   // 拠点オプション一覧
   const officeOptions = useMemo(() => {
@@ -571,6 +575,55 @@ export function Timeline({
                           </div>
                         </div>
                       )}
+
+                      {event.attachments && event.attachments.length > 0 && (
+                        <div className="pt-2 border-t border-amber-100 space-y-1.5">
+                          <span className="font-bold text-slate-700 flex items-center gap-1.5">
+                            <Paperclip className="w-3.5 h-3.5 text-indigo-500" />
+                            添付ファイル ({event.attachments.length})
+                          </span>
+                          <div className="grid grid-cols-1 gap-1.5">
+                            {event.attachments.map(att => (
+                              <div
+                                key={att.id}
+                                className="flex items-center justify-between p-2 bg-white border border-amber-200/80 rounded-lg"
+                              >
+                                <div className="flex items-center gap-1.5 min-w-0 pr-2">
+                                  <Paperclip className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                  <div className="min-w-0">
+                                    <div className="text-xs font-bold text-slate-800 truncate">{att.name}</div>
+                                    <div className="text-[10px] text-slate-400">{att.size}</div>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  {(att.type?.startsWith('image/') || /\.pdf$/i.test(att.name) || /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(att.name)) && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setPreviewFile(att);
+                                        setIsPreviewOpen(true);
+                                      }}
+                                      className="px-2 py-0.5 text-[10px] font-bold text-emerald-600 hover:bg-emerald-50 rounded border border-emerald-200 transition-colors flex items-center gap-1 cursor-pointer"
+                                    >
+                                      <Eye className="w-3 h-3" />
+                                      プレビュー
+                                    </button>
+                                  )}
+                                  <a
+                                    href={att.url || '#'}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    download={att.name}
+                                    className="px-2 py-0.5 text-[10px] font-bold text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
+                                  >
+                                    ダウンロード
+                                  </a>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     {onChangeTab && (
@@ -676,6 +729,12 @@ export function Timeline({
           </div>
         </div>
       )}
+
+      <FilePreviewModal
+        isOpen={isPreviewOpen}
+        onClose={() => setIsPreviewOpen(false)}
+        file={previewFile}
+      />
     </div>
   );
 }
