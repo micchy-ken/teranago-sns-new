@@ -1,13 +1,13 @@
-import { User, Memo, WorkflowApplication, BoardTopic, CalendarEvent, ChatRoom, DailyReport } from '../types';
+import { User, Memo, WorkflowApplication, BoardTopic, CalendarEvent, ChatRoom, DailyReport, SafetyConfirmationEvent, SafetyConfirmationResponse } from '../types';
 import { API_BASE_URL } from '../config/api';
 
 export interface NotificationItem {
   id: string;
-  type: 'memo' | 'workflow' | 'board' | 'event' | 'chat' | 'report';
+  type: 'memo' | 'workflow' | 'board' | 'event' | 'chat' | 'report' | 'safety';
   title: string;
   description: string;
   createdAt: string;
-  tab: 'memo' | 'workflow' | 'board' | 'calendar' | 'chat' | 'daily_report' | 'mypage';
+  tab: 'memo' | 'workflow' | 'board' | 'calendar' | 'chat' | 'daily_report' | 'mypage' | 'safety_confirmation';
   originalData?: any;
 }
 
@@ -494,6 +494,9 @@ export function getUnreadNotifications({
   events = [],
   chatRooms = [],
   reports = [],
+  safetyEvents = [],
+  safetyResponses = [],
+  userRespondedSafetyEventIds = [],
   readEventIds = getReadEventIds(user?.id),
   readTopicIds = getReadTopicIds(user?.id),
   readChatTimestamps = getReadChatTimestamps(user?.id),
@@ -508,6 +511,9 @@ export function getUnreadNotifications({
   events?: CalendarEvent[];
   chatRooms?: ChatRoom[];
   reports?: DailyReport[];
+  safetyEvents?: SafetyConfirmationEvent[];
+  safetyResponses?: SafetyConfirmationResponse[];
+  userRespondedSafetyEventIds?: string[];
   readEventIds?: string[];
   readTopicIds?: string[];
   readChatTimestamps?: Record<string, string>;
@@ -628,6 +634,30 @@ export function getUnreadNotifications({
         tab: 'daily_report',
         originalData: rep,
       });
+    }
+  });
+
+  // 7. Safety Confirmation (安否確認)
+  safetyEvents.forEach((sev) => {
+    if (sev.status === 'active') {
+      const hasResponded = 
+        userRespondedSafetyEventIds.includes(sev.id) || 
+        safetyResponses.some(r => {
+          const rEventId = r.eventId || (r as any).event_id;
+          const rUserId = r.userId || (r as any).user_id;
+          return rEventId === sev.id && rUserId === user.id;
+        });
+      if (!hasResponded) {
+        list.push({
+          id: `safety_${sev.id}`,
+          type: 'safety',
+          title: `【緊急安否確認】${sev.title || '安否状況の回答をお願いします'}`,
+          description: sev.message || '至急、安全状況・出社可否をご回答ください。',
+          createdAt: sev.createdAt || new Date().toISOString(),
+          tab: 'safety_confirmation',
+          originalData: sev,
+        });
+      }
     }
   });
 

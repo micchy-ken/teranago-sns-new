@@ -15,6 +15,7 @@ import {
   ClipboardList,
   Pin,
   Check,
+  ShieldAlert,
 } from 'lucide-react';
 import { NotificationItem } from '../utils/notifications';
 import { User } from '../types';
@@ -100,7 +101,7 @@ export function MiniNotificationMode({
 }: MiniNotificationModeProps) {
   const [pipWindow, setPipWindow] = useState<Window | null>(null);
   const [pipSupported, setPipSupported] = useState<boolean>(false);
-  const [selectedFilter, setSelectedFilter] = useState<'all' | 'memo' | 'workflow' | 'board' | 'event' | 'chat' | 'report'>('all');
+  const [selectedFilter, setSelectedFilter] = useState<'all' | 'memo' | 'workflow' | 'board' | 'event' | 'chat' | 'report' | 'safety'>('all');
   const [lastActionMessage, setLastActionMessage] = useState<string | null>(null);
 
   // Document Picture-in-Picture API のサポート確認
@@ -227,6 +228,12 @@ export function MiniNotificationMode({
           label: '日報・報告',
           icon: <ClipboardList className="w-3.5 h-3.5 text-teal-600" />,
           bgColor: 'bg-teal-50 text-teal-700 border-teal-200',
+        };
+      case 'safety':
+        return {
+          label: '安否確認',
+          icon: <ShieldAlert className="w-3.5 h-3.5 text-rose-600" />,
+          bgColor: 'bg-rose-50 text-rose-700 border-rose-200',
         };
       default:
         return {
@@ -374,6 +381,17 @@ export function MiniNotificationMode({
           }`}
         >
           チャット
+        </button>
+        <button
+          type="button"
+          onClick={() => setSelectedFilter('safety')}
+          className={`px-2 py-1 rounded-md text-[11px] font-semibold whitespace-nowrap transition-colors cursor-pointer ${
+            selectedFilter === 'safety'
+              ? 'bg-rose-600 text-white shadow-2xs'
+              : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          安否確認
         </button>
       </div>
 

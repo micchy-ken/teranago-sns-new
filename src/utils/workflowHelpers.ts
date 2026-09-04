@@ -1,4 +1,4 @@
-import { User, ApprovalStepConfig } from '../types';
+import { User, ApprovalStepConfig, WorkflowApplication } from '../types';
 
 /**
  * 申請者から N 階層目の上長ユーザーを取得
@@ -149,5 +149,50 @@ export const isDuplicateApproverStep = (
   const prevApprover = resolveApproverForStep(applicant, stepsConfig[stepIdx - 1], users);
 
   return Boolean(currentApprover && prevApprover && currentApprover.id === prevApprover.id);
+};
+
+/**
+ * 対象申請の現在ステップにおける承認者かどうかを判定
+ */
+export const isUserCurrentApprover = (
+  app: WorkflowApplication,
+  user: User,
+  users: User[] = []
+): boolean => {
+  if (!app || !user || app.status !== 'pending') return false;
+
+  // 直接指定の単一承認者
+  if (app.approver?.id === user.id) return true;
+
+  // 多段階ステップのチェック
+  if (app.stepsConfig && app.stepsConfig.length > 0) {
+    const currentStepIdx = (app.currentStepIndex || 1) - 1;
+    const step = app.stepsConfig[currentStepIdx];
+    if (step) {
+      if (step.approverType === 'specific_user' && step.specificUserId) {
+        return step.specificUserId === user.id;
+      }
+
+      let targetLevel = step.supervisorLevel;
+      if (!targetLevel) {
+        if (step.approverType === 'supervisor_1') targetLevel = 1;
+        else if (step.approverType === 'supervisor_2') targetLevel = 2;
+        else targetLevel = currentStepIdx + 1;
+      }
+
+      if (app.applicant) {
+        const sup = getSupervisorAtLevel(app.applicant, targetLevel, users);
+        if (sup) return sup.id === user.id;
+
+        const fallbackSup = getSupervisorAtLevel(app.applicant, 1, users);
+        if (fallbackSup) return fallbackSup.id === user.id;
+      }
+
+      const adminUser = users.find(u => u.id === 'u4' || u.isAdmin);
+      return adminUser?.id === user.id;
+    }
+  }
+
+  return false;
 };
 

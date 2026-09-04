@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Search, Bell, Menu, Phone, FileText, Monitor, Calendar as CalendarIcon, MessageSquare, CheckCheck, ChevronRight, X, Smartphone, Users, MessageCircle, Palette, Check, Minimize2, Pin } from 'lucide-react';
-import { User, Memo, WorkflowApplication, BoardTopic, CalendarEvent, ChatRoom, Post, DailyReport } from '../types';
+import { Search, Bell, Menu, Phone, FileText, Monitor, Calendar as CalendarIcon, MessageSquare, CheckCheck, ChevronRight, X, Smartphone, Users, MessageCircle, Palette, Check, Minimize2, Pin, ShieldAlert } from 'lucide-react';
+import { User, Memo, WorkflowApplication, BoardTopic, CalendarEvent, ChatRoom, Post, DailyReport, SafetyConfirmationEvent, SafetyConfirmationResponse } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
 import { AppTab } from './Sidebar';
 import { expandRecurringEvents } from '../utils/recurrenceUtils';
@@ -51,6 +51,9 @@ interface HeaderProps {
   chatRooms?: ChatRoom[];
   reports?: DailyReport[];
   posts?: Post[];
+  safetyEvents?: SafetyConfirmationEvent[];
+  safetyResponses?: SafetyConfirmationResponse[];
+  userRespondedSafetyEventIds?: string[];
   onSelectTab?: (tab: AppTab) => void;
   onOpenSettings?: () => void;
   onNavigateToContent?: (target: {
@@ -62,6 +65,7 @@ interface HeaderProps {
     eventId?: string;
     postId?: string;
     reportId?: string;
+    safetyEventId?: string;
   }) => void;
   onUpdateMemos?: (memos: Memo[]) => void;
   onUpdateTopic?: (topic: BoardTopic) => void;
@@ -126,6 +130,9 @@ export function Header({
   chatRooms = [],
   reports = [],
   posts = [],
+  safetyEvents = [],
+  safetyResponses = [],
+  userRespondedSafetyEventIds = [],
   onSelectTab,
   onOpenSettings,
   onNavigateToContent,
@@ -137,7 +144,7 @@ export function Header({
 }: HeaderProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isMiniNotificationOpen, setIsMiniNotificationOpen] = useState(false);
-  const [filterType, setFilterType] = useState<'all' | 'memo' | 'workflow' | 'board' | 'event' | 'chat' | 'report'>('all');
+  const [filterType, setFilterType] = useState<'all' | 'memo' | 'workflow' | 'board' | 'event' | 'chat' | 'report' | 'safety'>('all');
   const [readEventIds, setReadEventIds] = useState<string[]>(() => getReadEventIds(currentUser?.id));
   const [readTopicIds, setReadTopicIds] = useState<string[]>(() => getReadTopicIds(currentUser?.id));
   const [readChatTimestamps, setReadChatTimestamps] = useState<Record<string, string>>(() => getReadChatTimestamps(currentUser?.id));
@@ -472,6 +479,9 @@ export function Header({
       events,
       chatRooms,
       reports,
+      safetyEvents,
+      safetyResponses,
+      userRespondedSafetyEventIds,
       readEventIds,
       readTopicIds,
       readChatTimestamps,
@@ -479,7 +489,7 @@ export function Header({
       readWorkflowIds,
       readReportIds,
     });
-  }, [currentUser, memos, applications, topics, events, chatRooms, reports, readEventIds, readTopicIds, readChatTimestamps, readMemoIds, readWorkflowIds, readReportIds]);
+  }, [currentUser, memos, applications, topics, events, chatRooms, reports, safetyEvents, safetyResponses, userRespondedSafetyEventIds, readEventIds, readTopicIds, readChatTimestamps, readMemoIds, readWorkflowIds, readReportIds]);
 
   const memoNotifications = useMemo(() => allNotifications.filter((n) => n.type === 'memo'), [allNotifications]);
   const workflowNotifications = useMemo(() => allNotifications.filter((n) => n.type === 'workflow'), [allNotifications]);
@@ -487,6 +497,7 @@ export function Header({
   const eventNotifications = useMemo(() => allNotifications.filter((n) => n.type === 'event'), [allNotifications]);
   const chatNotifications = useMemo(() => allNotifications.filter((n) => n.type === 'chat'), [allNotifications]);
   const reportNotifications = useMemo(() => allNotifications.filter((n) => n.type === 'report'), [allNotifications]);
+  const safetyNotifications = useMemo(() => allNotifications.filter((n) => n.type === 'safety'), [allNotifications]);
 
   const filteredNotifications = useMemo<NotificationItem[]>(() => {
     if (filterType === 'all') return allNotifications;
@@ -568,6 +579,12 @@ export function Header({
     } else if (item.type === 'report' && item.originalData) {
       const rep = item.originalData as DailyReport;
       markReportAsRead(currentUser?.id, rep.id);
+    } else if (item.type === 'safety' && item.originalData) {
+      const sev = item.originalData as SafetyConfirmationEvent;
+      if (onNavigateToContent) {
+        onNavigateToContent({ tab: 'safety_confirmation', safetyEventId: sev.id });
+        return;
+      }
     }
 
     if (onNavigateToContent) {
@@ -578,6 +595,7 @@ export function Header({
       if (item.type === 'workflow' && item.originalData) targetParams.applicationId = (item.originalData as WorkflowApplication).id;
       if (item.type === 'event' && item.originalData) targetParams.eventId = (item.originalData as CalendarEvent).id;
       if (item.type === 'report' && item.originalData) targetParams.reportId = (item.originalData as DailyReport).id;
+      if (item.type === 'safety' && item.originalData) targetParams.safetyEventId = (item.originalData as SafetyConfirmationEvent).id;
 
       onNavigateToContent(targetParams);
     } else if (onSelectTab) {
@@ -651,6 +669,8 @@ export function Header({
         return <MessageSquare className="w-4 h-4 text-violet-600" />;
       case 'report':
         return <FileText className="w-4 h-4 text-teal-600" />;
+      case 'safety':
+        return <ShieldAlert className="w-4 h-4 text-rose-600" />;
     }
   };
 
@@ -668,6 +688,8 @@ export function Header({
         return 'bg-violet-100/70 border-violet-200';
       case 'report':
         return 'bg-teal-100/70 border-teal-200';
+      case 'safety':
+        return 'bg-rose-100/70 border-rose-200';
     }
   };
 
@@ -1251,6 +1273,19 @@ export function Header({
                       }`}
                     >
                       日報・週報 ({reportNotifications.length})
+                    </button>
+                  )}
+                  {safetyNotifications.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setFilterType('safety')}
+                      className={`px-2.5 py-1 rounded-lg font-medium whitespace-nowrap transition-colors ${
+                        filterType === 'safety'
+                          ? 'bg-rose-600 text-white font-bold'
+                          : 'text-slate-600 hover:bg-rose-50'
+                      }`}
+                    >
+                      安否確認 ({safetyNotifications.length})
                     </button>
                   )}
                 </div>
