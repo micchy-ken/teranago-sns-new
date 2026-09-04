@@ -3497,6 +3497,26 @@ async function startServer() {
     }
   });
 
+  // 掲示板コメント削除 (DELETE /api/bulletins/:topicId/comments/:commentId 等)
+  app.delete([
+    '/api/bulletins/:topicId/comments/:commentId',
+    '/api/board/:topicId/comments/:commentId',
+    '/api/bulletins/comments/:commentId',
+    '/api/board/comments/:commentId',
+    '/api/comments/:commentId'
+  ], (req, res) => {
+    try {
+      const commentId = req.params.commentId || req.params.id;
+      let commentsList = loadBulletinComments();
+      const initialLength = commentsList.length;
+      commentsList = commentsList.filter((c: any) => String(c.id) !== String(commentId));
+      saveBulletinComments(commentsList);
+      res.json({ success: true, message: 'コメント削除完了', deleted: commentsList.length < initialLength });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // 既読登録 (POST /api/bulletins/:id/viewers & /api/topics/:id/viewers)
   app.post(['/api/bulletins/:id/viewers', '/api/topics/:id/viewers'], (req, res) => {
     try {

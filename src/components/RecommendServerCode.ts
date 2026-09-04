@@ -1,7 +1,7 @@
 export const RECOMMEND_SERVER_JS = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年9月3日 (通知共有リンク・ディープリンクURL自動解決・パラメータ保持対応 & routes/push.js 完全対応)
+ * 最終更新日時 (最終アップデート): 2026年9月4日 (掲示板トピック編集・個別コメント削除(DELETE)完全同期 & routes/bulletins.js 対応)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -3513,6 +3513,26 @@ async function startServer() {
       }
 
       res.status(201).json(newComment);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 掲示板コメント削除 (DELETE /api/bulletins/:topicId/comments/:commentId 等)
+  app.delete([
+    '/api/bulletins/:topicId/comments/:commentId',
+    '/api/board/:topicId/comments/:commentId',
+    '/api/bulletins/comments/:commentId',
+    '/api/board/comments/:commentId',
+    '/api/comments/:commentId'
+  ], (req, res) => {
+    try {
+      const commentId = req.params.commentId || req.params.id;
+      let commentsList = loadBulletinComments();
+      const initialLength = commentsList.length;
+      commentsList = commentsList.filter((c: any) => String(c.id) !== String(commentId));
+      saveBulletinComments(commentsList);
+      res.json({ success: true, message: 'コメント削除完了', deleted: commentsList.length < initialLength });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

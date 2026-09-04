@@ -10,6 +10,7 @@ import { UrlPastePopup, useUrlPasteHandler } from './common/UrlPastePopup';
 import { markTopicAsRead } from '../utils/notifications';
 import { triggerOpenUserModal } from '../utils/userModal';
 import { buildAppUrl, copyTextToClipboard } from '../utils/urlParams';
+import { API_BASE_URL } from '../config/api';
 
 interface TopicDetailModalProps {
   topic: BoardTopic | null;
@@ -302,6 +303,15 @@ export function TopicDetailModal({
     const commentToDelete = (topic.comments || []).find(c => c.id === commentId);
     if (commentToDelete && commentToDelete.attachments && commentToDelete.attachments.length > 0) {
       await deleteAttachmentFiles(commentToDelete.attachments);
+    }
+
+    // バックエンドのコメント削除 API を直接呼び出し（DBから確実に消去）
+    try {
+      await fetch(`${API_BASE_URL}/bulletins/${topic.id}/comments/${commentId}`, {
+        method: 'DELETE'
+      });
+    } catch (err) {
+      console.warn('Failed to delete comment via direct API:', err);
     }
 
     const updatedComments = (topic.comments || []).filter(c => c.id !== commentId);
