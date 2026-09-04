@@ -323,6 +323,20 @@ export function TopicDetailModal({
     onUpdateTopic(updatedTopic);
   };
 
+  const confirmDeleteComment = (commentId: string) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'コメントの削除',
+      message: 'このコメントを削除してもよろしいですか？添付ファイルも含めて削除されます。',
+      type: 'danger',
+      confirmText: '削除する',
+      cancelText: 'キャンセル',
+      onConfirm: async () => {
+        await handleDeleteComment(commentId);
+      }
+    });
+  };
+
   const viewersList = topic.viewers || [];
 
   return (
@@ -877,7 +891,7 @@ export function TopicDetailModal({
                               {(c.author.id === currentUser.id || isAdmin) && (
                                 <button
                                   type="button"
-                                  onClick={() => handleDeleteComment(c.id)}
+                                  onClick={() => confirmDeleteComment(c.id)}
                                   className="text-slate-400 hover:text-red-600 transition-colors"
                                   title="コメントを削除"
                                 >
