@@ -2388,6 +2388,7 @@ export default function App() {
             </div>
             <Sidebar
               posts={posts}
+              topics={topics}
               selectedTag={selectedTag}
               onSelectTag={(tag) => {
                 setSelectedTag(tag);
@@ -2440,6 +2441,7 @@ export default function App() {
           <aside className="hidden lg:block lg:w-64 shrink-0 transition-all duration-300">
             <Sidebar
               posts={posts}
+              topics={topics}
               selectedTag={selectedTag}
               onSelectTag={setSelectedTag}
               activeTab={activeTab}

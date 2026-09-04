@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { Hash, Home, Bookmark, User, Calendar as CalendarIcon, FileText, MessageSquare, Phone, ClipboardList, Monitor, Shield, HardDrive, Users, ShieldAlert, Wrench, ChevronDown, ChevronRight } from 'lucide-react';
-import { Post, User as UserType } from '../types';
+import { Post, BoardTopic, User as UserType } from '../types';
 
 export type AppTab = 'timeline' | 'calendar' | 'inspection_scheduler' | 'workflow' | 'board' | 'chat' | 'memo' | 'daily_report' | 'files' | 'members' | 'mypage' | 'admin' | 'safety_confirmation';
 
 interface SidebarProps {
-  posts: Post[];
+  posts?: Post[];
+  topics?: BoardTopic[];
   selectedTag: string | null;
   onSelectTag: (tag: string | null) => void;
   activeTab: AppTab;
@@ -15,17 +16,26 @@ interface SidebarProps {
   onCollapse?: () => void;
 }
 
-export function Sidebar({ posts, selectedTag, onSelectTag, activeTab, onChangeTab, currentUser, className, onCollapse }: SidebarProps) {
+export function Sidebar({ posts = [], topics = [], selectedTag, onSelectTag, activeTab, onChangeTab, currentUser, className, onCollapse }: SidebarProps) {
   const [isUtilityOpen, setIsUtilityOpen] = useState(true);
-  // Extract and count tags
-  const tagCounts = (posts || []).reduce((acc, post) => {
-    if (post && post.tags && Array.isArray(post.tags)) {
-      post.tags.forEach((tag) => {
-        acc[tag] = (acc[tag] || 0) + 1;
+  // Extract and count tags from topics and posts
+  const tagCounts: Record<string, number> = {};
+
+  (topics || []).forEach((topic) => {
+    if (topic && topic.tags && Array.isArray(topic.tags)) {
+      topic.tags.forEach((tag) => {
+        tagCounts[tag] = (tagCounts[tag] || 0) + 1;
       });
     }
-    return acc;
-  }, {} as Record<string, number>);
+  });
+
+  (posts || []).forEach((post) => {
+    if (post && post.tags && Array.isArray(post.tags)) {
+      post.tags.forEach((tag) => {
+        tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+      });
+    }
+  });
 
   // Sort tags by frequency
   const sortedTags = Object.entries(tagCounts)
@@ -292,7 +302,7 @@ export function Sidebar({ posts, selectedTag, onSelectTag, activeTab, onChangeTa
         )}
       </nav>
 
-      {activeTab === 'timeline' && (
+      {activeTab === 'timeline' && sortedTags.length > 0 && (
         <div className="space-y-3">
           <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">人気のタグ</div>
           <div className="flex flex-wrap gap-2">

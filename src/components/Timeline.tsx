@@ -1,5 +1,4 @@
 import React, { useState, useMemo } from 'react';
-import { PostForm } from './PostForm';
 import { Post, CalendarEvent, BoardTopic, OfficeMaster, DivisionMaster, User } from '../types';
 import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
 import { AppTab } from './Sidebar';
@@ -17,13 +16,10 @@ import {
   Building2,
   Briefcase,
   X,
-  MessageCircle,
   Loader2,
   AlertTriangle,
   ChevronRight,
-  Heart,
   Share2,
-  Trash2,
   UserCheck,
   MessageSquare
 } from 'lucide-react';
@@ -33,15 +29,15 @@ import { renderContentWithLinks } from '../utils/renderContentWithLinks';
 import { buildAppUrl, copyTextToClipboard } from '../utils/urlParams';
 
 interface TimelineProps {
-  posts: Post[];
+  posts?: Post[];
   events?: CalendarEvent[];
   topics?: BoardTopic[];
   offices?: OfficeMaster[];
   divisions?: DivisionMaster[];
   searchQuery: string;
   selectedTag: string | null;
-  onPost: (content: string, tags: string[], nasLink?: string) => void;
-  onToggleLike: (postId: string) => void;
+  onPost?: (content: string, tags: string[], nasLink?: string) => void;
+  onToggleLike?: (postId: string) => void;
   onSelectTag: (tag: string | null) => void;
   onChangeTab?: (tab: AppTab) => void;
   isLoading?: boolean;
@@ -52,30 +48,23 @@ interface TimelineProps {
 }
 
 type TimelineFeedItem = 
-  | { type: 'post'; id: string; date: string; data: Post }
   | { type: 'event'; id: string; date: string; data: CalendarEvent }
   | { type: 'topic'; id: string; date: string; data: BoardTopic };
 
 export function Timeline({
-  posts = [],
   events = [],
   topics = [],
   offices = [],
   divisions = [],
   searchQuery,
   selectedTag,
-  onPost,
-  onToggleLike,
   onSelectTag,
   onChangeTab,
   isLoading = false,
   error = null,
-  onRefetchPosts,
-  onDeletePost,
   currentUser,
 }: TimelineProps) {
-  // 表示コンテンツ種別フィルター
-  const [showPosts, setShowPosts] = useState<boolean>(true);
+  // 表示コンテンツ種別フィルター (スケジュール / 掲示板)
   const [showEvents, setShowEvents] = useState<boolean>(true);
   const [showTopics, setShowTopics] = useState<boolean>(true);
 
@@ -104,17 +93,15 @@ export function Timeline({
     let count = 0;
     if (selectedOffice !== 'all') count++;
     if (selectedDivision !== 'all') count++;
-    if (!showPosts) count++;
     if (!showEvents) count++;
     if (!showTopics) count++;
     return count;
-  }, [selectedOffice, selectedDivision, showPosts, showEvents, showTopics]);
+  }, [selectedOffice, selectedDivision, showEvents, showTopics]);
 
   // リセット
   const handleResetFilters = () => {
     setSelectedOffice('all');
     setSelectedDivision('all');
-    setShowPosts(true);
     setShowEvents(true);
     setShowTopics(true);
   };
@@ -122,19 +109,7 @@ export function Timeline({
   const combinedFeed = useMemo(() => {
     const items: TimelineFeedItem[] = [];
 
-    // 1. 社内SNS投稿
-    if (showPosts && posts && Array.isArray(posts)) {
-      posts.forEach((p) => {
-        items.push({
-          type: 'post',
-          id: `post-${p.id}`,
-          date: p.createdAt,
-          data: p,
-        });
-      });
-    }
-
-    // 2. スケジュールイベント（登録日時・更新日時順で表示）
+    // 1. スケジュールイベント（登録日時・更新日時順で表示）
     if (showEvents && events && Array.isArray(events)) {
       events.forEach((e) => {
         // イベントの登録・更新日時を正確に判定
@@ -171,7 +146,7 @@ export function Timeline({
       });
     }
 
-    // 3. 掲示板トピック
+    // 2. 掲示板トピック
     if (showTopics && topics && Array.isArray(topics)) {
       topics.forEach((t) => {
         items.push({
@@ -203,14 +178,6 @@ export function Timeline({
         } else if (item.type === 'topic') {
           const matchOffice = !item.data.office || item.data.office === '全社' || item.data.office === selectedOffice;
           if (!matchOffice) return false;
-        } else if (item.type === 'post') {
-          // post author department or office check
-          const dept = item.data.author?.department || '';
-          if (!dept.includes(selectedOffice)) {
-            // もし明確に別拠点なら除外
-            const otherOffices = officeOptions.filter((o) => o !== selectedOffice);
-            if (otherOffices.some((o) => dept.includes(o))) return false;
-          }
         }
       }
 
@@ -222,15 +189,12 @@ export function Timeline({
         } else if (item.type === 'topic') {
           const matchDivision = !item.data.division || item.data.division === '全部署' || item.data.division === selectedDivision;
           if (!matchDivision) return false;
-        } else if (item.type === 'post') {
-          const dept = item.data.author?.department || '';
-          if (!dept.includes(selectedDivision)) return false;
         }
       }
 
       // --- C. ハッシュタグフィルタ ---
       if (selectedTag) {
-        if (item.type === 'post') {
+        if (item.type === 'topic') {
           if (!item.data.tags?.includes(selectedTag)) return false;
         } else {
           return false;
@@ -240,13 +204,7 @@ export function Timeline({
       // --- D. キーワード検索フィルタ ---
       if (searchQuery && searchQuery.trim()) {
         const query = searchQuery.toLowerCase();
-        if (item.type === 'post') {
-          const contentMatch = (item.data.content || '').toLowerCase().includes(query);
-          const authorMatch = (item.data.author?.name || '').toLowerCase().includes(query);
-          const deptMatch = (item.data.author?.department || '').toLowerCase().includes(query);
-          const tagMatch = (item.data.tags || []).some((t) => t.toLowerCase().includes(query));
-          if (!contentMatch && !authorMatch && !deptMatch && !tagMatch) return false;
-        } else if (item.type === 'event') {
+        if (item.type === 'event') {
           const titleMatch = (item.data.title || '').toLowerCase().includes(query);
           const memoMatch = (item.data.memo || '').toLowerCase().includes(query);
           const locMatch = (item.data.location || '').toLowerCase().includes(query);
@@ -256,17 +214,17 @@ export function Timeline({
           const titleMatch = (item.data.title || '').toLowerCase().includes(query);
           const contentMatch = (item.data.content || '').toLowerCase().includes(query);
           const authorMatch = (item.data.author?.name || '').toLowerCase().includes(query);
-          if (!titleMatch && !contentMatch && !authorMatch) return false;
+          const tagMatch = (item.data.tags || []).some((t) => t.toLowerCase().includes(query));
+          if (!titleMatch && !contentMatch && !authorMatch && !tagMatch) return false;
         }
       }
 
       return true;
     });
-  }, [posts, events, topics, showPosts, showEvents, showTopics, selectedOffice, selectedDivision, selectedTag, searchQuery, officeOptions]);
+  }, [events, topics, showEvents, showTopics, selectedOffice, selectedDivision, selectedTag, searchQuery]);
 
   return (
     <div className="flex-1 space-y-6 min-w-0">
-      <PostForm onPost={onPost} />
 
       {/* タイムライン表示・絞り込みフィルターコントロール */}
       <div className="bg-white rounded-2xl border border-slate-200/90 p-4 shadow-2xs space-y-3.5">
@@ -297,20 +255,6 @@ export function Timeline({
         {/* 1. コンテンツ種別トグルボタン */}
         <div className="flex items-center gap-2 flex-wrap text-xs">
           <span className="text-[11px] font-bold text-slate-400 mr-1">表示種別:</span>
-          
-          <button
-            type="button"
-            onClick={() => setShowPosts(!showPosts)}
-            className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-              showPosts
-                ? 'bg-slate-900 text-white border-slate-900 shadow-2xs'
-                : 'bg-slate-50 text-slate-400 border-slate-200 hover:bg-slate-100'
-            }`}
-          >
-            <MessageCircle className="w-3.5 h-3.5" />
-            つぶやき投稿
-            {showPosts && <Check className="w-3.5 h-3.5 text-indigo-400" />}
-          </button>
 
           <button
             type="button"
@@ -413,47 +357,6 @@ export function Timeline({
         {combinedFeed.length > 0 ? (
           <div className="space-y-2">
             {combinedFeed.map((item) => {
-              if (item.type === 'post') {
-                const post = item.data;
-                return (
-                  <div
-                    key={item.id}
-                    onClick={() => setSelectedDetailItem(item)}
-                    className="bg-white rounded-xl border border-slate-200/90 hover:border-slate-300 p-3 shadow-2xs hover:shadow-xs transition-all flex items-center justify-between gap-3 cursor-pointer group"
-                  >
-                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                      <span className="px-2 py-0.5 bg-slate-100 text-slate-700 font-extrabold text-[11px] rounded shrink-0 flex items-center gap-1 border border-slate-200">
-                        <MessageCircle className="w-3 h-3 text-slate-500" />
-                        つぶやき
-                      </span>
-                      <img
-                        src={getAvatarUrl(post.author?.avatarUrl)}
-                        onError={handleAvatarError}
-                        alt={post.author?.name || '匿名'}
-                        className="w-6 h-6 rounded-full object-cover border border-slate-100 bg-slate-100 shrink-0"
-                      />
-                      <span className="font-bold text-xs text-slate-800 shrink-0">
-                        {post.author?.name || '匿名'}
-                      </span>
-                      <span className="text-xs text-slate-600 font-medium truncate min-w-0">
-                        {post.content}
-                      </span>
-                      {post.tags && post.tags.length > 0 && (
-                        <span className="text-[10px] text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded font-semibold shrink-0 hidden sm:inline-block">
-                          #{post.tags[0]}
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <span className="text-[11px] text-slate-400 font-medium whitespace-nowrap">
-                        {formatRelativeTime(post.createdAt)}
-                      </span>
-                      <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-0.5 transition-all" />
-                    </div>
-                  </div>
-                );
-              }
-
               if (item.type === 'event') {
                 const event = item.data;
                 const isInspectionEvent = !!(event.createdViaInspection || (event.createdBy && event.createdBy.name === '点検登録') || (event.type === 'inspection' && event.targetYearMonth));
@@ -589,11 +492,6 @@ export function Timeline({
             {/* Modal Header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-slate-50/50 shrink-0">
               <div className="flex items-center gap-2">
-                {selectedDetailItem.type === 'post' && (
-                  <span className="px-2.5 py-1 bg-slate-800 text-white font-extrabold text-xs rounded-md flex items-center gap-1">
-                    <MessageCircle className="w-3.5 h-3.5" /> つぶやき詳細
-                  </span>
-                )}
                 {selectedDetailItem.type === 'event' && (
                   <span className="px-2.5 py-1 bg-amber-500 text-white font-extrabold text-xs rounded-md flex items-center gap-1">
                     <Calendar className="w-3.5 h-3.5" /> スケジュール詳細
@@ -615,96 +513,6 @@ export function Timeline({
 
             {/* Modal Body */}
             <div className="p-5 overflow-y-auto space-y-4 text-sm text-slate-700">
-              {selectedDetailItem.type === 'post' && (() => {
-                const post = selectedDetailItem.data;
-                return (
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <img
-                          src={getAvatarUrl(post.author?.avatarUrl)}
-                          onError={handleAvatarError}
-                          alt={post.author?.name || '匿名'}
-                          className="w-10 h-10 rounded-full object-cover border border-slate-100 bg-slate-100"
-                        />
-                        <div>
-                          <div className="font-bold text-slate-900 text-sm">{post.author?.name || '匿名'}</div>
-                          <div className="text-xs text-slate-400">{post.author?.department || '未設定'}</div>
-                        </div>
-                      </div>
-                      <span className="text-xs text-slate-400">{formatRelativeTime(post.createdAt)}</span>
-                    </div>
-
-                    <div className="text-slate-800 leading-relaxed whitespace-pre-wrap bg-slate-50/60 p-4 rounded-xl border border-slate-100">
-                      {renderContentWithLinks(post.content)}
-                    </div>
-
-                    {post.nasLink && (
-                      <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg flex items-center justify-between gap-2">
-                        <div className="flex items-start gap-2 min-w-0">
-                          <span className="text-xs font-bold text-slate-500 bg-white border border-slate-200 px-1.5 py-0.5 rounded shadow-xs shrink-0">NAS</span>
-                          <a
-                            href={`${API_BASE_URL}/nas-file?path=${encodeURIComponent(post.nasLink)}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-xs text-indigo-600 hover:underline break-all font-semibold"
-                          >
-                            {post.nasLink}
-                          </a>
-                        </div>
-                        <button
-                          onClick={() => navigator.clipboard.writeText(post.nasLink || '')}
-                          className="text-[10px] font-bold text-slate-500 hover:text-slate-700 bg-white border border-slate-200 px-2 py-1 rounded shrink-0"
-                        >
-                          コピー
-                        </button>
-                      </div>
-                    )}
-
-                    {post.tags && post.tags.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5">
-                        {post.tags.map(tag => (
-                          <span
-                            key={tag}
-                            onClick={() => {
-                              onSelectTag(tag);
-                              setSelectedDetailItem(null);
-                            }}
-                            className="text-xs text-indigo-600 font-bold bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-md cursor-pointer transition-colors"
-                          >
-                            #{tag}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-
-                    <div className="flex items-center justify-between pt-3 border-t border-slate-100">
-                      <button
-                        onClick={() => onToggleLike(post.id)}
-                        className={`flex items-center gap-1.5 text-xs font-bold transition-colors ${
-                          post.isLiked ? 'text-pink-600' : 'text-slate-500 hover:text-pink-600'
-                        }`}
-                      >
-                        <Heart className={`w-4 h-4 ${post.isLiked ? 'fill-current' : ''}`} />
-                        <span>{post.likes > 0 ? `${post.likes} いいね` : 'いいね'}</span>
-                      </button>
-
-                      {onDeletePost && currentUser && (currentUser.isAdmin || currentUser.role === 'admin' || currentUser.id === post.author?.id) && (
-                        <button
-                          onClick={() => {
-                            onDeletePost(post.id);
-                            setSelectedDetailItem(null);
-                          }}
-                          className="text-xs font-bold text-rose-500 hover:text-rose-700 flex items-center gap-1"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" /> 削除する
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })()}
-
               {selectedDetailItem.type === 'event' && (() => {
                 const event = selectedDetailItem.data;
                 const isInspectionEvent = !!(event.createdViaInspection || (event.createdBy && event.createdBy.name === '点検登録') || (event.type === 'inspection' && event.targetYearMonth));
