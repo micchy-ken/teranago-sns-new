@@ -259,6 +259,14 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
     fetchRecentQuakes();
   }, []);
 
+  // initialEventId が渡された場合、対象イベントを選択して回答モーダルをピンポイントで即座に展開
+  useEffect(() => {
+    if (initialEventId) {
+      setSelectedEventId(initialEventId);
+      setIsMyAnswerModalOpen(true);
+    }
+  }, [initialEventId]);
+
   const fetchJmaSettings = async () => {
     try {
       setIsLoadingJmaSettings(true);
@@ -773,6 +781,8 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
         if (data.event?.id) {
           setSelectedEventId(data.event.id);
         }
+        window.dispatchEvent(new CustomEvent('notifications_updated'));
+        window.dispatchEvent(new CustomEvent('safety_updated'));
       } else {
         setActionMessage({ type: 'error', text: data.error || '安否確認の発動に失敗しました。' });
       }
@@ -822,6 +832,8 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
         setIsMyAnswerModalOpen(false);
         await fetchResponses(activeEvent.id);
         await fetchEvents();
+        window.dispatchEvent(new CustomEvent('notifications_updated'));
+        window.dispatchEvent(new CustomEvent('safety_updated'));
       } else {
         const data = await res.json();
         setActionMessage({ type: 'error', text: data.error || '回答の送信に失敗しました。' });

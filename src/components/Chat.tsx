@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { ChatRoom, ChatMessage, User, OfficeMaster, DivisionMaster, AttachmentFile } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
 import { MemberSelector } from './MemberSelector';
-import { markChatRoomAsRead, getReadChatTimestamps } from '../utils/notifications';
+import { markChatRoomAsRead, getReadChatTimestamps, getChatRoomUnreadCount } from '../utils/notifications';
 import { API_BASE_URL } from '../config/api';
 import { 
   Search, 
@@ -210,9 +210,27 @@ export function Chat({
 
   const activeRoom = myRooms.find((r) => r.id === activeRoomId) || myRooms[0];
 
+  // ローカル既読タイムスタンプの同期
+  const [readChatTimestamps, setReadChatTimestamps] = useState<Record<string, string>>(() =>
+    getReadChatTimestamps(currentUser?.id)
+  );
+
+  useEffect(() => {
+    const handleSync = () => {
+      setReadChatTimestamps(getReadChatTimestamps(currentUser?.id));
+    };
+    handleSync();
+    window.addEventListener('notifications_updated', handleSync);
+    return () => window.removeEventListener('notifications_updated', handleSync);
+  }, [currentUser?.id]);
+
   // 未読メッセージを自動で既読にする
   useEffect(() => {
     if (!activeRoom || !currentUser) return;
+
+    // アクティブルームのローカル既読タイムスタンプを即時更新
+    markChatRoomAsRead(currentUser.id, activeRoom.id);
+
     const messages = activeRoom.messages || [];
 
     // 自分以外のメッセージで、自分がまだ既読になっていないメッセージ
@@ -1143,6 +1161,7 @@ export function Chat({
             filteredRooms.map((room) => {
               const lastMsg = room.messages && room.messages.length > 0 ? room.messages[room.messages.length - 1] : undefined;
               const isActive = activeRoomId === room.id;
+              const roomUnreadCount = isActive ? 0 : getChatRoomUnreadCount(room, currentUser, readChatTimestamps);
 
               return (
                 <div key={room.id} className="relative group">
@@ -1155,18 +1174,30 @@ export function Chat({
                       isActive ? 'bg-indigo-50/70 border-l-4 border-indigo-600' : 'hover:bg-slate-100/70'
                     }`}
                   >
-                    {getRoomIcon(room)}
+                    <div className="relative shrink-0">
+                      {getRoomIcon(room)}
+                      {roomUnreadCount > 0 && (
+                        <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-rose-500 rounded-full ring-2 ring-white animate-pulse" />
+                      )}
+                    </div>
 
                     <div className="flex-1 min-w-0 pr-6">
                       <div className="flex justify-between items-baseline mb-0.5">
-                        <h4 className={`text-xs font-bold truncate ${isActive ? 'text-indigo-950' : 'text-slate-900'}`}>
+                        <h4 className={`text-xs font-bold truncate ${isActive ? 'text-indigo-950' : roomUnreadCount > 0 ? 'text-slate-900 font-extrabold' : 'text-slate-800'}`}>
                           {getRoomName(room)}
                         </h4>
-                        {lastMsg && (
-                          <span className="text-[10px] font-medium text-slate-400 shrink-0 ml-1">
-                            {formatChatTimestamp(lastMsg.createdAt, true)}
-                          </span>
-                        )}
+                        <div className="flex items-center gap-1.5 shrink-0 ml-1">
+                          {roomUnreadCount > 0 && (
+                            <span className="px-1.5 py-0.2 text-[10px] font-black text-white bg-rose-500 rounded-full shadow-2xs min-w-[18px] text-center">
+                              {roomUnreadCount > 99 ? '99+' : roomUnreadCount}
+                            </span>
+                          )}
+                          {lastMsg && (
+                            <span className="text-[10px] font-medium text-slate-400">
+                              {formatChatTimestamp(lastMsg.createdAt, true)}
+                            </span>
+                          )}
+                        </div>
                       </div>
 
                       <p className="text-xs text-slate-500 truncate">

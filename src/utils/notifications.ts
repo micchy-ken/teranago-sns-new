@@ -438,17 +438,43 @@ export function isWorkflowUnread(
 }
 
 /** 7. チャットメッセージの未読判定 */
-export function isChatUnread(room: ChatRoom, user: User, readChatTimestamps: Record<string, string> = getReadChatTimestamps(user?.id)): boolean {
-  if (!user || !room || !room.messages || room.messages.length === 0) return false;
-  const isParticipant = room.participants?.some((p) => p?.id === user.id || p?.name === user.name);
+export function isChatUnread(
+  room: ChatRoom,
+  user: User,
+  readChatTimestamps: Record<string, string> = getReadChatTimestamps(user?.id)
+): boolean {
+  if (!user || !room) return false;
+
+  // 参加者チェック (IDの型違い string/number にも安全に対応)
+  const isParticipant = room.participants?.some(
+    (p) => String(p?.id) === String(user.id) || p?.name === user.name
+  );
   if (!isParticipant) return false;
 
+  // メッセージがない場合は未読対象外
+  if (!room.messages || room.messages.length === 0) return false;
+
   const lastMsg = room.messages[room.messages.length - 1];
-  if (lastMsg.sender?.id === user.id) return false;
+  if (!lastMsg) return false;
+
+  // 最後のメッセージが自分の送信である場合は未読にしない
+  if (String(lastMsg.sender?.id) === String(user.id)) return false;
+
+  // メッセージ単位の既読チェック: 最後のメッセージの viewers に自分が入っている場合は既読
+  if (
+    Array.isArray(lastMsg.viewers) &&
+    lastMsg.viewers.some((v: any) => String(v?.user?.id || v?.userId) === String(user.id))
+  ) {
+    return false;
+  }
 
   // Check server-side readStatus on room
-  const serverReadTime = (room as any).readStatus?.[user.id] || (room as any).lastReadTimestamps?.[user.id];
-  const localReadTime = readChatTimestamps[room.id];
+  const serverReadTime =
+    (room as any).readStatus?.[user.id] ||
+    (room as any).readStatus?.[String(user.id)] ||
+    (room as any).lastReadTimestamps?.[user.id] ||
+    (room as any).lastReadTimestamps?.[String(user.id)];
+  const localReadTime = readChatTimestamps[room.id] || readChatTimestamps[String(room.id)];
 
   const lastReadTime = serverReadTime || localReadTime;
   if (!lastReadTime) return true;
@@ -456,6 +482,47 @@ export function isChatUnread(room: ChatRoom, user: User, readChatTimestamps: Rec
   const msgTime = new Date(lastMsg.createdAt || room.lastUpdated || 0).getTime();
   const readTime = new Date(lastReadTime).getTime();
   return msgTime > readTime;
+}
+
+/** チャットルームごとの未読メッセージ数を計算 */
+export function getChatRoomUnreadCount(
+  room: ChatRoom,
+  user: User,
+  readChatTimestamps: Record<string, string> = getReadChatTimestamps(user?.id)
+): number {
+  if (!user || !room || !room.messages || room.messages.length === 0) return 0;
+  const isParticipant = room.participants?.some(
+    (p) => String(p?.id) === String(user.id) || p?.name === user.name
+  );
+  if (!isParticipant) return 0;
+
+  const serverReadTime =
+    (room as any).readStatus?.[user.id] ||
+    (room as any).readStatus?.[String(user.id)] ||
+    (room as any).lastReadTimestamps?.[user.id] ||
+    (room as any).lastReadTimestamps?.[String(user.id)];
+  const localReadTime = readChatTimestamps[room.id] || readChatTimestamps[String(room.id)];
+  const lastReadTime = serverReadTime || localReadTime;
+  const readTs = lastReadTime ? new Date(lastReadTime).getTime() : 0;
+
+  return room.messages.filter((m) => {
+    if (!m) return false;
+    // 自分のメッセージは未読カウントしない
+    if (String(m.sender?.id) === String(user.id)) return false;
+    // すでに既読閲覧者に入っているか
+    if (
+      Array.isArray(m.viewers) &&
+      m.viewers.some((v: any) => String(v?.user?.id || v?.userId) === String(user.id))
+    ) {
+      return false;
+    }
+    // 既読タイムスタンプより新しいか
+    if (readTs > 0) {
+      const msgTs = new Date(m.createdAt || 0).getTime();
+      return msgTs > readTs;
+    }
+    return true;
+  }).length;
 }
 
 /** 8. 週報・日報の未読/未確認判定 */

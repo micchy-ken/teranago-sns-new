@@ -3,7 +3,7 @@ import {
   WorkflowApplication, 
   User, 
   AttachmentFile,
-  PurchaseItem 
+  PurchaseOrderItem 
 } from '../types';
 import { 
   FileText, 
@@ -121,7 +121,7 @@ export const GlobalWorkflowDetailModal: React.FC<GlobalWorkflowDetailModalProps>
 
   if (!isOpen || !application) return null;
 
-  const typeLabel = typeLabels[application.type] || (application.type === 'general' ? '一般申請' : 'その他');
+  const typeLabel = typeLabels[application.type] || ((application.type as any) === 'general' ? '一般申請' : 'その他');
   const currentStatus = statusConfig[application.status] || statusConfig.pending;
 
   const isAuthor = application.applicant?.id === currentUser?.id;
@@ -255,9 +255,9 @@ export const GlobalWorkflowDetailModal: React.FC<GlobalWorkflowDetailModalProps>
                 <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
                 <div className="space-y-1 min-w-0">
                   <h4 className="text-sm font-bold text-rose-900">この申請は却下されました</h4>
-                  {application.rejectionReason ? (
+                  {(application.rejectReason || (application as any).rejectionReason) ? (
                     <p className="text-xs text-rose-800 leading-relaxed font-medium bg-white/80 p-3 rounded-xl border border-rose-200/80">
-                      {application.rejectionReason}
+                      {application.rejectReason || (application as any).rejectionReason}
                     </p>
                   ) : (
                     <p className="text-xs text-rose-700">却下理由のコメントは記入されていません。</p>
@@ -317,11 +317,11 @@ export const GlobalWorkflowDetailModal: React.FC<GlobalWorkflowDetailModalProps>
           </div>
 
           {/* 申請理由（あれば） */}
-          {application.reason && (
+          {(application as any).reason && (
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-slate-700 block">申請理由・目的</label>
               <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/90 text-sm text-slate-800 leading-relaxed whitespace-pre-wrap">
-                {application.reason}
+                {(application as any).reason}
               </div>
             </div>
           )}
@@ -386,15 +386,15 @@ export const GlobalWorkflowDetailModal: React.FC<GlobalWorkflowDetailModalProps>
               <div className="grid grid-cols-2 gap-3 text-xs">
                 <div className="p-3 bg-white rounded-xl border border-amber-200">
                   <div className="font-bold text-amber-800 mb-1">【金】の保有量</div>
-                  <div>前日: <span className="font-semibold">{application.goldPreviousAmount ?? 0}g</span></div>
-                  <div>当日: <span className="font-bold text-amber-700">{application.goldCurrentAmount ?? 0}g</span></div>
-                  <div className="text-[11px] text-slate-500 mt-0.5">差分: {((application.goldCurrentAmount ?? 0) - (application.goldPreviousAmount ?? 0)).toFixed(2)}g</div>
+                  <div>前日: <span className="font-semibold">{(application as any).goldPreviousAmount ?? application.previousBalance ?? 0}g</span></div>
+                  <div>当日: <span className="font-bold text-amber-700">{(application as any).goldCurrentAmount ?? application.currentBalance ?? 0}g</span></div>
+                  <div className="text-[11px] text-slate-500 mt-0.5">差分: {(((application as any).goldCurrentAmount ?? application.currentBalance ?? 0) - ((application as any).goldPreviousAmount ?? application.previousBalance ?? 0)).toFixed(2)}g</div>
                 </div>
                 <div className="p-3 bg-white rounded-xl border border-slate-200">
                   <div className="font-bold text-slate-800 mb-1">【銀】の保有量</div>
-                  <div>前日: <span className="font-semibold">{application.silverPreviousAmount ?? 0}g</span></div>
-                  <div>当日: <span className="font-bold text-slate-700">{application.silverCurrentAmount ?? 0}g</span></div>
-                  <div className="text-[11px] text-slate-500 mt-0.5">差分: {((application.silverCurrentAmount ?? 0) - (application.silverPreviousAmount ?? 0)).toFixed(2)}g</div>
+                  <div>前日: <span className="font-semibold">{(application as any).silverPreviousAmount ?? 0}g</span></div>
+                  <div>当日: <span className="font-bold text-slate-700">{(application as any).silverCurrentAmount ?? 0}g</span></div>
+                  <div className="text-[11px] text-slate-500 mt-0.5">差分: {(((application as any).silverCurrentAmount ?? 0) - ((application as any).silverPreviousAmount ?? 0)).toFixed(2)}g</div>
                 </div>
               </div>
             </div>
@@ -425,11 +425,11 @@ export const GlobalWorkflowDetailModal: React.FC<GlobalWorkflowDetailModalProps>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 bg-white">
-                      {application.purchaseItems.map((item: PurchaseItem, idx: number) => {
+                      {application.purchaseItems.map((item: any, idx: number) => {
                         const itemSubtotal = (item.quantity || 0) * (item.unitPrice || 0);
                         return (
                           <tr key={idx} className="hover:bg-slate-50/80 transition-colors">
-                            <td className="p-2.5 font-bold text-slate-800">{item.name}</td>
+                            <td className="p-2.5 font-bold text-slate-800">{item.itemName || item.name}</td>
                             <td className="p-2.5 text-slate-500 font-mono text-[11px]">{item.specification || item.code || '-'}</td>
                             <td className="p-2.5 text-center font-bold text-slate-700">{item.quantity} {item.unit || '個'}</td>
                             <td className="p-2.5 text-right font-medium text-slate-600">{formatCurrency(item.unitPrice)}</td>
@@ -539,7 +539,7 @@ export const GlobalWorkflowDetailModal: React.FC<GlobalWorkflowDetailModalProps>
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
                             <span className="text-xs font-bold text-slate-800 truncate">
-                              {step.name || `${stepNum}次承認`}
+                              {step.stepName || (step as any).name || `${stepNum}次承認`}
                             </span>
                             {isCurrent && (
                               <span className="px-1.5 py-0.2 rounded text-[10px] font-black bg-amber-500 text-white">
@@ -573,9 +573,9 @@ export const GlobalWorkflowDetailModal: React.FC<GlobalWorkflowDetailModalProps>
                             }`}>
                               {stepHistory.status === 'approved' ? '承認済' : '却下'}
                             </span>
-                            {stepHistory.timestamp && (
+                            {Boolean(stepHistory.actionAt || (stepHistory as any).timestamp) && (
                               <div className="text-[9px] text-slate-400 mt-0.5">
-                                {formatDateTime(stepHistory.timestamp)}
+                                {formatDateTime(stepHistory.actionAt || (stepHistory as any).timestamp)}
                               </div>
                             )}
                           </div>
@@ -643,7 +643,7 @@ export const GlobalWorkflowDetailModal: React.FC<GlobalWorkflowDetailModalProps>
                         )}
                       </div>
                       <span className="text-[10px] text-slate-400 whitespace-nowrap">
-                        {formatDateTime(h.timestamp)}
+                        {formatDateTime(h.actionAt || (h as any).timestamp)}
                       </span>
                     </div>
                   ))}

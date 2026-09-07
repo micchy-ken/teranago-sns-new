@@ -4,6 +4,16 @@ import { Post, BoardTopic, User as UserType } from '../types';
 
 export type AppTab = 'timeline' | 'calendar' | 'inspection_scheduler' | 'workflow' | 'board' | 'chat' | 'memo' | 'daily_report' | 'files' | 'members' | 'mypage' | 'admin' | 'safety_confirmation';
 
+export interface SidebarUnreadCounts {
+  chat?: number;
+  memo?: number;
+  workflow?: number;
+  board?: number;
+  event?: number;
+  report?: number;
+  safety?: number;
+}
+
 interface SidebarProps {
   posts?: Post[];
   topics?: BoardTopic[];
@@ -14,9 +24,10 @@ interface SidebarProps {
   currentUser?: UserType;
   className?: string;
   onCollapse?: () => void;
+  unreadCounts?: SidebarUnreadCounts;
 }
 
-export function Sidebar({ posts = [], topics = [], selectedTag, onSelectTag, activeTab, onChangeTab, currentUser, className, onCollapse }: SidebarProps) {
+export function Sidebar({ posts = [], topics = [], selectedTag, onSelectTag, activeTab, onChangeTab, currentUser, className, onCollapse, unreadCounts }: SidebarProps) {
   const [isUtilityOpen, setIsUtilityOpen] = useState(true);
   // Extract and count tags from topics and posts
   const tagCounts: Record<string, number> = {};
@@ -133,66 +144,101 @@ export function Sidebar({ posts = [], topics = [], selectedTag, onSelectTag, act
         {isTabAllowed('workflow') && (
           <button
             onClick={() => onChangeTab('workflow')}
-            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${
+            className={`w-full flex items-center justify-between px-3 py-2 rounded-lg font-medium transition-colors ${
               activeTab === 'workflow'
-                ? 'bg-indigo-50 text-indigo-700'
+                ? 'bg-indigo-50 text-indigo-700 font-bold'
                 : 'text-slate-600 hover:bg-slate-50'
             }`}
           >
-            <FileText className="w-4 h-4" />
-            ワークフロー
+            <div className="flex items-center gap-3">
+              <FileText className="w-4 h-4" />
+              <span>ワークフロー</span>
+            </div>
+            {Boolean(unreadCounts?.workflow) && (
+              <span className="px-1.5 py-0.5 text-[10px] font-bold text-white bg-purple-600 rounded-full min-w-[18px] text-center shadow-xs">
+                {(unreadCounts?.workflow || 0) > 99 ? '99+' : unreadCounts?.workflow}
+              </span>
+            )}
           </button>
         )}
         {isTabAllowed('board') && (
           <button
             onClick={() => onChangeTab('board')}
-            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${
+            className={`w-full flex items-center justify-between px-3 py-2 rounded-lg font-medium transition-colors ${
               activeTab === 'board'
-                ? 'bg-indigo-50 text-indigo-700'
+                ? 'bg-indigo-50 text-indigo-700 font-bold'
                 : 'text-slate-600 hover:bg-slate-50'
             }`}
           >
-            <Monitor className="w-4 h-4" />
-            掲示板
+            <div className="flex items-center gap-3">
+              <Monitor className="w-4 h-4" />
+              <span>掲示板</span>
+            </div>
+            {Boolean(unreadCounts?.board) && (
+              <span className="px-1.5 py-0.5 text-[10px] font-bold text-white bg-indigo-600 rounded-full min-w-[18px] text-center shadow-xs">
+                {(unreadCounts?.board || 0) > 99 ? '99+' : unreadCounts?.board}
+              </span>
+            )}
           </button>
         )}
         {isTabAllowed('chat') && (
           <button
             onClick={() => onChangeTab('chat')}
-            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${
+            className={`w-full flex items-center justify-between px-3 py-2 rounded-lg font-medium transition-colors ${
               activeTab === 'chat'
-                ? 'bg-indigo-50 text-indigo-700'
+                ? 'bg-indigo-50 text-indigo-700 font-bold'
                 : 'text-slate-600 hover:bg-slate-50'
             }`}
           >
-            <MessageSquare className="w-4 h-4" />
-            チャットルーム
+            <div className="flex items-center gap-3">
+              <MessageSquare className="w-4 h-4" />
+              <span>チャットルーム</span>
+            </div>
+            {Boolean(unreadCounts?.chat) && (
+              <span className="px-1.5 py-0.5 text-[10px] font-bold text-white bg-rose-500 rounded-full min-w-[18px] text-center shadow-xs animate-pulse">
+                {(unreadCounts?.chat || 0) > 99 ? '99+' : unreadCounts?.chat}
+              </span>
+            )}
           </button>
         )}
         {isTabAllowed('memo') && (
           <button
             onClick={() => onChangeTab('memo')}
-            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${
+            className={`w-full flex items-center justify-between px-3 py-2 rounded-lg font-medium transition-colors ${
               activeTab === 'memo'
-                ? 'bg-indigo-50 text-indigo-700'
+                ? 'bg-indigo-50 text-indigo-700 font-bold'
                 : 'text-slate-600 hover:bg-slate-50'
             }`}
           >
-            <Phone className="w-4 h-4" />
-            伝言メモ
+            <div className="flex items-center gap-3">
+              <Phone className="w-4 h-4" />
+              <span>伝言メモ</span>
+            </div>
+            {Boolean(unreadCounts?.memo) && (
+              <span className="px-1.5 py-0.5 text-[10px] font-bold text-white bg-amber-500 rounded-full min-w-[18px] text-center shadow-xs">
+                {(unreadCounts?.memo || 0) > 99 ? '99+' : unreadCounts?.memo}
+              </span>
+            )}
           </button>
         )}
         {isTabAllowed('daily_report') && (
           <button
             onClick={() => onChangeTab('daily_report')}
-            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${
+            className={`w-full flex items-center justify-between px-3 py-2 rounded-lg font-medium transition-colors ${
               activeTab === 'daily_report'
-                ? 'bg-indigo-50 text-indigo-700'
+                ? 'bg-indigo-50 text-indigo-700 font-bold'
                 : 'text-slate-600 hover:bg-slate-50'
             }`}
           >
-            <ClipboardList className="w-4 h-4" />
-            <span>{reportLabel}</span>
+            <div className="flex items-center gap-3">
+              <ClipboardList className="w-4 h-4" />
+              <span>{reportLabel}</span>
+            </div>
+            {Boolean(unreadCounts?.report) && (
+              <span className="px-1.5 py-0.5 text-[10px] font-bold text-white bg-blue-600 rounded-full min-w-[18px] text-center shadow-xs">
+                {(unreadCounts?.report || 0) > 99 ? '99+' : unreadCounts?.report}
+              </span>
+            )}
           </button>
         )}
         {/* ユーティリティ（各種管理・拡張ツール） */}
@@ -272,9 +318,15 @@ export function Sidebar({ posts = [], topics = [], selectedTag, onSelectTag, act
                       <ShieldAlert className="w-3.5 h-3.5 text-rose-600 shrink-0" />
                       <span className="truncate">安否確認発動</span>
                     </div>
-                    <span className="text-[9px] px-1.5 py-0.2 rounded font-extrabold bg-rose-100 text-rose-700 border border-rose-200 shrink-0 ml-1">
-                      緊急
-                    </span>
+                    {Boolean(unreadCounts?.safety) ? (
+                      <span className="px-1.5 py-0.2 text-[10px] font-extrabold text-white bg-rose-600 rounded-full shrink-0 ml-1 animate-pulse shadow-xs">
+                        {unreadCounts?.safety}
+                      </span>
+                    ) : (
+                      <span className="text-[9px] px-1.5 py-0.2 rounded font-extrabold bg-rose-100 text-rose-700 border border-rose-200 shrink-0 ml-1">
+                        緊急
+                      </span>
+                    )}
                   </button>
                 )}
                 {currentUser?.isAdmin && (

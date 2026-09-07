@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
 import { API_BASE_URL } from './config/api';
 import { getAvatarUrl, sanitizeAvatarUrlForSave } from './utils/avatar';
 import { Header } from './components/Header';
@@ -26,7 +26,7 @@ const GuestSafetyResponse = lazyWithRetry(() => import('./components/GuestSafety
 const MyPage = lazyWithRetry(() => import('./components/MyPage').then(m => ({ default: m.MyPage })));
 const AdminPanel = lazyWithRetry(() => import('./components/AdminPanel').then(m => ({ default: m.AdminPanel })));
 const FileManager = lazyWithRetry(() => import('./components/FileManager'));
-import { Post, CalendarEvent, WorkflowApplication, User, OfficeMaster, DivisionMaster, PositionMaster, BoardTopic, ChatRoom, ApprovalFlowRule, ApprovalStepConfig, ItemMaster, ApplicationStatus, DailyReport, Memo } from './types';
+import { Post, CalendarEvent, WorkflowApplication, User, OfficeMaster, DivisionMaster, PositionMaster, BoardTopic, ChatRoom, ApprovalFlowRule, ApprovalStepConfig, ItemMaster, ApplicationStatus, DailyReport, Memo, SafetyConfirmationEvent, SafetyConfirmationResponse } from './types';
 import { 
   syncUserReadStatusesFromServer, 
   isMemoUnread, 
@@ -41,7 +41,8 @@ import {
   markTopicAsRead, 
   markWorkflowAsRead, 
   markReportAsRead, 
-  markChatRoomAsRead 
+  markChatRoomAsRead,
+  getUnreadNotifications
 } from './utils/notifications';
 import { triggerPushNotification } from './utils/pushNotifications';
 import { dispatchNotificationEmail } from './utils/emailNotificationDispatcher';
@@ -50,6 +51,7 @@ import { TopicDetailModal } from './components/TopicDetailModal';
 import { GlobalEventDetailModal } from './components/GlobalEventDetailModal';
 import { GlobalMemoDetailModal } from './components/GlobalMemoDetailModal';
 import { GlobalReportDetailModal } from './components/GlobalReportDetailModal';
+import { GlobalWorkflowDetailModal } from './components/GlobalWorkflowDetailModal';
 import { UserDirectory } from './components/UserDirectory';
 import { UserDetailModal } from './components/UserDetailModal';
 import { filterStepsForApplicant, resolveApproverForStep, getSupervisorAtLevel } from './utils/workflowHelpers';
@@ -199,6 +201,7 @@ export default function App() {
   const [globalSelectedTopic, setGlobalSelectedTopic] = useState<BoardTopic | null>(null);
   const [globalSelectedMemo, setGlobalSelectedMemo] = useState<Memo | null>(null);
   const [globalSelectedReport, setGlobalSelectedReport] = useState<DailyReport | null>(null);
+  const [globalSelectedApplication, setGlobalSelectedApplication] = useState<WorkflowApplication | null>(null);
   const [globalSelectedUser, setGlobalSelectedUser] = useState<User | null>(null);
   const [autoOpenCreateMemo, setAutoOpenCreateMemo] = useState(false);
   const [memoInitialRecipientId, setMemoInitialRecipientId] = useState<string | undefined>(undefined);
@@ -249,6 +252,7 @@ export default function App() {
     applicationId?: string;
     eventId?: string;
     reportId?: string;
+    safetyEventId?: string;
     openCreateMemo?: boolean;
   }) => {
     // スケジュール（eventId）
@@ -296,6 +300,22 @@ export default function App() {
         return; // 画面遷移せずにポップアップ
       }
     }
+    // ワークフロー申請（applicationId）: ピンポイントで詳細モーダルを表示
+    if (target.applicationId) {
+      const found = applications.find(a => a.id === target.applicationId || String(a.id) === String(target.applicationId));
+      if (found) {
+        if (userState?.id) markWorkflowAsRead(userState.id, found.id);
+        setGlobalSelectedApplication(found);
+        return; // 画面遷移せずにモーダルポップアップ表示
+      }
+    }
+    // 安否確認（safetyEventId）: 安否確認画面に遷移し、対象イベントの回答モーダルを即座に開く
+    if (target.safetyEventId) {
+      setActiveTab('safety_confirmation');
+      setTargetSafetyEventId(target.safetyEventId);
+      updateBrowserUrl();
+      return;
+    }
 
     // チャット、ワークフローなど遷移して表示
     setActiveTab(target.tab);
@@ -308,6 +328,7 @@ export default function App() {
     setTargetApplicationId(target.applicationId);
     setTargetEventId(target.eventId);
     setTargetReportId(target.reportId);
+    setTargetSafetyEventId(target.safetyEventId);
 
     updateBrowserUrl();
   };
@@ -562,8 +583,20 @@ export default function App() {
   const [applications, setApplications] = useState<WorkflowApplication[]>([]);
   const [topics, setTopics] = useState<BoardTopic[]>([]);
   const [chatRooms, setChatRooms] = useState<ChatRoom[]>([]);
+  const [safetyEvents, setSafetyEvents] = useState<SafetyConfirmationEvent[]>([]);
+  const [safetyResponses, setSafetyResponses] = useState<SafetyConfirmationResponse[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
+
+  // URLパラメータ等で targetApplicationId が指定されている場合に初期ロード完了時にピンポイントモーダル表示
+  useEffect(() => {
+    if (targetApplicationId && applications.length > 0) {
+      const found = applications.find(a => a.id === targetApplicationId || String(a.id) === String(targetApplicationId));
+      if (found) {
+        setGlobalSelectedApplication(found);
+      }
+    }
+  }, [targetApplicationId, applications]);
 
   // 対象画面（タブ）を開いたタイミングで、その機能に関連する未読通知を自動既読化してベルマークのバッジ数を即座に更新
   useEffect(() => {
@@ -594,13 +627,43 @@ export default function App() {
       if (unreadReports.length > 0) {
         unreadReports.forEach((r) => markReportAsRead(userState.id, r.id));
       }
-    } else if (activeTab === 'chat') {
-      const unreadRooms = chatRooms.filter((r) => isChatUnread(r, userState));
-      if (unreadRooms.length > 0) {
-        unreadRooms.forEach((r) => markChatRoomAsRead(userState.id, r.id));
-      }
     }
+    // チャットの未読管理は Chat コンポーネント側でアクティブな部屋ごとに個別に既読処理
   }, [activeTab, userState, isAuthenticated, memos, topics, applications, events, reports, chatRooms]);
+
+  // 通知更新イベントリスナー（既読・未読変更の即時反映）
+  const [notificationSyncTick, setNotificationSyncTick] = useState(0);
+
+  useEffect(() => {
+    const handleSync = () => setNotificationSyncTick((t) => t + 1);
+    window.addEventListener('notifications_updated', handleSync);
+    return () => window.removeEventListener('notifications_updated', handleSync);
+  }, []);
+
+  // サイドバー用の未読バッジ集計
+  const sidebarUnreadCounts = useMemo(() => {
+    if (!userState) return {};
+    const notifs = getUnreadNotifications({
+      user: userState,
+      memos,
+      applications,
+      topics,
+      events,
+      chatRooms,
+      reports,
+      safetyEvents,
+      safetyResponses,
+    });
+    return {
+      chat: notifs.filter((n) => n.type === 'chat').length,
+      memo: notifs.filter((n) => n.type === 'memo').length,
+      workflow: notifs.filter((n) => n.type === 'workflow').length,
+      board: notifs.filter((n) => n.type === 'board').length,
+      event: notifs.filter((n) => n.type === 'event').length,
+      report: notifs.filter((n) => n.type === 'report').length,
+      safety: notifs.filter((n) => n.type === 'safety').length,
+    };
+  }, [userState, memos, applications, topics, events, chatRooms, reports, safetyEvents, safetyResponses, notificationSyncTick]);
 
   const refetchEvents = async (currentUsers = usersList) => {
     try {
@@ -760,6 +823,40 @@ export default function App() {
     } catch (err: any) {
       console.warn('Failed to load workflows from API:', err);
       setFetchErrors(prev => ({ ...prev, workflows: `ワークフロー取得エラー: ${err?.message || '接続エラー'}` }));
+    }
+  };
+
+  const refetchSafetyEvents = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/safety-events`, {
+        headers: { 'Accept': 'application/json' }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          setSafetyEvents(data);
+          const activeEv = data.find((e: any) => e.status === 'active');
+          if (activeEv) {
+            try {
+              const respRes = await fetch(`${API_BASE_URL}/safety-events/${activeEv.id}/responses`, {
+                headers: { 'Accept': 'application/json' }
+              });
+              if (respRes.ok) {
+                const respData = await respRes.json();
+                if (Array.isArray(respData)) {
+                  setSafetyResponses(respData);
+                }
+              }
+            } catch (err) {
+              console.warn('Failed to fetch safety responses:', err);
+            }
+          } else {
+            setSafetyResponses([]);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to fetch safety events:', err);
     }
   };
 
@@ -928,6 +1025,7 @@ export default function App() {
       refetchChatRooms(latestUsers, false),
       refetchMemos(latestUsers),
       refetchReports(latestUsers),
+      refetchSafetyEvents(),
     ]);
   };
 
@@ -959,10 +1057,10 @@ export default function App() {
       const isDocumentHidden = typeof document !== 'undefined' && document.hidden;
 
       // チャットタブ閲覧時は高リアルタイム性 (2.5秒)
-      // マイページや他タブ閲覧時は負荷軽減・サーバー再起動時のエラー抑制のため間隔を延長 (45秒)
-      let baseDelay = isChatTab ? 2500 : 45000;
+      // マイページや他タブ閲覧時でも新着を素早く検知できるよう10秒おきに軽快に取得
+      let baseDelay = isChatTab ? 2500 : 10000;
       if (isDocumentHidden) {
-        baseDelay = isChatTab ? 15000 : 60000;
+        baseDelay = isChatTab ? 15000 : 30000;
       }
 
       // サーバー再起動中などの連続エラー時はバックオフを適用してリクエスト過多を抑制
@@ -972,7 +1070,7 @@ export default function App() {
         if (isChatTab) {
           delay = Math.min(30000, 2500 * Math.pow(1.5, Math.min(consecutiveErrors, 6)));
         } else {
-          delay = Math.min(90000, 45000 + consecutiveErrors * 5000);
+          delay = Math.min(60000, 10000 + consecutiveErrors * 5000);
         }
       }
 
@@ -985,9 +1083,9 @@ export default function App() {
 
     scheduleNextPoll();
 
-    // ウィンドウ復帰時・タブアクティブ時の即時同期イベント
+    // ウィンドウ復帰時・タブアクティブ時の即時同期イベント（他画面閲覧時でも即時更新）
     const handleVisibilityOrFocus = () => {
-      if (document.visibilityState === 'visible' && activeTab === 'chat') {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
         refetchChatRooms(usersList, true);
       }
     };
@@ -1003,31 +1101,96 @@ export default function App() {
     };
   }, [isAuthenticated, activeTab, usersList]);
 
-  // 掲示板 (Bulletins / Board) 自動同期 & 更新イベントリスナー
+  // 全体データ自動同期ポーリング (Unified Background & Active Polling)
+  // 伝言メモ、ワークフロー申請、掲示板、カレンダー予定、日報・週報、安否確認
   useEffect(() => {
     if (!isAuthenticated) return;
+    let isCancelled = false;
+    let timeoutId: any = null;
+    let isSyncing = false;
 
-    // 掲示板タブを開いたときは即時に最新トピックを再取得
-    if (activeTab === 'board') {
-      refetchTopics(usersList);
-    }
-
-    const handleBulletinsUpdated = () => {
-      refetchTopics(usersList);
+    const runOverallSync = async () => {
+      if (isCancelled || isSyncing) return;
+      try {
+        isSyncing = true;
+        await Promise.allSettled([
+          refetchMemos(usersList),
+          refetchApplications(usersList),
+          refetchTopics(usersList),
+          refetchEvents(usersList),
+          refetchReports(usersList),
+          refetchSafetyEvents(),
+        ]);
+      } catch (err) {
+        console.warn('[Overall Polling] Sync error:', err);
+      } finally {
+        isSyncing = false;
+      }
     };
 
-    window.addEventListener('bulletins_updated', handleBulletinsUpdated);
+    const scheduleNextOverallPoll = () => {
+      if (isCancelled) return;
+      const isDocumentHidden = typeof document !== 'undefined' && document.hidden;
+      // 画面表示中は20秒おき、バックグラウンド時は60秒おきに全体巡回
+      const delay = isDocumentHidden ? 60000 : 20000;
 
-    // バックグラウンドでも45秒おきに最新掲示板トピックを巡回取得
-    const boardInterval = setInterval(() => {
-      if (typeof document !== 'undefined' && !document.hidden) {
-        refetchTopics(usersList);
+      timeoutId = setTimeout(async () => {
+        if (isCancelled) return;
+        await runOverallSync();
+        scheduleNextOverallPoll();
+      }, delay);
+    };
+
+    scheduleNextOverallPoll();
+
+    // タブ切り替え時の即時再取得
+    if (activeTab === 'board') {
+      refetchTopics(usersList);
+    } else if (activeTab === 'safety_confirmation') {
+      refetchSafetyEvents();
+    } else if (activeTab === 'workflow') {
+      refetchApplications(usersList);
+    } else if (activeTab === 'memo') {
+      refetchMemos(usersList);
+    } else if (activeTab === 'calendar' || activeTab === 'inspection_scheduler') {
+      refetchEvents(usersList);
+    } else if (activeTab === 'daily_report') {
+      refetchReports(usersList);
+    }
+
+    // ウィンドウ復帰時・タブ復帰時の即時同期
+    const handleVisibilityOrFocus = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        runOverallSync();
       }
-    }, 45000);
+    };
+
+    const handleCustomEventUpdate = () => {
+      runOverallSync();
+    };
+
+    window.addEventListener('focus', handleVisibilityOrFocus);
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+    window.addEventListener('bulletins_updated', handleCustomEventUpdate);
+    window.addEventListener('safety_updated', handleCustomEventUpdate);
+    window.addEventListener('notifications_updated', handleCustomEventUpdate);
+    window.addEventListener('memos_updated', handleCustomEventUpdate);
+    window.addEventListener('workflows_updated', handleCustomEventUpdate);
+    window.addEventListener('events_updated', handleCustomEventUpdate);
+    window.addEventListener('reports_updated', handleCustomEventUpdate);
 
     return () => {
-      window.removeEventListener('bulletins_updated', handleBulletinsUpdated);
-      clearInterval(boardInterval);
+      isCancelled = true;
+      if (timeoutId) clearTimeout(timeoutId);
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+      window.removeEventListener('bulletins_updated', handleCustomEventUpdate);
+      window.removeEventListener('safety_updated', handleCustomEventUpdate);
+      window.removeEventListener('notifications_updated', handleCustomEventUpdate);
+      window.removeEventListener('memos_updated', handleCustomEventUpdate);
+      window.removeEventListener('workflows_updated', handleCustomEventUpdate);
+      window.removeEventListener('events_updated', handleCustomEventUpdate);
+      window.removeEventListener('reports_updated', handleCustomEventUpdate);
     };
   }, [isAuthenticated, activeTab, usersList]);
 
@@ -2341,6 +2504,8 @@ export default function App() {
         chatRooms={chatRooms}
         reports={reports}
         posts={posts}
+        safetyEvents={safetyEvents}
+        safetyResponses={safetyResponses}
         onSelectTab={setActiveTab}
         onOpenSettings={handleOpenPersonalSettings}
         onNavigateToContent={handleNavigateToContent}
@@ -2400,6 +2565,7 @@ export default function App() {
                 setIsMobileMenuOpen(false);
               }}
               currentUser={userState}
+              unreadCounts={sidebarUnreadCounts}
               className="bg-white flex flex-col gap-6"
             />
           </div>
@@ -2447,6 +2613,7 @@ export default function App() {
               activeTab={activeTab}
               onChangeTab={setActiveTab}
               currentUser={userState}
+              unreadCounts={sidebarUnreadCounts}
               onCollapse={() => handleToggleSidebarCollapse(true)}
             />
           </aside>
@@ -2825,6 +2992,38 @@ export default function App() {
           onOpenFullTab={(reportId) => {
             setActiveTab('daily_report');
             setTargetReportId(reportId);
+          }}
+        />
+      )}
+
+      {/* グローバルワークフロー申請詳細モーダル */}
+      {globalSelectedApplication && (
+        <GlobalWorkflowDetailModal
+          isOpen={!!globalSelectedApplication}
+          application={globalSelectedApplication}
+          currentUser={userState}
+          allUsers={usersList}
+          onClose={() => setGlobalSelectedApplication(null)}
+          onWorkflowAction={async (id, status, comment) => {
+            await handleWorkflowAction(id, status, comment);
+            const updated = applications.find(a => a.id === id);
+            if (updated) {
+              setGlobalSelectedApplication(updated);
+            }
+          }}
+          onUpdateApplication={async (app) => {
+            await handleUpdateApplication(app);
+            setGlobalSelectedApplication(app);
+          }}
+          onNavigateToWorkflow={(appId) => {
+            setGlobalSelectedApplication(null);
+            setActiveTab('workflow');
+            setTargetApplicationId(appId);
+          }}
+          onOpenEditModal={(app) => {
+            setGlobalSelectedApplication(null);
+            setActiveTab('workflow');
+            setTargetApplicationId(app.id);
           }}
         />
       )}
