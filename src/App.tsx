@@ -42,6 +42,7 @@ import {
   markWorkflowAsRead, 
   markReportAsRead, 
   markChatRoomAsRead,
+  getRespondedSafetyEventIds,
   getUnreadNotifications
 } from './utils/notifications';
 import { triggerPushNotification } from './utils/pushNotifications';
@@ -835,18 +836,45 @@ export default function App() {
         const data = await res.json();
         if (Array.isArray(data)) {
           setSafetyEvents(data);
-          const activeEv = data.find((e: any) => e.status === 'active');
-          if (activeEv) {
+          const activeEvents = data.filter((e: any) => e.status === 'active');
+          if (activeEvents.length > 0) {
             try {
-              const respRes = await fetch(`${API_BASE_URL}/safety-events/${activeEv.id}/responses`, {
-                headers: { 'Accept': 'application/json' }
+              const respPromises = activeEvents.map(async (ev: any) => {
+                try {
+                  const respRes = await fetch(`${API_BASE_URL}/safety-events/${ev.id}/responses`, {
+                    headers: { 'Accept': 'application/json' }
+                  });
+                  if (respRes.ok) {
+                    const respData = await respRes.json();
+                    return Array.isArray(respData) ? respData : [];
+                  }
+                } catch (_) {}
+                return [];
               });
-              if (respRes.ok) {
-                const respData = await respRes.json();
-                if (Array.isArray(respData)) {
-                  setSafetyResponses(respData);
-                }
-              }
+              const results = await Promise.allSettled(respPromises);
+              const allResp = results
+                .filter((r): r is PromiseFulfilledResult<any[]> => r.status === 'fulfilled')
+                .flatMap(r => r.value)
+                .map((r: any) => ({
+                  id: String(r.id || `resp_${r.userId}`),
+                  eventId: String(r.eventId || r.event_id || ''),
+                  userId: String(r.userId || r.user_id || ''),
+                  userName: r.userName || r.user_name || '',
+                  office: r.office || r.userOffice || '',
+                  division: r.division || r.userDivision || '',
+                  safetyStatus: (r.safetyStatus || r.status || 'safe'),
+                  status: (r.status || r.safetyStatus || 'safe'),
+                  familyStatus: r.familyStatus || 'all_safe',
+                  houseStatus: r.houseStatus || 'no_damage',
+                  workAvailability: (r.workAvailability || r.canWork || 'available'),
+                  canWork: (r.canWork || r.workAvailability || 'available'),
+                  locationStatus: r.locationStatus || r.currentLocation || r.location || '自宅',
+                  currentLocation: r.currentLocation || r.locationStatus || r.location || '自宅',
+                  message: r.message || r.comment || '',
+                  comment: r.comment || r.message || '',
+                  respondedAt: r.respondedAt || new Date().toISOString()
+                }));
+              setSafetyResponses(allResp);
             } catch (err) {
               console.warn('Failed to fetch safety responses:', err);
             }
@@ -2506,6 +2534,7 @@ export default function App() {
         posts={posts}
         safetyEvents={safetyEvents}
         safetyResponses={safetyResponses}
+        userRespondedSafetyEventIds={getRespondedSafetyEventIds(userState?.id)}
         onSelectTab={setActiveTab}
         onOpenSettings={handleOpenPersonalSettings}
         onNavigateToContent={handleNavigateToContent}

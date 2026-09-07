@@ -21,6 +21,8 @@ import {
   markWorkflowAsRead,
   getReadReportIds,
   markReportAsRead,
+  getRespondedSafetyEventIds,
+  markSafetyEventAsResponded,
   NotificationItem,
 } from '../utils/notifications';
 import { triggerOpenUserModal } from '../utils/userModal';
@@ -481,7 +483,9 @@ export function Header({
       reports,
       safetyEvents,
       safetyResponses,
-      userRespondedSafetyEventIds,
+      userRespondedSafetyEventIds: (userRespondedSafetyEventIds && userRespondedSafetyEventIds.length > 0)
+        ? userRespondedSafetyEventIds
+        : getRespondedSafetyEventIds(currentUser?.id),
       readEventIds,
       readTopicIds,
       readChatTimestamps,
@@ -581,6 +585,7 @@ export function Header({
       markReportAsRead(currentUser?.id, rep.id);
     } else if (item.type === 'safety' && item.originalData) {
       const sev = item.originalData as SafetyConfirmationEvent;
+      markSafetyEventAsResponded(currentUser?.id, sev.id);
       if (onNavigateToContent) {
         onNavigateToContent({ tab: 'safety_confirmation', safetyEventId: sev.id });
         return;
@@ -611,6 +616,7 @@ export function Header({
       if (item.type === 'chat' && item.originalData) markChatRoomAsRead(currentUser?.id, item.originalData.id);
       if (item.type === 'event' && item.originalData) markEventAsRead(currentUser?.id, item.originalData.id);
       if (item.type === 'report' && item.originalData) markReportAsRead(currentUser?.id, item.originalData.id);
+      if (item.type === 'safety' && item.originalData) markSafetyEventAsResponded(currentUser?.id, item.originalData.id);
     });
 
     if (onUpdateMemos && memos.length > 0) {

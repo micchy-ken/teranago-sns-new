@@ -1,7 +1,7 @@
 export const RECOMMEND_SERVER_JS = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年9月4日 (掲示板トピック編集・個別コメント削除(DELETE)完全同期 & routes/bulletins.js 対応)
+ * 最終更新日時 (最終アップデート): 2026年9月7日 (安否確認回答後の未読バッジ即時クリア・レスポンス正規化 & 複数アクティブイベント回答同期・インメモリ&LocalStorage二重キャッシュ対応)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -2664,10 +2664,40 @@ async function startServer() {
   });
 
   // 安否確認回答一覧取得 API
-  app.get('/api/safety-events/:id/responses', (req, res) => {
+  app.get([
+    '/api/safety-events/:id/responses',
+    '/api/safety-events/:id/responses/',
+    '/api/safety/events/:id/responses',
+    '/api/safety/events/:id/responses/'
+  ], (req, res) => {
     try {
       const { id } = req.params;
-      const responses = loadSafetyResponses().filter(r => r.eventId === id);
+      const trimmedId = String(id).trim();
+      const responses = loadSafetyResponses()
+        .filter(r => String(r.eventId).trim() === trimmedId)
+        .map(r => ({
+          ...r,
+          id: String(r.id),
+          eventId: String(r.eventId || trimmedId),
+          userId: String(r.userId),
+          userName: r.userName || '',
+          office: r.office || r.userOffice || '',
+          division: r.division || r.userDivision || '',
+          userOffice: r.userOffice || r.office || '',
+          userDivision: r.userDivision || r.division || '',
+          safetyStatus: r.safetyStatus || r.status || 'safe',
+          status: r.status || r.safetyStatus || 'safe',
+          familyStatus: r.familyStatus || 'all_safe',
+          houseStatus: r.houseStatus || 'no_damage',
+          workAvailability: r.workAvailability || r.canWork || 'available',
+          canWork: r.canWork || r.workAvailability || 'available',
+          locationStatus: r.locationStatus || r.currentLocation || r.location || '自宅',
+          currentLocation: r.currentLocation || r.locationStatus || r.location || '自宅',
+          location: r.location || r.currentLocation || '自宅',
+          message: r.message || r.comment || '',
+          comment: r.comment || r.message || '',
+          respondedAt: r.respondedAt ? new Date(r.respondedAt).toISOString() : new Date().toISOString()
+        }));
       res.json(responses);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -2715,20 +2745,23 @@ async function startServer() {
         return res.status(400).json({ error: 'ユーザーIDは必須です。' });
       }
 
+      const trimmedId = String(id).trim();
+      const trimmedUserId = String(userId).trim();
+
       const events = loadSafetyEvents();
-      const event = events.find(e => e.id === id);
+      const event = events.find(e => String(e.id).trim() === trimmedId);
       if (!event) {
         return res.status(404).json({ error: '安否確認イベントが存在しません。' });
       }
 
       const responses = loadSafetyResponses();
       const nowIso = new Date().toISOString();
-      const idx = responses.findIndex(r => r.eventId === id && String(r.userId) === String(userId));
+      const idx = responses.findIndex(r => String(r.eventId).trim() === trimmedId && String(r.userId).trim() === trimmedUserId);
 
       const responseRecord = {
         id: idx >= 0 ? responses[idx].id : \`resp_\${Date.now()}_\${Math.random().toString(36).substring(2, 6)}\`,
-        eventId: id,
-        userId: String(userId),
+        eventId: trimmedId,
+        userId: trimmedUserId,
         userName: userName || '匿名',
         office: effectiveOffice,
         division: effectiveDivision,

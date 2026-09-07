@@ -1,7 +1,7 @@
 /**
  * routes/safety.js (本番環境・MS SQL Server & 暗号化 & 気象庁地震連動 完全連携版)
  * 寺岡オートドアSNS 安否確認モジュール (MS SQL Server & AES-256-GCM暗号化 & 気象庁地震速報自動発動 & ログイン不要ゲスト直接回答URL対応)
- * 最終更新: 2026年8月28日 (安否確認メールのログイン不要ゲスト即時回答URL & 他画面アクセス完全隔離セキュリティ & 気象庁連動 完全版)
+ * 最終更新: 2026年9月7日 (安否確認回答後の未読バッジ即時クリア・レスポンス正規化 & 複数アクティブイベント回答同期・インメモリ&LocalStorage二重キャッシュ対応 完全版)
  */
 import { Router } from 'express';
 import crypto from 'crypto';
@@ -478,6 +478,8 @@ router.post([
       locationCoordinates
     } = req.body || {};
 
+    const trimmedId = String(id).trim();
+    const trimmedUserId = String(userId).trim();
     const nowIso = new Date().toISOString();
     const respId = `resp_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     const effectiveStatus = status || safetyStatus || 'safe';
@@ -491,8 +493,8 @@ router.post([
     if (pool) {
       await pool.request()
         .input('id', sql.NVarChar(100), respId)
-        .input('eventId', sql.NVarChar(100), id)
-        .input('userId', sql.NVarChar(100), String(userId))
+        .input('eventId', sql.NVarChar(100), trimmedId)
+        .input('userId', sql.NVarChar(100), trimmedUserId)
         .input('userName', sql.NVarChar(100), userName || '')
         .input('userOffice', sql.NVarChar(100), effectiveOffice)
         .input('userDivision', sql.NVarChar(100), effectiveDivision)
@@ -527,8 +529,8 @@ router.post([
       message: '安否確認の回答を受け付けました。',
       response: {
         id: respId,
-        eventId: id,
-        userId: String(userId),
+        eventId: trimmedId,
+        userId: trimmedUserId,
         userName: userName || '',
         office: effectiveOffice,
         division: effectiveDivision,
@@ -572,9 +574,32 @@ router.get([
     const pool = await getPool();
     if (pool) {
       const result = await pool.request()
-        .input('eventId', sql.NVarChar(100), id)
+        .input('eventId', sql.NVarChar(100), String(id).trim())
         .query('SELECT * FROM dbo.SafetyResponses WHERE eventId = @eventId ORDER BY respondedAt DESC');
-      return res.json(result.recordset || []);
+      const rows = (result.recordset || []).map(r => ({
+        ...r,
+        id: String(r.id),
+        eventId: String(r.eventId || r.event_id || id),
+        userId: String(r.userId || r.user_id),
+        userName: r.userName || r.user_name || '',
+        office: r.office || r.userOffice || r.user_office || '',
+        division: r.division || r.userDivision || r.user_division || '',
+        userOffice: r.userOffice || r.office || '',
+        userDivision: r.userDivision || r.division || '',
+        safetyStatus: r.safetyStatus || r.status || 'safe',
+        status: r.status || r.safetyStatus || 'safe',
+        familyStatus: r.familyStatus || 'all_safe',
+        houseStatus: r.houseStatus || 'no_damage',
+        workAvailability: r.workAvailability || r.canWork || 'available',
+        canWork: r.canWork || r.workAvailability || 'available',
+        locationStatus: r.locationStatus || r.currentLocation || r.location || '自宅',
+        currentLocation: r.currentLocation || r.locationStatus || r.location || '自宅',
+        location: r.location || r.currentLocation || '自宅',
+        message: r.message || r.comment || '',
+        comment: r.comment || r.message || '',
+        respondedAt: r.respondedAt ? new Date(r.respondedAt).toISOString() : new Date().toISOString()
+      }));
+      return res.json(rows);
     }
     res.json([]);
   } catch (err) {

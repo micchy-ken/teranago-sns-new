@@ -41,6 +41,7 @@ import {
 import { User, OfficeMaster, DivisionMaster, DisasterType } from '../types';
 import { API_BASE_URL } from '../config/api';
 import { getAvatarUrl } from '../utils/avatar';
+import { markSafetyEventAsResponded } from '../utils/notifications';
 
 export interface SafetyConfirmationEvent {
   id: string;
@@ -830,6 +831,7 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
       if (res.ok) {
         setActionMessage({ type: 'success', text: '安否状況を回答・登録しました。ご無事をお祈りいたします。' });
         setIsMyAnswerModalOpen(false);
+        markSafetyEventAsResponded(currentUser?.id, activeEvent.id);
         await fetchResponses(activeEvent.id);
         await fetchEvents();
         window.dispatchEvent(new CustomEvent('notifications_updated'));

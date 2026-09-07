@@ -22,6 +22,7 @@ const memoryReadMemoIds: Record<string, string[]> = {};
 const memoryReadWorkflowIds: Record<string, string[]> = {};
 const memoryReadReportIds: Record<string, string[]> = {};
 const memoryReadChatTimestamps: Record<string, Record<string, string>> = {};
+const memoryRespondedSafetyEventIds: Record<string, string[]> = {};
 
 /** サーバーへ既読状態を送信（非同期） */
 async function saveReadStatusToServer(userId: string, targetType: 'event' | 'topic' | 'memo' | 'workflow' | 'chat' | 'report', targetId: string) {
@@ -223,6 +224,45 @@ export function markAllReportsAsRead(userId?: string, reportIds?: string[]) {
   memoryReadReportIds[userId] = Array.from(nextSet);
   window.dispatchEvent(new CustomEvent('notifications_updated'));
   reportIds.forEach((id) => saveReadStatusToServer(userId, 'report', id));
+}
+
+/** 7. 安否確認 回答済み・確認済みキャッシュ管理 */
+export function getRespondedSafetyEventIds(userId?: string): string[] {
+  if (!userId) return [];
+  if (!memoryRespondedSafetyEventIds[userId]) {
+    try {
+      const stored = localStorage.getItem(`safety_responded_${userId}`);
+      if (stored) {
+        memoryRespondedSafetyEventIds[userId] = JSON.parse(stored);
+      } else {
+        memoryRespondedSafetyEventIds[userId] = [];
+      }
+    } catch (_) {
+      memoryRespondedSafetyEventIds[userId] = [];
+    }
+  }
+  return memoryRespondedSafetyEventIds[userId] || [];
+}
+
+export function markSafetyEventAsResponded(userId?: string, eventId?: string) {
+  if (!userId || !eventId) return;
+  const uid = String(userId);
+  const eid = String(eventId);
+  if (!memoryRespondedSafetyEventIds[uid]) {
+    memoryRespondedSafetyEventIds[uid] = [];
+  }
+  if (!memoryRespondedSafetyEventIds[uid].includes(eid)) {
+    memoryRespondedSafetyEventIds[uid].push(eid);
+    try {
+      localStorage.setItem(`safety_responded_${uid}`, JSON.stringify(memoryRespondedSafetyEventIds[uid]));
+    } catch (_) {}
+    window.dispatchEvent(new CustomEvent('notifications_updated'));
+    window.dispatchEvent(new CustomEvent('safety_updated'));
+  }
+}
+
+export function markSafetyEventAsRead(userId?: string, eventId?: string) {
+  markSafetyEventAsResponded(userId, eventId);
 }
 
 // -------------------------------------------------------------
@@ -550,6 +590,62 @@ export function isReportUnread(
   return false;
 }
 
+/** 7. 安否確認の未回答・未確認判定 */
+export function isSafetyEventUnread(
+  event: SafetyConfirmationEvent,
+  user: User,
+  safetyResponses: SafetyConfirmationResponse[] = [],
+  userRespondedSafetyEventIds: string[] = getRespondedSafetyEventIds(user?.id)
+): boolean {
+  if (!user || !event || event.status !== 'active') return false;
+
+  // 1. 回答済み・確認済みローカルキャッシュ
+  const eid = String(event.id);
+  if (userRespondedSafetyEventIds && userRespondedSafetyEventIds.some((id) => String(id) === eid)) {
+    return false;
+  }
+
+  // 2. 対象拠点・部署チェック
+  const userOffice = user.office || '';
+  const userDivision = user.division || (user as any).department || '';
+  const targetScope = (event as any).targetScope || 'all';
+  const targetOffices = (event as any).targetOffices || [];
+  const targetDivisions = (event as any).targetDivisions || [];
+  const targetOffice = (event as any).targetOffice;
+  const targetDivision = (event as any).targetDivision;
+
+  if (targetScope === 'offices' && targetOffices.length > 0) {
+    if (!targetOffices.includes(userOffice)) return false;
+  } else if (targetScope === 'divisions' && targetDivisions.length > 0) {
+    if (!targetDivisions.includes(userDivision)) return false;
+  } else {
+    if (targetOffice && targetOffice !== '全社' && targetOffice !== userOffice) return false;
+    if (targetDivision && targetDivision !== '全部署' && targetDivision !== userDivision) return false;
+  }
+
+  // 3. サーバー回答一覧に自分が含まれているか
+  const curUserId = String(user.id || '').trim();
+  const curUserName = user.name ? String(user.name).trim() : '';
+  const curLoginId = (user as any).loginId ? String((user as any).loginId).trim() : '';
+
+  const hasResponded = safetyResponses.some((r) => {
+    const rEventId = String(r.eventId || (r as any).event_id || '').trim();
+    if (rEventId !== eid) return false;
+
+    const rUserId = String(r.userId || (r as any).user_id || '').trim();
+    const rUserName = r.userName ? String(r.userName).trim() : '';
+    const rLoginId = (r as any).userLoginId ? String((r as any).userLoginId).trim() : '';
+
+    if (curUserId && rUserId && curUserId === rUserId) return true;
+    if (curUserName && rUserName && curUserName === rUserName) return true;
+    if (curLoginId && rLoginId && curLoginId === rLoginId) return true;
+
+    return false;
+  });
+
+  return !hasResponded;
+}
+
 // -------------------------------------------------------------
 // 統一未読通知アイテム一覧取得関数
 // -------------------------------------------------------------
@@ -563,7 +659,7 @@ export function getUnreadNotifications({
   reports = [],
   safetyEvents = [],
   safetyResponses = [],
-  userRespondedSafetyEventIds = [],
+  userRespondedSafetyEventIds = getRespondedSafetyEventIds(user?.id),
   readEventIds = getReadEventIds(user?.id),
   readTopicIds = getReadTopicIds(user?.id),
   readChatTimestamps = getReadChatTimestamps(user?.id),
@@ -706,25 +802,16 @@ export function getUnreadNotifications({
 
   // 7. Safety Confirmation (安否確認)
   safetyEvents.forEach((sev) => {
-    if (sev.status === 'active') {
-      const hasResponded = 
-        userRespondedSafetyEventIds.includes(sev.id) || 
-        safetyResponses.some(r => {
-          const rEventId = r.eventId || (r as any).event_id;
-          const rUserId = r.userId || (r as any).user_id;
-          return rEventId === sev.id && rUserId === user.id;
-        });
-      if (!hasResponded) {
-        list.push({
-          id: `safety_${sev.id}`,
-          type: 'safety',
-          title: `【緊急安否確認】${sev.title || '安否状況の回答をお願いします'}`,
-          description: sev.message || '至急、安全状況・出社可否をご回答ください。',
-          createdAt: sev.createdAt || new Date().toISOString(),
-          tab: 'safety_confirmation',
-          originalData: sev,
-        });
-      }
+    if (isSafetyEventUnread(sev, user, safetyResponses, userRespondedSafetyEventIds)) {
+      list.push({
+        id: `safety_${sev.id}`,
+        type: 'safety',
+        title: `【緊急安否確認】${sev.title || '安否状況の回答をお願いします'}`,
+        description: sev.message || '至急、安全状況・出社可否をご回答ください。',
+        createdAt: sev.createdAt || new Date().toISOString(),
+        tab: 'safety_confirmation',
+        originalData: sev,
+      });
     }
   });
 

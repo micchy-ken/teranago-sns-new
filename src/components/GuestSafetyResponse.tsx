@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { API_BASE_URL } from '../config/api';
 import { User } from '../types';
+import { markSafetyEventAsResponded } from '../utils/notifications';
 
 interface GuestSafetyResponseProps {
   eventId: string;
@@ -200,6 +201,11 @@ export const GuestSafetyResponse: React.FC<GuestSafetyResponseProps> = ({
 
       setSubmittedData(payload);
       setIsSubmitted(true);
+      if (selectedUserId && eventId) {
+        markSafetyEventAsResponded(selectedUserId, eventId);
+        window.dispatchEvent(new CustomEvent('notifications_updated'));
+        window.dispatchEvent(new CustomEvent('safety_updated'));
+      }
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (err: any) {
       console.error('Submit safety response error:', err);
