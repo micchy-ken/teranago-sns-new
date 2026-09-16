@@ -634,19 +634,25 @@ router.get(['/read-statuses/:userId', '/read-statuses/:userId/'], async (req, re
   try {
     const { userId } = req.params;
     const pool = await getPool();
-    if (!pool) return res.json({ event: [], topic: [], memo: [], workflow: [], chat: [], report: [] });
+    if (!pool) return res.json({ event: [], topic: [], memo: [], workflow: [], chat: [], report: [], chatTimestamps: {} });
 
     const result = await pool.request()
       .input('userId', sql.VarChar(100), String(userId).trim())
-      .query('SELECT targetType, targetId FROM dbo.UserReadStatuses WHERE userId = @userId');
+      .query('SELECT targetType, targetId, readAt FROM dbo.UserReadStatuses WHERE userId = @userId');
 
     const readMap = { event: [], topic: [], memo: [], workflow: [], chat: [], report: [] };
+    const chatTimestamps = {};
     (result.recordset || []).forEach(row => {
       if (readMap[row.targetType]) {
         readMap[row.targetType].push(String(row.targetId));
       }
+      if (row.targetType === 'chat' && row.readAt) {
+        try {
+          chatTimestamps[String(row.targetId)] = new Date(row.readAt).toISOString();
+        } catch (_) {}
+      }
     });
-    res.json(readMap);
+    res.json({ ...readMap, chatTimestamps });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -668,6 +674,12 @@ router.post(['/read-statuses', '/read-statuses/'], async (req, res) => {
           BEGIN
             INSERT INTO dbo.UserReadStatuses (userId, targetType, targetId, readAt)
             VALUES (@userId, @targetType, @targetId, GETDATE())
+          END
+          ELSE
+          BEGIN
+            UPDATE dbo.UserReadStatuses 
+            SET readAt = GETDATE() 
+            WHERE userId = @userId AND targetType = @targetType AND targetId = @targetId
           END
         `);
     } else {

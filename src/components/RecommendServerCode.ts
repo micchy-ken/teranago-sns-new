@@ -1,7 +1,7 @@
 export const RECOMMEND_SERVER_JS = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年9月16日 (伝言メモ「対応完了」・ステータス更新エンドポイント拡充・受領者別閲覧&対応状況・スキーマ自動補正・ルーティング耐障害性配列対応)
+ * 最終更新日時 (最終アップデート): 2026年9月16日 (チャット機能 routes/chats.js モジュール連携・個別メッセージ既読同期・UserReadStatuses 既読タイムスタンプ chatTimestamps 連携・チャット新着判定最適化)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -1206,14 +1206,18 @@ async function startServer() {
         chat: [],
         report: [],
       };
+      const chatTimestamps: Record<string, string> = {};
 
       userItems.forEach((row) => {
         if (readMap[row.targetType]) {
           readMap[row.targetType].push(row.targetId);
         }
+        if (row.targetType === 'chat' && row.readAt) {
+          chatTimestamps[row.targetId] = row.readAt;
+        }
       });
 
-      res.json(readMap);
+      res.json({ ...readMap, chatTimestamps });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -1228,7 +1232,7 @@ async function startServer() {
 
       let items = loadReadStatuses();
       if (isRead !== false) {
-        const exists = items.some((i) => i.userId === userId && i.targetType === targetType && i.targetId === targetId);
+        const exists = items.find((i) => i.userId === userId && i.targetType === targetType && i.targetId === targetId);
         if (!exists) {
           items.push({
             userId,
@@ -1236,13 +1240,221 @@ async function startServer() {
             targetId,
             readAt: new Date().toISOString(),
           });
-          saveReadStatuses(items);
+        } else {
+          existing.readAt = new Date().toISOString();
         }
+        saveReadStatuses(items);
       } else {
         items = items.filter((i) => !(i.userId === userId && i.targetType === targetType && i.targetId === targetId));
         saveReadStatuses(items);
       }
       res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ==========================================
+  // チャット機能 API (ローカルJSON永続化)
+  // ==========================================
+  const chatRoomsPath = path.join(dataDir, 'chat-rooms.json');
+  function loadChatRooms(): any[] {
+    if (!fs.existsSync(chatRoomsPath)) return [];
+    try {
+      return JSON.parse(fs.readFileSync(chatRoomsPath, 'utf8'));
+    } catch {
+      return [];
+    }
+  }
+  function saveChatRooms(rooms: any[]) {
+    try {
+      fs.writeFileSync(chatRoomsPath, JSON.stringify(rooms, null, 2), 'utf8');
+    } catch (e) {
+      console.error('Failed to save chat rooms:', e);
+    }
+  }
+
+  app.get(['/api/chats', '/api/chats/rooms'], (req, res) => {
+    try {
+      const rooms = loadChatRooms();
+      res.json(rooms);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post(['/api/chats/rooms', '/api/chats/room'], (req, res) => {
+    try {
+      const { id, name, type, avatarUrl, participants, adminIds } = req.body;
+      const rooms = loadChatRooms();
+      const roomId = id || \`c_\${Date.now()}\`;
+      const newRoom = {
+        id: roomId,
+        name: name || (type === 'dm' ? 'ダイレクトトーク' : 'グループトーク'),
+        type: type || 'group',
+        avatarUrl: avatarUrl || null,
+        lastMessage: '',
+        updatedAt: new Date().toISOString(),
+        lastUpdated: new Date().toISOString(),
+        participants: Array.isArray(participants) ? participants : [],
+        adminIds: Array.isArray(adminIds) ? adminIds : [],
+        messages: []
+      };
+      rooms.unshift(newRoom);
+      saveChatRooms(rooms);
+      res.status(201).json({ success: true, id: roomId, message: 'チャットルーム作成完了' });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post(['/api/chats', '/api/chats/message'], (req, res) => {
+    try {
+      const { senderId, roomId, message, content, attachments, roomName, roomType, participants, type, imageUrl, stampId, stampText, stampCategory, adminIds } = req.body;
+      const msgContent = message || content || '';
+      const targetRoomId = String(roomId || 'r1');
+      const rooms = loadChatRooms();
+      let room = rooms.find((r) => String(r.id) === targetRoomId);
+
+      if (!room) {
+        room = {
+          id: targetRoomId,
+          name: roomName || (roomType === 'dm' ? 'ダイレクトトーク' : '新規グループトーク'),
+          type: roomType || 'group',
+          avatarUrl: null,
+          lastMessage: '',
+          updatedAt: new Date().toISOString(),
+          lastUpdated: new Date().toISOString(),
+          participants: Array.isArray(participants) ? participants : [],
+          adminIds: Array.isArray(adminIds) ? adminIds : [],
+          messages: []
+        };
+        rooms.push(room);
+      }
+
+      const msgId = req.body.id || \`c-\${Date.now()}\`;
+      const nowIso = new Date().toISOString();
+      const newMsg = {
+        id: msgId,
+        roomId: targetRoomId,
+        sender: {
+          id: senderId || 'u1',
+          name: req.body.senderName || 'ユーザー',
+          avatarUrl: req.body.senderAvatar || '',
+          department: req.body.senderDepartment || ''
+        },
+        content: msgContent,
+        createdAt: nowIso,
+        type: type || 'text',
+        imageUrl: imageUrl || null,
+        stampId: stampId || null,
+        stampText: stampText || null,
+        stampCategory: stampCategory || null,
+        attachments: Array.isArray(attachments) ? attachments : [],
+        viewers: senderId ? [{ user: { id: senderId }, viewedAt: nowIso }] : []
+      };
+
+      if (!Array.isArray(room.messages)) {
+        room.messages = [];
+      }
+      room.messages.push(newMsg);
+      room.lastMessage = msgContent;
+      room.updatedAt = nowIso;
+      room.lastUpdated = nowIso;
+
+      saveChatRooms(rooms);
+      res.status(201).json({ id: msgId, message: 'メッセージ送信完了' });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post(['/api/chats/messages/:messageId/viewers', '/api/chats/messages/:messageId/viewer'], (req, res) => {
+    try {
+      const { messageId } = req.params;
+      const { user } = req.body;
+      if (!user || !user.id) return res.status(400).json({ success: false, error: 'User is required' });
+
+      const rooms = loadChatRooms();
+      let updated = false;
+      let currentViewers: any[] = [];
+
+      for (const room of rooms) {
+        if (Array.isArray(room.messages)) {
+          const msg = room.messages.find((m: any) => String(m.id) === String(messageId));
+          if (msg) {
+            if (!Array.isArray(msg.viewers)) msg.viewers = [];
+            const exists = msg.viewers.some((v: any) => String(v?.user?.id || v?.userId) === String(user.id));
+            if (!exists) {
+              msg.viewers.push({ user, viewedAt: new Date().toISOString() });
+              updated = true;
+            }
+            currentViewers = msg.viewers;
+            break;
+          }
+        }
+      }
+
+      if (updated) {
+        saveChatRooms(rooms);
+      }
+      res.json({ success: true, viewers: currentViewers });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put('/api/chats/:roomId', (req, res) => {
+    try {
+      const { roomId } = req.params;
+      const { name, participants, adminIds } = req.body;
+      const rooms = loadChatRooms();
+      const room = rooms.find((r) => String(r.id) === String(roomId));
+
+      if (room) {
+        if (name !== undefined) room.name = name;
+        if (participants !== undefined) room.participants = participants;
+        if (adminIds !== undefined) room.adminIds = adminIds;
+        room.updatedAt = new Date().toISOString();
+        room.lastUpdated = new Date().toISOString();
+        saveChatRooms(rooms);
+      }
+      res.json({ success: true, message: 'チャットルーム情報を更新しました。' });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/chats/:roomId', (req, res) => {
+    try {
+      const { roomId } = req.params;
+      let rooms = loadChatRooms();
+      rooms = rooms.filter((r) => String(r.id) !== String(roomId));
+      saveChatRooms(rooms);
+      res.json({ success: true, message: 'チャットルームとメッセージを削除しました。' });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/chats/messages/:messageId', (req, res) => {
+    try {
+      const { messageId } = req.params;
+      const rooms = loadChatRooms();
+      for (const room of rooms) {
+        if (Array.isArray(room.messages)) {
+          const idx = room.messages.findIndex((m: any) => String(m.id) === String(messageId));
+          if (idx !== -1) {
+            room.messages.splice(idx, 1);
+            room.lastMessage = room.messages.length > 0 ? room.messages[room.messages.length - 1].content : '';
+            room.updatedAt = new Date().toISOString();
+            room.lastUpdated = new Date().toISOString();
+            break;
+          }
+        }
+      }
+      saveChatRooms(rooms);
+      res.json({ success: true, message: 'メッセージを削除しました。' });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

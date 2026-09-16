@@ -44,7 +44,15 @@ export async function syncUserReadStatusesFromServer(userId: string) {
   try {
     const res = await fetch(`${API_BASE_URL}/read-statuses/${encodeURIComponent(userId)}`);
     if (!res.ok) return;
-    const data: { event?: string[]; topic?: string[]; memo?: string[]; workflow?: string[]; chat?: string[]; report?: string[] } = await res.json();
+    const data: {
+      event?: string[];
+      topic?: string[];
+      memo?: string[];
+      workflow?: string[];
+      chat?: string[];
+      report?: string[];
+      chatTimestamps?: Record<string, string>;
+    } = await res.json();
     if (!data) return;
 
     // サーバーから取得したデータでインメモリキャッシュを同期
@@ -54,14 +62,42 @@ export async function syncUserReadStatusesFromServer(userId: string) {
     if (Array.isArray(data.workflow)) memoryReadWorkflowIds[userId] = data.workflow;
     if (Array.isArray(data.report)) memoryReadReportIds[userId] = data.report;
     
-    const chatTimestamps: Record<string, string> = {};
-    if (Array.isArray(data.chat)) {
+    // チャットの既読タイムスタンプを復元・同期
+    const currentTimestamps: Record<string, string> = { ...getReadChatTimestamps(userId) };
+
+    // サーバーから渡された正確な chatTimestamps ({ [roomId]: ISOString }) を統合
+    if (data.chatTimestamps && typeof data.chatTimestamps === 'object') {
+      Object.entries(data.chatTimestamps).forEach(([roomId, ts]) => {
+        if (ts && typeof ts === 'string') {
+          // ローカルとサーバーでより新しい方を保持
+          if (!currentTimestamps[roomId] || new Date(ts).getTime() > new Date(currentTimestamps[roomId]).getTime()) {
+            currentTimestamps[roomId] = ts;
+          }
+        }
+      });
+    } else if (Array.isArray(data.chat)) {
+      // サーバーがルームID配列のみを返した場合 (旧形式互換)
+      // 未来日時は絶対に設定せず、ローカルに無ければ現在時刻を基準とする
       data.chat.forEach((roomId) => {
-        // 十分に未来の時刻をセットして、そのルームのメッセージを既読扱いにする
-        chatTimestamps[roomId] = new Date(Date.now() + 86400000 * 365).toISOString(); // 1年後
+        if (!currentTimestamps[roomId]) {
+          currentTimestamps[roomId] = new Date().toISOString();
+        }
       });
     }
-    memoryReadChatTimestamps[userId] = chatTimestamps;
+
+    // 過去のバグ等で未来の時刻（+1年など）が保存されている場合は現在時刻に自動補正
+    const nowMs = Date.now();
+    Object.keys(currentTimestamps).forEach((roomId) => {
+      const ts = new Date(currentTimestamps[roomId]).getTime();
+      if (ts > nowMs + 60000) {
+        currentTimestamps[roomId] = new Date().toISOString();
+      }
+    });
+
+    memoryReadChatTimestamps[userId] = currentTimestamps;
+    try {
+      localStorage.setItem(`chat_read_timestamps_${userId}`, JSON.stringify(currentTimestamps));
+    } catch (_) {}
 
     // カスタムイベントを発火してReact側に更新を通知
     window.dispatchEvent(new CustomEvent('notifications_updated'));
@@ -120,6 +156,35 @@ export function markTopicAsRead(userId?: string, topicId?: string) {
 /** 3. チャットルーム既読 (閲覧タイムスタンプ管理) */
 export function getReadChatTimestamps(userId?: string): Record<string, string> {
   if (!userId) return {};
+  if (!memoryReadChatTimestamps[userId]) {
+    try {
+      const stored = localStorage.getItem(`chat_read_timestamps_${userId}`);
+      if (stored) {
+        memoryReadChatTimestamps[userId] = JSON.parse(stored);
+      } else {
+        memoryReadChatTimestamps[userId] = {};
+      }
+    } catch (_) {
+      memoryReadChatTimestamps[userId] = {};
+    }
+  }
+
+  // 過去のバグ等による未来日時の自動補正
+  const timestamps = memoryReadChatTimestamps[userId] || {};
+  const nowMs = Date.now();
+  let hasFuture = false;
+  Object.keys(timestamps).forEach((roomId) => {
+    if (new Date(timestamps[roomId]).getTime() > nowMs + 60000) {
+      timestamps[roomId] = new Date().toISOString();
+      hasFuture = true;
+    }
+  });
+  if (hasFuture) {
+    try {
+      localStorage.setItem(`chat_read_timestamps_${userId}`, JSON.stringify(timestamps));
+    } catch (_) {}
+  }
+
   return memoryReadChatTimestamps[userId] || {};
 }
 
@@ -128,7 +193,11 @@ export function markChatRoomAsRead(userId?: string, roomId?: string) {
   if (!memoryReadChatTimestamps[userId]) {
     memoryReadChatTimestamps[userId] = {};
   }
-  memoryReadChatTimestamps[userId][roomId] = new Date().toISOString();
+  const now = new Date().toISOString();
+  memoryReadChatTimestamps[userId][roomId] = now;
+  try {
+    localStorage.setItem(`chat_read_timestamps_${userId}`, JSON.stringify(memoryReadChatTimestamps[userId]));
+  } catch (_) {}
   window.dispatchEvent(new CustomEvent('notifications_updated'));
   saveReadStatusToServer(userId, 'chat', roomId);
 }
