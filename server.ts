@@ -3143,8 +3143,74 @@ async function startServer() {
     }
   });
 
-  // 伝言メモ更新（ステータス変更等）
-  app.put('/api/memos/:id', (req, res) => {
+  // 伝言メモ更新（ステータス変更・対応完了等）
+  app.put(['/api/memos/:id', '/api/memos/:id/'], (req, res) => {
+    try {
+      const memoId = req.params.id;
+      const memosList = loadMemos();
+      const idx = memosList.findIndex((m: any) => String(m.id) === String(memoId));
+      if (idx === -1) {
+        return res.status(404).json({ error: '伝言メモが見つかりません' });
+      }
+      
+      const current = memosList[idx];
+      const {
+        isRead,
+        status,
+        recipientStatuses,
+        recipientStatusesJson,
+        recipient_statuses_json,
+        details
+      } = req.body || {};
+
+      let updatedRecipientStatuses = recipientStatuses;
+      if (typeof updatedRecipientStatuses === 'string') {
+        try { updatedRecipientStatuses = JSON.parse(updatedRecipientStatuses); } catch (_) {}
+      }
+      if (!updatedRecipientStatuses && (recipientStatusesJson || recipient_statuses_json)) {
+        try { updatedRecipientStatuses = JSON.parse(recipientStatusesJson || recipient_statuses_json); } catch (_) {}
+      }
+      if (!updatedRecipientStatuses && details && details.recipientStatuses) {
+        updatedRecipientStatuses = details.recipientStatuses;
+      }
+      if (!updatedRecipientStatuses) {
+        updatedRecipientStatuses = current.recipientStatuses || [];
+      }
+
+      const allHandled = Array.isArray(updatedRecipientStatuses) &&
+        updatedRecipientStatuses.length > 0 &&
+        updatedRecipientStatuses.every((s: any) => s.isHandled);
+
+      let nextStatus = status;
+      if (!nextStatus) {
+        if (allHandled) {
+          nextStatus = 'handled';
+        } else if (isRead === 1 || isRead === true) {
+          nextStatus = 'read';
+        } else {
+          nextStatus = current.status || 'unread';
+        }
+      }
+
+      const nextIsRead = (isRead === 1 || isRead === true || nextStatus === 'handled' || allHandled) ? 1 : 0;
+
+      memosList[idx] = {
+        ...current,
+        ...req.body,
+        status: nextStatus,
+        isRead: nextIsRead === 1,
+        recipientStatuses: updatedRecipientStatuses,
+        recipientStatusesJson: JSON.stringify(updatedRecipientStatuses),
+        updatedAt: new Date().toISOString()
+      };
+      saveMemos(memosList);
+      res.json(memosList[idx]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.patch(['/api/memos/:id', '/api/memos/:id/'], (req, res) => {
     try {
       const memoId = req.params.id;
       const memosList = loadMemos();
@@ -3164,8 +3230,52 @@ async function startServer() {
     }
   });
 
+  // 伝言メモ既読・対応完了
+  app.all(['/api/memos/:id/read', '/api/memos/:id/read/'], (req, res) => {
+    try {
+      const memoId = req.params.id;
+      const { userId, isHandled } = req.body || {};
+      const memosList = loadMemos();
+      const idx = memosList.findIndex((m: any) => String(m.id) === String(memoId));
+      if (idx === -1) {
+        return res.status(404).json({ error: '伝言メモが見つかりません' });
+      }
+      const nowIso = new Date().toISOString();
+      let statuses = memosList[idx].recipientStatuses || [];
+      if (userId && Array.isArray(statuses)) {
+        statuses = statuses.map((st: any) => {
+          if (st.userId === String(userId)) {
+            return {
+              ...st,
+              isViewed: true,
+              viewedAt: st.viewedAt || nowIso,
+              isHandled: isHandled !== undefined ? !!isHandled : st.isHandled,
+              handledAt: (isHandled || (isHandled === undefined && st.isHandled)) ? (st.handledAt || nowIso) : undefined
+            };
+          }
+          return st;
+        });
+      }
+      const allHandled = Array.isArray(statuses) && statuses.length > 0 && statuses.every((s: any) => s.isHandled);
+      memosList[idx] = {
+        ...memosList[idx],
+        isRead: true,
+        status: allHandled ? 'handled' : 'read',
+        recipientStatuses: statuses,
+        updatedAt: nowIso
+      };
+      saveMemos(memosList);
+      res.json({ message: '既読・対応状態更新完了', memo: memosList[idx] });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // 伝言メモ削除
-  app.delete('/api/memos/:id', (req, res) => {
+  app.all(['/api/memos/:id', '/api/memos/:id/delete'], (req, res, next) => {
+    if (req.method !== 'DELETE' && !req.path.endsWith('/delete')) {
+      return next();
+    }
     try {
       const memoId = req.params.id;
       let memosList = loadMemos();

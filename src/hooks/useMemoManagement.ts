@@ -227,24 +227,40 @@ export function useMemoManagement({
             });
           } else {
             // 既存メモの更新
-            await fetch(`${API_BASE_URL}/memos/${memo.id}`, {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                isRead: (memo.status === 'handled' || memo.status === 'read') ? 1 : 0,
-                status: memo.status,
-                recipientStatusesJson: recipientStatusesJsonStr,
-                recipient_statuses_json: recipientStatusesJsonStr,
-                recipientStatuses: recipientStatusesJsonStr,
-                details: {
-                  requirementType: memo.requirementType,
-                  requirementText: memo.requirementText,
-                  targetOffices: memo.targetOffices,
-                  targetDivisions: memo.targetDivisions,
+            try {
+              const res = await fetch(`${API_BASE_URL}/memos/${memo.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  isRead: (memo.status === 'handled' || memo.status === 'read') ? 1 : 0,
+                  status: memo.status,
                   recipientStatuses: memo.recipientStatuses,
-                }
-              })
-            });
+                  recipientStatusesJson: recipientStatusesJsonStr,
+                  recipient_statuses_json: recipientStatusesJsonStr,
+                  details: {
+                    requirementType: memo.requirementType,
+                    requirementText: memo.requirementText,
+                    targetOffices: memo.targetOffices,
+                    targetDivisions: memo.targetDivisions,
+                    recipientStatuses: memo.recipientStatuses,
+                    status: memo.status
+                  }
+                })
+              });
+              if (!res.ok && res.status === 404) {
+                // 古いサーバー用フォールバック (/memos/:id/read)
+                await fetch(`${API_BASE_URL}/memos/${memo.id}/read`, {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    userId: currentUser?.id,
+                    isHandled: memo.status === 'handled'
+                  })
+                }).catch(() => {});
+              }
+            } catch (putErr) {
+              console.warn('PUT /memos error:', putErr);
+            }
           }
         })
       );
