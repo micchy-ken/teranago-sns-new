@@ -331,6 +331,8 @@ export function Calendar({
     slotWidthPx?: number;
     slotHeightPx?: number;
     dateStr?: string;
+    initialEndX?: number;
+    hourLayouts?: Record<number, { left: number; width: number }>;
   } | null>(null);
 
   // D&D または リサイズ変更時の繰り返しスコープ決定モーダル用ステート
@@ -339,39 +341,109 @@ export function Calendar({
     originalInstanceDate?: string;
   } | null>(null);
 
+  // リサイズ後の不必要なクリックイベント発火を防ぐためのフラグ
+  const wasResizedRef = useRef<boolean>(false);
+  // リサイズ中の最新状態を保持するためのRef（クロージャの古い状態を参照するのを防ぐ）
+  const resizingEventRef = useRef<typeof resizingEvent>(resizingEvent);
+
+  // onUpdateEvent を最新に保つためのRef（useEffectの再実行によるリスナー破棄を防ぐ）
+  const onUpdateEventRef = useRef(onUpdateEvent);
+  useEffect(() => {
+    onUpdateEventRef.current = onUpdateEvent;
+  }, [onUpdateEvent]);
+
+  // 同期的にリサイズ状態を開始するためのヘルパー関数
+  const startResize = useCallback((params: NonNullable<typeof resizingEvent>) => {
+    resizingEventRef.current = params;
+    setResizingEvent(params);
+  }, []);
+
   // リサイズ操作中のマウス移動 & マウスアップのグローバルリスナー
   useEffect(() => {
     if (!resizingEvent) return;
 
-    const handleMouseMove = (e: MouseEvent) => {
-      const deltaX = e.clientX - resizingEvent.initialStartX;
-      const deltaY = e.clientY - resizingEvent.initialStartY;
-      const startMs = new Date(resizingEvent.event.start).getTime();
+    // リサイズ中のテキスト選択やカーソルのちらつきを防止
+    const originalUserSelect = document.body.style.userSelect;
+    const originalCursor = document.body.style.cursor;
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = resizingEvent.direction === 'horizontal' ? 'ew-resize' : 'ns-resize';
 
-      let deltaMinutes = 0;
-      if (resizingEvent.direction === 'horizontal') {
-        const slotWidth = resizingEvent.slotWidthPx && resizingEvent.slotWidthPx > 0 ? resizingEvent.slotWidthPx : 100;
+    const handleMouseMove = (e: MouseEvent) => {
+      const currentResizing = resizingEventRef.current;
+      if (!currentResizing) return;
+
+      if (e.cancelable) e.preventDefault();
+      wasResizedRef.current = true; // リサイズが行われたことを記録
+
+      const deltaX = e.clientX - currentResizing.initialStartX;
+      const deltaY = e.clientY - currentResizing.initialStartY;
+      const startMs = new Date(currentResizing.event.start).getTime();
+
+      let newEndMs = currentResizing.initialEndMs;
+      if (currentResizing.direction === 'horizontal' && currentResizing.hourLayouts && currentResizing.initialEndX !== undefined) {
+        const currentX = currentResizing.initialEndX + deltaX;
+        const layouts = currentResizing.hourLayouts;
+        let targetHour = 0;
+        let found = false;
+        let frac = 0;
+        const hours = Object.keys(layouts).map(Number).sort((a,b) => a - b);
+        for (const h of hours) {
+          const layout = layouts[h];
+          if (currentX >= layout.left && currentX <= layout.left + layout.width) {
+            targetHour = h;
+            frac = (currentX - layout.left) / layout.width;
+            found = true;
+            break;
+          }
+        }
+        
+        const newDate = new Date(currentResizing.event.start);
+        if (found) {
+          newDate.setHours(targetHour);
+          const rawMinutes = frac * 60;
+          newDate.setMinutes(Math.round(rawMinutes / 15) * 15);
+        } else if (hours.length > 0) {
+          const minHour = hours[0];
+          const maxHour = hours[hours.length - 1];
+          if (currentX < layouts[minHour].left) {
+            newDate.setHours(minHour);
+            newDate.setMinutes(0);
+          } else {
+            newDate.setHours(maxHour);
+            newDate.setMinutes(60);
+          }
+        }
+        newDate.setSeconds(0);
+        newDate.setMilliseconds(0);
+        newEndMs = newDate.getTime();
+      } else if (currentResizing.direction === 'horizontal') {
+        const slotWidth = currentResizing.slotWidthPx && currentResizing.slotWidthPx > 0 ? currentResizing.slotWidthPx : 100;
         const rawMinutes = (deltaX / slotWidth) * 60;
-        deltaMinutes = Math.round(rawMinutes / 15) * 15;
+        const deltaMinutes = Math.round(rawMinutes / 15) * 15;
+        newEndMs = currentResizing.initialEndMs + deltaMinutes * 60 * 1000;
       } else {
-        const slotHeight = resizingEvent.slotHeightPx && resizingEvent.slotHeightPx > 0 ? resizingEvent.slotHeightPx : 50;
+        const slotHeight = currentResizing.slotHeightPx && currentResizing.slotHeightPx > 0 ? currentResizing.slotHeightPx : 50;
         const rawMinutes = (deltaY / slotHeight) * 60;
-        deltaMinutes = Math.round(rawMinutes / 15) * 15;
+        const deltaMinutes = Math.round(rawMinutes / 15) * 15;
+        newEndMs = currentResizing.initialEndMs + deltaMinutes * 60 * 1000;
       }
 
-      let newEndMs = resizingEvent.initialEndMs + deltaMinutes * 60 * 1000;
       const minEndMs = startMs + 15 * 60 * 1000;
       if (newEndMs < minEndMs) {
         newEndMs = minEndMs;
       }
 
-      setResizingEvent(prev => prev ? { ...prev, currentEndMs: newEndMs } : null);
+      // 値が変わった時だけstateを更新
+      if (currentResizing.currentEndMs !== newEndMs) {
+        setResizingEvent(prev => prev ? { ...prev, currentEndMs: newEndMs } : null);
+      }
     };
 
     const handleMouseUp = () => {
-      if (resizingEvent && resizingEvent.currentEndMs !== resizingEvent.initialEndMs) {
-        const resizedEv = resizingEvent.event;
-        const newEndIso = new Date(resizingEvent.currentEndMs).toISOString();
+      const finalResizing = resizingEventRef.current;
+      if (finalResizing && finalResizing.currentEndMs !== finalResizing.initialEndMs) {
+        const resizedEv = finalResizing.event;
+        const newEndIso = new Date(finalResizing.currentEndMs).toISOString();
 
         const isRecurring = !!(resizedEv.recurrence && resizedEv.recurrence.frequency && resizedEv.recurrence.frequency !== 'none') ||
           !!resizedEv.recurrenceParentId ||
@@ -392,19 +464,27 @@ export function Calendar({
             originalInstanceDate: origDate,
           });
         } else {
-          onUpdateEvent?.(updatedEvObj, 'all');
+          onUpdateEventRef.current?.(updatedEvObj, 'all');
         }
       }
+      
+      resizingEventRef.current = null;
       setResizingEvent(null);
+      // クリックイベントが処理される時間を待ってからフラグをリセットする
+      setTimeout(() => {
+        wasResizedRef.current = false;
+      }, 150);
     };
 
-    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mousemove', handleMouseMove, { passive: false });
     window.addEventListener('mouseup', handleMouseUp);
     return () => {
+      document.body.style.userSelect = originalUserSelect;
+      document.body.style.cursor = originalCursor;
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [resizingEvent, onUpdateEvent]);
+  }, [!!resizingEvent]);
 
   const officeNames = useMemo(() => {
     const list = [
@@ -427,12 +507,14 @@ export function Calendar({
   }, [divisions, allUsers, initialDivision, selectedDivision]);
 
   // 表示期間の前後を含む展開用日付範囲（前後3ヶ月）
-  const viewRangeStart = new Date(currentDate.getFullYear(), currentDate.getMonth() - 2, 1);
-  const viewRangeEnd = new Date(currentDate.getFullYear(), currentDate.getMonth() + 3, 0);
+  const viewRangeStartStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() - 1).padStart(2, '0')}-01`;
+  const viewRangeEndStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 4).padStart(2, '0')}-00`;
 
   const expandedEvents = React.useMemo(() => {
-    return expandRecurringEvents(events, viewRangeStart, viewRangeEnd);
-  }, [events, currentDate]);
+    const start = new Date(currentDate.getFullYear(), currentDate.getMonth() - 2, 1);
+    const end = new Date(currentDate.getFullYear(), currentDate.getMonth() + 3, 0);
+    return expandRecurringEvents(events, start, end);
+  }, [events, viewRangeStartStr, viewRangeEndStr, currentDate.getFullYear(), currentDate.getMonth()]);
 
   const processedInitialEventIdRef = React.useRef<string | null>(null);
 
@@ -461,46 +543,50 @@ export function Calendar({
     }
   }, [initialEventId, expandedEvents]);
   
-  // イベントのフィルタリング処理
-  const filteredEvents = expandedEvents.filter(e => {
-    if (selectedTypeFilter !== 'all' && e.type !== selectedTypeFilter) {
-      return false;
-    }
-
-    // 「他人から隠す」(isPrivate または isSecret) が有効な非公開予定の制御
-    if (e.isPrivate || (e as any).isSecret) {
-      const isParticipant = currentUser && (
-        (e.attendees && e.attendees.some(a => a && (a.id === currentUser.id || String(a.id) === String(currentUser.id) || a.name === currentUser.name))) ||
-        (e.createdBy && (e.createdBy.id === currentUser.id || String(e.createdBy.id) === String(currentUser.id))) ||
-        (e.createdById && String(e.createdById) === String(currentUser.id))
-      );
-      if (!isParticipant) {
+  // イベントのフィルタリング処理をメモ化して再計算を防止
+  const filteredEvents = React.useMemo(() => {
+    return expandedEvents.filter(e => {
+      if (selectedTypeFilter !== 'all' && e.type !== selectedTypeFilter) {
         return false;
       }
-    }
 
-    // 自分のカレンダー表示（personal mode）の場合：自分が参加者に含まれる予定のみ表示
-    if (calendarMode === 'personal' && currentUser) {
-      const isAttendee = e.attendees ? e.attendees.some(a => {
-        if (!a) return false;
-        return a.id === currentUser.id ||
-          String(a.id) === String(currentUser.id) ||
-          a.name === currentUser.name ||
-          (a.email && currentUser.email && a.email === currentUser.email);
-      }) : false;
-      if (!isAttendee) return false;
-    }
+      // 「他人から隠す」(isPrivate または isSecret) が有効な非公開予定の制御
+      if (e.isPrivate || (e as any).isSecret) {
+        const isParticipant = currentUser && (
+          (e.attendees && e.attendees.some(a => a && (a.id === currentUser.id || String(a.id) === String(currentUser.id) || a.name === currentUser.name))) ||
+          (e.createdBy && (e.createdBy.id === currentUser.id || String(e.createdBy.id) === String(currentUser.id))) ||
+          (e.createdById && String(e.createdById) === String(currentUser.id))
+        );
+        if (!isParticipant) {
+          return false;
+        }
+      }
 
-    return true;
-  });
+      // 自分のカレンダー表示（personal mode）の場合：自分が参加者に含まれる予定のみ表示
+      if (calendarMode === 'personal' && currentUser) {
+        const isAttendee = e.attendees ? e.attendees.some(a => {
+          if (!a) return false;
+          return a.id === currentUser.id ||
+            String(a.id) === String(currentUser.id) ||
+            a.name === currentUser.name ||
+            (a.email && currentUser.email && a.email === currentUser.email);
+        }) : false;
+        if (!isAttendee) return false;
+      }
 
-  // チーム表示用の所属メンバー抽出
-  const teamMembers = (allUsers || []).filter(u => {
-    if (selectedOffice === '全社' || selectedOffice === '全拠点' || selectedDivision === '全部署') {
-      return false;
-    }
-    return u.office === selectedOffice && u.division === selectedDivision;
-  });
+      return true;
+    });
+  }, [expandedEvents, selectedTypeFilter, currentUser, calendarMode]);
+
+  // チーム表示用の所属メンバー抽出をメモ化
+  const teamMembers = React.useMemo(() => {
+    return (allUsers || []).filter(u => {
+      if (selectedOffice === '全社' || selectedOffice === '全拠点' || selectedDivision === '全部署') {
+        return false;
+      }
+      return u.office === selectedOffice && u.division === selectedDivision;
+    });
+  }, [allUsers, selectedOffice, selectedDivision]);
 
   const handleToggleMode = (mode: 'personal' | 'team') => {
     setCalendarMode(mode);
@@ -576,6 +662,46 @@ export function Calendar({
     }
     return dateStr >= range.start && dateStr <= range.end;
   };
+
+  // ★ 高速化のためのイベント辞書作成（全画面での O(N) 検索を防止する）
+  // チーム表示や個人表示で、日付・ユーザーごとにイベントを素早く引けるようにする
+  const eventDictionary = React.useMemo(() => {
+    const map = new Map<string, CalendarEvent[]>();
+    
+    filteredEvents.forEach(e => {
+      const startStr = getLocalDateStr(e.start);
+      const endStr = e.end ? getLocalDateStr(e.end) : startStr;
+      
+      // 対象日付範囲を計算 (開始日から終了日まで)
+      const dateKeys: string[] = [];
+      let current = new Date(startStr);
+      const end = new Date(endStr);
+      while (current <= end) {
+        dateKeys.push(getLocalDateStr(current));
+        current.setDate(current.getDate() + 1);
+      }
+      
+      dateKeys.forEach(dateStr => {
+        // 全員用（日付キーのみ）
+        const generalKey = `date_${dateStr}`;
+        if (!map.has(generalKey)) map.set(generalKey, []);
+        map.get(generalKey)!.push(e);
+
+        // 参加者ごと（チーム表示用）
+        if (e.attendees && e.attendees.length > 0) {
+          e.attendees.forEach(a => {
+            if (a) {
+              const userKey = `date_${dateStr}_user_${a.id}`;
+              if (!map.has(userKey)) map.set(userKey, []);
+              map.get(userKey)!.push(e);
+            }
+          });
+        }
+      });
+    });
+
+    return map;
+  }, [filteredEvents]);
 
   const isEventOccurringOnDate = (e: CalendarEvent, dateStr: string) => {
     const startStr = getLocalDateStr(e.start);
@@ -730,6 +856,7 @@ export function Calendar({
   const handleEventClick = (e: React.MouseEvent, event: CalendarEvent) => {
     e.stopPropagation();
     e.preventDefault();
+    if (wasResizedRef.current) return; // リサイズ操作直後のクリックを無効化
     setSelectedDetailEvent(event);
   };
 
@@ -853,9 +980,10 @@ export function Calendar({
     // 各曜日にチームメンバーの予定があるか確認
     const dayHasEvents = dates.map(date => {
       const dateStr = getLocalDateStr(date);
-      return filteredEvents.some(e => {
-        if (!isEventOccurringOnDate(e, dateStr)) return false;
-        return e.attendees?.some(a => a && teamMembers.some(m => m.id === a.id || String(m.id) === String(a.id) || m.name === a.name));
+      // teamMembersの誰かがその日に予定を持っているか判定
+      return teamMembers.some(member => {
+        const memberEvents = eventDictionary.get(`date_${dateStr}_user_${member.id}`);
+        return memberEvents && memberEvents.length > 0;
       });
     });
 
@@ -959,9 +1087,7 @@ export function Calendar({
                 const hasEv = dayHasEvents[idx];
                 const isShrunk = isWeekend && !hasEv;
 
-                const dayEvents = filteredEvents.filter(e => {
-                  return isEventOccurringOnDate(e, dateStr) && e.attendees?.some(a => a && (a.id === member.id || String(a.id) === String(member.id) || a.name === member.name));
-                });
+                const dayEvents = eventDictionary.get(`date_${dateStr}_user_${member.id}`) || [];
 
                 const cellKey = `team-week-${member.id}-${idx}`;
                 const isDragOver = dragOverKey === cellKey;
@@ -998,7 +1124,7 @@ export function Calendar({
                             onMouseDown={(evt) => evt.stopPropagation()}
                             onClick={(evt) => handleEventClick(evt, e)}
                             className={`border text-[9px] sm:text-[10px] font-bold leading-snug transition-all hover:shadow-xs shadow-2xs truncate select-none ${getEventStyle(e)} ${multiProps.containerClass} ${
-                              draggedEventId === e.id ? 'opacity-40' : draggedEventId ? 'pointer-events-none' : ''
+                              draggedEventId === e.id ? 'opacity-40 pointer-events-none' : draggedEventId ? 'pointer-events-none' : ''
                             } ${
                               multiProps.isMultiDay ? 'py-0.5 px-1 sm:px-1.5 flex items-center h-5 sm:h-5.5' : 'p-1 sm:p-1.5'
                             }`}
@@ -1052,11 +1178,9 @@ export function Calendar({
     };
 
     // 当日のチームメンバー関連イベント
-    const dayRelevantEvents = filteredEvents.filter(e => {
-      const eStart = new Date(e.start);
-      if (!isSameDay(eStart, currentDate) && !isEventOccurringOnDate(e, dateStr)) return false;
+    const dayRelevantEvents = eventDictionary.get(`date_${dateStr}`)?.filter(e => {
       return e.attendees?.some(a => a && teamMembers.some(m => m.id === a.id || String(m.id) === String(a.id) || m.name === a.name));
-    });
+    }) || [];
 
     // 1. 時間範囲のフレキシブル算出 (基本は 8:00〜20:00、時間外の予定があれば自動拡張)
     let minHour = 8;
@@ -1364,8 +1488,8 @@ export function Calendar({
                             height: `${heightPx}px`,
                             zIndex: isBeingResized ? 50 : 10,
                           }}
-                          className={`absolute group/card border rounded-lg shadow-xs hover:shadow-md transition-all select-none cursor-pointer px-2 py-1 flex flex-col justify-center overflow-visible pointer-events-auto hover:brightness-95 ${getEventStyle(e)} ${
-                            draggedEventId === e.id ? 'opacity-40' : draggedEventId ? 'pointer-events-none' : ''
+                          className={`absolute group/card border rounded-lg shadow-xs hover:shadow-md transition-all select-none cursor-pointer px-2 py-1 flex flex-col justify-center overflow-visible hover:brightness-95 ${getEventStyle(e)} ${
+                            draggedEventId === e.id ? 'opacity-40 pointer-events-none' : draggedEventId ? 'pointer-events-none' : 'pointer-events-auto'
                           } ${
                             isBeingResized ? 'ring-2 ring-indigo-500 shadow-lg brightness-95' : ''
                           }`}
@@ -1387,7 +1511,7 @@ export function Calendar({
                                 evt.stopPropagation();
                                 evt.preventDefault();
                                 const currentEnd = e.end ? new Date(e.end).getTime() : new Date(e.start).getTime() + 60 * 60 * 1000;
-                                setResizingEvent({
+                                startResize({
                                   event: e,
                                   direction: 'horizontal',
                                   initialStartX: evt.clientX,
@@ -1396,12 +1520,14 @@ export function Calendar({
                                   currentEndMs: currentEnd,
                                   slotWidthPx: slotW,
                                   dateStr,
+                                  initialEndX: getXPositionFromDate(new Date(currentEnd)),
+                                  hourLayouts: hourLayouts
                                 });
                               }}
-                              className="absolute right-0 top-0 bottom-0 w-3 hover:w-3.5 cursor-ew-resize flex items-center justify-center opacity-0 group-hover/card:opacity-100 transition-opacity z-20 group/handle"
+                              className="absolute right-0 top-0 bottom-0 w-4 hover:w-5 cursor-ew-resize flex items-center justify-center opacity-0 group-hover/card:opacity-100 transition-opacity z-20 group/handle"
                               title="右端をドラッグして終了時刻を15分単位で変更"
                             >
-                              <div className="w-1 h-4.5 bg-slate-400/80 group-hover/handle:bg-indigo-600 rounded-full shadow-2xs transition-colors" />
+                              <div className="w-1.5 h-6 bg-slate-400/80 group-hover/handle:bg-indigo-600 rounded-full shadow-2xs transition-colors" />
                             </div>
                           )}
                         </div>
@@ -1441,6 +1567,10 @@ export function Calendar({
 
   // Drag & Drop handlers
   const handleDragStart = (e: React.DragEvent, eventId: string, memberId?: string) => {
+    if (resizingEventRef.current) {
+      e.preventDefault();
+      return;
+    }
     setDraggedEventId(eventId);
     dragOverKeyRef.current = null;
     if (memberId) {
@@ -1485,8 +1615,9 @@ export function Calendar({
     targetMinute: number = 0
   ) => {
     e.preventDefault();
-    handleDragEnd();
     const eventId = draggedEventId || e.dataTransfer.getData('text/plain');
+    handleDragEnd();
+    
     if (!eventId) return;
 
     const ev = expandedEvents.find(item => item.id === eventId);
@@ -1932,7 +2063,7 @@ export function Calendar({
                   {days.map((day, i) => {
                     const isToday = day === new Date().getDate() && month === new Date().getMonth() && year === new Date().getFullYear();
                     const cellDateStr = day ? `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}` : null;
-                    const cellEvents = cellDateStr ? filteredEvents.filter(e => isEventOccurringOnDate(e, cellDateStr)) : [];
+                    const cellEvents = cellDateStr ? (eventDictionary.get(`date_${cellDateStr}`) || []) : [];
                     const cellKey = `month-cell-${i}`;
                     const isDragOver = dragOverKey === cellKey;
                     const isSelectedRange = cellDateStr ? isDateInSelectionRange(cellDateStr) : false;
@@ -1977,7 +2108,7 @@ export function Calendar({
                                     onMouseDown={(eClick) => eClick.stopPropagation()}
                                     onClick={(eClick) => handleEventClick(eClick, e)}
                                     className={`text-[9px] sm:text-[10px] py-0.5 px-1 sm:px-1.5 border font-bold cursor-pointer transition-all flex items-center h-5 sm:h-5.5 select-none truncate ${getEventStyle(e)} ${multiProps.containerClass} ${
-                                      draggedEventId === e.id ? 'opacity-40' : draggedEventId ? 'pointer-events-none' : ''
+                                      draggedEventId === e.id ? 'opacity-40 pointer-events-none' : draggedEventId ? 'pointer-events-none' : ''
                                     }`}
                                     title={`${e.isIcal ? '[iCal連携] ' : ''}${e.title} (${formatEventTime(e)})`}
                                   >
@@ -2001,7 +2132,8 @@ export function Calendar({
             {view === 'week' && (() => {
               const personalWeekHasEvents = weekDays.map(d => {
                 const dateStr = getLocalDateStr(d);
-                return filteredEvents.some(e => isEventOccurringOnDate(e, dateStr));
+                const dayEvs = eventDictionary.get(`date_${dateStr}`);
+                return dayEvs ? dayEvs.length > 0 : false;
               });
 
               const personalWeekGridStyle = {
@@ -2075,7 +2207,8 @@ export function Calendar({
                       const hasEv = personalWeekHasEvents[idx];
                       const isShrunk = isWeekend && !hasEv;
 
-                      const allDayEvs = filteredEvents.filter(e => (e.isAllDay || getLocalDateStr(e.start) !== getLocalDateStr(e.end)) && isEventOccurringOnDate(e, dateStr));
+                      const dayEvs = eventDictionary.get(`date_${dateStr}`) || [];
+                      const allDayEvs = dayEvs.filter(e => (e.isAllDay || getLocalDateStr(e.start) !== getLocalDateStr(e.end)));
                       const slotKey = `week-allday-${idx}`;
                       const isDragOver = dragOverKey === slotKey;
                       const isSelectedRange = isDateInSelectionRange(dateStr);
@@ -2110,7 +2243,7 @@ export function Calendar({
                                 onMouseDown={(eClick) => eClick.stopPropagation()}
                                 onClick={eClick => handleEventClick(eClick, e)}
                                 className={`text-[9px] sm:text-[10px] py-0.5 px-1 sm:px-1.5 border font-semibold cursor-pointer transition-all flex items-center h-5 sm:h-5.5 select-none truncate ${getEventStyle(e, true)} ${multiProps.containerClass} ${
-                                  draggedEventId === e.id ? 'opacity-40' : draggedEventId ? 'pointer-events-none' : ''
+                                  draggedEventId === e.id ? 'opacity-40 pointer-events-none' : draggedEventId ? 'pointer-events-none' : ''
                                 }`}
                                 title={e.title}
                               >
@@ -2133,7 +2266,7 @@ export function Calendar({
                         <div
                           key={h}
                           style={personalWeekGridStyle}
-                          className="border-b border-slate-100 min-h-[45px] sm:min-h-[50px]"
+                          className="border-b border-slate-100 h-[50px]"
                         >
                           <div className="py-2 px-1 sm:px-2 text-center text-[10px] sm:text-xs font-medium text-slate-400 border-r border-slate-200 bg-slate-50/95 sticky left-0 z-10 shadow-xs sm:shadow-none flex items-center justify-center">
                             {hourFormatted}
@@ -2148,9 +2281,9 @@ export function Calendar({
                             const slotKey = `week-slot-${idx}-${h}`;
                             const isDragOver = dragOverKey === slotKey;
                             
-                            const slotEvents = filteredEvents.filter(e => {
+                            const dayEvs = eventDictionary.get(`date_${dateStr}`) || [];
+                            const slotEvents = dayEvs.filter(e => {
                               if (e.isAllDay) return false;
-                              if (getLocalDateStr(e.start) !== dateStr) return false;
                               const eventHour = new Date(e.start).getHours();
                               return eventHour === h;
                             });
@@ -2170,18 +2303,28 @@ export function Calendar({
                                     : 'hover:bg-indigo-50/30'
                                 }`}
                               >
-                                {slotEvents.map(e => {
+                                {slotEvents.map((e, evIdx) => {
                                   const isBeingResized = resizingEvent?.event.id === e.id && resizingEvent?.direction === 'vertical';
                                   let displayTimeString = formatEventTime(e);
+                                  const sDateMs = new Date(e.start).getTime();
+                                  let eDateMs = e.end ? new Date(e.end).getTime() : sDateMs + 60 * 60 * 1000;
+
                                   if (isBeingResized && resizingEvent) {
+                                    eDateMs = resizingEvent.currentEndMs;
                                     const sDate = new Date(e.start);
-                                    const currEnd = new Date(resizingEvent.currentEndMs);
+                                    const currEnd = new Date(eDateMs);
                                     const sH = String(sDate.getHours()).padStart(2, '0');
                                     const sM = String(sDate.getMinutes()).padStart(2, '0');
                                     const eH = String(currEnd.getHours()).padStart(2, '0');
                                     const eM = String(currEnd.getMinutes()).padStart(2, '0');
                                     displayTimeString = `${sH}:${sM} ～ ${eH}:${eM}`;
                                   }
+
+                                  // 1時間あたり50pxとして高さを計算
+                                  const durationMinutes = Math.max(15, (eDateMs - sDateMs) / 60000);
+                                  const cardHeightPx = Math.max(26, durationMinutes * (50 / 60));
+                                  const startMinutes = new Date(e.start).getMinutes();
+                                  const topOffsetPx = (startMinutes / 60) * 50;
 
                                   return (
                                     <div
@@ -2192,38 +2335,45 @@ export function Calendar({
                                       onDragEnd={handleDragEnd}
                                       onMouseDown={(eClick) => eClick.stopPropagation()}
                                       onClick={eClick => handleEventClick(eClick, e)}
-                                      className={`group/wkcard text-[10px] sm:text-[11px] p-1 sm:p-1.5 pb-2 rounded border font-medium mb-1 shadow-xs cursor-pointer transition-all relative ${getEventStyle(e)} ${
-                                        draggedEventId === e.id ? 'opacity-40' : draggedEventId ? 'pointer-events-none' : ''
+                                      style={{ 
+                                        height: `${cardHeightPx}px`,
+                                        top: `${topOffsetPx}px`,
+                                        left: `${2 + (evIdx * 6)}px`,
+                                        right: '2px',
+                                        zIndex: 10 + evIdx
+                                      }}
+                                      className={`absolute group/wkcard text-[10px] sm:text-[11px] p-1 sm:p-1.5 rounded border font-medium shadow-xs flex flex-col items-start cursor-pointer transition-all overflow-hidden ${getEventStyle(e)} ${
+                                        draggedEventId === e.id ? 'opacity-40 pointer-events-none' : draggedEventId ? 'pointer-events-none' : ''
                                       } ${
                                         isBeingResized ? 'ring-2 ring-indigo-500 shadow-md brightness-95' : ''
                                       }`}
                                       title={`${e.isIcal ? '[iCal] ' : ''}${e.title} (${displayTimeString})`}
                                     >
-                                      <div className="font-bold truncate pointer-events-none">{e.isIcal ? `[iCal] ${e.title}` : e.title}</div>
-                                      <div className="text-[8px] sm:text-[9px] opacity-80 pointer-events-none">{displayTimeString}</div>
+                                      <div className="font-bold w-full break-words leading-tight pointer-events-none line-clamp-2">{e.isIcal ? `[iCal] ${e.title}` : e.title}</div>
+                                      <div className="text-[8px] sm:text-[9px] opacity-80 pointer-events-none mt-0.5">{displayTimeString}</div>
 
-                                      {/* 縦方向リサイズハンドル（下端を引っ張って15分単位で延長・短縮） */}
+                                      {/* 縦方向リサイズハンドル */}
                                       {!e.isIcal && (
                                         <div
                                           onMouseDown={(evt) => {
                                             evt.stopPropagation();
                                             evt.preventDefault();
                                             const currentEnd = e.end ? new Date(e.end).getTime() : new Date(e.start).getTime() + 60 * 60 * 1000;
-                                            setResizingEvent({
+                                            startResize({
                                               event: e,
                                               direction: 'vertical',
                                               initialStartX: evt.clientX,
                                               initialStartY: evt.clientY,
                                               initialEndMs: currentEnd,
                                               currentEndMs: currentEnd,
-                                              slotHeightPx: 50,
+                                              slotHeightPx: 50, // 1時間 = 50px
                                               dateStr,
                                             });
                                           }}
-                                          className="absolute bottom-0 left-0 right-0 h-2.5 hover:h-3 cursor-ns-resize flex items-center justify-center opacity-0 group-hover/wkcard:opacity-100 transition-opacity z-20 group/handle"
+                                          className="absolute bottom-0 left-0 right-0 h-4 hover:h-5 cursor-ns-resize flex items-center justify-center opacity-0 group-hover/wkcard:opacity-100 transition-opacity z-20 group/handle"
                                           title="下端をドラッグして終了時刻を15分単位で変更"
                                         >
-                                          <div className="w-5 h-1 bg-slate-400/80 group-hover/handle:bg-indigo-600 rounded-full shadow-2xs transition-colors" />
+                                          <div className="w-8 h-1.5 bg-slate-400/80 group-hover/handle:bg-indigo-600 rounded-full shadow-2xs transition-colors" />
                                         </div>
                                       )}
                                     </div>
@@ -2269,7 +2419,7 @@ export function Calendar({
                 {/* All-Day & Multi-Day Events */}
                 {(() => {
                   const dStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
-                  const dayAllDayEvents = filteredEvents.filter(e => (e.isAllDay || getLocalDateStr(e.start) !== getLocalDateStr(e.end)) && isEventOccurringOnDate(e, dStr));
+                  const dayAllDayEvents = eventDictionary.get(`date_${dStr}`)?.filter(e => e.isAllDay || getLocalDateStr(e.start) !== getLocalDateStr(e.end)) || [];
                   if (dayAllDayEvents.length === 0) return null;
                   return (
                     <div className="mb-4 sm:mb-6 p-3 sm:p-4 bg-slate-50 rounded-xl border border-slate-200">
@@ -2292,7 +2442,7 @@ export function Calendar({
                               onMouseDown={(eClick) => eClick.stopPropagation()}
                               onClick={eClick => handleEventClick(eClick, e)}
                               className={`p-2.5 sm:p-3 rounded-lg border font-semibold cursor-pointer transition-all ${getEventStyle(e, true)} ${
-                                draggedEventId === e.id ? 'opacity-40' : draggedEventId ? 'pointer-events-none' : ''
+                                draggedEventId === e.id ? 'opacity-40 pointer-events-none' : draggedEventId ? 'pointer-events-none' : ''
                               }`}
                               title="クリックで詳細"
                             >
@@ -2313,7 +2463,7 @@ export function Calendar({
                 })()}
 
                 {/* Timeline slots */}
-                <div className="space-y-1.5 sm:space-y-2 overflow-y-auto flex-1 pr-0.5 sm:pr-1">
+                <div className="overflow-y-auto flex-1 pr-0.5 sm:pr-1">
                   {hoursList.map(h => {
                     const hourFormatted = `${String(h).padStart(2, '0')}:00`;
                     const hour30Formatted = `${String(h).padStart(2, '0')}:30`;
@@ -2322,33 +2472,46 @@ export function Calendar({
                     const slotKey30 = `day-slot-${h}-30`;
                     const isDragOver00 = dragOverKey === slotKey00;
                     const isDragOver30 = dragOverKey === slotKey30;
+                    
+                    const dayEvs = eventDictionary.get(`date_${dateStr}`) || [];
 
-                    const dayEvents00 = filteredEvents.filter(e => {
+                    const dayEvents00 = dayEvs.filter(e => {
                       if (e.isAllDay) return false;
-                      if (getLocalDateStr(e.start) !== dateStr) return false;
                       const sDate = new Date(e.start);
                       return sDate.getHours() === h && sDate.getMinutes() < 30;
                     });
 
-                    const dayEvents30 = filteredEvents.filter(e => {
+                    const dayEvents30 = dayEvs.filter(e => {
                       if (e.isAllDay) return false;
-                      if (getLocalDateStr(e.start) !== dateStr) return false;
                       const sDate = new Date(e.start);
                       return sDate.getHours() === h && sDate.getMinutes() >= 30;
                     });
 
-                    const renderDayCard = (e: CalendarEvent) => {
+                    const renderDayCard = (e: CalendarEvent, evIdx: number) => {
                       const isBeingResized = resizingEvent?.event.id === e.id && resizingEvent?.direction === 'vertical';
                       let displayTimeString = formatEventTime(e);
+                      const sDateMs = new Date(e.start).getTime();
+                      let eDateMs = e.end ? new Date(e.end).getTime() : sDateMs + 60 * 60 * 1000;
+
                       if (isBeingResized && resizingEvent) {
+                        eDateMs = resizingEvent.currentEndMs;
                         const sDate = new Date(e.start);
-                        const currEnd = new Date(resizingEvent.currentEndMs);
+                        const currEnd = new Date(eDateMs);
                         const sH = String(sDate.getHours()).padStart(2, '0');
                         const sM = String(sDate.getMinutes()).padStart(2, '0');
                         const eH = String(currEnd.getHours()).padStart(2, '0');
                         const eM = String(currEnd.getMinutes()).padStart(2, '0');
                         displayTimeString = `${sH}:${sM} ～ ${eH}:${eM}`;
                       }
+
+                      // 1時間あたり100pxとして高さを計算
+                      const durationMinutes = Math.max(15, (eDateMs - sDateMs) / 60000);
+                      const cardHeightPx = Math.max(25, durationMinutes * (100 / 60));
+                      
+                      const startMins = new Date(e.start).getMinutes();
+                      const is30Slot = startMins >= 30;
+                      const slotLocalMins = is30Slot ? startMins - 30 : startMins;
+                      const topOffsetPx = slotLocalMins * (100 / 60);
 
                       return (
                         <div
@@ -2359,48 +2522,55 @@ export function Calendar({
                           onDragEnd={handleDragEnd}
                           onMouseDown={(eClick) => eClick.stopPropagation()}
                           onClick={eClick => handleEventClick(eClick, e)}
-                          className={`group/daycard p-2 sm:p-2.5 pb-3 rounded-lg border flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-2 shadow-xs cursor-pointer transition-all relative ${getEventStyle(e)} ${
-                            draggedEventId === e.id ? 'opacity-40' : draggedEventId ? 'pointer-events-none' : ''
+                          style={{ 
+                            height: `${cardHeightPx}px`,
+                            top: `${topOffsetPx}px`,
+                            left: `${evIdx * 8}px`,
+                            right: '2px',
+                            zIndex: 10 + evIdx
+                          }}
+                          className={`absolute group/daycard p-2 sm:p-2.5 rounded-lg border flex flex-col items-start gap-1 shadow-xs cursor-pointer transition-all overflow-hidden ${getEventStyle(e)} ${
+                            draggedEventId === e.id ? 'opacity-40 pointer-events-none' : draggedEventId ? 'pointer-events-none' : ''
                           } ${
                             isBeingResized ? 'ring-2 ring-indigo-500 shadow-md brightness-95' : ''
                           }`}
                           title="クリックで詳細"
                         >
-                          <div className="min-w-0 pointer-events-none">
-                            <div className="font-extrabold text-xs sm:text-sm text-slate-900 leading-snug">{e.title}</div>
-                            <div className="text-[10px] sm:text-xs font-semibold text-slate-600 mt-0.5">{displayTimeString}</div>
-                            {e.memo && (
-                              <div className="text-[10px] sm:text-xs text-slate-700 mt-1 bg-white/50 p-1.5 rounded border border-slate-200/50">
-                                {renderContentWithLinks(e.memo)}
-                              </div>
-                            )}
+                          <div className="w-full flex justify-between items-start pointer-events-none gap-2">
+                            <div className="font-extrabold text-xs sm:text-sm text-slate-900 leading-snug break-words">{e.title}</div>
+                            <span className="text-[9px] sm:text-[10px] px-2 py-0.5 rounded-md font-bold border bg-white/80 shrink-0">
+                              {typeLabels[e.type]}
+                            </span>
                           </div>
-                          <span className="text-[9px] sm:text-[10px] px-2 py-0.5 rounded-md font-bold border bg-white/80 self-start sm:self-center shrink-0 pointer-events-none">
-                            {typeLabels[e.type]}
-                          </span>
+                          <div className="text-[10px] sm:text-xs font-semibold text-slate-600 mt-0.5 pointer-events-none">{displayTimeString}</div>
+                          {e.memo && (
+                            <div className="text-[10px] sm:text-xs text-slate-700 mt-1 bg-white/50 p-1.5 rounded border border-slate-200/50 line-clamp-2 w-full pointer-events-none">
+                              {renderContentWithLinks(e.memo)}
+                            </div>
+                          )}
 
-                          {/* 縦方向リサイズハンドル（下端を引っ張って15分単位で延長・短縮） */}
+                          {/* 縦方向リサイズハンドル */}
                           {!e.isIcal && (
                             <div
                               onMouseDown={(evt) => {
                                 evt.stopPropagation();
                                 evt.preventDefault();
                                 const currentEnd = e.end ? new Date(e.end).getTime() : new Date(e.start).getTime() + 60 * 60 * 1000;
-                                setResizingEvent({
+                                startResize({
                                   event: e,
                                   direction: 'vertical',
                                   initialStartX: evt.clientX,
                                   initialStartY: evt.clientY,
                                   initialEndMs: currentEnd,
                                   currentEndMs: currentEnd,
-                                  slotHeightPx: 60,
+                                  slotHeightPx: 90, // 1時間 = 90px
                                   dateStr,
                                 });
                               }}
-                              className="absolute bottom-0 left-0 right-0 h-3 hover:h-3.5 cursor-ns-resize flex items-center justify-center opacity-0 group-hover/daycard:opacity-100 transition-opacity z-20 group/handle"
+                              className="absolute bottom-0 left-0 right-0 h-4 hover:h-5 cursor-ns-resize flex items-center justify-center opacity-0 group-hover/daycard:opacity-100 transition-opacity z-20 group/handle"
                               title="下端をドラッグして終了時刻を15分単位で変更"
                             >
-                              <div className="w-8 h-1 bg-slate-400/80 group-hover/handle:bg-indigo-600 rounded-full shadow-2xs transition-colors" />
+                              <div className="w-8 h-1.5 bg-slate-400/80 group-hover/handle:bg-indigo-600 rounded-full shadow-2xs transition-colors" />
                             </div>
                           )}
                         </div>
@@ -2410,10 +2580,10 @@ export function Calendar({
                     return (
                       <div
                         key={h}
-                        className={`rounded-xl border transition-colors overflow-hidden ${
+                        className={`border-b border-slate-200/80 transition-colors relative ${
                           isDragOver00 || isDragOver30
                             ? 'border-indigo-400 ring-2 ring-indigo-400 bg-indigo-50/30'
-                            : 'border-slate-200/80 hover:border-indigo-200'
+                            : 'hover:border-indigo-200'
                         }`}
                       >
                         {/* 00分スロット */}
@@ -2426,7 +2596,7 @@ export function Calendar({
                           }}
                           onDragLeave={handleDragLeave}
                           onDrop={(e) => handleDrop(e, dateStr, h, undefined, 0)}
-                          className={`flex gap-2 sm:gap-4 p-2 sm:p-2.5 transition-colors cursor-pointer group/slot00 ${
+                          className={`h-[50px] flex gap-2 sm:gap-4 px-2 sm:px-2.5 py-1 transition-colors cursor-pointer group/slot00 ${
                             isDragOver00 ? 'bg-indigo-100/90 ring-1 ring-indigo-500' : 'hover:bg-indigo-50/20'
                           }`}
                         >
@@ -2438,11 +2608,11 @@ export function Calendar({
                               </span>
                             )}
                           </div>
-                          <div className="flex-1 min-h-[26px] space-y-1.5 sm:space-y-2">
+                          <div className={`flex-1 h-full relative ${draggedEventId ? 'pointer-events-none' : ''}`}>
                             {dayEvents00.length > 0 ? (
-                              dayEvents00.map(e => renderDayCard(e))
+                              dayEvents00.map((e, idx) => renderDayCard(e, idx))
                             ) : (
-                              <div className="text-[11px] text-slate-300 opacity-0 group-hover/slot00:opacity-100 transition-opacity pt-0.5 flex items-center gap-1">
+                              <div className="text-[11px] text-slate-300 opacity-0 group-hover/slot00:opacity-100 transition-opacity flex items-center gap-1 h-full">
                                 <Plus className="w-3 h-3"/> <span className="hidden sm:inline">クリックして{hourFormatted}に予定を追加</span>
                               </div>
                             )}
@@ -2459,7 +2629,7 @@ export function Calendar({
                           }}
                           onDragLeave={handleDragLeave}
                           onDrop={(e) => handleDrop(e, dateStr, h, undefined, 30)}
-                          className={`flex gap-2 sm:gap-4 p-2 sm:p-2.5 transition-colors cursor-pointer border-t border-dashed border-slate-200/80 group/slot30 ${
+                          className={`h-[50px] flex gap-2 sm:gap-4 px-2 sm:px-2.5 py-1 transition-colors cursor-pointer border-t border-dashed border-slate-200/80 group/slot30 ${
                             isDragOver30 ? 'bg-indigo-100/90 ring-1 ring-indigo-500' : 'hover:bg-indigo-50/20'
                           }`}
                         >
@@ -2471,11 +2641,11 @@ export function Calendar({
                               </span>
                             )}
                           </div>
-                          <div className="flex-1 min-h-[26px] space-y-1.5 sm:space-y-2">
+                          <div className={`flex-1 h-full relative ${draggedEventId ? 'pointer-events-none' : ''}`}>
                             {dayEvents30.length > 0 ? (
-                              dayEvents30.map(e => renderDayCard(e))
+                              dayEvents30.map((e, idx) => renderDayCard(e, idx))
                             ) : (
-                              <div className="text-[11px] text-slate-300 opacity-0 group-hover/slot30:opacity-100 transition-opacity pt-0.5 flex items-center gap-1">
+                              <div className="text-[11px] text-slate-300 opacity-0 group-hover/slot30:opacity-100 transition-opacity flex items-center gap-1 h-full">
                                 <Plus className="w-3 h-3"/> <span className="hidden sm:inline">クリックして{hour30Formatted}に予定を追加</span>
                               </div>
                             )}
@@ -2492,7 +2662,7 @@ export function Calendar({
             {view === 'list' && (
               <div className="p-3 sm:p-6 w-full space-y-3 sm:space-y-4">
                 {filteredEvents.length > 0 ? (
-                  filteredEvents.sort((a,b) => new Date(a.start).getTime() - new Date(b.start).getTime()).map(e => (
+                  [...filteredEvents].sort((a,b) => new Date(a.start).getTime() - new Date(b.start).getTime()).map(e => (
                     <div
                       key={e.id}
                       data-event-card="true"
