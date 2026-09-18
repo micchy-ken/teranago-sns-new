@@ -7,6 +7,7 @@ import {
 } from '../types/inspectionReport';
 import { CalendarEvent, User } from '../types';
 import { getLocalDateStr, formatTimeJST } from './dateUtils';
+import { API_BASE_URL } from '../config/api';
 
 const STORAGE_KEY_REPORTS = 'teranago_inspection_reports_v1';
 const STORAGE_KEY_CRM = 'teranago_crm_inspection_data_v1';
@@ -112,23 +113,13 @@ export function getAllCrmInspectionData(): CrmInspectionData[] {
   return [];
 }
 
-/** CRMデータを保存（一括取り込み等で使用） */
-export function saveCrmInspectionDataList(list: CrmInspectionData[]) {
-  try {
-    localStorage.setItem(STORAGE_KEY_CRM, JSON.stringify(list));
-  } catch (err) {
-    console.warn('Failed to save CRM data to localStorage:', err);
-  }
-}
-
-/** 保存された全点検報告書を取得（モック・シードは一切使用せず空配列で開始） */
+/** 保存された全点検報告書を取得（ローカルキャッシュ） */
 export function getAllInspectionReports(): InspectionReportRecord[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY_REPORTS);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
-        // 過去のサンプルデータ（rep_sample_signed_01等）が残っている場合は除外
         return parsed.filter(r => r.id !== 'rep_sample_signed_01');
       }
     }
@@ -138,10 +129,62 @@ export function getAllInspectionReports(): InspectionReportRecord[] {
   return [];
 }
 
-/** 事務員による確認ステータスをトグル更新 */
+/** サーバー（MS SQL Server / クラウドDB）から点検報告書一覧を取得 */
+export async function fetchInspectionReportsApi(filters?: { 
+  date?: string; 
+  status?: string; 
+  jobNo?: string; 
+  inspectorId?: string;
+  yearMonth?: string;
+}): Promise<InspectionReportRecord[]> {
+  try {
+    const params = new URLSearchParams();
+    if (filters?.date) params.append('date', filters.date);
+    if (filters?.status) params.append('status', filters.status);
+    if (filters?.jobNo) params.append('jobNo', filters.jobNo);
+    if (filters?.inspectorId) params.append('inspectorId', filters.inspectorId);
+    if (filters?.yearMonth) params.append('yearMonth', filters.yearMonth);
+
+    const url = `${API_BASE_URL}/inspections/reports${params.toString() ? `?${params.toString()}` : ''}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+    const data = await res.json();
+    if (data && Array.isArray(data.reports)) {
+      // ローカルストレージをサーバーデータで最新化
+      localStorage.setItem(STORAGE_KEY_REPORTS, JSON.stringify(data.reports));
+      return data.reports;
+    }
+  } catch (err) {
+    console.warn('[InspectionReportStorage] fetchInspectionReportsApi failed, using localStorage:', err);
+  }
+  return getAllInspectionReports();
+}
+
+/** サーバー（MS SQL Server / クラウドDB）へ点検報告書（サイン含む）を即時保存・送信 */
+export async function saveInspectionReportApi(report: InspectionReportRecord): Promise<boolean> {
+  try {
+    const url = `${API_BASE_URL}/inspections/reports`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(report)
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || `HTTP error ${res.status}`);
+    }
+    return true;
+  } catch (err) {
+    console.error('[InspectionReportStorage] saveInspectionReportApi failed to persist to server DB:', err);
+    return false;
+  }
+}
+
+/** 事務員による確認ステータスをトグル更新（DB & ローカル二重更新） */
 export function toggleOfficeConfirmation(
   reportId: string, 
-  confirmedByName: string
+  confirmedByName: string,
+  user?: User
 ): InspectionReportRecord | null {
   try {
     const list = getAllInspectionReports();
@@ -155,10 +198,21 @@ export function toggleOfficeConfirmation(
       officeConfirmed: newConfirmed,
       officeConfirmedAt: newConfirmed ? new Date().toISOString() : undefined,
       officeConfirmedByName: newConfirmed ? confirmedByName : undefined,
+      officeConfirmedById: newConfirmed && user ? user.id : undefined,
       updatedAt: new Date().toISOString(),
     };
     list[idx] = updated;
     localStorage.setItem(STORAGE_KEY_REPORTS, JSON.stringify(list));
+
+    // サーバー（DB）へ非同期即時反映
+    fetch(`${API_BASE_URL}/inspections/reports/${encodeURIComponent(reportId)}/confirm`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user: user || { name: confirmedByName } })
+    }).catch(err => {
+      console.warn('[InspectionReportStorage] Office confirmation server sync error:', err);
+    });
+
     return updated;
   } catch (err) {
     console.warn('Failed to toggle office confirmation:', err);
@@ -166,7 +220,7 @@ export function toggleOfficeConfirmation(
   }
 }
 
-/** 点検報告書を保存（新規または更新） */
+/** 点検報告書を保存（新規または更新: ローカル保存 + サーバーDB即時POST） */
 export function saveInspectionReport(report: InspectionReportRecord): void {
   try {
     const list = getAllInspectionReports();
@@ -181,8 +235,48 @@ export function saveInspectionReport(report: InspectionReportRecord): void {
       list.push(updated);
     }
     localStorage.setItem(STORAGE_KEY_REPORTS, JSON.stringify(list));
+
+    // サーバー（Synology NAS / SQL Server）へ直ちにPOST送信
+    saveInspectionReportApi(updated).then(success => {
+      if (success) {
+        console.log(`[InspectionReportStorage] Successfully saved report ${report.id} to cloud DB!`);
+      }
+    });
   } catch (err) {
     console.warn('Failed to save inspection report to localStorage:', err);
+  }
+}
+
+/** サーバーからCRM点検データを取得 */
+export async function fetchCrmInspectionDataApi(yearMonth?: string): Promise<CrmInspectionData[]> {
+  try {
+    const url = `${API_BASE_URL}/inspections/crm-data${yearMonth ? `?yearMonth=${encodeURIComponent(yearMonth)}` : ''}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+    const data = await res.json();
+    if (data && Array.isArray(data.items)) {
+      localStorage.setItem(STORAGE_KEY_CRM, JSON.stringify(data.items));
+      return data.items;
+    }
+  } catch (err) {
+    console.warn('[InspectionReportStorage] fetchCrmInspectionDataApi error:', err);
+  }
+  return getAllCrmInspectionData();
+}
+
+/** CRM点検データを一括保存（ローカル + サーバーDB即時POST） */
+export function saveCrmInspectionDataList(list: CrmInspectionData[], importedBy?: string) {
+  try {
+    localStorage.setItem(STORAGE_KEY_CRM, JSON.stringify(list));
+    fetch(`${API_BASE_URL}/inspections/crm-data/bulk`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items: list, importedBy })
+    }).catch(err => {
+      console.warn('[InspectionReportStorage] CRM bulk save server sync error:', err);
+    });
+  } catch (err) {
+    console.warn('Failed to save CRM data to localStorage:', err);
   }
 }
 

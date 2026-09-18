@@ -1,7 +1,7 @@
 export const RECOMMEND_SERVER_JS = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年9月16日 (チャット機能 routes/chats.js モジュール連携・個別メッセージ既読同期・UserReadStatuses 既読タイムスタンプ chatTimestamps 連携・チャット新着判定最適化)
+ * 最終更新日時 (最終アップデート): 2026年9月18日 (点検報告書 routes/inspections.js モジュール連携・電子署名手書きサインDB永続化・事務確認検印・CRM点検データ同期対応版)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -6155,6 +6155,159 @@ async function startServer() {
     }
   });
 
+  // ==========================================
+  // 点検報告書 (Inspection Reports & CRM) API
+  // ==========================================
+  const inspectionReportsPath = path.join(dataDir, 'inspection_reports.json');
+  const crmInspectionsPath = path.join(dataDir, 'crm_inspections.json');
+
+  function loadJsonData(filePath: string, defaultVal: any = []) {
+    if (!fs.existsSync(filePath)) return defaultVal;
+    try {
+      const raw = fs.readFileSync(filePath, 'utf8');
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : defaultVal;
+    } catch (e) {
+      return defaultVal;
+    }
+  }
+
+  function saveJsonData(filePath: string, data: any) {
+    try {
+      fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
+    } catch (e) {
+      console.error('[Inspection API] Failed to save JSON:', e);
+    }
+  }
+
+  // 点検報告書一覧取得
+  app.get(['/api/inspections/reports', '/api/inspection-reports', '/api/inspections'], (req, res) => {
+    try {
+      const { date, status, jobNo, inspectorId } = req.query;
+      let reports = loadJsonData(inspectionReportsPath, []);
+      if (date) reports = reports.filter((r: any) => r.inspectionDate === date);
+      if (status) reports = reports.filter((r: any) => r.status === status);
+      if (jobNo) reports = reports.filter((r: any) => r.jobNo === jobNo);
+      if (inspectorId) reports = reports.filter((r: any) => r.inspectorId === inspectorId);
+      res.json({ success: true, reports });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // 点検報告書詳細取得
+  app.get(['/api/inspections/reports/:id', '/api/inspection-reports/:id'], (req, res) => {
+    try {
+      const { id } = req.params;
+      const reports = loadJsonData(inspectionReportsPath, []);
+      const report = reports.find((r: any) => r.id === id);
+      if (!report) return res.status(404).json({ success: false, error: 'Report not found' });
+      res.json({ success: true, report });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // 点検報告書保存・更新 (電子署名含む)
+  app.post(['/api/inspections/reports', '/api/inspection-reports', '/api/inspections'], (req, res) => {
+    try {
+      const report = req.body;
+      if (!report || !report.id || !report.jobNo) {
+        return res.status(400).json({ success: false, error: 'id and jobNo are required' });
+      }
+      const now = new Date().toISOString();
+      const updatedReport = {
+        ...report,
+        updatedAt: now,
+        createdAt: report.createdAt || now
+      };
+      const reports = loadJsonData(inspectionReportsPath, []);
+      const idx = reports.findIndex((r: any) => r.id === report.id);
+      if (idx >= 0) {
+        reports[idx] = { ...reports[idx], ...updatedReport };
+      } else {
+        reports.push(updatedReport);
+      }
+      saveJsonData(inspectionReportsPath, reports);
+      res.json({ success: true, report: updatedReport });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // 事務確認（検印）トグル更新
+  app.put(['/api/inspections/reports/:id/confirm', '/api/inspection-reports/:id/confirm'], (req, res) => {
+    try {
+      const { id } = req.params;
+      const { user } = req.body || {};
+      const reports = loadJsonData(inspectionReportsPath, []);
+      const target = reports.find((r: any) => r.id === id);
+      const newConfirmed = target ? !target.officeConfirmed : true;
+      const now = new Date().toISOString();
+
+      const updateData = {
+        officeConfirmed: newConfirmed,
+        officeConfirmedAt: newConfirmed ? now : null,
+        officeConfirmedById: newConfirmed && user ? user.id : null,
+        officeConfirmedByName: newConfirmed && user ? user.name : null,
+        updatedAt: now
+      };
+
+      if (target) {
+        Object.assign(target, updateData);
+        saveJsonData(inspectionReportsPath, reports);
+      }
+      res.json({ success: true, report: target ? { ...target, ...updateData } : updateData });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // 前回点検結果取得 (前回コピー用)
+  app.get(['/api/inspections/previous/:jobNo', '/api/inspection-reports/previous/:jobNo'], (req, res) => {
+    try {
+      const { jobNo } = req.params;
+      const reports = loadJsonData(inspectionReportsPath, []);
+      const matched = reports
+        .filter((r: any) => r.jobNo === jobNo && r.status === 'signed')
+        .sort((a: any, b: any) => new Date(b.inspectionDate || 0).getTime() - new Date(a.inspectionDate || 0).getTime());
+      res.json({ success: true, report: matched[0] || null });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // CRM点検データ 一括登録
+  app.post(['/api/inspections/crm-data/bulk', '/api/inspections/crm/bulk'], (req, res) => {
+    try {
+      const { items } = req.body;
+      if (!Array.isArray(items)) {
+        return res.status(400).json({ success: false, error: 'items array is required' });
+      }
+      const existingCrm = loadJsonData(crmInspectionsPath, []);
+      const crmMap = new Map(existingCrm.map((i: any) => [i.jobNo, i]));
+      for (const it of items) {
+        if (it.jobNo) crmMap.set(it.jobNo, it);
+      }
+      saveJsonData(crmInspectionsPath, Array.from(crmMap.values()));
+      res.json({ success: true, count: items.length });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // CRM点検データ 取得
+  app.get(['/api/inspections/crm-data'], (req, res) => {
+    try {
+      const { yearMonth } = req.query;
+      let items = loadJsonData(crmInspectionsPath, []);
+      if (yearMonth) items = items.filter((i: any) => i.yearMonth === yearMonth);
+      res.json({ success: true, items });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   // Vite開発用ミドルウェア または プロダクション静的ファイルサーブ
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
@@ -6185,6 +6338,11 @@ export interface ServerCodeHistoryItem {
 }
 
 export const SERVER_CODE_HISTORY: ServerCodeHistoryItem[] = [
+  {
+    version: 'v2026.09.18',
+    date: '2026-09-18',
+    summary: '点検報告書 routes/inspections.js モジュール連携・電子署名手書きサインDB永続化・事務確認検印・CRM点検データ同期対応版',
+  },
   {
     version: 'v2026.09.01',
     date: '2026-09-01',

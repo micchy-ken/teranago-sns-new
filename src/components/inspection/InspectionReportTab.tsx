@@ -14,7 +14,9 @@ import {
   copyPreviousReportToNew,
   extractQuantityFromEvent,
   extractJobNoFromEvent,
-  toggleOfficeConfirmation
+  toggleOfficeConfirmation,
+  fetchInspectionReportsApi,
+  fetchCrmInspectionDataApi
 } from '../../utils/inspectionReportStorage';
 import { getLocalDateStr, formatTimeJST } from '../../utils/dateUtils';
 import { InspectionReportEditorModal } from './InspectionReportEditorModal';
@@ -169,14 +171,27 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
 
   // 事務確認トグルハンドラー
   const handleToggleOfficeConfirm = (reportId: string) => {
-    toggleOfficeConfirmation(reportId, currentUser.name);
+    toggleOfficeConfirmation(reportId, currentUser.name, currentUser);
     refreshData();
   };
 
-  // ストレージから最新データを定期またはマウント時に再取得
+  // ストレージから即時取得し、さらにサーバー（クラウドDB）から最新データを非同期取得
   const refreshData = () => {
+    // 1. ローカル即時反映
     setReports(getAllInspectionReports());
     setCrmList(getAllCrmInspectionData());
+
+    // 2. クラウドDB（Synology NAS / SQL Server）から最新データを非同期取得
+    fetchInspectionReportsApi().then((serverReports) => {
+      if (serverReports && Array.isArray(serverReports)) {
+        setReports(serverReports);
+      }
+    });
+    fetchCrmInspectionDataApi().then((serverCrm) => {
+      if (serverCrm && Array.isArray(serverCrm)) {
+        setCrmList(serverCrm);
+      }
+    });
   };
 
   useEffect(() => {
@@ -333,7 +348,7 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
   };
 
   // 報告書保存ハンドラー
-  const handleSaveReport = (savedReport: InspectionReportRecord) => {
+  const handleSaveReport = async (savedReport: InspectionReportRecord) => {
     saveInspectionReport(savedReport);
     refreshData();
   };

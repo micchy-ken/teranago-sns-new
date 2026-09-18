@@ -170,6 +170,7 @@ export interface InspectionReportRecord {
   officeConfirmed?: boolean;      // 事務担当者による確認済フラグ
   officeConfirmedAt?: string;     // 事務確認日時
   officeConfirmedByName?: string; // 事務確認担当者名
+  officeConfirmedById?: string;   // 事務確認担当者ID
   
   createdAt: string;
   updatedAt: string;
