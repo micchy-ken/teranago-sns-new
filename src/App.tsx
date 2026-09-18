@@ -666,7 +666,13 @@ export default function App() {
     };
   }, [userState, memos, applications, topics, events, chatRooms, reports, safetyEvents, safetyResponses, notificationSyncTick]);
 
-  const refetchEvents = async (currentUsers = usersList) => {
+  // カレンダー予定の更新処理実行中フラグ（更新処理中のポーリングによる古いデータ上書きを防止）
+  const isUpdatingCalendarEventsRef = useRef(false);
+
+  const refetchEvents = async (currentUsers = usersList, force = false) => {
+    if (isUpdatingCalendarEventsRef.current && !force) {
+      return;
+    }
     try {
       const response = await fetch(`${API_BASE_URL}/events`, {
         headers: { 'Accept': 'application/json' }
@@ -1201,7 +1207,6 @@ export default function App() {
     document.addEventListener('visibilitychange', handleVisibilityOrFocus);
     window.addEventListener('bulletins_updated', handleCustomEventUpdate);
     window.addEventListener('safety_updated', handleCustomEventUpdate);
-    window.addEventListener('notifications_updated', handleCustomEventUpdate);
     window.addEventListener('memos_updated', handleCustomEventUpdate);
     window.addEventListener('workflows_updated', handleCustomEventUpdate);
     window.addEventListener('events_updated', handleCustomEventUpdate);
@@ -1214,7 +1219,6 @@ export default function App() {
       document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
       window.removeEventListener('bulletins_updated', handleCustomEventUpdate);
       window.removeEventListener('safety_updated', handleCustomEventUpdate);
-      window.removeEventListener('notifications_updated', handleCustomEventUpdate);
       window.removeEventListener('memos_updated', handleCustomEventUpdate);
       window.removeEventListener('workflows_updated', handleCustomEventUpdate);
       window.removeEventListener('events_updated', handleCustomEventUpdate);
@@ -1616,6 +1620,8 @@ export default function App() {
       title: ev.title,
       startAt: ev.start,
       endAt: ev.end,
+      start: ev.start,
+      end: ev.end,
       isAllDay: ev.isAllDay ? 1 : 0,
       isPrivate: (ev.isPrivate || (ev as any).isSecret) ? 1 : 0,
       category: ev.type,
@@ -1736,12 +1742,14 @@ export default function App() {
         if (ev.recurrenceParentId) markEventAsRead(userState.id, ev.recurrenceParentId);
       });
     }
-    window.dispatchEvent(new CustomEvent('notifications_updated'));
+
+    // 保存中のバックグラウンドポーリングによる古いデータ上書きを防止
+    isUpdatingCalendarEventsRef.current = true;
 
     try {
       // 1. 更新/新規作成対象を保存
       await Promise.all(
-        plan.toSave.map(ev => saveEventToApi(ev, !originalEvents.some(oe => oe.id === ev.id)))
+        plan.toSave.map(ev => saveEventToApi(ev, !originalEvents.some(oe => String(oe.id) === String(ev.id))))
       );
 
       // 2. 削除対象を削除
@@ -1751,11 +1759,13 @@ export default function App() {
         )
       );
 
-      await refetchEvents();
+      // 保存完了後に強制リフレッシュ
+      await refetchEvents(usersList, true);
     } catch (err) {
       console.error('Failed to update event via API, rolling back:', err);
       setEvents(originalEvents);
     } finally {
+      isUpdatingCalendarEventsRef.current = false;
       window.dispatchEvent(new CustomEvent('notifications_updated'));
     }
   };
