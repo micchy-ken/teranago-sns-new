@@ -56,58 +56,6 @@ export function extractJobNoFromEvent(event?: CalendarEvent): string {
   return '';
 }
 
-/** サンプル初期シードデータ（添付「シャーメゾンジーエー」と「プラセシオン加納天神」） */
-const INITIAL_CRM_SEED: CrmInspectionData[] = [
-  {
-    jobNo: '01269044',
-    yearMonth: '202604',
-    customerName: 'シャーメゾンジーエー 御中',
-    address: '愛知県岡崎市明大寺町字池下51',
-    phone: '',
-    contractType: 'ST',
-    totalDoorsCount: 1,
-    doors: [
-      {
-        doorIndex: 1,
-        doorNumber: '247653',
-        location: '正面玄関',
-        model: '100KLCM',
-      },
-    ],
-    importedAt: '2026-04-01T09:00:00.000Z',
-  },
-  {
-    jobNo: '01296500',
-    yearMonth: '202610',
-    customerName: '●プラセシオン加納天神　御中',
-    address: '岐阜県岐阜市加納天神町4-39',
-    phone: '058-274-4351',
-    contractType: 'ST',
-    totalDoorsCount: 3,
-    doors: [
-      {
-        doorIndex: 1,
-        doorNumber: '00025397',
-        location: '風除室　外側',
-        model: 'TAS-EB-15T',
-      },
-      {
-        doorIndex: 2,
-        doorNumber: '00025398',
-        location: '風除室　内側',
-        model: 'TAS-EB-15T',
-      },
-      {
-        doorIndex: 3,
-        doorNumber: '00025399',
-        location: 'ＥＶ前',
-        model: 'TAS-EB-15T',
-      },
-    ],
-    importedAt: '2026-09-01T09:00:00.000Z',
-  },
-];
-
 /** デフォルトの全項目「良好(V)」チェックリストマップを作成 */
 export function createDefaultCheckResults(): Record<string, InspectionJudgementCode> {
   const map: Record<string, InspectionJudgementCode> = {};
@@ -147,19 +95,21 @@ export function createDefaultDoorReport(
   };
 }
 
-/** 保存されたCRMデータを取得 */
+/** 保存されたCRMデータを取得（モック・シードは一切使用せず空配列で開始） */
 export function getAllCrmInspectionData(): CrmInspectionData[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY_CRM);
     if (raw) {
-      return JSON.parse(raw);
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        // 過去のサンプルデータが残っている場合は除外
+        return parsed.filter(item => item.jobNo !== '01269044' && item.jobNo !== '01296500');
+      }
     }
   } catch (err) {
     console.warn('Failed to parse CRM data from localStorage:', err);
   }
-  // 未保存の場合は初期シードをセットして返却
-  localStorage.setItem(STORAGE_KEY_CRM, JSON.stringify(INITIAL_CRM_SEED));
-  return INITIAL_CRM_SEED;
+  return [];
 }
 
 /** CRMデータを保存（一括取り込み等で使用） */
@@ -171,81 +121,21 @@ export function saveCrmInspectionDataList(list: CrmInspectionData[]) {
   }
 }
 
-/** 初期シード報告書（サイン受領済みサンプルの提供） */
-function getInitialReportsSeed(): InspectionReportRecord[] {
-  const today = new Date().toISOString().slice(0, 10);
-  return [
-    {
-      id: 'rep_sample_signed_01',
-      jobNo: '01269044',
-      yearMonth: '202604',
-      customerName: 'シャーメゾンジーエー 御中',
-      address: '愛知県岡崎市明大寺町字池下51',
-      phone: '',
-      contractType: 'ST',
-      category: 'maintenance',
-      inspectionDate: today,
-      startTime: '09:00',
-      endTime: '10:00',
-      inspectorId: 'user_sample_inspector',
-      inspectorName: '鈴木 保守',
-      isCrmImported: true,
-      totalDoorsCount: 1,
-      doors: [
-        {
-          doorIndex: 1,
-          doorNumber: '247653',
-          location: '正面玄関',
-          model: '100KLCM',
-          openCount: '42,639',
-          openSpeed: '8',
-          closeSpeed: '3',
-          timerSeconds: '1',
-          sensorWidth: '1200',
-          outerSensorWidthOk: true,
-          outerSensorOpeningOk: true,
-          outerSensorDepthOk: true,
-          outerSensorNearOk: true,
-          innerSensorWidthOk: true,
-          innerSensorOpeningOk: true,
-          innerSensorDepthOk: true,
-          innerSensorNearOk: true,
-          checkResults: createDefaultCheckResults(),
-          remarks: '各部注油・清掃実施。動作良好です。',
-        },
-      ],
-      overallRemarks: '自動ドアの開閉動作、光線センサー感度ともに良好です。次回点検は半年後を予定しております。',
-      status: 'signed',
-      customerSignature: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="120" height="40"><text x="10" y="28" font-family="cursive" font-size="20" fill="%231e3a8a">佐藤</text></svg>',
-      signedAt: new Date().toISOString(),
-      signedCustomerName: '佐藤 管理人',
-      officeConfirmed: false,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    },
-  ];
-}
-
-/** 保存された全点検報告書を取得 */
+/** 保存された全点検報告書を取得（モック・シードは一切使用せず空配列で開始） */
 export function getAllInspectionReports(): InspectionReportRecord[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY_REPORTS);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
+      if (Array.isArray(parsed)) {
+        // 過去のサンプルデータ（rep_sample_signed_01等）が残っている場合は除外
+        return parsed.filter(r => r.id !== 'rep_sample_signed_01');
       }
     }
   } catch (err) {
     console.warn('Failed to parse inspection reports from localStorage:', err);
   }
-  const seed = getInitialReportsSeed();
-  try {
-    localStorage.setItem(STORAGE_KEY_REPORTS, JSON.stringify(seed));
-  } catch (e) {
-    // ignore
-  }
-  return seed;
+  return [];
 }
 
 /** 事務員による確認ステータスをトグル更新 */
