@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { Hash, Home, Bookmark, User, Calendar as CalendarIcon, FileText, MessageSquare, Phone, ClipboardList, Monitor, Shield, HardDrive, Users, ShieldAlert, Wrench, ChevronDown, ChevronRight } from 'lucide-react';
+import { Hash, Home, Bookmark, User, Calendar as CalendarIcon, FileText, MessageSquare, Phone, ClipboardList, Monitor, Shield, HardDrive, Users, ShieldAlert, Wrench, ChevronDown, ChevronRight, FileCheck2 } from 'lucide-react';
 import { Post, BoardTopic, User as UserType } from '../types';
 
-export type AppTab = 'timeline' | 'calendar' | 'inspection_scheduler' | 'workflow' | 'board' | 'chat' | 'memo' | 'daily_report' | 'files' | 'members' | 'mypage' | 'admin' | 'safety_confirmation';
+export type AppTab = 'timeline' | 'calendar' | 'inspection_scheduler' | 'inspection_report' | 'workflow' | 'board' | 'chat' | 'memo' | 'daily_report' | 'files' | 'members' | 'mypage' | 'admin' | 'safety_confirmation';
 
 export interface SidebarUnreadCounts {
   chat?: number;
@@ -234,11 +234,34 @@ export function Sidebar({ posts = [], topics = [], selectedTag, onSelectTag, act
               <ClipboardList className="w-4 h-4" />
               <span>{reportLabel}</span>
             </div>
-            {Boolean(unreadCounts?.report) && (
-              <span className="px-1.5 py-0.5 text-[10px] font-bold text-white bg-blue-600 rounded-full min-w-[18px] text-center shadow-xs">
-                {(unreadCounts?.report || 0) > 99 ? '99+' : unreadCounts?.report}
+            <div className="flex items-center gap-1.5">
+              <span className="px-1.5 py-0.5 text-[10px] font-bold text-amber-700 bg-amber-100 rounded-full text-center">
+                開発中
               </span>
-            )}
+              {Boolean(unreadCounts?.report) && (
+                <span className="px-1.5 py-0.5 text-[10px] font-bold text-white bg-blue-600 rounded-full min-w-[18px] text-center shadow-xs">
+                  {(unreadCounts?.report || 0) > 99 ? '99+' : unreadCounts?.report}
+                </span>
+              )}
+            </div>
+          </button>
+        )}
+        {isTabAllowed('inspection_report') && (
+          <button
+            onClick={() => onChangeTab('inspection_report')}
+            className={`w-full flex items-center justify-between px-3 py-2 rounded-lg font-medium transition-colors ${
+              activeTab === 'inspection_report'
+                ? 'bg-indigo-50 text-indigo-700 font-bold'
+                : 'text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <FileCheck2 className="w-4 h-4 text-emerald-600" />
+              <span>点検報告書</span>
+            </div>
+            <span className="px-1.5 py-0.5 text-[10px] font-bold text-amber-700 bg-amber-100 rounded-full text-center">
+              開発中
+            </span>
           </button>
         )}
         {/* ユーティリティ（各種管理・拡張ツール） */}

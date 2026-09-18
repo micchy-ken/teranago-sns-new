@@ -21,6 +21,7 @@ const Chat = lazyWithRetry(() => import('./components/Chat').then(m => ({ defaul
 const MemoList = lazyWithRetry(() => import('./components/MemoList').then(m => ({ default: m.MemoList })));
 const DailyReportView = lazyWithRetry(() => import('./components/DailyReport').then(m => ({ default: m.DailyReportView })));
 const InspectionScheduler = lazyWithRetry(() => import('./components/InspectionScheduler').then(m => ({ default: m.InspectionScheduler })));
+const InspectionReportTab = lazyWithRetry(() => import('./components/inspection/InspectionReportTab').then(m => ({ default: m.InspectionReportTab })));
 const SafetyConfirmation = lazyWithRetry(() => import('./components/SafetyConfirmation').then(m => ({ default: m.SafetyConfirmation })));
 const GuestSafetyResponse = lazyWithRetry(() => import('./components/GuestSafetyResponse').then(m => ({ default: m.GuestSafetyResponse })));
 const MyPage = lazyWithRetry(() => import('./components/MyPage').then(m => ({ default: m.MyPage })));
@@ -2728,6 +2729,15 @@ export default function App() {
                 });
               }}
               onNavigateToCalendar={() => setActiveTab('calendar')}
+            />
+          )}
+          {activeTab === 'inspection_report' && (
+            <InspectionReportTab
+              currentUser={userState}
+              allUsers={usersList}
+              events={events}
+              offices={offices}
+              divisions={divisions}
             />
           )}
           {activeTab === 'workflow' && (
