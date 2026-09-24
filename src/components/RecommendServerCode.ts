@@ -1,7 +1,7 @@
 export const RECOMMEND_SERVER_JS = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年9月18日 (点検報告書 routes/inspections.js モジュール連携・電子署名手書きサインDB永続化・事務確認検印・CRM点検データ同期対応版)
+ * 最終更新日時 (最終アップデート): 2026年9月24日 (個人設定・通知設定・マイページ並び順の永続化強化・マルチパスマウント対応・DBカラム自動補正・完全版)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -2077,27 +2077,45 @@ async function startServer() {
     }
   });
 
-  // 個人設定・通知設定の保存 API
-  app.put('/api/users/:id/preferences', (req, res) => {
+  // 個人設定・通知設定の保存 API (PUT & POST 両対応 / 部分マージ対応)
+  const handlePreferencesUpdate = (req: any, res: any) => {
     try {
       const userId = req.params.id;
-      const preferences = req.body;
+      const body = req.body || {};
+      const incomingPrefs = (body.preferences && typeof body.preferences === 'object') ? body.preferences : body;
+
       const users = loadUsers();
       const idx = users.findIndex((item: any) => item.id === userId);
+      let currentPrefs: any = {};
+      if (idx >= 0 && users[idx].preferences) {
+        currentPrefs = { ...users[idx].preferences };
+      }
+
+      const mergedPrefs = {
+        ...currentPrefs,
+        ...incomingPrefs,
+        emailNotifications: {
+          ...(currentPrefs.emailNotifications || {}),
+          ...(incomingPrefs.emailNotifications || {})
+        }
+      };
+
       if (idx >= 0) {
-        users[idx].preferences = preferences;
+        users[idx].preferences = mergedPrefs;
         saveUsers(users);
-        res.json({ success: true, preferences, message: '個人設定・通知設定を保存しました。' });
       } else {
-        const newUser = { id: userId, preferences };
+        const newUser = { id: userId, preferences: mergedPrefs };
         users.push(newUser);
         saveUsers(users);
-        res.json({ success: true, preferences, message: '個人設定・通知設定を保存しました。' });
       }
+      res.json({ success: true, preferences: mergedPrefs, message: '個人設定・通知設定を保存しました。' });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
-  });
+  };
+
+  app.put(['/api/users/:id/preferences', '/api/users/:id/settings', '/api/users/:id/notification-settings'], handlePreferencesUpdate);
+  app.post(['/api/users/:id/preferences', '/api/users/:id/settings', '/api/users/:id/notification-settings'], handlePreferencesUpdate);
 
   // ==========================================
   // 個人メールアドレス AES-256-GCM 暗号化 & 管理 API

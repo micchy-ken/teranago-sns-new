@@ -1,16 +1,21 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   InspectionReportRecord, 
-  InspectionDoorReport,
-  STANDARD_CHECK_ITEMS, 
-  STANDARD_CHECK_CATEGORIES,
+  InspectionDoorReport, 
   JUDGEMENT_OPTIONS,
-  InspectionJudgementCode 
+  InspectionJudgementCode,
+  InspectionCheckCategoryDef,
+  InspectionCheckItemDef
 } from '../../types/inspectionReport';
 import { 
   createDefaultDoorReport, 
   createDefaultCheckResults 
 } from '../../utils/inspectionReportStorage';
+import {
+  getInspectionMasterCategories,
+  getInspectionMasterItems,
+  INSPECTION_MASTER_EVENT
+} from '../../utils/inspectionMasterStorage';
 import { SignaturePad } from './SignaturePad';
 import { InspectionReportPrintView } from './InspectionReportPrintView';
 import { 
@@ -44,6 +49,19 @@ export const InspectionReportEditorModal: React.FC<InspectionReportEditorModalPr
   const [isSignatureOpen, setIsSignatureOpen] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [saveToast, setSaveToast] = useState<string | null>(null);
+
+  // 動的マスター（カテゴリと項目）
+  const [masterCategories, setMasterCategories] = useState<InspectionCheckCategoryDef[]>(() => getInspectionMasterCategories());
+  const [masterItems, setMasterItems] = useState<InspectionCheckItemDef[]>(() => getInspectionMasterItems(false));
+
+  useEffect(() => {
+    const handleMasterChange = () => {
+      setMasterCategories(getInspectionMasterCategories());
+      setMasterItems(getInspectionMasterItems(false));
+    };
+    window.addEventListener(INSPECTION_MASTER_EVENT, handleMasterChange);
+    return () => window.removeEventListener(INSPECTION_MASTER_EVENT, handleMasterChange);
+  }, []);
 
   const doors = report.doors || [];
   const currentDoor: InspectionDoorReport = doors[selectedDoorIndex] || doors[0] || createDefaultDoorReport(1);
@@ -259,13 +277,23 @@ export const InspectionReportEditorModal: React.FC<InspectionReportEditorModalPr
                 </div>
               </div>
               <div>
-                <label className="block text-slate-500 font-bold mb-1">点検員氏名</label>
-                <input
-                  type="text"
-                  value={report.inspectorName}
-                  onChange={(e) => setReport({ ...report, inspectorName: e.target.value })}
-                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg font-bold text-slate-800 bg-white"
-                />
+                <label className="block text-slate-500 font-bold mb-1">主点検員 / 同行者</label>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    value={report.inspectorName}
+                    onChange={(e) => setReport({ ...report, inspectorName: e.target.value })}
+                    className="w-1/2 px-2 py-1.5 border border-slate-300 rounded-lg font-bold text-slate-800 bg-white"
+                    placeholder="主担当"
+                  />
+                  <input
+                    type="text"
+                    value={report.subInspectorName || ''}
+                    onChange={(e) => setReport({ ...report, subInspectorName: e.target.value })}
+                    className="w-1/2 px-2 py-1.5 border border-slate-300 rounded-lg text-slate-800 bg-white"
+                    placeholder="同行・補助"
+                  />
+                </div>
               </div>
             </div>
 
@@ -443,8 +471,9 @@ export const InspectionReportEditorModal: React.FC<InspectionReportEditorModalPr
 
             {/* カテゴリごとの項目リスト */}
             <div className="p-4 space-y-5">
-              {STANDARD_CHECK_CATEGORIES.map((category) => {
-                const items = STANDARD_CHECK_ITEMS.filter((i) => i.category === category.id);
+              {masterCategories.map((category) => {
+                const items = masterItems.filter((i) => i.category === category.id);
+                if (items.length === 0) return null;
                 return (
                   <div key={category.id} className="space-y-2">
                     <div className="text-xs font-bold text-indigo-900 border-l-4 border-indigo-600 pl-2 bg-indigo-50/50 py-1 rounded-r">
@@ -525,9 +554,40 @@ export const InspectionReportEditorModal: React.FC<InspectionReportEditorModalPr
 
             {/* 所見・特記事項 */}
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs space-y-2">
-              <div className="font-bold text-xs text-slate-800 border-b border-slate-100 pb-1.5">
-                点検結果・所見・総合特記事項
+              <div className="font-bold text-xs text-slate-800 border-b border-slate-100 pb-1.5 flex items-center justify-between">
+                <span>点検結果・所見・総合特記事項</span>
+                <span className="text-[10px] text-slate-400">ワンタップで定型文を挿入</span>
               </div>
+              
+              {/* 定型文クイック挿入チップ */}
+              <div className="flex flex-wrap gap-1.5 pt-0.5">
+                {[
+                  '定期点検完了：各部機構動作およびセンサー検出範囲ともに良好です。',
+                  '開閉速度および開放タイマーを調整し、正常動作を確認いたしました。',
+                  '異音を確認、各部清掃および給油注油を実施し、動作良好となりました。',
+                  'ベルトに軽微な摩耗あり。次回点検時の消耗品交換を推奨いたします。',
+                  '吊車の摩耗を確認。現状動作に支障ありませんが経過観察といたします。',
+                  '補助光線センサーの受光レンズ部を清掃し、正常検出を確認いたしました。',
+                ].map((preset, pIdx) => (
+                  <button
+                    key={pIdx}
+                    type="button"
+                    onClick={() => {
+                      const current = (report.overallRemarks || '').trim();
+                      if (!current) {
+                        setReport({ ...report, overallRemarks: preset });
+                      } else {
+                        setReport({ ...report, overallRemarks: `${current}\n${preset}` });
+                      }
+                      showToast('所見定型文を反映しました');
+                    }}
+                    className="px-2 py-1 bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-300 text-[10.5px] text-slate-700 rounded-md border border-slate-200 transition-colors cursor-pointer text-left truncate max-w-full"
+                  >
+                    + {preset.length > 25 ? `${preset.slice(0, 25)}...` : preset}
+                  </button>
+                ))}
+              </div>
+
               <textarea
                 value={report.overallRemarks || ''}
                 onChange={(e) => setReport({ ...report, overallRemarks: e.target.value })}

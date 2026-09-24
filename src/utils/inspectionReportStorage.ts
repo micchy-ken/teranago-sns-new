@@ -8,6 +8,7 @@ import {
 import { CalendarEvent, User } from '../types';
 import { getLocalDateStr, formatTimeJST } from './dateUtils';
 import { API_BASE_URL } from '../config/api';
+import { getInspectionMasterItems } from './inspectionMasterStorage';
 
 const STORAGE_KEY_REPORTS = 'teranago_inspection_reports_v1';
 const STORAGE_KEY_CRM = 'teranago_crm_inspection_data_v1';
@@ -60,7 +61,8 @@ export function extractJobNoFromEvent(event?: CalendarEvent): string {
 /** デフォルトの全項目「良好(V)」チェックリストマップを作成 */
 export function createDefaultCheckResults(): Record<string, InspectionJudgementCode> {
   const map: Record<string, InspectionJudgementCode> = {};
-  STANDARD_CHECK_ITEMS.forEach(item => {
+  const items = getInspectionMasterItems();
+  items.forEach(item => {
     map[item.key] = item.defaultVal || 'V';
   });
   return map;

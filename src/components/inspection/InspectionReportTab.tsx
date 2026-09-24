@@ -44,8 +44,10 @@ import {
   Shield,
   Briefcase,
   Stamp,
-  CheckCircle2
+  CheckCircle2,
+  Settings
 } from 'lucide-react';
+import { InspectionCheckItemMasterModal } from './InspectionCheckItemMasterModal';
 
 interface InspectionReportTabProps {
   currentUser: User;
@@ -160,6 +162,14 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
   // モーダル状態
   const [editingReport, setEditingReport] = useState<InspectionReportRecord | null>(null);
   const [previewingReport, setPreviewingReport] = useState<InspectionReportRecord | null>(null);
+  const [isMasterModalOpen, setIsMasterModalOpen] = useState(false);
+
+  // 点検予定の登録・表示権限（管理者または点検予定管理が表示許可されているユーザー）
+  const canManageInspectionSettings = useMemo(() => {
+    const isSystemAdmin = currentUser.isAdmin === true || currentUser.role === 'admin' || currentUser.id === 'u1';
+    if (isSystemAdmin) return true;
+    return currentUser.preferences?.showInspectionScheduler === true || (currentUser as any)?.showInspectionScheduler === true;
+  }, [currentUser]);
 
   // フィルター：ユーザーの所属が事務の場合、明細画面の初期値が「完了」(completed) になります！
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'completed'>(() => {
@@ -492,6 +502,19 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
           >
             今日
           </button>
+
+          {/* 点検項目マスター設定ボタン（点検予定登録・表示権限者のみ表示） */}
+          {canManageInspectionSettings && (
+            <button
+              type="button"
+              onClick={() => setIsMasterModalOpen(true)}
+              className="px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 hover:border-indigo-300 rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer flex items-center gap-1.5"
+              title="点検項目マスター設定（項目の追加・編集・並び替え・初期値カスタマイズ）"
+            >
+              <Settings className="w-3.5 h-3.5 text-indigo-600" />
+              <span>点検項目設定</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -1104,6 +1127,12 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
           onClose={() => setPreviewingReport(null)}
         />
       )}
+
+      {/* 点検項目マスター設定モーダル */}
+      <InspectionCheckItemMasterModal
+        isOpen={isMasterModalOpen}
+        onClose={() => setIsMasterModalOpen(false)}
+      />
     </div>
   );
 };

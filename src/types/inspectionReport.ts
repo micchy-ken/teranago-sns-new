@@ -11,11 +11,21 @@ export type InspectionJudgementCode =
   | '○'   // 範囲内
   | 'M';  // 見積提出中
 
+export interface InspectionCheckCategoryDef {
+  id: string;
+  name: string;
+  order?: number;
+  description?: string;
+}
+
 export interface InspectionCheckItemDef {
   key: string;
   label: string;
-  category: 'door' | 'suspension' | 'power' | 'circuit' | 'other' | 'sensor';
+  category: string; // 'door' | 'suspension' | 'power' | 'circuit' | 'other' | 'sensor' またはカスタムカテゴリID
   defaultVal?: InspectionJudgementCode;
+  order?: number;
+  isActive?: boolean;
+  description?: string;
 }
 
 export const JUDGEMENT_OPTIONS: { code: InspectionJudgementCode; label: string; bgClass: string; textClass: string }[] = [
@@ -150,6 +160,7 @@ export interface InspectionReportRecord {
   endTime: string;            // 終了時刻 (HH:mm)
   inspectorId: string;        // 作業員ユーザーID
   inspectorName: string;      // 作業員名
+  subInspectorName?: string;  // 副作業員・同行者名
   
   isCrmImported: boolean;     // CRMデータから取り込まれたか、手動作成か
   totalDoorsCount: number;    // 総台数

@@ -145,7 +145,8 @@ BEGIN
         isAdmin BIT DEFAULT 0,
         supervisorId VARCHAR(50) NULL,
         personalEmailEncrypted NVARCHAR(500) NULL,
-        personalEmailMasked NVARCHAR(255) NULL
+        personalEmailMasked NVARCHAR(255) NULL,
+        preferences NVARCHAR(MAX) NULL
     );
 END
 ELSE
@@ -162,6 +163,7 @@ BEGIN
     IF COL_LENGTH('dbo.Users', 'supervisorId') IS NULL ALTER TABLE dbo.Users ADD supervisorId VARCHAR(50) NULL;
     IF COL_LENGTH('dbo.Users', 'personalEmailEncrypted') IS NULL ALTER TABLE dbo.Users ADD personalEmailEncrypted NVARCHAR(500) NULL;
     IF COL_LENGTH('dbo.Users', 'personalEmailMasked') IS NULL ALTER TABLE dbo.Users ADD personalEmailMasked NVARCHAR(255) NULL;
+    IF COL_LENGTH('dbo.Users', 'preferences') IS NULL ALTER TABLE dbo.Users ADD preferences NVARCHAR(MAX) NULL;
 END
 GO
 
