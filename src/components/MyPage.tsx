@@ -653,8 +653,30 @@ export function MyPage({
   const emergencySectionRef = useRef<HTMLDivElement>(null);
   const personalEmailInputRef = useRef<HTMLInputElement>(null);
 
+  const getInitialUserWithPrefs = (u: User): User => {
+    let cachedPrefs: any = null;
+    try {
+      const str = localStorage.getItem(`user_preferences_${u.id}`);
+      if (str) cachedPrefs = JSON.parse(str);
+    } catch (_) {}
+
+    const mergedPrefs = {
+      ...(cachedPrefs || {}),
+      ...(u.preferences || {}),
+      emailNotifications: {
+        ...(cachedPrefs?.emailNotifications || {}),
+        ...(u.preferences?.emailNotifications || {}),
+      }
+    };
+
+    return {
+      ...u,
+      preferences: mergedPrefs
+    };
+  };
+
   const handleOpenSettings = () => {
-    setSettingsForm(user);
+    setSettingsForm(getInitialUserWithPrefs(user));
     setIsSettingsOpen(true);
   };
 
@@ -667,7 +689,7 @@ export function MyPage({
   // autoOpenSettings または autoOpenEmergencyContact の自動オープン処理
   useEffect(() => {
     if (autoOpenSettings || autoOpenEmergencyContact) {
-      setSettingsForm(user);
+      setSettingsForm(getInitialUserWithPrefs(user));
       setIsSettingsOpen(true);
       if (autoOpenEmergencyContact) {
         setIsEmergencyEmailOpen(true);
@@ -705,6 +727,21 @@ export function MyPage({
       });
       return;
     }
+
+    // ローカルストレージに個人設定・通知設定を即座にバックアップ
+    if (settingsForm.preferences) {
+      try {
+        localStorage.setItem(`user_preferences_${user.id}`, JSON.stringify(settingsForm.preferences));
+      } catch (_) {}
+
+      // preferences 専用エンドポイントへも即座に送信（二重保護）
+      fetch(`${API_BASE_URL}/users/${user.id}/preferences`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settingsForm.preferences),
+      }).catch(() => {});
+    }
+
     if (onUpdateUser) {
       const deptString = [settingsForm.office, settingsForm.division, settingsForm.position].filter(Boolean).join(' ');
       onUpdateUser({

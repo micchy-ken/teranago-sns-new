@@ -83,6 +83,22 @@ const mapUserFromApi = (apiUser: any): User => {
     }
   }
 
+  // ローカルキャッシュの preferences とマージ（通知センター等の直前設定を完全保護）
+  let cachedPrefs: any = null;
+  try {
+    const cachedStr = localStorage.getItem(`user_preferences_${apiUser.id}`);
+    if (cachedStr) cachedPrefs = JSON.parse(cachedStr);
+  } catch (_) {}
+
+  const mergedPreferences = {
+    ...(cachedPrefs || {}),
+    ...(preferences || {}),
+    emailNotifications: {
+      ...(cachedPrefs?.emailNotifications || {}),
+      ...(preferences?.emailNotifications || {}),
+    }
+  };
+
   return {
     ...apiUser,
     id: String(apiUser.id),
@@ -94,7 +110,7 @@ const mapUserFromApi = (apiUser: any): User => {
     position,
     role: isAdmin ? 'admin' : 'user',
     isAdmin: isAdmin,
-    preferences: preferences || apiUser.preferences,
+    preferences: mergedPreferences,
   };
 };
 
@@ -1432,6 +1448,20 @@ export default function App() {
     setUsersList(prev => prev.map((u) => (u.id === sanitizedUser.id ? sanitizedUser : u)));
     if (sanitizedUser.id === userState.id) {
       setUserState(sanitizedUser);
+    }
+
+    // ローカルストレージに個人設定・通知設定を即座にバックアップ
+    if (sanitizedUser.preferences) {
+      try {
+        localStorage.setItem(`user_preferences_${sanitizedUser.id}`, JSON.stringify(sanitizedUser.preferences));
+      } catch (_) {}
+
+      // preferences 専用エンドポイントへも並行して直接送信（二重保護）
+      fetch(`${API_BASE_URL}/users/${sanitizedUser.id}/preferences`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(sanitizedUser.preferences),
+      }).catch(() => {});
     }
 
     try {
