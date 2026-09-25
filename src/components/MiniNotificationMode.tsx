@@ -102,6 +102,7 @@ export function MiniNotificationMode({
   const [pipWindow, setPipWindow] = useState<Window | null>(null);
   const [pipSupported, setPipSupported] = useState<boolean>(false);
   const [selectedFilter, setSelectedFilter] = useState<'all' | 'memo' | 'workflow' | 'board' | 'event' | 'chat' | 'report' | 'safety'>('all');
+  const [readFilter, setReadFilter] = useState<'all' | 'unread'>('all');
   const [lastActionMessage, setLastActionMessage] = useState<string | null>(null);
 
   // Document Picture-in-Picture API のサポート確認
@@ -167,11 +168,17 @@ export function MiniNotificationMode({
     };
   }, [isOpen]);
 
-  // フィルタリング後の通知リスト
+  // フィルタリング後の通知リスト (未読/確認済み履歴 & カテゴリ)
   const filteredList = useMemo(() => {
-    if (selectedFilter === 'all') return notifications;
-    return notifications.filter((n) => n.type === selectedFilter);
-  }, [notifications, selectedFilter]);
+    let list = notifications;
+    if (selectedFilter !== 'all') {
+      list = list.filter((n) => n.type === selectedFilter);
+    }
+    if (readFilter === 'unread') {
+      list = list.filter((n) => !n.isRead);
+    }
+    return list;
+  }, [notifications, selectedFilter, readFilter]);
 
   // 元に戻す（通常画面へフォーカス＆戻る）
   const handleRestore = () => {
@@ -314,18 +321,66 @@ export function MiniNotificationMode({
         </div>
       )}
 
+      {/* Read / Unread Filter Bar & Quick Mark All */}
+      <div className="bg-slate-200/80 border-b border-slate-300/70 px-2.5 py-1.5 flex items-center justify-between gap-1 shrink-0 text-xs">
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setReadFilter('all')}
+            className={`px-2 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer ${
+              readFilter === 'all'
+                ? 'bg-slate-900 text-white shadow-2xs'
+                : 'text-slate-600 hover:bg-white hover:text-slate-900'
+            }`}
+          >
+            すべて ({notifications.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setReadFilter('unread')}
+            className={`px-2 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer flex items-center gap-1 ${
+              readFilter === 'unread'
+                ? 'bg-indigo-600 text-white shadow-2xs'
+                : 'text-slate-600 hover:bg-white hover:text-slate-900'
+            }`}
+          >
+            <span>未読のみ</span>
+            {unreadCount > 0 ? (
+              <span className={`px-1 py-0.1 text-[9px] font-bold rounded-full ${
+                readFilter === 'unread' ? 'bg-white text-indigo-700' : 'bg-red-500 text-white'
+              }`}>
+                {unreadCount}
+              </span>
+            ) : (
+              <span className="text-[9px] text-slate-400">0</span>
+            )}
+          </button>
+        </div>
+        {unreadCount > 0 && (
+          <button
+            type="button"
+            onClick={onMarkAllAsRead}
+            className="text-[10px] font-bold text-indigo-700 hover:text-indigo-900 bg-white hover:bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200 shadow-2xs flex items-center gap-1 transition-colors cursor-pointer"
+            title="すべての未読通知を既読にする"
+          >
+            <CheckCheck className="w-3 h-3 text-indigo-600" />
+            <span>すべて既読</span>
+          </button>
+        )}
+      </div>
+
       {/* Category Filter Bar */}
-      <div className="bg-white border-b border-slate-200 px-2.5 py-2 flex items-center gap-1 overflow-x-auto no-scrollbar shrink-0 text-xs">
+      <div className="bg-white border-b border-slate-200 px-2.5 py-1.5 flex items-center gap-1 overflow-x-auto no-scrollbar shrink-0 text-xs">
         <button
           type="button"
           onClick={() => setSelectedFilter('all')}
           className={`px-2 py-1 rounded-md text-[11px] font-bold whitespace-nowrap transition-colors cursor-pointer ${
             selectedFilter === 'all'
-              ? 'bg-slate-900 text-white shadow-2xs'
+              ? 'bg-slate-800 text-white shadow-2xs'
               : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
-          すべて ({notifications.length})
+          全種別 ({filteredList.length})
         </button>
         <button
           type="button"
@@ -402,35 +457,66 @@ export function MiniNotificationMode({
             <div className="w-12 h-12 rounded-full bg-slate-200/80 flex items-center justify-center text-slate-400 mb-2">
               <CheckCheck className="w-6 h-6 text-emerald-500" />
             </div>
-            <p className="text-xs font-bold text-slate-700">新着通知はありません</p>
-            <p className="text-[11px] text-slate-400 mt-0.5">最新情報はここにリアルタイムで表示されます</p>
+            <p className="text-xs font-bold text-slate-700">
+              {readFilter === 'unread' ? '未読の通知はありません' : '通知はありません'}
+            </p>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              {readFilter === 'unread' ? 'すべての通知を確認済みです' : '最新情報はここにリアルタイムで表示されます'}
+            </p>
           </div>
         ) : (
           filteredList.map((item) => {
             const badge = getItemBadge(item.type);
+            const isRead = !!item.isRead;
             return (
               <div
                 key={item.id}
-                className="bg-white rounded-xl border border-slate-200 p-3 shadow-2xs hover:border-slate-300 transition-all flex flex-col gap-2"
+                className={`rounded-xl border p-3 transition-all flex flex-col gap-2 ${
+                  isRead
+                    ? 'bg-slate-50/80 border-slate-200/80 text-slate-500 opacity-75 shadow-2xs'
+                    : 'bg-white border-indigo-200/90 shadow-xs hover:border-indigo-300 ring-1 ring-indigo-500/10'
+                }`}
               >
                 {/* Card Top: Type badge & Time */}
                 <div className="flex items-center justify-between text-[11px]">
-                  <span
-                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-bold border ${badge.bgColor}`}
-                  >
-                    {badge.icon}
-                    {badge.label}
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-bold border ${
+                        isRead ? 'bg-slate-100 text-slate-500 border-slate-200' : badge.bgColor
+                      }`}
+                    >
+                      {badge.icon}
+                      {badge.label}
+                    </span>
+                    {isRead ? (
+                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[10px] font-medium bg-slate-200/70 text-slate-500">
+                        <Check className="w-2.5 h-2.5 text-slate-400" />
+                        確認済
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[10px] font-bold bg-red-100 text-red-700 border border-red-200">
+                        未確認
+                      </span>
+                    )}
+                  </div>
                   <span className="text-slate-400 font-medium">{item.createdAt}</span>
                 </div>
 
                 {/* Card Middle: Title & Snippet */}
                 <div>
-                  <h4 className="font-bold text-xs text-slate-900 leading-snug line-clamp-2">
+                  <h4
+                    className={`text-xs leading-snug line-clamp-2 ${
+                      isRead ? 'font-medium text-slate-500' : 'font-bold text-slate-900'
+                    }`}
+                  >
                     {item.title}
                   </h4>
                   {item.description && (
-                    <p className="text-[11px] text-slate-500 mt-1 line-clamp-2 leading-relaxed">
+                    <p
+                      className={`text-[11px] mt-1 line-clamp-2 leading-relaxed ${
+                        isRead ? 'text-slate-400' : 'text-slate-600'
+                      }`}
+                    >
                       {item.description}
                     </p>
                   )}
@@ -439,16 +525,20 @@ export function MiniNotificationMode({
                 {/* Card Bottom: Action Button */}
                 <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
                   <span className="text-[10px] text-slate-400">
-                    クリックで詳細表示
+                    {isRead ? '確認済み' : 'クリックで詳細表示'}
                   </span>
 
                   <button
                     type="button"
                     onClick={() => handleItemClick(item)}
-                    className="flex items-center gap-1 px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs rounded-lg transition-colors cursor-pointer"
+                    className={`flex items-center gap-1 px-2.5 py-1 text-xs rounded-lg transition-colors cursor-pointer ${
+                      isRead
+                        ? 'bg-slate-100 hover:bg-slate-200 text-slate-600 font-medium'
+                        : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold'
+                    }`}
                   >
-                    <span>通知内容を表示する</span>
-                    <ExternalLink className="w-3 h-3 text-indigo-600" />
+                    <span>{isRead ? '詳細を表示' : '通知内容を表示する'}</span>
+                    <ExternalLink className={`w-3 h-3 ${isRead ? 'text-slate-400' : 'text-indigo-600'}`} />
                   </button>
                 </div>
               </div>

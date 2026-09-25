@@ -9,6 +9,7 @@ export interface NotificationItem {
   createdAt: string;
   tab: 'memo' | 'workflow' | 'board' | 'calendar' | 'chat' | 'daily_report' | 'mypage' | 'safety_confirmation';
   originalData?: any;
+  isRead?: boolean; // true: 確認済み (履歴・グレイアウト), false: 未確認 (通常表示)
 }
 
 // -------------------------------------------------------------
@@ -716,9 +717,9 @@ export function isSafetyEventUnread(
 }
 
 // -------------------------------------------------------------
-// 統一未読通知アイテム一覧取得関数
+// 統一通知アイテム一覧取得関数（未確認＋確認済み履歴）
 // -------------------------------------------------------------
-export function getUnreadNotifications({
+export function getAllNotifications({
   user,
   memos = [],
   applications = [],
@@ -735,6 +736,7 @@ export function getUnreadNotifications({
   readMemoIds = getReadMemoIds(user?.id),
   readWorkflowIds = getReadWorkflowIds(user?.id),
   readReportIds = getReadReportIds(user?.id),
+  maxReadHistory = 80,
 }: {
   user: User;
   memos?: Memo[];
@@ -752,137 +754,305 @@ export function getUnreadNotifications({
   readMemoIds?: string[];
   readWorkflowIds?: string[];
   readReportIds?: string[];
+  maxReadHistory?: number;
 }): NotificationItem[] {
   if (!user) return [];
 
-  const list: NotificationItem[] = [];
+  const unreadList: NotificationItem[] = [];
+  const readList: NotificationItem[] = [];
 
-  // 1. Memos
+  // 1. Memos (伝言メモ)
   memos.forEach((m) => {
-    if (isMemoUnread(m, user, readMemoIds)) {
-      const reqMap: Record<string, string> = {
-        phone_called: '電話あり',
-        has_message: '伝言あり',
-        call_again: '再度電話',
-        please_call_back: '折り返し要',
-      };
-      const reqText = reqMap[m.requirementType] || m.requirementText || '伝言';
-      list.push({
-        id: `memo_${m.id}`,
-        type: 'memo',
-        title: `【伝言メモ】${m.fromCompany ? m.fromCompany + ' ' : ''}${m.fromName}様 (${reqText})`,
-        description: m.content || '未対応の伝言メモが届いています。',
-        createdAt: m.createdAt,
-        tab: 'memo',
-        originalData: m,
-      });
+    const isToUser =
+      (m.recipientStatuses && m.recipientStatuses.some((st) => st.userId === user.id)) ||
+      (m.toUsers && m.toUsers.some((u) => u?.id === user.id || u?.name === user.name)) ||
+      (m.toUser && (m.toUser.id === user.id || m.toUser.name === user.name || (m.toUser.loginId && user.loginId && m.toUser.loginId === user.loginId))) ||
+      (m.targetOffices && user.office && m.targetOffices.includes(user.office)) ||
+      (m.targetDivisions && user.division && m.targetDivisions.includes(user.division));
+
+    if (!isToUser) return;
+    // 作成者自身で宛先に自分が含まれていない場合は除外
+    if ((m.createdByUser?.id === user.id || m.senderId === user.id) && (!m.toUsers || !m.toUsers.some((u) => u?.id === user.id))) {
+      return;
+    }
+
+    const unread = isMemoUnread(m, user, readMemoIds);
+    const reqMap: Record<string, string> = {
+      phone_called: '電話あり',
+      has_message: '伝言あり',
+      call_again: '再度電話',
+      please_call_back: '折り返し要',
+    };
+    const reqText = reqMap[m.requirementType] || m.requirementText || '伝言';
+    const isHandled = m.status === 'handled' || (m.recipientStatuses && m.recipientStatuses.some(st => st.userId === user.id && st.isHandled));
+
+    const item: NotificationItem = {
+      id: `memo_${m.id}`,
+      type: 'memo',
+      title: `【伝言メモ】${m.fromCompany ? m.fromCompany + ' ' : ''}${m.fromName}様 (${reqText})`,
+      description: m.content || (isHandled ? '対応完了' : !unread ? '確認済み' : '未対応の伝言メモが届いています。'),
+      createdAt: m.createdAt,
+      tab: 'memo',
+      originalData: m,
+      isRead: !unread,
+    };
+
+    if (unread) {
+      unreadList.push(item);
+    } else {
+      readList.push(item);
     }
   });
 
-  // 2. Workflows
+  // 2. Workflows (申請・ワークフロー)
   applications.forEach((app) => {
-    if (isWorkflowUnread(app, user, readWorkflowIds)) {
-      list.push({
+    const isApprover =
+      app.approver?.id === user.id ||
+      app.approver?.name === user.name ||
+      (app.stepsConfig && app.stepsConfig[(app.currentStepIndex || 1) - 1]?.specificUserId === user.id);
+    const isApplicant = app.applicant?.id === user.id || app.applicant?.name === user.name;
+
+    if (isApprover) {
+      const unread = isWorkflowUnread(app, user, readWorkflowIds);
+      const isApproved = app.status === 'approved';
+      const isRejected = app.status === 'rejected';
+      const item: NotificationItem = {
         id: `wf_${app.id}`,
         type: 'workflow',
-        title: `【承認依頼】${app.title || '申請'}`,
+        title: unread ? `【承認依頼】${app.title || '申請'}` : isApproved ? `【承認済】${app.title || '申請'}` : isRejected ? `【却下済】${app.title || '申請'}` : `【確認済】${app.title || '申請'}`,
         description: `申請者: ${app.applicant?.name || '不明'} - ${app.description || ''}`,
         createdAt: app.createdAt,
         tab: 'workflow',
         originalData: app,
-      });
+        isRead: !unread,
+      };
+      if (unread) unreadList.push(item);
+      else readList.push(item);
+    } else if (isApplicant && (app.status === 'approved' || app.status === 'rejected')) {
+      const unread = !readWorkflowIds.includes(app.id);
+      const isApproved = app.status === 'approved';
+      const item: NotificationItem = {
+        id: `wf_res_${app.id}`,
+        type: 'workflow',
+        title: isApproved ? `【申請承認】${app.title || '申請'}` : `【申請却下】${app.title || '申請'}`,
+        description: `申請「${app.title || ''}」が${isApproved ? '承認' : '却下'}されました。`,
+        createdAt: (app as any).updatedAt || app.createdAt,
+        tab: 'workflow',
+        originalData: app,
+        isRead: !unread,
+      };
+      if (unread) unreadList.push(item);
+      else readList.push(item);
     }
   });
 
-  // 3. Board Topics
+  // 3. Board Topics (掲示板)
   topics.forEach((t) => {
-    if (isTopicUnread(t, user, readTopicIds)) {
-      list.push({
-        id: `board_${t.id}`,
-        type: 'board',
-        title: `【掲示板】${t.title}`,
-        description: `投稿者: ${t.author?.name || '不明'} - ${t.content?.slice(0, 50)}`,
-        createdAt: t.createdAt,
-        tab: 'board',
-        originalData: t,
-      });
+    // 自分で作成したトピックは除外
+    if (t.author && (t.author.id === user.id || t.author.name === user.name)) {
+      return;
     }
+    const userOffice = user?.office || '';
+    const userDivision = user?.division || '';
+    const userDept = user?.department || '';
+
+    const matchOffice =
+      !t.office ||
+      t.office === '全社' ||
+      t.office === userOffice ||
+      (userOffice && t.office.includes(userOffice)) ||
+      (userDept && t.office && userDept.includes(t.office));
+
+    const matchDivision =
+      !t.division ||
+      t.division === '全部署' ||
+      t.division === userDivision ||
+      (userDivision && t.division.includes(userDivision)) ||
+      (userDept && t.division && userDept.includes(t.division)) ||
+      (t.division && userDept && t.division.includes(userDept));
+
+    if (!matchOffice || !matchDivision) return;
+
+    const unread = isTopicUnread(t, user, readTopicIds);
+    const item: NotificationItem = {
+      id: `board_${t.id}`,
+      type: 'board',
+      title: `【掲示板】${t.title}`,
+      description: `投稿者: ${t.author?.name || '不明'} - ${t.content?.slice(0, 50)}`,
+      createdAt: t.createdAt,
+      tab: 'board',
+      originalData: t,
+      isRead: !unread,
+    };
+    if (unread) unreadList.push(item);
+    else readList.push(item);
   });
 
-  // 4. Events
+  // 4. Events (スケジュール)
   events.forEach((e) => {
-    if (isEventUnread(e, user, readEventIds)) {
-      list.push({
-        id: `evt_${e.id}`,
-        type: 'event',
-        title: `【予定】${e.title}`,
-        description: `日時: ${new Date(e.start).toLocaleString('ja-JP', {
-          month: 'numeric',
-          day: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit',
-        })} ${e.location ? `(${e.location})` : ''}`,
-        createdAt: e.start,
-        tab: 'calendar',
-        originalData: e,
-      });
+    const checkUserMatch = (creatorVal: any) => {
+      if (!creatorVal) return false;
+      if (typeof creatorVal === 'object') {
+        if (creatorVal.id && (creatorVal.id === user.id || String(creatorVal.id) === String(user.id))) return true;
+        if (creatorVal._id && (creatorVal._id === user.id || String(creatorVal._id) === String(user.id))) return true;
+        if (creatorVal.name && creatorVal.name === user.name) return true;
+        if (creatorVal.loginId && user.loginId && creatorVal.loginId === user.loginId) return true;
+      } else if (typeof creatorVal === 'string') {
+        if (creatorVal === user.id || creatorVal === String(user.id) || creatorVal === user.name || (user.loginId && creatorVal === user.loginId)) return true;
+      }
+      return false;
+    };
+
+    if (checkUserMatch(e.createdBy)) return;
+    if (checkUserMatch((e as any).createdByUser)) return;
+    if (checkUserMatch((e as any).author)) return;
+    if (checkUserMatch((e as any).creator)) return;
+    if (checkUserMatch((e as any).user)) return;
+
+    const rawCreatorId = (e as any).createdById || (e as any).userId || (e as any).authorId || (e as any).creatorId;
+    if (rawCreatorId && (rawCreatorId === user.id || String(rawCreatorId) === String(user.id))) {
+      return;
     }
+
+    const attendees = e.attendees || [];
+    const isAttendee = attendees.some((a) => a?.id === user.id || a?.name === user.name || (user.loginId && a?.loginId === user.loginId));
+    if (!isAttendee) return;
+    if (attendees.length === 1 && isAttendee) return;
+    if (e.type === 'personal') return;
+    if (e.isGoogleSynced) return;
+
+    const unread = isEventUnread(e, user, readEventIds);
+    const item: NotificationItem = {
+      id: `evt_${e.id}`,
+      type: 'event',
+      title: `【予定】${e.title}`,
+      description: `日時: ${new Date(e.start).toLocaleString('ja-JP', {
+        month: 'numeric',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      })} ${e.location ? `(${e.location})` : ''}`,
+      createdAt: e.start,
+      tab: 'calendar',
+      originalData: e,
+      isRead: !unread,
+    };
+    if (unread) unreadList.push(item);
+    else readList.push(item);
   });
 
-  // 5. Chat Rooms
+  // 5. Chat Rooms (チャット)
   chatRooms.forEach((room) => {
-    if (isChatUnread(room, user, readChatTimestamps)) {
-      const lastMsg = room.messages[room.messages.length - 1];
-      list.push({
-        id: `chat_${room.id}`,
-        type: 'chat',
-        title: `【チャット】${room.name || lastMsg.sender?.name || '新着メッセージ'}`,
-        description: `${lastMsg.sender?.name}: ${lastMsg.content}`,
-        createdAt: lastMsg.createdAt || room.lastUpdated,
-        tab: 'chat',
-        originalData: room,
-      });
-    }
+    const isParticipant = room.participants?.some(
+      (p) => String(p?.id) === String(user.id) || p?.name === user.name
+    );
+    if (!isParticipant) return;
+    if (!room.messages || room.messages.length === 0) return;
+
+    const unread = isChatUnread(room, user, readChatTimestamps);
+    const lastMsg = room.messages[room.messages.length - 1];
+    const item: NotificationItem = {
+      id: `chat_${room.id}`,
+      type: 'chat',
+      title: `【チャット】${room.name || lastMsg.sender?.name || 'メッセージ'}`,
+      description: `${lastMsg.sender?.name || '送信者'}: ${lastMsg.content || ''}`,
+      createdAt: lastMsg.createdAt || room.lastUpdated,
+      tab: 'chat',
+      originalData: room,
+      isRead: !unread,
+    };
+    if (unread) unreadList.push(item);
+    else readList.push(item);
   });
 
   // 6. Reports (週報・保守日報)
   reports.forEach((rep) => {
-    if (isReportUnread(rep, user, readReportIds)) {
-      const isAuthor = rep.author?.id === user.id;
-      const typeLabel = rep.reportType === 'maintenance_daily' || (rep as any).reportType === 'maintenance' ? '保守日報' : '週報';
-      const title = isAuthor 
-        ? `【${typeLabel}確認済】上長が提出内容を確認しました`
-        : `【${typeLabel}提出】${rep.author?.name || '部下'}様より提出がありました`;
-      const description = isAuthor
-        ? (rep.feedbackComment ? `コメント: ${rep.feedbackComment}` : '確認が完了しました。')
-        : `${rep.weekLabel || rep.date || ''} の報告内容を確認してください。`;
+    const isAuthor = rep.author?.id === user.id;
+    const isSupervisor = rep.supervisorId === user.id || rep.supervisor?.id === user.id;
+    const typeLabel = rep.reportType === 'maintenance_daily' || (rep as any).reportType === 'maintenance' ? '保守日報' : '週報';
 
-      list.push({
+    if (isSupervisor && !isAuthor) {
+      const unread = isReportUnread(rep, user, readReportIds);
+      const item: NotificationItem = {
         id: `rep_${rep.id}`,
         type: 'report',
-        title,
-        description,
-        createdAt: rep.reviewedAt || rep.submittedAt || rep.createdAt || new Date().toISOString(),
+        title: `【${typeLabel}${unread ? '提出' : '確認済'}】${rep.author?.name || '部下'}様より提出`,
+        description: `${rep.weekLabel || rep.date || ''} の報告内容です。`,
+        createdAt: rep.submittedAt || rep.createdAt || new Date().toISOString(),
         tab: 'daily_report',
         originalData: rep,
-      });
+        isRead: !unread,
+      };
+      if (unread) unreadList.push(item);
+      else readList.push(item);
+    } else if (isAuthor && rep.status === 'reviewed' && rep.reviewedAt) {
+      const unread = !readReportIds.includes(rep.id);
+      const item: NotificationItem = {
+        id: `rep_rev_${rep.id}`,
+        type: 'report',
+        title: `【${typeLabel}確認済】上長が提出内容を確認しました`,
+        description: rep.feedbackComment ? `コメント: ${rep.feedbackComment}` : '確認が完了しました。',
+        createdAt: rep.reviewedAt || new Date().toISOString(),
+        tab: 'daily_report',
+        originalData: rep,
+        isRead: !unread,
+      };
+      if (unread) unreadList.push(item);
+      else readList.push(item);
     }
   });
 
   // 7. Safety Confirmation (安否確認)
   safetyEvents.forEach((sev) => {
-    if (isSafetyEventUnread(sev, user, safetyResponses, userRespondedSafetyEventIds)) {
-      list.push({
-        id: `safety_${sev.id}`,
-        type: 'safety',
-        title: `【緊急安否確認】${sev.title || '安否状況の回答をお願いします'}`,
-        description: sev.message || '至急、安全状況・出社可否をご回答ください。',
-        createdAt: sev.createdAt || new Date().toISOString(),
-        tab: 'safety_confirmation',
-        originalData: sev,
-      });
+    const userOffice = user.office || '';
+    const userDivision = user.division || (user as any).department || '';
+    const targetScope = (sev as any).targetScope || 'all';
+    const targetOffices = (sev as any).targetOffices || [];
+    const targetDivisions = (sev as any).targetDivisions || [];
+    const targetOffice = (sev as any).targetOffice;
+    const targetDivision = (sev as any).targetDivision;
+
+    let inScope = true;
+    if (targetScope === 'offices' && targetOffices.length > 0) {
+      if (!targetOffices.includes(userOffice)) inScope = false;
+    } else if (targetScope === 'divisions' && targetDivisions.length > 0) {
+      if (!targetDivisions.includes(userDivision)) inScope = false;
+    } else {
+      if (targetOffice && targetOffice !== '全社' && targetOffice !== userOffice) inScope = false;
+      if (targetDivision && targetDivision !== '全部署' && targetDivision !== userDivision) inScope = false;
     }
+    if (!inScope) return;
+
+    const unread = isSafetyEventUnread(sev, user, safetyResponses, userRespondedSafetyEventIds);
+    const item: NotificationItem = {
+      id: `safety_${sev.id}`,
+      type: 'safety',
+      title: unread ? `【緊急安否確認】${sev.title || '安否状況の回答をお願いします'}` : `【安否確認済】${sev.title || '回答完了'}`,
+      description: sev.message || (unread ? '至急、安全状況・出社可否をご回答ください。' : '安否状況の確認が完了しています。'),
+      createdAt: sev.createdAt || new Date().toISOString(),
+      tab: 'safety_confirmation',
+      originalData: sev,
+      isRead: !unread,
+    };
+    if (unread) unreadList.push(item);
+    else readList.push(item);
   });
 
-  return list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  // 未読は最新順
+  unreadList.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  // 既読履歴も最新順にして上限数で切り詰め
+  readList.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const cappedReadList = readList.slice(0, maxReadHistory);
+
+  // 未確認が上、確認済み履歴が下に並ぶ構成
+  return [...unreadList, ...cappedReadList];
+}
+
+// -------------------------------------------------------------
+// 統一未読通知アイテム一覧取得関数（後方互換用: 未読のみ返却）
+// -------------------------------------------------------------
+export function getUnreadNotifications(
+  params: Parameters<typeof getAllNotifications>[0]
+): NotificationItem[] {
+  return getAllNotifications(params).filter((n) => !n.isRead);
 }

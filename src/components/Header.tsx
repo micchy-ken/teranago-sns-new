@@ -7,6 +7,7 @@ import { expandRecurringEvents } from '../utils/recurrenceUtils';
 import { ColorTheme, THEME_OPTIONS, getSavedTheme, applyColorTheme } from '../utils/theme';
 import { MiniNotificationMode } from './MiniNotificationMode';
 import {
+  getAllNotifications,
   getUnreadNotifications,
   getReadEventIds,
   markEventAsRead,
@@ -147,6 +148,7 @@ export function Header({
   const [isOpen, setIsOpen] = useState(false);
   const [isMiniNotificationOpen, setIsMiniNotificationOpen] = useState(false);
   const [filterType, setFilterType] = useState<'all' | 'memo' | 'workflow' | 'board' | 'event' | 'chat' | 'report' | 'safety'>('all');
+  const [readFilter, setReadFilter] = useState<'all' | 'unread'>('all');
   const [readEventIds, setReadEventIds] = useState<string[]>(() => getReadEventIds(currentUser?.id));
   const [readTopicIds, setReadTopicIds] = useState<string[]>(() => getReadTopicIds(currentUser?.id));
   const [readChatTimestamps, setReadChatTimestamps] = useState<Record<string, string>>(() => getReadChatTimestamps(currentUser?.id));
@@ -471,9 +473,9 @@ export function Header({
     };
   }, [isOpen]);
 
-  // Unified Notification Items
+  // Unified Notification Items (未確認＋確認済み履歴)
   const allNotifications = useMemo<NotificationItem[]>(() => {
-    return getUnreadNotifications({
+    return getAllNotifications({
       user: currentUser,
       memos,
       applications,
@@ -503,12 +505,18 @@ export function Header({
   const reportNotifications = useMemo(() => allNotifications.filter((n) => n.type === 'report'), [allNotifications]);
   const safetyNotifications = useMemo(() => allNotifications.filter((n) => n.type === 'safety'), [allNotifications]);
 
-  const filteredNotifications = useMemo<NotificationItem[]>(() => {
-    if (filterType === 'all') return allNotifications;
-    return allNotifications.filter((n) => n.type === filterType);
-  }, [allNotifications, filterType]);
+  const unreadCount = useMemo(() => allNotifications.filter((n) => !n.isRead).length, [allNotifications]);
 
-  const unreadCount = allNotifications.length;
+  const filteredNotifications = useMemo<NotificationItem[]>(() => {
+    let list = allNotifications;
+    if (filterType !== 'all') {
+      list = list.filter((n) => n.type === filterType);
+    }
+    if (readFilter === 'unread') {
+      list = list.filter((n) => !n.isRead);
+    }
+    return list;
+  }, [allNotifications, filterType, readFilter]);
 
   const handleNotificationClick = (item: NotificationItem) => {
     setIsOpen(false);
@@ -610,6 +618,7 @@ export function Header({
 
   const handleMarkAllAsRead = () => {
     allNotifications.forEach((item) => {
+      if (item.isRead) return;
       if (item.type === 'memo' && item.originalData) markMemoAsRead(currentUser?.id, item.originalData.id);
       if (item.type === 'workflow' && item.originalData) markWorkflowAsRead(currentUser?.id, item.originalData.id);
       if (item.type === 'board' && item.originalData) markTopicAsRead(currentUser?.id, item.originalData.id);
@@ -1147,7 +1156,7 @@ export function Header({
                   <div className="flex items-center gap-2">
                     <span className="font-bold text-slate-800 text-sm">通知</span>
                     {unreadCount > 0 ? (
-                      <span className="px-2 py-0.5 text-xs font-bold bg-indigo-100 text-indigo-700 rounded-full">
+                      <span className="px-2 py-0.5 text-xs font-bold bg-red-100 text-red-700 rounded-full animate-pulse">
                         {unreadCount}件の未読
                       </span>
                     ) : (
@@ -1173,11 +1182,11 @@ export function Header({
                       <button
                         type="button"
                         onClick={handleMarkAllAsRead}
-                        className="flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 px-2 py-1 rounded-lg transition-colors cursor-pointer"
-                        title="すべて既読にする"
+                        className="flex items-center gap-1 text-xs font-bold text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 px-2 py-1 rounded-lg transition-colors cursor-pointer border border-indigo-200/60"
+                        title="すべての未読通知を既読にする"
                       >
-                        <CheckCheck className="w-3.5 h-3.5" />
-                        すべて既読
+                        <CheckCheck className="w-3.5 h-3.5 text-indigo-600" />
+                        <span>すべて既読</span>
                       </button>
                     )}
                     <button
@@ -1188,6 +1197,48 @@ export function Header({
                       <X className="w-4 h-4" />
                     </button>
                   </div>
+                </div>
+
+                {/* Read / Unread Status Filter Toggle Bar */}
+                <div className="flex items-center justify-between px-3 py-1.5 bg-slate-100/70 border-b border-slate-200/80 text-xs">
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setReadFilter('all')}
+                      className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
+                        readFilter === 'all'
+                          ? 'bg-slate-800 text-white shadow-2xs'
+                          : 'text-slate-600 hover:bg-white hover:text-slate-800'
+                      }`}
+                    >
+                      すべて (履歴含む: {allNotifications.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setReadFilter('unread')}
+                      className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                        readFilter === 'unread'
+                          ? 'bg-indigo-600 text-white shadow-2xs'
+                          : 'text-slate-600 hover:bg-white hover:text-slate-800'
+                      }`}
+                    >
+                      <span>未読のみ</span>
+                      {unreadCount > 0 ? (
+                        <span className={`px-1.5 py-0.2 text-[10px] rounded-full font-bold ${
+                          readFilter === 'unread' ? 'bg-white text-indigo-700' : 'bg-red-500 text-white'
+                        }`}>
+                          {unreadCount}
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-slate-400">0</span>
+                      )}
+                    </button>
+                  </div>
+                  {readFilter === 'all' && allNotifications.some((n) => n.isRead) && (
+                    <span className="text-[10px] text-slate-400">
+                      ※確認済はグレイ表示
+                    </span>
+                  )}
                 </div>
 
                 {/* Categories Filter Bar */}
@@ -1201,7 +1252,7 @@ export function Header({
                         : 'text-slate-600 hover:bg-slate-100'
                     }`}
                   >
-                    すべて ({allNotifications.length})
+                    すべて ({filteredNotifications.length})
                   </button>
                   {memoNotifications.length > 0 && (
                     <button
@@ -1299,44 +1350,82 @@ export function Header({
                 {/* Items List */}
                 <div className="max-h-[380px] overflow-y-auto divide-y divide-slate-100">
                   {filteredNotifications.length > 0 ? (
-                    filteredNotifications.map((item) => (
-                      <div
-                        key={item.id}
-                        onClick={() => handleNotificationClick(item)}
-                        className="p-3.5 hover:bg-indigo-50/50 cursor-pointer transition-colors flex items-start gap-3 group relative"
-                      >
+                    filteredNotifications.map((item) => {
+                      const isRead = !!item.isRead;
+                      return (
                         <div
-                          className={`p-2 rounded-xl shrink-0 border ${getItemBg(
-                            item.type
-                          )} flex items-center justify-center mt-0.5`}
+                          key={item.id}
+                          onClick={() => handleNotificationClick(item)}
+                          className={`p-3.5 cursor-pointer transition-colors flex items-start gap-3 group relative border-b border-slate-100 ${
+                            isRead
+                              ? 'bg-slate-50/70 hover:bg-slate-100/70 opacity-75'
+                              : 'bg-white hover:bg-indigo-50/60 shadow-2xs'
+                          }`}
                         >
-                          {getItemIcon(item.type)}
-                        </div>
-                        <div className="flex-1 min-w-0 pr-2">
-                          <div className="flex items-center justify-between gap-2 mb-1">
-                            <h4 className="text-xs sm:text-sm font-bold text-slate-800 line-clamp-1 group-hover:text-indigo-600 transition-colors">
-                              {item.title}
-                            </h4>
-                            <span className="text-[10px] text-slate-400 whitespace-nowrap shrink-0">
-                              {formatRelativeTime(item.createdAt)}
-                            </span>
+                          <div
+                            className={`p-2 rounded-xl shrink-0 border flex items-center justify-center mt-0.5 ${
+                              isRead
+                                ? 'bg-slate-100 border-slate-200/90 text-slate-400'
+                                : getItemBg(item.type)
+                            }`}
+                          >
+                            {getItemIcon(item.type)}
                           </div>
-                          <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed">
-                            {item.description}
-                          </p>
+                          <div className="flex-1 min-w-0 pr-2">
+                            <div className="flex items-center justify-between gap-2 mb-1">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                {isRead ? (
+                                  <span className="text-[10px] text-slate-500 bg-slate-200/80 px-1.5 py-0.2 rounded font-medium inline-flex items-center gap-0.5 shrink-0">
+                                    <Check className="w-2.5 h-2.5 text-slate-400" />
+                                    確認済
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] text-red-700 bg-red-100 px-1.5 py-0.2 rounded font-bold inline-flex items-center gap-0.5 shrink-0">
+                                    未確認
+                                  </span>
+                                )}
+                                <h4
+                                  className={`text-xs sm:text-sm line-clamp-1 transition-colors ${
+                                    isRead
+                                      ? 'font-medium text-slate-500'
+                                      : 'font-bold text-slate-900 group-hover:text-indigo-600'
+                                  }`}
+                                >
+                                  {item.title}
+                                </h4>
+                              </div>
+                              <span className="text-[10px] text-slate-400 whitespace-nowrap shrink-0">
+                                {formatRelativeTime(item.createdAt)}
+                              </span>
+                            </div>
+                            <p
+                              className={`text-xs line-clamp-2 leading-relaxed ${
+                                isRead ? 'text-slate-400' : 'text-slate-600'
+                              }`}
+                            >
+                              {item.description}
+                            </p>
+                          </div>
+                          <div className="shrink-0 self-center flex items-center gap-1">
+                            {!isRead && (
+                              <span className="w-2 h-2 rounded-full bg-red-500 ring-2 ring-red-200" title="未読" />
+                            )}
+                            <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-500 transition-colors" />
+                          </div>
                         </div>
-                        <div className="shrink-0 self-center text-slate-300 group-hover:text-indigo-500 transition-colors">
-                          <ChevronRight className="w-4 h-4" />
-                        </div>
-                      </div>
-                    ))
+                      );
+                    })
                   ) : (
                     <div className="p-8 text-center text-slate-400 flex flex-col items-center justify-center gap-2">
                       <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center text-slate-300 mb-1">
                         <Bell className="w-6 h-6" />
                       </div>
-                      <p className="text-sm font-semibold text-slate-600">未読の通知はありません</p>
-                      <p className="text-xs text-slate-400">すべての通知を確認済みです</p>
+                      <p className="text-sm font-semibold text-slate-600">
+                        {readFilter === 'unread' ? '未読の通知はありません' : '通知はありません'}
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        {readFilter === 'unread' ? 'すべての通知を確認済みです' : '新着通知や履歴はここに表示されます'}
+                      </p>
                     </div>
                   )}
                 </div>
