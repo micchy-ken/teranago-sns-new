@@ -1,5 +1,6 @@
 import { User, Memo, WorkflowApplication, BoardTopic, CalendarEvent, ChatRoom, DailyReport, SafetyConfirmationEvent, SafetyConfirmationResponse } from '../types';
 import { API_BASE_URL } from '../config/api';
+import { isEventVisibleToUser } from './eventVisibility';
 
 export interface NotificationItem {
   id: string;
@@ -890,6 +891,9 @@ export function getAllNotifications({
 
   // 4. Events (スケジュール)
   events.forEach((e) => {
+    // 他人から隠す設定の非公開予定は、作成者または参加者以外には通知しない
+    if (!isEventVisibleToUser(e, user)) return;
+
     const checkUserMatch = (creatorVal: any) => {
       if (!creatorVal) return false;
       if (typeof creatorVal === 'object') {

@@ -22,13 +22,15 @@ import {
   Share2,
   UserCheck,
   MessageSquare,
-  Paperclip
+  Paperclip,
+  Lock
 } from 'lucide-react';
 import { formatRelativeTime, formatEventScheduleBadge } from '../utils';
 import { API_BASE_URL } from '../config/api';
 import { renderContentWithLinks } from '../utils/renderContentWithLinks';
 import { buildAppUrl, copyTextToClipboard } from '../utils/urlParams';
 import { FilePreviewModal } from './FilePreviewModal';
+import { isEventVisibleToUser } from '../utils/eventVisibility';
 
 interface TimelineProps {
   posts?: Post[];
@@ -116,6 +118,11 @@ export function Timeline({
     // 1. スケジュールイベント（登録日時・更新日時順で表示）
     if (showEvents && events && Array.isArray(events)) {
       events.forEach((e) => {
+        // 「他人から隠す」(isPrivate または isSecret) の非公開予定は、作成者または参加者以外には表示しない
+        if (!isEventVisibleToUser(e, currentUser)) {
+          return;
+        }
+
         // イベントの登録・更新日時を正確に判定
         const raw = e as any;
         let registeredDate = raw.updatedAt || raw.createdAt || raw.draftSavedAt;
@@ -225,7 +232,7 @@ export function Timeline({
 
       return true;
     });
-  }, [events, topics, showEvents, showTopics, selectedOffice, selectedDivision, selectedTag, searchQuery]);
+  }, [events, topics, showEvents, showTopics, selectedOffice, selectedDivision, selectedTag, searchQuery, currentUser]);
 
   return (
     <div className="flex-1 space-y-6 min-w-0">
@@ -380,6 +387,12 @@ export function Timeline({
                           <Calendar className="w-3 h-3 text-amber-600" />
                           予定
                         </span>
+                        {(event.isPrivate || (event as any).isSecret) && (
+                          <span className="px-1.5 py-0.5 bg-rose-50 text-rose-700 font-bold text-[10px] rounded shrink-0 flex items-center gap-0.5 border border-rose-200" title="他人から隠す（非公開設定）">
+                            <Lock className="w-2.5 h-2.5 text-rose-600" />
+                            非公開
+                          </span>
+                        )}
                         {(eventUser || isInspectionEvent) && (
                           <div className="flex items-center gap-1.5 min-w-0">
                             {isInspectionEvent ? (
@@ -541,6 +554,12 @@ export function Timeline({
                         {event.targetYearMonth && (
                           <span className="px-1.5 py-0.5 bg-slate-100 text-slate-600 text-[10px] font-bold rounded">
                             {event.targetYearMonth}度
+                          </span>
+                        )}
+                        {(event.isPrivate || (event as any).isSecret) && (
+                          <span className="px-2 py-0.5 text-[10px] font-bold rounded flex items-center gap-1 bg-rose-50 text-rose-700 border border-rose-200">
+                            <Lock className="w-3 h-3 text-rose-600" />
+                            他人から隠す（非公開）
                           </span>
                         )}
                       </div>

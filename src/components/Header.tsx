@@ -27,6 +27,7 @@ import {
   NotificationItem,
 } from '../utils/notifications';
 import { triggerOpenUserModal } from '../utils/userModal';
+import { isEventVisibleToUser } from '../utils/eventVisibility';
 
 export interface GlobalSearchResultItem {
   id: string;
@@ -237,6 +238,11 @@ export function Header({
     const expandedSearchEvents = expandRecurringEvents(events, searchStart, searchEnd);
 
     expandedSearchEvents.forEach((evt) => {
+      // 「他人から隠す」(isPrivate または isSecret) の非公開予定は、作成者または参加者以外には検索結果に表示しない
+      if (!isEventVisibleToUser(evt, currentUser)) {
+        return;
+      }
+
       const matchTitle = evt.title?.toLowerCase().includes(q);
       const matchLocation = evt.location?.toLowerCase().includes(q);
       const matchMemo = evt.memo?.toLowerCase().includes(q);
@@ -244,13 +250,14 @@ export function Header({
       if (matchTitle || matchLocation || matchMemo) {
         const localDate = formatLocalDateStr(evt.start);
         const localDateTime = formatLocalDateTimeStr(evt.start, evt.isAllDay);
+        const isSecret = Boolean(evt.isPrivate || (evt as any).isSecret);
         results.push({
           id: `event-${evt.id}`,
           type: 'event',
           typeName: 'スケジュール',
-          title: evt.title,
+          title: `${isSecret ? '🔒 ' : ''}${evt.title}`,
           snippet: `${localDateTime}${evt.location ? ` @ ${evt.location}` : ''}${evt.memo ? ` - ${evt.memo.slice(0, 60)}` : ''}`,
-          badgeText: evt.type || '予定',
+          badgeText: isSecret ? '非公開' : (evt.type || '予定'),
           dateStr: localDate,
           tab: 'calendar',
           originalData: evt,
@@ -373,7 +380,7 @@ export function Header({
     }
 
     return results;
-  }, [searchQuery, topics, events, memos, applications, chatRooms, posts, allUsers]);
+  }, [searchQuery, topics, events, memos, applications, chatRooms, posts, allUsers, currentUser]);
 
   const filteredSearchResults = useMemo(() => {
     if (searchCategoryFilter === 'all') return searchResults;
