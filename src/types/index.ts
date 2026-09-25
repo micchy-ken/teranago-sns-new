@@ -191,8 +191,13 @@ export interface ItemMaster {
   name: string;         // 品名
   category?: string;    // 分類・カテゴリ
   defaultUnitPrice?: number; // 標準単価
+  unitPrice?: number;   // 単価（後方互換・DBカラム差異吸収用）
   unit?: string;        // 単位（個、式、本など）
   code?: string;        // 品名コード
+  description?: string; // 備考・説明
+  spec?: string;        // 仕様・規格
+  minStock?: number;    // 最小在庫
+  currentStock?: number;// 現在在庫
 }
 
 export interface WorkflowApplication {

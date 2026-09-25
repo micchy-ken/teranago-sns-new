@@ -21,16 +21,40 @@ const configs = {
   },
   'item-masters': {
     t1: 'dbo.ItemMasters', t2: 'dbo.ItemMasters', prefix: 'itm',
-    cols: (b) => ({
-      code: b.code, name: b.name, category: b.category, unit: b.unit,
-      unitPrice: b.unitPrice || b.price || 0, description: b.description, spec: b.spec,
-      minStock: b.minStock || 0, currentStock: b.currentStock || 0
-    }),
-    mapGet: (r) => (r.recordset || []).map(row => ({
-      id: row.id, code: row.code || '', name: row.name || '', category: row.category || '',
-      unit: row.unit || '', unitPrice: row.unitPrice || row.price || 0, description: row.description || '',
-      spec: row.spec || '', minStock: row.minStock || 0, currentStock: row.currentStock || 0
-    }))
+    cols: (b) => {
+      const priceVal = b.defaultUnitPrice ?? b.unitPrice ?? b.price ?? 0;
+      const price = Number(priceVal) || 0;
+      return {
+        code: b.code || '',
+        name: b.name || '',
+        category: b.category || '',
+        unit: b.unit || '',
+        defaultUnitPrice: price,
+        unitPrice: price,
+        price: price,
+        description: b.description || '',
+        spec: b.spec || '',
+        minStock: Number(b.minStock || 0),
+        currentStock: Number(b.currentStock || 0)
+      };
+    },
+    mapGet: (r) => (r.recordset || []).map(row => {
+      const priceVal = row.defaultUnitPrice ?? row.DefaultUnitPrice ?? row.unitPrice ?? row.UnitPrice ?? row.price ?? row.Price ?? 0;
+      const numPrice = Number(priceVal) || 0;
+      return {
+        id: row.id,
+        code: row.code || row.Code || '',
+        name: row.name || row.Name || '',
+        category: row.category || row.Category || '',
+        unit: row.unit || row.Unit || '',
+        defaultUnitPrice: numPrice,
+        unitPrice: numPrice,
+        description: row.description || row.Description || '',
+        spec: row.spec || row.Spec || '',
+        minStock: Number(row.minStock ?? row.MinStock ?? 0),
+        currentStock: Number(row.currentStock ?? row.CurrentStock ?? 0)
+      };
+    })
   },
   'approval-flows': {
     t1: 'dbo.ApprovalFlows', t2: 'dbo.ApprovalFlows', prefix: 'flow',
@@ -46,32 +70,57 @@ const configs = {
   }
 };
 
-// Generic DB Query Builder
+// Helper to inspect actual table columns in SQL Server to avoid "Invalid column name" errors
+async function getTableColumns(pool, tableName) {
+  try {
+    const rawName = tableName.replace(/^dbo\./i, '').replace(/[\[\]]/g, '');
+    const res = await pool.request()
+      .input('tableName', sql.VarChar, rawName)
+      .query(`SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = @tableName`);
+    if (res.recordset && res.recordset.length > 0) {
+      return new Set(res.recordset.map(r => r.COLUMN_NAME.toLowerCase()));
+    }
+  } catch (_) {}
+  return null;
+}
+
+// Generic DB Query Builder with Column Filtering
 async function upsertRecord(pool, t1, t2, id, data) {
-  const keys = Object.keys(data);
-  const sets = keys.map(k => `${k} = @${k}`).join(', ');
-  const columns = ['id', ...keys].join(', ');
-  const values = ['@id', ...keys.map(k => `@${k}`)].join(', ');
+  const t1Cols = await getTableColumns(pool, t1);
+  const t2Cols = (t1 === t2) ? t1Cols : await getTableColumns(pool, t2);
 
-  const sqlQuery = `
-    IF OBJECT_ID('${t1}', 'U') IS NOT NULL
-    BEGIN
-      IF EXISTS (SELECT 1 FROM ${t1} WHERE id = @id) UPDATE ${t1} SET ${sets} WHERE id = @id;
-      ELSE INSERT INTO ${t1} (${columns}) VALUES (${values});
-    END
-    IF OBJECT_ID('${t2}', 'U') IS NOT NULL AND '${t1}' <> '${t2}'
-    BEGIN
-      IF EXISTS (SELECT 1 FROM ${t2} WHERE id = @id) UPDATE ${t2} SET ${sets} WHERE id = @id;
-      ELSE INSERT INTO ${t2} (${columns}) VALUES (${values});
-    END`;
+  const executeUpsertForTable = async (table, colsSet) => {
+    let filteredEntries = Object.entries(data);
+    if (colsSet && colsSet.size > 0) {
+      filteredEntries = filteredEntries.filter(([k]) => colsSet.has(k.toLowerCase()));
+    }
+    if (filteredEntries.length === 0) return;
 
-  const req = pool.request().input('id', sql.VarChar, id);
-  for (const [k, v] of Object.entries(data)) {
-    if (typeof v === 'number') req.input(k, Number.isInteger(v) ? sql.Int : sql.Decimal(18, 2), v);
-    else if (typeof v === 'boolean') req.input(k, sql.Bit, v ? 1 : 0);
-    else req.input(k, k.toLowerCase().includes('json') ? sql.NVarChar(sql.MAX) : sql.NVarChar, v || '');
+    const keys = filteredEntries.map(([k]) => k);
+    const sets = keys.map(k => `${k} = @${k}`).join(', ');
+    const columns = ['id', ...keys].join(', ');
+    const values = ['@id', ...keys.map(k => `@${k}`)].join(', ');
+
+    const sqlQuery = `
+      IF OBJECT_ID('${table}', 'U') IS NOT NULL
+      BEGIN
+        IF EXISTS (SELECT 1 FROM ${table} WHERE id = @id) UPDATE ${table} SET ${sets} WHERE id = @id;
+        ELSE INSERT INTO ${table} (${columns}) VALUES (${values});
+      END`;
+
+    const req = pool.request().input('id', sql.VarChar, id);
+    for (const [k, v] of filteredEntries) {
+      if (typeof v === 'number') req.input(k, Number.isInteger(v) ? sql.Int : sql.Decimal(18, 2), v);
+      else if (typeof v === 'boolean') req.input(k, sql.Bit, v ? 1 : 0);
+      else req.input(k, k.toLowerCase().includes('json') ? sql.NVarChar(sql.MAX) : sql.NVarChar, v || '');
+    }
+    await req.query(sqlQuery);
+  };
+
+  await executeUpsertForTable(t1, t1Cols);
+  if (t2 && t1 !== t2) {
+    await executeUpsertForTable(t2, t2Cols);
   }
-  await req.query(sqlQuery);
 }
 
 // Generate Router Endpoints

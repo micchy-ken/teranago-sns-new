@@ -122,7 +122,22 @@ export function useMasterManagement(
       if (itemRes.ok) {
         const data = await itemRes.json();
         if (Array.isArray(data)) {
-          setItemMasters(data);
+          const normalized: ItemMaster[] = data.map((item: any) => {
+            const rawPrice = item.defaultUnitPrice !== undefined && item.defaultUnitPrice !== null && item.defaultUnitPrice !== ''
+              ? item.defaultUnitPrice
+              : item.unitPrice !== undefined && item.unitPrice !== null && item.unitPrice !== ''
+              ? item.unitPrice
+              : item.price !== undefined && item.price !== null && item.price !== ''
+              ? item.price
+              : undefined;
+            const price = rawPrice !== undefined ? Number(rawPrice) : undefined;
+            return {
+              ...item,
+              defaultUnitPrice: price,
+              unitPrice: price,
+            };
+          });
+          setItemMasters(normalized);
           onClearError?.('items');
         }
       } else {
@@ -345,8 +360,12 @@ export function useMasterManagement(
 
   // 品目マスタ操作
   const handleAddItemMaster = async (item: Omit<ItemMaster, 'id'>) => {
+    const rawPrice = item.defaultUnitPrice ?? item.unitPrice;
+    const price = rawPrice !== undefined && rawPrice !== null ? Number(rawPrice) : undefined;
     const newItem: ItemMaster = {
       ...item,
+      defaultUnitPrice: price,
+      unitPrice: price,
       id: `itm_${Date.now()}`
     };
     setItemMasters(prev => [...prev, newItem]);
@@ -361,12 +380,19 @@ export function useMasterManagement(
   };
 
   const handleUpdateItemMaster = async (updatedItem: ItemMaster) => {
-    setItemMasters(prev => prev.map(i => i.id === updatedItem.id ? updatedItem : i));
+    const rawPrice = updatedItem.defaultUnitPrice ?? updatedItem.unitPrice;
+    const price = rawPrice !== undefined && rawPrice !== null ? Number(rawPrice) : undefined;
+    const normalizedItem: ItemMaster = {
+      ...updatedItem,
+      defaultUnitPrice: price,
+      unitPrice: price,
+    };
+    setItemMasters(prev => prev.map(i => i.id === normalizedItem.id ? normalizedItem : i));
     try {
-      await fetch(`${API_BASE_URL}/masters/item-masters/${updatedItem.id}`, {
+      await fetch(`${API_BASE_URL}/masters/item-masters/${normalizedItem.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedItem)
+        body: JSON.stringify(normalizedItem)
       });
       await refetchMasters();
     } catch (e) { console.error('Failed to update item master:', e); }

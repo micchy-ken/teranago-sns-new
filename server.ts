@@ -5289,8 +5289,8 @@ async function startServer() {
   ];
 
   const defaultItemMasters = [
-    { id: 'itm-1', code: 'EQ-001', name: '4K 27インチモニター', category: '開発備品', unit: '台', unitPrice: 45000, description: '作業用ディスプレイ', spec: '27inch 4K', minStock: 2, currentStock: 5 },
-    { id: 'itm-2', code: 'EQ-002', name: 'ノートPC Core-i7', category: 'OA機器', unit: '台', unitPrice: 180000, description: '標準支給PC', spec: 'Core-i7 16GB', minStock: 3, currentStock: 8 },
+    { id: 'itm-1', code: 'EQ-001', name: '4K 27インチモニター', category: '開発備品', unit: '台', defaultUnitPrice: 45000, unitPrice: 45000, description: '作業用ディスプレイ', spec: '27inch 4K', minStock: 2, currentStock: 5 },
+    { id: 'itm-2', code: 'EQ-002', name: 'ノートPC Core-i7', category: 'OA機器', unit: '台', defaultUnitPrice: 180000, unitPrice: 180000, description: '標準支給PC', spec: 'Core-i7 16GB', minStock: 3, currentStock: 8 },
   ];
 
   const defaultApprovalFlows = [
@@ -5429,14 +5429,40 @@ async function startServer() {
 
   // 品目マスター (ItemMasters)
   app.get(['/api/masters/item-masters', '/api/masters/item-masters/', '/api/item-masters', '/api/item-masters/'], (req, res) => {
-    res.json(loadJsonMaster(itemMastersFilePath, defaultItemMasters));
+    let list = loadJsonMaster(itemMastersFilePath, defaultItemMasters);
+    // If list is empty or using defaults, check if data/masters_custom.json has itemMasters
+    const customPath = path.join(dataDir, 'masters_custom.json');
+    if ((!list || list.length === 0 || JSON.stringify(list) === JSON.stringify(defaultItemMasters)) && fs.existsSync(customPath)) {
+      try {
+        const custom = JSON.parse(fs.readFileSync(customPath, 'utf8'));
+        if (Array.isArray(custom.itemMasters) && custom.itemMasters.length > 0) {
+          list = custom.itemMasters;
+          saveJsonMaster(itemMastersFilePath, list);
+        }
+      } catch (_) {}
+    }
+    const normalized = (list || []).map((item: any) => {
+      const price = Number(item.defaultUnitPrice ?? item.unitPrice ?? item.price ?? 0);
+      return {
+        ...item,
+        defaultUnitPrice: price,
+        unitPrice: price,
+      };
+    });
+    res.json(normalized);
   });
 
   app.post(['/api/masters/item-masters', '/api/masters/item-masters/', '/api/item-masters', '/api/item-masters/'], (req, res) => {
     const list = loadJsonMaster(itemMastersFilePath, defaultItemMasters);
     const item = req.body || {};
     const id = item.id || `itm-${Date.now()}`;
-    const newItem = { ...item, id };
+    const price = Number(item.defaultUnitPrice ?? item.unitPrice ?? item.price ?? 0);
+    const newItem = {
+      ...item,
+      id,
+      defaultUnitPrice: price,
+      unitPrice: price,
+    };
     const idx = list.findIndex((i: any) => i.id === id);
     if (idx >= 0) list[idx] = newItem; else list.push(newItem);
     saveJsonMaster(itemMastersFilePath, list);
@@ -5447,7 +5473,13 @@ async function startServer() {
     const list = loadJsonMaster(itemMastersFilePath, defaultItemMasters);
     const id = req.params.id;
     const item = req.body || {};
-    const newItem = { ...item, id };
+    const price = Number(item.defaultUnitPrice ?? item.unitPrice ?? item.price ?? 0);
+    const newItem = {
+      ...item,
+      id,
+      defaultUnitPrice: price,
+      unitPrice: price,
+    };
     const idx = list.findIndex((i: any) => i.id === id);
     if (idx >= 0) list[idx] = newItem; else list.push(newItem);
     saveJsonMaster(itemMastersFilePath, list);

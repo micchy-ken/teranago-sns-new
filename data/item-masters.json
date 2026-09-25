@@ -1,0 +1,47 @@
+[
+  {
+    "id": "itm_1",
+    "name": "ノートPC Core i7/16GB",
+    "category": "IT機器",
+    "defaultUnitPrice": 180000,
+    "unitPrice": 180000,
+    "unit": "台",
+    "code": "PC-001"
+  },
+  {
+    "id": "itm_2",
+    "name": "27インチ 4Kモニター",
+    "category": "IT機器",
+    "defaultUnitPrice": 45000,
+    "unitPrice": 45000,
+    "unit": "台",
+    "code": "MON-001"
+  },
+  {
+    "id": "itm_3",
+    "name": "オフィスチェア エルゴノミクス",
+    "category": "オフィス用品",
+    "defaultUnitPrice": 35000,
+    "unitPrice": 35000,
+    "unit": "脚",
+    "code": "CHR-001"
+  },
+  {
+    "id": "itm_4",
+    "name": "コピー用紙 A4 (500枚x5冊)",
+    "category": "消耗品",
+    "defaultUnitPrice": 3200,
+    "unitPrice": 3200,
+    "unit": "箱",
+    "code": "PPR-A4"
+  },
+  {
+    "id": "ite-1785396147281",
+    "name": "テスト品名",
+    "category": "テストカテゴリ",
+    "defaultUnitPrice": 1000,
+    "unitPrice": 1000,
+    "unit": "個",
+    "code": "TST-01"
+  }
+]

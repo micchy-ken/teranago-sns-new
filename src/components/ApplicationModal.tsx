@@ -273,9 +273,10 @@ export function ApplicationModal({
       // 購入申請 (purchase_request) の場合は品名マスターとの自動連動を行わず、完全手入力とする
       if (type !== 'purchase_request') {
         const matchedMaster = itemMasters.find(m => m.name === nameVal);
-        if (matchedMaster && matchedMaster.defaultUnitPrice !== undefined) {
-          targetItem.unitPrice = matchedMaster.defaultUnitPrice;
-          targetItem.amount = (Number(targetItem.quantity) || 1) * matchedMaster.defaultUnitPrice;
+        const masterPrice = matchedMaster?.defaultUnitPrice ?? matchedMaster?.unitPrice;
+        if (matchedMaster && masterPrice !== undefined && masterPrice !== null) {
+          targetItem.unitPrice = Number(masterPrice);
+          targetItem.amount = (Number(targetItem.quantity) || 1) * Number(masterPrice);
         } else {
           const p = Number(targetItem.unitPrice) || 0;
           targetItem.amount = (Number(targetItem.quantity) || 0) * p;
@@ -614,11 +615,14 @@ export function ApplicationModal({
     >
       {/* 品名マスタのサジェストリスト */}
       <datalist id="item-master-list">
-        {itemMasters.map(m => (
-          <option key={m.id} value={m.name}>
-            {m.code ? `[品番: ${m.code}] ` : ''}{m.category ? `[${m.category}] ` : ''}{m.defaultUnitPrice !== undefined ? `単価: ¥${m.defaultUnitPrice.toLocaleString()}` : ''}
-          </option>
-        ))}
+        {itemMasters.map(m => {
+          const p = m.defaultUnitPrice ?? m.unitPrice;
+          return (
+            <option key={m.id} value={m.name}>
+              {m.code ? `[品番: ${m.code}] ` : ''}{m.category ? `[${m.category}] ` : ''}{p !== undefined && p !== null ? `単価: ¥${Number(p).toLocaleString()}` : ''}
+            </option>
+          );
+        })}
       </datalist>
 
       <div

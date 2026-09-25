@@ -1138,10 +1138,15 @@ export function AdminPanel({
 
   const handleOpenEditItemModal = (item: ItemMaster) => {
     setEditingItem(item);
+    const itemPrice = item.defaultUnitPrice !== undefined && item.defaultUnitPrice !== null
+      ? item.defaultUnitPrice
+      : item.unitPrice !== undefined && item.unitPrice !== null
+      ? item.unitPrice
+      : '';
     setItemFormData({
       name: item.name,
       category: item.category || '補充',
-      defaultUnitPrice: item.defaultUnitPrice !== undefined ? item.defaultUnitPrice : '',
+      defaultUnitPrice: itemPrice,
       unit: item.unit || '',
       code: item.code || '',
     });
@@ -1152,13 +1157,16 @@ export function AdminPanel({
     e.preventDefault();
     if (!itemFormData.name || !itemFormData.name.trim()) return;
 
+    const parsedPrice = itemFormData.defaultUnitPrice !== '' ? Number(itemFormData.defaultUnitPrice) : undefined;
+
     if (editingItem) {
       if (onUpdateItemMaster) {
         onUpdateItemMaster({
           ...editingItem,
           name: (itemFormData.name || '').trim(),
           category: (itemFormData.category || '').trim(),
-          defaultUnitPrice: itemFormData.defaultUnitPrice !== '' ? Number(itemFormData.defaultUnitPrice) : undefined,
+          defaultUnitPrice: parsedPrice,
+          unitPrice: parsedPrice,
           unit: (itemFormData.unit || '').trim(),
           code: (itemFormData.code || '').trim(),
         });
@@ -1168,7 +1176,8 @@ export function AdminPanel({
         onAddItemMaster({
           name: (itemFormData.name || '').trim(),
           category: (itemFormData.category || '').trim(),
-          defaultUnitPrice: itemFormData.defaultUnitPrice !== '' ? Number(itemFormData.defaultUnitPrice) : undefined,
+          defaultUnitPrice: parsedPrice,
+          unitPrice: parsedPrice,
           unit: (itemFormData.unit || '').trim(),
           code: (itemFormData.code || '').trim() || `ITM-${Date.now().toString().slice(-4)}`,
         });
@@ -2412,7 +2421,11 @@ export function AdminPanel({
                         </span>
                       </td>
                       <td className="py-3 px-3 font-extrabold text-indigo-900 text-right">
-                        {item.defaultUnitPrice !== undefined ? `¥${item.defaultUnitPrice.toLocaleString()}` : '-'}
+                        {item.defaultUnitPrice !== undefined && item.defaultUnitPrice !== null
+                          ? `¥${Number(item.defaultUnitPrice).toLocaleString()}`
+                          : item.unitPrice !== undefined && item.unitPrice !== null
+                          ? `¥${Number(item.unitPrice).toLocaleString()}`
+                          : '-'}
                       </td>
                       <td className="py-3 px-3 text-center">
                         <div className="flex items-center justify-center gap-2">
