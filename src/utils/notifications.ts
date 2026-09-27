@@ -1,6 +1,7 @@
 import { User, Memo, WorkflowApplication, BoardTopic, CalendarEvent, ChatRoom, DailyReport, SafetyConfirmationEvent, SafetyConfirmationResponse } from '../types';
 import { API_BASE_URL } from '../config/api';
 import { isEventVisibleToUser } from './eventVisibility';
+import { getSupervisorAtLevel } from './workflowHelpers';
 
 export interface NotificationItem {
   id: string;
@@ -515,22 +516,37 @@ export function isMemoUnread(m: Memo, user: User, readMemoIds: string[] = getRea
 }
 
 /** 5. ワークフロー承認依頼の未承認(処理前)判定 */
-export function isWorkflowPending(app: WorkflowApplication, user: User): boolean {
+export function isWorkflowPending(app: WorkflowApplication, user: User, allUsers: User[] = []): boolean {
   if (!user || !app) return false;
   if (app.status !== 'pending') return false;
 
-  const isApprover = app.approver?.id === user.id || app.approver?.name === user.name;
-  if (isApprover) return true;
-
+  // 1. 多段階ステップ設定がある場合は、必ず現在ステップの承認者のみを判定
   if (app.stepsConfig && app.stepsConfig.length > 0) {
     const currentStepIdx = (app.currentStepIndex || 1) - 1;
     const step = app.stepsConfig[currentStepIdx];
-    if (step && step.approverType === 'specific_user' && step.specificUserId === user.id) {
-      return true;
+    if (step) {
+      if (step.approverType === 'specific_user' && step.specificUserId) {
+        return step.specificUserId === user.id;
+      }
+      if (allUsers.length > 0 && app.applicant) {
+        let targetLevel = step.supervisorLevel;
+        if (!targetLevel) {
+          if (step.approverType === 'supervisor_1') targetLevel = 1;
+          else if (step.approverType === 'supervisor_2') targetLevel = 2;
+          else targetLevel = currentStepIdx + 1;
+        }
+        const sup = getSupervisorAtLevel(app.applicant, targetLevel, allUsers);
+        if (sup) return sup.id === user.id;
+        const fallback = getSupervisorAtLevel(app.applicant, 1, allUsers);
+        if (fallback) return fallback.id === user.id;
+      }
     }
+    return false;
   }
 
-  return false;
+  // 2. 単一承認フローの場合のみ直接指定の approver を判定
+  const isApprover = app.approver?.id === user.id || app.approver?.name === user.name;
+  return Boolean(isApprover);
 }
 
 /** 6. ワークフロー承認依頼の未読(ベルマーク通知対象)判定 */

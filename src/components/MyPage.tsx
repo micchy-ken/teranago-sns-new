@@ -37,6 +37,7 @@ import {
   isChatUnread,
   isReportUnread,
 } from '../utils/notifications';
+import { resolveApproverForStepDetails } from '../utils/workflowHelpers';
 import { 
   User as UserIcon, 
   Calendar as CalendarIcon, 
@@ -895,18 +896,20 @@ export function MyPage({
   const unhandledMemos = myMemos.filter((m) => isMemoUnhandled(m, user));
   const unreadMemos = myMemos.filter((m) => isMemoUnread(m, user, readMemoIds));
 
-  // 4. 自分に関係するワークフロー（自分が申請者 または 承認者）
+  // 4. 自分に関係するワークフロー（自分が申請者、または承認者・承認履歴・ステップ対象者）
   const myApplications = applications
     .filter(
       (a) =>
         a.applicant?.id === user?.id ||
         a.applicant?.name === user?.name ||
         a.approver?.id === user?.id ||
-        a.approver?.name === user?.name
+        a.approver?.name === user?.name ||
+        a.history?.some(h => h.approver?.id === user?.id || h.approver?.name === user?.name) ||
+        (a.stepsConfig && a.stepsConfig.some(s => s.specificUserId === user?.id))
     )
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-  const pendingApprovals = myApplications.filter((a) => isWorkflowPending(a, user));
+  const pendingApprovals = myApplications.filter((a) => isWorkflowPending(a, user, allUsers));
 
   // 5. 参加しているチャットルーム
   const myChatRooms = (chatRooms || [])
@@ -1309,7 +1312,20 @@ export function MyPage({
             <div className="space-y-3">
               {myApplications.length > 0 ? (
                 myApplications.slice(0, 5).map((app) => {
-                  const isMyApproval = (app.approver?.id === user?.id || app.approver?.name === user?.name) && app.status === 'pending';
+                  const isMyApproval = isWorkflowPending(app, user, allUsers);
+
+                  // 現在の担当承認者名（多段階ステップの場合は現在進行中のステップ担当者）
+                  let currentApproverName = app.approver?.name || '未指定';
+                  if (app.stepsConfig && app.stepsConfig.length > 0) {
+                    const curIdx = (app.currentStepIndex || 1) - 1;
+                    const curStep = app.stepsConfig[curIdx];
+                    if (curStep) {
+                      const { user: stepUser } = resolveApproverForStepDetails(app.applicant, curStep, curIdx, allUsers);
+                      if (stepUser?.name) {
+                        currentApproverName = stepUser.name;
+                      }
+                    }
+                  }
 
                   return (
                     <div
@@ -1373,7 +1389,7 @@ export function MyPage({
 
                       <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-100">
                         <span>申請者: {app.applicant?.name || '不明'}</span>
-                        <span>承認者: {app.approver?.name || '未指定'}</span>
+                        <span>承認者: {currentApproverName}</span>
                         <span>{new Date(app.createdAt).toLocaleDateString('ja-JP')}</span>
                       </div>
                     </div>

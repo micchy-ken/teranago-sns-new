@@ -161,10 +161,7 @@ export const isUserCurrentApprover = (
 ): boolean => {
   if (!app || !user || app.status !== 'pending') return false;
 
-  // 直接指定の単一承認者
-  if (app.approver?.id === user.id) return true;
-
-  // 多段階ステップのチェック
+  // 1. 多段階ステップのチェック（多段階フローが設定されている場合は必ずステップ優先）
   if (app.stepsConfig && app.stepsConfig.length > 0) {
     const currentStepIdx = (app.currentStepIndex || 1) - 1;
     const step = app.stepsConfig[currentStepIdx];
@@ -191,7 +188,11 @@ export const isUserCurrentApprover = (
       const adminUser = users.find(u => u.id === 'u4' || u.isAdmin);
       return adminUser?.id === user.id;
     }
+    return false;
   }
+
+  // 2. 多段階ステップがない単一承認フローの場合のみ直接指定の承認者を判定
+  if (app.approver?.id === user.id || app.approver?.name === user.name) return true;
 
   return false;
 };

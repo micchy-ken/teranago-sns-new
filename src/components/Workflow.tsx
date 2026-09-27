@@ -5,7 +5,7 @@ import { ApplicationModal } from './ApplicationModal';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { FilePreviewModal } from './FilePreviewModal';
 import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
-import { filterStepsForApplicant, getSupervisorAtLevel, resolveApproverForStep, isDuplicateApproverStep } from '../utils/workflowHelpers';
+import { filterStepsForApplicant, getSupervisorAtLevel, resolveApproverForStep, isDuplicateApproverStep, isUserCurrentApprover as isUserCurrentApproverHelper } from '../utils/workflowHelpers';
 
 interface WorkflowProps {
   applications: WorkflowApplication[];
@@ -331,15 +331,6 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
       };
     }
 
-    // 現在進行中ステップで approver があれば
-    if (app.status === 'pending' && (app.currentStepIndex || 1) === stepIdx + 1 && app.approver) {
-      return {
-        name: app.approver.name,
-        avatarUrl: app.approver.avatarUrl,
-        roleLabel: stepConfig.stepName || `${stepIdx + 1}次承認`
-      };
-    }
-
     // 特定ユーザー直接指定
     if (stepConfig.approverType === 'specific_user' && stepConfig.specificUserId) {
       const specUser = allUsers.find(u => u.id === stepConfig.specificUserId);
@@ -361,31 +352,21 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
       };
     }
 
+    // 現在進行中ステップで approver があれば
+    if (app.status === 'pending' && (app.currentStepIndex || 1) === stepIdx + 1 && app.approver) {
+      return {
+        name: app.approver.name,
+        avatarUrl: app.approver.avatarUrl,
+        roleLabel: stepConfig.stepName || `${stepIdx + 1}次承認`
+      };
+    }
+
     return { name: app.approver?.name || '全社管理者', roleLabel: '管理者代行' };
   };
 
   // 動的に現在ログイン中のユーザーが対象申請のステップ承認者かをチェックする関数
   const isUserCurrentApprover = (app: WorkflowApplication, user: UserType) => {
-    if (app.status !== 'pending') return false;
-
-    // もし直接指定の approver が居れば判定
-    if (app.approver?.id === user.id) return true;
-
-    // 多段階ステップのチェック
-    if (app.stepsConfig && app.stepsConfig.length > 0) {
-      const currentStepIdx = (app.currentStepIndex || 1) - 1;
-      const step = app.stepsConfig[currentStepIdx];
-      if (step) {
-        if (step.approverType === 'specific_user') {
-          return step.specificUserId === user.id;
-        }
-
-        const targetLevel = step.supervisorLevel || (step.approverType === 'supervisor_2' ? 2 : step.approverType === 'supervisor_1' ? 1 : currentStepIdx + 1);
-        const expectedApproverId = getSupervisorIdAtLevel(app.applicant?.id, targetLevel, allUsers);
-        return expectedApproverId === user.id;
-      }
-    }
-    return false;
+    return isUserCurrentApproverHelper(app, user, allUsers);
   };
 
   // 下書き件数

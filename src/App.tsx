@@ -791,7 +791,7 @@ export default function App() {
             try { detailsObj = JSON.parse(app.details); } catch (_) {}
           }
           const applicantUser = currentUsers.find(u => u.id === app.applicantId || u.id === detailsObj.applicantId || u.id === detailsObj.applicant?.id) || app.applicant || detailsObj.applicant || userState;
-          const approverUserObj = currentUsers.find(u => u.id === app.approverId || u.id === detailsObj.approverId || u.id === detailsObj.approver?.id) || app.approver || detailsObj.approver;
+          let approverUserObj = currentUsers.find(u => u.id === app.approverId || u.id === detailsObj.approverId || u.id === detailsObj.approver?.id) || app.approver || detailsObj.approver;
           
           let rawStatus = app.status || detailsObj.status || 'pending';
           if (rawStatus.includes('approved') || rawStatus.includes('承認済')) rawStatus = 'approved';
@@ -799,6 +799,18 @@ export default function App() {
           else if (rawStatus.includes('draft') || rawStatus.includes('下書き')) rawStatus = 'draft';
           else if (['pending', 'approved', 'rejected', 'draft'].includes(rawStatus)) { /* keep */ }
           else rawStatus = 'pending';
+
+          // 多段階承認ステップがあり、申請中の場合は、現在のステップの承認者に解決・同期する
+          if (detailsObj.stepsConfig && detailsObj.stepsConfig.length > 0 && rawStatus === 'pending') {
+            const curStepIdx = (detailsObj.currentStepIndex || 1) - 1;
+            const curStep = detailsObj.stepsConfig[curStepIdx];
+            if (curStep) {
+              const resolved = resolveApproverForStep(applicantUser, curStep, currentUsers);
+              if (resolved) {
+                approverUserObj = resolved;
+              }
+            }
+          }
 
           let rawType = app.category || app.type || detailsObj.type || 'other';
           if (['business_trip', 'inventory_issue', 'purchase_order', 'purchase_request', 'gold_silver_daily_report', 'other'].includes(rawType)) {
