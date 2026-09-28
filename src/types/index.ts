@@ -26,6 +26,7 @@ export interface CalendarPreset {
 export interface UserPreferences {
   mypageSectionOrder?: string[];
   isSidebarCollapsed?: boolean;
+  isUtilityOpen?: boolean; // ユーティリティメニューの開閉状態（記憶用）
   emailNotifications?: EmailNotificationSettings;
   allowedTabs?: string[];
   showInspectionScheduler?: boolean; // 点検予定管理メニューの表示（デフォルト: false / OFF）

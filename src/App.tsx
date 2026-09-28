@@ -434,6 +434,17 @@ export default function App() {
       setIsSidebarCollapsed(!!userState.preferences.isSidebarCollapsed);
     }
   }, [userState?.id, userState?.preferences?.isSidebarCollapsed]);
+
+  const [isUtilityOpen, setIsUtilityOpen] = useState<boolean>(() => {
+    const saved = localStorage.getItem('is_utility_open');
+    return saved !== null ? saved === 'true' : true;
+  });
+
+  useEffect(() => {
+    if (userState?.preferences?.isUtilityOpen !== undefined) {
+      setIsUtilityOpen(!!userState.preferences.isUtilityOpen);
+    }
+  }, [userState?.id, userState?.preferences?.isUtilityOpen]);
   const [autoOpenSettings, setAutoOpenSettings] = useState(() => {
     return !!(initialUrlParams.openSettings || initialUrlParams.openEmergencyContact);
   });
@@ -1555,6 +1566,22 @@ export default function App() {
     }
   };
 
+  const handleToggleUtilityOpen = (open: boolean) => {
+    setIsUtilityOpen(open);
+    localStorage.setItem('is_utility_open', String(open));
+
+    if (userState && userState.id) {
+      const updatedUser: User = {
+        ...userState,
+        preferences: {
+          ...(userState.preferences || {}),
+          isUtilityOpen: open,
+        },
+      };
+      handleUpdateUser(updatedUser);
+    }
+  };
+
   const handleDeleteUser = async (userId: string) => {
     setConfirmModal({
       isOpen: true,
@@ -2648,6 +2675,8 @@ export default function App() {
               }}
               currentUser={userState}
               unreadCounts={sidebarUnreadCounts}
+              isUtilityOpen={isUtilityOpen}
+              onToggleUtility={handleToggleUtilityOpen}
               className="bg-white flex flex-col gap-6"
             />
           </div>
@@ -2696,6 +2725,8 @@ export default function App() {
               onChangeTab={setActiveTab}
               currentUser={userState}
               unreadCounts={sidebarUnreadCounts}
+              isUtilityOpen={isUtilityOpen}
+              onToggleUtility={handleToggleUtilityOpen}
               onCollapse={() => handleToggleSidebarCollapse(true)}
             />
           </aside>
