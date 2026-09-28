@@ -8,6 +8,7 @@ import { TopicCreateModal } from './TopicCreateModal';
 import { TopicDetailModal } from './TopicDetailModal';
 import { ConfirmModal } from './ConfirmModal';
 import { buildAppUrl, copyTextToClipboard } from '../utils/urlParams';
+import { isTopicCurrentlyPinned, formatPinnedUntilBadge } from '../utils/boardHelpers';
 
 interface BoardProps {
   topics: BoardTopic[];
@@ -186,9 +187,11 @@ export function Board({
         return true;
       })
       .sort((a, b) => {
-        // ピン留めフラグがあるものを最優先
-        if (a.isPinned && !b.isPinned) return -1;
-        if (!a.isPinned && b.isPinned) return 1;
+        // 有効なピン留め（期限内）があるものを最優先
+        const aPinned = isTopicCurrentlyPinned(a);
+        const bPinned = isTopicCurrentlyPinned(b);
+        if (aPinned && !bPinned) return -1;
+        if (!aPinned && bPinned) return 1;
         // 日付降順
         return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
       });
@@ -352,7 +355,7 @@ export function Board({
                   key={topic.id}
                   onClick={() => handleOpenDetail(topic)}
                   className={`bg-white border rounded-2xl p-5 hover:border-indigo-400 hover:shadow-md transition-all cursor-pointer group relative ${
-                    topic.isPinned
+                    isTopicCurrentlyPinned(topic)
                       ? 'border-amber-300/80 bg-gradient-to-r from-amber-50/30 via-white to-white'
                       : 'border-slate-200'
                   }`}
@@ -368,10 +371,13 @@ export function Board({
                     <div className="flex-1 min-w-0">
                       {/* Meta badges row */}
                       <div className="flex flex-wrap items-center gap-2 mb-2">
-                        {topic.isPinned && (
+                        {isTopicCurrentlyPinned(topic) && (
                           <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 bg-amber-500 text-white rounded-md shadow-xs">
                             <Pin className="w-3 h-3 fill-white" />
-                            ピン留め
+                            <span>ピン留め</span>
+                            <span className="text-[10px] text-amber-100 font-normal">
+                              {formatPinnedUntilBadge(topic.pinnedUntil)}
+                            </span>
                           </span>
                         )}
 

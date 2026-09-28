@@ -44,6 +44,7 @@ export function TopicCreateModal({
 
   // ピン留め
   const [isPinned, setIsPinned] = useState(false);
+  const [pinnedPeriod, setPinnedPeriod] = useState<'1week' | '1month' | 'forever'>('1week');
 
   const [isUploading, setIsUploading] = useState(false);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
@@ -63,6 +64,7 @@ export function TopicCreateModal({
       setStartDate('');
       setEndDate('');
       setIsPinned(false);
+      setPinnedPeriod('1week');
       setIsUploading(false);
       setIsDraggingOver(false);
       setError(null);
@@ -171,6 +173,21 @@ export function TopicCreateModal({
       }
     }
 
+    let pinnedUntil: string | null = null;
+    if (isPinned) {
+      if (pinnedPeriod === '1week') {
+        const d = new Date();
+        d.setDate(d.getDate() + 7);
+        pinnedUntil = d.toISOString();
+      } else if (pinnedPeriod === '1month') {
+        const d = new Date();
+        d.setDate(d.getDate() + 30);
+        pinnedUntil = d.toISOString();
+      } else {
+        pinnedUntil = null;
+      }
+    }
+
     onSubmit({
       title: (title || '').trim(),
       content: (content || '').trim(),
@@ -183,6 +200,8 @@ export function TopicCreateModal({
       startDate: hasPeriod ? startDate : undefined,
       endDate: hasPeriod ? endDate : undefined,
       isPinned,
+      pinnedUntil,
+      pinnedDuration: isPinned ? pinnedPeriod : undefined,
       comments: [],
       viewers: [{ user: currentUser, viewedAt: new Date().toISOString() }],
     });
@@ -505,20 +524,70 @@ export function TopicCreateModal({
           </div>
 
           {/* ピン留め設定 */}
-          <div className="flex items-center justify-between p-3.5 bg-amber-50/60 border border-amber-200/80 rounded-xl">
-            <div className="flex items-center gap-2">
-              <Pin className="w-4 h-4 text-amber-600" />
-              <div>
-                <div className="text-xs font-bold text-amber-900">掲示板の上部にピン留めする</div>
-                <div className="text-[11px] text-amber-700">重要な告知として一覧の最上部に固定表示されます</div>
+          <div className="p-3.5 bg-amber-50/60 border border-amber-200/80 rounded-xl space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Pin className="w-4 h-4 text-amber-600" />
+                <div>
+                  <div className="text-xs font-bold text-amber-900">掲示板の上部にピン留めする</div>
+                  <div className="text-[11px] text-amber-700">重要な告知として一覧の最上部に固定表示されます</div>
+                </div>
               </div>
+              <input
+                type="checkbox"
+                checked={isPinned}
+                onChange={e => setIsPinned(e.target.checked)}
+                className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 border-amber-300 cursor-pointer"
+              />
             </div>
-            <input
-              type="checkbox"
-              checked={isPinned}
-              onChange={e => setIsPinned(e.target.checked)}
-              className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 border-amber-300 cursor-pointer"
-            />
+
+            {isPinned && (
+              <div className="pt-2.5 border-t border-amber-200/60">
+                <label className="block text-[11px] font-bold text-amber-900 mb-1.5">
+                  ピン留め期間
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPinnedPeriod('1week')}
+                    className={`py-1.5 px-2 rounded-lg border text-xs font-bold transition-all text-center cursor-pointer ${
+                      pinnedPeriod === '1week'
+                        ? 'bg-amber-500 text-white border-amber-600 shadow-xs'
+                        : 'bg-white text-slate-700 border-amber-200 hover:bg-amber-100/50'
+                    }`}
+                  >
+                    1週間（7日間）
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPinnedPeriod('1month')}
+                    className={`py-1.5 px-2 rounded-lg border text-xs font-bold transition-all text-center cursor-pointer ${
+                      pinnedPeriod === '1month'
+                        ? 'bg-amber-500 text-white border-amber-600 shadow-xs'
+                        : 'bg-white text-slate-700 border-amber-200 hover:bg-amber-100/50'
+                    }`}
+                  >
+                    1ヶ月（30日間）
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPinnedPeriod('forever')}
+                    className={`py-1.5 px-2 rounded-lg border text-xs font-bold transition-all text-center cursor-pointer ${
+                      pinnedPeriod === 'forever'
+                        ? 'bg-amber-500 text-white border-amber-600 shadow-xs'
+                        : 'bg-white text-slate-700 border-amber-200 hover:bg-amber-100/50'
+                    }`}
+                  >
+                    期限なし（常時）
+                  </button>
+                </div>
+                <div className="mt-1 text-[10px] text-amber-800">
+                  {pinnedPeriod === '1week' && '※ 1週間後に自動的に通常の掲示位置に戻ります。'}
+                  {pinnedPeriod === '1month' && '※ 1ヶ月後に自動的に通常の掲示位置に戻ります。'}
+                  {pinnedPeriod === 'forever' && '※ 手動で解除するまで常時最上部に固定されます。'}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Submit Actions */}

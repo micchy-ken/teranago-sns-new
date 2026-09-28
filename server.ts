@@ -3693,12 +3693,17 @@ async function startServer() {
       const allComments = loadBulletinComments();
       const allViewers = loadBulletinViewers();
 
+      const nowMs = Date.now();
       // 各トピックにコメントと既読者情報をマージ
       const merged = allBulletins.map((topic: any) => {
         const topicComments = allComments.filter((c: any) => String(c.topicId || c.topic_id) === String(topic.id));
         const topicViewers = allViewers.filter((v: any) => String(v.topicId || v.topic_id) === String(topic.id));
+        const isCurrentlyPinned = !!topic.isPinned && (!topic.pinnedUntil || new Date(topic.pinnedUntil).getTime() > nowMs);
         return {
           ...topic,
+          isPinned: isCurrentlyPinned,
+          pinnedUntil: topic.pinnedUntil || null,
+          pinnedDuration: topic.pinnedDuration || null,
           comments: topicComments,
           commentsCount: topicComments.length,
           viewers: topicViewers
@@ -3732,6 +3737,8 @@ async function startServer() {
         startDate: req.body.startDate || null,
         endDate: req.body.endDate || null,
         isPinned: !!req.body.isPinned,
+        pinnedUntil: req.body.isPinned ? (req.body.pinnedUntil || null) : null,
+        pinnedDuration: req.body.isPinned ? (req.body.pinnedDuration || null) : null,
         views: 0,
         createdAt: req.body.createdAt || nowIso,
         updatedAt: nowIso
@@ -3790,6 +3797,9 @@ async function startServer() {
       bulletinsList[idx] = {
         ...bulletinsList[idx],
         ...req.body,
+        isPinned: !!req.body.isPinned,
+        pinnedUntil: req.body.isPinned ? (req.body.pinnedUntil || null) : null,
+        pinnedDuration: req.body.isPinned ? (req.body.pinnedDuration || null) : null,
         updatedAt: new Date().toISOString()
       };
       saveBulletins(bulletinsList);

@@ -300,6 +300,8 @@ export interface BoardTopic {
   startDate?: string;   // YYYY-MM-DD
   endDate?: string;     // YYYY-MM-DD
   isPinned?: boolean;   // ピン留め設定
+  pinnedUntil?: string | null; // ピン留め有効期限（ISO文字列、nullまたは空文字は無期限）
+  pinnedDuration?: '1week' | '1month' | 'forever'; // 選択されたピン留め期間種別
   comments?: BoardComment[];
   viewers?: BoardViewer[];
 }

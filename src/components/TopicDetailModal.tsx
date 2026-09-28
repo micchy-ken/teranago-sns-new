@@ -11,6 +11,7 @@ import { markTopicAsRead } from '../utils/notifications';
 import { triggerOpenUserModal } from '../utils/userModal';
 import { buildAppUrl, copyTextToClipboard } from '../utils/urlParams';
 import { API_BASE_URL } from '../config/api';
+import { isTopicCurrentlyPinned, formatPinnedUntilBadge } from '../utils/boardHelpers';
 
 interface TopicDetailModalProps {
   topic: BoardTopic | null;
@@ -59,6 +60,7 @@ export function TopicDetailModal({
   const [editOffice, setEditOffice] = useState('');
   const [editDivision, setEditDivision] = useState('');
   const [editIsPinned, setEditIsPinned] = useState(false);
+  const [editPinnedPeriod, setEditPinnedPeriod] = useState<'1week' | '1month' | 'forever'>('1week');
   const [editHasPeriod, setEditHasPeriod] = useState(false);
   const [editStartDate, setEditStartDate] = useState('');
   const [editEndDate, setEditEndDate] = useState('');
@@ -110,6 +112,24 @@ export function TopicDetailModal({
         setEditOffice(topic.office || '全社');
         setEditDivision(topic.division || '全部署');
         setEditIsPinned(!!topic.isPinned);
+        if (topic.isPinned) {
+          if (topic.pinnedDuration) {
+            setEditPinnedPeriod(topic.pinnedDuration);
+          } else if (topic.pinnedUntil) {
+            const untilMs = new Date(topic.pinnedUntil).getTime();
+            const nowMs = Date.now();
+            const diffDays = Math.ceil((untilMs - nowMs) / (1000 * 60 * 60 * 24));
+            if (diffDays <= 10) {
+              setEditPinnedPeriod('1week');
+            } else {
+              setEditPinnedPeriod('1month');
+            }
+          } else {
+            setEditPinnedPeriod('forever');
+          }
+        } else {
+          setEditPinnedPeriod('1week');
+        }
         setEditHasPeriod(!!topic.hasPeriod);
         setEditStartDate(topic.startDate || '');
         setEditEndDate(topic.endDate || '');
@@ -156,6 +176,21 @@ export function TopicDetailModal({
     e.preventDefault();
     if (!editTitle || !editTitle.trim() || !editContent || !editContent.trim()) return;
 
+    let finalPinnedUntil: string | null = null;
+    if (editIsPinned) {
+      if (editPinnedPeriod === '1week') {
+        const d = new Date();
+        d.setDate(d.getDate() + 7);
+        finalPinnedUntil = d.toISOString();
+      } else if (editPinnedPeriod === '1month') {
+        const d = new Date();
+        d.setDate(d.getDate() + 30);
+        finalPinnedUntil = d.toISOString();
+      } else {
+        finalPinnedUntil = null;
+      }
+    }
+
     const updatedTopic: BoardTopic = {
       ...topic,
       title: (editTitle || '').trim(),
@@ -163,6 +198,8 @@ export function TopicDetailModal({
       office: editOffice,
       division: editDivision,
       isPinned: editIsPinned,
+      pinnedUntil: finalPinnedUntil,
+      pinnedDuration: editIsPinned ? editPinnedPeriod : undefined,
       hasPeriod: editHasPeriod,
       startDate: editHasPeriod ? editStartDate : undefined,
       endDate: editHasPeriod ? editEndDate : undefined,
@@ -355,9 +392,13 @@ export function TopicDetailModal({
         {/* Header */}
         <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2 min-w-0 pr-4">
-            {topic.isPinned && !isEditing && (
-              <span className="p-1.5 bg-amber-100 text-amber-700 rounded-lg shrink-0">
-                <Pin className="w-4 h-4" />
+            {topic && isTopicCurrentlyPinned(topic) && !isEditing && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-100 text-amber-800 rounded-lg text-xs font-bold shrink-0">
+                <Pin className="w-3.5 h-3.5 text-amber-600" />
+                <span>ピン留め</span>
+                <span className="text-[10px] text-amber-700 font-medium">
+                  {formatPinnedUntilBadge(topic.pinnedUntil)}
+                </span>
               </span>
             )}
             <h2 className="text-lg font-bold text-slate-800 truncate">
@@ -633,6 +674,49 @@ export function TopicDetailModal({
                     className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                   />
                 </div>
+
+                {editIsPinned && (
+                  <div className="pt-2 border-t border-slate-200">
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1.5">
+                      ピン留め期間
+                    </label>
+                    <div className="grid grid-cols-3 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setEditPinnedPeriod('1week')}
+                        className={`py-1.5 px-2 rounded-lg border text-xs font-bold transition-all text-center cursor-pointer ${
+                          editPinnedPeriod === '1week'
+                            ? 'bg-amber-500 text-white border-amber-600 shadow-xs'
+                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        1週間
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditPinnedPeriod('1month')}
+                        className={`py-1.5 px-2 rounded-lg border text-xs font-bold transition-all text-center cursor-pointer ${
+                          editPinnedPeriod === '1month'
+                            ? 'bg-amber-500 text-white border-amber-600 shadow-xs'
+                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        1ヶ月
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditPinnedPeriod('forever')}
+                        className={`py-1.5 px-2 rounded-lg border text-xs font-bold transition-all text-center cursor-pointer ${
+                          editPinnedPeriod === 'forever'
+                            ? 'bg-amber-500 text-white border-amber-600 shadow-xs'
+                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        期限なし
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 <div className="pt-2 border-t border-slate-200">
                   <div className="flex items-center justify-between mb-2">

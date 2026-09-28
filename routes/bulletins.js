@@ -66,7 +66,7 @@ router.get(['/bulletins', '/bulletins/', '/board', '/board/'], async (req, res) 
   try {
     const pool = await getPool();
     
-    // カラム安全保障（hasPeriod, startDate, endDate 等の動的作成）
+    // カラム安全保障（hasPeriod, startDate, endDate, pinnedUntil 等の動的作成）
     try {
       await pool.request().query(`
         IF COL_LENGTH('dbo.Bulletins', 'hasPeriod') IS NULL ALTER TABLE dbo.Bulletins ADD hasPeriod BIT NULL DEFAULT 0;
@@ -77,10 +77,21 @@ router.get(['/bulletins', '/bulletins/', '/board', '/board/'], async (req, res) 
         IF COL_LENGTH('dbo.Bulletins', 'scope') IS NULL ALTER TABLE dbo.Bulletins ADD scope NVARCHAR(50) DEFAULT N'全社';
         IF COL_LENGTH('dbo.Bulletins', 'tags') IS NULL ALTER TABLE dbo.Bulletins ADD tags NVARCHAR(500) NULL;
         IF COL_LENGTH('dbo.Bulletins', 'attachments') IS NULL ALTER TABLE dbo.Bulletins ADD attachments NVARCHAR(MAX) NULL;
+        IF COL_LENGTH('dbo.Bulletins', 'pinnedUntil') IS NULL ALTER TABLE dbo.Bulletins ADD pinnedUntil VARCHAR(40) NULL;
+      `);
+
+      // 期限が切れたピン留めの自動解除（DB側同期）
+      await pool.request().query(`
+        UPDATE dbo.Bulletins
+        SET isPinned = 0
+        WHERE isPinned = 1 
+          AND pinnedUntil IS NOT NULL 
+          AND pinnedUntil != '' 
+          AND TRY_CAST(pinnedUntil AS DATETIMEOFFSET) <= GETDATE();
       `);
     } catch (_) {}
 
-    // ① トピック本体
+    // ① トピック本体（有効なピン留め優先、作成日時降順）
     const result = await pool.request().query(`
       SELECT b.*, u.name AS authorName, u.department AS authorDepartment, u.avatarUrl AS authorAvatarUrl
       FROM dbo.Bulletins b
@@ -107,6 +118,7 @@ router.get(['/bulletins', '/bulletins/', '/board', '/board/'], async (req, res) 
     const allViewers = viewersResult.recordset || [];
 
     // マージ処理
+    const nowMs = Date.now();
     const formatted = bulletins.map(row => {
       const topicComments = allComments
         .filter(c => String(c.topicId) === String(row.id) || String(c.topic_id) === String(row.id) || String(c.bulletinId) === String(row.id))
@@ -135,6 +147,9 @@ router.get(['/bulletins', '/bulletins/', '/board', '/board/'], async (req, res) 
           }
         }));
 
+      // ピン留め期限判定（期限切れの場合は即座に isPinned = false）
+      const isCurrentlyPinned = !!row.isPinned && (!row.pinnedUntil || new Date(row.pinnedUntil).getTime() > nowMs);
+
       return {
         id: String(row.id),
         category: row.category,
@@ -154,7 +169,8 @@ router.get(['/bulletins', '/bulletins/', '/board', '/board/'], async (req, res) 
         division: row.division || '全部署',
         scope: row.scope || '全社',
         tags: row.tags ? (typeof row.tags === 'string' ? row.tags.split(',').map(t => t.trim()).filter(Boolean) : row.tags) : [],
-        isPinned: !!row.isPinned,
+        isPinned: isCurrentlyPinned,
+        pinnedUntil: row.pinnedUntil || null,
         hasPeriod: !!row.hasPeriod,
         startDate: row.startDate || '',
         endDate: row.endDate || '',
@@ -174,7 +190,7 @@ router.get(['/bulletins', '/bulletins/', '/board', '/board/'], async (req, res) 
 // ==========================================
 router.post(['/bulletins', '/bulletins/', '/board', '/board/'], async (req, res) => {
   try {
-    const { title, content, category, authorId, isPinned, office, division, scope, tags, attachments, hasPeriod, startDate, endDate } = req.body;
+    const { title, content, category, authorId, isPinned, office, division, scope, tags, attachments, hasPeriod, startDate, endDate, pinnedUntil } = req.body;
     const pool = await getPool();
     const id = req.body.id || `b-${Date.now()}`;
 
@@ -183,8 +199,12 @@ router.post(['/bulletins', '/bulletins/', '/board', '/board/'], async (req, res)
         IF COL_LENGTH('dbo.Bulletins', 'hasPeriod') IS NULL ALTER TABLE dbo.Bulletins ADD hasPeriod BIT NULL DEFAULT 0;
         IF COL_LENGTH('dbo.Bulletins', 'startDate') IS NULL ALTER TABLE dbo.Bulletins ADD startDate VARCHAR(20) NULL;
         IF COL_LENGTH('dbo.Bulletins', 'endDate') IS NULL ALTER TABLE dbo.Bulletins ADD endDate VARCHAR(20) NULL;
+        IF COL_LENGTH('dbo.Bulletins', 'pinnedUntil') IS NULL ALTER TABLE dbo.Bulletins ADD pinnedUntil VARCHAR(40) NULL;
       `);
     } catch (_) {}
+
+    const finalPinned = isPinned ? 1 : 0;
+    const finalPinnedUntil = isPinned ? (pinnedUntil || null) : null;
 
     await pool.request()
       .input('id', sql.VarChar, String(id))
@@ -192,7 +212,8 @@ router.post(['/bulletins', '/bulletins/', '/board', '/board/'], async (req, res)
       .input('content', sql.NVarChar, content || '')
       .input('category', sql.NVarChar, category || 'general')
       .input('authorId', sql.VarChar, authorId || 'u1')
-      .input('isPinned', sql.Bit, isPinned ? 1 : 0)
+      .input('isPinned', sql.Bit, finalPinned)
+      .input('pinnedUntil', sql.VarChar, finalPinnedUntil)
       .input('office', sql.NVarChar, office || '全社')
       .input('division', sql.NVarChar, division || '全部署')
       .input('scope', sql.NVarChar, scope || '全社')
@@ -202,8 +223,8 @@ router.post(['/bulletins', '/bulletins/', '/board', '/board/'], async (req, res)
       .input('endDate', sql.VarChar, endDate || null)
       .input('attachments', sql.NVarChar, attachments ? JSON.stringify(attachments) : null)
       .query(`
-        INSERT INTO dbo.Bulletins (id, title, content, category, authorId, isPinned, office, division, scope, tags, attachments, hasPeriod, startDate, endDate, createdAt, views, likes)
-        VALUES (@id, @title, @content, @category, @authorId, @isPinned, @office, @division, @scope, @tags, @attachments, @hasPeriod, @startDate, @endDate, GETDATE(), 0, 0)
+        INSERT INTO dbo.Bulletins (id, title, content, category, authorId, isPinned, pinnedUntil, office, division, scope, tags, attachments, hasPeriod, startDate, endDate, createdAt, views, likes)
+        VALUES (@id, @title, @content, @category, @authorId, @isPinned, @pinnedUntil, @office, @division, @scope, @tags, @attachments, @hasPeriod, @startDate, @endDate, GETDATE(), 0, 0)
       `);
     res.status(201).json({ id, message: '掲示板トピック作成完了' });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -215,7 +236,7 @@ router.post(['/bulletins', '/bulletins/', '/board', '/board/'], async (req, res)
 router.put(['/bulletins/:id', '/board/:id'], async (req, res) => {
   try {
     const id = req.params.id;
-    const { title, content, category, isPinned, office, division, scope, tags, attachments, hasPeriod, startDate, endDate } = req.body;
+    const { title, content, category, isPinned, office, division, scope, tags, attachments, hasPeriod, startDate, endDate, pinnedUntil } = req.body;
     const pool = await getPool();
 
     try {
@@ -223,15 +244,20 @@ router.put(['/bulletins/:id', '/board/:id'], async (req, res) => {
         IF COL_LENGTH('dbo.Bulletins', 'hasPeriod') IS NULL ALTER TABLE dbo.Bulletins ADD hasPeriod BIT NULL DEFAULT 0;
         IF COL_LENGTH('dbo.Bulletins', 'startDate') IS NULL ALTER TABLE dbo.Bulletins ADD startDate VARCHAR(20) NULL;
         IF COL_LENGTH('dbo.Bulletins', 'endDate') IS NULL ALTER TABLE dbo.Bulletins ADD endDate VARCHAR(20) NULL;
+        IF COL_LENGTH('dbo.Bulletins', 'pinnedUntil') IS NULL ALTER TABLE dbo.Bulletins ADD pinnedUntil VARCHAR(40) NULL;
       `);
     } catch (_) {}
+
+    const finalPinned = isPinned ? 1 : 0;
+    const finalPinnedUntil = isPinned ? (pinnedUntil || null) : null;
 
     await pool.request()
       .input('id', sql.VarChar, String(id))
       .input('title', sql.NVarChar, title || '')
       .input('content', sql.NVarChar, content || '')
       .input('category', sql.NVarChar, category || 'general')
-      .input('isPinned', sql.Bit, isPinned ? 1 : 0)
+      .input('isPinned', sql.Bit, finalPinned)
+      .input('pinnedUntil', sql.VarChar, finalPinnedUntil)
       .input('office', sql.NVarChar, office || '全社')
       .input('division', sql.NVarChar, division || '全部署')
       .input('scope', sql.NVarChar, scope || '全社')
@@ -247,6 +273,7 @@ router.put(['/bulletins/:id', '/board/:id'], async (req, res) => {
           content = @content,
           category = @category,
           isPinned = @isPinned,
+          pinnedUntil = @pinnedUntil,
           office = @office,
           division = @division,
           scope = @scope,
