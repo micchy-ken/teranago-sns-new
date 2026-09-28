@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { CalendarEvent, EventType, User, OfficeMaster, DivisionMaster, Memo, RequirementType, MemoUserRecipientStatus } from '../types';
+import { CalendarEvent, EventType, User, OfficeMaster, DivisionMaster, Memo, RequirementType, MemoUserRecipientStatus, CalendarPreset } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
-import { ChevronLeft, ChevronRight, List as ListIcon, Calendar as CalendarIcon, Plus, MapPin, Video, AlignLeft, RefreshCw, Clock, Link as LinkIcon, Loader2, Building2, Users, Paperclip, MessageSquare, Phone, X, Monitor, Maximize2, Minimize2, FileSpreadsheet, Share2, Check } from 'lucide-react';
+import { ChevronLeft, ChevronRight, List as ListIcon, Calendar as CalendarIcon, Plus, MapPin, Video, AlignLeft, RefreshCw, Clock, Link as LinkIcon, Loader2, Building2, Users, Paperclip, MessageSquare, Phone, X, Monitor, Maximize2, Minimize2, FileSpreadsheet, Share2, Check, Star, Trash2, Pin, BookmarkCheck } from 'lucide-react';
 import { EventModal } from './EventModal';
 import { GlobalEventDetailModal } from './GlobalEventDetailModal';
 import { renderWithClickableLinks } from '../utils/linkify';
@@ -37,6 +37,7 @@ interface CalendarProps {
   onUpdateMemos?: (updatedMemos: Memo[]) => void;
   onRefetchEvents?: () => void;
   onNavigateToInspectionScheduler?: () => void;
+  onUpdateUser?: (updatedUser: User) => void;
 }
 
 type ViewMode = 'month' | 'week' | 'day' | 'list';
@@ -81,6 +82,7 @@ export function Calendar({
   onUpdateMemos,
   onRefetchEvents,
   onNavigateToInspectionScheduler,
+  onUpdateUser,
 }: CalendarProps) {
   // ユーザーが最近操作した楽観的更新（D&D、リサイズ、編集）を保持するRef（親からの古いデータによる巻き戻りを完全遮断）
   const recentOptimisticEventsRef = useRef<Map<string, { event: CalendarEvent; timestamp: number }>>(new Map());
@@ -193,6 +195,203 @@ export function Calendar({
       }
     }
   }, [initialDate]);
+
+  // --- カレンダー表示設定のお気に入り機能 ---
+  const [isFavoritesOpen, setIsFavoritesOpen] = useState(false);
+  const [customPresetName, setCustomPresetName] = useState('');
+  const [favoritesFeedback, setFavoritesFeedback] = useState<string | null>(null);
+  const favoritesRef = useRef<HTMLDivElement>(null);
+
+  const presets: CalendarPreset[] = useMemo(() => {
+    return currentUser?.preferences?.calendarPresets || [];
+  }, [currentUser?.preferences?.calendarPresets]);
+
+  const defaultPresetId = currentUser?.preferences?.defaultCalendarPresetId;
+
+  // 初期ロード時：URLパラメータで明示指定がない場合、ユーザーの「初期表示」プリセット（defaultCalendarPresetId）を自動適用
+  const hasAppliedDefaultPresetRef = useRef(false);
+  useEffect(() => {
+    if (hasAppliedDefaultPresetRef.current) return;
+    if (!currentUser?.preferences) return;
+
+    // URLでの明示的な指定があるかチェック
+    const hasExplicitUrlParams = Boolean(initialMode || initialView || initialOffice || initialDivision || initialTypeFilter);
+    if (hasExplicitUrlParams) {
+      hasAppliedDefaultPresetRef.current = true;
+      return;
+    }
+
+    const defaultId = currentUser.preferences.defaultCalendarPresetId;
+    const userPresets = currentUser.preferences.calendarPresets || [];
+    if (defaultId) {
+      const defaultPreset = userPresets.find(p => p.id === defaultId);
+      if (defaultPreset) {
+        setCalendarMode(defaultPreset.mode);
+        setView(defaultPreset.view);
+        if (defaultPreset.mode === 'team') {
+          if (defaultPreset.office) setSelectedOffice(defaultPreset.office);
+          if (defaultPreset.division) setSelectedDivision(defaultPreset.division);
+        }
+        if (defaultPreset.typeFilter) setSelectedTypeFilter(defaultPreset.typeFilter);
+        hasAppliedDefaultPresetRef.current = true;
+      }
+    }
+  }, [currentUser, initialMode, initialView, initialOffice, initialDivision, initialTypeFilter]);
+
+  // お気に入りポップオーバー外クリックで閉じる
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (favoritesRef.current && !favoritesRef.current.contains(event.target as Node)) {
+        setIsFavoritesOpen(false);
+      }
+    };
+    if (isFavoritesOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isFavoritesOpen]);
+
+  // 現在の設定に合わせたデフォルト名称の生成
+  const getDefaultPresetName = useCallback(() => {
+    const viewLabel = view === 'month' ? '月' : view === 'week' ? '週' : view === 'day' ? '日' : 'リスト';
+    if (calendarMode === 'team') {
+      const parts: string[] = [];
+      if (selectedOffice && selectedOffice !== '全社' && selectedOffice !== '全拠点') {
+        parts.push(selectedOffice);
+      }
+      if (selectedDivision && selectedDivision !== '全部署') {
+        parts.push(selectedDivision);
+      }
+      const teamTitle = parts.length > 0 ? parts.join('・') : '全社';
+      return `${teamTitle} (${viewLabel})`;
+    } else {
+      return `個人 (${viewLabel})`;
+    }
+  }, [calendarMode, view, selectedOffice, selectedDivision]);
+
+  // プリセットの要約テキスト生成
+  const getPresetSummary = (p: CalendarPreset) => {
+    const parts: string[] = [];
+    parts.push(p.mode === 'team' ? 'チーム' : '個人');
+    const viewMap: Record<string, string> = { month: '月', week: '週', day: '日', list: 'リスト' };
+    parts.push(viewMap[p.view] || p.view);
+    if (p.mode === 'team') {
+      if (p.office && p.office !== '全社' && p.office !== '全拠点') parts.push(p.office);
+      if (p.division && p.division !== '全部署') parts.push(p.division);
+    }
+    if (p.typeFilter && p.typeFilter !== 'all' && typeLabels[p.typeFilter as EventType]) {
+      parts.push(typeLabels[p.typeFilter as EventType]);
+    }
+    return parts.join(' / ');
+  };
+
+  // 現在の設定の要約テキスト
+  const getCurrentSummary = () => {
+    const parts: string[] = [];
+    parts.push(calendarMode === 'team' ? 'チーム' : '個人');
+    const viewMap: Record<string, string> = { month: '月', week: '週', day: '日', list: 'リスト' };
+    parts.push(viewMap[view] || view);
+    if (calendarMode === 'team') {
+      if (selectedOffice && selectedOffice !== '全社' && selectedOffice !== '全拠点') parts.push(selectedOffice);
+      if (selectedDivision && selectedDivision !== '全部署') parts.push(selectedDivision);
+    }
+    if (selectedTypeFilter && selectedTypeFilter !== 'all' && typeLabels[selectedTypeFilter as EventType]) {
+      parts.push(typeLabels[selectedTypeFilter as EventType]);
+    }
+    return parts.join(' / ');
+  };
+
+  // プリセットの適用
+  const handleApplyPreset = (preset: CalendarPreset) => {
+    setCalendarMode(preset.mode);
+    setView(preset.view);
+    if (preset.mode === 'team') {
+      if (preset.office) setSelectedOffice(preset.office);
+      if (preset.division) setSelectedDivision(preset.division);
+    }
+    setSelectedTypeFilter(preset.typeFilter || 'all');
+    setIsFavoritesOpen(false);
+    setFavoritesFeedback(`「${preset.name}」を適用しました`);
+    setTimeout(() => setFavoritesFeedback(null), 3000);
+  };
+
+  // 現在の表示をお気に入りとして保存
+  const handleSavePreset = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!currentUser || !onUpdateUser) return;
+    const name = customPresetName.trim() || getDefaultPresetName();
+
+    const newPreset: CalendarPreset = {
+      id: `cal-preset-${Date.now()}`,
+      name,
+      createdAt: new Date().toISOString(),
+      mode: calendarMode,
+      view: view,
+      office: calendarMode === 'team' ? (selectedOffice !== '全社' && selectedOffice !== '全拠点' ? selectedOffice : undefined) : undefined,
+      division: calendarMode === 'team' ? (selectedDivision !== '全部署' ? selectedDivision : undefined) : undefined,
+      typeFilter: selectedTypeFilter !== 'all' ? selectedTypeFilter : undefined,
+    };
+
+    const existingPresets = currentUser.preferences?.calendarPresets || [];
+    const updatedUser: User = {
+      ...currentUser,
+      preferences: {
+        ...(currentUser.preferences || {}),
+        calendarPresets: [newPreset, ...existingPresets],
+      },
+    };
+
+    onUpdateUser(updatedUser);
+    setFavoritesFeedback(`「${name}」をお気に入りに登録しました`);
+    setCustomPresetName('');
+    setTimeout(() => setFavoritesFeedback(null), 3000);
+  };
+
+  // プリセットの削除
+  const handleDeletePreset = (presetId: string, presetName: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!currentUser || !onUpdateUser) return;
+
+    const existingPresets = currentUser.preferences?.calendarPresets || [];
+    const updatedPresets = existingPresets.filter(p => p.id !== presetId);
+    const currentDefault = currentUser.preferences?.defaultCalendarPresetId;
+
+    const updatedUser: User = {
+      ...currentUser,
+      preferences: {
+        ...(currentUser.preferences || {}),
+        calendarPresets: updatedPresets,
+        defaultCalendarPresetId: currentDefault === presetId ? undefined : currentDefault,
+      },
+    };
+
+    onUpdateUser(updatedUser);
+    setFavoritesFeedback(`「${presetName}」を削除しました`);
+    setTimeout(() => setFavoritesFeedback(null), 3000);
+  };
+
+  // プリセットをカレンダー起動時の初期表示にする/解除する
+  const handleToggleDefaultPreset = (presetId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!currentUser || !onUpdateUser) return;
+
+    const currentDefault = currentUser.preferences?.defaultCalendarPresetId;
+    const isSetting = currentDefault !== presetId;
+
+    const updatedUser: User = {
+      ...currentUser,
+      preferences: {
+        ...(currentUser.preferences || {}),
+        defaultCalendarPresetId: isSetting ? presetId : undefined,
+      },
+    };
+
+    onUpdateUser(updatedUser);
+    setFavoritesFeedback(isSetting ? 'カレンダー起動時の初期表示に設定しました' : '初期表示の設定を解除しました');
+    setTimeout(() => setFavoritesFeedback(null), 3000);
+  };
 
   // チーム・日表示以外に変更されたらサイネージモードを自動解除
   useEffect(() => {
@@ -1858,6 +2057,164 @@ export function Calendar({
             )}
           </button>
 
+          {/* お気に入り表示設定ドロップダウンメニュー */}
+          <div className="relative shrink-0" ref={favoritesRef}>
+            <button
+              type="button"
+              onClick={() => {
+                setIsFavoritesOpen(prev => {
+                  const next = !prev;
+                  if (next && !customPresetName) {
+                    setCustomPresetName(getDefaultPresetName());
+                  }
+                  return next;
+                });
+              }}
+              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all shadow-2xs cursor-pointer shrink-0 ${
+                isFavoritesOpen
+                  ? 'bg-amber-50 text-amber-900 border-amber-300 ring-2 ring-amber-200'
+                  : presets.length > 0
+                  ? 'bg-amber-50/40 text-amber-800 border-amber-200 hover:bg-amber-100/60'
+                  : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+              }`}
+              title="カレンダー表示設定のお気に入り登録と呼び出し"
+            >
+              <Star className={`w-3.5 h-3.5 ${presets.length > 0 ? 'text-amber-500 fill-amber-400' : 'text-slate-400'} shrink-0`} />
+              <span className="hidden sm:inline">お気に入り</span>
+              <span className="sm:hidden">★</span>
+              {presets.length > 0 && (
+                <span className="px-1.5 py-0.2 bg-amber-200/70 text-amber-900 rounded-full text-[10px] font-bold">
+                  {presets.length}
+                </span>
+              )}
+            </button>
+
+            {isFavoritesOpen && (
+              <div className="absolute right-0 sm:right-auto sm:left-0 top-full mt-2 w-80 sm:w-96 bg-white rounded-xl shadow-2xl border border-slate-200 p-3.5 sm:p-4 z-50 text-slate-800">
+                {/* Header */}
+                <div className="flex items-center justify-between pb-2.5 mb-3 border-b border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-md bg-amber-100 text-amber-600 flex items-center justify-center">
+                      <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-600" />
+                    </div>
+                    <span className="font-bold text-sm text-slate-800">表示設定のお気に入り</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsFavoritesOpen(false)}
+                    className="text-slate-400 hover:text-slate-600 p-1 rounded-md hover:bg-slate-100 cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* Section 1: 現在の表示をお気に入り登録 */}
+                <div className="bg-amber-50/70 border border-amber-200/80 rounded-lg p-2.5 sm:p-3 mb-3">
+                  <div className="text-[11px] font-bold text-amber-900 mb-1.5 flex items-center gap-1">
+                    <BookmarkCheck className="w-3.5 h-3.5 text-amber-600" />
+                    <span>現在の表示条件を登録</span>
+                  </div>
+                  <div className="bg-white/90 rounded px-2 py-1 text-[11px] font-medium text-slate-600 border border-amber-200/60 mb-2 truncate">
+                    {getCurrentSummary()}
+                  </div>
+                  <form onSubmit={handleSavePreset} className="flex gap-1.5 items-center">
+                    <input
+                      type="text"
+                      value={customPresetName}
+                      onChange={(e) => setCustomPresetName(e.target.value)}
+                      placeholder="お気に入り名（例: 名古屋・保守）"
+                      className="flex-1 bg-white border border-slate-200 rounded px-2 py-1 text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500 min-w-0"
+                    />
+                    <button
+                      type="submit"
+                      disabled={!onUpdateUser}
+                      className="px-3 py-1 bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-white rounded text-xs font-bold transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+                    >
+                      追加
+                    </button>
+                  </form>
+                </div>
+
+                {/* Section 2: 登録済み一覧 */}
+                <div>
+                  <div className="flex items-center justify-between text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">
+                    <span>登録済みのお気に入り ({presets.length})</span>
+                    {defaultPresetId && (
+                      <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-0.5">
+                        <Check className="w-3 h-3" />
+                        初期表示設定あり
+                      </span>
+                    )}
+                  </div>
+
+                  {presets.length === 0 ? (
+                    <div className="py-6 text-center text-slate-400 text-xs bg-slate-50 rounded-lg border border-dashed border-slate-200">
+                      お気に入りはまだありません。<br />
+                      よく使う表示条件を上記から登録できます。
+                    </div>
+                  ) : (
+                    <div className="max-h-56 overflow-y-auto space-y-1.5 pr-0.5">
+                      {presets.map((preset) => {
+                        const isDefault = defaultPresetId === preset.id;
+                        return (
+                          <div
+                            key={preset.id}
+                            onClick={() => handleApplyPreset(preset)}
+                            className={`group flex items-center justify-between p-2 rounded-lg border transition-all cursor-pointer ${
+                              isDefault
+                                ? 'bg-emerald-50/50 border-emerald-200 hover:bg-emerald-50 hover:border-emerald-300'
+                                : 'bg-white border-slate-200 hover:bg-indigo-50/60 hover:border-indigo-200'
+                            }`}
+                            title="クリックしてこの表示設定を適用"
+                          >
+                            <div className="min-w-0 flex-1 mr-2">
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-bold text-xs text-slate-800 truncate group-hover:text-indigo-600">
+                                  {preset.name}
+                                </span>
+                                {isDefault && (
+                                  <span className="px-1.5 py-0.2 bg-emerald-100 text-emerald-800 rounded text-[9px] font-bold shrink-0">
+                                    初期表示
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[10px] text-slate-500 truncate mt-0.5">
+                                {getPresetSummary(preset)}
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                type="button"
+                                onClick={(e) => handleToggleDefaultPreset(preset.id, e)}
+                                className={`p-1.5 rounded transition-colors cursor-pointer ${
+                                  isDefault
+                                    ? 'text-emerald-700 bg-emerald-100 hover:bg-emerald-200'
+                                    : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
+                                }`}
+                                title={isDefault ? 'カレンダー起動時の初期表示を解除' : 'カレンダー起動時の初期表示に設定'}
+                              >
+                                <Pin className={`w-3.5 h-3.5 ${isDefault ? 'fill-emerald-600 text-emerald-600' : ''}`} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => handleDeletePreset(preset.id, preset.name, e)}
+                                className="p-1.5 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                                title="このお気に入りを削除"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* デジタルサイネージモード トグル (スケジュール・チーム・日 選択時のみ表示) */}
           {calendarMode === 'team' && view === 'day' && (
             <button
@@ -3039,6 +3396,14 @@ export function Calendar({
         {...confirmModal}
         onClose={() => setConfirmModal((prev) => ({ ...prev, isOpen: false }))}
       />
+
+      {/* お気に入り操作トースト通知 */}
+      {favoritesFeedback && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 bg-slate-900/95 text-white px-4 py-2.5 rounded-xl shadow-2xl border border-slate-700 text-xs font-semibold backdrop-blur-xs">
+          <Star className="w-4 h-4 text-amber-400 fill-amber-400 shrink-0" />
+          <span>{favoritesFeedback}</span>
+        </div>
+      )}
     </div>
   );
 }

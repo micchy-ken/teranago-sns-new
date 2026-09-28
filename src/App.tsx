@@ -2757,6 +2757,7 @@ export default function App() {
               onUpdateMemos={handleUpdateMemos}
               onRefetchEvents={refetchEvents}
               onNavigateToInspectionScheduler={() => setActiveTab('inspection_scheduler')}
+              onUpdateUser={handleUpdateUser}
             />
           )}
           {activeTab === 'inspection_scheduler' && (

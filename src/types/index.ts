@@ -12,6 +12,17 @@ export interface EmailNotificationSettings {
   inspection?: CategoryEmailNotificationOption; // 点検・報告書 (提出・レビュー依頼)
 }
 
+export interface CalendarPreset {
+  id: string;
+  name: string;
+  createdAt: string;
+  mode: 'personal' | 'team';
+  view: 'month' | 'week' | 'day' | 'list';
+  office?: string;
+  division?: string;
+  typeFilter?: string;
+}
+
 export interface UserPreferences {
   mypageSectionOrder?: string[];
   isSidebarCollapsed?: boolean;
@@ -23,6 +34,8 @@ export interface UserPreferences {
   hideInspectionScheduler?: boolean; // 互換用
   hideSharedFiles?: boolean;         // 互換用
   hideSafetyConfirmation?: boolean;  // 互換用
+  calendarPresets?: CalendarPreset[]; // カレンダー表示設定のお気に入り一覧
+  defaultCalendarPresetId?: string;  // カレンダー起動時の初期表示プリセットID
   [key: string]: any;
 }
 
