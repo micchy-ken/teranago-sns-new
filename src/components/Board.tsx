@@ -3,11 +3,10 @@ import { BoardTopic, User, OfficeMaster, DivisionMaster } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
 import { markTopicAsRead } from '../utils/notifications';
 import { deleteAttachmentFiles } from '../utils/fileUpload';
-import { MessageSquare, Eye, Plus, Search, Pin, Paperclip, Calendar as CalendarIcon, Building2, Users, Flame, Tag, Trash2, Server, Share2, Check } from 'lucide-react';
+import { MessageSquare, Eye, Plus, Search, Pin, Paperclip, Calendar as CalendarIcon, Building2, Users, Flame, Tag, Trash2, Share2, Check, Star } from 'lucide-react';
 import { TopicCreateModal } from './TopicCreateModal';
 import { TopicDetailModal } from './TopicDetailModal';
 import { ConfirmModal } from './ConfirmModal';
-import { APIDiagnosticModal } from './APIDiagnosticModal';
 import { buildAppUrl, copyTextToClipboard } from '../utils/urlParams';
 
 interface BoardProps {
@@ -19,6 +18,7 @@ interface BoardProps {
   offices?: OfficeMaster[];
   divisions?: DivisionMaster[];
   initialTopicId?: string;
+  onUpdateUser?: (updatedUser: User) => void;
 }
 
 export function Board({
@@ -30,14 +30,47 @@ export function Board({
   offices = [],
   divisions = [],
   initialTopicId,
+  onUpdateUser,
 }: BoardProps) {
   const [selectedTag, setSelectedTag] = useState<string>('ALL');
   const [selectedOffice, setSelectedOffice] = useState<string>('全社');
   const [selectedDivision, setSelectedDivision] = useState<string>('全部署');
   const [searchQuery, setSearchQuery] = useState('');
 
+  // お気に入り管理
+  const favoriteTopicIds: string[] = useMemo(() => {
+    return currentUser?.preferences?.favoriteTopicIds || [];
+  }, [currentUser?.preferences?.favoriteTopicIds]);
+  const favoriteSet = useMemo(() => new Set(favoriteTopicIds), [favoriteTopicIds]);
+  const [onlyFavorites, setOnlyFavorites] = useState(false);
+  const [favoriteFeedback, setFavoriteFeedback] = useState<string | null>(null);
+
+  const handleToggleFavorite = (topicId: string, e?: React.MouseEvent) => {
+    if (e) {
+      e.stopPropagation();
+    }
+    if (!currentUser || !onUpdateUser) return;
+
+    const currentIds = currentUser.preferences?.favoriteTopicIds || [];
+    const isAlreadyFavorite = currentIds.includes(topicId);
+    const updatedIds = isAlreadyFavorite
+      ? currentIds.filter(id => id !== topicId)
+      : [topicId, ...currentIds];
+
+    const updatedUser: User = {
+      ...currentUser,
+      preferences: {
+        ...(currentUser.preferences || {}),
+        favoriteTopicIds: updatedIds,
+      },
+    };
+
+    onUpdateUser(updatedUser);
+    setFavoriteFeedback(isAlreadyFavorite ? 'お気に入りを解除しました' : 'お気に入りに追加しました');
+    setTimeout(() => setFavoriteFeedback(null), 2500);
+  };
+
   // モーダル管理
-  const [isDiagnosticOpen, setIsDiagnosticOpen] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [selectedTopic, setSelectedTopic] = useState<BoardTopic | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
@@ -135,6 +168,11 @@ export function Board({
           if (tDivision !== '全部署' && tDivision !== selectedDivision) return false;
         }
 
+        // お気に入り絞り込み
+        if (onlyFavorites && !favoriteSet.has(t.id)) {
+          return false;
+        }
+
         // 検索クエリ
         if (searchQuery && searchQuery.trim()) {
           const query = searchQuery.toLowerCase();
@@ -154,7 +192,7 @@ export function Board({
         // 日付降順
         return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
       });
-  }, [topics, selectedTag, selectedOffice, selectedDivision, searchQuery]);
+  }, [topics, selectedTag, selectedOffice, selectedDivision, searchQuery, onlyFavorites, favoriteSet]);
 
   const handleCreateSubmit = (topicData: Omit<BoardTopic, 'id' | 'createdAt' | 'views' | 'commentsCount'>) => {
     if (onAddTopic) {
@@ -184,14 +222,40 @@ export function Board({
           </div>
           <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
             <button
-              onClick={() => setSelectedTag('ALL')}
-              className={`px-3.5 py-1.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap flex items-center gap-1 ${
-                selectedTag === 'ALL'
+              onClick={() => {
+                setSelectedTag('ALL');
+                setOnlyFavorites(false);
+              }}
+              className={`px-3.5 py-1.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap flex items-center gap-1 cursor-pointer ${
+                selectedTag === 'ALL' && !onlyFavorites
                   ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
                   : 'bg-white text-slate-600 hover:bg-slate-200/60 border border-slate-200'
               }`}
             >
               すべて表示
+            </button>
+
+            {/* お気に入りフィルターボタン */}
+            <button
+              onClick={() => setOnlyFavorites(prev => !prev)}
+              className={`px-3.5 py-1.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap flex items-center gap-1.5 cursor-pointer ${
+                onlyFavorites
+                  ? 'bg-amber-500 text-white shadow-sm shadow-amber-500/30 font-bold'
+                  : favoriteTopicIds.length > 0
+                  ? 'bg-amber-50/90 text-amber-800 hover:bg-amber-100 border border-amber-300 shadow-2xs'
+                  : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+              }`}
+              title="お気に入りに登録したトピックのみ表示"
+            >
+              <Star className={`w-3.5 h-3.5 ${onlyFavorites ? 'fill-white text-white' : favoriteTopicIds.length > 0 ? 'fill-amber-400 text-amber-500' : 'text-slate-400'}`} />
+              <span>お気に入り</span>
+              {favoriteTopicIds.length > 0 && (
+                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                  onlyFavorites ? 'bg-amber-600 text-white' : 'bg-amber-200/70 text-amber-900'
+                }`}>
+                  {favoriteTopicIds.length}
+                </span>
+              )}
             </button>
 
             {popularTags.map(({ tag, count }) => (
@@ -265,15 +329,6 @@ export function Board({
             </div>
 
             <button
-              onClick={() => setIsDiagnosticOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-700 text-xs font-bold rounded-xl transition-all whitespace-nowrap shrink-0 cursor-pointer"
-              title="API接続診断ツールを開く"
-            >
-              <Server className="w-3.5 h-3.5 text-slate-500" />
-              API診断
-            </button>
-
-            <button
               onClick={() => setIsCreateModalOpen(true)}
               className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition-all shadow-md active:scale-[0.99] whitespace-nowrap shrink-0"
             >
@@ -335,6 +390,19 @@ export function Board({
                           <span className="text-xs text-slate-400 mr-0.5">
                             {new Date(topic.createdAt).toLocaleDateString('ja-JP')}
                           </span>
+                          <button
+                            type="button"
+                            onClick={(e) => handleToggleFavorite(topic.id, e)}
+                            className={`p-1 sm:px-2 sm:py-1 rounded-lg border transition-all flex items-center gap-1 text-[11px] font-semibold cursor-pointer ${
+                              favoriteSet.has(topic.id)
+                                ? 'bg-amber-50 text-amber-600 border-amber-300 ring-2 ring-amber-200 shadow-2xs'
+                                : 'text-slate-400 bg-slate-50 hover:bg-slate-100 hover:text-amber-500 border-slate-200 shadow-2xs'
+                            }`}
+                            title={favoriteSet.has(topic.id) ? 'お気に入りを解除' : 'お気に入りに追加'}
+                          >
+                            <Star className={`w-3.5 h-3.5 ${favoriteSet.has(topic.id) ? 'fill-amber-400 text-amber-500' : ''}`} />
+                            <span className="hidden sm:inline">{favoriteSet.has(topic.id) ? '登録中' : ''}</span>
+                          </button>
                           <button
                             type="button"
                             onClick={(e) => {
@@ -442,11 +510,23 @@ export function Board({
             })
           ) : (
             <div className="text-center py-16 bg-white rounded-2xl border border-slate-200">
-              <MessageSquare className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-              <h3 className="text-slate-800 font-bold mb-1">該当するトピックがありません</h3>
-              <p className="text-slate-500 text-xs">
-                条件を変更するか、新しいトピックを作成してください。
-              </p>
+              {onlyFavorites ? (
+                <>
+                  <Star className="w-12 h-12 text-amber-300 mx-auto mb-3 fill-amber-100" />
+                  <h3 className="text-slate-800 font-bold mb-1">お気に入りのトピックはありません</h3>
+                  <p className="text-slate-500 text-xs">
+                    各トピックの「★」アイコンをクリックすると、ここにお気に入りが集まります。
+                  </p>
+                </>
+              ) : (
+                <>
+                  <MessageSquare className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                  <h3 className="text-slate-800 font-bold mb-1">該当するトピックがありません</h3>
+                  <p className="text-slate-500 text-xs">
+                    条件を変更するか、新しいトピックを作成してください。
+                  </p>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -478,6 +558,8 @@ export function Board({
         }}
         offices={offices}
         divisions={divisions}
+        isFavorite={selectedTopic ? favoriteSet.has(selectedTopic.id) : false}
+        onToggleFavorite={handleToggleFavorite}
       />
 
       {/* 削除確認モーダル */}
@@ -507,11 +589,13 @@ export function Board({
         onClose={() => setTopicToDelete(null)}
       />
 
-      {/* API 接続診断モーダル */}
-      <APIDiagnosticModal
-        isOpen={isDiagnosticOpen}
-        onClose={() => setIsDiagnosticOpen(false)}
-      />
+      {/* お気に入り操作トースト通知 */}
+      {favoriteFeedback && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 bg-slate-900/95 text-white px-4 py-2.5 rounded-xl shadow-2xl border border-slate-700 text-xs font-semibold backdrop-blur-xs animate-in fade-in slide-in-from-bottom-2">
+          <Star className="w-4 h-4 text-amber-400 fill-amber-400 shrink-0" />
+          <span>{favoriteFeedback}</span>
+        </div>
+      )}
     </div>
   );
 }

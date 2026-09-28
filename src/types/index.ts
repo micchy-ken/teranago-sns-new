@@ -36,6 +36,7 @@ export interface UserPreferences {
   hideSafetyConfirmation?: boolean;  // 互換用
   calendarPresets?: CalendarPreset[]; // カレンダー表示設定のお気に入り一覧
   defaultCalendarPresetId?: string;  // カレンダー起動時の初期表示プリセットID
+  favoriteTopicIds?: string[];       // 掲示板のお気に入りトピックID一覧
   [key: string]: any;
 }
 

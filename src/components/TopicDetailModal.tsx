@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, MessageSquare, Eye, Pin, Paperclip, Calendar as CalendarIcon, Send, Trash2, Building2, Users, Tag, CheckCircle2, Edit3, Save, Plus, Loader2, Eye as EyeIcon, Download, UploadCloud, Share2, Check } from 'lucide-react';
+import { X, MessageSquare, Eye, Pin, Paperclip, Calendar as CalendarIcon, Send, Trash2, Building2, Users, Tag, CheckCircle2, Edit3, Save, Plus, Loader2, Eye as EyeIcon, Download, UploadCloud, Share2, Check, Star } from 'lucide-react';
 import { BoardTopic, User, OfficeMaster, DivisionMaster, AttachmentFile } from '../types';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { getAvatarUrl } from '../utils/avatar';
@@ -21,6 +21,8 @@ interface TopicDetailModalProps {
   onDeleteTopic?: (topicId: string) => void;
   offices?: OfficeMaster[];
   divisions?: DivisionMaster[];
+  isFavorite?: boolean;
+  onToggleFavorite?: (topicId: string) => void;
 }
 
 export function TopicDetailModal({
@@ -32,6 +34,8 @@ export function TopicDetailModal({
   onDeleteTopic,
   offices = [],
   divisions = [],
+  isFavorite = false,
+  onToggleFavorite,
 }: TopicDetailModalProps) {
   const [activeTab, setActiveTab] = useState<'content' | 'viewers'>('content');
   const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
@@ -361,6 +365,21 @@ export function TopicDetailModal({
             </h2>
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            {!isEditing && onToggleFavorite && (
+              <button
+                type="button"
+                onClick={() => onToggleFavorite(topic.id)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all shadow-2xs cursor-pointer ${
+                  isFavorite
+                    ? 'bg-amber-50 text-amber-600 border-amber-300 ring-2 ring-amber-200'
+                    : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200 hover:text-amber-500'
+                }`}
+                title={isFavorite ? 'お気に入りから解除' : 'お気に入りに追加'}
+              >
+                <Star className={`w-3.5 h-3.5 ${isFavorite ? 'fill-amber-400 text-amber-500' : 'text-slate-400'}`} />
+                <span className="hidden sm:inline">{isFavorite ? 'お気に入り中' : 'お気に入り'}</span>
+              </button>
+            )}
             {!isEditing && (
               <button
                 type="button"

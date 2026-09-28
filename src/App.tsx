@@ -2807,6 +2807,7 @@ export default function App() {
               offices={offices}
               divisions={divisions}
               initialTopicId={targetTopicId}
+              onUpdateUser={handleUpdateUser}
             />
           )}
           {activeTab === 'chat' && (
