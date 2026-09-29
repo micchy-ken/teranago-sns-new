@@ -42,6 +42,23 @@ function saveUserPrefs(userId, prefs) {
   }
 }
 
+// dbo.Users の実在カラム一覧のキャッシュと動的検出
+let userTableColumnsCache = null;
+
+async function getUserTableColumns(pool) {
+  if (userTableColumnsCache || !pool) return userTableColumnsCache;
+  try {
+    const res = await pool.request().query("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Users'");
+    if (res.recordset && res.recordset.length > 0) {
+      userTableColumnsCache = new Set(res.recordset.map(r => r.COLUMN_NAME.toLowerCase()));
+      return userTableColumnsCache;
+    }
+  } catch (err) {
+    console.warn('[Users] Failed to query Users columns:', err.message);
+  }
+  return null;
+}
+
 // preferences カラム存在チェックフラグ
 let hasPreferencesCol = false;
 let isPreferencesColumnChecked = false;
@@ -54,7 +71,6 @@ async function checkPreferencesColumn(pool) {
     if (len !== null && len !== undefined) {
       hasPreferencesCol = true;
     } else {
-      // カラムが無ければ ALTER TABLE を試みる
       try {
         await pool.request().query("ALTER TABLE dbo.Users ADD preferences NVARCHAR(MAX) NULL;");
         hasPreferencesCol = true;
@@ -72,12 +88,14 @@ async function checkPreferencesColumn(pool) {
 }
 
 // =============================================================
-// 1. ユーザー一覧取得 (GET /users)
+// 1. ユーザー一覧取得 (GET /users & /api/users)
 // =============================================================
-router.get(['/users', '/users/'], async (req, res) => {
+router.get(['/users', '/users/', '/api/users', '/api/users/'], async (req, res) => {
   try {
     const pool = await getPool();
-    const hasCol = await checkPreferencesColumn(pool);
+    const cols = await getUserTableColumns(pool);
+    const hasCol = cols ? cols.has('preferences') : await checkPreferencesColumn(pool);
+    const hasRolesCol = cols ? cols.has('roles') : false;
     const allFilePrefs = loadAllUserPrefs();
 
     const result = await pool.request().query('SELECT * FROM dbo.Users ORDER BY name ASC');
@@ -100,8 +118,19 @@ router.get(['/users', '/users/'], async (req, res) => {
         };
       }
 
+      // roles の解決 (DB列優先、無ければ preferences、無ければ role から配列化)
+      let resolvedRoles = [row.role || 'user'];
+      if (hasRolesCol && row.roles) {
+        try {
+          resolvedRoles = typeof row.roles === 'string' ? JSON.parse(row.roles) : row.roles;
+        } catch (_) {}
+      } else if (prefs && Array.isArray(prefs.roles)) {
+        resolvedRoles = prefs.roles;
+      }
+
       return {
         ...row,
+        roles: resolvedRoles,
         preferences: prefs
       };
     });
@@ -112,12 +141,14 @@ router.get(['/users', '/users/'], async (req, res) => {
 });
 
 // =============================================================
-// 2. 単一ユーザー取得 (GET /users/:id)
+// 2. 単一ユーザー取得 (GET /users/:id & /api/users/:id)
 // =============================================================
-router.get('/users/:id', async (req, res) => {
+router.get(['/users/:id', '/api/users/:id'], async (req, res) => {
   try {
     const pool = await getPool();
-    const hasCol = await checkPreferencesColumn(pool);
+    const cols = await getUserTableColumns(pool);
+    const hasCol = cols ? cols.has('preferences') : await checkPreferencesColumn(pool);
+    const hasRolesCol = cols ? cols.has('roles') : false;
     const userId = String(req.params.id);
     const allFilePrefs = loadAllUserPrefs();
 
@@ -143,8 +174,18 @@ router.get('/users/:id', async (req, res) => {
       };
     }
 
+    let resolvedRoles = [row.role || 'user'];
+    if (hasRolesCol && row.roles) {
+      try {
+        resolvedRoles = typeof row.roles === 'string' ? JSON.parse(row.roles) : row.roles;
+      } catch (_) {}
+    } else if (prefs && Array.isArray(prefs.roles)) {
+      resolvedRoles = prefs.roles;
+    }
+
     res.json({
       ...row,
+      roles: resolvedRoles,
       preferences: prefs
     });
   } catch (err) {
@@ -159,26 +200,42 @@ async function saveOrUpdateUser(req, res, targetUserId = null) {
   try {
     const u = req.body || {};
     const pool = await getPool();
-    const hasCol = await checkPreferencesColumn(pool);
+    const cols = await getUserTableColumns(pool);
+    const hasRolesCol = cols ? cols.has('roles') : false;
+    const hasCol = cols ? cols.has('preferences') : await checkPreferencesColumn(pool);
+    const hasPersonalEmailEncryptedCol = cols ? cols.has('personalemailencrypted') : false;
+    const hasPersonalEmailMaskedCol = cols ? cols.has('personalemailmasked') : false;
     const userId = targetUserId || u.id || `u-${Date.now()}`;
     
-    // roles (配列または文字列) の安全な文字列化
-    const rolesStr = Array.isArray(u.roles) 
-      ? JSON.stringify(u.roles) 
-      : (typeof u.roles === 'string' ? u.roles : JSON.stringify([u.role || 'user']));
+    // roles (配列または文字列) の安全な処理
+    const rolesArr = Array.isArray(u.roles) 
+      ? u.roles 
+      : (typeof u.roles === 'string' ? [u.roles] : [u.role || 'user']);
+    const rolesStr = JSON.stringify(rolesArr);
 
     // preferences の処理 & ローカル二重保存
     let incomingPrefs = null;
     if (u.preferences !== undefined) {
       incomingPrefs = typeof u.preferences === 'string' ? JSON.parse(u.preferences || '{}') : (u.preferences || {});
-      saveUserPrefs(userId, incomingPrefs);
+    } else {
+      incomingPrefs = {};
     }
+
+    // roles 列が SQL Server に無い場合は preferences 内に自動格納して保護
+    if (!hasRolesCol) {
+      incomingPrefs.roles = rolesArr;
+    }
+
+    saveUserPrefs(userId, incomingPrefs);
 
     const allFilePrefs = loadAllUserPrefs();
     const mergedPrefs = {
       ...(allFilePrefs[userId] || {}),
       ...(incomingPrefs || {})
     };
+    if (!hasRolesCol) {
+      mergedPrefs.roles = rolesArr;
+    }
     const prefStr = JSON.stringify(mergedPrefs);
 
     const reqBuilder = pool.request()
@@ -192,7 +249,6 @@ async function saveOrUpdateUser(req, res, targetUserId = null) {
       .input('division', sql.NVarChar, u.division || '')
       .input('position', sql.NVarChar, u.position || '')
       .input('role', sql.VarChar, u.role || 'user')
-      .input('roles', sql.NVarChar, rolesStr)
       .input('isAdmin', sql.Bit, u.isAdmin ? 1 : 0)
       .input('avatarUrl', sql.NVarChar, u.avatarUrl || '')
       .input('email', sql.NVarChar, u.email || '')
@@ -204,54 +260,102 @@ async function saveOrUpdateUser(req, res, targetUserId = null) {
       .input('icalUrl', sql.NVarChar, u.icalUrl || '')
       .input('supervisorId', sql.VarChar, u.supervisorId || null);
 
-    if (hasCol) {
-      reqBuilder.input('preferences', sql.NVarChar, prefStr);
-      await reqBuilder.query(`
-        IF EXISTS (SELECT 1 FROM dbo.Users WHERE id = @id)
-          UPDATE dbo.Users 
-          SET loginId = @loginId, password = @password, name = @name, kanaName = @kanaName,
-              department = @department, office = @office, division = @division, position = @position,
-              role = @role, roles = @roles, isAdmin = @isAdmin, avatarUrl = @avatarUrl, email = @email,
-              mobileEmail = @mobileEmail, phone = @phone, phoneOutside = @phoneOutside,
-              phoneExtension = @phoneExtension, mobilePhone = @mobilePhone, icalUrl = @icalUrl,
-              supervisorId = @supervisorId,
-              preferences = @preferences
-          WHERE id = @id;
-        ELSE
-          INSERT INTO dbo.Users (id, loginId, password, name, kanaName, department, office, division, position, role, roles, isAdmin, avatarUrl, email, mobileEmail, phone, phoneOutside, phoneExtension, mobilePhone, icalUrl, supervisorId, preferences)
-          VALUES (@id, @loginId, @password, @name, @kanaName, @department, @office, @division, @position, @role, @roles, @isAdmin, @avatarUrl, @email, @mobileEmail, @phone, @phoneOutside, @phoneExtension, @mobilePhone, @icalUrl, @supervisorId, @preferences);
-      `);
-    } else {
-      // preferences カラムが無い場合は他の基本情報のみ更新し、SQLエラーを完全回避
-      await reqBuilder.query(`
-        IF EXISTS (SELECT 1 FROM dbo.Users WHERE id = @id)
-          UPDATE dbo.Users 
-          SET loginId = @loginId, password = @password, name = @name, kanaName = @kanaName,
-              department = @department, office = @office, division = @division, position = @position,
-              role = @role, roles = @roles, isAdmin = @isAdmin, avatarUrl = @avatarUrl, email = @email,
-              mobileEmail = @mobileEmail, phone = @phone, phoneOutside = @phoneOutside,
-              phoneExtension = @phoneExtension, mobilePhone = @mobilePhone, icalUrl = @icalUrl,
-              supervisorId = @supervisorId
-          WHERE id = @id;
-        ELSE
-          INSERT INTO dbo.Users (id, loginId, password, name, kanaName, department, office, division, position, role, roles, isAdmin, avatarUrl, email, mobileEmail, phone, phoneOutside, phoneExtension, mobilePhone, icalUrl, supervisorId)
-          VALUES (@id, @loginId, @password, @name, @kanaName, @department, @office, @division, @position, @role, @roles, @isAdmin, @avatarUrl, @email, @mobileEmail, @phone, @phoneOutside, @phoneExtension, @mobilePhone, @icalUrl, @supervisorId);
-      `);
+    // roles カラムが実在する場合のみクエリにバインド
+    if (hasRolesCol) {
+      reqBuilder.input('roles', sql.NVarChar, rolesStr);
     }
 
-    res.json({ id: userId, preferences: mergedPrefs, message: 'ユーザー保存成功' });
+    // preferences カラムが実在する場合のみクエリにバインド
+    if (hasCol) {
+      reqBuilder.input('preferences', sql.NVarChar, prefStr);
+    }
+
+    // personalEmailEncrypted / Masked が実在する場合
+    if (hasPersonalEmailEncryptedCol && u.personalEmailEncrypted !== undefined) {
+      reqBuilder.input('personalEmailEncrypted', sql.NVarChar, u.personalEmailEncrypted || null);
+    }
+    if (hasPersonalEmailMaskedCol && u.personalEmailMasked !== undefined) {
+      reqBuilder.input('personalEmailMasked', sql.NVarChar, u.personalEmailMasked || null);
+    }
+
+    // UPDATE句の構築
+    const updateSets = [
+      'loginId = @loginId',
+      'password = @password',
+      'name = @name',
+      'kanaName = @kanaName',
+      'department = @department',
+      'office = @office',
+      'division = @division',
+      'position = @position',
+      'role = @role',
+      'isAdmin = @isAdmin',
+      'avatarUrl = @avatarUrl',
+      'email = @email',
+      'mobileEmail = @mobileEmail',
+      'phone = @phone',
+      'phoneOutside = @phoneOutside',
+      'phoneExtension = @phoneExtension',
+      'mobilePhone = @mobilePhone',
+      'icalUrl = @icalUrl',
+      'supervisorId = @supervisorId'
+    ];
+    if (hasRolesCol) updateSets.push('roles = @roles');
+    if (hasCol) updateSets.push('preferences = @preferences');
+    if (hasPersonalEmailEncryptedCol && u.personalEmailEncrypted !== undefined) updateSets.push('personalEmailEncrypted = @personalEmailEncrypted');
+    if (hasPersonalEmailMaskedCol && u.personalEmailMasked !== undefined) updateSets.push('personalEmailMasked = @personalEmailMasked');
+
+    // INSERT句の構築
+    const insertCols = [
+      'id', 'loginId', 'password', 'name', 'kanaName', 'department', 'office', 'division', 'position',
+      'role', 'isAdmin', 'avatarUrl', 'email', 'mobileEmail', 'phone', 'phoneOutside', 'phoneExtension', 'mobilePhone', 'icalUrl', 'supervisorId'
+    ];
+    const insertVals = [
+      '@id', '@loginId', '@password', '@name', '@kanaName', '@department', '@office', '@division', '@position',
+      '@role', '@isAdmin', '@avatarUrl', '@email', '@mobileEmail', '@phone', '@phoneOutside', '@phoneExtension', '@mobilePhone', '@icalUrl', '@supervisorId'
+    ];
+    if (hasRolesCol) {
+      insertCols.push('roles');
+      insertVals.push('@roles');
+    }
+    if (hasCol) {
+      insertCols.push('preferences');
+      insertVals.push('@preferences');
+    }
+    if (hasPersonalEmailEncryptedCol && u.personalEmailEncrypted !== undefined) {
+      insertCols.push('personalEmailEncrypted');
+      insertVals.push('@personalEmailEncrypted');
+    }
+    if (hasPersonalEmailMaskedCol && u.personalEmailMasked !== undefined) {
+      insertCols.push('personalEmailMasked');
+      insertVals.push('@personalEmailMasked');
+    }
+
+    const queryStr = `
+      IF EXISTS (SELECT 1 FROM dbo.Users WHERE id = @id)
+        UPDATE dbo.Users 
+        SET ${updateSets.join(', ')}
+        WHERE id = @id;
+      ELSE
+        INSERT INTO dbo.Users (${insertCols.join(', ')})
+        VALUES (${insertVals.join(', ')});
+    `;
+
+    await reqBuilder.query(queryStr);
+
+    res.json({ id: userId, preferences: mergedPrefs, roles: rolesArr, message: 'ユーザー保存成功' });
   } catch (err) { 
     console.error('[Users] saveOrUpdateUser error:', err);
     res.status(500).json({ error: err.message }); 
   }
 }
 
-// ユーザー作成・更新 (POST /users)
-router.post(['/users', '/users/'], (req, res) => saveOrUpdateUser(req, res));
+// ユーザー作成・更新 (POST /users & /api/users)
+router.post(['/users', '/users/', '/api/users', '/api/users/'], (req, res) => saveOrUpdateUser(req, res));
 
-// ユーザー更新 (PUT /users/:id, POST /users/:id)
-router.put('/users/:id', (req, res) => saveOrUpdateUser(req, res, req.params.id));
-router.post('/users/:id', (req, res) => saveOrUpdateUser(req, res, req.params.id));
+// ユーザー更新 (PUT /users/:id, POST /users/:id, /api/users/:id)
+router.put(['/users/:id', '/api/users/:id'], (req, res) => saveOrUpdateUser(req, res, req.params.id));
+router.post(['/users/:id', '/api/users/:id'], (req, res) => saveOrUpdateUser(req, res, req.params.id));
 
 // =============================================================
 // 4. 個人設定・通知権限・マイページ並び順の更新 (PUT & POST)
@@ -261,7 +365,11 @@ const preferencesPaths = [
   '/users/:id/preferences',
   '/users/:id/preferences/',
   '/users/:id/settings',
-  '/users/:id/notification-settings'
+  '/users/:id/notification-settings',
+  '/api/users/:id/preferences',
+  '/api/users/:id/preferences/',
+  '/api/users/:id/settings',
+  '/api/users/:id/notification-settings'
 ];
 
 async function updatePreferencesHandler(req, res) {
@@ -269,9 +377,10 @@ async function updatePreferencesHandler(req, res) {
     const userId = String(req.params.id);
     const body = req.body || {};
     const pool = await getPool();
-    const hasCol = await checkPreferencesColumn(pool);
+    const cols = await getUserTableColumns(pool);
+    const hasCol = cols ? cols.has('preferences') : await checkPreferencesColumn(pool);
 
-    // 送信データが { preferences: {...} } の場合と、直接 { mypageSectionOrder: [...], emailNotifications: ... } の両方を許容
+    // 送信データが { preferences: {...} } の場合と、直接オブジェクトの両方を許容
     const incomingPrefs = (body.preferences && typeof body.preferences === 'object') ? body.preferences : body;
 
     // 既存の preferences を取得して部分マージ (既存設定が消えないように保護)
@@ -333,9 +442,9 @@ router.put(preferencesPaths, updatePreferencesHandler);
 router.post(preferencesPaths, updatePreferencesHandler);
 
 // =============================================================
-// 5. ユーザー削除 (DELETE /users/:id)
+// 5. ユーザー削除 (DELETE /users/:id & /api/users/:id)
 // =============================================================
-router.delete('/users/:id', async (req, res) => {
+router.delete(['/users/:id', '/api/users/:id'], async (req, res) => {
   try {
     const pool = await getPool();
     await pool.request().input('id', sql.VarChar, String(req.params.id)).query('DELETE FROM dbo.Users WHERE id = @id');
@@ -348,7 +457,7 @@ router.delete('/users/:id', async (req, res) => {
 // =============================================================
 // 6. 個人メールアドレス AES-256-GCM 暗号化保存 (POST /users/:id/personal-email)
 // =============================================================
-router.post('/users/:id/personal-email', async (req, res) => {
+router.post(['/users/:id/personal-email', '/api/users/:id/personal-email'], async (req, res) => {
   try {
     const userId = req.params.id;
     const { personalEmail } = req.body || {};
@@ -401,7 +510,7 @@ const uploadAvatar = multer({
   }
 });
 
-router.post(['/upload-avatar', '/users/upload-avatar'], uploadAvatar.single('avatar'), (req, res) => {
+router.post(['/upload-avatar', '/users/upload-avatar', '/api/upload-avatar', '/api/users/upload-avatar'], uploadAvatar.single('avatar'), (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'ファイルがアップロードされていません。' });

@@ -469,6 +469,17 @@ export function Chat({
   const [previewFile, setPreviewFile] = useState<AttachmentFile | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const chatFileInputRef = useRef<HTMLInputElement>(null);
+  const chatTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const [isComposing, setIsComposing] = useState(false);
+
+  // テキストエリアの高さ自動調整 (最大120px)
+  useEffect(() => {
+    if (chatTextareaRef.current) {
+      chatTextareaRef.current.style.height = 'auto';
+      const scrollH = chatTextareaRef.current.scrollHeight;
+      chatTextareaRef.current.style.height = `${Math.min(Math.max(scrollH, 38), 120)}px`;
+    }
+  }, [messageText]);
 
   useEffect(() => {
     setChatAttachments([]);
@@ -635,6 +646,26 @@ export function Chat({
     updateRoomMessages(activeRoom.id, newMessage);
     setMessageText('');
     setChatAttachments([]);
+    if (chatTextareaRef.current) {
+      chatTextareaRef.current.style.height = 'auto';
+    }
+  };
+
+  // キーボード操作：Shift+Enterで改行、Enter単体で送信（日本語IME確定時は送信しない）
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter') {
+      // 日本語変換（IME確定）の Enter では送信しない
+      if (isComposing || e.nativeEvent.isComposing) {
+        return;
+      }
+      if (e.shiftKey) {
+        // Shift + Enter: 改行を挿入（ブラウザ既定動作）
+        return;
+      }
+      // Enter 単体: メッセージ送信
+      e.preventDefault();
+      handleSendMessage();
+    }
   };
 
   // チャット用添付ファイル非同期アップロード
@@ -1886,7 +1917,7 @@ export function Chat({
             )}
 
             {/* メッセージ入力フォーム */}
-            <form onSubmit={handleSendMessage} className="flex items-center gap-1.5 sm:gap-2 relative">
+            <form onSubmit={handleSendMessage} className="flex items-end gap-1.5 sm:gap-2 relative">
               <UrlPastePopup
                 prompt={chatPasteHandler.pastePrompt}
                 onInsertCard={chatPasteHandler.handleInsertCard}
@@ -1899,7 +1930,7 @@ export function Chat({
                 type="button"
                 disabled={isChatUploading}
                 onClick={() => chatFileInputRef.current?.click()}
-                className="p-2 sm:p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-full border border-slate-200 transition-colors shrink-0 disabled:opacity-50"
+                className="p-2 sm:p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-full border border-slate-200 transition-colors shrink-0 disabled:opacity-50 mb-0.5"
                 title="ファイルを添付"
               >
                 <Paperclip className="w-4 h-4" />
@@ -1918,7 +1949,7 @@ export function Chat({
                   fileInputRef.current?.click();
                   setShowStampPicker(false);
                 }}
-                className="p-1.5 sm:p-2 rounded-full hover:bg-slate-100 text-slate-500 transition-colors shrink-0"
+                className="p-1.5 sm:p-2 rounded-full hover:bg-slate-100 text-slate-500 transition-colors shrink-0 mb-0.5"
                 title="写真を送信"
               >
                 <ImageIcon className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -1929,7 +1960,7 @@ export function Chat({
                 onClick={() => {
                   setShowStampPicker(!showStampPicker);
                 }}
-                className={`p-1.5 sm:p-2 rounded-full transition-colors shrink-0 ${
+                className={`p-1.5 sm:p-2 rounded-full transition-colors shrink-0 mb-0.5 ${
                   showStampPicker ? 'bg-indigo-100 text-indigo-600' : 'hover:bg-slate-100 text-slate-500'
                 }`}
                 title="スタンプを送る"
@@ -1937,19 +1968,24 @@ export function Chat({
                 <Smile className="w-4 h-4 sm:w-5 sm:h-5" />
               </button>
 
-              <input
-                type="text"
+              <textarea
+                ref={chatTextareaRef}
+                rows={1}
                 value={messageText}
                 onChange={(e) => setMessageText(e.target.value)}
+                onKeyDown={handleKeyDown}
+                onCompositionStart={() => setIsComposing(true)}
+                onCompositionEnd={() => setIsComposing(false)}
                 onPaste={chatPasteHandler.handlePaste}
-                placeholder="メッセージを入力... (ファイルをドラッグ＆ドロップ可)"
-                className="flex-1 min-w-0 px-3 sm:px-4 py-2 sm:py-2.5 bg-slate-50 border border-slate-200 rounded-full focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-xs sm:text-sm font-semibold text-slate-800"
+                placeholder="メッセージを入力... (Shift+Enterで改行, Enterで送信)"
+                className="flex-1 min-w-0 px-3.5 sm:px-4 py-2 sm:py-2.5 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-xs sm:text-sm font-semibold text-slate-800 resize-none overflow-y-auto leading-relaxed"
+                style={{ minHeight: '38px', maxHeight: '120px' }}
               />
 
               <button
                 type="submit"
                 disabled={((!messageText || !messageText.trim()) && chatAttachments.length === 0) || isChatUploading}
-                className="p-2 sm:p-2.5 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 disabled:opacity-40 disabled:hover:bg-indigo-600 transition-colors shadow-sm shrink-0 flex items-center justify-center"
+                className="p-2 sm:p-2.5 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 disabled:opacity-40 disabled:hover:bg-indigo-600 transition-colors shadow-sm shrink-0 flex items-center justify-center mb-0.5"
               >
                 {isChatUploading ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
