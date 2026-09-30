@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { ChatRoom, ChatMessage, User, OfficeMaster, DivisionMaster, AttachmentFile } from '../types';
 import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
 import { MemberSelector } from './MemberSelector';
@@ -681,8 +681,8 @@ export function Chat({
     }
   }, [activeRoom?.id, currentUser?.id]);
 
-  // 過去メッセージ追加時のスクロール位置補正（位置跳躍の防止）
-  useEffect(() => {
+  // 過去メッセージ追加時のスクロール位置補正（位置跳躍の完全防止）
+  useLayoutEffect(() => {
     if (isPrependingRef.current && chatContainerRef.current) {
       const container = chatContainerRef.current;
       const heightDiff = container.scrollHeight - prevScrollHeightRef.current;
@@ -837,8 +837,15 @@ export function Chat({
     const messages = activeRoom.messages || [];
     const msgCount = messages.length;
     
-    // スクロール判定用キー (部屋ID、モバイル画面状態、未読メッセージID、表示開始位置)
-    const scrollKey = `${activeRoom.id}_${mobileView}_${firstUnreadMessageId || 'none'}_${visibleStartIndex}`;
+    // 過去ログを遡り読み込み中の場合は最下部への自動スクロールを絶対に実行しない
+    if (isPrependingRef.current) {
+      prevRoomIdRef.current = activeRoom.id;
+      prevMessagesLengthRef.current = msgCount;
+      return;
+    }
+
+    // スクロール判定用キー (部屋ID、モバイル画面状態、未読メッセージID) - visibleStartIndexは除外
+    const scrollKey = `${activeRoom.id}_${mobileView}_${firstUnreadMessageId || 'none'}`;
     const isNewRoomOrView = lastScrolledKeyRef.current !== scrollKey;
     const lengthIncreased = msgCount > prevMessagesLengthRef.current && prevMessagesLengthRef.current > 0;
     
@@ -896,7 +903,7 @@ export function Chat({
 
     prevRoomIdRef.current = activeRoom.id;
     prevMessagesLengthRef.current = msgCount;
-  }, [activeRoom?.id, activeRoom?.messages, firstUnreadMessageId, mobileView, visibleStartIndex, currentUser?.id]);
+  }, [activeRoom?.id, activeRoom?.messages, firstUnreadMessageId, mobileView, currentUser?.id]);
 
   // グループチャットかどうかを判定する安全な関数（参加者が3人以上、または明示的にgroupである場合）
   const isGroupRoom = (room: ChatRoom) => {
