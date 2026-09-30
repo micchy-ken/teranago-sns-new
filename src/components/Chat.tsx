@@ -4,6 +4,7 @@ import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
 import { MemberSelector } from './MemberSelector';
 import { markChatRoomAsRead, getReadChatTimestamps, getChatRoomUnreadCount } from '../utils/notifications';
 import { API_BASE_URL } from '../config/api';
+import { getStampUrl } from '../utils/stampUrl';
 import { 
   Search, 
   Send, 
@@ -277,7 +278,7 @@ const ChatMessageItem = React.memo(function ChatMessageItem({
                     <div className="relative group flex flex-col items-center">
                       {stampImg ? (
                         <img
-                          src={stampImg}
+                          src={getStampUrl(stampImg)}
                           alt={msg.stampText || msg.content}
                           className="w-32 h-32 sm:w-36 sm:h-36 object-contain hover:scale-105 transition-transform filter drop-shadow-sm"
                           loading="lazy"
@@ -2034,7 +2035,7 @@ export function Chat({
                     >
                       {stamp.imageUrl ? (
                         <div className="w-14 h-14 sm:w-16 sm:h-16 flex items-center justify-center p-1">
-                          <img src={stamp.imageUrl} alt={stamp.text} className="w-full h-full object-contain" />
+                          <img src={getStampUrl(stamp.imageUrl)} alt={stamp.text} className="w-full h-full object-contain" />
                         </div>
                       ) : (
                         <span className="text-xl sm:text-2xl">{stamp.icon}</span>

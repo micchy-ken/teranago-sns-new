@@ -1,7 +1,7 @@
 /**
  * routes/stamps.js
  * スタンプ管理モジュール (カスタムスタンプ保存・一括アップロード・背景透過画像保存対応)
- * 最終更新: 2026年9月30日 (管理画面からのスタンプ自由変更・画像切り出しアップロード・背景透過処理機能 完全対応)
+ * 最終更新: 2026年9月30日 (GitHub Pages ＆ Synology NAS クロスオリジン通信対応・/api/stamps-static 静的画像パス完全同期版)
  */
 import { Router } from 'express';
 import fs from 'fs';
@@ -173,7 +173,6 @@ router.post(['/upload', '/stamps/upload'], upload.single('image'), (req, res) =>
 router.post(['/batch-update', '/stamps/batch-update'], (req, res) => {
   try {
     const { stampMap, categories } = req.body;
-    // stampMap: { ohayou: 'data:image/png;base64,...', otsukare: 'data:...' }
 
     if (stampMap && typeof stampMap === 'object') {
       const currentCategories = categories || loadCustomStamps();

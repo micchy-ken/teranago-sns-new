@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { API_BASE_URL } from '../config/api';
+import { getStampUrl } from '../utils/stampUrl';
 import { Upload, RefreshCw, Check, Image as ImageIcon, Sparkles, AlertCircle, Trash2, ArrowRight, Eye } from 'lucide-react';
 
 interface StampItem {
@@ -467,7 +468,7 @@ export function StampAdmin() {
                       {/* スタンプ画像プレビュー */}
                       <div className="w-24 h-24 bg-white rounded-xl p-2 border border-slate-200 flex items-center justify-center overflow-hidden mb-2 shadow-2xs group-hover:scale-105 transition-transform bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] [background-size:8px_8px]">
                         <img
-                          src={stamp.imageUrl}
+                          src={getStampUrl(stamp.imageUrl)}
                           alt={stamp.text}
                           className="w-full h-full object-contain"
                           onError={(e) => {

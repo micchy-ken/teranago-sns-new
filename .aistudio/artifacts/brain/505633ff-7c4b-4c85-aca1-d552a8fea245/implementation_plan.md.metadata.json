@@ -1,6 +1,6 @@
 {
-  "summary": "Implementation plan for admin panel stamp management with custom image upload and background transparency.",
-  "updatedAt": "2026-09-30T05:31:45.727734479Z",
+  "summary": "AI Studioプレビュー環境における `stamps.js` APIエンドポイントの疎通確認手順（ブラウザDevTools F12を使用したレスポンスコードおよびペイロード検証手順）の案内計画書",
+  "updatedAt": "2026-09-30T06:53:00.959885002Z",
   "requestFeedback": true,
   "userFacing": true
 }
