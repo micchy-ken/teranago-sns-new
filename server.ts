@@ -624,7 +624,12 @@ async function startServer() {
 
   // 静的ファイル配信
   const publicDir = path.join(process.cwd(), 'public');
+  const uploadsDir = path.join(process.cwd(), 'uploads');
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+  }
   app.use('/public', express.static(publicDir, { maxAge: '1d' }));
+  app.use('/uploads', express.static(uploadsDir));
   app.use('/stamps', express.static(path.join(publicDir, 'stamps')));
   app.use('/api/stamps-static', express.static(path.join(publicDir, 'stamps')));
   app.use('/external-files', express.static(externalFilesDir));

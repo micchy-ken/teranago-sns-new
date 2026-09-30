@@ -1,7 +1,7 @@
 export const RECOMMEND_SERVER_JS = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年9月30日 (スタンプ管理APIルーター routes/stamps.js 連携および管理者向けスタンプ画像自由変更・一括切り出し・背景透過対応 完全同期)
+ * 最終更新日時 (最終アップデート): 2026年9月30日 (スタンプ画像をユーザーアイコンと同様の /uploads/ 配信＆CORS完全対応へ統一 完全同期)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -645,7 +645,12 @@ async function startServer() {
 
   // 静的ファイル配信
   const publicDir = path.join(process.cwd(), 'public');
+  const uploadsDir = path.join(process.cwd(), 'uploads');
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+  }
   app.use('/public', express.static(publicDir, { maxAge: '1d' }));
+  app.use('/uploads', express.static(uploadsDir));
   app.use('/stamps', express.static(path.join(publicDir, 'stamps')));
   app.use('/api/stamps-static', express.static(path.join(publicDir, 'stamps')));
   app.use('/external-files', express.static(externalFilesDir));

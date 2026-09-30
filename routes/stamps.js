@@ -1,7 +1,7 @@
 /**
  * routes/stamps.js
- * スタンプ管理モジュール (カスタムスタンプ保存・一括アップロード・背景透過画像保存対応)
- * 最終更新: 2026年9月30日 (GitHub Pages ＆ Synology NAS クロスオリジン通信対応・/api/stamps-static 静的画像パス完全同期版)
+ * スタンプ管理モジュール (ユーザーアイコンと同様の /uploads/ 配信完全対応版)
+ * 最終更新: 2026年9月30日 (ユーザーアバターと同じ /uploads/ ディレクトリ保存＆Synology NAS CORS完全対応版)
  */
 import { Router } from 'express';
 import fs from 'fs';
@@ -10,27 +10,27 @@ import multer from 'multer';
 
 const router = Router();
 
-// データ保存ディレクトリの確保
+// データ保存ディレクトリおよび画像アップロード先（ユーザーアイコンと同じ uploads/ を使用）
 const dataDir = path.join(process.cwd(), 'data');
 const customStampsPath = path.join(dataDir, 'custom-stamps.json');
-const stampsPublicDir = path.join(process.cwd(), 'public', 'stamps', 'custom');
+const uploadsDir = path.join(process.cwd(), 'uploads');
 
 if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
 }
-if (!fs.existsSync(stampsPublicDir)) {
-  fs.mkdirSync(stampsPublicDir, { recursive: true });
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-// Multerストレージ設定（カスタムスタンプ画像のアップロード用）
+// Multerストレージ設定（ユーザーアイコンと同様に uploads/ へ保存）
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, stampsPublicDir);
+    cb(null, uploadsDir);
   },
   filename: (req, file, cb) => {
     const ext = path.extname(file.originalname) || '.png';
-    const stampId = req.body.stampId || `stamp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-    cb(null, `${stampId}${ext}`);
+    const stampId = req.body.stampId || `stamp_${Date.now()}`;
+    cb(null, `stamp-${stampId}-${Date.now()}${ext}`);
   }
 });
 
@@ -110,6 +110,7 @@ function saveCustomStamps(categories) {
  */
 router.get(['/', '/stamps', '/all'], (req, res) => {
   try {
+    res.setHeader('Access-Control-Allow-Origin', '*');
     const categories = loadCustomStamps();
     res.json({ success: true, categories });
   } catch (err) {
@@ -124,20 +125,21 @@ router.get(['/', '/stamps', '/all'], (req, res) => {
  */
 router.post(['/upload', '/stamps/upload'], upload.single('image'), (req, res) => {
   try {
+    res.setHeader('Access-Control-Allow-Origin', '*');
     const { stampId, base64Image } = req.body;
     let imageUrl = '';
 
     if (req.file) {
-      imageUrl = `/stamps/custom/${req.file.filename}`;
+      imageUrl = `/uploads/${req.file.filename}`;
     } else if (base64Image) {
       // Base64データURLが送信された場合
       const targetId = stampId || `stamp_${Date.now()}`;
       const base64Data = base64Image.replace(/^data:image\/\w+;base64,/, '');
       const buffer = Buffer.from(base64Data, 'base64');
-      const filename = `${targetId}.png`;
-      const filePath = path.join(stampsPublicDir, filename);
+      const filename = `stamp-${targetId}-${Date.now()}.png`;
+      const filePath = path.join(uploadsDir, filename);
       fs.writeFileSync(filePath, buffer);
-      imageUrl = `/stamps/custom/${filename}?v=${Date.now()}`;
+      imageUrl = `/uploads/${filename}`;
     } else {
       return res.status(400).json({ success: false, error: '画像ファイルまたはBase64データが必要です' });
     }
@@ -172,6 +174,7 @@ router.post(['/upload', '/stamps/upload'], upload.single('image'), (req, res) =>
  */
 router.post(['/batch-update', '/stamps/batch-update'], (req, res) => {
   try {
+    res.setHeader('Access-Control-Allow-Origin', '*');
     const { stampMap, categories } = req.body;
 
     if (stampMap && typeof stampMap === 'object') {
@@ -182,11 +185,11 @@ router.post(['/batch-update', '/stamps/batch-update'], (req, res) => {
         if (base64Str && typeof base64Str === 'string' && base64Str.startsWith('data:image/')) {
           const base64Data = base64Str.replace(/^data:image\/\w+;base64,/, '');
           const buffer = Buffer.from(base64Data, 'base64');
-          const filename = `${id}_${timeTag}.png`;
-          const filePath = path.join(stampsPublicDir, filename);
+          const filename = `stamp-${id}-${timeTag}.png`;
+          const filePath = path.join(uploadsDir, filename);
           fs.writeFileSync(filePath, buffer);
 
-          const newUrl = `/stamps/custom/${filename}`;
+          const newUrl = `/uploads/${filename}`;
 
           // カテゴリー配下の対応スタンプのimageUrlを書き換え
           currentCategories.forEach(cat => {
@@ -219,6 +222,7 @@ router.post(['/batch-update', '/stamps/batch-update'], (req, res) => {
  */
 router.post(['/reset', '/stamps/reset'], (req, res) => {
   try {
+    res.setHeader('Access-Control-Allow-Origin', '*');
     if (fs.existsSync(customStampsPath)) {
       fs.unlinkSync(customStampsPath);
     }
@@ -227,6 +231,25 @@ router.post(['/reset', '/stamps/reset'], (req, res) => {
   } catch (err) {
     console.error('[Stamps Reset Error]', err);
     res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/stamps/image/:filename
+ * 画像ファイルの直接配信フォールバック（CORSヘッダー完備）
+ */
+router.get(['/image/:filename', '/file/:filename'], (req, res) => {
+  try {
+    const filename = path.basename(req.params.filename);
+    const filePath = path.join(uploadsDir, filename);
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    if (fs.existsSync(filePath)) {
+      return res.sendFile(filePath);
+    }
+    res.status(404).send('Not Found');
+  } catch (err) {
+    res.status(500).send('Error');
   }
 });
 
