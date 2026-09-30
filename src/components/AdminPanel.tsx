@@ -1549,9 +1549,6 @@ export function AdminPanel({
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-xl font-bold text-slate-900">全社・拠点・部署マスター管理</h1>
-              <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-100 text-indigo-700 border border-indigo-200">
-                管理者 (健介) 専用
-              </span>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
               拠点マスター（名古屋支店・浜松営業所・静岡営業所・本社 等）と部署マスター（管理・営業・設計・工務・保守・保守営業・総務 等）の定義およびメンバー配属登録を行えます。
@@ -1559,164 +1556,156 @@ export function AdminPanel({
           </div>
         </div>
 
-        {/* User switcher & status */}
-        <div className="flex items-center gap-3 bg-slate-50 p-2.5 rounded-xl border border-slate-200 shrink-0">
-          <img
-            src={getAvatarUrl(currentUser.avatarUrl)}
-            alt={currentUser.name}
-            className="w-8 h-8 rounded-full object-cover border border-indigo-300"
-          />
-          <div className="text-xs">
-            <div className="font-bold text-slate-800 flex items-center gap-1">
-              <span>{currentUser.name}</span>
-              <span className="text-[10px] text-indigo-600 font-semibold">(管理者)</span>
-            </div>
-            <div className="text-slate-500">{currentUser.department}</div>
+        {/* 代理ログイン切り替え */}
+        {onSwitchUser && (
+          <div className="flex items-center gap-2.5 bg-slate-50 px-3.5 py-2 rounded-xl border border-slate-200 shrink-0 shadow-2xs">
+            <span className="text-xs font-bold text-slate-700">代理ログイン</span>
+            <select
+              onChange={(e) => {
+                const selected = allUsers.find((u) => u.id === e.target.value);
+                if (selected) onSwitchUser(selected);
+              }}
+              value={currentUser.id}
+              className="text-xs bg-white border border-slate-300 rounded-lg px-2.5 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800 font-bold cursor-pointer"
+              title="代理ログイン切り替え"
+            >
+              {allUsers.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.name} {u.isAdmin ? ' (管理者)' : ' (一般)'}
+                </option>
+              ))}
+            </select>
           </div>
-
-          {onSwitchUser && (
-            <div className="pl-3 border-l border-slate-200">
-              <select
-                onChange={(e) => {
-                  const selected = allUsers.find((u) => u.id === e.target.value);
-                  if (selected) onSwitchUser(selected);
-                }}
-                value={currentUser.id}
-                className="text-xs bg-white border border-slate-300 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-700 font-medium cursor-pointer"
-                title="表示ユーザー切り替え"
-              >
-                {allUsers.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.name} {u.isAdmin ? ' (管理者)' : ' (一般)'}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-        </div>
+        )}
       </div>
 
-      {/* Admin Sub Navigation Tabs */}
-      <div className="flex border-b border-slate-200 bg-white rounded-xl p-1.5 shadow-xs border">
-        <button
-          onClick={() => setActiveSubTab('users')}
-          className={`flex-1 py-2.5 text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition-all ${
-            activeSubTab === 'users'
-              ? 'bg-indigo-600 text-white shadow-sm'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-          }`}
-        >
-          <Users className="w-4 h-4" />
-          メンバー配属登録 & 権限管理 ({allUsers.length}名)
-        </button>
+      {/* Admin Sub Navigation Tabs (マスター系 & その他に分離・整理) */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-3 shadow-xs space-y-2.5">
+        {/* マスター系 */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[11px] font-black text-slate-500 bg-slate-100 border border-slate-200/80 px-2.5 py-1 rounded-lg shrink-0 tracking-wider">
+            マスター
+          </span>
+          <button
+            onClick={() => setActiveSubTab('users')}
+            className={`px-3.5 py-2 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer ${
+              activeSubTab === 'users'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <Users className="w-3.5 h-3.5" />
+            ユーザー管理
+          </button>
+          <button
+            onClick={() => setActiveSubTab('offices')}
+            className={`px-3.5 py-2 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer ${
+              activeSubTab === 'offices'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <Building2 className="w-3.5 h-3.5" />
+            拠点マスター
+          </button>
+          <button
+            onClick={() => setActiveSubTab('divisions')}
+            className={`px-3.5 py-2 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer ${
+              activeSubTab === 'divisions'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <Layers className="w-3.5 h-3.5" />
+            部署マスター
+          </button>
+          <button
+            onClick={() => setActiveSubTab('positions')}
+            className={`px-3.5 py-2 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer ${
+              activeSubTab === 'positions'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <Briefcase className="w-3.5 h-3.5" />
+            役職マスター
+          </button>
+          <button
+            onClick={() => setActiveSubTab('items')}
+            className={`px-3.5 py-2 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer ${
+              activeSubTab === 'items'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <ShoppingBag className="w-3.5 h-3.5" />
+            品名マスター
+          </button>
+          <button
+            onClick={() => setActiveSubTab('approval_flows')}
+            className={`px-3.5 py-2 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer ${
+              activeSubTab === 'approval_flows'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <GitMerge className="w-3.5 h-3.5" />
+            承認フロー
+          </button>
+        </div>
 
-        <button
-          onClick={() => setActiveSubTab('offices')}
-          className={`flex-1 py-2.5 text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition-all ${
-            activeSubTab === 'offices'
-              ? 'bg-indigo-600 text-white shadow-sm'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-          }`}
-        >
-          <Building2 className="w-4 h-4" />
-          拠点マスター ({offices.length})
-        </button>
+        <div className="h-px bg-slate-100" />
 
-        <button
-          onClick={() => setActiveSubTab('divisions')}
-          className={`flex-1 py-2.5 text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition-all ${
-            activeSubTab === 'divisions'
-              ? 'bg-indigo-600 text-white shadow-sm'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-          }`}
-        >
-          <Layers className="w-4 h-4" />
-          部署マスター ({divisions.length})
-        </button>
-
-        <button
-          onClick={() => setActiveSubTab('positions')}
-          className={`flex-1 py-2.5 text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition-all ${
-            activeSubTab === 'positions'
-              ? 'bg-indigo-600 text-white shadow-sm'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-          }`}
-        >
-          <Briefcase className="w-4 h-4" />
-          役職マスター ({positions.length})
-        </button>
-
-        <button
-          onClick={() => setActiveSubTab('items')}
-          className={`flex-1 py-2.5 text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition-all ${
-            activeSubTab === 'items'
-              ? 'bg-indigo-600 text-white shadow-sm'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-          }`}
-        >
-          <ShoppingBag className="w-4 h-4" />
-          品名マスター ({itemMasters.length})
-        </button>
-
-        <button
-          onClick={() => setActiveSubTab('approval_flows')}
-          className={`flex-1 py-2.5 text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition-all ${
-            activeSubTab === 'approval_flows'
-              ? 'bg-indigo-600 text-white shadow-sm'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-          }`}
-        >
-          <GitMerge className="w-4 h-4" />
-          承認フロー設定 ({approvalFlows.length})
-        </button>
-
-        <button
-          onClick={() => setActiveSubTab('stamps')}
-          className={`flex-1 py-2.5 text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition-all ${
-            activeSubTab === 'stamps'
-              ? 'bg-indigo-600 text-white shadow-sm'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-          }`}
-        >
-          <Smile className="w-4 h-4" />
-          スタンプ管理
-        </button>
-
-        <button
-          onClick={() => setActiveSubTab('logs')}
-          className={`flex-1 py-2.5 text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition-all ${
-            activeSubTab === 'logs'
-              ? 'bg-indigo-600 text-white shadow-sm'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-          }`}
-        >
-          <FileText className="w-4 h-4" />
-          アクセス・操作ログ
-        </button>
-
-        <button
-          onClick={() => setActiveSubTab('system')}
-          className={`flex-1 py-2.5 text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition-all ${
-            activeSubTab === 'system'
-              ? 'bg-indigo-600 text-white shadow-sm'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-          }`}
-        >
-          <Settings className="w-4 h-4" />
-          システム情報
-        </button>
-
-        <button
-          onClick={() => setActiveSubTab('workflows_cleanup')}
-          className={`flex-1 py-2.5 text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition-all ${
-            activeSubTab === 'workflows_cleanup'
-              ? 'bg-indigo-600 text-white shadow-sm'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-          }`}
-        >
-          <Trash2 className="w-4 h-4" />
-          承認済みワークフロー削除
-        </button>
+        {/* その他 */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[11px] font-black text-slate-500 bg-slate-100 border border-slate-200/80 px-2.5 py-1 rounded-lg shrink-0 tracking-wider">
+            その他
+          </span>
+          <button
+            onClick={() => setActiveSubTab('stamps')}
+            className={`px-3.5 py-2 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer ${
+              activeSubTab === 'stamps'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <Smile className="w-3.5 h-3.5" />
+            スタンプ登録
+          </button>
+          <button
+            onClick={() => setActiveSubTab('logs')}
+            className={`px-3.5 py-2 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer ${
+              activeSubTab === 'logs'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <FileText className="w-3.5 h-3.5" />
+            アクセスログ
+          </button>
+          <button
+            onClick={() => setActiveSubTab('workflows_cleanup')}
+            className={`px-3.5 py-2 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer ${
+              activeSubTab === 'workflows_cleanup'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            データ削除
+          </button>
+          <button
+            onClick={() => setActiveSubTab('system')}
+            className={`px-3.5 py-2 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer ${
+              activeSubTab === 'system'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <Settings className="w-3.5 h-3.5" />
+            システム情報
+          </button>
+        </div>
       </div>
 
       {/* SUB TAB 1: MEMBERS & AFFILIATIONS */}
@@ -1889,92 +1878,33 @@ export function AdminPanel({
           {/* Members Table / List (Normal View vs Reorder View) */}
           {userViewMode === 'list' ? (
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden divide-y divide-slate-100">
-              <div className="px-6 py-3.5 bg-slate-50 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+              <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between text-xs">
                 <div className="flex items-center gap-2">
                   <Users className="w-4 h-4 text-indigo-600" />
-                  <span className="font-bold text-slate-700 text-sm">
+                  <span className="font-extrabold text-slate-800 text-sm">
                     登録メンバー一覧 ({filteredUsers.length}名)
                   </span>
                 </div>
-              {/* 一括操作バー */}
-              <div className="flex items-center gap-3 flex-wrap">
-                <div className="flex items-center gap-1.5 bg-white px-2.5 py-1.5 rounded-lg border border-slate-200 shadow-2xs">
-                  <span className="text-[11px] font-bold text-amber-900">点検予定:</span>
-                  <button
-                    type="button"
-                    onClick={() => handleBatchToggle('inspection', true)}
-                    className="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-500 hover:bg-amber-600 text-white transition-colors cursor-pointer shadow-2xs"
-                    title="表示中メンバーの点検予定管理メニューを一括ON"
-                  >
-                    全員ON
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleBatchToggle('inspection', false)}
-                    className="px-2 py-0.5 rounded text-[11px] font-bold bg-slate-200 hover:bg-slate-300 text-slate-700 transition-colors cursor-pointer shadow-2xs"
-                    title="表示中メンバーの点検予定管理メニューを一括OFF"
-                  >
-                    全員OFF
-                  </button>
-                </div>
-                <div className="flex items-center gap-1.5 bg-white px-2.5 py-1.5 rounded-lg border border-slate-200 shadow-2xs">
-                  <span className="text-[11px] font-bold text-indigo-900">共有ファイル:</span>
-                  <button
-                    type="button"
-                    onClick={() => handleBatchToggle('files', true)}
-                    className="px-2 py-0.5 rounded text-[11px] font-bold bg-indigo-600 hover:bg-indigo-700 text-white transition-colors cursor-pointer shadow-2xs"
-                    title="表示中メンバーの共有ファイルメニューを一括ON"
-                  >
-                    全員ON
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleBatchToggle('files', false)}
-                    className="px-2 py-0.5 rounded text-[11px] font-bold bg-slate-200 hover:bg-slate-300 text-slate-700 transition-colors cursor-pointer shadow-2xs"
-                    title="表示中メンバーの共有ファイルメニューを一括OFF"
-                  >
-                    全員OFF
-                  </button>
-                </div>
-                <div className="flex items-center gap-1.5 bg-white px-2.5 py-1.5 rounded-lg border border-rose-200 shadow-2xs">
-                  <span className="text-[11px] font-bold text-rose-900">安否確認発動:</span>
-                  <button
-                    type="button"
-                    onClick={() => handleBatchToggle('safety', true)}
-                    className="px-2 py-0.5 rounded text-[11px] font-bold bg-rose-600 hover:bg-rose-700 text-white transition-colors cursor-pointer shadow-2xs"
-                    title="表示中メンバーの安否確認発動メニューを一括ON"
-                  >
-                    全員ON
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleBatchToggle('safety', false)}
-                    className="px-2 py-0.5 rounded text-[11px] font-bold bg-slate-200 hover:bg-slate-300 text-slate-700 transition-colors cursor-pointer shadow-2xs"
-                    title="表示中メンバーの安否確認発動メニューを一括OFF"
-                  >
-                    全員OFF
-                  </button>
-                </div>
               </div>
-            </div>
 
             {filteredUsers.length === 0 ? (
               <div className="p-12 text-center space-y-3">
                 <Users className="w-10 h-10 text-slate-300 mx-auto" />
-                <p className="text-slate-500 text-xs">該当するメンバーが見つかりません。</p>
+                <p className="text-slate-500 text-xs font-bold">該当するメンバーが見つかりません。</p>
               </div>
             ) : (
               filteredUsers.map((user) => (
-                <div key={user.id} className="p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-slate-50/80 transition-colors">
-                  <div className="flex items-center gap-4">
+                <div key={user.id} className="p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-slate-50/80 transition-colors">
+                  <div className="flex items-center gap-3.5">
                     <img
                       src={getAvatarUrl(user.avatarUrl)}
                       alt={user.name}
-                      className="w-12 h-12 rounded-full object-cover border-2 border-indigo-100 ring-2 ring-slate-100"
+                      className="w-11 h-11 rounded-full object-cover border-2 border-indigo-100 ring-2 ring-slate-100 shrink-0"
                     />
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-slate-900 text-base">{user.name}</span>
+                    <div className="space-y-1.5">
+                      {/* 氏名 & 権限バッジ & 所属タグ */}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-extrabold text-slate-900 text-base">{user.name}</span>
                         {user.isAdmin ? (
                           <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-indigo-100 text-indigo-700 border border-indigo-200 flex items-center gap-1">
                             <Shield className="w-3 h-3 text-indigo-600" />
@@ -1982,69 +1912,30 @@ export function AdminPanel({
                           </span>
                         ) : (
                           <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
-                            一般ユーザー
+                            一般
                           </span>
                         )}
-                      </div>
-
-                      {/* Affiliation Badges (Office + Division + Position) */}
-                      <div className="flex flex-wrap items-center gap-2 pt-0.5">
-                        <span className="text-xs font-bold text-slate-800 bg-slate-100 px-2.5 py-0.5 rounded border border-slate-200 flex items-center gap-1">
+                        <span className="text-slate-300 font-bold">|</span>
+                        <span className="text-xs font-bold text-slate-800 bg-slate-100 px-2.5 py-0.5 rounded-md border border-slate-200 flex items-center gap-1">
                           <Building2 className="w-3 h-3 text-slate-500" />
                           {user.office || '拠点未設定'}
                         </span>
-                        <span className="text-slate-300 font-bold">/</span>
-                        <span className="text-xs font-extrabold text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded border border-indigo-200 flex items-center gap-1">
+                        <span className="text-xs font-extrabold text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded-md border border-indigo-200 flex items-center gap-1">
                           <Layers className="w-3 h-3 text-indigo-500" />
                           {user.division || '部署未設定'}
                         </span>
                         {user.position && (
-                          <>
-                            <span className="text-slate-300 font-bold">/</span>
-                            <span className="text-xs font-extrabold text-purple-700 bg-purple-50 px-2.5 py-0.5 rounded border border-purple-200 flex items-center gap-1">
-                              <Briefcase className="w-3 h-3 text-purple-500" />
-                              {user.position}
-                            </span>
-                          </>
-                        )}
-                        {!user.isAdmin && (
-                          user.preferences?.showInspectionScheduler ? (
-                            <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200" title="点検予定管理メニュー表示中">
-                              点検予定: 表示
-                            </span>
-                          ) : (
-                            <span className="text-[10px] font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded border border-slate-200" title="点検予定管理メニュー非表示中">
-                              点検予定: 非表示
-                            </span>
-                          )
-                        )}
-                        {!user.isAdmin && (
-                          user.preferences?.showSharedFiles ? (
-                            <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200" title="共有ファイルメニュー表示中">
-                              共有ファイル: 表示
-                            </span>
-                          ) : (
-                            <span className="text-[10px] font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded border border-slate-200" title="共有ファイルメニュー非表示中">
-                              共有ファイル: 非表示
-                            </span>
-                          )
-                        )}
-                        {!user.isAdmin && (
-                          user.preferences?.showSafetyConfirmation ? (
-                            <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200" title="安否確認発動メニュー表示中">
-                              安否確認: 表示
-                            </span>
-                          ) : (
-                            <span className="text-[10px] font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded border border-slate-200" title="安否確認発動メニュー非表示中">
-                              安否確認: 非表示
-                            </span>
-                          )
+                          <span className="text-xs font-extrabold text-purple-700 bg-purple-50 px-2.5 py-0.5 rounded-md border border-purple-200 flex items-center gap-1">
+                            <Briefcase className="w-3 h-3 text-purple-500" />
+                            {user.position}
+                          </span>
                         )}
                       </div>
 
-                      <div className="flex flex-wrap items-center gap-x-4 text-xs text-slate-500 pt-1">
+                      {/* 連絡先情報 */}
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 font-medium">
                         {user.mobileEmail ? (
-                          <span className="flex items-center gap-1 font-mono text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">
+                          <span className="flex items-center gap-1 font-mono text-indigo-700 bg-indigo-50/70 px-2 py-0.5 rounded border border-indigo-100">
                             <Smartphone className="w-3 h-3 text-indigo-500" />
                             携帯: {user.mobileEmail}
                           </span>
@@ -2067,7 +1958,7 @@ export function AdminPanel({
                     </div>
                   </div>
 
-                  {/* Action Buttons */}
+                  {/* 操作ボタン */}
                   <div className="flex flex-wrap items-center gap-2 self-end md:self-center shrink-0">
                     {user.mobileEmail && (
                       <button
@@ -2082,88 +1973,10 @@ export function AdminPanel({
                       </button>
                     )}
 
-                    {/* ワンクリック 点検予定トグル */}
-                    {!user.isAdmin && (
-                      <button
-                        type="button"
-                        onClick={() => handleToggleInspection(user)}
-                        title={`クリックで「点検予定管理」を${user.preferences?.showInspectionScheduler ? 'OFF（非表示）' : 'ON（表示）'}に切り替え`}
-                        className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 border transition-all cursor-pointer ${
-                          user.preferences?.showInspectionScheduler
-                            ? 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'
-                            : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200 hover:text-slate-700'
-                        }`}
-                      >
-                        {user.preferences?.showInspectionScheduler ? (
-                          <>
-                            <CheckCircle2 className="w-3.5 h-3.5 text-amber-600" />
-                            点検: ON
-                          </>
-                        ) : (
-                          <>
-                            <X className="w-3.5 h-3.5 text-slate-400" />
-                            点検: OFF
-                          </>
-                        )}
-                      </button>
-                    )}
-
-                    {/* ワンクリック 共有ファイルトグル */}
-                    {!user.isAdmin && (
-                      <button
-                        type="button"
-                        onClick={() => handleToggleFiles(user)}
-                        title={`クリックで「共有ファイル」を${user.preferences?.showSharedFiles ? 'OFF（非表示）' : 'ON（表示）'}に切り替え`}
-                        className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 border transition-all cursor-pointer ${
-                          user.preferences?.showSharedFiles
-                            ? 'bg-indigo-50 text-indigo-800 border-indigo-300 hover:bg-indigo-100'
-                            : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200 hover:text-slate-700'
-                        }`}
-                      >
-                        {user.preferences?.showSharedFiles ? (
-                          <>
-                            <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600" />
-                            ファイル: ON
-                          </>
-                        ) : (
-                          <>
-                            <X className="w-3.5 h-3.5 text-slate-400" />
-                            ファイル: OFF
-                          </>
-                        )}
-                      </button>
-                    )}
-
-                    {/* ワンクリック 安否確認発動トグル */}
-                    {!user.isAdmin && (
-                      <button
-                        type="button"
-                        onClick={() => handleToggleSafetyConfirmation(user)}
-                        title={`クリックで「安否確認発動」を${user.preferences?.showSafetyConfirmation ? 'OFF（非表示）' : 'ON（表示）'}に切り替え`}
-                        className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 border transition-all cursor-pointer ${
-                          user.preferences?.showSafetyConfirmation
-                            ? 'bg-rose-50 text-rose-800 border-rose-300 hover:bg-rose-100'
-                            : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200 hover:text-slate-700'
-                        }`}
-                      >
-                        {user.preferences?.showSafetyConfirmation ? (
-                          <>
-                            <CheckCircle2 className="w-3.5 h-3.5 text-rose-600" />
-                            安否: ON
-                          </>
-                        ) : (
-                          <>
-                            <X className="w-3.5 h-3.5 text-slate-400" />
-                            安否: OFF
-                          </>
-                        )}
-                      </button>
-                    )}
-
                     <button
                       onClick={() => onToggleUserAdmin(user.id)}
                       title="管理者権限切り替え"
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 border transition-all ${
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 border transition-all cursor-pointer ${
                         user.isAdmin
                           ? 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
                           : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
@@ -2175,15 +1988,15 @@ export function AdminPanel({
 
                     <button
                       onClick={() => handleOpenEditUserModal(user)}
-                      className="px-3.5 py-1.5 text-xs font-bold text-slate-700 hover:text-indigo-600 bg-slate-100 hover:bg-indigo-50 rounded-lg flex items-center gap-1.5 transition-colors border border-slate-200"
+                      className="px-3.5 py-1.5 text-xs font-bold text-slate-700 hover:text-indigo-600 bg-slate-100 hover:bg-indigo-50 rounded-lg flex items-center gap-1.5 transition-colors border border-slate-200 cursor-pointer"
                     >
                       <Edit2 className="w-3.5 h-3.5" />
-                      拠点・部署編集
+                      編集
                     </button>
 
                     <button
                       onClick={() => handleDeleteUserClick(user)}
-                      className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors border border-transparent hover:border-red-200"
+                      className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors border border-transparent hover:border-red-200 cursor-pointer"
                       title="メンバー削除"
                     >
                       <Trash2 className="w-4 h-4" />
