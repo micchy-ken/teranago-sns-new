@@ -38,13 +38,18 @@ import {
   Database,
   Play,
   Activity,
-  Server,
   Copy,
   Check,
   Send,
-  Inbox
+  Inbox,
+  ArrowUp,
+  ArrowDown,
+  GripVertical,
+  ArrowUpDown,
+  Save
 } from 'lucide-react';
 import { User, OfficeMaster, DivisionMaster, PositionMaster, OfficeType, ApprovalFlowRule, ApprovalStepConfig, ApplicationType, ApproverType, ItemMaster, WorkflowApplication, ApplicationStatus } from '../types';
+import { sortUsers, sortUsersByDivision } from '../utils/userSort';
 
 interface AdminPanelProps {
   currentUser: User;
@@ -120,8 +125,18 @@ export function AdminPanel({
   const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedOfficeFilter, setSelectedOfficeFilter] = useState<string>('all');
+  const [selectedDivisionFilter, setSelectedDivisionFilter] = useState<string>('all');
   const [workflowSearchQuery, setWorkflowSearchQuery] = useState('');
   const [workflowStatusFilter, setWorkflowStatusFilter] = useState<'all' | 'approved' | 'pending' | 'rejected' | 'draft'>('all');
+
+  // ユーザー並び順（部署別）管理用状態
+  const [userViewMode, setUserViewMode] = useState<'list' | 'reorder'>('list');
+  const [reorderDivision, setReorderDivision] = useState<string>('all');
+  const [reorderOffice, setReorderOffice] = useState<string>('all');
+  const [reorderList, setReorderList] = useState<User[]>([]);
+  const [isSavingUserOrder, setIsSavingUserOrder] = useState(false);
+  const [userOrderSaveMessage, setUserOrderSaveMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const [draggedUserIndex, setDraggedUserIndex] = useState<number | null>(null);
 
   // システム情報・診断ツール拡張用状態
   const [diagnosticLoading, setDiagnosticLoading] = useState(false);
@@ -1406,16 +1421,116 @@ export function AdminPanel({
     setIsFlowModalOpen(false);
   };
 
-  // Filter Users
-  const filteredUsers = allUsers.filter((u) => {
-    const matchesSearch = 
-      u.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      u.department.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (u.email && u.email.toLowerCase().includes(searchQuery.toLowerCase()));
+  // Filter and sort Users for List View
+  const filteredUsers = useMemo(() => {
+    const list = allUsers.filter((u) => {
+      const matchesSearch = 
+        u.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        u.department.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (u.kanaName && u.kanaName.toLowerCase().includes(searchQuery.toLowerCase())) ||
+        (u.email && u.email.toLowerCase().includes(searchQuery.toLowerCase()));
 
-    if (selectedOfficeFilter === 'all') return matchesSearch;
-    return matchesSearch && u.office === selectedOfficeFilter;
-  });
+      const matchesOffice = selectedOfficeFilter === 'all' || u.office === selectedOfficeFilter;
+      const matchesDivision = selectedDivisionFilter === 'all' || u.division === selectedDivisionFilter;
+
+      return matchesSearch && matchesOffice && matchesDivision;
+    });
+
+    return sortUsersByDivision(list, divisions);
+  }, [allUsers, divisions, searchQuery, selectedOfficeFilter, selectedDivisionFilter]);
+
+  // 並び替え対象ユーザーリストの初期化・同期
+  useEffect(() => {
+    if (activeSubTab !== 'users') return;
+    const targetUsers = allUsers.filter((u) => {
+      const matchOff = reorderOffice === 'all' || u.office === reorderOffice;
+      const matchDiv = reorderDivision === 'all' || u.division === reorderDivision;
+      return matchOff && matchDiv;
+    });
+    setReorderList(sortUsersByDivision(targetUsers, divisions));
+  }, [activeSubTab, allUsers, reorderOffice, reorderDivision, divisions]);
+
+  // 並び替え操作: 上下移動
+  const moveUserInReorder = (index: number, direction: 'up' | 'down') => {
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= reorderList.length) return;
+
+    const newList = [...reorderList];
+    const [moved] = newList.splice(index, 1);
+    newList.splice(targetIndex, 0, moved);
+    setReorderList(newList);
+  };
+
+  // ドラッグ＆ドロップ操作
+  const handleUserDragStart = (index: number) => {
+    setDraggedUserIndex(index);
+  };
+
+  const handleUserDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    if (draggedUserIndex === null || draggedUserIndex === index) return;
+  };
+
+  const handleUserDrop = (dropIndex: number) => {
+    if (draggedUserIndex === null || draggedUserIndex === dropIndex) {
+      setDraggedUserIndex(null);
+      return;
+    }
+
+    const newList = [...reorderList];
+    const [draggedItem] = newList.splice(draggedUserIndex, 1);
+    newList.splice(dropIndex, 0, draggedItem);
+    setReorderList(newList);
+    setDraggedUserIndex(null);
+  };
+
+  // 並び順の一括保存 (PUT /api/users/reorder)
+  const handleSaveUserOrder = async () => {
+    if (reorderList.length === 0) return;
+    setIsSavingUserOrder(true);
+    setUserOrderSaveMessage(null);
+
+    try {
+      // 1. 各ユーザーに1から始まる sortOrder を割り当て
+      const userOrders = reorderList.map((u, idx) => ({
+        id: u.id,
+        sortOrder: idx + 1
+      }));
+
+      // 2. API 通信 (API_BASE_URL 経由)
+      const res = await fetch(`${API_BASE_URL}/users/reorder`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userOrders })
+      });
+
+      if (!res.ok) {
+        throw new Error(`並び順の保存に失敗しました (${res.status})`);
+      }
+
+      // 3. 親コンポーネントのユーザー状態を更新
+      reorderList.forEach((u, idx) => {
+        onUpdateUser({
+          ...u,
+          sortOrder: idx + 1
+        });
+      });
+
+      setUserOrderSaveMessage({
+        text: `部署・拠点の並び順（${reorderList.length}名）を保存しました。`,
+        type: 'success'
+      });
+      setTimeout(() => setUserOrderSaveMessage(null), 4000);
+    } catch (err: any) {
+      console.error('Failed to save user order:', err);
+      setUserOrderSaveMessage({
+        text: `保存エラー: ${err.message || '通信に失敗しました'}`,
+        type: 'error'
+      });
+    } finally {
+      setIsSavingUserOrder(false);
+    }
+  };
 
   return (
     <div className="flex-1 max-w-5xl mx-auto space-y-6">
@@ -1577,53 +1692,180 @@ export function AdminPanel({
       {/* SUB TAB 1: MEMBERS & AFFILIATIONS */}
       {activeSubTab === 'users' && (
         <div className="space-y-6">
-          {/* Action bar: Search, Office filter, Add user button */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="flex-1 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-              <div className="relative flex-1">
-                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
-                  type="text"
-                  autoComplete="off"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="メンバー氏名、所属、メールアドレスで検索..."
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-9 pr-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-colors"
-                />
-              </div>
-
-              <select
-                value={selectedOfficeFilter}
-                onChange={(e) => setSelectedOfficeFilter(e.target.value)}
-                className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+          {/* Mode Switch & Notifications */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white rounded-2xl border border-slate-200 p-3 shadow-xs">
+            <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-xl">
+              <button
+                type="button"
+                onClick={() => setUserViewMode('list')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                  userViewMode === 'list'
+                    ? 'bg-white text-indigo-600 shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
               >
-                <option value="all">すべての拠点 ({allUsers.length}名)</option>
-                {offices.map((off) => (
-                  <option key={off.id} value={off.name}>
-                    {off.name} ({allUsers.filter((u) => u.office === off.name).length}名)
-                  </option>
-                ))}
-              </select>
+                <Users className="w-3.5 h-3.5" />
+                メンバー一覧・編集
+              </button>
+              <button
+                type="button"
+                onClick={() => setUserViewMode('reorder')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                  userViewMode === 'reorder'
+                    ? 'bg-indigo-600 text-white shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <ArrowUpDown className="w-3.5 h-3.5" />
+                部署別・メンバー並び替え
+              </button>
             </div>
 
-            <button
-              onClick={handleOpenAddUserModal}
-              className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition-all shadow-sm shrink-0"
-            >
-              <UserPlus className="w-4 h-4" />
-              新規メンバー追加・登録
-            </button>
+            {userOrderSaveMessage && (
+              <div
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-2 ${
+                  userOrderSaveMessage.type === 'success'
+                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                    : 'bg-rose-50 text-rose-700 border border-rose-200'
+                }`}
+              >
+                {userOrderSaveMessage.type === 'success' ? (
+                  <Check className="w-3.5 h-3.5 text-emerald-600" />
+                ) : (
+                  <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
+                )}
+                <span>{userOrderSaveMessage.text}</span>
+              </div>
+            )}
           </div>
 
-          {/* Members Table / List */}
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden divide-y divide-slate-100">
-            <div className="px-6 py-3.5 bg-slate-50 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
-              <div className="flex items-center gap-2">
-                <Users className="w-4 h-4 text-indigo-600" />
-                <span className="font-bold text-slate-700 text-sm">
-                  登録メンバー一覧 ({filteredUsers.length}名)
-                </span>
+          {/* Action bar: Search, Office & Division filters, Add user button */}
+          {userViewMode === 'list' ? (
+            <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="flex-1 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    autoComplete="off"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="メンバー氏名、所属、メールアドレスで検索..."
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-9 pr-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-colors"
+                  />
+                </div>
+
+                <select
+                  value={selectedOfficeFilter}
+                  onChange={(e) => setSelectedOfficeFilter(e.target.value)}
+                  className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                >
+                  <option value="all">すべての拠点 ({allUsers.length}名)</option>
+                  {offices.map((off) => (
+                    <option key={off.id} value={off.name}>
+                      {off.name} ({allUsers.filter((u) => u.office === off.name).length}名)
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  value={selectedDivisionFilter}
+                  onChange={(e) => setSelectedDivisionFilter(e.target.value)}
+                  className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                >
+                  <option value="all">すべての部署</option>
+                  {divisions.map((div) => (
+                    <option key={div.id} value={div.name}>
+                      {div.name} ({allUsers.filter((u) => u.division === div.name).length}名)
+                    </option>
+                  ))}
+                </select>
               </div>
+
+              <button
+                onClick={handleOpenAddUserModal}
+                className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition-all shadow-sm shrink-0"
+              >
+                <UserPlus className="w-4 h-4" />
+                新規メンバー追加・登録
+              </button>
+            </div>
+          ) : (
+            /* 並び替え専用コントロールバー */
+            <div className="bg-white rounded-2xl border border-indigo-100 p-4 shadow-sm space-y-4">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
+                    <Briefcase className="w-4 h-4 text-indigo-600" />
+                    <span>並び替える部署:</span>
+                  </div>
+                  <select
+                    value={reorderDivision}
+                    onChange={(e) => setReorderDivision(e.target.value)}
+                    className="bg-slate-50 border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                  >
+                    <option value="all">すべての部署 ({allUsers.length}名)</option>
+                    {divisions.map((d) => (
+                      <option key={d.id} value={d.name}>
+                        {d.name} ({allUsers.filter((u) => u.division === d.name).length}名)
+                      </option>
+                    ))}
+                  </select>
+
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700 ml-2">
+                    <Building2 className="w-4 h-4 text-indigo-600" />
+                    <span>拠点絞り込み:</span>
+                  </div>
+                  <select
+                    value={reorderOffice}
+                    onChange={(e) => setReorderOffice(e.target.value)}
+                    className="bg-slate-50 border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                  >
+                    <option value="all">すべての拠点</option>
+                    {offices.map((o) => (
+                      <option key={o.id} value={o.name}>
+                        {o.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleSaveUserOrder}
+                    disabled={isSavingUserOrder || reorderList.length === 0}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
+                  >
+                    {isSavingUserOrder ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Save className="w-3.5 h-3.5" />
+                    )}
+                    <span>この並び順を保存</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="bg-indigo-50/70 border border-indigo-100 rounded-xl p-3 text-xs text-indigo-900 flex items-start gap-2">
+                <Info className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-bold">並び替え方法:</span> 各メンバー行の「▲」「▼」ボタン、または左端のハンドルをドラッグ＆ドロップして並び替え、「この並び順を保存」を押してください。アプリ全体（社員名簿・メンバー選択等）に反映されます。
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Members Table / List (Normal View vs Reorder View) */}
+          {userViewMode === 'list' ? (
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden divide-y divide-slate-100">
+              <div className="px-6 py-3.5 bg-slate-50 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+                <div className="flex items-center gap-2">
+                  <Users className="w-4 h-4 text-indigo-600" />
+                  <span className="font-bold text-slate-700 text-sm">
+                    登録メンバー一覧 ({filteredUsers.length}名)
+                  </span>
+                </div>
               {/* 一括操作バー */}
               <div className="flex items-center gap-3 flex-wrap">
                 <div className="flex items-center gap-1.5 bg-white px-2.5 py-1.5 rounded-lg border border-slate-200 shadow-2xs">
@@ -1921,6 +2163,136 @@ export function AdminPanel({
               ))
             )}
           </div>
+          ) : (
+            /* 部署別ドラッグ＆ドロップ・上下ボタン並び替え画面 */
+            <div className="bg-white rounded-2xl border border-indigo-200 shadow-sm overflow-hidden">
+              <div className="px-6 py-4 bg-indigo-50/50 border-b border-indigo-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                <div className="flex items-center gap-2">
+                  <ArrowUpDown className="w-4 h-4 text-indigo-600" />
+                  <span className="font-bold text-slate-800 text-sm">
+                    {reorderDivision === 'all' ? '全メンバー' : `【${reorderDivision}】`} 並び順編集 ({reorderList.length}名)
+                  </span>
+                </div>
+                <div className="text-slate-500 font-semibold">
+                  上下ボタン、またはドラッグして並び替えられます
+                </div>
+              </div>
+
+              {reorderList.length === 0 ? (
+                <div className="p-12 text-center text-slate-400 text-sm">
+                  対象の部署・拠点に所属するメンバーが存在しません。
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-100">
+                  {reorderList.map((user, index) => (
+                    <div
+                      key={user.id}
+                      draggable
+                      onDragStart={() => handleUserDragStart(index)}
+                      onDragOver={(e) => handleUserDragOver(e, index)}
+                      onDrop={() => handleUserDrop(index)}
+                      className={`p-3.5 sm:p-4 flex items-center justify-between gap-3 transition-colors ${
+                        draggedUserIndex === index ? 'bg-indigo-50/60 opacity-60 border-2 border-dashed border-indigo-300' : 'hover:bg-slate-50/80 bg-white'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        {/* ドラッグハンドル */}
+                        <div
+                          className="cursor-grab active:cursor-grabbing text-slate-300 hover:text-slate-600 p-1 shrink-0"
+                          title="ドラッグして並び替え"
+                        >
+                          <GripVertical className="w-5 h-5" />
+                        </div>
+
+                        {/* 順番バッジ */}
+                        <div className="w-8 h-8 rounded-lg bg-indigo-100/80 text-indigo-800 font-mono text-xs font-black flex items-center justify-center shrink-0 border border-indigo-200/60 shadow-2xs">
+                          {index + 1}
+                        </div>
+
+                        {/* アバター */}
+                        <img
+                          src={getAvatarUrl(user.avatarUrl)}
+                          alt={user.name}
+                          onError={handleAvatarError}
+                          className="w-9 h-9 rounded-full object-cover border border-slate-200 shrink-0"
+                        />
+
+                        {/* ユーザー情報 */}
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-bold text-slate-900 text-sm truncate">{user.name}</span>
+                            {user.kanaName && (
+                              <span className="text-xs text-slate-400 font-medium hidden sm:inline truncate">
+                                ({user.kanaName})
+                              </span>
+                            )}
+                            {user.isAdmin && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                管理者
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 text-xs text-slate-500 mt-0.5 flex-wrap">
+                            <span className="font-semibold text-slate-600">{user.division || '部署未設定'}</span>
+                            <span>•</span>
+                            <span>{user.office || '拠点未設定'}</span>
+                            {user.position && (
+                              <>
+                                <span>•</span>
+                                <span className="text-emerald-700 font-semibold">{user.position}</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 上下移動ボタン */}
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          disabled={index === 0}
+                          onClick={() => moveUserInReorder(index, 'up')}
+                          className="p-2 rounded-lg border border-slate-200 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 disabled:opacity-30 disabled:pointer-events-none transition-colors cursor-pointer text-slate-600 shadow-2xs"
+                          title="上へ移動"
+                        >
+                          <ArrowUp className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          disabled={index === reorderList.length - 1}
+                          onClick={() => moveUserInReorder(index, 'down')}
+                          className="p-2 rounded-lg border border-slate-200 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 disabled:opacity-30 disabled:pointer-events-none transition-colors cursor-pointer text-slate-600 shadow-2xs"
+                          title="下へ移動"
+                        >
+                          <ArrowDown className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* フッター保存バー */}
+              <div className="p-4 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <span className="text-xs text-slate-500 font-medium">
+                  {reorderList.length} 名の並び順を変更中
+                </span>
+                <button
+                  type="button"
+                  onClick={handleSaveUserOrder}
+                  disabled={isSavingUserOrder || reorderList.length === 0}
+                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-2 shadow-sm transition-all cursor-pointer"
+                >
+                  {isSavingUserOrder ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Save className="w-4 h-4" />
+                  )}
+                  <span>この並び順を保存する</span>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

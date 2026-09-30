@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { User, OfficeMaster, DivisionMaster } from '../types';
 import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
+import { sortUsersByDivision } from '../utils/userSort';
 
 export interface UserDirectoryProps {
   users: User[];
@@ -107,9 +108,9 @@ export function UserDirectory({
     return counts;
   }, [users]);
 
-  // フィルタリング処理
+  // フィルタリングおよびソート処理
   const filteredUsers = useMemo(() => {
-    return users.filter(user => {
+    const list = users.filter(user => {
       // 拠点フィルター
       if (selectedOffice !== 'all') {
         if (selectedOffice === '未設定') {
@@ -150,7 +151,9 @@ export function UserDirectory({
 
       return true;
     });
-  }, [users, selectedOffice, selectedDivision, searchQuery]);
+
+    return sortUsersByDivision(list, divisions);
+  }, [users, divisions, selectedOffice, selectedDivision, searchQuery]);
 
   const hasActiveFilters = selectedOffice !== 'all' || selectedDivision !== 'all' || searchQuery.trim() !== '';
 

@@ -58,6 +58,7 @@ import { UserDirectory } from './components/UserDirectory';
 import { UserDetailModal } from './components/UserDetailModal';
 import { filterStepsForApplicant, resolveApproverForStep, getSupervisorAtLevel } from './utils/workflowHelpers';
 import { planRecurrenceSave, planRecurrenceDelete, safeParseRecurrence, safeParseExceptions, expandRecurringEvents } from './utils/recurrenceUtils';
+import { sortUsersByDivision } from './utils/userSort';
 import { RecurrenceActionScope } from './components/RecurrenceActionModal';
 import { parseAppQueryParams, updateBrowserUrl, AppQueryParams } from './utils/urlParams';
 import { initColorTheme } from './utils/theme';
@@ -588,7 +589,8 @@ export default function App() {
       const data = await response.json();
       if (Array.isArray(data)) {
         const processedUsers = data.map((u: any) => mapUserFromApi(u));
-        setUsersList(processedUsers);
+        const sortedUsers = sortUsersByDivision(processedUsers, divisions);
+        setUsersList(sortedUsers);
         setFetchErrors(prev => { if (!prev.users) return prev; const next = { ...prev }; delete next.users; return next; });
 
         // Synchronize logged-in user with the latest data from the database
@@ -1468,8 +1470,8 @@ export default function App() {
       avatarUrl: sanitizeAvatarUrlForSave(updatedUser.avatarUrl),
     };
 
-    // Optimistically update GUI state instantly
-    setUsersList(prev => prev.map((u) => (u.id === sanitizedUser.id ? sanitizedUser : u)));
+    // Optimistically update GUI state instantly with division/sort order
+    setUsersList(prev => sortUsersByDivision(prev.map((u) => (u.id === sanitizedUser.id ? sanitizedUser : u)), divisions));
     if (sanitizedUser.id === userState.id) {
       setUserState(sanitizedUser);
     }

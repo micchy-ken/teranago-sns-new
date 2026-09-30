@@ -14,6 +14,7 @@ import {
   Filter
 } from 'lucide-react';
 import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
+import { sortUsersByDivision } from '../utils/userSort';
 
 export interface MemberSelectorProps {
   allUsers: User[];
@@ -78,7 +79,7 @@ export const MemberSelector: React.FC<MemberSelectorProps> = ({
 
   // 条件によるユーザーの絞り込み
   const filteredUsers = useMemo(() => {
-    return allUsers.filter(u => {
+    const list = allUsers.filter(u => {
       // 拠点での絞り込み
       if (selectedOffice !== 'all') {
         const userOffice = u.office || u.department?.split(/\s+/)[0] || '';
@@ -105,7 +106,9 @@ export const MemberSelector: React.FC<MemberSelectorProps> = ({
 
       return true;
     });
-  }, [allUsers, selectedOffice, selectedDivision, searchQuery]);
+
+    return sortUsersByDivision(list, divisions);
+  }, [allUsers, divisions, selectedOffice, selectedDivision, searchQuery]);
 
   // 選択中ユーザーオブジェクト一覧
   const selectedUsers = useMemo(() => {
