@@ -118,42 +118,20 @@ export function formatDateDividerLabel(isoDateStr: string | undefined | null): s
   }
 }
 
-// スタンプの定義 (ナノバナナ公式白猫キャラクタースタンプ)
-const STAMP_CATEGORIES = [
-  {
-    id: 'greeting',
-    name: 'あいさつ',
-    stamps: [
-      { id: 'ohayou', text: 'おはようございます', icon: '☀️', imageUrl: '/stamps/ohayou.svg', color: 'bg-sky-50 text-sky-800 border-sky-300' },
-      { id: 'otsukare', text: 'お疲れ様です！', icon: '🍵', imageUrl: '/stamps/otsukare.svg', color: 'bg-amber-50 text-amber-800 border-amber-300' },
-      { id: 'ryokai', text: '了解です！', icon: '👍', imageUrl: '/stamps/ryokai.svg', color: 'bg-emerald-50 text-emerald-800 border-emerald-300' },
-      { id: 'yoroshiku', text: 'よろしく！', icon: '🤝', imageUrl: '/stamps/yoroshiku.svg', color: 'bg-indigo-50 text-indigo-800 border-indigo-300' },
-      { id: 'arigatou', text: 'ありがとう！', icon: '✨', imageUrl: '/stamps/arigatou.svg', color: 'bg-rose-50 text-rose-800 border-rose-300' },
-    ]
-  },
-  {
-    id: 'reaction',
-    name: 'リアクション',
-    stamps: [
-      { id: 'good', text: '超いいね！', icon: '❤️', imageUrl: '/stamps/good.svg', color: 'bg-pink-50 text-pink-800 border-pink-300' },
-      { id: 'ok', text: 'OK!', icon: '⭕', imageUrl: '/stamps/ok.svg', color: 'bg-green-50 text-green-800 border-green-300' },
-      { id: 'ng', text: 'NG!', icon: '❌', imageUrl: '/stamps/ng.svg', color: 'bg-red-50 text-red-800 border-red-300' },
-      { id: 'god', text: '神対応！', icon: '👑', imageUrl: '/stamps/god.svg', color: 'bg-purple-50 text-purple-800 border-purple-300' },
-      { id: 'naruhodo', text: 'なるほど！', icon: '💡', imageUrl: '/stamps/naruhodo.svg', color: 'bg-yellow-50 text-yellow-800 border-yellow-300' },
-    ]
-  },
-  {
-    id: 'work',
-    name: '仕事・連絡',
-    stamps: [
-      { id: 'checking', text: '確認中…', icon: '🔍', imageUrl: '/stamps/checking.svg', color: 'bg-slate-100 text-slate-800 border-slate-300' },
-      { id: 'urgent', text: '至急！', icon: '🚨', imageUrl: '/stamps/urgent.svg', color: 'bg-red-50 text-red-800 border-red-300' },
-      { id: 'phone', text: '電話下さい', icon: '📞', imageUrl: '/stamps/phone.svg', color: 'bg-emerald-50 text-emerald-800 border-emerald-300' },
-      { id: 'done', text: '対応完了', icon: '✅', imageUrl: '/stamps/done.svg', color: 'bg-teal-50 text-teal-800 border-teal-300' },
-      { id: 'ittekimasu', text: '行ってきます', icon: '🏃', imageUrl: '/stamps/ittekimasu.svg', color: 'bg-sky-50 text-sky-800 border-sky-300' },
-    ]
-  }
-];
+// カスタムスタンプ型定義
+export interface ChatStampItem {
+  id: string;
+  text: string;
+  imageUrl: string;
+  icon?: string;
+  color?: string;
+}
+
+export interface ChatStampCategory {
+  id: string;
+  name: string;
+  stamps: ChatStampItem[];
+}
 
 interface ChatMessageItemProps {
   msg: ChatMessage;
@@ -166,7 +144,7 @@ interface ChatMessageItemProps {
   isDifferentDate: boolean;
   showSenderName: boolean;
   showAvatar: boolean;
-  stampCategories?: typeof STAMP_CATEGORIES;
+  stampCategories?: ChatStampCategory[];
   onDeleteMessage: (id: string) => void;
   onOpenViewers: (msg: ChatMessage) => void;
   onOpenPreview: (att: AttachmentFile) => void;
@@ -274,9 +252,9 @@ const ChatMessageItem = React.memo(function ChatMessageItem({
             {msg.type === 'stamp' ? (
               <div className="p-1">
                 {(() => {
-                  const activeCats = (stampCategories && stampCategories.length > 0) ? stampCategories : STAMP_CATEGORIES;
+                  const activeCats = stampCategories || [];
                   const stampDef = activeCats.flatMap((c) => c.stamps).find((s) => s.id === msg.stampId);
-                  const stampImg = (stampDef as any)?.imageUrl || (msg as any).imageUrl || (msg as any).stampImageUrl || (msg.stampId ? `/stamps/${msg.stampId}.svg` : null);
+                  const stampImg = (stampDef as any)?.imageUrl || (msg as any).imageUrl || (msg as any).stampImageUrl || null;
                   return (
                     <div className="relative group flex flex-col items-center">
                       {stampImg ? (
@@ -287,9 +265,9 @@ const ChatMessageItem = React.memo(function ChatMessageItem({
                           loading="lazy"
                         />
                       ) : (
-                        <div className={`inline-flex flex-col items-center justify-center p-2.5 sm:p-3.5 rounded-2xl border-2 shadow-md hover:scale-105 transition-transform ${stampDef?.color || 'bg-emerald-500 text-white border-emerald-600'}`}>
+                        <div className={`inline-flex flex-col items-center justify-center p-2.5 sm:p-3 rounded-2xl border shadow-xs bg-indigo-50 text-indigo-900 border-indigo-200`}>
                           <span className="text-2xl sm:text-3xl mb-1">{stampDef?.icon || '😊'}</span>
-                          <span className="text-xs sm:text-sm font-black tracking-wide drop-shadow-xs">{msg.stampText || msg.content}</span>
+                          <span className="text-xs sm:text-sm font-black tracking-wide">{msg.stampText || msg.content}</span>
                         </div>
                       )}
                     </div>
@@ -498,7 +476,7 @@ export function Chat({
   );
 
   // カスタムスタンプデータの動的取得
-  const [stampCategories, setStampCategories] = useState(STAMP_CATEGORIES);
+  const [stampCategories, setStampCategories] = useState<ChatStampCategory[]>([]);
 
   useEffect(() => {
     let isMounted = true;
@@ -507,6 +485,9 @@ export function Chat({
       .then((data) => {
         if (isMounted && data.success && Array.isArray(data.categories)) {
           setStampCategories(data.categories);
+          if (data.categories.length > 0) {
+            setActiveStampCategory((prev) => prev || data.categories[0].id);
+          }
         }
       })
       .catch(() => {});
@@ -764,7 +745,7 @@ export function Chat({
   const [showAddMemberModal, setShowAddMemberModal] = useState(false);
   const [showInfoSidebar, setShowInfoSidebar] = useState(false);
   const [showStampPicker, setShowStampPicker] = useState(false);
-  const [activeStampCategory, setActiveStampCategory] = useState('greeting');
+  const [activeStampCategory, setActiveStampCategory] = useState('');
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
 
   // チャットルームの編集用ステート
@@ -1054,7 +1035,7 @@ export function Chat({
   };
 
   // スタンプ送信
-  const handleSendStamp = (stamp: typeof STAMP_CATEGORIES[0]['stamps'][0], categoryName: string) => {
+  const handleSendStamp = (stamp: ChatStampItem, categoryName: string) => {
     if (!activeRoom) return;
 
     const newMessage: ChatMessage = {
@@ -2008,47 +1989,73 @@ export function Chat({
                   </button>
                 </div>
 
-                {/* スタンプカテゴリータブ */}
-                <div className="flex gap-1 border-b border-slate-100 pb-2 overflow-x-auto">
-                  {stampCategories.map((cat) => (
-                    <button
-                      key={cat.id}
-                      onClick={() => setActiveStampCategory(cat.id)}
-                      className={`px-2.5 sm:px-3 py-1 rounded-full text-xs font-semibold shrink-0 transition-all ${
-                        activeStampCategory === cat.id
-                          ? 'bg-indigo-600 text-white shadow-2xs'
-                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                      }`}
-                    >
-                      {cat.name}
-                    </button>
-                  ))}
-                </div>
+                {stampCategories.length === 0 ? (
+                  <div className="py-8 text-center text-slate-400 text-xs font-bold leading-relaxed">
+                    <Smile className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                    スタンプがまだ登録されていません。<br />
+                    管理画面の「スタンプ管理」から追加してください。
+                  </div>
+                ) : (
+                  <>
+                    {/* スタンプカテゴリータブ */}
+                    <div className="flex gap-1 border-b border-slate-100 pb-2 overflow-x-auto">
+                      {stampCategories.map((cat) => {
+                        const isCurrent = activeStampCategory === cat.id || (!activeStampCategory && cat.id === stampCategories[0]?.id);
+                        return (
+                          <button
+                            key={cat.id}
+                            onClick={() => setActiveStampCategory(cat.id)}
+                            className={`px-3 py-1 rounded-full text-xs font-semibold shrink-0 transition-all ${
+                              isCurrent
+                                ? 'bg-indigo-600 text-white shadow-2xs'
+                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                            }`}
+                          >
+                            {cat.name}
+                          </button>
+                        );
+                      })}
+                    </div>
 
-                {/* スタンプグリッド */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-48 sm:max-h-56 overflow-y-auto p-1">
-                  {stampCategories.find((c) => c.id === activeStampCategory)?.stamps.map((stamp) => (
-                    <button
-                      key={stamp.id}
-                      onClick={() =>
-                        handleSendStamp(
-                          stamp,
-                          stampCategories.find((c) => c.id === activeStampCategory)?.name || 'スタンプ'
-                        )
-                      }
-                      className={`p-2 sm:p-2.5 rounded-xl border-2 flex flex-col items-center justify-center gap-1 hover:scale-105 transition-all shadow-xs overflow-hidden ${stamp.color || 'bg-slate-50 text-slate-800 border-slate-300'}`}
-                    >
-                      {stamp.imageUrl ? (
-                        <div className="w-14 h-14 sm:w-16 sm:h-16 flex items-center justify-center p-1">
-                          <img src={getStampUrl(stamp.imageUrl)} alt={stamp.text} className="w-full h-full object-contain" />
-                        </div>
-                      ) : (
-                        <span className="text-xl sm:text-2xl">{stamp.icon}</span>
-                      )}
-                      <span className="text-[11px] sm:text-xs font-black tracking-wide text-center line-clamp-1">{stamp.text}</span>
-                    </button>
-                  ))}
-                </div>
+                    {/* スタンプグリッド */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-48 sm:max-h-56 overflow-y-auto p-1">
+                      {(() => {
+                        const curCat = stampCategories.find((c) => c.id === activeStampCategory) || stampCategories[0];
+                        const stamps = curCat?.stamps || [];
+                        if (stamps.length === 0) {
+                          return (
+                            <div className="col-span-full py-8 text-center text-slate-400 text-xs font-medium">
+                              このカテゴリにはスタンプがありません
+                            </div>
+                          );
+                        }
+                        return stamps.map((stamp) => (
+                          <button
+                            key={stamp.id}
+                            onClick={() => handleSendStamp(stamp, curCat?.name || 'スタンプ')}
+                            className="p-2 sm:p-2.5 rounded-xl border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/30 flex flex-col items-center justify-center gap-1 hover:scale-105 transition-all shadow-2xs overflow-hidden bg-white group cursor-pointer"
+                          >
+                            {stamp.imageUrl ? (
+                              <div className="w-14 h-14 sm:w-16 sm:h-16 flex items-center justify-center p-1">
+                                <img
+                                  src={getStampUrl(stamp.imageUrl)}
+                                  alt={stamp.text}
+                                  className="w-full h-full object-contain group-hover:scale-110 transition-transform"
+                                  loading="lazy"
+                                />
+                              </div>
+                            ) : (
+                              <span className="text-xl sm:text-2xl">{stamp.icon || '😊'}</span>
+                            )}
+                            <span className="text-[11px] sm:text-xs font-black text-slate-800 text-center line-clamp-1">
+                              {stamp.text}
+                            </span>
+                          </button>
+                        ));
+                      })()}
+                    </div>
+                  </>
+                )}
               </div>
             )}
 

@@ -1,7 +1,7 @@
 /**
  * routes/stamps.js
- * スタンプ管理モジュール (ユーザーアイコンと同様の /uploads/ 配信完全対応版)
- * 最終更新: 2026年9月30日 (ユーザーアバターと同じ /uploads/ ディレクトリ保存＆Synology NAS CORS完全対応版)
+ * スタンプ管理モジュール (完全後方互換＆ユーザーアイコンと同様の /uploads/ 配信完全対応版)
+ * 最終更新: 2026年9月30日 (従来の一括切り出し・バッチ更新・デフォルト復元・個別追加・カテゴリ自由登録すべてを網羅した完全後方互換版)
  */
 import { Router } from 'express';
 import fs from 'fs';
@@ -39,7 +39,7 @@ const upload = multer({
   limits: { fileSize: 15 * 1024 * 1024 } // 15MB上限
 });
 
-// デフォルトのスタンプ一覧取得ヘルパー
+// デフォルトのスタンプ一覧取得ヘルパー（完全保持）
 function getDefaultCategories() {
   return [
     {
@@ -78,7 +78,7 @@ function getDefaultCategories() {
   ];
 }
 
-// カスタムスタンプデータのロード
+// カスタムスタンプデータのロード（完全保持）
 function loadCustomStamps() {
   if (!fs.existsSync(customStampsPath)) {
     return getDefaultCategories();
@@ -93,7 +93,7 @@ function loadCustomStamps() {
   }
 }
 
-// カスタムスタンプデータの保存
+// カスタムスタンプデータの保存（完全保持）
 function saveCustomStamps(categories) {
   try {
     fs.writeFileSync(customStampsPath, JSON.stringify(categories, null, 2), 'utf8');
@@ -115,6 +115,26 @@ router.get(['/', '/stamps', '/all'], (req, res) => {
     res.json({ success: true, categories });
   } catch (err) {
     console.error('[Stamps GET Error]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/stamps
+ * POST /api/stamps/save
+ * カテゴリ・スタンプ構成の一括保存（新規・カテゴリ追加対応）
+ */
+router.post(['/', '/stamps', '/save'], (req, res) => {
+  try {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    const { categories } = req.body;
+    if (categories && Array.isArray(categories)) {
+      saveCustomStamps(categories);
+      return res.json({ success: true, categories });
+    }
+    res.status(400).json({ success: false, error: 'categories array is required' });
+  } catch (err) {
+    console.error('[Stamps Save Error]', err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -170,7 +190,7 @@ router.post(['/upload', '/stamps/upload'], upload.single('image'), (req, res) =>
 
 /**
  * POST /api/stamps/batch-update
- * 一括切り出し等で生成された複数スタンプ情報（Base64マップ等）を一括保存・更新
+ * 一括切り出し等で生成された複数スタンプ情報（Base64マップ等）を一括保存・更新（完全保持）
  */
 router.post(['/batch-update', '/stamps/batch-update'], (req, res) => {
   try {
@@ -218,7 +238,7 @@ router.post(['/batch-update', '/stamps/batch-update'], (req, res) => {
 
 /**
  * POST /api/stamps/reset
- * スタンプ画像をデフォルトの公式SVGアイコンセットにリセット
+ * スタンプ画像をデフォルトの公式SVGアイコンセットにリセット（完全保持）
  */
 router.post(['/reset', '/stamps/reset'], (req, res) => {
   try {
@@ -236,7 +256,7 @@ router.post(['/reset', '/stamps/reset'], (req, res) => {
 
 /**
  * GET /api/stamps/image/:filename
- * 画像ファイルの直接配信フォールバック（CORSヘッダー完備）
+ * 画像ファイルの直接配信フォールバック（CORSヘッダー完備・完全保持）
  */
 router.get(['/image/:filename', '/file/:filename'], (req, res) => {
   try {

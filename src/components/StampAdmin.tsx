@@ -1,17 +1,31 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { API_BASE_URL } from '../config/api';
 import { getStampUrl } from '../utils/stampUrl';
-import { Upload, RefreshCw, Check, Image as ImageIcon, Sparkles, AlertCircle, Trash2, ArrowRight, Eye } from 'lucide-react';
+import { 
+  Smile, 
+  Plus, 
+  Trash2, 
+  Edit2, 
+  Upload, 
+  Check, 
+  AlertCircle, 
+  RefreshCw, 
+  FolderPlus, 
+  Image as ImageIcon,
+  Folder,
+  X,
+  Info
+} from 'lucide-react';
 
-interface StampItem {
+export interface StampItem {
   id: string;
   text: string;
-  icon: string;
   imageUrl: string;
-  color: string;
+  icon?: string;
+  color?: string;
 }
 
-interface StampCategory {
+export interface StampCategory {
   id: string;
   name: string;
   stamps: StampItem[];
@@ -19,49 +33,49 @@ interface StampCategory {
 
 export function StampAdmin() {
   const [categories, setCategories] = useState<StampCategory[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const [activeCategoryId, setActiveCategoryId] = useState<string>('');
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  // 一括画像アップロード & 切り出し設定
-  const [batchImageFile, setBatchImageFile] = useState<File | null>(null);
-  const [batchImageSrc, setBatchImageSrc] = useState<string | null>(null);
-  const [gridRows, setGridRows] = useState<number>(2);
-  const [gridCols, setGridCols] = useState<number>(3);
-  const [autoRemoveBg, setAutoRemoveBg] = useState<boolean>(true);
-  const [bgThreshold, setBgThreshold] = useState<number>(35); // 白地透過の判定しきい値
+  // カテゴリ追加モーダル
+  const [showAddCategoryModal, setShowAddCategoryModal] = useState<boolean>(false);
+  const [newCategoryName, setNewCategoryName] = useState<string>('');
 
-  // 切り出しスロットとターゲットスタンプIDの割り当て設定 (上段3個・下段3個)
-  const [slotAssignments, setSlotAssignments] = useState<string[]>([
-    'ohayou',    // 上段左: おはようございます
-    'otsukare',  // 上段中: おつかれさまです
-    'ryokai',   // 上段右: 了解です
-    'checking',  // 下段左: 確認中…
-    'ittekimasu',// 下段中: 行ってきます
-    'god'        // 下段右: 神対応！
-  ]);
+  // カテゴリ名編集モーダル
+  const [editingCategory, setEditingCategory] = useState<{ id: string; name: string } | null>(null);
 
-  const [croppedPreviews, setCroppedPreviews] = useState<{ id: string; label: string; dataUrl: string }[]>([]);
-
+  // スタンプ追加・編集モーダル
+  const [showAddStampModal, setShowAddStampModal] = useState<boolean>(false);
+  const [editingStamp, setEditingStamp] = useState<StampItem | null>(null);
+  const [stampText, setStampText] = useState<string>('');
+  const [stampPreviewUrl, setStampPreviewUrl] = useState<string>('');
+  const [stampImageDataUrl, setStampImageDataUrl] = useState<string>('');
+  const [isProcessingImage, setIsProcessingImage] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const batchFileInputRef = useRef<HTMLInputElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  // スタンプ一覧の取得
+  // 削除確認モーダル
+  const [deleteTarget, setDeleteTarget] = useState<{ type: 'category' | 'stamp'; categoryId: string; stampId?: string; name: string } | null>(null);
+
+  // サーバーからスタンプ一覧を取得
   const fetchStamps = async () => {
-    setLoading(true);
+    setIsLoading(true);
     try {
       const res = await fetch(`${API_BASE_URL}/stamps`);
       if (res.ok) {
         const data = await res.json();
-        if (data.categories) {
+        if (data.success && Array.isArray(data.categories)) {
           setCategories(data.categories);
+          if (data.categories.length > 0 && !activeCategoryId) {
+            setActiveCategoryId(data.categories[0].id);
+          }
         }
       }
     } catch (err) {
       console.error('Failed to fetch stamps:', err);
+      setStatusMessage({ type: 'error', text: 'スタンプ一覧の取得に失敗しました' });
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
 
@@ -69,441 +83,664 @@ export function StampAdmin() {
     fetchStamps();
   }, []);
 
-  // 個別スタンプ画像の変更処理
-  const handleSingleImageUpload = async (stampId: string, e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      const base64Image = event.target?.result as string;
-      if (!base64Image) return;
-
-      setSaving(true);
-      setMessage(null);
-
-      try {
-        const res = await fetch(`${API_BASE_URL}/stamps/upload`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ stampId, base64Image })
-        });
-
-        const data = await res.json();
-        if (data.success) {
-          setMessage({ text: 'スタンプ画像を更新しました！', type: 'success' });
-          fetchStamps();
-        } else {
-          setMessage({ text: data.error || '画像の更新に失敗しました。', type: 'error' });
-        }
-      } catch (err: any) {
-        setMessage({ text: '通信エラー: ' + err.message, type: 'error' });
-      } finally {
-        setSaving(false);
-      }
-    };
-    reader.readAsDataURL(file);
-  };
-
-  // 一括画像の選択
-  const handleBatchFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setBatchImageFile(file);
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      setBatchImageSrc(event.target?.result as string);
-    };
-    reader.readAsDataURL(file);
-  };
-
-  // 画像の切り出し & 背景透過処理を実行してプレビュー作成
-  useEffect(() => {
-    if (!batchImageSrc) {
-      setCroppedPreviews([]);
-      return;
-    }
-
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => {
-      const totalSlots = gridRows * gridCols;
-      const slotWidth = img.width / gridCols;
-      const slotHeight = img.height / gridRows;
-
-      const previews: { id: string; label: string; dataUrl: string }[] = [];
-      const allStamps = categories.flatMap(c => c.stamps);
-
-      for (let i = 0; i < totalSlots; i++) {
-        const row = Math.floor(i / gridCols);
-        const col = i % gridCols;
-
-        const targetStampId = slotAssignments[i] || '';
-        const targetStamp = allStamps.find(s => s.id === targetStampId);
-
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.round(slotWidth);
-        canvas.height = Math.round(slotHeight);
-        const ctx = canvas.getContext('2d');
-
-        if (ctx) {
-          // 元画像をソース領域から描画
-          ctx.drawImage(
-            img,
-            col * slotWidth,
-            row * slotHeight,
-            slotWidth,
-            slotHeight,
-            0,
-            0,
-            slotWidth,
-            slotHeight
-          );
-
-          // 自動背景透過処理（白・薄灰地の背景を透明化）
-          if (autoRemoveBg) {
-            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            const data = imageData.data;
-            const threshold = bgThreshold;
-
-            for (let p = 0; p < data.length; p += 4) {
-              const r = data[p];
-              const g = data[p + 1];
-              const b = data[p + 2];
-
-              // 白または超薄い色（R, G, B すべてが 255 - threshold 以上）の場合透過
-              if (r >= 255 - threshold && g >= 255 - threshold && b >= 255 - threshold) {
-                data[p + 3] = 0; // Alpha = 0 (透明)
-              }
-            }
-            ctx.putImageData(imageData, 0, 0);
-          }
-
-          previews.push({
-            id: targetStampId,
-            label: targetStamp ? targetStamp.text : `スロット ${i + 1}`,
-            dataUrl: canvas.toDataURL('image/png')
-          });
-        }
-      }
-
-      setCroppedPreviews(previews);
-    };
-    img.src = batchImageSrc;
-  }, [batchImageSrc, gridRows, gridCols, autoRemoveBg, bgThreshold, slotAssignments, categories]);
-
-  // 一括切り出しスタンプをサーバーに保存・適用
-  const handleApplyBatchStamps = async () => {
-    if (croppedPreviews.length === 0) return;
-
-    setSaving(true);
-    setMessage(null);
-
-    const stampMap: Record<string, string> = {};
-    croppedPreviews.forEach(item => {
-      if (item.id) {
-        stampMap[item.id] = item.dataUrl;
-      }
-    });
-
+  // カテゴリ全体の保存API
+  const saveAllCategories = async (updatedCategories: StampCategory[]) => {
+    setIsSaving(true);
+    setStatusMessage(null);
     try {
-      const res = await fetch(`${API_BASE_URL}/stamps/batch-update`, {
+      const res = await fetch(`${API_BASE_URL}/stamps`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stampMap })
+        body: JSON.stringify({ categories: updatedCategories })
       });
-
       const data = await res.json();
       if (data.success) {
-        setMessage({ text: '切り出したスタンプ画像を一括反映しました！', type: 'success' });
-        setBatchImageSrc(null);
-        setBatchImageFile(null);
-        setCroppedPreviews([]);
-        fetchStamps();
+        setCategories(updatedCategories);
+        setStatusMessage({ type: 'success', text: '変更内容を正常に保存しました' });
+        setTimeout(() => setStatusMessage(null), 3000);
       } else {
-        setMessage({ text: data.error || '一括更新に失敗しました。', type: 'error' });
+        throw new Error(data.error || '保存に失敗しました');
       }
     } catch (err: any) {
-      setMessage({ text: '通信エラー: ' + err.message, type: 'error' });
+      console.error('Failed to save categories:', err);
+      setStatusMessage({ type: 'error', text: err.message || '保存中にエラーが発生しました' });
     } finally {
-      setSaving(false);
+      setIsSaving(false);
     }
   };
 
-  // 公式デフォルトスタンプにリセット
-  const handleResetToDefault = async () => {
-    if (!window.confirm('すべてのカスタムスタンプ画像を解除し、公式のデフォルトスタンプセットに戻しますか？')) {
+  // 画像を 240x240px にリサイズ＆透過最適化するヘルパー
+  const processImageTo240 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = 240;
+          canvas.height = 240;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            reject(new Error('Canvas context not available'));
+            return;
+          }
+
+          // 透過背景を維持
+          ctx.clearRect(0, 0, 240, 240);
+
+          // アスペクト比を維持して中央に配置
+          const scale = Math.min(240 / img.width, 240 / img.height);
+          const drawW = img.width * scale;
+          const drawH = img.height * scale;
+          const offsetX = (240 - drawW) / 2;
+          const offsetY = (240 - drawH) / 2;
+
+          ctx.drawImage(img, offsetX, offsetY, drawW, drawH);
+          resolve(canvas.toDataURL('image/png'));
+        };
+        img.onerror = () => reject(new Error('Failed to load image'));
+        img.src = e.target?.result as string;
+      };
+      reader.onerror = () => reject(new Error('Failed to read file'));
+      reader.readAsDataURL(file);
+    });
+  };
+
+  // 画像選択時の処理
+  const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsProcessingImage(true);
+    try {
+      const dataUrl = await processImageTo240(file);
+      setStampImageDataUrl(dataUrl);
+      setStampPreviewUrl(dataUrl);
+    } catch (err) {
+      console.error('Image processing failed:', err);
+      alert('画像の処理に失敗しました。対応画像形式をご確認ください。');
+    } finally {
+      setIsProcessingImage(false);
+    }
+  };
+
+  // カテゴリ新規追加
+  const handleAddCategory = async () => {
+    const trimmed = newCategoryName.trim();
+    if (!trimmed) return;
+
+    const newCat: StampCategory = {
+      id: `cat_${Date.now()}`,
+      name: trimmed,
+      stamps: []
+    };
+
+    const updated = [...categories, newCat];
+    await saveAllCategories(updated);
+    setActiveCategoryId(newCat.id);
+    setNewCategoryName('');
+    setShowAddCategoryModal(false);
+  };
+
+  // カテゴリ名変更
+  const handleUpdateCategoryName = async () => {
+    if (!editingCategory) return;
+    const trimmed = editingCategory.name.trim();
+    if (!trimmed) return;
+
+    const updated = categories.map((cat) =>
+      cat.id === editingCategory.id ? { ...cat, name: trimmed } : cat
+    );
+
+    await saveAllCategories(updated);
+    setEditingCategory(null);
+  };
+
+  // カテゴリ削除
+  const handleDeleteCategory = async (categoryId: string) => {
+    const updated = categories.filter((c) => c.id !== categoryId);
+    await saveAllCategories(updated);
+    if (activeCategoryId === categoryId) {
+      setActiveCategoryId(updated.length > 0 ? updated[0].id : '');
+    }
+    setDeleteTarget(null);
+  };
+
+  // スタンプ新規登録・更新
+  const handleSaveStamp = async () => {
+    const trimmedText = stampText.trim();
+    if (!trimmedText) {
+      alert('スタンプの文言（名前）を入力してください');
       return;
     }
 
-    setSaving(true);
-    setMessage(null);
+    if (!stampImageDataUrl && !stampPreviewUrl) {
+      alert('スタンプ画像を選択してください');
+      return;
+    }
+
+    setIsSaving(true);
+    setStatusMessage(null);
 
     try {
-      const res = await fetch(`${API_BASE_URL}/stamps/reset`, {
-        method: 'POST'
-      });
+      let finalImageUrl = stampPreviewUrl;
 
-      const data = await res.json();
-      if (data.success) {
-        setMessage({ text: '公式デフォルトスタンプにリセットしました！', type: 'success' });
-        fetchStamps();
-      } else {
-        setMessage({ text: data.error || 'リセットに失敗しました。', type: 'error' });
+      // 新しい画像が選択された場合はサーバーへアップロード
+      if (stampImageDataUrl) {
+        const uploadRes = await fetch(`${API_BASE_URL}/stamps/upload`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ base64Image: stampImageDataUrl })
+        });
+        const uploadData = await uploadRes.json();
+        if (!uploadData.success || !uploadData.imageUrl) {
+          throw new Error(uploadData.error || '画像のアップロードに失敗しました');
+        }
+        finalImageUrl = uploadData.imageUrl;
       }
+
+      const activeCat = categories.find((c) => c.id === activeCategoryId);
+      if (!activeCat) throw new Error('カテゴリが見つかりません');
+
+      let updatedStamps: StampItem[];
+
+      if (editingStamp) {
+        // 既存スタンプの更新
+        updatedStamps = activeCat.stamps.map((s) =>
+          s.id === editingStamp.id
+            ? { ...s, text: trimmedText, imageUrl: finalImageUrl }
+            : s
+        );
+      } else {
+        // 新規スタンプの追加
+        const newStamp: StampItem = {
+          id: `stamp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          text: trimmedText,
+          imageUrl: finalImageUrl,
+          color: 'bg-indigo-50 text-indigo-800 border-indigo-200'
+        };
+        updatedStamps = [...activeCat.stamps, newStamp];
+      }
+
+      const updatedCategories = categories.map((cat) =>
+        cat.id === activeCategoryId ? { ...cat, stamps: updatedStamps } : cat
+      );
+
+      await saveAllCategories(updatedCategories);
+
+      // モーダルを閉じる
+      setShowAddStampModal(false);
+      setEditingStamp(null);
+      setStampText('');
+      setStampPreviewUrl('');
+      setStampImageDataUrl('');
     } catch (err: any) {
-      setMessage({ text: '通信エラー: ' + err.message, type: 'error' });
+      console.error('Failed to save stamp:', err);
+      setStatusMessage({ type: 'error', text: err.message || 'スタンプの登録に失敗しました' });
     } finally {
-      setSaving(false);
+      setIsSaving(false);
     }
   };
 
-  const allStampsFlat = categories.flatMap(c => c.stamps);
+  // スタンプ削除
+  const handleDeleteStamp = async (categoryId: string, stampId: string) => {
+    const updated = categories.map((cat) => {
+      if (cat.id !== categoryId) return cat;
+      return {
+        ...cat,
+        stamps: cat.stamps.filter((s) => s.id !== stampId)
+      };
+    });
+
+    await saveAllCategories(updated);
+    setDeleteTarget(null);
+  };
+
+  // モーダルを開いて新規追加
+  const openAddStampModal = () => {
+    setEditingStamp(null);
+    setStampText('');
+    setStampPreviewUrl('');
+    setStampImageDataUrl('');
+    setShowAddStampModal(true);
+  };
+
+  // モーダルを開いて編集
+  const openEditStampModal = (stamp: StampItem) => {
+    setEditingStamp(stamp);
+    setStampText(stamp.text);
+    setStampPreviewUrl(stamp.imageUrl);
+    setStampImageDataUrl('');
+    setShowAddStampModal(true);
+  };
+
+  const activeCategory = categories.find((c) => c.id === activeCategoryId) || categories[0];
 
   return (
-    <div className="space-y-8">
-      {/* 画面ヘッダー & 通知 */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-base font-extrabold text-slate-800 flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-indigo-600" />
-            スタンプ画像管理 & 一括切り出し登録
-          </h2>
-          <p className="text-xs text-slate-500 mt-1">
-            社内SNSチャットで利用するスタンプ画像を管理・カスタマイズできます。画像の一括アップロードや背景透過（トリミング）も可能です。
-          </p>
+    <div className="space-y-6">
+      {/* 上部ヘッダーと案内 */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+          <div>
+            <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
+              <Smile className="w-5 h-5 text-indigo-600" />
+              スタンプ・絵文字管理
+            </h3>
+            <p className="text-xs text-slate-500 mt-1">
+              社内チャットで使用できるスタンプをカテゴリ別に自由に登録・管理できます。
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowAddCategoryModal(true)}
+              className="px-3.5 py-2 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-xl transition-all flex items-center gap-1.5 shadow-2xs cursor-pointer"
+            >
+              <FolderPlus className="w-4 h-4" />
+              新規カテゴリ追加
+            </button>
+            <button
+              onClick={fetchStamps}
+              disabled={isLoading}
+              className="p-2 text-slate-500 hover:text-slate-800 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl transition-all cursor-pointer"
+              title="再読み込み"
+            >
+              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
         </div>
 
-        <button
-          onClick={handleResetToDefault}
-          disabled={saving}
-          className="px-3.5 py-2 text-xs font-bold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition-all flex items-center gap-1.5 shrink-0"
-        >
-          <Trash2 className="w-4 h-4" />
-          公式初期スタンプに復元
-        </button>
+        {/* 推奨画像サイズバナー */}
+        <div className="mt-4 p-4 bg-sky-50/80 border border-sky-200 rounded-xl flex items-start gap-3">
+          <Info className="w-5 h-5 text-sky-600 shrink-0 mt-0.5" />
+          <div className="text-xs text-sky-900 leading-relaxed">
+            <p className="font-extrabold text-sky-950 flex items-center gap-2">
+              推奨画像仕様: 240 × 240 px (正方形) / 透過PNG形式
+            </p>
+            <p className="mt-0.5 text-sky-800">
+              大きな画像を選択した場合でも、登録時にブラウザが自動で正方形（240×240px）に最適化・リサイズして保存します。透過PNGを使用すると、チャットの吹き出しに自然に馴染みます。
+            </p>
+          </div>
+        </div>
+
+        {/* ステータスメッセージ */}
+        {statusMessage && (
+          <div
+            className={`mt-4 p-3 rounded-xl text-xs font-bold flex items-center gap-2 ${
+              statusMessage.type === 'success'
+                ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                : 'bg-rose-50 text-rose-800 border border-rose-200'
+            }`}
+          >
+            {statusMessage.type === 'success' ? <Check className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+            {statusMessage.text}
+          </div>
+        )}
       </div>
 
-      {message && (
-        <div className={`p-4 rounded-xl text-xs font-bold flex items-center gap-2 border ${
-          message.type === 'success' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-rose-50 text-rose-800 border-rose-200'
-        }`}>
-          {message.type === 'success' ? <Check className="w-4 h-4 shrink-0 text-emerald-600" /> : <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />}
-          {message.text}
+      {/* カテゴリ切り替えタブバー */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin">
+          {categories.map((category) => (
+            <button
+              key={category.id}
+              onClick={() => setActiveCategoryId(category.id)}
+              className={`px-4 py-2 rounded-xl text-xs font-bold shrink-0 transition-all flex items-center gap-2 cursor-pointer ${
+                activeCategoryId === category.id
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              <Folder className="w-3.5 h-3.5" />
+              <span>{category.name}</span>
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                activeCategoryId === category.id ? 'bg-indigo-500 text-white' : 'bg-slate-200 text-slate-700'
+              }`}>
+                {category.stamps.length}
+              </span>
+            </button>
+          ))}
+
+          {categories.length === 0 && (
+            <span className="text-xs text-slate-400 py-1">カテゴリがありません。「新規カテゴリ追加」から作成してください。</span>
+          )}
+        </div>
+      </div>
+
+      {/* アクティブカテゴリのスタンプ一覧 */}
+      {activeCategory && (
+        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-6">
+          {/* カテゴリ操作ヘッダー */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-indigo-500" />
+              <h4 className="font-extrabold text-slate-900 text-sm">{activeCategory.name}</h4>
+              <span className="text-xs text-slate-500">({activeCategory.stamps.length}個のスタンプ)</span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setEditingCategory({ id: activeCategory.id, name: activeCategory.name })}
+                className="px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-all flex items-center gap-1 cursor-pointer"
+              >
+                <Edit2 className="w-3.5 h-3.5" />
+                カテゴリ名変更
+              </button>
+              {categories.length > 1 && (
+                <button
+                  onClick={() => setDeleteTarget({ type: 'category', categoryId: activeCategory.id, name: activeCategory.name })}
+                  className="px-2.5 py-1.5 text-xs font-medium text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-all flex items-center gap-1 cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  カテゴリ削除
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* スタンプグリッド */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+            {/* スタンプ追加カード */}
+            <button
+              onClick={openAddStampModal}
+              className="h-44 border-2 border-dashed border-indigo-200 hover:border-indigo-400 bg-indigo-50/40 hover:bg-indigo-50/80 rounded-2xl flex flex-col items-center justify-center gap-2 text-indigo-600 transition-all group cursor-pointer shadow-2xs"
+            >
+              <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center group-hover:scale-110 transition-transform">
+                <Plus className="w-5 h-5 text-indigo-600" />
+              </div>
+              <span className="text-xs font-black">スタンプを追加</span>
+              <span className="text-[10px] text-indigo-400">推奨 240×240px</span>
+            </button>
+
+            {/* 登録済みスタンプ一覧 */}
+            {activeCategory.stamps.map((stamp) => (
+              <div
+                key={stamp.id}
+                className="h-44 bg-slate-50 border border-slate-200 hover:border-indigo-300 rounded-2xl p-3 flex flex-col items-center justify-between transition-all shadow-2xs group relative bg-white"
+              >
+                {/* 削除ボタン（右上） */}
+                <button
+                  onClick={() => setDeleteTarget({ type: 'stamp', categoryId: activeCategory.id, stampId: stamp.id, name: stamp.text })}
+                  className="absolute top-2 right-2 p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-all opacity-0 group-hover:opacity-100 cursor-pointer"
+                  title="スタンプを削除"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+
+                {/* スタンプ画像プレビュー */}
+                <div className="w-20 h-20 bg-slate-50/80 rounded-xl p-1.5 border border-slate-100 flex items-center justify-center overflow-hidden bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] [background-size:6px_6px] mt-1">
+                  <img
+                    src={getStampUrl(stamp.imageUrl)}
+                    alt={stamp.text}
+                    className="w-full h-full object-contain group-hover:scale-110 transition-transform"
+                    loading="lazy"
+                  />
+                </div>
+
+                {/* スタンプ文言 */}
+                <div className="text-center w-full px-1">
+                  <p className="text-xs font-black text-slate-800 line-clamp-1" title={stamp.text}>
+                    {stamp.text}
+                  </p>
+                </div>
+
+                {/* 編集ボタン */}
+                <button
+                  onClick={() => openEditStampModal(stamp)}
+                  className="w-full py-1 text-[11px] font-bold text-slate-600 hover:text-indigo-600 bg-slate-100 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-200 rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer"
+                >
+                  <Edit2 className="w-3 h-3" />
+                  編集
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {activeCategory.stamps.length === 0 && (
+            <div className="text-center py-10 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+              <Smile className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+              <p className="text-xs font-bold text-slate-500">このカテゴリにはまだスタンプが登録されていません</p>
+              <p className="text-[11px] text-slate-400 mt-1">上の「スタンプを追加」ボタンから画像と文言を登録してください。</p>
+            </div>
+          )}
         </div>
       )}
 
-      {/* SECTION 1: まとめてアップロード & 切り出しエリア */}
-      <div className="bg-gradient-to-br from-indigo-50/50 via-white to-slate-50 rounded-2xl border border-indigo-100 p-6 shadow-sm space-y-6">
-        <div className="flex items-center gap-2 pb-3 border-b border-indigo-100/80">
-          <ImageIcon className="w-5 h-5 text-indigo-600" />
-          <h3 className="text-sm font-extrabold text-slate-800">
-            6スタンプ画像の一括アップロード & 自動背景透過切り出し
-          </h3>
-        </div>
+      {/* ======================================================== */}
+      {/* モーダル: スタンプ新規登録 / 編集 */}
+      {/* ======================================================== */}
+      {showAddStampModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-md w-full p-6 space-y-5 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <h4 className="font-extrabold text-slate-900 text-sm flex items-center gap-2">
+                <Smile className="w-4 h-4 text-indigo-600" />
+                {editingStamp ? 'スタンプを編集' : '新規スタンプを追加'}
+              </h4>
+              <button
+                onClick={() => setShowAddStampModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
 
-        <p className="text-xs text-slate-600 leading-relaxed">
-          ナノバナナなどのキャラクターが並んだ画像（2行×3列など）をそのままアップロードするだけで、各領域を自動切り出して背景透過処理を行ったうえで、対応するスタンプへ一括反映できます。
-        </p>
+            {/* 画像アップロード領域 */}
+            <div className="space-y-2">
+              <label className="block text-xs font-extrabold text-slate-700">
+                スタンプ画像 <span className="text-indigo-600">（推奨: 240 × 240 px / 透過PNG）</span>
+              </label>
 
-        {/* ファイル選択・ドラッグエリア */}
-        <div className="flex flex-col items-center justify-center border-2 border-dashed border-indigo-200 hover:border-indigo-400 bg-white/80 rounded-2xl p-6 transition-all cursor-pointer text-center group"
-          onClick={() => batchFileInputRef.current?.click()}
-        >
-          <input
-            ref={batchFileInputRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={handleBatchFileSelect}
-          />
-          <div className="w-12 h-12 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
-            <Upload className="w-6 h-6" />
-          </div>
-          <span className="text-xs font-extrabold text-indigo-900 mb-1">
-            {batchImageFile ? batchImageFile.name : 'スタンプ画像をここにドラッグ＆ドロップ、またはクリックして選択'}
-          </span>
-          <span className="text-[11px] text-slate-400">
-            推奨: 上段3個・下段3個（計6個）が並んだ画像ファイル (PNG / JPG)
-          </span>
-        </div>
+              <div
+                onClick={() => fileInputRef.current?.click()}
+                className="border-2 border-dashed border-indigo-200 hover:border-indigo-400 bg-indigo-50/30 hover:bg-indigo-50/70 rounded-xl p-4 flex flex-col items-center justify-center gap-2 cursor-pointer transition-all group"
+              >
+                {stampPreviewUrl ? (
+                  <div className="relative">
+                    <div className="w-28 h-28 bg-white rounded-xl p-2 border border-slate-200 flex items-center justify-center overflow-hidden bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] [background-size:6px_6px] shadow-sm">
+                      <img
+                        src={getStampUrl(stampPreviewUrl)}
+                        alt="Preview"
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+                    <span className="absolute bottom-1 right-1 bg-slate-900/70 text-white text-[9px] font-bold px-1.5 py-0.5 rounded">
+                      変更
+                    </span>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center py-4">
+                    <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+                      <Upload className="w-5 h-5 text-indigo-600" />
+                    </div>
+                    <span className="text-xs font-black text-indigo-700">画像を選択またはドロップ</span>
+                    <span className="text-[10px] text-slate-400 mt-0.5">PNG / JPG / WEBP (自動リサイズ対応)</span>
+                  </div>
+                )}
 
-        {/* 切り出し設定 & プレビュー */}
-        {batchImageSrc && (
-          <div className="space-y-6 bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
-            <h4 className="text-xs font-extrabold text-slate-800 flex items-center gap-2">
-              <Eye className="w-4 h-4 text-indigo-600" />
-              切り出しプレビュー & 割当設定
-            </h4>
-
-            {/* パラメータコントロール */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 p-4 bg-slate-50 rounded-xl border border-slate-200 text-xs">
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">グリッド分割パターン</label>
-                <div className="flex items-center gap-2">
-                  <span className="text-slate-500">2行 × 3列 (6枠)</span>
-                </div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleImageSelect}
+                  className="hidden"
+                />
               </div>
 
-              <div>
-                <label className="flex items-center gap-2 font-bold text-slate-700 mb-1 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={autoRemoveBg}
-                    onChange={(e) => setAutoRemoveBg(e.target.checked)}
-                    className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
-                  />
-                  白地・外枠の自動背景透過処理
-                </label>
-                <span className="text-[11px] text-slate-500">
-                  キャラクター外側の白色背景を消去して透過PNGにします
-                </span>
-              </div>
-
-              {autoRemoveBg && (
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    背景透過感度 (しきい値): {bgThreshold}
-                  </label>
-                  <input
-                    type="range"
-                    min="10"
-                    max="80"
-                    value={bgThreshold}
-                    onChange={(e) => setBgThreshold(Number(e.target.value))}
-                    className="w-full accent-indigo-600"
-                  />
+              {isProcessingImage && (
+                <div className="text-[11px] text-indigo-600 font-bold flex items-center gap-1.5 animate-pulse">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  画像を 240×240px に最適化しています...
                 </div>
               )}
             </div>
 
-            {/* スロットと割り当てスタンプのプレビューグリッド */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {croppedPreviews.map((preview, index) => (
-                <div key={index} className="flex flex-col items-center bg-slate-50 rounded-xl p-3 border border-slate-200 gap-2">
-                  <span className="text-[11px] font-extrabold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-100">
-                    位置 #{index + 1} ({index < 3 ? '上段' : '下段'}{index % 3 + 1}列目)
-                  </span>
-
-                  {/* 切出画像表示 */}
-                  <div className="w-28 h-28 bg-white border border-slate-300 rounded-xl p-2 flex items-center justify-center overflow-hidden shadow-2xs relative group bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] [background-size:8px_8px]">
-                    <img src={preview.dataUrl} alt={`Cropped ${index}`} className="w-full h-full object-contain" />
-                  </div>
-
-                  {/* 割り当てスタンプ選択 */}
-                  <div className="w-full">
-                    <label className="block text-[10px] font-bold text-slate-500 mb-1 text-center">割り当てるスタンプ</label>
-                    <select
-                      value={slotAssignments[index] || ''}
-                      onChange={(e) => {
-                        const newAssignments = [...slotAssignments];
-                        newAssignments[index] = e.target.value;
-                        setSlotAssignments(newAssignments);
-                      }}
-                      className="w-full text-xs font-bold text-slate-800 bg-white border border-slate-300 rounded-lg p-1.5 focus:ring-2 focus:ring-indigo-500"
-                    >
-                      {allStampsFlat.map(s => (
-                        <option key={s.id} value={s.id}>
-                          {s.text} ({s.id})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              ))}
+            {/* スタンプ文言入力 */}
+            <div className="space-y-2">
+              <label className="block text-xs font-extrabold text-slate-700">
+                スタンプ名 / 表示文字 <span className="text-rose-500">*</span>
+              </label>
+              <input
+                type="text"
+                value={stampText}
+                onChange={(e) => setStampText(e.target.value)}
+                placeholder="例: 了解です！、お疲れ様です、至急！"
+                className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all font-bold"
+                maxLength={20}
+              />
+              <span className="text-[10px] text-slate-400">チャット内の通知や検索で表示されるキーワードです。</span>
             </div>
 
-            <div className="flex justify-end gap-3 pt-2">
+            {/* モーダルボタン */}
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
               <button
                 type="button"
-                onClick={() => {
-                  setBatchImageSrc(null);
-                  setBatchImageFile(null);
-                  setCroppedPreviews([]);
-                }}
-                className="px-4 py-2 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all"
+                onClick={() => setShowAddStampModal(false)}
+                className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition-all cursor-pointer"
               >
                 キャンセル
               </button>
               <button
                 type="button"
-                onClick={handleApplyBatchStamps}
-                disabled={saving}
-                className="px-5 py-2.5 text-xs font-extrabold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md transition-all flex items-center gap-2"
+                onClick={handleSaveStamp}
+                disabled={isSaving || isProcessingImage || !stampText.trim() || (!stampPreviewUrl && !stampImageDataUrl)}
+                className="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:pointer-events-none rounded-xl transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
               >
-                {saving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                切り出したスタンプ画像を全体に一括適用
+                {isSaving ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                {editingStamp ? '更新する' : '登録する'}
               </button>
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
-      {/* SECTION 2: 現在登録されている全スタンプ一覧 & 個別差し替え */}
-      <div className="space-y-6">
-        <h3 className="text-sm font-extrabold text-slate-800 border-b border-slate-200 pb-2">
-          登録済みスタンプ一覧 (カテゴリ別) & 個別画像アップロード
-        </h3>
-
-        {loading ? (
-          <div className="flex justify-center py-12 text-slate-400">
-            <RefreshCw className="w-6 h-6 animate-spin" />
+      {/* ======================================================== */}
+      {/* モーダル: 新規カテゴリ追加 */}
+      {/* ======================================================== */}
+      {showAddCategoryModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-sm w-full p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <h4 className="font-extrabold text-slate-900 text-sm flex items-center gap-2">
+              <FolderPlus className="w-4 h-4 text-indigo-600" />
+              新規カテゴリを追加
+            </h4>
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700">カテゴリ名</label>
+              <input
+                type="text"
+                value={newCategoryName}
+                onChange={(e) => setNewCategoryName(e.target.value)}
+                placeholder="例: あいさつ、現場・安全、リアクション"
+                className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:bg-white font-bold"
+                autoFocus
+              />
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowAddCategoryModal(false)}
+                className="px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                onClick={handleAddCategory}
+                disabled={isSaving || !newCategoryName.trim()}
+                className="px-4 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 rounded-lg cursor-pointer"
+              >
+                追加
+              </button>
+            </div>
           </div>
-        ) : (
-          <div className="space-y-8">
-            {categories.map((category) => (
-              <div key={category.id} className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-4">
-                <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-indigo-500" />
-                  <h4 className="text-sm font-extrabold text-slate-800">{category.name} ({category.stamps.length}個)</h4>
-                </div>
+        </div>
+      )}
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-                  {category.stamps.map((stamp) => (
-                    <div
-                      key={stamp.id}
-                      className="flex flex-col items-center bg-slate-50/80 rounded-2xl p-3.5 border border-slate-200 hover:border-indigo-300 transition-all shadow-2xs group relative"
-                    >
-                      {/* スタンプ画像プレビュー */}
-                      <div className="w-24 h-24 bg-white rounded-xl p-2 border border-slate-200 flex items-center justify-center overflow-hidden mb-2 shadow-2xs group-hover:scale-105 transition-transform bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] [background-size:8px_8px]">
-                        <img
-                          src={getStampUrl(stamp.imageUrl)}
-                          alt={stamp.text}
-                          className="w-full h-full object-contain"
-                          onError={(e) => {
-                            (e.target as HTMLElement).style.display = 'none';
-                          }}
-                        />
-                      </div>
-
-                      {/* 文字 & アイコン */}
-                      <span className="text-xs font-black text-slate-800 text-center line-clamp-1 mb-1">
-                        {stamp.text}
-                      </span>
-                      <span className="text-[10px] text-slate-400 mb-3">
-                        ID: {stamp.id}
-                      </span>
-
-                      {/* 個別画像変更ボタン */}
-                      <label className="w-full py-1.5 text-[11px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg text-center cursor-pointer transition-all flex items-center justify-center gap-1 shadow-2xs">
-                        <Upload className="w-3 h-3" />
-                        画像変更
-                        <input
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          onChange={(e) => handleSingleImageUpload(stamp.id, e)}
-                        />
-                      </label>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
+      {/* ======================================================== */}
+      {/* モーダル: カテゴリ名変更 */}
+      {/* ======================================================== */}
+      {editingCategory && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-sm w-full p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <h4 className="font-extrabold text-slate-900 text-sm flex items-center gap-2">
+              <Edit2 className="w-4 h-4 text-indigo-600" />
+              カテゴリ名の変更
+            </h4>
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700">カテゴリ名</label>
+              <input
+                type="text"
+                value={editingCategory.name}
+                onChange={(e) => setEditingCategory({ ...editingCategory, name: e.target.value })}
+                className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:bg-white font-bold"
+                autoFocus
+              />
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setEditingCategory(null)}
+                className="px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                onClick={handleUpdateCategoryName}
+                disabled={isSaving || !editingCategory.name.trim()}
+                className="px-4 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 rounded-lg cursor-pointer"
+              >
+                変更を保存
+              </button>
+            </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* 削除確認モーダル */}
+      {/* ======================================================== */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-sm w-full p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="w-10 h-10 rounded-full bg-rose-100 flex items-center justify-center mx-auto text-rose-600">
+              <Trash2 className="w-5 h-5" />
+            </div>
+            <div className="text-center space-y-1">
+              <h4 className="font-extrabold text-slate-900 text-sm">
+                {deleteTarget.type === 'category' ? 'カテゴリを削除しますか？' : 'スタンプを削除しますか？'}
+              </h4>
+              <p className="text-xs text-slate-500">
+                「{deleteTarget.name}」を削除します。
+                {deleteTarget.type === 'category' && ' カテゴリ内のスタンプもすべて削除されます。'}
+              </p>
+            </div>
+            <div className="flex items-center justify-center gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (deleteTarget.type === 'category') {
+                    handleDeleteCategory(deleteTarget.categoryId);
+                  } else if (deleteTarget.stampId) {
+                    handleDeleteStamp(deleteTarget.categoryId, deleteTarget.stampId);
+                  }
+                }}
+                disabled={isSaving}
+                className="px-5 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-xs cursor-pointer"
+              >
+                削除する
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
