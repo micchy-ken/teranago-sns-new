@@ -49,11 +49,13 @@ import {
   ArrowUpDown,
   Save,
   Smile,
-  Sparkles
+  Sparkles,
+  FileText
 } from 'lucide-react';
 import { User, OfficeMaster, DivisionMaster, PositionMaster, OfficeType, ApprovalFlowRule, ApprovalStepConfig, ApplicationType, ApproverType, ItemMaster, WorkflowApplication, ApplicationStatus } from '../types';
 import { sortUsers, sortUsersByDivision } from '../utils/userSort';
 import { StampAdmin } from './StampAdmin';
+import { AdminLogs } from './AdminLogs';
 
 interface AdminPanelProps {
   currentUser: User;
@@ -125,7 +127,7 @@ export function AdminPanel({
   onUpdateItemMaster,
   onDeleteItemMaster,
 }: AdminPanelProps) {
-  const [activeSubTab, setActiveSubTab] = useState<'users' | 'offices' | 'divisions' | 'positions' | 'items' | 'approval_flows' | 'stamps' | 'system' | 'workflows_cleanup'>('users');
+  const [activeSubTab, setActiveSubTab] = useState<'users' | 'offices' | 'divisions' | 'positions' | 'items' | 'approval_flows' | 'stamps' | 'logs' | 'system' | 'workflows_cleanup'>('users');
   const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedOfficeFilter, setSelectedOfficeFilter] = useState<string>('all');
@@ -1681,6 +1683,18 @@ export function AdminPanel({
         </button>
 
         <button
+          onClick={() => setActiveSubTab('logs')}
+          className={`flex-1 py-2.5 text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition-all ${
+            activeSubTab === 'logs'
+              ? 'bg-indigo-600 text-white shadow-sm'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+          }`}
+        >
+          <FileText className="w-4 h-4" />
+          アクセス・操作ログ
+        </button>
+
+        <button
           onClick={() => setActiveSubTab('system')}
           className={`flex-1 py-2.5 text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition-all ${
             activeSubTab === 'system'
@@ -2844,6 +2858,9 @@ export function AdminPanel({
 
       {/* SUB TAB: STAMP MANAGEMENT */}
       {activeSubTab === 'stamps' && <StampAdmin />}
+
+      {/* SUB TAB: ACCESS & ACTIVITY LOGS */}
+      {activeSubTab === 'logs' && <AdminLogs />}
 
       {/* SUB TAB 4: SYSTEM SETTINGS */}
       {activeSubTab === 'system' && (

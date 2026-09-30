@@ -10,6 +10,7 @@ import { simpleParser } from 'mailparser';
 import { createServer as createViteServer } from 'vite';
 import { expandRecurringEvents } from './src/utils/recurrenceUtils';
 import stampsRouter from './routes/stamps.js';
+import logsRouter from './routes/logs.js';
 
 async function startServer() {
   const app = express();
@@ -638,6 +639,10 @@ async function startServer() {
 
   // スタンプ管理APIルーター
   app.use('/api/stamps', stampsRouter);
+
+  // アクセス・操作ログ管理APIルーター
+  app.use('/api/logs', logsRouter);
+  app.use('/api/access-logs', logsRouter);
 
   // PWA・静的アイコン・マニフェスト等の明示的エンドポイント（開発/本番問わずバイナリとして確実に返却）
   const publicStaticFiles = ['pwa-192x192.png', 'pwa-512x512.png', 'icon.svg', 'manifest.json'];

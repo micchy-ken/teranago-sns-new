@@ -62,6 +62,7 @@ import { sortUsersByDivision } from './utils/userSort';
 import { RecurrenceActionScope } from './components/RecurrenceActionModal';
 import { parseAppQueryParams, updateBrowserUrl, AppQueryParams } from './utils/urlParams';
 import { initColorTheme } from './utils/theme';
+import { logActivity } from './utils/logger';
 
 // Initialize saved color theme
 initColorTheme();
@@ -376,9 +377,11 @@ export default function App() {
     setIsAuthenticated(true);
     localStorage.setItem('is_logged_in', 'true');
     localStorage.setItem('logged_in_user_id', user.id);
+    logActivity('login', 'システムにログインしました', user);
   };
 
   const handleLogout = () => {
+    logActivity('logout', 'ログアウトしました', userState);
     setIsAuthenticated(false);
     localStorage.removeItem('is_logged_in');
     localStorage.removeItem('logged_in_user_id');
