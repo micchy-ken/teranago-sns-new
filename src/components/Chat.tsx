@@ -697,7 +697,8 @@ export function Chat({
     }, 180);
   };
 
-  // 新着メッセージ到着通知バッジ
+  // スクロール位置および新着メッセージ到着通知バッジ
+  const [showScrollToBottom, setShowScrollToBottom] = useState<boolean>(false);
   const [hasNewMessagesBelow, setHasNewMessagesBelow] = useState<boolean>(false);
 
   const handleTimelineScroll = (e: React.UIEvent<HTMLDivElement>) => {
@@ -706,8 +707,10 @@ export function Chat({
     if (container.scrollTop < 60 && visibleStartIndex > 0 && !isLoadingMorePrevious) {
       loadMorePreviousMessages();
     }
-    // 下部付近（140px以内）にいるときは新着バッジを自動消去
-    const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 140;
+    // 最下部からの距離を判定（140px以上離れている場合は「最新メッセージへ」ボタンを表示）
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    const isNearBottom = distanceFromBottom < 140;
+    setShowScrollToBottom(!isNearBottom);
     if (isNearBottom) {
       setHasNewMessagesBelow(false);
     }
@@ -785,6 +788,7 @@ export function Chat({
     if (c) {
       c.scrollTo({ top: c.scrollHeight, behavior: 'smooth' });
       setHasNewMessagesBelow(false);
+      setShowScrollToBottom(false);
     }
   }, []);
 
@@ -831,6 +835,7 @@ export function Chat({
     if (isNewRoomOrView) {
       lastScrolledKeyRef.current = scrollKey;
       setHasNewMessagesBelow(false);
+      setShowScrollToBottom(false);
 
       const performScroll = () => {
         const c = chatContainerRef.current;
@@ -862,6 +867,7 @@ export function Chat({
           container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
         });
         setHasNewMessagesBelow(false);
+        setShowScrollToBottom(false);
       } else if (isNearBottom) {
         // 相手からのメッセージでも、ユーザーが既に下部にいる場合は自動で追従
         requestAnimationFrame(() => {
@@ -870,6 +876,7 @@ export function Chat({
       } else {
         // ユーザーが過去ログを読んでいる最中の場合は強制スクロールせず、新着バッジを表示
         setHasNewMessagesBelow(true);
+        setShowScrollToBottom(true);
       }
     }
 
@@ -1783,17 +1790,28 @@ export function Chat({
               <div ref={messagesEndRef} />
             </div>
 
-            {/* 新着メッセージ通知フローティングボタン */}
-            {hasNewMessagesBelow && (
+            {/* 最新・新着メッセージへ移動するフローティングボタン */}
+            {(showScrollToBottom || hasNewMessagesBelow) && (
               <div className="absolute bottom-16 sm:bottom-20 left-1/2 -translate-x-1/2 z-20 pointer-events-none animate-in fade-in slide-in-from-bottom-2 duration-150">
-                <button
-                  type="button"
-                  onClick={scrollToBottomSmooth}
-                  className="pointer-events-auto flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-full shadow-lg hover:shadow-xl transition-all active:scale-95 cursor-pointer border border-indigo-500/50"
-                >
-                  <ArrowDown className="w-3.5 h-3.5 animate-bounce" />
-                  <span>新着メッセージがあります</span>
-                </button>
+                {hasNewMessagesBelow ? (
+                  <button
+                    type="button"
+                    onClick={scrollToBottomSmooth}
+                    className="pointer-events-auto flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-full shadow-lg hover:shadow-xl transition-all active:scale-95 cursor-pointer border border-indigo-500/80 animate-pulse"
+                  >
+                    <ArrowDown className="w-3.5 h-3.5 animate-bounce" />
+                    <span>新着メッセージがあります ↓</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={scrollToBottomSmooth}
+                    className="pointer-events-auto flex items-center gap-1.5 px-3.5 py-1.5 bg-white/95 hover:bg-white text-slate-700 hover:text-indigo-600 text-xs font-bold rounded-full shadow-md hover:shadow-lg transition-all active:scale-95 cursor-pointer border border-slate-200/90 backdrop-blur-xs group"
+                  >
+                    <ArrowDown className="w-3.5 h-3.5 text-slate-500 group-hover:text-indigo-600 group-hover:translate-y-0.5 transition-transform" />
+                    <span>最新メッセージへ ↓</span>
+                  </button>
+                )}
               </div>
             )}
 
