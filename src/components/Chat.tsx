@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { ChatRoom, ChatMessage, User, OfficeMaster, DivisionMaster, AttachmentFile } from '../types';
 import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
 import { MemberSelector } from './MemberSelector';
@@ -33,6 +33,7 @@ import {
   Shield,
   Crown,
   ArrowLeft,
+  ArrowDown,
   UploadCloud,
   PanelLeftClose,
   PanelLeftOpen
@@ -151,6 +152,270 @@ const STAMP_CATEGORIES = [
     ]
   }
 ];
+
+interface ChatMessageItemProps {
+  msg: ChatMessage;
+  currentUser: User;
+  users: User[];
+  activeRoom: ChatRoom | undefined;
+  isMine: boolean;
+  isSystem: boolean;
+  isFirstUnread: boolean;
+  isDifferentDate: boolean;
+  showSenderName: boolean;
+  showAvatar: boolean;
+  onDeleteMessage: (id: string) => void;
+  onOpenViewers: (msg: ChatMessage) => void;
+  onOpenPreview: (att: AttachmentFile) => void;
+  onOpenLightbox: (url: string) => void;
+  onDownloadAttachment: (att: AttachmentFile) => void;
+}
+
+const ChatMessageItem = React.memo(function ChatMessageItem({
+  msg,
+  currentUser,
+  users,
+  activeRoom,
+  isMine,
+  isSystem,
+  isFirstUnread,
+  isDifferentDate,
+  showSenderName,
+  showAvatar,
+  onDeleteMessage,
+  onOpenViewers,
+  onOpenPreview,
+  onOpenLightbox,
+  onDownloadAttachment
+}: ChatMessageItemProps) {
+  if (isSystem) {
+    return (
+      <div className="flex flex-col items-center">
+        {isDifferentDate && (
+          <div className="flex justify-center my-3 sm:my-4 select-none">
+            <span className="px-3 py-1 bg-slate-200/90 text-slate-600 text-[11px] font-bold rounded-full shadow-2xs border border-slate-300/50">
+              {formatDateDividerLabel(msg.createdAt)}
+            </span>
+          </div>
+        )}
+        {isFirstUnread && (
+          <div id="unread-line-divider" className="w-full flex items-center gap-3 my-4 px-2 select-none">
+            <div className="flex-1 h-px bg-rose-300/80" />
+            <div className="flex items-center gap-1.5 px-3 py-1 bg-rose-50 border border-rose-200 text-rose-600 text-[11px] font-extrabold rounded-full shadow-2xs">
+              <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+              ここから未読メッセージ
+            </div>
+            <div className="flex-1 h-px bg-rose-300/80" />
+          </div>
+        )}
+        <div className="flex justify-center my-2 sm:my-3">
+          <span className="px-2.5 py-0.5 sm:px-3 sm:py-1 bg-slate-200/80 text-slate-600 text-[10px] sm:text-[11px] font-medium rounded-full shadow-2xs">
+            {msg.content}
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  const senderUser = (msg.sender.id === currentUser.id ? currentUser : undefined) || users.find((u) => u.id === msg.sender.id) || msg.sender;
+  const senderAvatar = (msg.sender.id === currentUser.id ? currentUser.avatarUrl : senderUser?.avatarUrl) || msg.sender.avatarUrl;
+  const senderName = (msg.sender.id === currentUser.id ? currentUser.name : senderUser?.name) || msg.sender.name;
+
+  return (
+    <div className="flex flex-col">
+      {isDifferentDate && (
+        <div className="flex justify-center my-3 sm:my-4 select-none">
+          <span className="px-3 py-1 bg-slate-200/90 text-slate-600 text-[11px] font-bold rounded-full shadow-2xs border border-slate-300/50">
+            {formatDateDividerLabel(msg.createdAt)}
+          </span>
+        </div>
+      )}
+      {isFirstUnread && (
+        <div id="unread-line-divider" className="flex items-center gap-3 my-4 px-2 select-none">
+          <div className="flex-1 h-px bg-rose-300/80" />
+          <div className="flex items-center gap-1.5 px-3 py-1 bg-rose-50 border border-rose-200 text-rose-600 text-[11px] font-extrabold rounded-full shadow-2xs">
+            <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+            ここから未読メッセージ
+          </div>
+          <div className="flex-1 h-px bg-rose-300/80" />
+        </div>
+      )}
+      <div className={`flex gap-2 sm:gap-2.5 ${isMine ? 'flex-row-reverse' : 'flex-row'}`}>
+        {/* 相手のアバター（自分のメッセージにはアイコンを表示しない） */}
+        {!isMine && (
+          <div className="w-7 h-7 sm:w-8 sm:h-8 shrink-0">
+            {showAvatar ? (
+              <img
+                src={getAvatarUrl(senderAvatar)}
+                alt={senderName}
+                onError={handleAvatarError}
+                className="w-7 h-7 sm:w-8 sm:h-8 rounded-full border border-slate-200 object-cover shadow-2xs"
+                loading="lazy"
+              />
+            ) : (
+              <div className="w-7 h-7 sm:w-8 sm:h-8" />
+            )}
+          </div>
+        )}
+
+        <div className={`flex flex-col ${isMine ? 'items-end' : 'items-start'} max-w-[85%] sm:max-w-[75%]`}>
+          {showSenderName && (
+            <span className="text-[10px] sm:text-[11px] font-bold text-slate-600 mb-1 ml-1">
+              {senderName}
+            </span>
+          )}
+
+          <div className={`flex items-end gap-1.5 ${isMine ? 'flex-row-reverse' : 'flex-row'}`}>
+            {/* メッセージコンテンツ (テキスト / スタンプ / 写真) */}
+            {msg.type === 'stamp' ? (
+              <div className="p-1">
+                {(() => {
+                  const stampDef = STAMP_CATEGORIES.flatMap((c) => c.stamps).find((s) => s.id === msg.stampId);
+                  return (
+                    <div className={`inline-flex flex-col items-center justify-center p-2.5 sm:p-3.5 rounded-2xl border-2 shadow-md hover:scale-105 transition-transform ${stampDef?.color || 'bg-emerald-500 text-white border-emerald-600'}`}>
+                      <span className="text-2xl sm:text-3xl mb-1">{stampDef?.icon || '😊'}</span>
+                      <span className="text-xs sm:text-sm font-black tracking-wide drop-shadow-xs">{msg.stampText || msg.content}</span>
+                    </div>
+                  );
+                })()}
+              </div>
+            ) : msg.type === 'image' ? (
+              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm w-56 sm:w-64 max-w-[75vw]">
+                <div
+                  className="relative group cursor-pointer aspect-[4/3] bg-slate-100 flex items-center justify-center overflow-hidden"
+                  onClick={() => msg.imageUrl && onOpenLightbox(msg.imageUrl)}
+                >
+                  <img
+                    src={msg.imageUrl || undefined}
+                    alt="添付写真"
+                    loading="lazy"
+                    decoding="async"
+                    className="w-full h-full object-cover hover:opacity-95 transition-opacity"
+                  />
+                  <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-bold gap-1 pointer-events-none">
+                    <Maximize2 className="w-4 h-4" /> 拡大表示
+                  </div>
+                </div>
+                {msg.content && msg.content !== '写真を送信しました' && (
+                  <div className="p-2 sm:p-2.5 text-xs text-slate-800 border-t border-slate-100 whitespace-pre-wrap">
+                    {msg.content}
+                  </div>
+                )}
+              </div>
+            ) : (
+              // LINE風フキダシ
+              <div className="flex flex-col gap-1.5 items-stretch">
+                <div
+                  className={`px-3.5 py-2 sm:px-4 sm:py-2.5 rounded-2xl text-xs sm:text-sm leading-relaxed whitespace-pre-wrap break-words shadow-2xs relative ${
+                    isMine
+                      ? 'bg-[#dcf8c6] text-slate-900 rounded-tr-xs border border-emerald-200/80 font-medium'
+                      : 'bg-white text-slate-800 rounded-tl-xs border border-slate-200'
+                  }`}
+                >
+                  {renderContentWithLinks(msg.content)}
+                </div>
+                
+                {/* チャット添付ファイルリスト */}
+                {msg.attachments && msg.attachments.length > 0 && (
+                  <div className={`flex flex-col gap-1.5 ${isMine ? 'items-end' : 'items-start'}`}>
+                    {msg.attachments.map(att => (
+                      <div
+                        key={att.id}
+                        className="flex items-center justify-between gap-3 p-2 bg-white/95 border border-slate-200 rounded-xl text-xs shadow-2xs max-w-xs"
+                      >
+                        <div className="flex items-center gap-1.5 min-w-0 pr-1">
+                          <Paperclip className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          <div className="min-w-0">
+                            <div className="font-bold text-slate-800 truncate" title={att.name}>{att.name}</div>
+                            <div className="text-[9px] text-slate-400">{att.size}</div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0 border-l border-slate-100 pl-1.5 font-bold">
+                          {(att.type?.startsWith('image/') || /\.pdf$/i.test(att.name) || /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(att.name)) && (
+                            <button
+                              type="button"
+                              onClick={() => onOpenPreview(att)}
+                              className="text-emerald-600 hover:text-emerald-800 text-[10px]"
+                            >
+                              プレビュー
+                            </button>
+                          )}
+                          <a
+                            href={att.url || '#'}
+                            download={att.name}
+                            onClick={(e) => {
+                              if (!att.url) {
+                                e.preventDefault();
+                                onDownloadAttachment(att);
+                              }
+                            }}
+                            className="text-indigo-600 hover:text-indigo-800 text-[10px] pl-1.5"
+                          >
+                            DL
+                          </a>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 既読 & タイムスタンプ */}
+            <div className={`flex flex-col text-[10px] text-slate-400 shrink-0 mb-0.5 ${isMine ? 'items-end' : 'items-start'}`}>
+              {(() => {
+                const viewersList = msg.viewers || [];
+                // 送信者を除外した既読メンバー
+                const readMembers = viewersList.filter(v => v.user.id !== msg.sender.id);
+                const readCount = readMembers.length;
+
+                // 送信者を除いたトーク参加メンバー
+                const otherParticipants = (activeRoom?.participants || []).filter(p => p.id !== msg.sender.id);
+                
+                let displayText = `[既読 ${readCount}]`;
+                const isAllRead = otherParticipants.length > 0 && otherParticipants.every(p => readMembers.some(v => v.user.id === p.id));
+                
+                if (readCount === 0) {
+                  displayText = '[未読]';
+                } else if (isAllRead) {
+                  displayText = '[全員が既読]';
+                }
+
+                return (
+                  <button
+                    type="button"
+                    onClick={() => onOpenViewers(msg)}
+                    className={`text-[10px] font-bold hover:underline cursor-pointer bg-transparent border-none p-0 flex items-center gap-0.5 ${
+                      readCount === 0 
+                        ? 'text-slate-400 hover:text-slate-500' 
+                        : 'text-emerald-600 hover:text-emerald-700'
+                    }`}
+                    title="既読メンバーを確認"
+                  >
+                    {displayText}
+                  </button>
+                );
+              })()}
+              <span>
+                {formatChatTimestamp(msg.createdAt, false)}
+              </span>
+              {isMine && (
+                <button
+                  type="button"
+                  onClick={() => onDeleteMessage(msg.id)}
+                  className="text-slate-400 hover:text-rose-500 transition-colors mt-1 cursor-pointer flex items-center gap-0.5"
+                  title="メッセージを削除"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+});
 
 export function Chat({
   rooms,
@@ -432,11 +697,19 @@ export function Chat({
     }, 180);
   };
 
+  // 新着メッセージ到着通知バッジ
+  const [hasNewMessagesBelow, setHasNewMessagesBelow] = useState<boolean>(false);
+
   const handleTimelineScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const container = e.currentTarget;
-    // 上部付近（50px以内）にスクロールした際に過去メッセージを自動読み込み
+    // 上部付近（60px以内）にスクロールした際に過去メッセージを自動読み込み
     if (container.scrollTop < 60 && visibleStartIndex > 0 && !isLoadingMorePrevious) {
       loadMorePreviousMessages();
+    }
+    // 下部付近（140px以内）にいるときは新着バッジを自動消去
+    const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 140;
+    if (isNearBottom) {
+      setHasNewMessagesBelow(false);
     }
   };
 
@@ -506,6 +779,39 @@ export function Chat({
   const prevMessagesLengthRef = useRef<number>(0);
   const lastScrolledKeyRef = useRef<string>('');
 
+  // タイムライン最下部へのスムーズスクロール
+  const scrollToBottomSmooth = useCallback(() => {
+    const c = chatContainerRef.current;
+    if (c) {
+      c.scrollTo({ top: c.scrollHeight, behavior: 'smooth' });
+      setHasNewMessagesBelow(false);
+    }
+  }, []);
+
+  const handleOpenViewersModal = useCallback((msg: ChatMessage) => {
+    setSelectedMsgForViewers(msg);
+    setViewersModalOpen(true);
+  }, []);
+
+  const handleOpenPreviewFile = useCallback((att: AttachmentFile) => {
+    setPreviewFile(att);
+    setIsPreviewOpen(true);
+  }, []);
+
+  const handleOpenLightboxImage = useCallback((url: string) => {
+    setLightboxImage(url);
+  }, []);
+
+  const handleDownloadAttachment = useCallback((att: AttachmentFile) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'ファイルダウンロード',
+      message: `ファイル「${att.name}」のダウンロードを開始します。`,
+      type: 'info',
+      confirmText: 'OK'
+    });
+  }, []);
+
   useEffect(() => {
     const container = chatContainerRef.current;
     if (!container || !activeRoom) return;
@@ -516,7 +822,7 @@ export function Chat({
     // スクロール判定用キー (部屋ID、モバイル画面状態、未読メッセージID、表示開始位置)
     const scrollKey = `${activeRoom.id}_${mobileView}_${firstUnreadMessageId || 'none'}_${visibleStartIndex}`;
     const isNewRoomOrView = lastScrolledKeyRef.current !== scrollKey;
-    const lengthIncreased = msgCount > prevMessagesLengthRef.current;
+    const lengthIncreased = msgCount > prevMessagesLengthRef.current && prevMessagesLengthRef.current > 0;
     
     // 最終メッセージが自分のものであるか確認
     const lastMessage = messages[msgCount - 1];
@@ -524,6 +830,7 @@ export function Chat({
 
     if (isNewRoomOrView) {
       lastScrolledKeyRef.current = scrollKey;
+      setHasNewMessagesBelow(false);
 
       const performScroll = () => {
         const c = chatContainerRef.current;
@@ -537,39 +844,32 @@ export function Chat({
           const targetTop = unreadRect.top - containerRect.top + c.scrollTop;
           c.scrollTop = Math.max(0, targetTop - 12);
         } else {
-          // 未読がない場合は既読の最後（最下部）へ確実にスクロール
+          // 未読がない場合は既読の最後（最下部）へ即座にスクロール
           c.scrollTop = c.scrollHeight;
-          if (messagesEndRef.current) {
-            messagesEndRef.current.scrollIntoView({ block: 'end' });
-          }
         }
       };
 
-      // スマホの描画タイミング・画像読み込みに合わせて複数回確実に直接代入
-      performScroll();
-      const anim1 = requestAnimationFrame(performScroll);
-      const t1 = setTimeout(performScroll, 50);
-      const t2 = setTimeout(performScroll, 150);
-      const t3 = setTimeout(performScroll, 300);
-      const t4 = setTimeout(performScroll, 600);
+      // 安定した単一フレーム実行（チラつき・カクツキの防止）
+      requestAnimationFrame(performScroll);
 
       prevRoomIdRef.current = activeRoom.id;
       prevMessagesLengthRef.current = msgCount;
-
-      return () => {
-        cancelAnimationFrame(anim1);
-        clearTimeout(t1);
-        clearTimeout(t2);
-        clearTimeout(t3);
-        clearTimeout(t4);
-      };
     } else if (lengthIncreased) {
-      const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 200;
-      if (sentByMe || isNearBottom) {
-        container.scrollTop = container.scrollHeight;
-        if (messagesEndRef.current) {
-          messagesEndRef.current.scrollIntoView({ block: 'end' });
-        }
+      const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 140;
+      if (sentByMe) {
+        // 自分が送信したメッセージの場合は即座に最下部へスムーズスクロール
+        requestAnimationFrame(() => {
+          container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+        });
+        setHasNewMessagesBelow(false);
+      } else if (isNearBottom) {
+        // 相手からのメッセージでも、ユーザーが既に下部にいる場合は自動で追従
+        requestAnimationFrame(() => {
+          container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+        });
+      } else {
+        // ユーザーが過去ログを読んでいる最中の場合は強制スクロールせず、新着バッジを表示
+        setHasNewMessagesBelow(true);
       }
     }
 
@@ -1454,261 +1754,48 @@ export function Chat({
                   const isDifferentDate = Boolean(
                     msg.createdAt && (!prevMsg || !prevMsg.createdAt || new Date(msg.createdAt).toDateString() !== new Date(prevMsg.createdAt).toDateString())
                   );
-
-                  if (isSystem) {
-                    return (
-                      <React.Fragment key={msg.id}>
-                        {isDifferentDate && (
-                          <div className="flex justify-center my-3 sm:my-4 select-none">
-                            <span className="px-3 py-1 bg-slate-200/90 text-slate-600 text-[11px] font-bold rounded-full shadow-2xs border border-slate-300/50">
-                              {formatDateDividerLabel(msg.createdAt)}
-                            </span>
-                          </div>
-                        )}
-                        {isFirstUnread && (
-                          <div id="unread-line-divider" className="flex items-center gap-3 my-4 px-2 select-none">
-                            <div className="flex-1 h-px bg-rose-300/80" />
-                            <div className="flex items-center gap-1.5 px-3 py-1 bg-rose-50 border border-rose-200 text-rose-600 text-[11px] font-extrabold rounded-full shadow-2xs">
-                              <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
-                              ここから未読メッセージ
-                            </div>
-                            <div className="flex-1 h-px bg-rose-300/80" />
-                          </div>
-                        )}
-                        <div className="flex justify-center my-2 sm:my-3">
-                          <span className="px-2.5 py-0.5 sm:px-3 sm:py-1 bg-slate-200/80 text-slate-600 text-[10px] sm:text-[11px] font-medium rounded-full shadow-2xs">
-                            {msg.content}
-                          </span>
-                        </div>
-                      </React.Fragment>
-                    );
-                  }
-
                   const isNewSenderGroup = !prevMsg || prevMsg.sender.id !== msg.sender.id || prevMsg.id.startsWith('sys_') || isDifferentDate;
                   const showSenderName = !isMine && isNewSenderGroup;
                   const showAvatar = isNewSenderGroup;
 
                   return (
-                    <React.Fragment key={msg.id}>
-                      {isDifferentDate && (
-                        <div className="flex justify-center my-3 sm:my-4 select-none">
-                          <span className="px-3 py-1 bg-slate-200/90 text-slate-600 text-[11px] font-bold rounded-full shadow-2xs border border-slate-300/50">
-                            {formatDateDividerLabel(msg.createdAt)}
-                          </span>
-                        </div>
-                      )}
-                      {isFirstUnread && (
-                        <div id="unread-line-divider" className="flex items-center gap-3 my-4 px-2 select-none">
-                          <div className="flex-1 h-px bg-rose-300/80" />
-                          <div className="flex items-center gap-1.5 px-3 py-1 bg-rose-50 border border-rose-200 text-rose-600 text-[11px] font-extrabold rounded-full shadow-2xs">
-                            <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
-                            ここから未読メッセージ
-                          </div>
-                          <div className="flex-1 h-px bg-rose-300/80" />
-                        </div>
-                      )}
-                    <div className={`flex gap-2 sm:gap-2.5 ${isMine ? 'flex-row-reverse' : 'flex-row'}`}>
-                    {/* 相手のアバター（自分のメッセージにはアイコンを表示しない） */}
-                    {!isMine && (
-                      <div className="w-7 h-7 sm:w-8 sm:h-8 shrink-0">
-                        {showAvatar ? (
-                          (() => {
-                            const senderUser = (msg.sender.id === currentUser.id ? currentUser : undefined) || users.find((u) => u.id === msg.sender.id) || msg.sender;
-                            const senderAvatar = (msg.sender.id === currentUser.id ? currentUser.avatarUrl : senderUser?.avatarUrl) || msg.sender.avatarUrl;
-                            const senderName = (msg.sender.id === currentUser.id ? currentUser.name : senderUser?.name) || msg.sender.name;
-                            return (
-                              <img
-                                src={getAvatarUrl(senderAvatar)}
-                                alt={senderName}
-                                onError={handleAvatarError}
-                                className="w-7 h-7 sm:w-8 sm:h-8 rounded-full border border-slate-200 object-cover shadow-2xs"
-                              />
-                            );
-                          })()
-                        ) : (
-                          <div className="w-7 h-7 sm:w-8 sm:h-8" />
-                        )}
-                      </div>
-                    )}
-
-                    <div className={`flex flex-col ${isMine ? 'items-end' : 'items-start'} max-w-[85%] sm:max-w-[75%]`}>
-                      {showSenderName && (
-                        <span className="text-[10px] sm:text-[11px] font-bold text-slate-600 mb-1 ml-1">
-                          {msg.sender.name}
-                        </span>
-                      )}
-
-                      <div className={`flex items-end gap-1.5 ${isMine ? 'flex-row-reverse' : 'flex-row'}`}>
-                        {/* メッセージコンテンツ (テキスト / スタンプ / 写真) */}
-                        {msg.type === 'stamp' ? (
-                          <div className="p-1">
-                            {(() => {
-                              const stampDef = STAMP_CATEGORIES.flatMap((c) => c.stamps).find((s) => s.id === msg.stampId);
-                              return (
-                                <div className={`inline-flex flex-col items-center justify-center p-2.5 sm:p-3.5 rounded-2xl border-2 shadow-md hover:scale-105 transition-transform ${stampDef?.color || 'bg-emerald-500 text-white border-emerald-600'}`}>
-                                  <span className="text-2xl sm:text-3xl mb-1">{stampDef?.icon || '😊'}</span>
-                                  <span className="text-xs sm:text-sm font-black tracking-wide drop-shadow-xs">{msg.stampText || msg.content}</span>
-                                </div>
-                              );
-                            })()}
-                          </div>
-                        ) : msg.type === 'image' ? (
-                          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm max-w-xs sm:max-w-sm">
-                            <div className="relative group cursor-pointer" onClick={() => setLightboxImage(msg.imageUrl || null)}>
-                              <img
-                                src={msg.imageUrl || undefined}
-                                alt="添付写真"
-                                onLoad={() => {
-                                  // 画像読み込み完了時に未読がない場合は最下部に留まるよう補正
-                                  const c = chatContainerRef.current;
-                                  if (c && !firstUnreadMessageId) {
-                                    const isNearBottom = c.scrollHeight - c.scrollTop - c.clientHeight < 300;
-                                    if (isNearBottom) {
-                                      c.scrollTop = c.scrollHeight;
-                                    }
-                                  }
-                                }}
-                                className="w-full max-h-56 sm:max-h-64 object-cover hover:opacity-95 transition-opacity"
-                              />
-                              <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-bold gap-1">
-                                <Maximize2 className="w-4 h-4" /> 拡大表示
-                              </div>
-                            </div>
-                            {msg.content && msg.content !== '写真を送信しました' && (
-                              <div className="p-2 sm:p-2.5 text-xs text-slate-800 border-t border-slate-100 whitespace-pre-wrap">
-                                {msg.content}
-                              </div>
-                            )}
-                          </div>
-                        ) : (
-                          // LINE風フキダシ
-                          <div className="flex flex-col gap-1.5 items-stretch">
-                            <div
-                              className={`px-3.5 py-2 sm:px-4 sm:py-2.5 rounded-2xl text-xs sm:text-sm leading-relaxed whitespace-pre-wrap break-words shadow-2xs relative ${
-                                isMine
-                                  ? 'bg-[#dcf8c6] text-slate-900 rounded-tr-xs border border-emerald-200/80 font-medium'
-                                  : 'bg-white text-slate-800 rounded-tl-xs border border-slate-200'
-                              }`}
-                            >
-                              {renderContentWithLinks(msg.content)}
-                            </div>
-                            
-                            {/* チャット添付ファイルリスト */}
-                            {msg.attachments && msg.attachments.length > 0 && (
-                              <div className={`flex flex-col gap-1.5 ${isMine ? 'items-end' : 'items-start'}`}>
-                                {msg.attachments.map(att => (
-                                  <div
-                                    key={att.id}
-                                    className="flex items-center justify-between gap-3 p-2 bg-white/95 border border-slate-200 rounded-xl text-xs shadow-2xs max-w-xs"
-                                  >
-                                    <div className="flex items-center gap-1.5 min-w-0 pr-1">
-                                      <Paperclip className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                      <div className="min-w-0">
-                                        <div className="font-bold text-slate-800 truncate" title={att.name}>{att.name}</div>
-                                        <div className="text-[9px] text-slate-400">{att.size}</div>
-                                      </div>
-                                    </div>
-                                    <div className="flex items-center gap-1 shrink-0 border-l border-slate-100 pl-1.5 font-bold">
-                                      {(att.type?.startsWith('image/') || /\.pdf$/i.test(att.name) || /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(att.name)) && (
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            setPreviewFile(att);
-                                            setIsPreviewOpen(true);
-                                          }}
-                                          className="text-emerald-600 hover:text-emerald-800 text-[10px]"
-                                        >
-                                          プレビュー
-                                        </button>
-                                      )}
-                                      <a
-                                        href={att.url || '#'}
-                                        download={att.name}
-                                        onClick={(e) => {
-                                          if (!att.url) {
-                                            e.preventDefault();
-                                            setConfirmModal({
-                                              isOpen: true,
-                                              title: 'ファイルダウンロード',
-                                              message: `ファイル「${att.name}」のダウンロードを開始します。`,
-                                              type: 'info',
-                                              confirmText: 'OK'
-                                            });
-                                          }
-                                        }}
-                                        className="text-indigo-600 hover:text-indigo-800 text-[10px] pl-1.5"
-                                      >
-                                        DL
-                                      </a>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        {/* 既読 & タイムスタンプ */}
-                        <div className={`flex flex-col text-[10px] text-slate-400 shrink-0 mb-0.5 ${isMine ? 'items-end' : 'items-start'}`}>
-                          {(() => {
-                            const viewersList = msg.viewers || [];
-                            // 送信者を除外した既読メンバー
-                            const readMembers = viewersList.filter(v => v.user.id !== msg.sender.id);
-                            const readCount = readMembers.length;
-
-                            // 送信者を除いたトーク参加メンバー
-                            const otherParticipants = (activeRoom?.participants || []).filter(p => p.id !== msg.sender.id);
-                            
-                            let displayText = `[既読 ${readCount}]`;
-                            const isAllRead = otherParticipants.length > 0 && otherParticipants.every(p => readMembers.some(v => v.user.id === p.id));
-                            
-                            if (readCount === 0) {
-                              displayText = '[未読]';
-                            } else if (isAllRead) {
-                              displayText = '[全員が既読]';
-                            }
-
-                            return (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setSelectedMsgForViewers(msg);
-                                  setViewersModalOpen(true);
-                                }}
-                                className={`text-[10px] font-bold hover:underline cursor-pointer bg-transparent border-none p-0 flex items-center gap-0.5 ${
-                                  readCount === 0 
-                                    ? 'text-slate-400 hover:text-slate-500' 
-                                    : 'text-emerald-600 hover:text-emerald-700'
-                                }`}
-                                title="既読メンバーを確認"
-                              >
-                                {displayText}
-                              </button>
-                            );
-                          })()}
-                          <span>
-                            {formatChatTimestamp(msg.createdAt, false)}
-                          </span>
-                          {isMine && (
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteMessageClick(msg.id)}
-                              className="text-slate-400 hover:text-rose-500 transition-colors mt-1 cursor-pointer flex items-center gap-0.5"
-                              title="メッセージを削除"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </React.Fragment>
-                );
-              });
-            })()}
+                    <ChatMessageItem
+                      key={msg.id}
+                      msg={msg}
+                      currentUser={currentUser}
+                      users={users}
+                      activeRoom={activeRoom}
+                      isMine={isMine}
+                      isSystem={isSystem}
+                      isFirstUnread={isFirstUnread}
+                      isDifferentDate={isDifferentDate}
+                      showSenderName={showSenderName}
+                      showAvatar={showAvatar}
+                      onDeleteMessage={handleDeleteMessageClick}
+                      onOpenViewers={handleOpenViewersModal}
+                      onOpenPreview={handleOpenPreviewFile}
+                      onOpenLightbox={handleOpenLightboxImage}
+                      onDownloadAttachment={handleDownloadAttachment}
+                    />
+                  );
+                });
+              })()}
               <div ref={messagesEndRef} />
             </div>
+
+            {/* 新着メッセージ通知フローティングボタン */}
+            {hasNewMessagesBelow && (
+              <div className="absolute bottom-16 sm:bottom-20 left-1/2 -translate-x-1/2 z-20 pointer-events-none animate-in fade-in slide-in-from-bottom-2 duration-150">
+                <button
+                  type="button"
+                  onClick={scrollToBottomSmooth}
+                  className="pointer-events-auto flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-full shadow-lg hover:shadow-xl transition-all active:scale-95 cursor-pointer border border-indigo-500/50"
+                >
+                  <ArrowDown className="w-3.5 h-3.5 animate-bounce" />
+                  <span>新着メッセージがあります</span>
+                </button>
+              </div>
+            )}
 
             {/* ----------------- 右サイドバー (ルーム情報) ----------------- */}
             {showInfoSidebar && (

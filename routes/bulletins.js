@@ -171,6 +171,7 @@ router.get(['/bulletins', '/bulletins/', '/board', '/board/'], async (req, res) 
         tags: row.tags ? (typeof row.tags === 'string' ? row.tags.split(',').map(t => t.trim()).filter(Boolean) : row.tags) : [],
         isPinned: isCurrentlyPinned,
         pinnedUntil: row.pinnedUntil || null,
+        pinnedDuration: row.pinnedDuration || (row.pinnedUntil ? undefined : (isCurrentlyPinned ? 'forever' : undefined)),
         hasPeriod: !!row.hasPeriod,
         startDate: row.startDate || '',
         endDate: row.endDate || '',

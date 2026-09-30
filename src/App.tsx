@@ -994,6 +994,8 @@ export default function App() {
             scope: t.scope || '全社',
             tags: Array.isArray(t.tags) ? t.tags : (typeof t.tags === 'string' ? t.tags.split(',').map((s: string) => s.trim()).filter(Boolean) : []),
             isPinned: t.isPinned === true || t.isPinned === 1,
+            pinnedUntil: t.pinnedUntil || detailsObj.pinnedUntil || null,
+            pinnedDuration: t.pinnedDuration || detailsObj.pinnedDuration || undefined,
             hasPeriod: t.hasPeriod === true || t.hasPeriod === 1,
             startDate: t.startDate || '',
             endDate: t.endDate || '',
@@ -1062,7 +1064,41 @@ export default function App() {
             if (!userState?.id) return true;
             return room.participants.some((p: any) => String(p.id) === String(userState.id));
           });
-        setChatRooms(mapped);
+        // 差分比較を行い、データに変更がない場合は不要なState更新（2.5秒ごとの全画面再レンダリング）を抑制
+        setChatRooms(prevRooms => {
+          if (prevRooms.length !== mapped.length) return mapped;
+          let isChanged = false;
+          for (let i = 0; i < mapped.length; i++) {
+            const m = mapped[i];
+            const p = prevRooms[i];
+            if (!p || p.id !== m.id || p.name !== m.name || p.lastUpdated !== m.lastUpdated) {
+              isChanged = true;
+              break;
+            }
+            const pMsgs = p.messages || [];
+            const mMsgs = m.messages || [];
+            if (pMsgs.length !== mMsgs.length) {
+              isChanged = true;
+              break;
+            }
+            if (mMsgs.length > 0) {
+              const pLast = pMsgs[pMsgs.length - 1];
+              const mLast = mMsgs[mMsgs.length - 1];
+              if (pLast.id !== mLast.id || pLast.content !== mLast.content) {
+                isChanged = true;
+                break;
+              }
+              // 既読状態の件数差分チェック
+              const pViewersCount = pMsgs.reduce((sum, msg) => sum + (msg.viewers?.length || 0), 0);
+              const mViewersCount = mMsgs.reduce((sum, msg) => sum + (msg.viewers?.length || 0), 0);
+              if (pViewersCount !== mViewersCount) {
+                isChanged = true;
+                break;
+              }
+            }
+          }
+          return isChanged ? mapped : prevRooms;
+        });
 
         // 成功時はエラー状態とカウンターをリセット
         chatConsecutiveErrorsRef.current = 0;
@@ -1328,6 +1364,11 @@ export default function App() {
           scope: topicData.scope || '全社',
           tags: topicData.tags || [],
           isPinned: topicData.isPinned ? 1 : 0,
+          pinnedUntil: topicData.pinnedUntil || null,
+          pinnedDuration: topicData.pinnedDuration || null,
+          hasPeriod: topicData.hasPeriod ? 1 : 0,
+          startDate: topicData.startDate || null,
+          endDate: topicData.endDate || null,
           attachments: topicData.attachments || [],
           comments: topicData.comments || [],
           viewers: topicData.viewers || [],
@@ -1363,6 +1404,8 @@ export default function App() {
           scope: updatedTopic.scope || '全社',
           tags: updatedTopic.tags || [],
           isPinned: updatedTopic.isPinned ? 1 : 0,
+          pinnedUntil: updatedTopic.pinnedUntil || null,
+          pinnedDuration: updatedTopic.pinnedDuration || null,
           hasPeriod: updatedTopic.hasPeriod ? 1 : 0,
           startDate: updatedTopic.startDate || null,
           endDate: updatedTopic.endDate || null,

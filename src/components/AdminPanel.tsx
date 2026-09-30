@@ -38,6 +38,7 @@ import {
   Database,
   Play,
   Activity,
+  Server,
   Copy,
   Check,
   Send,
