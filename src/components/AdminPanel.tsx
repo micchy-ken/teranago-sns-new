@@ -1,7 +1,7 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { RECOMMEND_SERVER_JS, SERVER_CODE_HISTORY } from './RecommendServerCode';
-import { getAvatarUrl, SILHOUETTE_SVG } from '../utils/avatar';
+import { getAvatarUrl, handleAvatarError, SILHOUETTE_SVG } from '../utils/avatar';
 import { API_BASE_URL } from '../config/api';
 import { 
   Shield, 
