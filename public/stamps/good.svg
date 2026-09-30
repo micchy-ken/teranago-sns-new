@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+  <circle cx="100" cy="100" r="92" fill="#FDF2F8" stroke="#FBCFE8" stroke-width="3" filter="url(#shadow)"/>
+  
+  <text x="100" y="32" font-family="'M PLUS Rounded 1c', sans-serif" font-weight="900" font-size="14" fill="#DB2777" text-anchor="middle">Awesome!</text>
+  <text x="45" y="80" font-family="'M PLUS Rounded 1c', sans-serif" font-weight="900" font-size="28" fill="#0F172A">超</text>
+  <text x="45" y="108" font-family="'M PLUS Rounded 1c', sans-serif" font-weight="900" font-size="28" fill="#0F172A">い</text>
+  <text x="45" y="136" font-family="'M PLUS Rounded 1c', sans-serif" font-weight="900" font-size="28" fill="#0F172A">い</text>
+  <text x="45" y="164" font-family="'M PLUS Rounded 1c', sans-serif" font-weight="900" font-size="28" fill="#0F172A">ね！</text>
+
+  <g transform="translate(25, 10)">
+    <!-- Body -->
+    <path d="M 70 160 C 65 125, 135 125, 130 160 Z" fill="#FFFFFF" stroke="#334155" stroke-width="3.5" stroke-linejoin="round"/>
+    
+    <!-- Ears -->
+    <path d="M 68 88 L 52 58 L 82 72 Z" fill="#FFFFFF" stroke="#334155" stroke-width="3.5" stroke-linejoin="round"/>
+    <path d="M 69 82 L 58 63 L 78 72 Z" fill="#FFD1DC"/>
+    <path d="M 132 88 L 148 58 L 118 72 Z" fill="#FFFFFF" stroke="#334155" stroke-width="3.5" stroke-linejoin="round"/>
+    <path d="M 131 82 L 142 63 L 122 72 Z" fill="#FFD1DC"/>
+
+    <!-- Head -->
+    <ellipse cx="100" cy="98" rx="38" ry="32" fill="#FFFFFF" stroke="#334155" stroke-width="3.5"/>
+
+    <!-- Antenna Glowing Red Star -->
+    <line x1="100" y1="66" x2="100" y2="52" stroke="#334155" stroke-width="3"/>
+    <circle cx="100" cy="50" r="7" fill="#EC4899" stroke="#334155" stroke-width="2"/>
+    <circle cx="98" cy="48" r="2.5" fill="#FFFFFF"/>
+
+    <!-- Hands Clasped Joyfully -->
+    <ellipse cx="100" cy="138" rx="10" ry="12" fill="#FFFFFF" stroke="#334155" stroke-width="3.5"/>
+
+    <!-- Starry Eyes -->
+    <path d="M 88 90 L 90 94 L 95 95 L 90 97 L 88 101 L 86 97 L 81 95 L 86 94 Z" fill="#EC4899"/>
+    <path d="M 112 90 L 114 94 L 119 95 L 114 97 L 112 101 L 110 97 L 105 95 L 110 94 Z" fill="#EC4899"/>
+
+    <!-- Cheeks -->
+    <ellipse cx="78" cy="103" rx="5" ry="3" fill="#FFB6C1" opacity="0.8"/>
+    <ellipse cx="122" cy="103" rx="5" ry="3" fill="#FFB6C1" opacity="0.8"/>
+
+    <!-- Open Happy Mouth -->
+    <path d="M 94 102 C 94 110, 106 110, 106 102 Z" fill="#EC4899" stroke="#334155" stroke-width="2"/>
+
+    <!-- Sparkles -->
+    <path d="M 142 85 L 144 89 L 149 90 L 144 91 L 142 95 L 140 91 L 135 90 L 140 89 Z" fill="#F43F5E"/>
+    <path d="M 60 80 L 61 83 L 65 84 L 61 85 L 60 88 L 59 85 L 55 84 L 59 83 Z" fill="#F43F5E"/>
+  </g>
+</svg>

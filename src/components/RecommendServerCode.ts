@@ -1,7 +1,7 @@
 export const RECOMMEND_SERVER_JS = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年9月30日 (掲示板の期間限定ピン留め有効期限 pinnedUntil の永続化および期間判定連携の完全同期)
+ * 最終更新日時 (最終アップデート): 2026年9月30日 (スタンプ管理APIルーター routes/stamps.js 連携および管理者向けスタンプ画像自由変更・一括切り出し・背景透過対応 完全同期)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -30,6 +30,7 @@ import nodemailer from 'nodemailer';
 import { simpleParser } from 'mailparser';
 import { createServer as createViteServer } from 'vite';
 import { expandRecurringEvents } from './src/utils/recurrenceUtils';
+import stampsRouter from './routes/stamps.js';
 
 async function startServer() {
   const app = express();
@@ -645,9 +646,14 @@ async function startServer() {
   // 静的ファイル配信
   const publicDir = path.join(process.cwd(), 'public');
   app.use('/public', express.static(publicDir, { maxAge: '1d' }));
+  app.use('/stamps', express.static(path.join(publicDir, 'stamps')));
+  app.use('/api/stamps-static', express.static(path.join(publicDir, 'stamps')));
   app.use('/external-files', express.static(externalFilesDir));
   app.use('/bulletinsfiles', express.static(bulletinsFilesDir));
   app.use('/api/bulletinsfiles', express.static(bulletinsFilesDir));
+
+  // スタンプ管理APIルーター
+  app.use('/api/stamps', stampsRouter);
 
   // PWA・静的アイコン・マニフェスト等の明示的エンドポイント（開発/本番問わずバイナリとして確実に返却）
   const publicStaticFiles = ['pwa-192x192.png', 'pwa-512x512.png', 'icon.svg', 'manifest.json'];

@@ -117,38 +117,39 @@ export function formatDateDividerLabel(isoDateStr: string | undefined | null): s
   }
 }
 
-// スタンプの定義
+// スタンプの定義 (ナノバナナ公式白猫キャラクタースタンプ)
 const STAMP_CATEGORIES = [
   {
     id: 'greeting',
     name: 'あいさつ',
     stamps: [
-      { id: 'ryokai', text: '了解です！', icon: '👍', color: 'bg-emerald-500 text-white border-emerald-600' },
-      { id: 'otsukare', text: 'お疲れ様です！', icon: '🍵', color: 'bg-amber-500 text-white border-amber-600' },
-      { id: 'arigatou', text: 'ありがとう！', icon: '✨', color: 'bg-rose-500 text-white border-rose-600' },
-      { id: 'yoroshiku', text: 'よろしく！', icon: '🤝', color: 'bg-indigo-500 text-white border-indigo-600' },
-      { id: 'ohayou', text: 'おはようございます', icon: '☀️', color: 'bg-sky-500 text-white border-sky-600' },
+      { id: 'ohayou', text: 'おはようございます', icon: '☀️', imageUrl: '/stamps/ohayou.svg', color: 'bg-sky-50 text-sky-800 border-sky-300' },
+      { id: 'otsukare', text: 'お疲れ様です！', icon: '🍵', imageUrl: '/stamps/otsukare.svg', color: 'bg-amber-50 text-amber-800 border-amber-300' },
+      { id: 'ryokai', text: '了解です！', icon: '👍', imageUrl: '/stamps/ryokai.svg', color: 'bg-emerald-50 text-emerald-800 border-emerald-300' },
+      { id: 'yoroshiku', text: 'よろしく！', icon: '🤝', imageUrl: '/stamps/yoroshiku.svg', color: 'bg-indigo-50 text-indigo-800 border-indigo-300' },
+      { id: 'arigatou', text: 'ありがとう！', icon: '✨', imageUrl: '/stamps/arigatou.svg', color: 'bg-rose-50 text-rose-800 border-rose-300' },
     ]
   },
   {
     id: 'reaction',
     name: 'リアクション',
     stamps: [
-      { id: 'ok', text: 'OK', icon: '⭕', color: 'bg-blue-600 text-white border-blue-700' },
-      { id: 'ng', text: 'NG', icon: '❌', color: 'bg-red-500 text-white border-red-600' },
-      { id: 'god', text: '神！', icon: '👑', color: 'bg-purple-600 text-white border-purple-700' },
-      { id: 'good', text: '超いいね！', icon: '❤️', color: 'bg-pink-500 text-white border-pink-600' },
-      { id: 'naruhodo', text: 'なるほど！', icon: '💡', color: 'bg-yellow-500 text-white border-yellow-600' },
+      { id: 'good', text: '超いいね！', icon: '❤️', imageUrl: '/stamps/good.svg', color: 'bg-pink-50 text-pink-800 border-pink-300' },
+      { id: 'ok', text: 'OK!', icon: '⭕', imageUrl: '/stamps/ok.svg', color: 'bg-green-50 text-green-800 border-green-300' },
+      { id: 'ng', text: 'NG!', icon: '❌', imageUrl: '/stamps/ng.svg', color: 'bg-red-50 text-red-800 border-red-300' },
+      { id: 'god', text: '神対応！', icon: '👑', imageUrl: '/stamps/god.svg', color: 'bg-purple-50 text-purple-800 border-purple-300' },
+      { id: 'naruhodo', text: 'なるほど！', icon: '💡', imageUrl: '/stamps/naruhodo.svg', color: 'bg-yellow-50 text-yellow-800 border-yellow-300' },
     ]
   },
   {
     id: 'work',
     name: '仕事・連絡',
     stamps: [
-      { id: 'checking', text: '確認中…', icon: '🔍', color: 'bg-slate-700 text-white border-slate-800' },
-      { id: 'urgent', text: '至急！', icon: '🚨', color: 'bg-red-600 text-white border-red-700' },
-      { id: 'phone', text: '電話ください', icon: '📞', color: 'bg-emerald-600 text-white border-emerald-700' },
-      { id: 'done', text: '対応完了！', icon: '✅', color: 'bg-teal-600 text-white border-teal-700' },
+      { id: 'checking', text: '確認中…', icon: '🔍', imageUrl: '/stamps/checking.svg', color: 'bg-slate-100 text-slate-800 border-slate-300' },
+      { id: 'urgent', text: '至急！', icon: '🚨', imageUrl: '/stamps/urgent.svg', color: 'bg-red-50 text-red-800 border-red-300' },
+      { id: 'phone', text: '電話下さい', icon: '📞', imageUrl: '/stamps/phone.svg', color: 'bg-emerald-50 text-emerald-800 border-emerald-300' },
+      { id: 'done', text: '対応完了', icon: '✅', imageUrl: '/stamps/done.svg', color: 'bg-teal-50 text-teal-800 border-teal-300' },
+      { id: 'ittekimasu', text: '行ってきます', icon: '🏃', imageUrl: '/stamps/ittekimasu.svg', color: 'bg-sky-50 text-sky-800 border-sky-300' },
     ]
   }
 ];
@@ -271,10 +272,22 @@ const ChatMessageItem = React.memo(function ChatMessageItem({
               <div className="p-1">
                 {(() => {
                   const stampDef = STAMP_CATEGORIES.flatMap((c) => c.stamps).find((s) => s.id === msg.stampId);
+                  const stampImg = (stampDef as any)?.imageUrl || (msg as any).stampImageUrl || (msg.stampId ? `/stamps/${msg.stampId}.svg` : null);
                   return (
-                    <div className={`inline-flex flex-col items-center justify-center p-2.5 sm:p-3.5 rounded-2xl border-2 shadow-md hover:scale-105 transition-transform ${stampDef?.color || 'bg-emerald-500 text-white border-emerald-600'}`}>
-                      <span className="text-2xl sm:text-3xl mb-1">{stampDef?.icon || '😊'}</span>
-                      <span className="text-xs sm:text-sm font-black tracking-wide drop-shadow-xs">{msg.stampText || msg.content}</span>
+                    <div className="relative group flex flex-col items-center">
+                      {stampImg ? (
+                        <img
+                          src={stampImg}
+                          alt={msg.stampText || msg.content}
+                          className="w-32 h-32 sm:w-36 sm:h-36 object-contain hover:scale-105 transition-transform filter drop-shadow-sm"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <div className={`inline-flex flex-col items-center justify-center p-2.5 sm:p-3.5 rounded-2xl border-2 shadow-md hover:scale-105 transition-transform ${stampDef?.color || 'bg-emerald-500 text-white border-emerald-600'}`}>
+                          <span className="text-2xl sm:text-3xl mb-1">{stampDef?.icon || '😊'}</span>
+                          <span className="text-xs sm:text-sm font-black tracking-wide drop-shadow-xs">{msg.stampText || msg.content}</span>
+                        </div>
+                      )}
                     </div>
                   );
                 })()}
@@ -479,6 +492,22 @@ export function Chat({
   const [readChatTimestamps, setReadChatTimestamps] = useState<Record<string, string>>(() =>
     getReadChatTimestamps(currentUser?.id)
   );
+
+  // カスタムスタンプデータの動的取得
+  const [stampCategories, setStampCategories] = useState(STAMP_CATEGORIES);
+
+  useEffect(() => {
+    let isMounted = true;
+    fetch(`${API_BASE_URL}/stamps`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (isMounted && data.success && Array.isArray(data.categories)) {
+          setStampCategories(data.categories);
+        }
+      })
+      .catch(() => {});
+    return () => { isMounted = false; };
+  }, []);
 
   useEffect(() => {
     const handleSync = () => {
@@ -1975,7 +2004,7 @@ export function Chat({
 
                 {/* スタンプカテゴリータブ */}
                 <div className="flex gap-1 border-b border-slate-100 pb-2 overflow-x-auto">
-                  {STAMP_CATEGORIES.map((cat) => (
+                  {stampCategories.map((cat) => (
                     <button
                       key={cat.id}
                       onClick={() => setActiveStampCategory(cat.id)}
@@ -1992,19 +2021,25 @@ export function Chat({
 
                 {/* スタンプグリッド */}
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-48 sm:max-h-56 overflow-y-auto p-1">
-                  {STAMP_CATEGORIES.find((c) => c.id === activeStampCategory)?.stamps.map((stamp) => (
+                  {stampCategories.find((c) => c.id === activeStampCategory)?.stamps.map((stamp) => (
                     <button
                       key={stamp.id}
                       onClick={() =>
                         handleSendStamp(
                           stamp,
-                          STAMP_CATEGORIES.find((c) => c.id === activeStampCategory)?.name || 'スタンプ'
+                          stampCategories.find((c) => c.id === activeStampCategory)?.name || 'スタンプ'
                         )
                       }
-                      className={`p-2.5 sm:p-3 rounded-xl border-2 flex flex-col items-center justify-center gap-1 hover:scale-105 transition-all shadow-xs ${stamp.color}`}
+                      className={`p-2 sm:p-2.5 rounded-xl border-2 flex flex-col items-center justify-center gap-1 hover:scale-105 transition-all shadow-xs overflow-hidden ${stamp.color || 'bg-slate-50 text-slate-800 border-slate-300'}`}
                     >
-                      <span className="text-xl sm:text-2xl">{stamp.icon}</span>
-                      <span className="text-[11px] sm:text-xs font-black tracking-wide">{stamp.text}</span>
+                      {stamp.imageUrl ? (
+                        <div className="w-14 h-14 sm:w-16 sm:h-16 flex items-center justify-center p-1">
+                          <img src={stamp.imageUrl} alt={stamp.text} className="w-full h-full object-contain" />
+                        </div>
+                      ) : (
+                        <span className="text-xl sm:text-2xl">{stamp.icon}</span>
+                      )}
+                      <span className="text-[11px] sm:text-xs font-black tracking-wide text-center line-clamp-1">{stamp.text}</span>
                     </button>
                   ))}
                 </div>

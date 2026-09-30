@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+  <circle cx="100" cy="100" r="92" fill="#EEF2FF" stroke="#C7D2FE" stroke-width="3" filter="url(#shadow)"/>
+  
+  <text x="100" y="32" font-family="'M PLUS Rounded 1c', sans-serif" font-weight="900" font-size="14" fill="#4F46E5" text-anchor="middle">Please look after me!</text>
+  <text x="152" y="80" font-family="'M PLUS Rounded 1c', sans-serif" font-weight="900" font-size="26" fill="#0F172A">よ</text>
+  <text x="152" y="108" font-family="'M PLUS Rounded 1c', sans-serif" font-weight="900" font-size="26" fill="#0F172A">ろ</text>
+  <text x="152" y="136" font-family="'M PLUS Rounded 1c', sans-serif" font-weight="900" font-size="26" fill="#0F172A">し</text>
+  <text x="152" y="164" font-family="'M PLUS Rounded 1c', sans-serif" font-weight="900" font-size="26" fill="#0F172A">く！</text>
+
+  <g transform="translate(-10, 10)">
+    <!-- Zabuton Cushion -->
+    <path d="M 50 162 L 130 162 L 140 172 L 40 172 Z" fill="#E11D48" stroke="#9F1239" stroke-width="2"/>
+    <!-- Cushion Tassels -->
+    <line x1="40" y1="172" x2="35" y2="176" stroke="#FB7185" stroke-width="2"/>
+    <line x1="140" y1="172" x2="145" y2="176" stroke="#FB7185" stroke-width="2"/>
+
+    <!-- Seiza Bowing Body -->
+    <path d="M 60 160 C 55 125, 125 125, 120 160 Z" fill="#FFFFFF" stroke="#334155" stroke-width="3.5" stroke-linejoin="round"/>
+    
+    <!-- Ears -->
+    <path d="M 58 98 L 42 68 L 72 82 Z" fill="#FFFFFF" stroke="#334155" stroke-width="3.5" stroke-linejoin="round"/>
+    <path d="M 59 92 L 48 73 L 68 82 Z" fill="#FFD1DC"/>
+    <path d="M 122 98 L 138 68 L 108 82 Z" fill="#FFFFFF" stroke="#334155" stroke-width="3.5" stroke-linejoin="round"/>
+    <path d="M 121 92 L 132 73 L 112 82 Z" fill="#FFD1DC"/>
+
+    <!-- Head Bowing Down -->
+    <ellipse cx="90" cy="108" rx="36" ry="30" fill="#FFFFFF" stroke="#334155" stroke-width="3.5"/>
+
+    <!-- Antenna -->
+    <line x1="90" y1="78" x2="90" y2="64" stroke="#334155" stroke-width="3"/>
+    <circle cx="90" cy="62" r="6" fill="#FF5E80" stroke="#334155" stroke-width="2"/>
+    <circle cx="88" cy="60" r="2" fill="#FFFFFF"/>
+
+    <!-- Hands Politeness on Ground -->
+    <ellipse cx="80" cy="142" rx="7" ry="4" fill="#FFFFFF" stroke="#334155" stroke-width="3"/>
+    <ellipse cx="100" cy="142" rx="7" ry="4" fill="#FFFFFF" stroke="#334155" stroke-width="3"/>
+
+    <!-- Eyes (Gentle Closed Arcs) -->
+    <path d="M 75 110 Q 80 115 85 110" fill="none" stroke="#334155" stroke-width="3" stroke-linecap="round"/>
+    <path d="M 95 110 Q 100 115 105 110" fill="none" stroke="#334155" stroke-width="3" stroke-linecap="round"/>
+
+    <!-- Cheeks -->
+    <ellipse cx="70" cy="115" rx="5" ry="3" fill="#FFB6C1" opacity="0.8"/>
+    <ellipse cx="110" cy="115" rx="5" ry="3" fill="#FFB6C1" opacity="0.8"/>
+
+    <!-- Tail -->
+    <path d="M 55 145 C 38 140, 32 155, 42 162" fill="none" stroke="#334155" stroke-width="3.5" stroke-linecap="round"/>
+  </g>
+</svg>

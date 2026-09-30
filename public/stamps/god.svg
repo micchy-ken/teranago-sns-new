@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+  <circle cx="100" cy="100" r="92" fill="#FAF5FF" stroke="#E9D5FF" stroke-width="3" filter="url(#shadow)"/>
+  
+  <!-- Golden Halo / Aura Ring -->
+  <ellipse cx="100" cy="42" rx="35" ry="10" fill="none" stroke="#F59E0B" stroke-width="4.5"/>
+
+  <text x="100" y="32" font-family="'M PLUS Rounded 1c', sans-serif" font-weight="900" font-size="14" fill="#9333EA" text-anchor="middle">Great Job!</text>
+  <text x="45" y="80" font-family="'M PLUS Rounded 1c', sans-serif" font-weight="900" font-size="28" fill="#0F172A">神</text>
+  <text x="45" y="108" font-family="'M PLUS Rounded 1c', sans-serif" font-weight="900" font-size="28" fill="#0F172A">対</text>
+  <text x="45" y="136" font-family="'M PLUS Rounded 1c', sans-serif" font-weight="900" font-size="28" fill="#0F172A">応</text>
+  <text x="45" y="164" font-family="'M PLUS Rounded 1c', sans-serif" font-weight="900" font-size="28" fill="#0F172A">！</text>
+
+  <g transform="translate(25, 10)">
+    <!-- Body -->
+    <path d="M 70 160 C 65 125, 135 125, 130 160 Z" fill="#FFFFFF" stroke="#334155" stroke-width="3.5" stroke-linejoin="round"/>
+    
+    <!-- Ears -->
+    <path d="M 68 88 L 52 58 L 82 72 Z" fill="#FFFFFF" stroke="#334155" stroke-width="3.5" stroke-linejoin="round"/>
+    <path d="M 69 82 L 58 63 L 78 72 Z" fill="#FFD1DC"/>
+    <path d="M 132 88 L 148 58 L 118 72 Z" fill="#FFFFFF" stroke="#334155" stroke-width="3.5" stroke-linejoin="round"/>
+    <path d="M 131 82 L 142 63 L 122 72 Z" fill="#FFD1DC"/>
+
+    <!-- Head -->
+    <ellipse cx="100" cy="98" rx="38" ry="32" fill="#FFFFFF" stroke="#334155" stroke-width="3.5"/>
+
+    <!-- Antenna -->
+    <line x1="100" y1="66" x2="100" y2="52" stroke="#334155" stroke-width="3"/>
+    <circle cx="100" cy="50" r="6" fill="#F59E0B" stroke="#334155" stroke-width="2"/>
+    <circle cx="98" cy="48" r="2" fill="#FFFFFF"/>
+
+    <!-- Hands Clasped Joyfully in Prayer/Tears of Joy -->
+    <ellipse cx="100" cy="138" rx="10" ry="12" fill="#FFFFFF" stroke="#334155" stroke-width="3.5"/>
+
+    <!-- Sparkling Emotional Eyes -->
+    <circle cx="88" cy="95" r="7" fill="#1E293B"/>
+    <circle cx="86" cy="92" r="3" fill="#FFFFFF"/>
+    <circle cx="90" cy="97" r="1.5" fill="#FFFFFF"/>
+
+    <circle cx="112" cy="95" r="7" fill="#1E293B"/>
+    <circle cx="110" cy="92" r="3" fill="#FFFFFF"/>
+    <circle cx="114" cy="97" r="1.5" fill="#FFFFFF"/>
+
+    <!-- Cheeks -->
+    <ellipse cx="78" cy="103" rx="6" ry="4" fill="#FF809B" opacity="0.8"/>
+    <ellipse cx="122" cy="103" rx="6" ry="4" fill="#FF809B" opacity="0.8"/>
+
+    <!-- Open Happy Mouth -->
+    <path d="M 94 102 C 94 110, 106 110, 106 102 Z" fill="#EF4444" stroke="#334155" stroke-width="2"/>
+
+    <!-- Gold Sparkles -->
+    <path d="M 142 75 L 144 80 L 150 82 L 144 84 L 142 89 L 140 84 L 134 82 L 140 80 Z" fill="#F59E0B"/>
+    <path d="M 58 75 L 60 80 L 66 82 L 60 84 L 58 89 L 56 84 L 50 82 L 56 80 Z" fill="#F59E0B"/>
+  </g>
+</svg>

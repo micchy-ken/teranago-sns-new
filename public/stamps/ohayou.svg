@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+  <!-- Background Glow / Circle -->
+  <circle cx="100" cy="100" r="92" fill="#F0F9FF" stroke="#BAE6FD" stroke-width="3" filter="url(#shadow)"/>
+  
+  <!-- Text Header -->
+  <text x="100" y="32" font-family="'M PLUS Rounded 1c', 'Hiragino Sans', sans-serif" font-weight="900" font-size="16" fill="#0284C7" text-anchor="middle">Good morning</text>
+  <text x="100" y="52" font-family="'M PLUS Rounded 1c', 'Hiragino Sans', 'メイリオ', sans-serif" font-weight="900" font-size="20" fill="#0F172A" text-anchor="middle">おはようございます</text>
+
+  <!-- Nano Banana Cat -->
+  <g transform="translate(0, 10)">
+    <!-- Body -->
+    <path d="M 70 160 C 65 125, 135 125, 130 160 Z" fill="#FFFFFF" stroke="#334155" stroke-width="3.5" stroke-linejoin="round"/>
+    
+    <!-- Ears -->
+    <path d="M 68 88 L 52 58 L 82 72 Z" fill="#FFFFFF" stroke="#334155" stroke-width="3.5" stroke-linejoin="round"/>
+    <path d="M 69 82 L 58 63 L 78 72 Z" fill="#FFD1DC"/>
+    <path d="M 132 88 L 148 58 L 118 72 Z" fill="#FFFFFF" stroke="#334155" stroke-width="3.5" stroke-linejoin="round"/>
+    <path d="M 131 82 L 142 63 L 122 72 Z" fill="#FFD1DC"/>
+
+    <!-- Head -->
+    <ellipse cx="100" cy="98" rx="38" ry="32" fill="#FFFFFF" stroke="#334155" stroke-width="3.5"/>
+
+    <!-- Antenna -->
+    <line x1="100" y1="66" x2="100" y2="52" stroke="#334155" stroke-width="3"/>
+    <circle cx="100" cy="50" r="6" fill="#FF5E80" stroke="#334155" stroke-width="2"/>
+    <circle cx="98" cy="48" r="2" fill="#FFFFFF"/>
+
+    <!-- Waving Arm (Right) -->
+    <path d="M 125 130 C 145 120, 155 95, 150 85 C 144 78, 132 88, 128 108" fill="#FFFFFF" stroke="#334155" stroke-width="3.5" stroke-linecap="round"/>
+    <!-- Paw Motion lines -->
+    <path d="M 158 82 C 160 88, 158 92, 156 95" stroke="#38BDF8" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+
+    <!-- Left Arm -->
+    <path d="M 75 130 C 68 142, 75 152, 82 148" fill="#FFFFFF" stroke="#334155" stroke-width="3.5" stroke-linecap="round"/>
+
+    <!-- Eyes -->
+    <ellipse cx="88" cy="95" rx="3.5" ry="5" fill="#1E293B"/>
+    <ellipse cx="112" cy="95" rx="3.5" ry="5" fill="#1E293B"/>
+    <circle cx="89.5" cy="93" r="1.5" fill="#FFFFFF"/>
+    <circle cx="113.5" cy="93" r="1.5" fill="#FFFFFF"/>
+
+    <!-- Cheeks -->
+    <ellipse cx="80" cy="103" rx="5" ry="3" fill="#FFB6C1" opacity="0.8"/>
+    <ellipse cx="120" cy="103" rx="5" ry="3" fill="#FFB6C1" opacity="0.8"/>
+
+    <!-- Mouth -->
+    <path d="M 94 102 Q 100 108 106 102" fill="none" stroke="#334155" stroke-width="2.5" stroke-linecap="round"/>
+
+    <!-- Whiskers -->
+    <line x1="62" y1="96" x2="52" y2="94" stroke="#334155" stroke-width="2"/>
+    <line x1="62" y1="101" x2="54" y2="102" stroke="#334155" stroke-width="2"/>
+    <line x1="138" y1="96" x2="148" y2="94" stroke="#334155" stroke-width="2"/>
+    <line x1="138" y1="101" x2="146" y2="102" stroke="#334155" stroke-width="2"/>
+  </g>
+</svg>

@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+  <circle cx="100" cy="100" r="92" fill="#F1F5F9" stroke="#CBD5E1" stroke-width="3" filter="url(#shadow)"/>
+  
+  <text x="100" y="32" font-family="'M PLUS Rounded 1c', sans-serif" font-weight="900" font-size="14" fill="#475569" text-anchor="middle">Checking...</text>
+  <text x="45" y="80" font-family="'M PLUS Rounded 1c', sans-serif" font-weight="900" font-size="28" fill="#0F172A">確</text>
+  <text x="45" y="108" font-family="'M PLUS Rounded 1c', sans-serif" font-weight="900" font-size="28" fill="#0F172A">認</text>
+  <text x="45" y="136" font-family="'M PLUS Rounded 1c', sans-serif" font-weight="900" font-size="28" fill="#0F172A">中</text>
+  <text x="45" y="164" font-family="'M PLUS Rounded 1c', sans-serif" font-weight="900" font-size="28" fill="#0F172A">…</text>
+
+  <g transform="translate(25, 10)">
+    <!-- Desk and PC Monitor -->
+    <rect x="110" y="125" width="40" height="28" rx="3" fill="#334155" stroke="#1E293B" stroke-width="2"/>
+    <rect x="113" y="128" width="34" height="22" fill="#22C55E"/> <!-- Glowing Green Screen -->
+    <line x1="115" y1="133" x2="135" y2="133" stroke="#FFFFFF" stroke-width="2"/>
+    <line x1="115" y1="138" x2="128" y2="138" stroke="#FFFFFF" stroke-width="2"/>
+    <path d="M 130 153 L 130 160 M 122 160 L 138 160" stroke="#334155" stroke-width="2.5"/>
+
+    <!-- Body at Desk -->
+    <path d="M 60 160 C 55 125, 120 125, 115 160 Z" fill="#FFFFFF" stroke="#334155" stroke-width="3.5" stroke-linejoin="round"/>
+    
+    <!-- Ears -->
+    <path d="M 58 88 L 42 58 L 72 72 Z" fill="#FFFFFF" stroke="#334155" stroke-width="3.5" stroke-linejoin="round"/>
+    <path d="M 59 82 L 48 63 L 68 72 Z" fill="#FFD1DC"/>
+    <path d="M 122 88 L 138 58 L 108 72 Z" fill="#FFFFFF" stroke="#334155" stroke-width="3.5" stroke-linejoin="round"/>
+    <path d="M 121 82 L 132 63 L 112 72 Z" fill="#FFD1DC"/>
+
+    <!-- Head Thinking -->
+    <ellipse cx="90" cy="98" rx="38" ry="32" fill="#FFFFFF" stroke="#334155" stroke-width="3.5"/>
+
+    <!-- Antenna Glowing Green -->
+    <line x1="90" y1="66" x2="90" y2="52" stroke="#334155" stroke-width="3"/>
+    <circle cx="90" cy="50" r="6" fill="#22C55E" stroke="#334155" stroke-width="2"/>
+    <circle cx="88" cy="48" r="2" fill="#FFFFFF"/>
+
+    <!-- Hand on Chin Thinking -->
+    <path d="M 70 135 C 75 125, 82 122, 86 118" fill="none" stroke="#334155" stroke-width="3.5" stroke-linecap="round"/>
+
+    <!-- Concentrating Eyes -->
+    <circle cx="80" cy="95" r="3.5" fill="#334155"/>
+    <circle cx="104" cy="95" r="3.5" fill="#334155"/>
+
+    <!-- Cheeks -->
+    <ellipse cx="72" cy="103" rx="5" ry="3" fill="#FFB6C1" opacity="0.8"/>
+    <ellipse cx="112" cy="103" rx="5" ry="3" fill="#FFB6C1" opacity="0.8"/>
+
+    <!-- Serious/Thinking Mouth -->
+    <line x1="88" y1="105" x2="96" y2="105" stroke="#334155" stroke-width="2.5" stroke-linecap="round"/>
+  </g>
+</svg>

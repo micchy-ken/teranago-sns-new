@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+  <circle cx="100" cy="100" r="92" fill="#FFF1F2" stroke="#FECDD3" stroke-width="3" filter="url(#shadow)"/>
+  
+  <text x="100" y="32" font-family="'M PLUS Rounded 1c', sans-serif" font-weight="900" font-size="14" fill="#E11D48" text-anchor="middle">Thank you!</text>
+  <text x="152" y="80" font-family="'M PLUS Rounded 1c', sans-serif" font-weight="900" font-size="26" fill="#0F172A">あ</text>
+  <text x="152" y="108" font-family="'M PLUS Rounded 1c', sans-serif" font-weight="900" font-size="26" fill="#0F172A">り</text>
+  <text x="152" y="136" font-family="'M PLUS Rounded 1c', sans-serif" font-weight="900" font-size="26" fill="#0F172A">が</text>
+  <text x="152" y="164" font-family="'M PLUS Rounded 1c', sans-serif" font-weight="900" font-size="26" fill="#0F172A">とう！</text>
+
+  <!-- Pink Heart Background Aura -->
+  <circle cx="90" cy="110" r="45" fill="#FFE4E6" opacity="0.6"/>
+
+  <g transform="translate(-10, 10)">
+    <!-- Body -->
+    <path d="M 60 160 C 55 125, 125 125, 120 160 Z" fill="#FFFFFF" stroke="#334155" stroke-width="3.5" stroke-linejoin="round"/>
+    
+    <!-- Ears -->
+    <path d="M 58 88 L 42 58 L 72 72 Z" fill="#FFFFFF" stroke="#334155" stroke-width="3.5" stroke-linejoin="round"/>
+    <path d="M 59 82 L 48 63 L 68 72 Z" fill="#FFD1DC"/>
+    <path d="M 122 88 L 138 58 L 108 72 Z" fill="#FFFFFF" stroke="#334155" stroke-width="3.5" stroke-linejoin="round"/>
+    <path d="M 121 82 L 132 63 L 112 72 Z" fill="#FFD1DC"/>
+
+    <!-- Head -->
+    <ellipse cx="90" cy="98" rx="38" ry="32" fill="#FFFFFF" stroke="#334155" stroke-width="3.5"/>
+
+    <!-- Antenna -->
+    <line x1="90" y1="66" x2="90" y2="52" stroke="#334155" stroke-width="3"/>
+    <circle cx="90" cy="50" r="6" fill="#FF5E80" stroke="#334155" stroke-width="2"/>
+    <circle cx="88" cy="48" r="2" fill="#FFFFFF"/>
+
+    <!-- Hands Clasped Together in Gratitude -->
+    <ellipse cx="90" cy="138" rx="10" ry="12" fill="#FFFFFF" stroke="#334155" stroke-width="3.5"/>
+
+    <!-- Eyes (Gentle Closed Arcs with Happiness) -->
+    <path d="M 73 95 Q 78 90 83 95" fill="none" stroke="#334155" stroke-width="3" stroke-linecap="round"/>
+    <path d="M 97 95 Q 102 90 107 95" fill="none" stroke="#334155" stroke-width="3" stroke-linecap="round"/>
+
+    <!-- Cheeks -->
+    <ellipse cx="68" cy="102" rx="6" ry="4" fill="#FF809B" opacity="0.8"/>
+    <ellipse cx="112" cy="102" rx="6" ry="4" fill="#FF809B" opacity="0.8"/>
+
+    <!-- Mouth -->
+    <path d="M 86 103 Q 90 108 94 103" fill="none" stroke="#334155" stroke-width="2.5" stroke-linecap="round"/>
+
+    <!-- Sparkles / Hearts -->
+    <path d="M 45 80 L 48 88 L 56 91 L 48 94 L 45 102 L 42 94 L 34 91 L 42 88 Z" fill="#F43F5E"/>
+    <path d="M 130 75 L 132 81 L 138 83 L 132 85 L 130 91 L 128 85 L 122 83 L 128 81 Z" fill="#FB7185"/>
+  </g>
+</svg>

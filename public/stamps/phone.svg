@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+  <circle cx="100" cy="100" r="92" fill="#ECFDF5" stroke="#A7F3D0" stroke-width="3" filter="url(#shadow)"/>
+  
+  <text x="100" y="32" font-family="'M PLUS Rounded 1c', sans-serif" font-weight="900" font-size="14" fill="#059669" text-anchor="middle">Call Me!</text>
+  <text x="45" y="70" font-family="'M PLUS Rounded 1c', sans-serif" font-weight="900" font-size="24" fill="#0F172A">電</text>
+  <text x="45" y="98" font-family="'M PLUS Rounded 1c', sans-serif" font-weight="900" font-size="24" fill="#0F172A">話</text>
+  <text x="45" y="126" font-family="'M PLUS Rounded 1c', sans-serif" font-weight="900" font-size="24" fill="#0F172A">下</text>
+  <text x="45" y="154" font-family="'M PLUS Rounded 1c', sans-serif" font-weight="900" font-size="24" fill="#0F172A">さ</text>
+  <text x="45" y="180" font-family="'M PLUS Rounded 1c', sans-serif" font-weight="900" font-size="24" fill="#0F172A">い</text>
+
+  <g transform="translate(25, 10)">
+    <!-- Body -->
+    <path d="M 70 160 C 65 125, 135 125, 130 160 Z" fill="#FFFFFF" stroke="#334155" stroke-width="3.5" stroke-linejoin="round"/>
+    
+    <!-- Ears -->
+    <path d="M 68 88 L 52 58 L 82 72 Z" fill="#FFFFFF" stroke="#334155" stroke-width="3.5" stroke-linejoin="round"/>
+    <path d="M 69 82 L 58 63 L 78 72 Z" fill="#FFD1DC"/>
+    <path d="M 132 88 L 148 58 L 118 72 Z" fill="#FFFFFF" stroke="#334155" stroke-width="3.5" stroke-linejoin="round"/>
+    <path d="M 131 82 L 142 63 L 122 72 Z" fill="#FFD1DC"/>
+
+    <!-- Head -->
+    <ellipse cx="100" cy="98" rx="38" ry="32" fill="#FFFFFF" stroke="#334155" stroke-width="3.5"/>
+
+    <!-- Antenna -->
+    <line x1="100" y1="66" x2="100" y2="52" stroke="#334155" stroke-width="3"/>
+    <circle cx="100" cy="50" r="6" fill="#FF5E80" stroke="#334155" stroke-width="2"/>
+    <circle cx="98" cy="48" r="2" fill="#FFFFFF"/>
+
+    <!-- Phone held to Ear (Left side) -->
+    <rect x="52" y="85" width="16" height="30" rx="3" fill="#1E293B" stroke="#334155" stroke-width="2"/>
+    <rect x="55" y="88" width="10" height="20" fill="#38BDF8"/>
+    <!-- Left Hand Holding Phone -->
+    <path d="M 68 110 C 62 105, 55 108, 58 115" fill="#FFFFFF" stroke="#334155" stroke-width="3"/>
+
+    <!-- Right Hand Pointing -->
+    <path d="M 125 130 C 135 125, 145 130, 148 135" fill="none" stroke="#334155" stroke-width="3.5" stroke-linecap="round"/>
+
+    <!-- Call Icon Bubble Floating -->
+    <circle cx="145" cy="65" r="14" fill="#10B981" stroke="#047857" stroke-width="2"/>
+    <path d="M 140 60 C 140 58, 143 57, 145 60 L 147 63 C 148 64, 147 66, 145 67 C 148 70, 150 72, 153 75 C 154 73, 156 72, 157 73 L 160 75 C 163 77, 162 80, 160 80 C 152 82, 138 68, 140 60 Z" fill="#FFFFFF"/>
+
+    <!-- Eyes -->
+    <ellipse cx="90" cy="95" rx="3.5" ry="5" fill="#1E293B"/>
+    <ellipse cx="114" cy="95" rx="3.5" ry="5" fill="#1E293B"/>
+
+    <!-- Cheeks -->
+    <ellipse cx="82" cy="103" rx="5" ry="3" fill="#FFB6C1" opacity="0.8"/>
+    <ellipse cx="122" cy="103" rx="5" ry="3" fill="#FFB6C1" opacity="0.8"/>
+
+    <!-- Talking Mouth -->
+    <ellipse cx="102" cy="104" rx="4" ry="3" fill="#EF4444" stroke="#334155" stroke-width="1.5"/>
+  </g>
+</svg>

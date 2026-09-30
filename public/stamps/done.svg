@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+  <circle cx="100" cy="100" r="92" fill="#F0FDFA" stroke="#99F6E4" stroke-width="3" filter="url(#shadow)"/>
+  
+  <text x="100" y="32" font-family="'M PLUS Rounded 1c', sans-serif" font-weight="900" font-size="14" fill="#0D9488" text-anchor="middle">Completed!</text>
+  <text x="152" y="80" font-family="'M PLUS Rounded 1c', sans-serif" font-weight="900" font-size="26" fill="#0F172A">対</text>
+  <text x="152" y="108" font-family="'M PLUS Rounded 1c', sans-serif" font-weight="900" font-size="26" fill="#0F172A">応</text>
+  <text x="152" y="136" font-family="'M PLUS Rounded 1c', sans-serif" font-weight="900" font-size="26" fill="#0F172A">完</text>
+  <text x="152" y="164" font-family="'M PLUS Rounded 1c', sans-serif" font-weight="900" font-size="26" fill="#0F172A">了</text>
+
+  <g transform="translate(-15, 10)">
+    <!-- Desk with Laptop and Checklist Clipboard -->
+    <rect x="35" y="135" width="80" height="8" fill="#CBD5E1"/>
+    <line x1="45" y1="143" x2="45" y2="168" stroke="#64748B" stroke-width="3"/>
+    <line x1="105" y1="143" x2="105" y2="168" stroke="#64748B" stroke-width="3"/>
+
+    <!-- Clipboard with Checkmark -->
+    <rect x="40" y="115" width="22" height="28" rx="2" fill="#FFFFFF" stroke="#334155" stroke-width="2"/>
+    <rect x="47" y="112" width="8" height="5" rx="1" fill="#94A3B8"/>
+    <!-- Big Checkmark -->
+    <path d="M 45 128 L 50 135 L 58 122" stroke="#16A34A" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+
+    <!-- Body Standing Happy -->
+    <path d="M 80 160 C 75 125, 140 125, 135 160 Z" fill="#FFFFFF" stroke="#334155" stroke-width="3.5" stroke-linejoin="round"/>
+    
+    <!-- Ears -->
+    <path d="M 78 88 L 62 58 L 92 72 Z" fill="#FFFFFF" stroke="#334155" stroke-width="3.5" stroke-linejoin="round"/>
+    <path d="M 79 82 L 68 63 L 88 72 Z" fill="#FFD1DC"/>
+    <path d="M 142 88 L 158 58 L 128 72 Z" fill="#FFFFFF" stroke="#334155" stroke-width="3.5" stroke-linejoin="round"/>
+    <path d="M 141 82 L 152 63 L 132 72 Z" fill="#FFD1DC"/>
+
+    <!-- Head -->
+    <ellipse cx="110" cy="98" rx="38" ry="32" fill="#FFFFFF" stroke="#334155" stroke-width="3.5"/>
+
+    <!-- Antenna -->
+    <line x1="110" y1="66" x2="110" y2="52" stroke="#334155" stroke-width="3"/>
+    <circle cx="110" cy="50" r="6" fill="#FF5E80" stroke="#334155" stroke-width="2"/>
+    <circle cx="108" cy="48" r="2" fill="#FFFFFF"/>
+
+    <!-- Left Hand Holding Clipboard -->
+    <path d="M 85 132 C 70 128, 65 126, 62 125" fill="none" stroke="#334155" stroke-width="3.5" stroke-linecap="round"/>
+
+    <!-- Right Hand Thumbs Up -->
+    <path d="M 135 130 C 145 122, 150 115, 146 108 C 142 104, 135 115, 132 122" fill="#FFFFFF" stroke="#334155" stroke-width="3.5" stroke-linecap="round"/>
+
+    <!-- Eyes -->
+    <ellipse cx="98" cy="95" rx="3.5" ry="5" fill="#1E293B"/>
+    <ellipse cx="122" cy="95" rx="3.5" ry="5" fill="#1E293B"/>
+
+    <!-- Cheeks -->
+    <ellipse cx="90" cy="103" rx="5" ry="3" fill="#FFB6C1" opacity="0.8"/>
+    <ellipse cx="130" cy="103" rx="5" ry="3" fill="#FFB6C1" opacity="0.8"/>
+
+    <!-- Happy Mouth -->
+    <path d="M 104 102 Q 110 108 116 102" fill="none" stroke="#334155" stroke-width="2.5" stroke-linecap="round"/>
+  </g>
+</svg>
