@@ -166,6 +166,7 @@ interface ChatMessageItemProps {
   isDifferentDate: boolean;
   showSenderName: boolean;
   showAvatar: boolean;
+  stampCategories?: typeof STAMP_CATEGORIES;
   onDeleteMessage: (id: string) => void;
   onOpenViewers: (msg: ChatMessage) => void;
   onOpenPreview: (att: AttachmentFile) => void;
@@ -184,6 +185,7 @@ const ChatMessageItem = React.memo(function ChatMessageItem({
   isDifferentDate,
   showSenderName,
   showAvatar,
+  stampCategories,
   onDeleteMessage,
   onOpenViewers,
   onOpenPreview,
@@ -272,8 +274,9 @@ const ChatMessageItem = React.memo(function ChatMessageItem({
             {msg.type === 'stamp' ? (
               <div className="p-1">
                 {(() => {
-                  const stampDef = STAMP_CATEGORIES.flatMap((c) => c.stamps).find((s) => s.id === msg.stampId);
-                  const stampImg = (stampDef as any)?.imageUrl || (msg as any).stampImageUrl || (msg.stampId ? `/stamps/${msg.stampId}.svg` : null);
+                  const activeCats = (stampCategories && stampCategories.length > 0) ? stampCategories : STAMP_CATEGORIES;
+                  const stampDef = activeCats.flatMap((c) => c.stamps).find((s) => s.id === msg.stampId);
+                  const stampImg = (stampDef as any)?.imageUrl || (msg as any).imageUrl || (msg as any).stampImageUrl || (msg.stampId ? `/stamps/${msg.stampId}.svg` : null);
                   return (
                     <div className="relative group flex flex-col items-center">
                       {stampImg ? (
@@ -1062,7 +1065,8 @@ export function Chat({
       type: 'stamp',
       stampId: stamp.id,
       stampText: stamp.text,
-      stampCategory: categoryName
+      stampCategory: categoryName,
+      imageUrl: stamp.imageUrl
     };
 
     updateRoomMessages(activeRoom.id, newMessage);
@@ -1808,6 +1812,7 @@ export function Chat({
                       isDifferentDate={isDifferentDate}
                       showSenderName={showSenderName}
                       showAvatar={showAvatar}
+                      stampCategories={stampCategories}
                       onDeleteMessage={handleDeleteMessageClick}
                       onOpenViewers={handleOpenViewersModal}
                       onOpenPreview={handleOpenPreviewFile}
