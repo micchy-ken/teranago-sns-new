@@ -11,6 +11,7 @@
 | **全テーブル定義 & リレーション一覧** | [`DATABASE_SCHEMA.md`](./DATABASE_SCHEMA.md) | MS SQL Server (Primary) および Local JSON (Fallback) の全テーブル定義、カラム型、制約、外部キーリレーション、Mermaid ER図 |
 | **APIエンドポイント仕様書** | [`API_SPECIFICATION.md`](./API_SPECIFICATION.md) | 全REST APIエンドポイント一覧（HTTPメソッド、マウントパス、処理ロジック、関連テーブル、リクエスト/レスポンス仕様） |
 | **主要・複雑業務の処理フロー** | [`SYSTEM_WORKFLOWS.md`](./SYSTEM_WORKFLOWS.md) | ①CRM点検データ〜点検報告書〜電子署名〜事務検印<br>②気象庁連動安否確認・AES暗号化同報配信<br>③多段階ワークフロー申請・承認<br>④カレンダー繰返し・iCal連携<br>⑤Web Push & SMTPメール通知基盤 |
+| **URLクエリパラメータ & ディープリンク仕様書** | [`QUERY_PARAMETERS.md`](./QUERY_PARAMETERS.md) | 各画面タブ切り替え（エイリアス対応）、個別詳細モーダル直開き、カレンダー初期絞り込み、緊急安否確認1タップ回答URL、バックエンドAPIクエリパラメータ一覧 |
 
 ---
 

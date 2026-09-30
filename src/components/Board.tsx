@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { BoardTopic, User, OfficeMaster, DivisionMaster } from '../types';
-import { getAvatarUrl } from '../utils/avatar';
+import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
 import { markTopicAsRead } from '../utils/notifications';
 import { deleteAttachmentFiles } from '../utils/fileUpload';
 import { MessageSquare, Eye, Plus, Search, Pin, Paperclip, Calendar as CalendarIcon, Building2, Users, Flame, Tag, Trash2, Share2, Check, Star } from 'lucide-react';
@@ -363,8 +363,9 @@ export function Board({
                   <div className="flex items-start gap-4">
                     {/* User Avatar */}
                     <img
-                      src={getAvatarUrl(topic.author.avatarUrl)}
-                      alt={topic.author.name}
+                      src={getAvatarUrl(topic.author?.id === currentUser?.id ? (currentUser?.avatarUrl || topic.author?.avatarUrl) : topic.author?.avatarUrl)}
+                      alt={topic.author?.name}
+                      onError={handleAvatarError}
                       className="w-10 h-10 rounded-full border border-slate-200 object-cover shrink-0 hidden sm:block"
                     />
 
@@ -482,11 +483,12 @@ export function Board({
                       <div className="flex flex-wrap items-center justify-between gap-3 text-xs font-semibold text-slate-500 pt-2 border-t border-slate-100">
                         <div className="flex items-center gap-2">
                           <img
-                            src={getAvatarUrl(topic.author.avatarUrl)}
-                            alt={topic.author.name}
+                            src={getAvatarUrl(topic.author?.id === currentUser?.id ? (currentUser?.avatarUrl || topic.author?.avatarUrl) : topic.author?.avatarUrl)}
+                            alt={topic.author?.name}
+                            onError={handleAvatarError}
                             className="w-5 h-5 rounded-full sm:hidden border border-slate-200"
                           />
-                          <span className="text-slate-800">{topic.author.name}</span>
+                          <span className="text-slate-800">{topic.author?.name}</span>
                         </div>
 
                         <div className="flex items-center gap-4">

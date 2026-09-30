@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ChatRoom, ChatMessage, User, OfficeMaster, DivisionMaster, AttachmentFile } from '../types';
-import { getAvatarUrl } from '../utils/avatar';
+import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
 import { MemberSelector } from './MemberSelector';
 import { markChatRoomAsRead, getReadChatTimestamps, getChatRoomUnreadCount } from '../utils/notifications';
 import { API_BASE_URL } from '../config/api';
@@ -615,16 +615,16 @@ export function Chat({
     }
     const participants = room.participants || [];
     const other = participants.find((p) => p && p.id !== currentUser.id) || participants[0];
-    return other?.avatarUrl ? (
+    const resolvedOther = (other?.id === currentUser.id ? currentUser : undefined) || users.find((u) => u.id === other?.id) || other;
+    const effectiveAvatar = (other?.id === currentUser.id ? currentUser.avatarUrl : resolvedOther?.avatarUrl) || other?.avatarUrl;
+    const effectiveName = (other?.id === currentUser.id ? currentUser.name : resolvedOther?.name) || other?.name || '';
+    return (
       <img
-        src={getAvatarUrl(other.avatarUrl)}
-        alt={other.name || ''}
+        src={getAvatarUrl(effectiveAvatar)}
+        alt={effectiveName}
+        onError={handleAvatarError}
         className="w-10 h-10 rounded-full border border-slate-200 object-cover shrink-0"
       />
-    ) : (
-      <div className="w-10 h-10 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-500 shrink-0">
-        <UserIcon className="w-5 h-5" />
-      </div>
     );
   };
 
@@ -1484,7 +1484,9 @@ export function Chat({
                     );
                   }
 
-                  const showSenderName = !isMine && (!prevMsg || prevMsg.sender.id !== msg.sender.id || prevMsg.id.startsWith('sys_'));
+                  const isNewSenderGroup = !prevMsg || prevMsg.sender.id !== msg.sender.id || prevMsg.id.startsWith('sys_') || isDifferentDate;
+                  const showSenderName = !isMine && isNewSenderGroup;
+                  const showAvatar = isNewSenderGroup;
 
                   return (
                     <React.Fragment key={msg.id}>
@@ -1506,15 +1508,23 @@ export function Chat({
                         </div>
                       )}
                     <div className={`flex gap-2 sm:gap-2.5 ${isMine ? 'flex-row-reverse' : 'flex-row'}`}>
-                    {/* 相手のアバター */}
+                    {/* 相手のアバター（自分のメッセージにはアイコンを表示しない） */}
                     {!isMine && (
                       <div className="w-7 h-7 sm:w-8 sm:h-8 shrink-0">
-                        {showSenderName ? (
-                          <img
-                            src={getAvatarUrl(msg.sender.avatarUrl)}
-                            alt={msg.sender.name}
-                            className="w-7 h-7 sm:w-8 sm:h-8 rounded-full border border-slate-200 object-cover shadow-2xs"
-                          />
+                        {showAvatar ? (
+                          (() => {
+                            const senderUser = (msg.sender.id === currentUser.id ? currentUser : undefined) || users.find((u) => u.id === msg.sender.id) || msg.sender;
+                            const senderAvatar = (msg.sender.id === currentUser.id ? currentUser.avatarUrl : senderUser?.avatarUrl) || msg.sender.avatarUrl;
+                            const senderName = (msg.sender.id === currentUser.id ? currentUser.name : senderUser?.name) || msg.sender.name;
+                            return (
+                              <img
+                                src={getAvatarUrl(senderAvatar)}
+                                alt={senderName}
+                                onError={handleAvatarError}
+                                className="w-7 h-7 sm:w-8 sm:h-8 rounded-full border border-slate-200 object-cover shadow-2xs"
+                              />
+                            );
+                          })()
                         ) : (
                           <div className="w-7 h-7 sm:w-8 sm:h-8" />
                         )}
@@ -1721,22 +1731,30 @@ export function Chat({
                       参加メンバー ({activeRoom.participants.length})
                     </h4>
                     <div className="space-y-2">
-                      {activeRoom.participants.map((member) => (
-                        <div key={member.id} className="flex items-center gap-2.5 p-1.5 rounded-lg hover:bg-slate-50 group/member">
-                          <img
-                            src={getAvatarUrl(member.avatarUrl)}
-                            alt={member.name}
-                            className="w-8 h-8 rounded-full border border-slate-200 object-cover shrink-0"
-                          />
-                          <div className="min-w-0 flex-1">
-                            <p className="text-xs font-bold text-slate-800 truncate">
-                              {member.name} {member.id === currentUser.id && '(自分)'}
-                            </p>
-                            <p className="text-[10px] text-slate-500 truncate">
-                              {member.office} / {member.division}
-                            </p>
-                          </div>
-                          {isGroupRoom(activeRoom) && (
+                      {activeRoom.participants.map((member) => {
+                        const memberUser = (member.id === currentUser.id ? currentUser : undefined) || users.find((u) => u.id === member.id) || member;
+                        const memberAvatar = (member.id === currentUser.id ? currentUser.avatarUrl : memberUser?.avatarUrl) || member.avatarUrl;
+                        const memberName = (member.id === currentUser.id ? currentUser.name : memberUser?.name) || member.name;
+                        const memberOffice = (member.id === currentUser.id ? currentUser.office : memberUser?.office) || member.office;
+                        const memberDivision = (member.id === currentUser.id ? currentUser.division : memberUser?.division) || member.division;
+
+                        return (
+                          <div key={member.id} className="flex items-center gap-2.5 p-1.5 rounded-lg hover:bg-slate-50 group/member">
+                            <img
+                              src={getAvatarUrl(memberAvatar)}
+                              alt={memberName}
+                              onError={handleAvatarError}
+                              className="w-8 h-8 rounded-full border border-slate-200 object-cover shrink-0"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-bold text-slate-800 truncate">
+                                {memberName} {member.id === currentUser.id && '(自分)'}
+                              </p>
+                              <p className="text-[10px] text-slate-500 truncate">
+                                {memberOffice} / {memberDivision}
+                              </p>
+                            </div>
+                            {isGroupRoom(activeRoom) && (
                             <div className="flex items-center gap-1 shrink-0">
                               {/* 管理者（王冠）アイコンの表示・トグル */}
                               {isUserRoomAdmin(activeRoom, member.id) ? (
@@ -1777,7 +1795,8 @@ export function Chat({
                             </div>
                           )}
                         </div>
-                      ))}
+                      );
+                    })}
                     </div>
                   </div>
 
@@ -2266,12 +2285,20 @@ export function Chat({
                       className="flex items-center justify-between p-3 bg-slate-50 border border-slate-200/80 rounded-xl text-xs"
                     >
                       <div className="flex items-center gap-2.5">
-                        <img
-                          src={getAvatarUrl(v.user.avatarUrl)}
-                          alt={v.user.name}
-                          className="w-8 h-8 rounded-full border border-slate-200 object-cover"
-                          referrerPolicy="no-referrer"
-                        />
+                        {(() => {
+                          const viewerUser = (v.user.id === currentUser.id ? currentUser : undefined) || users.find((u) => u.id === v.user.id) || v.user;
+                          const viewerAvatar = (v.user.id === currentUser.id ? currentUser.avatarUrl : viewerUser?.avatarUrl) || v.user.avatarUrl;
+                          const viewerName = (v.user.id === currentUser.id ? currentUser.name : viewerUser?.name) || v.user.name;
+                          return (
+                            <img
+                              src={getAvatarUrl(viewerAvatar)}
+                              alt={viewerName}
+                              onError={handleAvatarError}
+                              className="w-8 h-8 rounded-full border border-slate-200 object-cover"
+                              referrerPolicy="no-referrer"
+                            />
+                          );
+                        })()}
                         <div>
                           <div className="font-bold text-slate-800">{v.user.name}</div>
                           <div className="text-[10px] text-slate-500">

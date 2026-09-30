@@ -401,7 +401,7 @@ export function Timeline({
                               </div>
                             ) : (
                               <img
-                                src={getAvatarUrl(eventUser?.avatarUrl)}
+                                src={getAvatarUrl(eventUser?.id === currentUser?.id ? (currentUser?.avatarUrl || eventUser?.avatarUrl) : eventUser?.avatarUrl)}
                                 onError={handleAvatarError}
                                 alt={displayUserName}
                                 className="w-5 h-5 rounded-full object-cover border border-slate-100 bg-slate-100 shrink-0"
@@ -461,7 +461,7 @@ export function Timeline({
                         掲示板
                       </span>
                       <img
-                        src={getAvatarUrl(topic.author?.avatarUrl)}
+                        src={getAvatarUrl(topic.author?.id === currentUser?.id ? (currentUser?.avatarUrl || topic.author?.avatarUrl) : topic.author?.avatarUrl)}
                         onError={handleAvatarError}
                         alt={topic.author?.name || '匿名'}
                         className="w-6 h-6 rounded-full object-cover border border-slate-100 bg-slate-100 shrink-0"
@@ -587,7 +587,7 @@ export function Timeline({
                           <div className="flex flex-wrap gap-2">
                             {event.attendees.map(a => (
                               <div key={a.id} className="flex items-center gap-1.5 bg-white border border-amber-200 px-2 py-1 rounded-md">
-                                <img src={getAvatarUrl(a.avatarUrl)} onError={handleAvatarError} alt={a.name} className="w-4 h-4 rounded-full object-cover" />
+                                <img src={getAvatarUrl(a.id === currentUser?.id ? (currentUser?.avatarUrl || a.avatarUrl) : a.avatarUrl)} onError={handleAvatarError} alt={a.name} className="w-4 h-4 rounded-full object-cover" />
                                 <span className="font-bold text-[11px] text-slate-800">{a.name}</span>
                               </div>
                             ))}
@@ -668,7 +668,7 @@ export function Timeline({
                   <div className="space-y-4">
                     <div className="flex items-center gap-3">
                       <img
-                        src={getAvatarUrl(topic.author?.avatarUrl)}
+                        src={getAvatarUrl(topic.author?.id === currentUser?.id ? (currentUser?.avatarUrl || topic.author?.avatarUrl) : topic.author?.avatarUrl)}
                         onError={handleAvatarError}
                         alt={topic.author?.name || '匿名'}
                         className="w-10 h-10 rounded-full object-cover border border-slate-100 bg-slate-100"

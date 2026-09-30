@@ -30,7 +30,7 @@ import {
   ExternalLink,
   Eye
 } from 'lucide-react';
-import { getAvatarUrl } from '../utils/avatar';
+import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
 import { MaintenanceDailyReportView } from './MaintenanceDailyReport';
 import { markReportAsRead } from '../utils/notifications';
 
@@ -854,8 +854,9 @@ export function DailyReportView({
                   <div className="px-5 py-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3 bg-slate-50/80">
                     <div className="flex items-center gap-3">
                       <img 
-                        src={getAvatarUrl(report.author?.avatarUrl)} 
+                        src={getAvatarUrl(report.author?.id === currentUser?.id ? (currentUser?.avatarUrl || report.author?.avatarUrl) : report.author?.avatarUrl)} 
                         alt={report.author?.name || (report as any).authorName} 
+                        onError={handleAvatarError}
                         className="w-10 h-10 rounded-full border border-slate-200 object-cover shadow-xs" 
                       />
                       <div>

@@ -20,7 +20,7 @@ import {
   Eye
 } from 'lucide-react';
 import { CalendarEvent, EventType, User, AttachmentFile } from '../types';
-import { getAvatarUrl } from '../utils/avatar';
+import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
 import { getRecurrenceLabel, isRecurringEvent } from '../utils/recurrenceUtils';
 import { renderContentWithLinks } from '../utils/renderContentWithLinks';
 import { markEventAsRead } from '../utils/notifications';
@@ -307,8 +307,9 @@ export function GlobalEventDetailModal({
                     title={`${user.name}のプロフィールを表示`}
                   >
                     <img
-                      src={getAvatarUrl(user.avatarUrl)}
+                      src={getAvatarUrl(user.id === currentUser?.id ? (currentUser?.avatarUrl || user.avatarUrl) : user.avatarUrl)}
                       alt={user.name}
+                      onError={handleAvatarError}
                       referrerPolicy="no-referrer"
                       className="w-5 h-5 rounded-full object-cover group-hover/attendee:ring-1 ring-indigo-200"
                     />

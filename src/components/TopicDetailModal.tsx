@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { X, MessageSquare, Eye, Pin, Paperclip, Calendar as CalendarIcon, Send, Trash2, Building2, Users, Tag, CheckCircle2, Edit3, Save, Plus, Loader2, Eye as EyeIcon, Download, UploadCloud, Share2, Check, Star } from 'lucide-react';
 import { BoardTopic, User, OfficeMaster, DivisionMaster, AttachmentFile } from '../types';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
-import { getAvatarUrl } from '../utils/avatar';
+import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
 import { uploadMultipleFiles, deleteAttachmentFile, deleteAttachmentFiles, resolveFileUrl } from '../utils/fileUpload';
 import { FilePreviewModal } from './FilePreviewModal';
 import { renderContentWithLinks } from '../utils/renderContentWithLinks';
@@ -517,8 +517,9 @@ export function TopicDetailModal({
               title={`${topic.author.name}のプロフィールを表示`}
             >
               <img
-                src={getAvatarUrl(topic.author.avatarUrl)}
-                alt={topic.author.name}
+                src={getAvatarUrl(topic.author?.id === currentUser?.id ? (currentUser?.avatarUrl || topic.author?.avatarUrl) : topic.author?.avatarUrl)}
+                alt={topic.author?.name}
+                onError={handleAvatarError}
                 className="w-9 h-9 rounded-full border border-slate-200 object-cover group-hover/author:ring-2 ring-indigo-200 transition-all"
               />
               <div>
@@ -982,9 +983,10 @@ export function TopicDetailModal({
                                 title={`${c.author.name}のプロフィールを表示`}
                               >
                                 <img
-                                  src={getAvatarUrl(c.author.avatarUrl)}
-                                  alt={c.author.name}
-                                  className="w-6 h-6 rounded-full border border-slate-200"
+                                  src={getAvatarUrl(c.author?.id === currentUser?.id ? (currentUser?.avatarUrl || c.author?.avatarUrl) : c.author?.avatarUrl)}
+                                  alt={c.author?.name}
+                                  onError={handleAvatarError}
+                                  className="w-6 h-6 rounded-full border border-slate-200 object-cover"
                                 />
                                 <span className="font-bold text-slate-800 hover:text-indigo-600 transition-colors">{c.author.name}</span>
                                 <span className="text-[10px] text-slate-400">
@@ -1179,8 +1181,9 @@ export function TopicDetailModal({
                       >
                         <div className="flex items-center gap-2.5">
                           <img
-                            src={getAvatarUrl(v.user.avatarUrl)}
-                            alt={v.user.name}
+                            src={getAvatarUrl(v.user?.id === currentUser?.id ? (currentUser?.avatarUrl || v.user?.avatarUrl) : v.user?.avatarUrl)}
+                            alt={v.user?.name}
+                            onError={handleAvatarError}
                             className="w-8 h-8 rounded-full border border-slate-200 object-cover group-hover/viewer:ring-1 ring-indigo-200"
                           />
                           <div>

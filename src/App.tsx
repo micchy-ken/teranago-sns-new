@@ -110,6 +110,7 @@ const mapUserFromApi = (apiUser: any): User => {
     position,
     role: isAdmin ? 'admin' : 'user',
     isAdmin: isAdmin,
+    sortOrder: typeof apiUser.sortOrder === 'number' ? apiUser.sortOrder : (apiUser.sortOrder !== undefined && apiUser.sortOrder !== null && apiUser.sortOrder !== '' ? parseInt(apiUser.sortOrder, 10) : undefined),
     preferences: mergedPreferences,
   };
 };

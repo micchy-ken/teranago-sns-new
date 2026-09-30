@@ -96,9 +96,12 @@ router.get(['/users', '/users/', '/api/users', '/api/users/'], async (req, res) 
     const cols = await getUserTableColumns(pool);
     const hasCol = cols ? cols.has('preferences') : await checkPreferencesColumn(pool);
     const hasRolesCol = cols ? cols.has('roles') : false;
+    const hasSortOrderCol = cols ? cols.has('sortorder') : false;
     const allFilePrefs = loadAllUserPrefs();
 
-    const result = await pool.request().query('SELECT * FROM dbo.Users ORDER BY name ASC');
+    // sortOrder 列が存在する場合は ISNULL(sortOrder, 999999) ASC, name ASC でソート
+    const orderClause = hasSortOrderCol ? 'ORDER BY ISNULL(sortOrder, 999999) ASC, name ASC' : 'ORDER BY name ASC';
+    const result = await pool.request().query(`SELECT * FROM dbo.Users ${orderClause}`);
     const users = (result.recordset || []).map(row => {
       const uId = String(row.id);
       let prefs = {};
@@ -130,6 +133,7 @@ router.get(['/users', '/users/', '/api/users', '/api/users/'], async (req, res) 
 
       return {
         ...row,
+        sortOrder: row.sortOrder !== undefined && row.sortOrder !== null ? Number(row.sortOrder) : undefined,
         roles: resolvedRoles,
         preferences: prefs
       };
@@ -185,6 +189,7 @@ router.get(['/users/:id', '/api/users/:id'], async (req, res) => {
 
     res.json({
       ...row,
+      sortOrder: row.sortOrder !== undefined && row.sortOrder !== null ? Number(row.sortOrder) : undefined,
       roles: resolvedRoles,
       preferences: prefs
     });
@@ -194,7 +199,70 @@ router.get(['/users/:id', '/api/users/:id'], async (req, res) => {
 });
 
 // =============================================================
-// 3. ユーザー保存・更新用ヘルパー関数 (POST / PUT 共通)
+// 3. ユーザー表示順の一括更新 API (PUT & POST /api/users/reorder)
+// =============================================================
+const reorderPaths = [
+  '/users/reorder',
+  '/users/reorder/',
+  '/api/users/reorder',
+  '/api/users/reorder/'
+];
+
+async function reorderUsersHandler(req, res) {
+  try {
+    const body = req.body || {};
+    const orders = Array.isArray(body) 
+      ? body 
+      : (Array.isArray(body.userOrders) ? body.userOrders : (Array.isArray(body.orders) ? body.orders : []));
+
+    if (!orders || orders.length === 0) {
+      return res.status(400).json({ error: '並び順データ (userOrders) が配列で指定されていません。' });
+    }
+
+    const pool = await getPool();
+    const cols = await getUserTableColumns(pool);
+    const hasSortOrderCol = cols ? cols.has('sortorder') : false;
+
+    if (hasSortOrderCol) {
+      // SQL Server の sortOrder 列を一括更新
+      const transaction = new sql.Transaction(pool);
+      await transaction.begin();
+      try {
+        for (const item of orders) {
+          if (!item.id) continue;
+          const sOrder = (item.sortOrder !== undefined && item.sortOrder !== null && item.sortOrder !== '') 
+            ? parseInt(item.sortOrder, 10) 
+            : null;
+          await transaction.request()
+            .input('id', sql.VarChar, String(item.id))
+            .input('sortOrder', sql.Int, sOrder)
+            .query('UPDATE dbo.Users SET sortOrder = @sortOrder WHERE id = @id');
+        }
+        await transaction.commit();
+      } catch (txErr) {
+        await transaction.rollback();
+        throw txErr;
+      }
+    } else {
+      // sortOrder 列が未作成の場合は preferences 内にバックアップ保存
+      for (const item of orders) {
+        if (!item.id) continue;
+        saveUserPrefs(String(item.id), { sortOrder: item.sortOrder });
+      }
+    }
+
+    res.json({ success: true, count: orders.length, message: 'ユーザーの並び順を更新しました。' });
+  } catch (err) {
+    console.error('[Users] Reorder users error:', err);
+    res.status(500).json({ error: err.message });
+  }
+}
+
+router.put(reorderPaths, reorderUsersHandler);
+router.post(reorderPaths, reorderUsersHandler);
+
+// =============================================================
+// 4. ユーザー保存・更新用ヘルパー関数 (POST / PUT 共通)
 // =============================================================
 async function saveOrUpdateUser(req, res, targetUserId = null) {
   try {
@@ -203,6 +271,7 @@ async function saveOrUpdateUser(req, res, targetUserId = null) {
     const cols = await getUserTableColumns(pool);
     const hasRolesCol = cols ? cols.has('roles') : false;
     const hasCol = cols ? cols.has('preferences') : await checkPreferencesColumn(pool);
+    const hasSortOrderCol = cols ? cols.has('sortorder') : false;
     const hasPersonalEmailEncryptedCol = cols ? cols.has('personalemailencrypted') : false;
     const hasPersonalEmailMaskedCol = cols ? cols.has('personalemailmasked') : false;
     const userId = targetUserId || u.id || `u-${Date.now()}`;
@@ -212,6 +281,11 @@ async function saveOrUpdateUser(req, res, targetUserId = null) {
       ? u.roles 
       : (typeof u.roles === 'string' ? [u.roles] : [u.role || 'user']);
     const rolesStr = JSON.stringify(rolesArr);
+
+    // sortOrder の安全な数値変換
+    const parsedSortOrder = (u.sortOrder !== undefined && u.sortOrder !== null && u.sortOrder !== '')
+      ? parseInt(u.sortOrder, 10)
+      : null;
 
     // preferences の処理 & ローカル二重保存
     let incomingPrefs = null;
@@ -224,6 +298,10 @@ async function saveOrUpdateUser(req, res, targetUserId = null) {
     // roles 列が SQL Server に無い場合は preferences 内に自動格納して保護
     if (!hasRolesCol) {
       incomingPrefs.roles = rolesArr;
+    }
+    // sortOrder 列が SQL Server に無い場合は preferences 内にも保持
+    if (!hasSortOrderCol && parsedSortOrder !== null) {
+      incomingPrefs.sortOrder = parsedSortOrder;
     }
 
     saveUserPrefs(userId, incomingPrefs);
@@ -259,6 +337,11 @@ async function saveOrUpdateUser(req, res, targetUserId = null) {
       .input('mobilePhone', sql.NVarChar, u.mobilePhone || '')
       .input('icalUrl', sql.NVarChar, u.icalUrl || '')
       .input('supervisorId', sql.VarChar, u.supervisorId || null);
+
+    // sortOrder カラムが実在する場合のみクエリにバインド
+    if (hasSortOrderCol) {
+      reqBuilder.input('sortOrder', sql.Int, parsedSortOrder);
+    }
 
     // roles カラムが実在する場合のみクエリにバインド
     if (hasRolesCol) {
@@ -300,6 +383,7 @@ async function saveOrUpdateUser(req, res, targetUserId = null) {
       'icalUrl = @icalUrl',
       'supervisorId = @supervisorId'
     ];
+    if (hasSortOrderCol) updateSets.push('sortOrder = @sortOrder');
     if (hasRolesCol) updateSets.push('roles = @roles');
     if (hasCol) updateSets.push('preferences = @preferences');
     if (hasPersonalEmailEncryptedCol && u.personalEmailEncrypted !== undefined) updateSets.push('personalEmailEncrypted = @personalEmailEncrypted');
@@ -314,6 +398,10 @@ async function saveOrUpdateUser(req, res, targetUserId = null) {
       '@id', '@loginId', '@password', '@name', '@kanaName', '@department', '@office', '@division', '@position',
       '@role', '@isAdmin', '@avatarUrl', '@email', '@mobileEmail', '@phone', '@phoneOutside', '@phoneExtension', '@mobilePhone', '@icalUrl', '@supervisorId'
     ];
+    if (hasSortOrderCol) {
+      insertCols.push('sortOrder');
+      insertVals.push('@sortOrder');
+    }
     if (hasRolesCol) {
       insertCols.push('roles');
       insertVals.push('@roles');
@@ -343,7 +431,7 @@ async function saveOrUpdateUser(req, res, targetUserId = null) {
 
     await reqBuilder.query(queryStr);
 
-    res.json({ id: userId, preferences: mergedPrefs, roles: rolesArr, message: 'ユーザー保存成功' });
+    res.json({ id: userId, sortOrder: parsedSortOrder, preferences: mergedPrefs, roles: rolesArr, message: 'ユーザー保存成功' });
   } catch (err) { 
     console.error('[Users] saveOrUpdateUser error:', err);
     res.status(500).json({ error: err.message }); 
@@ -358,7 +446,7 @@ router.put(['/users/:id', '/api/users/:id'], (req, res) => saveOrUpdateUser(req,
 router.post(['/users/:id', '/api/users/:id'], (req, res) => saveOrUpdateUser(req, res, req.params.id));
 
 // =============================================================
-// 4. 個人設定・通知権限・マイページ並び順の更新 (PUT & POST)
+// 5. 個人設定・通知権限・マイページ並び順の更新 (PUT & POST)
 // エンドポイント: /users/:id/preferences, /users/:id/settings, /users/:id/notification-settings
 // =============================================================
 const preferencesPaths = [
@@ -442,7 +530,7 @@ router.put(preferencesPaths, updatePreferencesHandler);
 router.post(preferencesPaths, updatePreferencesHandler);
 
 // =============================================================
-// 5. ユーザー削除 (DELETE /users/:id & /api/users/:id)
+// 6. ユーザー削除 (DELETE /users/:id & /api/users/:id)
 // =============================================================
 router.delete(['/users/:id', '/api/users/:id'], async (req, res) => {
   try {
@@ -455,7 +543,7 @@ router.delete(['/users/:id', '/api/users/:id'], async (req, res) => {
 });
 
 // =============================================================
-// 6. 個人メールアドレス AES-256-GCM 暗号化保存 (POST /users/:id/personal-email)
+// 7. 個人メールアドレス AES-256-GCM 暗号化保存 (POST /users/:id/personal-email)
 // =============================================================
 router.post(['/users/:id/personal-email', '/api/users/:id/personal-email'], async (req, res) => {
   try {
@@ -486,7 +574,7 @@ router.post(['/users/:id/personal-email', '/api/users/:id/personal-email'], asyn
 });
 
 // =============================================================
-// 7. アバター画像アップロード (POST /upload-avatar, POST /users/upload-avatar)
+// 8. アバター画像アップロード (POST /upload-avatar, POST /users/upload-avatar)
 // =============================================================
 const avatarStorage = multer.diskStorage({
   destination: function (req, file, cb) {

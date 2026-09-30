@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Search, Bell, Menu, Phone, FileText, Monitor, Calendar as CalendarIcon, MessageSquare, CheckCheck, ChevronRight, X, Smartphone, Users, MessageCircle, Palette, Check, Minimize2, Pin, ShieldAlert } from 'lucide-react';
 import { User, Memo, WorkflowApplication, BoardTopic, CalendarEvent, ChatRoom, Post, DailyReport, SafetyConfirmationEvent, SafetyConfirmationResponse } from '../types';
-import { getAvatarUrl } from '../utils/avatar';
+import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
 import { AppTab } from './Sidebar';
 import { expandRecurringEvents } from '../utils/recurrenceUtils';
 import { ColorTheme, THEME_OPTIONS, getSavedTheme, applyColorTheme } from '../utils/theme';

@@ -1,7 +1,7 @@
 export const RECOMMEND_SERVER_JS = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年9月28日 (掲示板ピン留め期間選択機能追加・pinnedUntil/pinnedDuration対応・期限切れピン留めの自動解除同期・完全版)
+ * 最終更新日時 (最終アップデート): 2026年9月30日 (ユーザーマスターの並び順固定用 sortOrder カラム・API対応および一括並び替えエンドポイントの追加・完全版)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -2016,15 +2016,60 @@ async function startServer() {
     fs.writeFileSync(usersPath, JSON.stringify(users, null, 2), 'utf8');
   }
 
-  // ユーザー一覧取得 API
+  // ユーザー一覧取得 API (sortOrder 昇順、名前 昇順)
   app.get(['/api/users', '/api/users/'], (req, res) => {
     try {
       const users = loadUsers();
-      res.json(users);
+      // sortOrder があれば優先してソート
+      const sortedUsers = [...users].sort((a: any, b: any) => {
+        const orderA = a.sortOrder !== undefined && a.sortOrder !== null ? Number(a.sortOrder) : 999999;
+        const orderB = b.sortOrder !== undefined && b.sortOrder !== null ? Number(b.sortOrder) : 999999;
+        if (orderA !== orderB) return orderA - orderB;
+        return (a.name || '').localeCompare(b.name || '', 'ja');
+      });
+      res.json(sortedUsers);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
+
+  // ユーザー表示順の一括更新 API
+  const handleUsersReorder = (req: any, res: any) => {
+    try {
+      const body = req.body || {};
+      const orders = Array.isArray(body) 
+        ? body 
+        : (Array.isArray(body.userOrders) ? body.userOrders : (Array.isArray(body.orders) ? body.orders : []));
+      
+      if (!orders || orders.length === 0) {
+        return res.status(400).json({ error: '並び順データ (userOrders) が配列で指定されていません。' });
+      }
+
+      const users = loadUsers();
+      const orderMap = new Map<string, number | null>();
+      for (const item of orders) {
+        if (!item.id) continue;
+        const sOrder = (item.sortOrder !== undefined && item.sortOrder !== null && item.sortOrder !== '')
+          ? parseInt(item.sortOrder, 10)
+          : null;
+        orderMap.set(String(item.id), sOrder);
+      }
+
+      users.forEach((u: any) => {
+        if (orderMap.has(String(u.id))) {
+          u.sortOrder = orderMap.get(String(u.id));
+        }
+      });
+
+      saveUsers(users);
+      res.json({ success: true, count: orders.length, message: 'ユーザーの並び順を更新しました。' });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  };
+
+  app.put(['/api/users/reorder', '/api/users/reorder/'], handleUsersReorder);
+  app.post(['/api/users/reorder', '/api/users/reorder/'], handleUsersReorder);
 
   // 単一ユーザー取得 API
   app.get('/api/users/:id', (req, res) => {

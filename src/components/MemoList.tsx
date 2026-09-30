@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Memo, User, OfficeMaster, DivisionMaster, RequirementType, MemoUserRecipientStatus } from '../types';
-import { getAvatarUrl } from '../utils/avatar';
+import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
 import { MemberSelector } from './MemberSelector';
 import { API_BASE_URL } from '../config/api';
 import { markMemoAsRead, isMemoUnhandled } from '../utils/notifications';
@@ -1130,8 +1130,9 @@ export function MemoList({
                     >
                       <div className="flex items-center gap-3">
                         <img
-                          src={getAvatarUrl(st.avatarUrl)}
+                          src={getAvatarUrl(st.userId === currentUser.id ? (currentUser.avatarUrl || st.avatarUrl) : st.avatarUrl)}
                           alt={st.userName}
+                          onError={handleAvatarError}
                           className="w-8 h-8 rounded-full object-cover border border-slate-200 shrink-0"
                         />
                         <div>

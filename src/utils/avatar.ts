@@ -16,6 +16,10 @@ export const getAvatarUrl = (url?: string): string => {
     !url || 
     typeof url !== 'string' || 
     url.trim() === '' || 
+    url.trim().toLowerCase() === 'null' ||
+    url.trim().toLowerCase() === 'undefined' ||
+    url.trim().toLowerCase() === 'none' ||
+    url.includes('[object') ||
     url.includes('pravatar') || 
     url.includes('placeholder') ||
     url.includes('picsum.photos') ||
@@ -73,6 +77,7 @@ export const getAvatarUrl = (url?: string): string => {
  * 画像読み込みエラーが発生した場合にデフォルトシルエット画像に自動フォールバックします。
  */
 export const handleAvatarError = (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
+  e.currentTarget.onerror = null;
   if (e.currentTarget.src !== SILHOUETTE_SVG) {
     e.currentTarget.src = SILHOUETTE_SVG;
   }

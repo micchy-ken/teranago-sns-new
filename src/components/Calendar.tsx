@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { CalendarEvent, EventType, User, OfficeMaster, DivisionMaster, Memo, RequirementType, MemoUserRecipientStatus, CalendarPreset } from '../types';
-import { getAvatarUrl } from '../utils/avatar';
+import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
 import { ChevronLeft, ChevronRight, List as ListIcon, Calendar as CalendarIcon, Plus, MapPin, Video, AlignLeft, RefreshCw, Clock, Link as LinkIcon, Loader2, Building2, Users, Paperclip, MessageSquare, Phone, X, Monitor, Maximize2, Minimize2, FileSpreadsheet, Share2, Check, Star, Trash2, Pin, BookmarkCheck } from 'lucide-react';
 import { EventModal } from './EventModal';
 import { GlobalEventDetailModal } from './GlobalEventDetailModal';
@@ -2946,7 +2946,7 @@ export function Calendar({
                               <Users className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                               <div className="flex -space-x-1.5">
                                 {e.attendees.map(u => (
-                                  <img key={u.id} src={getAvatarUrl(u.avatarUrl)} alt={u.name} title={u.name} className="w-4 h-4 rounded-full border border-white object-cover" />
+                                  <img key={u.id} src={getAvatarUrl(u.id === currentUser.id ? (currentUser.avatarUrl || u.avatarUrl) : u.avatarUrl)} onError={handleAvatarError} alt={u.name} title={u.name} className="w-4 h-4 rounded-full border border-white object-cover" />
                                 ))}
                               </div>
                               <span>({e.attendees.length}名)</span>
@@ -3049,9 +3049,10 @@ export function Calendar({
                 </label>
                 <div className="flex items-center gap-2 p-2 sm:p-2.5 bg-indigo-50/50 border border-indigo-100/60 rounded-xl">
                   <img
-                    src={getAvatarUrl(memoTargetUser.avatarUrl)}
+                    src={getAvatarUrl(memoTargetUser.id === currentUser.id ? (currentUser.avatarUrl || memoTargetUser.avatarUrl) : memoTargetUser.avatarUrl)}
                     alt={memoTargetUser.name}
-                    className="w-7 h-7 sm:w-8 sm:h-8 rounded-full border border-slate-200 shrink-0"
+                    onError={handleAvatarError}
+                    className="w-7 h-7 sm:w-8 sm:h-8 rounded-full border border-slate-200 shrink-0 object-cover"
                     referrerPolicy="no-referrer"
                   />
                   <div className="min-w-0">

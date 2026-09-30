@@ -519,7 +519,7 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
                       <>
                         <span className="text-xs text-slate-500 font-medium">承認者</span>
                         <div className="flex items-center gap-2">
-                          <img src={getAvatarUrl(app.approver?.avatarUrl)} alt={app.approver?.name} className="w-6 h-6 rounded-full border border-slate-200 object-cover" />
+                          <img src={getAvatarUrl(app.approver?.id === currentUser.id ? (currentUser.avatarUrl || app.approver?.avatarUrl) : app.approver?.avatarUrl)} onError={handleAvatarError} alt={app.approver?.name} className="w-6 h-6 rounded-full border border-slate-200 object-cover" />
                           <span className="text-sm font-semibold text-slate-800">{app.approver?.name || '未設定'}</span>
                         </div>
                       </>
@@ -527,7 +527,7 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
                       <>
                         <span className="text-xs text-slate-500 font-medium">申請者</span>
                         <div className="flex items-center gap-2">
-                          <img src={getAvatarUrl(app.applicant?.avatarUrl)} alt={app.applicant?.name} className="w-6 h-6 rounded-full border border-slate-200 object-cover" />
+                          <img src={getAvatarUrl(app.applicant?.id === currentUser.id ? (currentUser.avatarUrl || app.applicant?.avatarUrl) : app.applicant?.avatarUrl)} onError={handleAvatarError} alt={app.applicant?.name} className="w-6 h-6 rounded-full border border-slate-200 object-cover" />
                           <span className="text-sm font-semibold text-slate-800">{app.applicant?.name || '未設定'}</span>
                         </div>
                       </>

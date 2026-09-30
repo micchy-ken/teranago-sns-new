@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { X, User, Building2, Phone, Mail, Clock, Calendar, Check, AlertCircle, RefreshCw, Users } from 'lucide-react';
 import { Memo, User as UserType } from '../types';
-import { getAvatarUrl } from '../utils/avatar';
+import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
 import { isMemoUnhandled, markMemoAsRead } from '../utils/notifications';
 import { renderContentWithLinks } from '../utils/renderContentWithLinks';
 import { triggerOpenUserModal } from '../utils/userModal';
@@ -186,8 +186,9 @@ export function GlobalMemoDetailModal({
                 title={`${memo.createdByUser.name}のプロフィールを表示`}
               >
                 <img
-                  src={getAvatarUrl(memo.createdByUser.avatarUrl)}
+                  src={getAvatarUrl(memo.createdByUser.id === currentUser.id ? (currentUser.avatarUrl || memo.createdByUser.avatarUrl) : memo.createdByUser.avatarUrl)}
                   alt={memo.createdByUser.name}
+                  onError={handleAvatarError}
                   referrerPolicy="no-referrer"
                   className="w-3.5 h-3.5 rounded-full object-cover shrink-0"
                 />

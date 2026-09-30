@@ -277,7 +277,7 @@ export const GlobalWorkflowDetailModal: React.FC<GlobalWorkflowDetailModalProps>
                 title="申請者の社員詳細を表示"
               >
                 <img
-                  src={getAvatarUrl(application.applicant?.avatarUrl)}
+                  src={getAvatarUrl(application.applicant?.id === currentUser?.id ? (currentUser?.avatarUrl || application.applicant?.avatarUrl) : application.applicant?.avatarUrl)}
                   alt={application.applicant?.name}
                   onError={handleAvatarError}
                   className="w-11 h-11 rounded-full border-2 border-white shadow-xs object-cover group-hover:ring-2 group-hover:ring-indigo-500 transition-all"
@@ -552,7 +552,7 @@ export const GlobalWorkflowDetailModal: React.FC<GlobalWorkflowDetailModalProps>
                           </div>
                           <div className="text-[11px] text-slate-500 flex items-center gap-1.5 mt-0.5">
                             <img
-                              src={getAvatarUrl(approverUser?.avatarUrl)}
+                              src={getAvatarUrl(approverUser?.id === currentUser?.id ? (currentUser?.avatarUrl || approverUser?.avatarUrl) : approverUser?.avatarUrl)}
                               alt={approverUser?.name}
                               onError={handleAvatarError}
                               className="w-4 h-4 rounded-full border border-slate-200 object-cover"
@@ -601,7 +601,7 @@ export const GlobalWorkflowDetailModal: React.FC<GlobalWorkflowDetailModalProps>
               <div className="p-3 rounded-xl bg-white border border-slate-200 flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2.5">
                   <img
-                    src={getAvatarUrl(application.approver?.avatarUrl)}
+                    src={getAvatarUrl(application.approver?.id === currentUser?.id ? (currentUser?.avatarUrl || application.approver?.avatarUrl) : application.approver?.avatarUrl)}
                     alt={application.approver?.name}
                     onError={handleAvatarError}
                     className="w-8 h-8 rounded-full border border-slate-200 object-cover"

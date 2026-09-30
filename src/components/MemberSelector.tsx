@@ -13,7 +13,7 @@ import {
   Briefcase,
   Filter
 } from 'lucide-react';
-import { getAvatarUrl } from '../utils/avatar';
+import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
 
 export interface MemberSelectorProps {
   allUsers: User[];
@@ -194,6 +194,7 @@ export const MemberSelector: React.FC<MemberSelectorProps> = ({
               <img
                 src={getAvatarUrl(u.avatarUrl)}
                 alt={u.name}
+                onError={handleAvatarError}
                 className="w-4 h-4 rounded-full object-cover shrink-0"
               />
               <span className="truncate max-w-[120px]">{u.name}</span>
@@ -350,6 +351,7 @@ export const MemberSelector: React.FC<MemberSelectorProps> = ({
                         <img
                           src={getAvatarUrl(user.avatarUrl)}
                           alt={user.name}
+                          onError={handleAvatarError}
                           className="w-6 h-6 rounded-full object-cover shrink-0"
                         />
                         <div className="min-w-0">
