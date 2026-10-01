@@ -1,7 +1,7 @@
 export const RECOMMEND_SERVER_JS = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年9月30日 (画像・スタンプ静的配信の30日間高速キャッシュ設定 maxAge/immutable および2段階サムネイル対応 完全同期)
+ * 最終更新日時 (最終アップデート): 2026年10月1日 (ユーザー複数一括招待・トークン検証登録・パスワード設定依頼メール・初回ログイン時パスワード変更強制機能 完全同期)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -1248,8 +1248,8 @@ async function startServer() {
 
       let items = loadReadStatuses();
       if (isRead !== false) {
-        const exists = items.find((i) => i.userId === userId && i.targetType === targetType && i.targetId === targetId);
-        if (!exists) {
+        const existing = items.find((i) => i.userId === userId && i.targetType === targetType && i.targetId === targetId);
+        if (!existing) {
           items.push({
             userId,
             targetType,
@@ -2322,6 +2322,522 @@ async function startServer() {
     } catch (err: any) {
       console.error('[PersonalEmail] Test send error:', err);
       res.status(500).json({ error: err.message || 'テストメールの送信に失敗しました。' });
+    }
+  });
+
+  // ==========================================
+  // ユーザー招待 & パスワード設定依頼 API
+  // ==========================================
+  const invitationsPath = path.join(dataDir, 'invitations.json');
+  function loadInvitations(): any[] {
+    if (!fs.existsSync(invitationsPath)) return [];
+    try {
+      const data = JSON.parse(fs.readFileSync(invitationsPath, 'utf8'));
+      return Array.isArray(data) ? data : [];
+    } catch {
+      return [];
+    }
+  }
+  function saveInvitations(invitations: any[]) {
+    try {
+      fs.writeFileSync(invitationsPath, JSON.stringify(invitations, null, 2), 'utf8');
+    } catch (e) {
+      console.error('Failed to save invitations:', e);
+    }
+  }
+
+  // 1. ユーザー一括招待 API
+  app.post(['/api/users/invite', '/api/users/invite/'], async (req, res) => {
+    try {
+      const {
+        emails,
+        role = 'user',
+        office = '',
+        division = '',
+        position = '',
+        department = '',
+        expiresInDays = 7,
+        createdByName = '管理者',
+        baseUrl
+      } = req.body || {};
+
+      let emailList: string[] = [];
+      if (Array.isArray(emails)) {
+        emailList = emails;
+      } else if (typeof emails === 'string') {
+        emailList = emails.split(/[\\n,;]+/).map((e: string) => e.trim()).filter((e: string) => e.length > 0);
+      }
+
+      const validEmails = Array.from(new Set(
+        emailList.map((e: string) => e.toLowerCase().trim()).filter((e: string) => e.includes('@') && e.includes('.'))
+      ));
+
+      if (validEmails.length === 0) {
+        return res.status(400).json({ error: '有効な招待先メールアドレスを1件以上指定してください。' });
+      }
+
+      const appBaseUrl = baseUrl || 'https://micchy-ken.github.io/teranago-sns-new/';
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + (Number(expiresInDays) || 7) * 24 * 60 * 60 * 1000).toISOString();
+      const existingInvitations = loadInvitations();
+      const createdInvitations: any[] = [];
+      const mailResults: any[] = [];
+
+      for (const email of validEmails) {
+        const token = crypto.randomBytes(24).toString('hex');
+        const invId = \`inv_\${Date.now()}_\${Math.random().toString(36).slice(2, 7)}\`;
+        const deptString = department || [office, division, position].filter(Boolean).join(' ');
+
+        const newInv = {
+          id: invId,
+          email,
+          token,
+          role: role === 'admin' ? 'admin' : 'user',
+          office: office || '',
+          division: division || '',
+          position: position || '',
+          department: deptString,
+          expiresAt,
+          status: 'pending',
+          createdAt: now.toISOString(),
+          createdByName: createdByName || '管理者'
+        };
+
+        existingInvitations.forEach((inv: any) => {
+          if (inv.email.toLowerCase() === email.toLowerCase() && inv.status === 'pending') {
+            inv.status = 'revoked';
+            inv.revokedAt = now.toISOString();
+          }
+        });
+
+        existingInvitations.unshift(newInv);
+        createdInvitations.push(newInv);
+
+        const inviteUrl = \`\${appBaseUrl}\${appBaseUrl.includes('?') ? '&' : '?'}mode=invite&token=\${token}\`;
+        const subject = \`【TERANAGO SNS】社内ポータルへの招待が届きました\`;
+        const text = \`\${email} 様\\n\\n\${createdByName}様より、TERANAGO 社内SNS・グループウェアへの招待が届いています。\\n以下のリンクを開き、アカウントの初期設定（氏名・パスワード設定等）を完了してください。\\n\\n▼ アカウント初期登録URL:\\n\${inviteUrl}\\n\\n※有効期限: \${new Date(expiresAt).toLocaleDateString('ja-JP')} まで\\n※心当たりのない場合は本メールを破棄してください。\`;
+        
+        const html = \`
+          <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; background: #ffffff;">
+            <div style="background: linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%); color: #ffffff; padding: 24px; text-align: center;">
+              <h2 style="margin: 0; font-size: 20px; font-weight: 700;">TERANAGO 社内ポータルへようこそ</h2>
+              <p style="margin: 6px 0 0 0; font-size: 13px; opacity: 0.9;">メンバー招待のお知らせ</p>
+            </div>
+            <div style="padding: 24px; color: #334155; line-height: 1.6; font-size: 14px;">
+              <p style="margin-top: 0;"><b>\${email}</b> 様</p>
+              <p><b>\${createdByName}</b> 様より、社内SNS・グループウェアへの招待が届きました。</p>
+              <p>下のボタンをクリックして、氏名やログインパスワード等の必須項目を設定し、アカウントを開設してください。</p>
+              <div style="text-align: center; margin: 28px 0;">
+                <a href="\${inviteUrl}" style="display: inline-block; background-color: #4f46e5; color: #ffffff; font-weight: bold; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-size: 15px;">
+                  👉 アカウントを登録して参加する
+                </a>
+              </div>
+              <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px; font-size: 12px; color: #64748b;">
+                <p style="margin: 0 0 4px 0;"><b>ボタンが開けない場合:</b> 以下のURLをブラウザに直接貼り付けてください。</p>
+                <p style="margin: 0; word-break: break-all; color: #4f46e5;">\${inviteUrl}</p>
+                <p style="margin: 8px 0 0 0; color: #e11d48;">※有効期限: <b>\${new Date(expiresAt).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}</b> まで</p>
+              </div>
+            </div>
+          </div>
+        \`;
+
+        try {
+          const mailRes = await sendEmailNotification({ to: email, subject, text, html });
+          mailResults.push({ email, success: true, messageId: mailRes?.messageId });
+        } catch (err: any) {
+          mailResults.push({ email, success: false, error: err.message });
+        }
+      }
+
+      saveInvitations(existingInvitations);
+
+      res.json({
+        success: true,
+        message: \`\${createdInvitations.length}件の招待を送信しました。\`,
+        sentCount: createdInvitations.length,
+        invitations: createdInvitations,
+        mailResults
+      });
+    } catch (err: any) {
+      console.error('[Users] Invite error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 2. 招待一覧取得 API
+  app.get(['/api/users/invitations', '/api/users/invitations/'], (req, res) => {
+    try {
+      const list = loadInvitations();
+      const now = Date.now();
+      const mapped = list.map((inv: any) => {
+        if (inv.status === 'pending' && new Date(inv.expiresAt).getTime() < now) {
+          return { ...inv, status: 'expired' };
+        }
+        return inv;
+      });
+      res.json(mapped);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 3. 招待取消 API
+  app.post(['/api/users/invitations/:id/cancel', '/api/users/invitations/:id/cancel/'], (req, res) => {
+    try {
+      const list = loadInvitations();
+      const target = list.find((i: any) => i.id === req.params.id);
+      if (!target) return res.status(404).json({ error: '招待が見つかりません' });
+      target.status = 'revoked';
+      target.revokedAt = new Date().toISOString();
+      saveInvitations(list);
+      res.json({ success: true, message: '招待を取り消しました', invitation: target });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete(['/api/users/invitations/:id', '/api/users/invitations/:id/'], (req, res) => {
+    try {
+      const list = loadInvitations();
+      const target = list.find((i: any) => i.id === req.params.id);
+      if (target) {
+        target.status = 'revoked';
+        target.revokedAt = new Date().toISOString();
+        saveInvitations(list);
+      }
+      res.json({ success: true, message: '招待を取り消しました' });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 4. 招待再送 API
+  app.post(['/api/users/invitations/:id/resend', '/api/users/invitations/:id/resend/'], async (req, res) => {
+    try {
+      const list = loadInvitations();
+      const target = list.find((i: any) => i.id === req.params.id);
+      if (!target) return res.status(404).json({ error: '招待が見つかりません' });
+
+      const appBaseUrl = req.body?.baseUrl || 'https://micchy-ken.github.io/teranago-sns-new/';
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      const token = crypto.randomBytes(24).toString('hex');
+
+      target.token = token;
+      target.expiresAt = expiresAt;
+      target.status = 'pending';
+      target.updatedAt = now.toISOString();
+      saveInvitations(list);
+
+      const inviteUrl = \`\${appBaseUrl}\${appBaseUrl.includes('?') ? '&' : '?'}mode=invite&token=\${token}\`;
+      const subject = \`【再送】【TERANAGO SNS】社内ポータルへの招待が届きました\`;
+      const text = \`\${target.email} 様\\n\\nTERANAGO 社内SNS・グループウェアへの招待リンクを再送いたします。\\n以下のリンクを開き、アカウント初期設定を完了してください。\\n\\n▼ アカウント初期登録URL:\\n\${inviteUrl}\\n\\n※有効期限: \${new Date(expiresAt).toLocaleDateString('ja-JP')} まで\`;
+      const html = \`
+        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; background: #ffffff;">
+          <div style="background: linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%); color: #ffffff; padding: 24px; text-align: center;">
+            <h2 style="margin: 0; font-size: 20px; font-weight: 700;">【再送】TERANAGO 社内ポータルへの招待</h2>
+          </div>
+          <div style="padding: 24px; color: #334155; line-height: 1.6; font-size: 14px;">
+            <p><b>\${target.email}</b> 様</p>
+            <p>社内SNS・グループウェアへの招待リンクを再送いたします。下のボタンより登録を完了してください。</p>
+            <div style="text-align: center; margin: 28px 0;">
+              <a href="\${inviteUrl}" style="display: inline-block; background-color: #4f46e5; color: #ffffff; font-weight: bold; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-size: 15px;">
+                👉 アカウントを登録して参加する
+              </a>
+            </div>
+            <p style="font-size: 12px; color: #64748b;">有効期限: <b>\${new Date(expiresAt).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}</b> まで</p>
+          </div>
+        </div>
+      \`;
+
+      await sendEmailNotification({ to: target.email, subject, text, html });
+
+      res.json({ success: true, message: '招待メールを再送しました', invitation: target });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 5. 招待トークン検証 API
+  app.get(['/api/users/invite/verify', '/api/users/invite/verify/'], (req, res) => {
+    try {
+      const token = req.query.token || req.query.t;
+      if (!token) return res.status(400).json({ error: 'トークンが指定されていません' });
+
+      const list = loadInvitations();
+      const target = list.find((i: any) => i.token === token);
+
+      if (!target) return res.status(404).json({ error: '無効な招待リンクです。' });
+      if (target.status === 'accepted') return res.status(400).json({ error: 'この招待はすでに登録が完了しています。' });
+      if (target.status === 'revoked') return res.status(400).json({ error: 'この招待リンクは管理者により取り消されました。' });
+      if (new Date(target.expiresAt).getTime() < Date.now()) {
+        target.status = 'expired';
+        saveInvitations(list);
+        return res.status(400).json({ error: '招待リンクの有効期限が切れています。' });
+      }
+
+      res.json({
+        success: true,
+        invitation: {
+          id: target.id,
+          email: target.email,
+          role: target.role || 'user',
+          office: target.office || '',
+          division: target.division || '',
+          position: target.position || '',
+          department: target.department || '',
+          expiresAt: target.expiresAt
+        }
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 6. 招待からの登録完了 API
+  app.post(['/api/users/invite/complete', '/api/users/invite/complete/'], (req, res) => {
+    try {
+      const {
+        token,
+        name,
+        kanaName,
+        loginId,
+        password,
+        office,
+        division,
+        position,
+        avatarUrl,
+        mobileEmail,
+        mobilePhone,
+        phoneExtension
+      } = req.body || {};
+
+      if (!token) return res.status(400).json({ error: '招待トークンが必要です' });
+      if (!name || !name.trim()) return res.status(400).json({ error: '氏名は必須です' });
+      if (!password || password.length < 4) return res.status(400).json({ error: 'パスワードは4文字以上で入力してください' });
+
+      const list = loadInvitations();
+      const inv = list.find((i: any) => i.token === token);
+
+      if (!inv || inv.status !== 'pending') {
+        return res.status(400).json({ error: '招待リンクが無効または既に使用されています' });
+      }
+      if (new Date(inv.expiresAt).getTime() < Date.now()) {
+        return res.status(400).json({ error: '招待リンクの有効期限が切れています' });
+      }
+
+      const users = loadUsers();
+      const newUserId = \`u-\${Date.now()}\`;
+      const finalLoginId = (loginId || '').trim() || inv.email.split('@')[0] || \`user_\${Date.now().toString().slice(-4)}\`;
+      const finalOffice = office || inv.office || '';
+      const finalDivision = division || inv.division || '';
+      const finalPosition = position || inv.position || '';
+      const deptString = [finalOffice, finalDivision, finalPosition].filter(Boolean).join(' ') || inv.department || '未設定';
+      const finalRole = inv.role || 'user';
+      const isAdmin = finalRole === 'admin';
+
+      const userObj = {
+        id: newUserId,
+        loginId: finalLoginId,
+        password: password,
+        name: name.trim(),
+        kanaName: (kanaName || '').trim(),
+        department: deptString,
+        office: finalOffice,
+        division: finalDivision,
+        position: finalPosition,
+        role: finalRole,
+        isAdmin,
+        avatarUrl: avatarUrl || '',
+        email: inv.email,
+        mobileEmail: (mobileEmail || '').trim(),
+        mobilePhone: (mobilePhone || '').trim(),
+        phoneExtension: (phoneExtension || '').trim(),
+        phone: (mobilePhone || '').trim() || '',
+        mustChangePassword: false,
+        roles: [finalRole],
+        preferences: {
+          roles: [finalRole],
+          invitedAt: new Date().toISOString()
+        }
+      };
+
+      users.push(userObj);
+      saveUsers(users);
+
+      inv.status = 'accepted';
+      inv.acceptedAt = new Date().toISOString();
+      inv.acceptedUserId = newUserId;
+      saveInvitations(list);
+
+      res.json({
+        success: true,
+        message: 'アカウント登録が完了しました。',
+        user: userObj
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 7. パスワード設定依頼メール送信 API
+  app.post(['/api/users/:id/request-password-reset', '/api/users/:id/request-password-reset/'], async (req, res) => {
+    try {
+      const userId = req.params.id;
+      const { baseUrl, senderName = '管理者' } = req.body || {};
+      const users = loadUsers();
+      const user = users.find((u: any) => u.id === userId);
+
+      if (!user) return res.status(404).json({ error: 'ユーザーが見つかりません' });
+      const targetEmail = user.email || user.mobileEmail;
+
+      if (!targetEmail || !targetEmail.includes('@')) {
+        return res.status(400).json({ error: 'このユーザーにはメールアドレスが登録されていません。' });
+      }
+
+      const token = crypto.randomBytes(24).toString('hex');
+      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+      if (!user.preferences) user.preferences = {};
+      user.preferences.resetPasswordToken = token;
+      user.preferences.resetPasswordExpires = expiresAt;
+      user.mustChangePassword = true;
+      user.preferences.mustChangePassword = true;
+      saveUsers(users);
+
+      const appBaseUrl = baseUrl || 'https://micchy-ken.github.io/teranago-sns-new/';
+      const resetUrl = \`\${appBaseUrl}\${appBaseUrl.includes('?') ? '&' : '?'}mode=reset-password&token=\${token}\`;
+
+      const subject = \`【TERANAGO SNS】パスワード設定のお願い\`;
+      const text = \`\${user.name} 様\\n\\n\${senderName}様より、TERANAGO 社内SNS・グループウェアのパスワード設定依頼が届いています。\\n以下のリンクを開き、新しいパスワードを設定してください。\\n\\n▼ パスワード設定URL:\\n\${resetUrl}\\n\\n※有効期限: 24時間以内\\n※心当たりのない場合は管理者までご連絡ください。\`;
+      const html = \`
+        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; background: #ffffff;">
+          <div style="background: linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%); color: #ffffff; padding: 24px; text-align: center;">
+            <h2 style="margin: 0; font-size: 20px; font-weight: 700;">パスワード設定のお願い</h2>
+            <p style="margin: 6px 0 0 0; font-size: 13px; opacity: 0.9;">TERANAGO 社内ポータル</p>
+          </div>
+          <div style="padding: 24px; color: #334155; line-height: 1.6; font-size: 14px;">
+            <p><b>\${user.name}</b> 様</p>
+            <p>管理者（\${senderName}）より、パスワード設定の依頼が届いています。</p>
+            <p>下のボタンをクリックして、新しいパスワードを設定してください。</p>
+            <div style="text-align: center; margin: 28px 0;">
+              <a href="\${resetUrl}" style="display: inline-block; background-color: #4f46e5; color: #ffffff; font-weight: bold; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-size: 15px;">
+                🔑 新しいパスワードを設定する
+              </a>
+            </div>
+            <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px; font-size: 12px; color: #64748b;">
+              <p style="margin: 0 0 4px 0;"><b>ボタンが開けない場合:</b> 以下のURLをブラウザに貼り付けてください。</p>
+              <p style="margin: 0; word-break: break-all; color: #4f46e5;">\${resetUrl}</p>
+              <p style="margin: 8px 0 0 0; color: #e11d48;">※有効期限: <b>24時間以内</b></p>
+            </div>
+          </div>
+        </div>
+      \`;
+
+      await sendEmailNotification({ to: targetEmail, subject, text, html });
+
+      res.json({
+        success: true,
+        message: \`\${user.name} 様（\${targetEmail}）へパスワード設定案内メールを送信しました。\`,
+        targetEmail
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 8. パスワード再設定トークン検証 API
+  app.get(['/api/users/reset-password/verify', '/api/users/reset-password/verify/'], (req, res) => {
+    try {
+      const token = req.query.token || req.query.t;
+      if (!token) return res.status(400).json({ error: 'トークンが必要です' });
+
+      const users = loadUsers();
+      const user = users.find((u: any) => u.preferences?.resetPasswordToken === token);
+
+      if (!user) return res.status(404).json({ error: '無効なパスワード設定リンクです。' });
+      if (new Date(user.preferences.resetPasswordExpires).getTime() < Date.now()) {
+        return res.status(400).json({ error: 'リンクの有効期限が切れています。' });
+      }
+
+      res.json({
+        success: true,
+        user: {
+          id: user.id,
+          name: user.name,
+          loginId: user.loginId,
+          email: user.email
+        }
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 9. パスワード再設定実行 API
+  app.post(['/api/users/reset-password', '/api/users/reset-password/'], (req, res) => {
+    try {
+      const { token, newPassword } = req.body || {};
+      if (!token) return res.status(400).json({ error: 'トークンが必要です' });
+      if (!newPassword || newPassword.length < 4) return res.status(400).json({ error: 'パスワードは4文字以上で入力してください' });
+
+      const users = loadUsers();
+      const user = users.find((u: any) => u.preferences?.resetPasswordToken === token);
+
+      if (!user) return res.status(404).json({ error: '無効なパスワード設定リンクです。' });
+      if (new Date(user.preferences.resetPasswordExpires).getTime() < Date.now()) {
+        return res.status(400).json({ error: 'リンクの有効期限が切れています。' });
+      }
+
+      user.password = newPassword;
+      user.mustChangePassword = false;
+      delete user.preferences.resetPasswordToken;
+      delete user.preferences.resetPasswordExpires;
+      user.preferences.mustChangePassword = false;
+      user.preferences.passwordChangedAt = new Date().toISOString();
+
+      saveUsers(users);
+
+      res.json({
+        success: true,
+        message: 'パスワードを設定しました。新しいパスワードでログインしてください。',
+        user
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 10. 初回ログイン時・強制パスワード変更 API
+  app.post(['/api/users/force-change-password', '/api/users/force-change-password/'], (req, res) => {
+    try {
+      const { userId, newPassword, currentPassword } = req.body || {};
+      if (!userId) return res.status(400).json({ error: 'ユーザーIDが必要です' });
+      if (!newPassword || newPassword.length < 4) return res.status(400).json({ error: '新しいパスワードは4文字以上で入力してください' });
+
+      const users = loadUsers();
+      const user = users.find((u: any) => u.id === userId);
+
+      if (!user) return res.status(404).json({ error: 'ユーザーが見つかりません' });
+      if (currentPassword && user.password && user.password !== currentPassword) {
+        return res.status(400).json({ error: '現在のパスワードが一致しません' });
+      }
+
+      user.password = newPassword;
+      user.mustChangePassword = false;
+      if (!user.preferences) user.preferences = {};
+      user.preferences.mustChangePassword = false;
+      user.preferences.passwordChangedAt = new Date().toISOString();
+
+      saveUsers(users);
+
+      res.json({
+        success: true,
+        message: 'パスワードを変更しました。',
+        user
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
   });
 
@@ -3775,12 +4291,17 @@ async function startServer() {
       const allComments = loadBulletinComments();
       const allViewers = loadBulletinViewers();
 
+      const nowMs = Date.now();
       // 各トピックにコメントと既読者情報をマージ
       const merged = allBulletins.map((topic: any) => {
         const topicComments = allComments.filter((c: any) => String(c.topicId || c.topic_id) === String(topic.id));
         const topicViewers = allViewers.filter((v: any) => String(v.topicId || v.topic_id) === String(topic.id));
+        const isCurrentlyPinned = !!topic.isPinned && (!topic.pinnedUntil || new Date(topic.pinnedUntil).getTime() > nowMs);
         return {
           ...topic,
+          isPinned: isCurrentlyPinned,
+          pinnedUntil: topic.pinnedUntil || null,
+          pinnedDuration: topic.pinnedDuration || null,
           comments: topicComments,
           commentsCount: topicComments.length,
           viewers: topicViewers
@@ -3814,6 +4335,8 @@ async function startServer() {
         startDate: req.body.startDate || null,
         endDate: req.body.endDate || null,
         isPinned: !!req.body.isPinned,
+        pinnedUntil: req.body.isPinned ? (req.body.pinnedUntil || null) : null,
+        pinnedDuration: req.body.isPinned ? (req.body.pinnedDuration || null) : null,
         views: 0,
         createdAt: req.body.createdAt || nowIso,
         updatedAt: nowIso
@@ -3872,6 +4395,9 @@ async function startServer() {
       bulletinsList[idx] = {
         ...bulletinsList[idx],
         ...req.body,
+        isPinned: !!req.body.isPinned,
+        pinnedUntil: req.body.isPinned ? (req.body.pinnedUntil || null) : null,
+        pinnedDuration: req.body.isPinned ? (req.body.pinnedDuration || null) : null,
         updatedAt: new Date().toISOString()
       };
       saveBulletins(bulletinsList);
@@ -6450,18 +6976,18 @@ export interface ServerCodeHistoryItem {
 
 export const SERVER_CODE_HISTORY: ServerCodeHistoryItem[] = [
   {
-    version: 'v2026.09.18',
-    date: '2026-09-18',
-    summary: '点検報告書 routes/inspections.js モジュール連携・電子署名手書きサインDB永続化・事務確認検印・CRM点検データ同期対応版',
+    version: 'v2026.10.01',
+    date: '2026-10-01',
+    summary: 'ユーザー複数一括招待・トークン検証登録・パスワード設定依頼メール・初回ログイン時パスワード変更強制機能 完全同期版',
+  },
+  {
+    version: 'v2026.09.30',
+    date: '2026-09-30',
+    summary: '画像・スタンプ静的配信の30日間高速キャッシュ設定 maxAge/immutable および2段階サムネイル対応 完全同期',
   },
   {
     version: 'v2026.09.01',
     date: '2026-09-01',
     summary: 'ワークフロー補充申請・各種申請登録・表示バグ修正 & DB自動カラム追加対応版',
-  },
-  {
-    version: 'v2026.08.27',
-    date: '2026-08-27',
-    summary: '安否確認システム ステップ1：対象者への個人メール登録依頼一斉配信API & ディープリンク連携対応版',
   },
 ];

@@ -52,7 +52,7 @@ import {
   Sparkles,
   FileText
 } from 'lucide-react';
-import { User, OfficeMaster, DivisionMaster, PositionMaster, OfficeType, ApprovalFlowRule, ApprovalStepConfig, ApplicationType, ApproverType, ItemMaster, WorkflowApplication, ApplicationStatus } from '../types';
+import { User, OfficeMaster, DivisionMaster, PositionMaster, OfficeType, ApprovalFlowRule, ApprovalStepConfig, ApplicationType, ApproverType, ItemMaster, WorkflowApplication, ApplicationStatus, UserInvitation } from '../types';
 import { sortUsers, sortUsersByDivision } from '../utils/userSort';
 import { StampAdmin } from './StampAdmin';
 import { AdminLogs } from './AdminLogs';
@@ -435,11 +435,28 @@ export function AdminPanel({
     mobilePhone: '',
     isAdmin: false,
     supervisorId: '',
+    mustChangePassword: true, // 新規作成時はデフォルトで初回変更要求ON
     showInspectionScheduler: false, // デフォルト: OFF
     showSharedFiles: false,         // デフォルト: OFF
     showSafetyConfirmation: false,  // デフォルト: OFF
   });
   const [userFormError, setUserFormError] = useState<string | null>(null);
+
+  // 招待モーダル & 招待中一覧ステート
+  const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
+  const [inviteEmails, setInviteEmails] = useState('');
+  const [inviteRole, setInviteRole] = useState<'user' | 'admin'>('user');
+  const [inviteOffice, setInviteOffice] = useState('');
+  const [inviteDivision, setInviteDivision] = useState('');
+  const [invitePosition, setInvitePosition] = useState('');
+  const [inviteExpiresDays, setInviteExpiresDays] = useState(7);
+  const [isSendingInvites, setIsSendingInvites] = useState(false);
+  const [inviteStatusMessage, setInviteStatusMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  
+  const [invitationsList, setInvitationsList] = useState<UserInvitation[]>([]);
+  const [isLoadingInvitations, setIsLoadingInvitations] = useState(false);
+  const [userTabSubMode, setUserTabSubMode] = useState<'members' | 'invitations'>('members');
+  const [resetPasswordSendingId, setResetPasswordSendingId] = useState<string | null>(null);
 
   // ワンクリック・個別メニュー表示切り替え（点検予定管理）
   const handleToggleInspection = (targetUser: User) => {
@@ -600,6 +617,7 @@ export function AdminPanel({
       mobilePhone: '',
       isAdmin: false,
       supervisorId: '',
+      mustChangePassword: true,
       showInspectionScheduler: false,
       showSharedFiles: false,
       showSafetyConfirmation: false,
@@ -626,6 +644,7 @@ export function AdminPanel({
       mobilePhone: user.mobilePhone || user.phone || '',
       isAdmin: !!user.isAdmin,
       supervisorId: user.supervisorId || '',
+      mustChangePassword: user.mustChangePassword ?? false,
       showInspectionScheduler: user.preferences?.showInspectionScheduler === true,
       showSharedFiles: user.preferences?.showSharedFiles === true,
       showSafetyConfirmation: user.preferences?.showSafetyConfirmation === true,
@@ -673,8 +692,10 @@ export function AdminPanel({
         isAdmin: userFormData.isAdmin,
         role: userFormData.isAdmin ? 'admin' : 'user',
         supervisorId: userFormData.supervisorId || undefined,
+        mustChangePassword: userFormData.mustChangePassword,
         preferences: {
           ...(editingUser.preferences || {}),
+          mustChangePassword: userFormData.mustChangePassword,
           showInspectionScheduler: userFormData.showInspectionScheduler,
           showSharedFiles: userFormData.showSharedFiles,
           showSafetyConfirmation: userFormData.showSafetyConfirmation,
@@ -703,7 +724,9 @@ export function AdminPanel({
         isAdmin: userFormData.isAdmin,
         role: userFormData.isAdmin ? 'admin' : 'user',
         supervisorId: userFormData.supervisorId || undefined,
+        mustChangePassword: userFormData.mustChangePassword,
         preferences: {
+          mustChangePassword: userFormData.mustChangePassword,
           showInspectionScheduler: userFormData.showInspectionScheduler,
           showSharedFiles: userFormData.showSharedFiles,
           showSafetyConfirmation: userFormData.showSafetyConfirmation,
@@ -715,6 +738,166 @@ export function AdminPanel({
     }
 
     setIsUserModalOpen(false);
+  };
+
+  // --- 招待 & パスワード設定依頼ハンドラー ---
+  const fetchInvitations = async () => {
+    setIsLoadingInvitations(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/users/invitations`);
+      if (res.ok) {
+        const data = await res.json();
+        setInvitationsList(Array.isArray(data) ? data : []);
+      }
+    } catch (err) {
+      console.warn('Failed to fetch invitations:', err);
+    } finally {
+      setIsLoadingInvitations(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeSubTab === 'users' && userTabSubMode === 'invitations') {
+      fetchInvitations();
+    }
+  }, [activeSubTab, userTabSubMode]);
+
+  const handleOpenInviteModal = () => {
+    setInviteEmails('');
+    setInviteRole('user');
+    setInviteOffice(offices[0]?.name || '');
+    setInviteDivision(divisions[0]?.name || '');
+    setInvitePosition('');
+    setInviteExpiresDays(7);
+    setInviteStatusMessage(null);
+    setIsInviteModalOpen(true);
+  };
+
+  const handleSendInvitations = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setInviteStatusMessage(null);
+
+    const emailList = inviteEmails
+      .split(/[\n,;]+/)
+      .map(e => e.trim())
+      .filter(e => e.includes('@'));
+
+    if (emailList.length === 0) {
+      setInviteStatusMessage({ text: '有効なメールアドレスを入力してください。', type: 'error' });
+      return;
+    }
+
+    setIsSendingInvites(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/users/invite`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          emails: emailList,
+          role: inviteRole,
+          office: inviteOffice,
+          division: inviteDivision,
+          position: invitePosition,
+          expiresInDays: inviteExpiresDays,
+          createdByName: currentUser.name || '管理者'
+        })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || '招待の送信に失敗しました。');
+      }
+
+      setInviteStatusMessage({
+        text: `✅ ${data.sentCount || emailList.length} 件の招待メールを送信しました。`,
+        type: 'success'
+      });
+      fetchInvitations();
+      setTimeout(() => {
+        setIsInviteModalOpen(false);
+        setUserTabSubMode('invitations');
+      }, 1500);
+    } catch (err: any) {
+      setInviteStatusMessage({ text: err.message || '送信エラーが発生しました。', type: 'error' });
+    } finally {
+      setIsSendingInvites(false);
+    }
+  };
+
+  const handleCancelInvite = async (invitationId: string) => {
+    setConfirmModal({
+      isOpen: true,
+      title: '招待の取消',
+      message: 'この招待リンクを取り消しますか？取り消されたリンクからは新規登録ができなくなります。',
+      confirmText: '取り消す',
+      type: 'danger',
+      onConfirm: async () => {
+        try {
+          const res = await fetch(`${API_BASE_URL}/users/invitations/${invitationId}/cancel`, {
+            method: 'POST'
+          });
+          if (res.ok) {
+            setInvitationsList(prev => prev.map(inv => inv.id === invitationId ? { ...inv, status: 'revoked' } : inv));
+          }
+        } catch (err) {
+          console.error('Cancel invite error:', err);
+        }
+      }
+    });
+  };
+
+  const handleResendInvite = async (invitationId: string, email: string) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/users/invitations/${invitationId}/resend`, {
+        method: 'POST'
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        alert(`✅ ${email} 宛てに招待リンクを再送しました。`);
+        fetchInvitations();
+      } else {
+        alert(`❌ 再送失敗: ${data.error || 'エラーが発生しました'}`);
+      }
+    } catch (err: any) {
+      alert(`❌ エラー: ${err.message}`);
+    }
+  };
+
+  const handleSendPasswordResetRequest = (targetUser: User) => {
+    const targetEmail = targetUser.email || targetUser.mobileEmail;
+    if (!targetEmail || !targetEmail.includes('@')) {
+      alert(`⚠️ ${targetUser.name} 様にはメールアドレスが登録されていません。ユーザー情報編集からPCメールまたは携帯メールを設定してください。`);
+      return;
+    }
+
+    setConfirmModal({
+      isOpen: true,
+      title: 'パスワード設定依頼の送信',
+      message: `${targetUser.name} 様（${targetEmail}）宛に、ワンタイムのパスワード設定メールを送信しますか？\n\n受信者はメール内のリンクから直接新しいパスワードを設定できます。`,
+      confirmText: 'メールを送信する',
+      type: 'info',
+      onConfirm: async () => {
+        setResetPasswordSendingId(targetUser.id);
+        try {
+          const res = await fetch(`${API_BASE_URL}/users/${targetUser.id}/request-password-reset`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              senderName: currentUser.name || '管理者'
+            })
+          });
+          const data = await res.json();
+          if (res.ok && data.success) {
+            alert(`✅ ${data.message || `${targetUser.name} 様へパスワード設定依頼メールを送信しました。`}`);
+          } else {
+            alert(`❌ 送信失敗: ${data.error || 'エラーが発生しました'}`);
+          }
+        } catch (err: any) {
+          alert(`❌ エラー: ${err.message}`);
+        } finally {
+          setResetPasswordSendingId(null);
+        }
+      }
+    });
   };
 
   const handleDeleteUserClick = (user: User) => {
@@ -1713,18 +1896,35 @@ export function AdminPanel({
         <div className="space-y-6">
           {/* Mode Switch & Notifications */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white rounded-2xl border border-slate-200 p-3 shadow-xs">
-            <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-xl">
+            <div className="flex flex-wrap items-center gap-2 bg-slate-100 p-1 rounded-xl">
               <button
                 type="button"
-                onClick={() => setUserViewMode('list')}
+                onClick={() => { setUserViewMode('list'); setUserTabSubMode('members'); }}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                  userViewMode === 'list'
+                  userViewMode === 'list' && userTabSubMode === 'members'
                     ? 'bg-white text-indigo-600 shadow-2xs'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
                 <Users className="w-3.5 h-3.5" />
-                メンバー一覧・編集
+                メンバー一覧・編集 ({allUsers.length}名)
+              </button>
+              <button
+                type="button"
+                onClick={() => { setUserViewMode('list'); setUserTabSubMode('invitations'); }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                  userViewMode === 'list' && userTabSubMode === 'invitations'
+                    ? 'bg-white text-indigo-600 shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Mail className="w-3.5 h-3.5" />
+                招待中のメンバー
+                {invitationsList.filter(i => i.status === 'pending').length > 0 && (
+                  <span className="px-1.5 py-0.2 bg-indigo-600 text-white rounded-full text-[10px] font-mono">
+                    {invitationsList.filter(i => i.status === 'pending').length}
+                  </span>
+                )}
               </button>
               <button
                 type="button"
@@ -1759,7 +1959,7 @@ export function AdminPanel({
           </div>
 
           {/* Action bar: Search, Office & Division filters, Add user button */}
-          {userViewMode === 'list' ? (
+          {userViewMode === 'list' && userTabSubMode === 'members' ? (
             <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div className="flex-1 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
                 <div className="relative flex-1">
@@ -1801,13 +2001,55 @@ export function AdminPanel({
                 </select>
               </div>
 
-              <button
-                onClick={handleOpenAddUserModal}
-                className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition-all shadow-sm shrink-0"
-              >
-                <UserPlus className="w-4 h-4" />
-                新規メンバー追加・登録
-              </button>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleOpenInviteModal}
+                  className="px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                >
+                  <Mail className="w-4 h-4" />
+                  メールで招待（一括対応）
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleOpenAddUserModal}
+                  className="px-3.5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                >
+                  <UserPlus className="w-4 h-4" />
+                  新規メンバー手動登録
+                </button>
+              </div>
+            </div>
+          ) : userViewMode === 'list' && userTabSubMode === 'invitations' ? (
+            /* 招待中一覧アクションバー */
+            <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm flex items-center justify-between gap-4">
+              <div className="flex items-center gap-2 text-xs text-slate-600">
+                <Mail className="w-4 h-4 text-indigo-600" />
+                <span className="font-bold text-slate-800">
+                  招待履歴・未登録メンバー管理
+                </span>
+                <span className="text-slate-400">（全 {invitationsList.length} 件）</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={fetchInvitations}
+                  disabled={isLoadingInvitations}
+                  className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg flex items-center gap-1 transition cursor-pointer"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingInvitations ? 'animate-spin' : ''}`} />
+                  再読み込み
+                </button>
+                <button
+                  type="button"
+                  onClick={handleOpenInviteModal}
+                  className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-sm transition cursor-pointer"
+                >
+                  <UserPlus className="w-3.5 h-3.5" />
+                  + 新たに招待メールを送信
+                </button>
+              </div>
             </div>
           ) : (
             /* 並び替え専用コントロールバー */
@@ -1875,8 +2117,8 @@ export function AdminPanel({
             </div>
           )}
 
-          {/* Members Table / List (Normal View vs Reorder View) */}
-          {userViewMode === 'list' ? (
+          {/* Members Table / List (Normal View vs Reorder View vs Invitations View) */}
+          {userViewMode === 'list' && userTabSubMode === 'members' ? (
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden divide-y divide-slate-100">
               <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between text-xs">
                 <div className="flex items-center gap-2">
@@ -1960,6 +2202,20 @@ export function AdminPanel({
 
                   {/* 操作ボタン */}
                   <div className="flex flex-wrap items-center gap-2 self-end md:self-center shrink-0">
+                    {/* パスワード設定依頼ボタン */}
+                    {(user.email || user.mobileEmail) && (
+                      <button
+                        type="button"
+                        disabled={resetPasswordSendingId === user.id}
+                        onClick={() => handleSendPasswordResetRequest(user)}
+                        title="このメンバー宛てにパスワード設定依頼メールを送信"
+                        className="px-2.5 py-1.5 rounded-lg text-xs font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                      >
+                        <KeyRound className="w-3.5 h-3.5 text-amber-600" />
+                        {resetPasswordSendingId === user.id ? '送信中...' : 'パスワード設定依頼'}
+                      </button>
+                    )}
+
                     {user.mobileEmail && (
                       <button
                         type="button"
@@ -2006,6 +2262,120 @@ export function AdminPanel({
               ))
             )}
           </div>
+          ) : userViewMode === 'list' && userTabSubMode === 'invitations' ? (
+            /* 招待中一覧テーブル */
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden divide-y divide-slate-100">
+              <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2">
+                  <Mail className="w-4 h-4 text-emerald-600" />
+                  <span className="font-extrabold text-slate-800 text-sm">
+                    送信済み招待一覧 ({invitationsList.length}件)
+                  </span>
+                </div>
+              </div>
+
+              {invitationsList.length === 0 ? (
+                <div className="p-12 text-center space-y-3">
+                  <Mail className="w-10 h-10 text-slate-300 mx-auto" />
+                  <p className="text-slate-500 text-xs font-bold">送信済みの招待はありません。</p>
+                  <button
+                    type="button"
+                    onClick={handleOpenInviteModal}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl inline-flex items-center gap-2 cursor-pointer shadow-sm"
+                  >
+                    <UserPlus className="w-4 h-4" />
+                    新しいメンバーを招待する
+                  </button>
+                </div>
+              ) : (
+                invitationsList.map((inv) => (
+                  <div key={inv.id} className="p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-slate-50/80 transition-colors">
+                    <div className="space-y-1.5">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-mono font-bold text-slate-900 text-sm">{inv.email}</span>
+                        {inv.status === 'pending' && (
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                            ⏳ 招待中（未登録）
+                          </span>
+                        )}
+                        {inv.status === 'accepted' && (
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            ✓ 登録完了
+                          </span>
+                        )}
+                        {inv.status === 'expired' && (
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
+                            期限切れ
+                          </span>
+                        )}
+                        {inv.status === 'revoked' && (
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-50 text-rose-600 border border-rose-200">
+                            取消済み
+                          </span>
+                        )}
+
+                        {inv.role === 'admin' && (
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                            管理者予定
+                          </span>
+                        )}
+
+                        {(inv.office || inv.division) && (
+                          <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                            {[inv.office, inv.division, inv.position].filter(Boolean).join(' / ')}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-4 text-[11px] text-slate-500">
+                        <span>招待送信: {new Date(inv.createdAt).toLocaleString('ja-JP')}</span>
+                        {inv.createdByName && <span>送信者: {inv.createdByName}</span>}
+                        {inv.status === 'pending' && (
+                          <span className="text-amber-700 font-medium">
+                            有効期限: {new Date(inv.expiresAt).toLocaleDateString('ja-JP')} まで
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 self-end md:self-center shrink-0">
+                      {inv.status === 'pending' && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleResendInvite(inv.id, inv.email)}
+                            className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold rounded-lg border border-indigo-200 flex items-center gap-1 transition cursor-pointer"
+                            title="招待メールを再送"
+                          >
+                            <Send className="w-3.5 h-3.5" />
+                            再送
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleCancelInvite(inv.id)}
+                            className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold rounded-lg border border-rose-200 flex items-center gap-1 transition cursor-pointer"
+                            title="招待を取り消す"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                            取消
+                          </button>
+                        </>
+                      )}
+                      {(inv.status === 'expired' || inv.status === 'revoked') && (
+                        <button
+                          type="button"
+                          onClick={() => handleResendInvite(inv.id, inv.email)}
+                          className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg border border-slate-300 flex items-center gap-1 transition cursor-pointer"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" />
+                          再招待
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
           ) : (
             /* 部署別ドラッグ＆ドロップ・上下ボタン並び替え画面 */
             <div className="bg-white rounded-2xl border border-indigo-200 shadow-sm overflow-hidden">
@@ -3834,6 +4204,20 @@ END;`}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
                   />
                 </div>
+                <div className="col-span-2 pt-1 pb-1">
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={userFormData.mustChangePassword}
+                      onChange={(e) => setUserFormData({ ...userFormData, mustChangePassword: e.target.checked })}
+                      className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
+                    />
+                    <span className="text-xs font-bold text-slate-700">次回ログイン時にパスワード変更を強制する</span>
+                  </label>
+                  <p className="text-[10px] text-slate-500 ml-6 mt-0.5">
+                    チェックを入れると、ユーザーが次回ログインした直後に専用のパスワード変更画面が開き、変更するまで他画面へ進めなくなります。
+                  </p>
+                </div>
               </div>
 
               {/* Office, Division, Position */}
@@ -4888,6 +5272,183 @@ END;`}
                 </tbody>
               </table>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MEMBER INVITATION MODAL */}
+      {isInviteModalOpen && (
+        <div
+          onClick={() => !isSendingInvites && setIsInviteModalOpen(false)}
+          className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-50 p-4 backdrop-blur-sm overflow-y-auto"
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden ring-1 ring-slate-900/5 my-8 max-h-[90vh] overflow-y-auto"
+          >
+            <div className="px-6 py-4 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+              <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                <Mail className="w-5 h-5 text-emerald-600" />
+                メールでメンバーを一括招待
+              </h2>
+              <button
+                type="button"
+                onClick={() => !isSendingInvites && setIsInviteModalOpen(false)}
+                className="p-1 text-slate-400 hover:bg-slate-200 rounded-full transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSendInvitations} className="p-6 space-y-4">
+              {inviteStatusMessage && (
+                <div
+                  className={`p-3 rounded-xl text-xs font-bold flex items-center gap-2 ${
+                    inviteStatusMessage.type === 'success'
+                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                      : 'bg-rose-50 text-rose-800 border border-rose-200'
+                  }`}
+                >
+                  {inviteStatusMessage.type === 'success' ? (
+                    <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                  ) : (
+                    <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                  )}
+                  <span>{inviteStatusMessage.text}</span>
+                </div>
+              )}
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-bold text-slate-700">
+                    招待先メールアドレス <span className="text-red-500">*</span>
+                  </label>
+                  <span className="text-[11px] text-slate-400">複数アドレスは改行またはカンマ区切り</span>
+                </div>
+                <textarea
+                  required
+                  rows={4}
+                  value={inviteEmails}
+                  onChange={e => setInviteEmails(e.target.value)}
+                  placeholder={"tanaka@example.com\nsato@example.com\nsugiyama@example.com"}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white"
+                />
+                <p className="text-[10px] text-slate-500 mt-1">
+                  入力された各アドレス宛てに、専用の初期登録リンク（有効期限付きURL）が自動送信されます。
+                </p>
+              </div>
+
+              {/* 初期付与ロール & 権限 */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    システム権限
+                  </label>
+                  <select
+                    value={inviteRole}
+                    onChange={e => setInviteRole(e.target.value as 'user' | 'admin')}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-800 focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+                  >
+                    <option value="user">一般メンバー</option>
+                    <option value="admin">システム管理者</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    招待リンクの有効期限
+                  </label>
+                  <select
+                    value={inviteExpiresDays}
+                    onChange={e => setInviteExpiresDays(Number(e.target.value))}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-800 focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+                  >
+                    <option value={1}>24時間 (1日)</option>
+                    <option value={3}>3日間</option>
+                    <option value={7}>7日間 (推奨)</option>
+                    <option value={14}>14日間</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* デフォルト所属（任意） */}
+              <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200/80 space-y-3">
+                <span className="block text-xs font-bold text-slate-700">
+                  初期所属の設定（任意）
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-0.5">拠点</label>
+                    <select
+                      value={inviteOffice}
+                      onChange={e => setInviteOffice(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs cursor-pointer"
+                    >
+                      <option value="">未指定</option>
+                      {offices.map(o => (
+                        <option key={o.id} value={o.name}>{o.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-0.5">部署</label>
+                    <select
+                      value={inviteDivision}
+                      onChange={e => setInviteDivision(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs cursor-pointer"
+                    >
+                      <option value="">未指定</option>
+                      {divisions.map(d => (
+                        <option key={d.id} value={d.name}>{d.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-0.5">役職</label>
+                    <select
+                      value={invitePosition}
+                      onChange={e => setInvitePosition(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs cursor-pointer"
+                    >
+                      <option value="">未指定</option>
+                      {positions.map(p => (
+                        <option key={p.id} value={p.name}>{p.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <p className="text-[10px] text-slate-500">
+                  ※所属情報はユーザーが登録時に確認・変更することも可能です。
+                </p>
+              </div>
+
+              <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  disabled={isSendingInvites}
+                  onClick={() => setIsInviteModalOpen(false)}
+                  className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+                >
+                  キャンセル
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSendingInvites}
+                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-sm flex items-center gap-2 transition cursor-pointer"
+                >
+                  {isSendingInvites ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      招待メールを送信中...
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-3.5 h-3.5" />
+                      招待メールを送信する
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -67,6 +67,25 @@ export interface User {
   supervisorId?: string;   // 上長（承認者）ユーザーID
   sortOrder?: number | null; // ユーザー表示順（ソート順序 / 昇順）
   preferences?: UserPreferences; // マイページ並び順・各種個人設定 (JSON)
+  mustChangePassword?: boolean; // 初回ログイン時・管理者指定時のパスワード変更強制フラグ
+  resetPasswordToken?: string; // パスワード再設定用トークン
+  resetPasswordExpires?: string; // パスワード再設定トークンの有効期限
+  invitedAt?: string; // 招待受諾日時
+}
+
+export interface UserInvitation {
+  id: string;
+  email: string;
+  token: string;
+  role?: 'admin' | 'user';
+  office?: string;
+  division?: string;
+  position?: string;
+  department?: string;
+  expiresAt: string;
+  status: 'pending' | 'accepted' | 'expired' | 'revoked';
+  createdAt: string;
+  createdByName?: string;
 }
 
 export type OfficeType = 'headquarter' | 'branch' | 'sales_office' | 'other';

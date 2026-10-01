@@ -26,6 +26,10 @@ export interface AppQueryParams {
   safetyToken?: string;
   openEmergencyContact?: boolean;
   openSettings?: boolean;
+  // User Invitation & Password Reset
+  inviteToken?: string;
+  resetToken?: string;
+  authMode?: 'login' | 'invite' | 'reset-password';
 }
 
 /**
@@ -170,6 +174,23 @@ export function parseAppQueryParams(searchString?: string): AppQueryParams {
     result.openSettings = true;
     if (!result.tab) result.tab = 'mypage';
   }
+
+  // 10. User Invitation & Password Reset Specific
+  const rawInviteToken = params.get('inviteToken') || params.get('invite') || (params.get('mode') === 'invite' ? params.get('token') : undefined);
+  if (rawInviteToken) {
+    result.inviteToken = rawInviteToken;
+    result.authMode = 'invite';
+  }
+
+  const rawResetToken = params.get('resetToken') || params.get('reset') || (params.get('mode') === 'reset-password' ? params.get('token') : undefined);
+  if (rawResetToken) {
+    result.resetToken = rawResetToken;
+    result.authMode = 'reset-password';
+  }
+
+  const rawAuthMode = params.get('mode');
+  if (rawAuthMode === 'invite') result.authMode = 'invite';
+  if (rawAuthMode === 'reset-password' || rawAuthMode === 'reset' || rawAuthMode === 'password-reset') result.authMode = 'reset-password';
 
   // If office/division/mode/view/eventId were specified but no explicit tab, imply tab=calendar
   if (!result.tab && (result.office || result.division || result.mode || result.view || result.eventId)) {

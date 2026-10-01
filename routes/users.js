@@ -1,17 +1,22 @@
+/**
+ * routes/users.js (本番環境・MS SQL Server 連携 メンバー管理モジュール)
+ * 寺岡オートドアSNS ユーザー管理・所属・表示順・アバター・設定モジュール
+ * 最終更新: 2026年10月1日 (モジュール分割・スリム化版)
+ */
 import { Router } from 'express';
 import path from 'path';
 import fs from 'fs';
 import multer from 'multer';
 import sql from 'mssql';
 import { getPool } from '../db.js';
-import { encryptText, maskEmail, decryptText } from './safety.js';
+import { encryptText, maskEmail } from './safety.js';
 import { uploadDir, dataDir } from '../config.js';
 
 const router = Router();
 const userPrefsFile = path.join(dataDir, 'user_preferences.json');
 
 // =============================================================
-// ローカル preferences バックアップ永続化 (SQL Serverカラム未作成時も100%保護)
+// ローカル preferences バックアップ永続化
 // =============================================================
 function loadAllUserPrefs() {
   try {
@@ -97,23 +102,21 @@ router.get(['/users', '/users/', '/api/users', '/api/users/'], async (req, res) 
     const hasCol = cols ? cols.has('preferences') : await checkPreferencesColumn(pool);
     const hasRolesCol = cols ? cols.has('roles') : false;
     const hasSortOrderCol = cols ? cols.has('sortorder') : false;
+    const hasMustChangeCol = cols ? cols.has('mustchangepassword') : false;
     const allFilePrefs = loadAllUserPrefs();
 
-    // sortOrder 列が存在する場合は ISNULL(sortOrder, 999999) ASC, name ASC でソート
     const orderClause = hasSortOrderCol ? 'ORDER BY ISNULL(sortOrder, 999999) ASC, name ASC' : 'ORDER BY name ASC';
     const result = await pool.request().query(`SELECT * FROM dbo.Users ${orderClause}`);
     const users = (result.recordset || []).map(row => {
       const uId = String(row.id);
       let prefs = {};
 
-      // 1. SQL Server の preferences カラムから取得
       if (hasCol && row.preferences) {
         try {
           prefs = typeof row.preferences === 'string' ? JSON.parse(row.preferences) : row.preferences;
         } catch (_) {}
       }
 
-      // 2. ローカルバックアップ JSON とマージ（ローカルが新しければ優先）
       if (allFilePrefs[uId]) {
         prefs = {
           ...prefs,
@@ -121,7 +124,6 @@ router.get(['/users', '/users/', '/api/users', '/api/users/'], async (req, res) 
         };
       }
 
-      // roles の解決 (DB列優先、無ければ preferences、無ければ role から配列化)
       let resolvedRoles = [row.role || 'user'];
       if (hasRolesCol && row.roles) {
         try {
@@ -131,11 +133,16 @@ router.get(['/users', '/users/', '/api/users', '/api/users/'], async (req, res) 
         resolvedRoles = prefs.roles;
       }
 
+      const mustChangePassword = hasMustChangeCol 
+        ? Boolean(row.mustChangePassword) 
+        : (prefs.mustChangePassword !== undefined ? Boolean(prefs.mustChangePassword) : false);
+
       return {
         ...row,
         sortOrder: row.sortOrder !== undefined && row.sortOrder !== null ? Number(row.sortOrder) : undefined,
         roles: resolvedRoles,
-        preferences: prefs
+        preferences: prefs,
+        mustChangePassword
       };
     });
     res.json(users);
@@ -153,6 +160,7 @@ router.get(['/users/:id', '/api/users/:id'], async (req, res) => {
     const cols = await getUserTableColumns(pool);
     const hasCol = cols ? cols.has('preferences') : await checkPreferencesColumn(pool);
     const hasRolesCol = cols ? cols.has('roles') : false;
+    const hasMustChangeCol = cols ? cols.has('mustchangepassword') : false;
     const userId = String(req.params.id);
     const allFilePrefs = loadAllUserPrefs();
 
@@ -187,11 +195,16 @@ router.get(['/users/:id', '/api/users/:id'], async (req, res) => {
       resolvedRoles = prefs.roles;
     }
 
+    const mustChangePassword = hasMustChangeCol 
+      ? Boolean(row.mustChangePassword) 
+      : (prefs.mustChangePassword !== undefined ? Boolean(prefs.mustChangePassword) : false);
+
     res.json({
       ...row,
       sortOrder: row.sortOrder !== undefined && row.sortOrder !== null ? Number(row.sortOrder) : undefined,
       roles: resolvedRoles,
-      preferences: prefs
+      preferences: prefs,
+      mustChangePassword
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -224,7 +237,6 @@ async function reorderUsersHandler(req, res) {
     const hasSortOrderCol = cols ? cols.has('sortorder') : false;
 
     if (hasSortOrderCol) {
-      // SQL Server の sortOrder 列を一括更新
       const transaction = new sql.Transaction(pool);
       await transaction.begin();
       try {
@@ -244,7 +256,6 @@ async function reorderUsersHandler(req, res) {
         throw txErr;
       }
     } else {
-      // sortOrder 列が未作成の場合は preferences 内にバックアップ保存
       for (const item of orders) {
         if (!item.id) continue;
         saveUserPrefs(String(item.id), { sortOrder: item.sortOrder });
@@ -274,20 +285,18 @@ async function saveOrUpdateUser(req, res, targetUserId = null) {
     const hasSortOrderCol = cols ? cols.has('sortorder') : false;
     const hasPersonalEmailEncryptedCol = cols ? cols.has('personalemailencrypted') : false;
     const hasPersonalEmailMaskedCol = cols ? cols.has('personalemailmasked') : false;
+    const hasMustChangeCol = cols ? cols.has('mustchangepassword') : false;
     const userId = targetUserId || u.id || `u-${Date.now()}`;
     
-    // roles (配列または文字列) の安全な処理
     const rolesArr = Array.isArray(u.roles) 
       ? u.roles 
       : (typeof u.roles === 'string' ? [u.roles] : [u.role || 'user']);
     const rolesStr = JSON.stringify(rolesArr);
 
-    // sortOrder の安全な数値変換
     const parsedSortOrder = (u.sortOrder !== undefined && u.sortOrder !== null && u.sortOrder !== '')
       ? parseInt(u.sortOrder, 10)
       : null;
 
-    // preferences の処理 & ローカル二重保存
     let incomingPrefs = null;
     if (u.preferences !== undefined) {
       incomingPrefs = typeof u.preferences === 'string' ? JSON.parse(u.preferences || '{}') : (u.preferences || {});
@@ -295,13 +304,14 @@ async function saveOrUpdateUser(req, res, targetUserId = null) {
       incomingPrefs = {};
     }
 
-    // roles 列が SQL Server に無い場合は preferences 内に自動格納して保護
     if (!hasRolesCol) {
       incomingPrefs.roles = rolesArr;
     }
-    // sortOrder 列が SQL Server に無い場合は preferences 内にも保持
     if (!hasSortOrderCol && parsedSortOrder !== null) {
       incomingPrefs.sortOrder = parsedSortOrder;
+    }
+    if (u.mustChangePassword !== undefined) {
+      incomingPrefs.mustChangePassword = Boolean(u.mustChangePassword);
     }
 
     saveUserPrefs(userId, incomingPrefs);
@@ -338,30 +348,19 @@ async function saveOrUpdateUser(req, res, targetUserId = null) {
       .input('icalUrl', sql.NVarChar, u.icalUrl || '')
       .input('supervisorId', sql.VarChar, u.supervisorId || null);
 
-    // sortOrder カラムが実在する場合のみクエリにバインド
-    if (hasSortOrderCol) {
-      reqBuilder.input('sortOrder', sql.Int, parsedSortOrder);
-    }
-
-    // roles カラムが実在する場合のみクエリにバインド
-    if (hasRolesCol) {
-      reqBuilder.input('roles', sql.NVarChar, rolesStr);
-    }
-
-    // preferences カラムが実在する場合のみクエリにバインド
-    if (hasCol) {
-      reqBuilder.input('preferences', sql.NVarChar, prefStr);
-    }
-
-    // personalEmailEncrypted / Masked が実在する場合
+    if (hasSortOrderCol) reqBuilder.input('sortOrder', sql.Int, parsedSortOrder);
+    if (hasRolesCol) reqBuilder.input('roles', sql.NVarChar, rolesStr);
+    if (hasCol) reqBuilder.input('preferences', sql.NVarChar, prefStr);
     if (hasPersonalEmailEncryptedCol && u.personalEmailEncrypted !== undefined) {
       reqBuilder.input('personalEmailEncrypted', sql.NVarChar, u.personalEmailEncrypted || null);
     }
     if (hasPersonalEmailMaskedCol && u.personalEmailMasked !== undefined) {
       reqBuilder.input('personalEmailMasked', sql.NVarChar, u.personalEmailMasked || null);
     }
+    if (hasMustChangeCol) {
+      reqBuilder.input('mustChangePassword', sql.Bit, u.mustChangePassword ? 1 : 0);
+    }
 
-    // UPDATE句の構築
     const updateSets = [
       'loginId = @loginId',
       'password = @password',
@@ -388,8 +387,8 @@ async function saveOrUpdateUser(req, res, targetUserId = null) {
     if (hasCol) updateSets.push('preferences = @preferences');
     if (hasPersonalEmailEncryptedCol && u.personalEmailEncrypted !== undefined) updateSets.push('personalEmailEncrypted = @personalEmailEncrypted');
     if (hasPersonalEmailMaskedCol && u.personalEmailMasked !== undefined) updateSets.push('personalEmailMasked = @personalEmailMasked');
+    if (hasMustChangeCol) updateSets.push('mustChangePassword = @mustChangePassword');
 
-    // INSERT句の構築
     const insertCols = [
       'id', 'loginId', 'password', 'name', 'kanaName', 'department', 'office', 'division', 'position',
       'role', 'isAdmin', 'avatarUrl', 'email', 'mobileEmail', 'phone', 'phoneOutside', 'phoneExtension', 'mobilePhone', 'icalUrl', 'supervisorId'
@@ -398,26 +397,12 @@ async function saveOrUpdateUser(req, res, targetUserId = null) {
       '@id', '@loginId', '@password', '@name', '@kanaName', '@department', '@office', '@division', '@position',
       '@role', '@isAdmin', '@avatarUrl', '@email', '@mobileEmail', '@phone', '@phoneOutside', '@phoneExtension', '@mobilePhone', '@icalUrl', '@supervisorId'
     ];
-    if (hasSortOrderCol) {
-      insertCols.push('sortOrder');
-      insertVals.push('@sortOrder');
-    }
-    if (hasRolesCol) {
-      insertCols.push('roles');
-      insertVals.push('@roles');
-    }
-    if (hasCol) {
-      insertCols.push('preferences');
-      insertVals.push('@preferences');
-    }
-    if (hasPersonalEmailEncryptedCol && u.personalEmailEncrypted !== undefined) {
-      insertCols.push('personalEmailEncrypted');
-      insertVals.push('@personalEmailEncrypted');
-    }
-    if (hasPersonalEmailMaskedCol && u.personalEmailMasked !== undefined) {
-      insertCols.push('personalEmailMasked');
-      insertVals.push('@personalEmailMasked');
-    }
+    if (hasSortOrderCol) { insertCols.push('sortOrder'); insertVals.push('@sortOrder'); }
+    if (hasRolesCol) { insertCols.push('roles'); insertVals.push('@roles'); }
+    if (hasCol) { insertCols.push('preferences'); insertVals.push('@preferences'); }
+    if (hasPersonalEmailEncryptedCol && u.personalEmailEncrypted !== undefined) { insertCols.push('personalEmailEncrypted'); insertVals.push('@personalEmailEncrypted'); }
+    if (hasPersonalEmailMaskedCol && u.personalEmailMasked !== undefined) { insertCols.push('personalEmailMasked'); insertVals.push('@personalEmailMasked'); }
+    if (hasMustChangeCol) { insertCols.push('mustChangePassword'); insertVals.push('@mustChangePassword'); }
 
     const queryStr = `
       IF EXISTS (SELECT 1 FROM dbo.Users WHERE id = @id)
@@ -438,16 +423,12 @@ async function saveOrUpdateUser(req, res, targetUserId = null) {
   }
 }
 
-// ユーザー作成・更新 (POST /users & /api/users)
 router.post(['/users', '/users/', '/api/users', '/api/users/'], (req, res) => saveOrUpdateUser(req, res));
-
-// ユーザー更新 (PUT /users/:id, POST /users/:id, /api/users/:id)
 router.put(['/users/:id', '/api/users/:id'], (req, res) => saveOrUpdateUser(req, res, req.params.id));
 router.post(['/users/:id', '/api/users/:id'], (req, res) => saveOrUpdateUser(req, res, req.params.id));
 
 // =============================================================
-// 5. 個人設定・通知権限・マイページ並び順の更新 (PUT & POST)
-// エンドポイント: /users/:id/preferences, /users/:id/settings, /users/:id/notification-settings
+// 5. 個人設定・通知権限の更新 (PUT & POST)
 // =============================================================
 const preferencesPaths = [
   '/users/:id/preferences',
@@ -468,10 +449,7 @@ async function updatePreferencesHandler(req, res) {
     const cols = await getUserTableColumns(pool);
     const hasCol = cols ? cols.has('preferences') : await checkPreferencesColumn(pool);
 
-    // 送信データが { preferences: {...} } の場合と、直接オブジェクトの両方を許容
     const incomingPrefs = (body.preferences && typeof body.preferences === 'object') ? body.preferences : body;
-
-    // 既存の preferences を取得して部分マージ (既存設定が消えないように保護)
     const allFilePrefs = loadAllUserPrefs();
     let currentPrefs = allFilePrefs[userId] || {};
 
@@ -489,7 +467,6 @@ async function updatePreferencesHandler(req, res) {
       } catch (_) {}
     }
 
-    // ディープマージ（emailNotifications 等の階層化オブジェクトも保護）
     const mergedPrefs = {
       ...currentPrefs,
       ...incomingPrefs,
@@ -499,10 +476,8 @@ async function updatePreferencesHandler(req, res) {
       }
     };
 
-    // 1. ローカル JSON に必ず保存
     saveUserPrefs(userId, mergedPrefs);
 
-    // 2. SQL Server カラムが存在すればそちらも更新
     if (hasCol) {
       try {
         const prefStr = JSON.stringify(mergedPrefs);
@@ -543,7 +518,7 @@ router.delete(['/users/:id', '/api/users/:id'], async (req, res) => {
 });
 
 // =============================================================
-// 7. 個人メールアドレス AES-256-GCM 暗号化保存 (POST /users/:id/personal-email)
+// 7. 個人メールアドレス AES-256-GCM 暗号化保存
 // =============================================================
 router.post(['/users/:id/personal-email', '/api/users/:id/personal-email'], async (req, res) => {
   try {
@@ -574,7 +549,7 @@ router.post(['/users/:id/personal-email', '/api/users/:id/personal-email'], asyn
 });
 
 // =============================================================
-// 8. アバター画像アップロード (POST /upload-avatar, POST /users/upload-avatar)
+// 8. アバター画像アップロード
 // =============================================================
 const avatarStorage = multer.diskStorage({
   destination: function (req, file, cb) {

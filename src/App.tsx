@@ -1496,7 +1496,21 @@ export default function App() {
       );
     }
 
-    return <LoginScreen users={usersList} onLogin={handleLogin} />;
+    return (
+      <LoginScreen
+        users={usersList}
+        offices={offices}
+        divisions={divisions}
+        positions={positions}
+        initialAuthMode={initialUrlParams.authMode || 'login'}
+        initialInviteToken={initialUrlParams.inviteToken}
+        initialResetToken={initialUrlParams.resetToken}
+        onLogin={handleLogin}
+        onUserRegistered={(newUser) => {
+          setUsersList(prev => [...prev, newUser]);
+        }}
+      />
+    );
   }
 
   // Switch active user for testing permissions
