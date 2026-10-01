@@ -19,9 +19,9 @@ const userPrefsFile = path.join(dataDir, 'user_preferences.json');
 // メール送信ヘルパー (Nodemailer)
 // =============================================================
 function getSmtpTransporter() {
-  const smtpHost = process.env.SMTP_HOST || '192.168.1.100';
+  const smtpHost = process.env.SMTP_HOST || '111.89.134.68';
   const smtpPort = parseInt(process.env.SMTP_PORT || '587', 10);
-  const smtpUser = process.env.SMTP_USER || '';
+  const smtpUser = process.env.SMTP_USER || 'nagoya-soumu2';
   const smtpPass = process.env.SMTP_PASS || '';
   const smtpSecure = process.env.SMTP_SECURE === 'true' || smtpPort === 465;
 
@@ -35,8 +35,8 @@ function getSmtpTransporter() {
 }
 
 async function sendMail({ to, subject, text, html }) {
-  const fromAddress = process.env.SMTP_FROM || 'teraoka-sns@teranago.synology.me';
-  const fromName = process.env.SMTP_FROM_NAME || 'TERANAGO SNS システム';
+  const fromAddress = process.env.SMTP_FROM_EMAIL || process.env.SMTP_FROM || 'nagoya-soumu2@teraoka-ads.co.jp';
+  const fromName = process.env.SMTP_FROM_NAME || 'Aipo送信用（このメールには返信できません）';
   const transporter = getSmtpTransporter();
 
   try {
@@ -50,7 +50,7 @@ async function sendMail({ to, subject, text, html }) {
     console.log(`[Mail:Passwords] Sent to ${to}: ${info.messageId}`);
     return info;
   } catch (err) {
-    console.warn(`[Mail:Passwords] Send error to ${to} (Simulated):`, err.message);
+    console.warn(`[Mail:Passwords] Send error to ${to}:`, err.message);
     return { simulated: true, error: err.message };
   }
 }
