@@ -17,7 +17,9 @@ import {
   Image as ImageIcon, 
   Check, 
   CheckCheck, 
-  ChevronRight, 
+  ChevronRight,
+  ChevronLeft,
+  Images,
   Building2, 
   UserPlus, 
   Info,
@@ -37,10 +39,13 @@ import {
   ArrowDown,
   UploadCloud,
   PanelLeftClose,
-  PanelLeftOpen
+  PanelLeftOpen,
+  Glasses,
+  FileText
 } from 'lucide-react';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { uploadMultipleFiles, uploadFile } from '../utils/fileUpload';
+import { createImageVariants } from '../utils/imageResize';
 import { FilePreviewModal } from './FilePreviewModal';
 import { triggerPushNotification } from '../utils/pushNotifications';
 import { renderContentWithLinks } from '../utils/renderContentWithLinks';
@@ -145,10 +150,11 @@ interface ChatMessageItemProps {
   showSenderName: boolean;
   showAvatar: boolean;
   stampCategories?: ChatStampCategory[];
+  isBossMode?: boolean;
   onDeleteMessage: (id: string) => void;
   onOpenViewers: (msg: ChatMessage) => void;
   onOpenPreview: (att: AttachmentFile) => void;
-  onOpenLightbox: (url: string) => void;
+  onOpenLightbox: (images: string | string[], initialIndex?: number) => void;
   onDownloadAttachment: (att: AttachmentFile) => void;
 }
 
@@ -164,6 +170,7 @@ const ChatMessageItem = React.memo(function ChatMessageItem({
   showSenderName,
   showAvatar,
   stampCategories,
+  isBossMode,
   onDeleteMessage,
   onOpenViewers,
   onOpenPreview,
@@ -250,7 +257,7 @@ const ChatMessageItem = React.memo(function ChatMessageItem({
           <div className={`flex items-end gap-1.5 ${isMine ? 'flex-row-reverse' : 'flex-row'}`}>
             {/* メッセージコンテンツ (テキスト / スタンプ / 写真) */}
             {msg.type === 'stamp' ? (
-              <div className="p-1">
+              <div className="p-1 relative">
                 {(() => {
                   const activeCats = stampCategories || [];
                   const stampDef = activeCats.flatMap((c) => c.stamps).find((s) => s.id === msg.stampId);
@@ -262,12 +269,22 @@ const ChatMessageItem = React.memo(function ChatMessageItem({
                           src={getStampUrl(stampImg)}
                           alt={msg.stampText || msg.content}
                           className="w-32 h-32 sm:w-36 sm:h-36 object-contain hover:scale-105 transition-transform filter drop-shadow-sm"
-                          loading="lazy"
                         />
                       ) : (
-                        <div className={`inline-flex flex-col items-center justify-center p-2.5 sm:p-3 rounded-2xl border shadow-xs bg-indigo-50 text-indigo-900 border-indigo-200`}>
+                        <div className="w-32 h-32 sm:w-36 sm:h-36 inline-flex flex-col items-center justify-center p-2.5 sm:p-3 rounded-2xl border shadow-xs bg-indigo-50 text-indigo-900 border-indigo-200">
                           <span className="text-2xl sm:text-3xl mb-1">{stampDef?.icon || '😊'}</span>
                           <span className="text-xs sm:text-sm font-black tracking-wide">{msg.stampText || msg.content}</span>
+                        </div>
+                      )}
+
+                      {/* ボスモード用の業務スタンプカバー（画像タグを破棄せず瞬時に上に重ねることで0秒切り替え） */}
+                      {isBossMode && (
+                        <div className="absolute inset-0 rounded-2xl bg-slate-100 border border-slate-300/80 p-3 flex flex-col items-center justify-center text-center shadow-2xs select-none z-10 pointer-events-none">
+                          <FileText className="w-7 h-7 text-slate-400 mb-1.5 shrink-0" />
+                          <span className="text-[10px] font-bold text-slate-500 tracking-wider">業務スタンプ</span>
+                          <span className="text-xs font-bold text-slate-700 line-clamp-2 mt-1 px-1">
+                            {msg.stampText || msg.content || '確認いたしました'}
+                          </span>
                         </div>
                       )}
                     </div>
@@ -275,28 +292,111 @@ const ChatMessageItem = React.memo(function ChatMessageItem({
                 })()}
               </div>
             ) : msg.type === 'image' ? (
-              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm w-56 sm:w-64 max-w-[75vw]">
-                <div
-                  className="relative group cursor-pointer aspect-[4/3] bg-slate-100 flex items-center justify-center overflow-hidden"
-                  onClick={() => msg.imageUrl && onOpenLightbox(msg.imageUrl)}
-                >
-                  <img
-                    src={msg.imageUrl || undefined}
-                    alt="添付写真"
-                    loading="lazy"
-                    decoding="async"
-                    className="w-full h-full object-cover hover:opacity-95 transition-opacity"
-                  />
-                  <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-bold gap-1 pointer-events-none">
-                    <Maximize2 className="w-4 h-4" /> 拡大表示
+              msg.images && msg.images.length > 1 ? (
+                // 複数写真アルバム表示 (最大10枚対応フォトグリッド)
+                <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm w-64 sm:w-80 max-w-[85vw]">
+                  <div className="relative group p-1 bg-slate-100/60 select-none">
+                    <div className={`grid gap-1 overflow-hidden rounded-xl ${
+                      msg.images.length === 2
+                        ? 'grid-cols-2 aspect-[16/10]'
+                        : msg.images.length === 3
+                        ? 'grid-cols-2 grid-rows-2 aspect-[4/3]'
+                        : 'grid-cols-2 grid-rows-2 aspect-square'
+                    }`}>
+                      {msg.images.slice(0, 4).map((photo, idx) => {
+                        const isSpan = msg.images!.length === 3 && idx === 0;
+                        const isFourthWithMore = idx === 3 && msg.images!.length > 4;
+                        const remainingCount = msg.images!.length - 4;
+                        const allPhotoUrls = msg.images!.map(p => p.url || p.thumbnailUrl || '');
+
+                        return (
+                          <div
+                            key={idx}
+                            onClick={() => {
+                              if (!isBossMode) {
+                                onOpenLightbox(allPhotoUrls, idx);
+                              }
+                            }}
+                            className={`relative overflow-hidden cursor-pointer bg-slate-200 group/cell ${
+                              isSpan ? 'row-span-2' : ''
+                            }`}
+                          >
+                            <img
+                              src={photo.thumbnailUrl || photo.url}
+                              alt={`写真 ${idx + 1}`}
+                              decoding="async"
+                              className="w-full h-full object-cover group-hover/cell:scale-105 transition-transform duration-200"
+                            />
+                            {/* 4枚目以降の残枚数バッジ (+○枚) */}
+                            {isFourthWithMore && (
+                              <div className="absolute inset-0 bg-black/60 backdrop-blur-xs flex flex-col items-center justify-center text-white font-black text-lg sm:text-xl">
+                                <span>+{remainingCount}</span>
+                                <span className="text-[10px] font-medium tracking-tight">さらに表示</span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* ボスモード用の業務アルバムカバー (高さ・比率を維持して瞬時オーバーレイ) */}
+                    {isBossMode && (
+                      <div className="absolute inset-1 rounded-xl bg-slate-100 flex flex-col items-center justify-center p-4 text-center select-none z-10 pointer-events-none border border-slate-300/80">
+                        <FileText className="w-8 h-8 text-slate-400 mb-1.5 shrink-0" />
+                        <span className="text-xs font-bold text-slate-700">[添付資料: 業務アルバム ({msg.images.length}枚)]</span>
+                        <span className="text-[10px] text-slate-400 mt-0.5">参照用ファイル一式</span>
+                      </div>
+                    )}
                   </div>
+
+                  {msg.content && msg.content !== '写真を送信しました' && (
+                    <div className="p-2 sm:p-2.5 text-xs text-slate-800 border-t border-slate-100 whitespace-pre-wrap">
+                      {msg.content}
+                    </div>
+                  )}
                 </div>
-                {msg.content && msg.content !== '写真を送信しました' && (
-                  <div className="p-2 sm:p-2.5 text-xs text-slate-800 border-t border-slate-100 whitespace-pre-wrap">
-                    {msg.content}
+              ) : (
+                // 単体写真表示 (1枚写真カード)
+                <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm w-56 sm:w-64 max-w-[75vw]">
+                  <div
+                    className="relative group cursor-pointer aspect-[4/3] bg-slate-100 flex items-center justify-center overflow-hidden"
+                    onClick={() => {
+                      if (!isBossMode && (msg.imageUrl || msg.thumbnailUrl)) {
+                        onOpenLightbox(msg.imageUrl || msg.thumbnailUrl!);
+                      }
+                    }}
+                  >
+                    <img
+                      src={msg.thumbnailUrl || msg.imageUrl || undefined}
+                      alt="添付写真"
+                      decoding="async"
+                      className="w-full h-full object-cover"
+                    />
+
+                    {/* ホバー時の拡大表示ラベル (通常モード時) */}
+                    {!isBossMode && (
+                      <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-bold gap-1 pointer-events-none">
+                        <Maximize2 className="w-4 h-4" /> 拡大表示
+                      </div>
+                    )}
+
+                    {/* ボスモード用のグレイ業務カバー (画像を破棄せず上に重ねることで0秒・再読込遅延なし) */}
+                    {isBossMode && (
+                      <div className="absolute inset-0 bg-slate-100 flex flex-col items-center justify-center p-4 text-center select-none z-10 pointer-events-none">
+                        <FileText className="w-8 h-8 text-slate-400 mb-1.5 shrink-0" />
+                        <span className="text-xs font-bold text-slate-700">[添付資料: 業務画像]</span>
+                        <span className="text-[10px] text-slate-400 mt-0.5">参照用ファイル</span>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
+
+                  {msg.content && msg.content !== '写真を送信しました' && (
+                    <div className="p-2 sm:p-2.5 text-xs text-slate-800 border-t border-slate-100 whitespace-pre-wrap">
+                      {msg.content}
+                    </div>
+                  )}
+                </div>
+              )
             ) : (
               // LINE風フキダシ
               <div className="flex flex-col gap-1.5 items-stretch">
@@ -746,7 +846,55 @@ export function Chat({
   const [showInfoSidebar, setShowInfoSidebar] = useState(false);
   const [showStampPicker, setShowStampPicker] = useState(false);
   const [activeStampCategory, setActiveStampCategory] = useState('');
-  const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+  const [lightboxGallery, setLightboxGallery] = useState<{
+    images: string[];
+    currentIndex: number;
+  } | null>(null);
+
+  // ライトボックス写真送りショートカット (←/→キー)
+  useEffect(() => {
+    if (!lightboxGallery || lightboxGallery.images.length <= 1) return;
+    const handleGalleryKey = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft') {
+        setLightboxGallery(prev => (prev && prev.currentIndex > 0) ? { ...prev, currentIndex: prev.currentIndex - 1 } : prev);
+      } else if (e.key === 'ArrowRight') {
+        setLightboxGallery(prev => (prev && prev.currentIndex < prev.images.length - 1) ? { ...prev, currentIndex: prev.currentIndex + 1 } : prev);
+      }
+    };
+    window.addEventListener('keydown', handleGalleryKey);
+    return () => window.removeEventListener('keydown', handleGalleryKey);
+  }, [lightboxGallery]);
+
+  // ボスが来たモード（スタンプ・写真を業務テキストへ瞬時に擬態）
+  const [isBossMode, setIsBossMode] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('teranago_chat_boss_mode') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const toggleBossMode = useCallback(() => {
+    setIsBossMode((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('teranago_chat_boss_mode', String(next));
+      } catch {}
+      return next;
+    });
+  }, []);
+
+  // 緊急キーボードショートカット (Shift + Esc)
+  useEffect(() => {
+    const handleGlobalKey = (e: KeyboardEvent) => {
+      if (e.shiftKey && e.key === 'Escape') {
+        e.preventDefault();
+        toggleBossMode();
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKey);
+    return () => window.removeEventListener('keydown', handleGlobalKey);
+  }, [toggleBossMode]);
 
   // チャットルームの編集用ステート
   const [isRenamingRoom, setIsRenamingRoom] = useState(false);
@@ -784,9 +932,21 @@ export function Chat({
   const [modalOffice, setModalOffice] = useState('all');
   const [modalDivision, setModalDivision] = useState('all');
 
-  // 写真プレビュー＆アップロード
+  // 写真プレビュー＆アップロード（2段階サムネイル対応）
   const [pendingPhotoUrl, setPendingPhotoUrl] = useState<string | null>(null);
+  const [pendingThumbnailUrl, setPendingThumbnailUrl] = useState<string | null>(null);
   const [photoCaption, setPhotoCaption] = useState('');
+
+  // 複数写真アルバム（最大10枚対応）
+  const [pendingAlbumPhotos, setPendingAlbumPhotos] = useState<Array<{
+    id: string;
+    file: File;
+    previewUrl: string;
+  }>>([]);
+  const [albumCaption, setAlbumCaption] = useState('');
+  const [isAlbumUploading, setIsAlbumUploading] = useState(false);
+  const [albumNotice, setAlbumNotice] = useState<string | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // チャットスクロール用Ref
@@ -816,8 +976,13 @@ export function Chat({
     setIsPreviewOpen(true);
   }, []);
 
-  const handleOpenLightboxImage = useCallback((url: string) => {
-    setLightboxImage(url);
+  const handleOpenLightboxImage = useCallback((images: string | string[], initialIndex: number = 0) => {
+    const list = Array.isArray(images) ? images : [images];
+    if (list.length === 0) return;
+    setLightboxGallery({
+      images: list,
+      currentIndex: Math.max(0, Math.min(initialIndex, list.length - 1))
+    });
   }, []);
 
   const handleDownloadAttachment = useCallback((att: AttachmentFile) => {
@@ -1032,12 +1197,142 @@ export function Chat({
     setIsChatDraggingOver(false);
   };
 
+  // 写真選択またはドラッグ＆ドロップ時の共通振り分け処理 (最大10枚対応)
+  const handlePhotoFilesSelected = (files: File[]) => {
+    const imageFiles = files.filter(f => f.type.startsWith('image/') || /\.(jpe?g|png|webp|gif)$/i.test(f.name));
+    if (imageFiles.length === 0) return;
+
+    // 枚数制限: 最大10枚
+    let targetFiles = imageFiles;
+    if (imageFiles.length > 10) {
+      targetFiles = imageFiles.slice(0, 10);
+      setAlbumNotice('一度に送信できる写真は最大10枚です（先頭の10枚を選択しました）');
+    } else {
+      setAlbumNotice(null);
+    }
+
+    if (targetFiles.length === 1) {
+      // 1枚のみの場合: 既存の単体写真プレビュー（キャプション付き）
+      const singleFile = targetFiles[0];
+      handleProcessSinglePhoto(singleFile);
+    } else {
+      // 複数枚（2〜10枚）の場合: 写真アルバムプレビューモーダル
+      pendingAlbumPhotos.forEach(p => URL.revokeObjectURL(p.previewUrl));
+      const albumItems = targetFiles.map((file, i) => ({
+        id: `album_item_${Date.now()}_${i}`,
+        file,
+        previewUrl: URL.createObjectURL(file)
+      }));
+      setPendingAlbumPhotos(albumItems);
+      setAlbumCaption('');
+    }
+  };
+
+  // 単体写真の2段階サムネイル生成＆アップロード
+  const handleProcessSinglePhoto = async (file: File) => {
+    setIsChatUploading(true);
+    try {
+      const { thumbnailFile, highResFile } = await createImageVariants(file);
+      const [uploadedThumb, uploadedHighRes] = await Promise.all([
+        uploadFile(thumbnailFile),
+        thumbnailFile !== highResFile ? uploadFile(highResFile) : Promise.resolve(null)
+      ]);
+      const thumbUrl = uploadedThumb.url;
+      const fullUrl = uploadedHighRes ? uploadedHighRes.url : thumbUrl;
+
+      setPendingPhotoUrl(fullUrl);
+      setPendingThumbnailUrl(thumbUrl);
+      setPhotoCaption('');
+    } catch (err) {
+      console.error(err);
+      const localUrl = URL.createObjectURL(file);
+      setPendingPhotoUrl(localUrl);
+      setPendingThumbnailUrl(localUrl);
+    } finally {
+      setIsChatUploading(false);
+    }
+  };
+
+  // 複数写真アルバムの送信（最大10枚・並列リサイズ＆アップロード）
+  const handleSendAlbum = async () => {
+    if (!activeRoom || pendingAlbumPhotos.length === 0) return;
+    setIsAlbumUploading(true);
+    try {
+      const uploadResults = await Promise.all(
+        pendingAlbumPhotos.map(async (item) => {
+          const { thumbnailFile, highResFile } = await createImageVariants(item.file);
+          const [uploadedThumb, uploadedHighRes] = await Promise.all([
+            uploadFile(thumbnailFile),
+            thumbnailFile !== highResFile ? uploadFile(highResFile) : Promise.resolve(null)
+          ]);
+          const thumbUrl = uploadedThumb.url;
+          const fullUrl = uploadedHighRes ? uploadedHighRes.url : thumbUrl;
+          return {
+            url: fullUrl,
+            thumbnailUrl: thumbUrl
+          };
+        })
+      );
+
+      const firstPhoto = uploadResults[0];
+      const newMessage: ChatMessage = {
+        id: `album_${Date.now()}`,
+        sender: currentUser,
+        content: albumCaption || '写真を送信しました',
+        createdAt: new Date().toISOString(),
+        type: 'image',
+        imageUrl: firstPhoto.url,
+        thumbnailUrl: firstPhoto.thumbnailUrl,
+        images: uploadResults
+      };
+
+      updateRoomMessages(activeRoom.id, newMessage);
+
+      pendingAlbumPhotos.forEach(p => URL.revokeObjectURL(p.previewUrl));
+      setPendingAlbumPhotos([]);
+      setAlbumCaption('');
+      setAlbumNotice(null);
+    } catch (err) {
+      console.error(err);
+      alert('写真アルバムの送信に失敗しました。');
+    } finally {
+      setIsAlbumUploading(false);
+    }
+  };
+
+  const handleCancelAlbum = () => {
+    pendingAlbumPhotos.forEach(p => URL.revokeObjectURL(p.previewUrl));
+    setPendingAlbumPhotos([]);
+    setAlbumCaption('');
+    setAlbumNotice(null);
+  };
+
+  const handleRemoveAlbumPhoto = (id: string) => {
+    setPendingAlbumPhotos(prev => {
+      const removed = prev.find(p => p.id === id);
+      if (removed) {
+        URL.revokeObjectURL(removed.previewUrl);
+      }
+      const updated = prev.filter(p => p.id !== id);
+      if (updated.length <= 10) {
+        setAlbumNotice(null);
+      }
+      return updated;
+    });
+  };
+
   const handleChatDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setIsChatDraggingOver(false);
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      await processChatUploadedFiles(e.dataTransfer.files);
+      const files = Array.from(e.dataTransfer.files);
+      const isAllImages = files.every(f => f.type.startsWith('image/') || /\.(jpe?g|png|webp|gif)$/i.test(f.name));
+      if (isAllImages) {
+        handlePhotoFilesSelected(files);
+      } else {
+        await processChatUploadedFiles(files);
+      }
     }
   };
 
@@ -1061,8 +1356,8 @@ export function Chat({
     setShowStampPicker(false);
   };
 
-  // 写真送信
-  const handleSendPhoto = (imageUrl: string, caption?: string) => {
+  // 写真送信（2段階サムネイル方式: 高精細原本URL + 超軽量サムネイルURL）
+  const handleSendPhoto = (imageUrl: string, caption?: string, thumbnailUrl?: string) => {
     if (!activeRoom) return;
 
     const newMessage: ChatMessage = {
@@ -1071,31 +1366,22 @@ export function Chat({
       content: caption || '写真を送信しました',
       createdAt: new Date().toISOString(),
       type: 'image',
-      imageUrl
+      imageUrl,
+      thumbnailUrl: thumbnailUrl || imageUrl
     };
 
     updateRoomMessages(activeRoom.id, newMessage);
     setPendingPhotoUrl(null);
+    setPendingThumbnailUrl(null);
     setPhotoCaption('');
   };
 
-  // 写真ローカルファイル選択
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setIsChatUploading(true);
-    try {
-      const uploaded = await uploadFile(file);
-      setPendingPhotoUrl(uploaded.url);
-    } catch (err) {
-      console.error(err);
-      const localUrl = URL.createObjectURL(file);
-      setPendingPhotoUrl(localUrl);
-    } finally {
-      setIsChatUploading(false);
-      e.target.value = '';
+  // 写真ファイル選択ボタン（1枚または複数枚・最大10枚対応）
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      handlePhotoFilesSelected(Array.from(e.target.files));
     }
+    e.target.value = '';
   };
 
   // ルーム内のメッセージ更新
@@ -1436,6 +1722,7 @@ export function Chat({
         ref={fileInputRef}
         onChange={handleFileUpload}
         accept="image/*"
+        multiple
         className="hidden"
       />
 
@@ -1694,40 +1981,30 @@ export function Chat({
               </div>
             </div>
 
-            <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-              {isGroupRoom(activeRoom) && (
-                <button
-                  onClick={() => {
-                    setSelectedUserIds([]);
-                    setModalSearch('');
-                    setShowAddMemberModal(true);
-                  }}
-                  className="p-1.5 sm:px-3 sm:py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1"
-                  title="メンバーを追加"
-                >
-                  <UserPlus className="w-4 h-4 sm:w-3.5 sm:h-3.5 text-indigo-600" />
-                  <span className="hidden sm:inline">メンバー追加</span>
-                </button>
-              )}
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+              {/* 立体的なメガネ切り替えボタン */}
+              <button
+                type="button"
+                onClick={toggleBossMode}
+                className={`p-2 rounded-lg transition-all duration-150 select-none cursor-pointer border ${
+                  isBossMode
+                    ? 'bg-slate-300 text-slate-900 border-slate-400 shadow-[inset_0_2px_4px_rgba(0,0,0,0.22)] translate-y-0.5'
+                    : 'bg-gradient-to-b from-white via-slate-50 to-slate-200 text-slate-600 hover:text-slate-900 border-slate-300 shadow-[0_2px_3px_rgba(0,0,0,0.12),inset_0_1px_0_rgba(255,255,255,0.9)] hover:brightness-105 active:translate-y-0.5 active:shadow-[inset_0_2px_3px_rgba(0,0,0,0.2)]'
+                }`}
+                title="業務モード切り替え [Shift+Esc]"
+              >
+                <Glasses className={`w-4 h-4 ${isBossMode ? 'text-slate-900' : 'text-slate-600'}`} />
+              </button>
+
               <button
                 onClick={() => setShowInfoSidebar(!showInfoSidebar)}
-                className={`p-1.5 sm:p-2 rounded-lg transition-colors ${
+                className={`p-1.5 sm:p-2 rounded-lg transition-colors cursor-pointer ${
                   showInfoSidebar ? 'bg-indigo-50 text-indigo-600' : 'hover:bg-slate-100 text-slate-500'
                 }`}
                 title="ルーム詳細"
               >
                 <Info className="w-4 h-4" />
               </button>
-              {/* グループの場合は管理者のみ削除可能。DMの場合は誰でも削除可能 */}
-              {(!isGroupRoom(activeRoom) || isUserRoomAdmin(activeRoom, currentUser.id)) && (
-                <button
-                  onClick={() => handleDeleteRoomClick(activeRoom.id)}
-                  className="p-1.5 sm:p-2 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                  title="トークルームを削除"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              )}
             </div>
           </div>
 
@@ -1801,6 +2078,7 @@ export function Chat({
                       showSenderName={showSenderName}
                       showAvatar={showAvatar}
                       stampCategories={stampCategories}
+                      isBossMode={isBossMode}
                       onDeleteMessage={handleDeleteMessageClick}
                       onOpenViewers={handleOpenViewersModal}
                       onOpenPreview={handleOpenPreviewFile}
@@ -1935,11 +2213,25 @@ export function Chat({
                         setModalSearch('');
                         setShowAddMemberModal(true);
                       }}
-                      className="w-full py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5"
+                      className="w-full py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
                     >
                       <UserPlus className="w-4 h-4" />
                       メンバーを追加する
                     </button>
+                  )}
+
+                  {/* トークルーム削除・退室エリア */}
+                  {(!isGroupRoom(activeRoom) || isUserRoomAdmin(activeRoom, currentUser.id)) && (
+                    <div className="pt-3 border-t border-slate-200">
+                      <button
+                        onClick={() => handleDeleteRoomClick(activeRoom.id)}
+                        className="w-full py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer border border-rose-200/60"
+                        title="トークルームを削除"
+                      >
+                        <Trash2 className="w-4 h-4 text-rose-600" />
+                        <span>{isGroupRoom(activeRoom) ? 'グループを削除する' : 'トークルームを削除する'}</span>
+                      </button>
+                    </div>
                   )}
                 </div>
               </>
@@ -1953,7 +2245,7 @@ export function Chat({
             onDrop={handleChatDrop}
             className="p-2 sm:p-3 bg-white border-t border-slate-200 shrink-0 relative"
           >
-            {/* 写真添付プレビューモーダル / ポップアップ */}
+            {/* 写真添付プレビューモーダル / ポップアップ (単体) */}
             {pendingPhotoUrl && (
               <div className="mb-2 p-2.5 bg-indigo-50/80 border border-indigo-200 rounded-xl flex flex-col sm:flex-row items-start sm:items-center gap-2.5">
                 <img src={pendingPhotoUrl || undefined} alt="送信プレビュー" className="w-14 h-14 sm:w-16 sm:h-16 rounded-lg object-cover border border-indigo-200 shrink-0" />
@@ -1967,14 +2259,96 @@ export function Chat({
                   />
                   <div className="flex gap-2 mt-2">
                     <button
-                      onClick={() => handleSendPhoto(pendingPhotoUrl, photoCaption)}
-                      className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-xs font-bold transition-colors"
+                      onClick={() => handleSendPhoto(pendingPhotoUrl, photoCaption, pendingThumbnailUrl || undefined)}
+                      className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-xs font-bold transition-colors cursor-pointer"
                     >
                       送信する
                     </button>
                     <button
-                      onClick={() => setPendingPhotoUrl(null)}
-                      className="px-3 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-md text-xs font-semibold transition-colors"
+                      onClick={() => {
+                        setPendingPhotoUrl(null);
+                        setPendingThumbnailUrl(null);
+                      }}
+                      className="px-3 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-md text-xs font-semibold transition-colors cursor-pointer"
+                    >
+                      キャンセル
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 複数写真アルバムプレビュー（最大10枚対応） */}
+            {pendingAlbumPhotos.length > 0 && (
+              <div className="mb-2.5 p-3 bg-indigo-50/90 border border-indigo-200/90 rounded-2xl shadow-sm animate-in fade-in slide-in-from-bottom-2 duration-150">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <Images className="w-4 h-4 text-indigo-600" />
+                    <span className="text-xs font-bold text-slate-800">
+                      写真アルバム作成 ({pendingAlbumPhotos.length} / 10枚)
+                    </span>
+                  </div>
+                  {albumNotice && (
+                    <span className="text-[11px] font-semibold text-amber-700 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-full">
+                      {albumNotice}
+                    </span>
+                  )}
+                </div>
+
+                {/* サムネイル横スクロールストリップ */}
+                <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-thin">
+                  {pendingAlbumPhotos.map((photo, index) => (
+                    <div key={photo.id} className="relative group shrink-0 w-16 h-16 sm:w-20 sm:h-20 rounded-xl overflow-hidden border border-indigo-200 bg-slate-100 shadow-2xs">
+                      <img src={photo.previewUrl} alt={`選択写真 ${index + 1}`} className="w-full h-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveAlbumPhoto(photo.id)}
+                        className="absolute top-1 right-1 p-0.5 bg-black/60 hover:bg-rose-600 text-white rounded-full transition-colors cursor-pointer"
+                        title="この写真を削除"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                      <span className="absolute bottom-1 left-1 px-1.5 py-0.5 text-[9px] font-bold text-white bg-black/50 rounded-sm">
+                        {index + 1}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* 共通キャプション入力欄 & 送信ボタン */}
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 mt-2 pt-2 border-t border-indigo-100">
+                  <input
+                    type="text"
+                    value={albumCaption}
+                    onChange={(e) => setAlbumCaption(e.target.value)}
+                    placeholder="アルバムに添えるコメント（任意）..."
+                    disabled={isAlbumUploading}
+                    className="flex-1 px-3 py-1.5 bg-white border border-indigo-200 rounded-lg text-xs font-medium focus:outline-hidden focus:ring-2 focus:ring-indigo-500 disabled:opacity-60"
+                  />
+                  <div className="flex items-center gap-2 justify-end">
+                    <button
+                      type="button"
+                      disabled={isAlbumUploading}
+                      onClick={handleSendAlbum}
+                      className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
+                    >
+                      {isAlbumUploading ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>最適化＆送信中...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Send className="w-3.5 h-3.5" />
+                          <span>アルバムを送信 ({pendingAlbumPhotos.length}枚)</span>
+                        </>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isAlbumUploading}
+                      onClick={handleCancelAlbum}
+                      className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 disabled:opacity-50 text-slate-700 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
                     >
                       キャンセル
                     </button>
@@ -2122,30 +2496,34 @@ export function Chat({
                 className="hidden"
               />
 
-              <button
-                type="button"
-                onClick={() => {
-                  fileInputRef.current?.click();
-                  setShowStampPicker(false);
-                }}
-                className="p-1.5 sm:p-2 rounded-full hover:bg-slate-100 text-slate-500 transition-colors shrink-0 mb-0.5"
-                title="写真を送信"
-              >
-                <ImageIcon className="w-4 h-4 sm:w-5 sm:h-5" />
-              </button>
+              {!isBossMode && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      fileInputRef.current?.click();
+                      setShowStampPicker(false);
+                    }}
+                    className="p-1.5 sm:p-2 rounded-full hover:bg-slate-100 text-slate-500 transition-colors shrink-0 mb-0.5 cursor-pointer"
+                    title="写真を送信"
+                  >
+                    <ImageIcon className="w-4 h-4 sm:w-5 sm:h-5" />
+                  </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setShowStampPicker(!showStampPicker);
-                }}
-                className={`p-1.5 sm:p-2 rounded-full transition-colors shrink-0 mb-0.5 ${
-                  showStampPicker ? 'bg-indigo-100 text-indigo-600' : 'hover:bg-slate-100 text-slate-500'
-                }`}
-                title="スタンプを送る"
-              >
-                <Smile className="w-4 h-4 sm:w-5 sm:h-5" />
-              </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowStampPicker(!showStampPicker);
+                    }}
+                    className={`p-1.5 sm:p-2 rounded-full transition-colors shrink-0 mb-0.5 cursor-pointer ${
+                      showStampPicker ? 'bg-indigo-100 text-indigo-600' : 'hover:bg-slate-100 text-slate-500'
+                    }`}
+                    title="スタンプを送る"
+                  >
+                    <Smile className="w-4 h-4 sm:w-5 sm:h-5" />
+                  </button>
+                </>
+              )}
 
               <textarea
                 ref={chatTextareaRef}
@@ -2156,8 +2534,8 @@ export function Chat({
                 onCompositionStart={() => setIsComposing(true)}
                 onCompositionEnd={() => setIsComposing(false)}
                 onPaste={chatPasteHandler.handlePaste}
-                placeholder="メッセージを入力... (Shift+Enterで改行, Enterで送信)"
-                className="flex-1 min-w-0 px-3.5 sm:px-4 py-2 sm:py-2.5 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-xs sm:text-sm font-semibold text-slate-800 resize-none overflow-y-auto leading-relaxed"
+                placeholder={isBossMode ? "業務連絡・メッセージを入力... (Shift+Enterで改行, Enterで送信)" : "メッセージを入力... (Shift+Enterで改行, Enterで送信)"}
+                className="flex-1 min-w-0 px-3.5 sm:px-4 py-2 sm:py-2.5 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-xs sm:text-sm font-semibold text-slate-800 resize-none overflow-y-auto leading-relaxed"
                 style={{ minHeight: '38px', maxHeight: '120px' }}
               />
 
@@ -2341,19 +2719,57 @@ export function Chat({
         </div>
       )}
 
-      {/* ----------------- モーダル: 写真ライトボックス ----------------- */}
-      {lightboxImage && (
+      {/* ----------------- モーダル: 写真ライトボックス (アルバム対応・次へ/前へスライド) ----------------- */}
+      {lightboxGallery && (
         <div
-          className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 cursor-pointer"
-          onClick={() => setLightboxImage(null)}
+          className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-2 sm:p-6 select-none"
+          onClick={() => setLightboxGallery(null)}
         >
-          <div className="relative max-w-4xl max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
-            <img src={lightboxImage || undefined} alt="拡大写真" className="max-w-full max-h-[85vh] rounded-xl object-contain shadow-2xl" />
+          <div className="relative max-w-5xl max-h-[92vh] flex flex-col items-center justify-center" onClick={(e) => e.stopPropagation()}>
+            <img
+              src={lightboxGallery.images[lightboxGallery.currentIndex] || undefined}
+              alt="拡大写真"
+              className="max-w-full max-h-[82vh] rounded-xl object-contain shadow-2xl transition-all duration-200"
+            />
+
+            {/* 枚数カウンター */}
+            {lightboxGallery.images.length > 1 && (
+              <div className="absolute top-3 left-1/2 -translate-x-1/2 px-3 py-1 bg-black/60 backdrop-blur-xs text-white text-xs font-bold rounded-full border border-white/20">
+                {lightboxGallery.currentIndex + 1} / {lightboxGallery.images.length}
+              </div>
+            )}
+
+            {/* 前へボタン */}
+            {lightboxGallery.images.length > 1 && lightboxGallery.currentIndex > 0 && (
+              <button
+                type="button"
+                onClick={() => setLightboxGallery(prev => prev ? { ...prev, currentIndex: prev.currentIndex - 1 } : null)}
+                className="absolute left-2 sm:-left-12 top-1/2 -translate-y-1/2 p-2.5 bg-black/50 hover:bg-black/80 text-white rounded-full transition-all cursor-pointer border border-white/20 shadow-lg hover:scale-110"
+                title="前の写真へ (←キー)"
+              >
+                <ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6" />
+              </button>
+            )}
+
+            {/* 次へボタン */}
+            {lightboxGallery.images.length > 1 && lightboxGallery.currentIndex < lightboxGallery.images.length - 1 && (
+              <button
+                type="button"
+                onClick={() => setLightboxGallery(prev => prev ? { ...prev, currentIndex: prev.currentIndex + 1 } : null)}
+                className="absolute right-2 sm:-right-12 top-1/2 -translate-y-1/2 p-2.5 bg-black/50 hover:bg-black/80 text-white rounded-full transition-all cursor-pointer border border-white/20 shadow-lg hover:scale-110"
+                title="次の写真へ (→キー)"
+              >
+                <ChevronRight className="w-5 h-5 sm:w-6 sm:h-6" />
+              </button>
+            )}
+
+            {/* 閉じるボタン */}
             <button
-              onClick={() => setLightboxImage(null)}
-              className="absolute -top-10 right-0 p-1.5 bg-white/20 hover:bg-white/40 text-white rounded-full transition-colors"
+              onClick={() => setLightboxGallery(null)}
+              className="absolute -top-10 sm:-top-11 right-0 p-2 bg-white/20 hover:bg-white/40 text-white rounded-full transition-colors cursor-pointer"
+              title="閉じる (Esc)"
             >
-              <X className="w-6 h-6" />
+              <X className="w-5 h-5 sm:w-6 sm:h-6" />
             </button>
           </div>
         </div>

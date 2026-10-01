@@ -1,7 +1,7 @@
 export const RECOMMEND_SERVER_JS = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年9月30日 (アクセス・操作ログ管理APIルーター routes/logs.js 連携および管理者向けCSVエクスポート対応 完全同期)
+ * 最終更新日時 (最終アップデート): 2026年9月30日 (画像・スタンプ静的配信の30日間高速キャッシュ設定 maxAge/immutable および2段階サムネイル対応 完全同期)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -650,13 +650,13 @@ async function startServer() {
   if (!fs.existsSync(uploadsDir)) {
     fs.mkdirSync(uploadsDir, { recursive: true });
   }
-  app.use('/public', express.static(publicDir, { maxAge: '1d' }));
-  app.use('/uploads', express.static(uploadsDir));
-  app.use('/stamps', express.static(path.join(publicDir, 'stamps')));
-  app.use('/api/stamps-static', express.static(path.join(publicDir, 'stamps')));
-  app.use('/external-files', express.static(externalFilesDir));
-  app.use('/bulletinsfiles', express.static(bulletinsFilesDir));
-  app.use('/api/bulletinsfiles', express.static(bulletinsFilesDir));
+  app.use('/public', express.static(publicDir, { maxAge: '7d' }));
+  app.use('/uploads', express.static(uploadsDir, { maxAge: '30d', immutable: true }));
+  app.use('/stamps', express.static(path.join(publicDir, 'stamps'), { maxAge: '30d', immutable: true }));
+  app.use('/api/stamps-static', express.static(path.join(publicDir, 'stamps'), { maxAge: '30d', immutable: true }));
+  app.use('/external-files', express.static(externalFilesDir, { maxAge: '30d' }));
+  app.use('/bulletinsfiles', express.static(bulletinsFilesDir, { maxAge: '30d', immutable: true }));
+  app.use('/api/bulletinsfiles', express.static(bulletinsFilesDir, { maxAge: '30d', immutable: true }));
 
   // スタンプ管理APIルーター
   app.use('/api/stamps', stampsRouter);

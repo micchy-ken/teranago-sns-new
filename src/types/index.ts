@@ -315,6 +315,8 @@ export interface ChatMessage {
   createdAt: string; // ISO string
   type?: 'text' | 'stamp' | 'image' | 'file';
   imageUrl?: string;
+  thumbnailUrl?: string; // 軽量サムネイルURL (チャットタイムライン爆速表示用)
+  images?: Array<{ url: string; thumbnailUrl?: string }>; // 複数写真アルバム（最大10枚）
   stampId?: string;
   stampText?: string;
   stampCategory?: string;
