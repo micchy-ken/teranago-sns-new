@@ -1305,7 +1305,7 @@ async function startServer() {
 
   app.post(['/api/chats', '/api/chats/message'], (req, res) => {
     try {
-      const { senderId, roomId, message, content, attachments, roomName, roomType, participants, type, imageUrl, stampId, stampText, stampCategory, adminIds } = req.body;
+      const { senderId, roomId, message, content, attachments, roomName, roomType, participants, type, imageUrl, thumbnailUrl, images, stampId, stampText, stampCategory, adminIds } = req.body;
       const msgContent = message || content || '';
       const targetRoomId = String(roomId || 'r1');
       const rooms = loadChatRooms();
@@ -1342,6 +1342,8 @@ async function startServer() {
         createdAt: nowIso,
         type: type || 'text',
         imageUrl: imageUrl || null,
+        thumbnailUrl: thumbnailUrl || null,
+        images: Array.isArray(images) ? images : (imageUrl && thumbnailUrl ? [{ url: imageUrl, thumbnailUrl }] : null),
         stampId: stampId || null,
         stampText: stampText || null,
         stampCategory: stampCategory || null,
@@ -5066,6 +5068,47 @@ async function startServer() {
           fs.writeFileSync(rootBPath, JSON.stringify(rList, null, 2), 'utf8');
         }
       } catch (_) {}
+
+      // MS SQL Server (dbo.Bulletins) へも直接 INSERT（存在する場合・完全同期）
+      try {
+        // @ts-ignore
+        if (typeof getPool === 'function' || typeof (global as any).getPool === 'function') {
+          // @ts-ignore
+          const pool = typeof getPool === 'function' ? await getPool() : await (global as any).getPool();
+          if (pool) {
+            // @ts-ignore
+            const sqlModule = await import('mssql').catch(() => null);
+            const sql = sqlModule?.default || sqlModule;
+            if (sql) {
+              const targetScope = (targetOffice === '全社' && targetDivision === '全部署') ? '全社' : '特定部署';
+              await pool.request()
+                .input('id', sql.VarChar, String(topicId))
+                .input('title', sql.NVarChar, mailSubject || '')
+                .input('content', sql.NVarChar, formattedContent || '')
+                .input('category', sql.NVarChar, 'general')
+                .input('authorId', sql.VarChar, String(matchedUser.id))
+                .input('isPinned', sql.Bit, 0)
+                .input('pinnedUntil', sql.VarChar, null)
+                .input('office', sql.NVarChar, targetOffice || '全社')
+                .input('division', sql.NVarChar, targetDivision || '全部署')
+                .input('scope', sql.NVarChar, targetScope)
+                .input('tags', sql.NVarChar, Array.from(extractedTags).join(','))
+                .input('hasPeriod', sql.Bit, 0)
+                .input('startDate', sql.VarChar, null)
+                .input('endDate', sql.VarChar, null)
+                .input('attachments', sql.NVarChar, JSON.stringify(attachmentsList || []))
+                .query(`
+                  IF NOT EXISTS (SELECT 1 FROM dbo.Bulletins WHERE id = @id)
+                  INSERT INTO dbo.Bulletins (id, title, content, category, authorId, isPinned, pinnedUntil, office, division, scope, tags, attachments, hasPeriod, startDate, endDate, createdAt, views, likes)
+                  VALUES (@id, @title, @content, @category, @authorId, @isPinned, @pinnedUntil, @office, @division, @scope, @tags, @attachments, @hasPeriod, @startDate, @endDate, GETDATE(), 0, 0)
+                `);
+              console.log(`[POP3] SQL Server dbo.Bulletins inserted successfully: ${topicId} (office: ${targetOffice}, division: ${targetDivision})`);
+            }
+          }
+        }
+      } catch (dbErr: any) {
+        console.warn('[POP3] SQL Server dbo.Bulletins insert skipped or failed:', dbErr.message);
+      }
 
       pop3State.totalImportedCount++;
       addPop3Log('success', `メールを掲示板へ掲載しました: 「${mailSubject}」（投稿者: ${matchedUser.name}様, 宛先: ${targetDisplay}, タグ: #${Array.from(extractedTags).join(' #')}）`);

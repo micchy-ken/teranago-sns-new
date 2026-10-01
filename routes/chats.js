@@ -19,11 +19,19 @@ function safeParseJSON(str, fallback = null) {
   }
 }
 
-// チャットルーム一覧 & 各メッセージの閲覧者(viewers)マージ取得
+// チャットルーム一覧 & 各メッセージの閲覧者(viewers)・複数画像アルバムマージ取得
 router.get(['/chats', '/chats/rooms', '/', '/rooms'], async (req, res) => {
   try {
     const pool = await getPool();
     if (!pool) return res.json([]);
+
+    // カラム自動拡張（imagesJson, thumbnailUrl）
+    try {
+      await pool.request().query(`
+        IF COL_LENGTH('dbo.ChatMessages', 'imagesJson') IS NULL ALTER TABLE dbo.ChatMessages ADD imagesJson NVARCHAR(MAX) NULL;
+        IF COL_LENGTH('dbo.ChatMessages', 'thumbnailUrl') IS NULL ALTER TABLE dbo.ChatMessages ADD thumbnailUrl NVARCHAR(MAX) NULL;
+      `);
+    } catch (_) {}
 
     const roomsResult = await pool.request().query('SELECT * FROM dbo.ChatRooms ORDER BY updatedAt DESC');
     const msgsResult = await pool.request().query(`
@@ -50,25 +58,30 @@ router.get(['/chats', '/chats/rooms', '/', '/rooms'], async (req, res) => {
         adminIds: adminIds,
         messages: (msgsResult.recordset || [])
           .filter(m => String(m.roomId) === String(r.id))
-          .map(m => ({
-            id: String(m.id),
-            roomId: String(m.roomId),
-            sender: {
-              id: m.senderId,
-              name: m.senderName || '不明',
-              avatarUrl: m.senderAvatar || '',
-              department: m.senderDepartment || ''
-            },
-            content: m.message || m.content || '',
-            createdAt: m.createdAt ? new Date(m.createdAt).toISOString() : new Date().toISOString(),
-            type: m.type || 'text',
-            imageUrl: m.imageUrl || null,
-            stampId: m.stampId || null,
-            stampText: m.stampText || null,
-            stampCategory: m.stampCategory || null,
-            attachments: safeParseJSON(m.attachments || m.attachmentsJson, []),
-            viewers: safeParseJSON(m.viewersJson || m.viewers, [])
-          }))
+          .map(m => {
+            const parsedImages = safeParseJSON(m.imagesJson || m.images, null);
+            return {
+              id: String(m.id),
+              roomId: String(m.roomId),
+              sender: {
+                id: m.senderId,
+                name: m.senderName || '不明',
+                avatarUrl: m.senderAvatar || '',
+                department: m.senderDepartment || ''
+              },
+              content: m.message || m.content || '',
+              createdAt: m.createdAt ? new Date(m.createdAt).toISOString() : new Date().toISOString(),
+              type: m.type || 'text',
+              imageUrl: m.imageUrl || null,
+              thumbnailUrl: m.thumbnailUrl || null,
+              images: Array.isArray(parsedImages) ? parsedImages : undefined,
+              stampId: m.stampId || null,
+              stampText: m.stampText || null,
+              stampCategory: m.stampCategory || null,
+              attachments: safeParseJSON(m.attachments || m.attachmentsJson, []),
+              viewers: safeParseJSON(m.viewersJson || m.viewers, [])
+            };
+          })
       };
     });
     res.json(rooms);
@@ -135,14 +148,23 @@ router.post(['/chats/rooms', '/chats/room', '/rooms', '/room'], async (req, res)
 // メッセージ送信
 router.post(['/chats', '/chats/message', '/', '/message'], async (req, res) => {
   try {
-    const { senderId, roomId, message, content, attachments, roomName, roomType, participants, type, imageUrl, stampId, stampText, stampCategory, adminIds } = req.body;
+    const { senderId, roomId, message, content, attachments, roomName, roomType, participants, type, imageUrl, thumbnailUrl, images, stampId, stampText, stampCategory, adminIds } = req.body;
     const msgContent = message || content || '';
     const pool = await getPool();
     if (!pool) return res.status(500).json({ error: 'DB接続が利用できません' });
 
+    // カラム自動拡張（imagesJson, thumbnailUrl）
+    try {
+      await pool.request().query(`
+        IF COL_LENGTH('dbo.ChatMessages', 'imagesJson') IS NULL ALTER TABLE dbo.ChatMessages ADD imagesJson NVARCHAR(MAX) NULL;
+        IF COL_LENGTH('dbo.ChatMessages', 'thumbnailUrl') IS NULL ALTER TABLE dbo.ChatMessages ADD thumbnailUrl NVARCHAR(MAX) NULL;
+      `);
+    } catch (_) {}
+
     const id = req.body.id || `c-${Date.now()}`;
     const targetRoomId = roomId || 'r1';
     const attachStr = attachments ? (typeof attachments === 'object' ? JSON.stringify(attachments) : attachments) : null;
+    const imagesStr = images ? (typeof images === 'object' ? JSON.stringify(images) : images) : null;
     const msgType = type || 'text';
 
     // ルームが存在しない場合の自動作成
@@ -215,13 +237,15 @@ router.post(['/chats', '/chats/message', '/', '/message'], async (req, res) => {
       .input('attachments', sql.NVarChar, attachStr)
       .input('type', sql.VarChar, msgType)
       .input('imageUrl', sql.NVarChar, imageUrl || null)
+      .input('thumbnailUrl', sql.NVarChar, thumbnailUrl || null)
+      .input('imagesJson', sql.NVarChar, imagesStr)
       .input('stampId', sql.VarChar, stampId || null)
       .input('stampText', sql.NVarChar, stampText || null)
       .input('stampCategory', sql.NVarChar, stampCategory || null)
       .input('viewersJson', sql.NVarChar, viewersStr)
       .query(`
-        INSERT INTO dbo.ChatMessages (id, senderId, roomId, message, content, createdAt, attachments, type, imageUrl, stampId, stampText, stampCategory, viewersJson) 
-        VALUES (@id, @senderId, @roomId, @message, @content, GETDATE(), @attachments, @type, @imageUrl, @stampId, @stampText, @stampCategory, @viewersJson)
+        INSERT INTO dbo.ChatMessages (id, senderId, roomId, message, content, createdAt, attachments, type, imageUrl, thumbnailUrl, imagesJson, stampId, stampText, stampCategory, viewersJson) 
+        VALUES (@id, @senderId, @roomId, @message, @content, GETDATE(), @attachments, @type, @imageUrl, @thumbnailUrl, @imagesJson, @stampId, @stampText, @stampCategory, @viewersJson)
       `);
 
     await pool.request()

@@ -2634,6 +2634,8 @@ export default function App() {
                 participants: updatedRoom.participants,
                 type: lastMsg.type || 'text',
                 imageUrl: lastMsg.imageUrl || null,
+                thumbnailUrl: lastMsg.thumbnailUrl || null,
+                images: lastMsg.images || null,
                 stampId: lastMsg.stampId || null,
                 stampText: lastMsg.stampText || null,
                 stampCategory: lastMsg.stampCategory || null,
