@@ -744,7 +744,7 @@ export function AdminPanel({
   const fetchInvitations = async () => {
     setIsLoadingInvitations(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/users/invitations`);
+      const res = await fetch(`${API_BASE_URL}/invitations`);
       if (res.ok) {
         const data = await res.json();
         setInvitationsList(Array.isArray(data) ? data : []);
@@ -789,7 +789,7 @@ export function AdminPanel({
 
     setIsSendingInvites(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/users/invite`, {
+      const res = await fetch(`${API_BASE_URL}/invitations`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -832,7 +832,7 @@ export function AdminPanel({
       type: 'danger',
       onConfirm: async () => {
         try {
-          const res = await fetch(`${API_BASE_URL}/users/invitations/${invitationId}/cancel`, {
+          const res = await fetch(`${API_BASE_URL}/invitations/${invitationId}/cancel`, {
             method: 'POST'
           });
           if (res.ok) {
@@ -847,7 +847,7 @@ export function AdminPanel({
 
   const handleResendInvite = async (invitationId: string, email: string) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/users/invitations/${invitationId}/resend`, {
+      const res = await fetch(`${API_BASE_URL}/invitations/${invitationId}/resend`, {
         method: 'POST'
       });
       const data = await res.json();
@@ -878,7 +878,7 @@ export function AdminPanel({
       onConfirm: async () => {
         setResetPasswordSendingId(targetUser.id);
         try {
-          const res = await fetch(`${API_BASE_URL}/users/${targetUser.id}/request-password-reset`, {
+          const res = await fetch(`${API_BASE_URL}/passwords/request-reset/${targetUser.id}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

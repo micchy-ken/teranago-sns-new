@@ -1,7 +1,7 @@
 /**
  * routes/passwords.js
  * 寺岡オートドアSNS パスワード管理・リセット・強制変更モジュール (Express Router & MS SQL Server)
- * 最終更新: 2026年10月1日 (モジュール分割・独立化版)
+ * 最終更新: 2026年10月1日 (ユニークRESTfulパス完全対応版)
  */
 import { Router } from 'express';
 import path from 'path';
@@ -16,7 +16,7 @@ const router = Router();
 const userPrefsFile = path.join(dataDir, 'user_preferences.json');
 
 // =============================================================
-// メール送信ヘルパー (Nodemailer)
+// メール送信ヘルパー (Nodemailer - 実環境 SMTP 設定完全準拠)
 // =============================================================
 function getSmtpTransporter() {
   const smtpHost = process.env.SMTP_HOST || '111.89.134.68';
@@ -88,9 +88,15 @@ function saveUserPrefs(userId, prefs) {
 }
 
 // =============================================================
-// 1. パスワード設定依頼メール送信 API (POST /users/:id/request-password-reset)
+// 1. パスワード設定依頼メール送信 API (POST /passwords/request-reset & POST /passwords/request-reset/:id)
 // =============================================================
 const requestResetPaths = [
+  '/passwords/request-reset',
+  '/passwords/request-reset/',
+  '/passwords/request-reset/:id',
+  '/api/passwords/request-reset',
+  '/api/passwords/request-reset/',
+  '/api/passwords/request-reset/:id',
   '/users/:id/request-password-reset',
   '/users/:id/request-password-reset/',
   '/api/users/:id/request-password-reset',
@@ -99,10 +105,13 @@ const requestResetPaths = [
 
 router.post(requestResetPaths, async (req, res) => {
   try {
-    const userId = req.params.id;
+    const userId = req.params.id || req.body?.userId;
     const { baseUrl, senderName = '管理者' } = req.body || {};
-    const pool = await getPool();
+    if (!userId) {
+      return res.status(400).json({ error: 'ユーザーIDが指定されていません' });
+    }
 
+    const pool = await getPool();
     const uRes = await pool.request().input('id', sql.VarChar, userId).query('SELECT * FROM dbo.Users WHERE id = @id');
     if (!uRes.recordset || uRes.recordset.length === 0) {
       return res.status(404).json({ error: 'ユーザーが見つかりません' });
@@ -170,9 +179,13 @@ router.post(requestResetPaths, async (req, res) => {
 });
 
 // =============================================================
-// 2. パスワード再設定トークン検証 API (GET /users/reset-password/verify)
+// 2. パスワード再設定トークン検証 API (GET /passwords/verify)
 // =============================================================
 const verifyResetPaths = [
+  '/passwords/verify',
+  '/passwords/verify/',
+  '/api/passwords/verify',
+  '/api/passwords/verify/',
   '/users/reset-password/verify',
   '/users/reset-password/verify/',
   '/api/users/reset-password/verify',
@@ -223,9 +236,13 @@ router.get(verifyResetPaths, async (req, res) => {
 });
 
 // =============================================================
-// 3. パスワード再設定実行 API (POST /users/reset-password)
+// 3. パスワード再設定実行 API (POST /passwords/reset)
 // =============================================================
 const executeResetPaths = [
+  '/passwords/reset',
+  '/passwords/reset/',
+  '/api/passwords/reset',
+  '/api/passwords/reset/',
   '/users/reset-password',
   '/users/reset-password/',
   '/api/users/reset-password',
@@ -298,9 +315,13 @@ router.post(executeResetPaths, async (req, res) => {
 });
 
 // =============================================================
-// 4. 初回ログイン時・強制パスワード変更 API (POST /users/force-change-password)
+// 4. 初回ログイン時・強制パスワード変更 API (POST /passwords/force-change)
 // =============================================================
 const forceChangePaths = [
+  '/passwords/force-change',
+  '/passwords/force-change/',
+  '/api/passwords/force-change',
+  '/api/passwords/force-change/',
   '/users/force-change-password',
   '/users/force-change-password/',
   '/api/users/force-change-password',

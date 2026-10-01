@@ -111,7 +111,7 @@ export function LoginScreen({
     setInviteLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE_URL}/users/invite/verify?token=${encodeURIComponent(token)}`);
+      const res = await fetch(`${API_BASE_URL}/invitations/verify?token=${encodeURIComponent(token)}`);
       const data = await res.json();
       if (!res.ok || !data.success) {
         throw new Error(data.error || '無効な招待リンクです。');
@@ -135,7 +135,7 @@ export function LoginScreen({
     setResetLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE_URL}/users/reset-password/verify?token=${encodeURIComponent(token)}`);
+      const res = await fetch(`${API_BASE_URL}/passwords/verify?token=${encodeURIComponent(token)}`);
       const data = await res.json();
       if (!res.ok || !data.success) {
         throw new Error(data.error || '無効なパスワード設定リンクです。');
@@ -197,7 +197,7 @@ export function LoginScreen({
 
     setForceLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/users/force-change-password`, {
+      const res = await fetch(`${API_BASE_URL}/passwords/force-change`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -249,7 +249,7 @@ export function LoginScreen({
 
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/users/invite/complete`, {
+      const res = await fetch(`${API_BASE_URL}/invitations/complete`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -300,7 +300,7 @@ export function LoginScreen({
 
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/users/reset-password`, {
+      const res = await fetch(`${API_BASE_URL}/passwords/reset`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

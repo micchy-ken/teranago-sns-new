@@ -1,7 +1,7 @@
 /**
  * routes/invitations.js
  * 寺岡オートドアSNS ユーザー招待管理モジュール (Express Router & MS SQL Server & JSON Dual Persistence)
- * 最終更新: 2026年10月1日 (モジュール分割・独立化版)
+ * 最終更新: 2026年10月1日 (ユニークRESTfulパス完全対応版)
  */
 import { Router } from 'express';
 import path from 'path';
@@ -17,7 +17,7 @@ const invitationsFile = path.join(dataDir, 'invitations.json');
 const userPrefsFile = path.join(dataDir, 'user_preferences.json');
 
 // =============================================================
-// メール送信ヘルパー (Nodemailer)
+// メール送信ヘルパー (Nodemailer - 実環境 SMTP 設定完全準拠)
 // =============================================================
 function getSmtpTransporter() {
   const smtpHost = process.env.SMTP_HOST || '111.89.134.68';
@@ -122,9 +122,21 @@ async function checkUserInvitationsTable(pool) {
 }
 
 // =============================================================
-// 1. ユーザー一括招待 API (POST /users/invite & /api/users/invite)
+// 1. ユーザー一括招待送信 API (POST /invitations & POST /invitations/send)
 // =============================================================
-const invitePaths = ['/users/invite', '/users/invite/', '/api/users/invite', '/api/users/invite/'];
+const invitePaths = [
+  '/invitations',
+  '/invitations/',
+  '/invitations/send',
+  '/invitations/send/',
+  '/api/invitations',
+  '/api/invitations/',
+  '/api/invitations/send',
+  '/users/invite',
+  '/users/invite/',
+  '/api/users/invite',
+  '/api/users/invite/'
+];
 
 router.post(invitePaths, async (req, res) => {
   try {
@@ -288,9 +300,18 @@ router.post(invitePaths, async (req, res) => {
 });
 
 // =============================================================
-// 2. 招待一覧取得 API (GET /users/invitations & /api/users/invitations)
+// 2. 招待一覧取得 API (GET /invitations)
 // =============================================================
-const listPaths = ['/users/invitations', '/users/invitations/', '/api/users/invitations', '/api/users/invitations/'];
+const listPaths = [
+  '/invitations',
+  '/invitations/',
+  '/api/invitations',
+  '/api/invitations/',
+  '/users/invitations',
+  '/users/invitations/',
+  '/api/users/invitations',
+  '/api/users/invitations/'
+];
 
 router.get(listPaths, async (req, res) => {
   try {
@@ -328,9 +349,13 @@ router.get(listPaths, async (req, res) => {
 });
 
 // =============================================================
-// 3. 招待取消 API (POST / DELETE)
+// 3. 招待取消 API (POST & DELETE /invitations/:id/cancel)
 // =============================================================
 const cancelInvitePaths = [
+  '/invitations/:id/cancel',
+  '/api/invitations/:id/cancel',
+  '/invitations/:id',
+  '/api/invitations/:id',
   '/users/invitations/:id/cancel',
   '/api/users/invitations/:id/cancel',
   '/users/invitations/:id',
@@ -369,9 +394,14 @@ router.post(cancelInvitePaths, cancelInviteHandler);
 router.delete(cancelInvitePaths, cancelInviteHandler);
 
 // =============================================================
-// 4. 招待再送 API (POST /users/invitations/:id/resend)
+// 4. 招待再送 API (POST /invitations/:id/resend)
 // =============================================================
-const resendPaths = ['/users/invitations/:id/resend', '/api/users/invitations/:id/resend'];
+const resendPaths = [
+  '/invitations/:id/resend',
+  '/api/invitations/:id/resend',
+  '/users/invitations/:id/resend',
+  '/api/users/invitations/:id/resend'
+];
 
 router.post(resendPaths, async (req, res) => {
   try {
@@ -446,9 +476,18 @@ router.post(resendPaths, async (req, res) => {
 });
 
 // =============================================================
-// 5. 招待トークン検証 API (GET /users/invite/verify)
+// 5. 招待トークン検証 API (GET /invitations/verify)
 // =============================================================
-const verifyPaths = ['/users/invite/verify', '/users/invite/verify/', '/api/users/invite/verify', '/api/users/invite/verify/'];
+const verifyPaths = [
+  '/invitations/verify',
+  '/invitations/verify/',
+  '/api/invitations/verify',
+  '/api/invitations/verify/',
+  '/users/invite/verify',
+  '/users/invite/verify/',
+  '/api/users/invite/verify',
+  '/api/users/invite/verify/'
+];
 
 router.get(verifyPaths, async (req, res) => {
   try {
@@ -514,9 +553,18 @@ router.get(verifyPaths, async (req, res) => {
 });
 
 // =============================================================
-// 6. 招待からの新規登録完了 API (POST /users/invite/complete)
+// 6. 招待からの新規登録完了 API (POST /invitations/complete)
 // =============================================================
-const completePaths = ['/users/invite/complete', '/users/invite/complete/', '/api/users/invite/complete', '/api/users/invite/complete/'];
+const completePaths = [
+  '/invitations/complete',
+  '/invitations/complete/',
+  '/api/invitations/complete',
+  '/api/invitations/complete/',
+  '/users/invite/complete',
+  '/users/invite/complete/',
+  '/api/users/invite/complete',
+  '/api/users/invite/complete/'
+];
 
 router.post(completePaths, async (req, res) => {
   try {

@@ -2326,7 +2326,7 @@ async function startServer() {
   }
 
   // 1. ユーザー一括招待 API
-  app.post(['/api/users/invite', '/api/users/invite/'], async (req, res) => {
+  app.post(['/api/invitations', '/api/invitations/', '/api/invitations/send', '/api/users/invite', '/api/users/invite/'], async (req, res) => {
     try {
       const {
         emails,
@@ -2444,7 +2444,7 @@ async function startServer() {
   });
 
   // 2. 招待一覧取得 API
-  app.get(['/api/users/invitations', '/api/users/invitations/'], (req, res) => {
+  app.get(['/api/invitations', '/api/invitations/', '/api/users/invitations', '/api/users/invitations/'], (req, res) => {
     try {
       const list = loadInvitations();
       const now = Date.now();
@@ -2461,7 +2461,7 @@ async function startServer() {
   });
 
   // 3. 招待取消 API
-  app.post(['/api/users/invitations/:id/cancel', '/api/users/invitations/:id/cancel/'], (req, res) => {
+  app.post(['/api/invitations/:id/cancel', '/api/invitations/:id/cancel/', '/api/users/invitations/:id/cancel', '/api/users/invitations/:id/cancel/'], (req, res) => {
     try {
       const list = loadInvitations();
       const target = list.find((i: any) => i.id === req.params.id);
@@ -2475,7 +2475,7 @@ async function startServer() {
     }
   });
 
-  app.delete(['/api/users/invitations/:id', '/api/users/invitations/:id/'], (req, res) => {
+  app.delete(['/api/invitations/:id', '/api/invitations/:id/', '/api/users/invitations/:id', '/api/users/invitations/:id/'], (req, res) => {
     try {
       const list = loadInvitations();
       const target = list.find((i: any) => i.id === req.params.id);
@@ -2491,7 +2491,7 @@ async function startServer() {
   });
 
   // 4. 招待再送 API
-  app.post(['/api/users/invitations/:id/resend', '/api/users/invitations/:id/resend/'], async (req, res) => {
+  app.post(['/api/invitations/:id/resend', '/api/invitations/:id/resend/', '/api/users/invitations/:id/resend', '/api/users/invitations/:id/resend/'], async (req, res) => {
     try {
       const list = loadInvitations();
       const target = list.find((i: any) => i.id === req.params.id);
@@ -2538,7 +2538,7 @@ async function startServer() {
   });
 
   // 5. 招待トークン検証 API
-  app.get(['/api/users/invite/verify', '/api/users/invite/verify/'], (req, res) => {
+  app.get(['/api/invitations/verify', '/api/invitations/verify/', '/api/users/invite/verify', '/api/users/invite/verify/'], (req, res) => {
     try {
       const token = req.query.token || req.query.t;
       if (!token) return res.status(400).json({ error: 'トークンが指定されていません' });
@@ -2574,7 +2574,7 @@ async function startServer() {
   });
 
   // 6. 招待からの登録完了 API
-  app.post(['/api/users/invite/complete', '/api/users/invite/complete/'], (req, res) => {
+  app.post(['/api/invitations/complete', '/api/invitations/complete/', '/api/users/invite/complete', '/api/users/invite/complete/'], (req, res) => {
     try {
       const {
         token,
@@ -2660,9 +2660,15 @@ async function startServer() {
   });
 
   // 7. パスワード設定依頼メール送信 API
-  app.post(['/api/users/:id/request-password-reset', '/api/users/:id/request-password-reset/'], async (req, res) => {
+  app.post([
+    '/api/passwords/request-reset',
+    '/api/passwords/request-reset/',
+    '/api/passwords/request-reset/:id',
+    '/api/users/:id/request-password-reset',
+    '/api/users/:id/request-password-reset/'
+  ], async (req, res) => {
     try {
-      const userId = req.params.id;
+      const userId = req.params.id || req.body?.userId;
       const { baseUrl, senderName = '管理者' } = req.body || {};
       const users = loadUsers();
       const user = users.find((u: any) => u.id === userId);
@@ -2726,7 +2732,12 @@ async function startServer() {
   });
 
   // 8. パスワード再設定トークン検証 API
-  app.get(['/api/users/reset-password/verify', '/api/users/reset-password/verify/'], (req, res) => {
+  app.get([
+    '/api/passwords/verify',
+    '/api/passwords/verify/',
+    '/api/users/reset-password/verify',
+    '/api/users/reset-password/verify/'
+  ], (req, res) => {
     try {
       const token = req.query.token || req.query.t;
       if (!token) return res.status(400).json({ error: 'トークンが必要です' });
@@ -2754,7 +2765,12 @@ async function startServer() {
   });
 
   // 9. パスワード再設定実行 API
-  app.post(['/api/users/reset-password', '/api/users/reset-password/'], (req, res) => {
+  app.post([
+    '/api/passwords/reset',
+    '/api/passwords/reset/',
+    '/api/users/reset-password',
+    '/api/users/reset-password/'
+  ], (req, res) => {
     try {
       const { token, newPassword } = req.body || {};
       if (!token) return res.status(400).json({ error: 'トークンが必要です' });
@@ -2788,7 +2804,12 @@ async function startServer() {
   });
 
   // 10. 初回ログイン時・強制パスワード変更 API
-  app.post(['/api/users/force-change-password', '/api/users/force-change-password/'], (req, res) => {
+  app.post([
+    '/api/passwords/force-change',
+    '/api/passwords/force-change/',
+    '/api/users/force-change-password',
+    '/api/users/force-change-password/'
+  ], (req, res) => {
     try {
       const { userId, newPassword, currentPassword } = req.body || {};
       if (!userId) return res.status(400).json({ error: 'ユーザーIDが必要です' });

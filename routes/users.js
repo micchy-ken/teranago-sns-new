@@ -1,7 +1,7 @@
 /**
  * routes/users.js (本番環境・MS SQL Server 連携 メンバー管理モジュール)
  * 寺岡オートドアSNS ユーザー管理・所属・表示順・アバター・設定モジュール
- * 最終更新: 2026年10月1日 (モジュール分割・スリム化版)
+ * 最終更新: 2026年10月1日 (パラメータ競合完全防止・ガード実装版)
  */
 import { Router } from 'express';
 import path from 'path';
@@ -14,6 +14,25 @@ import { uploadDir, dataDir } from '../config.js';
 
 const router = Router();
 const userPrefsFile = path.join(dataDir, 'user_preferences.json');
+
+// 予約語（ユーザーIDと誤認させてはならないエンドポイント名）
+const RESERVED_USER_IDS = new Set([
+  'invite',
+  'invitations',
+  'reorder',
+  'preferences',
+  'settings',
+  'notification-settings',
+  'reset-password',
+  'force-change-password',
+  'upload-avatar',
+  'personal-email'
+]);
+
+function isReservedUserId(id) {
+  if (!id) return false;
+  return RESERVED_USER_IDS.has(String(id).toLowerCase());
+}
 
 // =============================================================
 // ローカル preferences バックアップ永続化
@@ -93,126 +112,8 @@ async function checkPreferencesColumn(pool) {
 }
 
 // =============================================================
-// 1. ユーザー一覧取得 (GET /users & /api/users)
-// =============================================================
-router.get(['/users', '/users/', '/api/users', '/api/users/'], async (req, res) => {
-  try {
-    const pool = await getPool();
-    const cols = await getUserTableColumns(pool);
-    const hasCol = cols ? cols.has('preferences') : await checkPreferencesColumn(pool);
-    const hasRolesCol = cols ? cols.has('roles') : false;
-    const hasSortOrderCol = cols ? cols.has('sortorder') : false;
-    const hasMustChangeCol = cols ? cols.has('mustchangepassword') : false;
-    const allFilePrefs = loadAllUserPrefs();
-
-    const orderClause = hasSortOrderCol ? 'ORDER BY ISNULL(sortOrder, 999999) ASC, name ASC' : 'ORDER BY name ASC';
-    const result = await pool.request().query(`SELECT * FROM dbo.Users ${orderClause}`);
-    const users = (result.recordset || []).map(row => {
-      const uId = String(row.id);
-      let prefs = {};
-
-      if (hasCol && row.preferences) {
-        try {
-          prefs = typeof row.preferences === 'string' ? JSON.parse(row.preferences) : row.preferences;
-        } catch (_) {}
-      }
-
-      if (allFilePrefs[uId]) {
-        prefs = {
-          ...prefs,
-          ...allFilePrefs[uId]
-        };
-      }
-
-      let resolvedRoles = [row.role || 'user'];
-      if (hasRolesCol && row.roles) {
-        try {
-          resolvedRoles = typeof row.roles === 'string' ? JSON.parse(row.roles) : row.roles;
-        } catch (_) {}
-      } else if (prefs && Array.isArray(prefs.roles)) {
-        resolvedRoles = prefs.roles;
-      }
-
-      const mustChangePassword = hasMustChangeCol 
-        ? Boolean(row.mustChangePassword) 
-        : (prefs.mustChangePassword !== undefined ? Boolean(prefs.mustChangePassword) : false);
-
-      return {
-        ...row,
-        sortOrder: row.sortOrder !== undefined && row.sortOrder !== null ? Number(row.sortOrder) : undefined,
-        roles: resolvedRoles,
-        preferences: prefs,
-        mustChangePassword
-      };
-    });
-    res.json(users);
-  } catch (err) { 
-    res.status(500).json({ error: err.message }); 
-  }
-});
-
-// =============================================================
-// 2. 単一ユーザー取得 (GET /users/:id & /api/users/:id)
-// =============================================================
-router.get(['/users/:id', '/api/users/:id'], async (req, res) => {
-  try {
-    const pool = await getPool();
-    const cols = await getUserTableColumns(pool);
-    const hasCol = cols ? cols.has('preferences') : await checkPreferencesColumn(pool);
-    const hasRolesCol = cols ? cols.has('roles') : false;
-    const hasMustChangeCol = cols ? cols.has('mustchangepassword') : false;
-    const userId = String(req.params.id);
-    const allFilePrefs = loadAllUserPrefs();
-
-    const result = await pool.request()
-      .input('id', sql.VarChar, userId)
-      .query('SELECT * FROM dbo.Users WHERE id = @id');
-    
-    if (!result.recordset || result.recordset.length === 0) {
-      return res.status(404).json({ error: 'ユーザーが見つかりません' });
-    }
-    const row = result.recordset[0];
-    let prefs = {};
-    if (hasCol && row.preferences) {
-      try {
-        prefs = typeof row.preferences === 'string' ? JSON.parse(row.preferences) : row.preferences;
-      } catch (_) {}
-    }
-
-    if (allFilePrefs[userId]) {
-      prefs = {
-        ...prefs,
-        ...allFilePrefs[userId]
-      };
-    }
-
-    let resolvedRoles = [row.role || 'user'];
-    if (hasRolesCol && row.roles) {
-      try {
-        resolvedRoles = typeof row.roles === 'string' ? JSON.parse(row.roles) : row.roles;
-      } catch (_) {}
-    } else if (prefs && Array.isArray(prefs.roles)) {
-      resolvedRoles = prefs.roles;
-    }
-
-    const mustChangePassword = hasMustChangeCol 
-      ? Boolean(row.mustChangePassword) 
-      : (prefs.mustChangePassword !== undefined ? Boolean(prefs.mustChangePassword) : false);
-
-    res.json({
-      ...row,
-      sortOrder: row.sortOrder !== undefined && row.sortOrder !== null ? Number(row.sortOrder) : undefined,
-      roles: resolvedRoles,
-      preferences: prefs,
-      mustChangePassword
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// =============================================================
-// 3. ユーザー表示順の一括更新 API (PUT & POST /api/users/reorder)
+// 1. ユーザー表示順の一括更新 API (PUT & POST /users/reorder)
+// ※ /users/:id より前に必ず定義
 // =============================================================
 const reorderPaths = [
   '/users/reorder',
@@ -273,10 +174,139 @@ router.put(reorderPaths, reorderUsersHandler);
 router.post(reorderPaths, reorderUsersHandler);
 
 // =============================================================
+// 2. ユーザー一覧取得 (GET /users & /api/users)
+// =============================================================
+router.get(['/users', '/users/', '/api/users', '/api/users/'], async (req, res) => {
+  try {
+    const pool = await getPool();
+    const cols = await getUserTableColumns(pool);
+    const hasCol = cols ? cols.has('preferences') : await checkPreferencesColumn(pool);
+    const hasRolesCol = cols ? cols.has('roles') : false;
+    const hasSortOrderCol = cols ? cols.has('sortorder') : false;
+    const hasMustChangeCol = cols ? cols.has('mustchangepassword') : false;
+    const allFilePrefs = loadAllUserPrefs();
+
+    const orderClause = hasSortOrderCol ? 'ORDER BY ISNULL(sortOrder, 999999) ASC, name ASC' : 'ORDER BY name ASC';
+    const result = await pool.request().query(`SELECT * FROM dbo.Users ${orderClause}`);
+    const users = (result.recordset || []).map(row => {
+      const uId = String(row.id);
+      let prefs = {};
+
+      if (hasCol && row.preferences) {
+        try {
+          prefs = typeof row.preferences === 'string' ? JSON.parse(row.preferences) : row.preferences;
+        } catch (_) {}
+      }
+
+      if (allFilePrefs[uId]) {
+        prefs = {
+          ...prefs,
+          ...allFilePrefs[uId]
+        };
+      }
+
+      let resolvedRoles = [row.role || 'user'];
+      if (hasRolesCol && row.roles) {
+        try {
+          resolvedRoles = typeof row.roles === 'string' ? JSON.parse(row.roles) : row.roles;
+        } catch (_) {}
+      } else if (prefs && Array.isArray(prefs.roles)) {
+        resolvedRoles = prefs.roles;
+      }
+
+      const mustChangePassword = hasMustChangeCol 
+        ? Boolean(row.mustChangePassword) 
+        : (prefs.mustChangePassword !== undefined ? Boolean(prefs.mustChangePassword) : false);
+
+      return {
+        ...row,
+        sortOrder: row.sortOrder !== undefined && row.sortOrder !== null ? Number(row.sortOrder) : undefined,
+        roles: resolvedRoles,
+        preferences: prefs,
+        mustChangePassword
+      };
+    });
+    res.json(users);
+  } catch (err) { 
+    res.status(500).json({ error: err.message }); 
+  }
+});
+
+// =============================================================
+// 3. 単一ユーザー取得 (GET /users/:id & /api/users/:id)
+// =============================================================
+router.get(['/users/:id', '/api/users/:id'], async (req, res, next) => {
+  try {
+    const userId = String(req.params.id);
+    if (isReservedUserId(userId)) {
+      return next();
+    }
+
+    const pool = await getPool();
+    const cols = await getUserTableColumns(pool);
+    const hasCol = cols ? cols.has('preferences') : await checkPreferencesColumn(pool);
+    const hasRolesCol = cols ? cols.has('roles') : false;
+    const hasMustChangeCol = cols ? cols.has('mustchangepassword') : false;
+    const allFilePrefs = loadAllUserPrefs();
+
+    const result = await pool.request()
+      .input('id', sql.VarChar, userId)
+      .query('SELECT * FROM dbo.Users WHERE id = @id');
+    
+    if (!result.recordset || result.recordset.length === 0) {
+      return res.status(404).json({ error: 'ユーザーが見つかりません' });
+    }
+    const row = result.recordset[0];
+    let prefs = {};
+    if (hasCol && row.preferences) {
+      try {
+        prefs = typeof row.preferences === 'string' ? JSON.parse(row.preferences) : row.preferences;
+      } catch (_) {}
+    }
+
+    if (allFilePrefs[userId]) {
+      prefs = {
+        ...prefs,
+        ...allFilePrefs[userId]
+      };
+    }
+
+    let resolvedRoles = [row.role || 'user'];
+    if (hasRolesCol && row.roles) {
+      try {
+        resolvedRoles = typeof row.roles === 'string' ? JSON.parse(row.roles) : row.roles;
+      } catch (_) {}
+    } else if (prefs && Array.isArray(prefs.roles)) {
+      resolvedRoles = prefs.roles;
+    }
+
+    const mustChangePassword = hasMustChangeCol 
+      ? Boolean(row.mustChangePassword) 
+      : (prefs.mustChangePassword !== undefined ? Boolean(prefs.mustChangePassword) : false);
+
+    res.json({
+      ...row,
+      sortOrder: row.sortOrder !== undefined && row.sortOrder !== null ? Number(row.sortOrder) : undefined,
+      roles: resolvedRoles,
+      preferences: prefs,
+      mustChangePassword
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// =============================================================
 // 4. ユーザー保存・更新用ヘルパー関数 (POST / PUT 共通)
 // =============================================================
-async function saveOrUpdateUser(req, res, targetUserId = null) {
+async function saveOrUpdateUser(req, res, targetUserId = null, next = null) {
   try {
+    const rawId = targetUserId || req.body?.id;
+    if (rawId && isReservedUserId(rawId)) {
+      if (typeof next === 'function') return next();
+      return res.status(400).json({ error: '不正なユーザーIDです' });
+    }
+
     const u = req.body || {};
     const pool = await getPool();
     const cols = await getUserTableColumns(pool);
@@ -286,7 +316,7 @@ async function saveOrUpdateUser(req, res, targetUserId = null) {
     const hasPersonalEmailEncryptedCol = cols ? cols.has('personalemailencrypted') : false;
     const hasPersonalEmailMaskedCol = cols ? cols.has('personalemailmasked') : false;
     const hasMustChangeCol = cols ? cols.has('mustchangepassword') : false;
-    const userId = targetUserId || u.id || `u-${Date.now()}`;
+    const userId = rawId || `u-${Date.now()}`;
     
     const rolesArr = Array.isArray(u.roles) 
       ? u.roles 
@@ -416,7 +446,7 @@ async function saveOrUpdateUser(req, res, targetUserId = null) {
 
     await reqBuilder.query(queryStr);
 
-    res.json({ id: userId, sortOrder: parsedSortOrder, preferences: mergedPrefs, roles: rolesArr, message: 'ユーザー保存成功' });
+    res.json({ id: userId, sortOrder: parsedSortOrder, preferences: mergedPrefs, roles: rolesArr, success: true, message: 'ユーザー保存成功' });
   } catch (err) { 
     console.error('[Users] saveOrUpdateUser error:', err);
     res.status(500).json({ error: err.message }); 
@@ -424,8 +454,8 @@ async function saveOrUpdateUser(req, res, targetUserId = null) {
 }
 
 router.post(['/users', '/users/', '/api/users', '/api/users/'], (req, res) => saveOrUpdateUser(req, res));
-router.put(['/users/:id', '/api/users/:id'], (req, res) => saveOrUpdateUser(req, res, req.params.id));
-router.post(['/users/:id', '/api/users/:id'], (req, res) => saveOrUpdateUser(req, res, req.params.id));
+router.put(['/users/:id', '/api/users/:id'], (req, res, next) => saveOrUpdateUser(req, res, req.params.id, next));
+router.post(['/users/:id', '/api/users/:id'], (req, res, next) => saveOrUpdateUser(req, res, req.params.id, next));
 
 // =============================================================
 // 5. 個人設定・通知権限の更新 (PUT & POST)
@@ -507,11 +537,14 @@ router.post(preferencesPaths, updatePreferencesHandler);
 // =============================================================
 // 6. ユーザー削除 (DELETE /users/:id & /api/users/:id)
 // =============================================================
-router.delete(['/users/:id', '/api/users/:id'], async (req, res) => {
+router.delete(['/users/:id', '/api/users/:id'], async (req, res, next) => {
   try {
+    const userId = String(req.params.id);
+    if (isReservedUserId(userId)) return next();
+
     const pool = await getPool();
-    await pool.request().input('id', sql.VarChar, String(req.params.id)).query('DELETE FROM dbo.Users WHERE id = @id');
-    res.json({ message: 'ユーザー削除完了' });
+    await pool.request().input('id', sql.VarChar, userId).query('DELETE FROM dbo.Users WHERE id = @id');
+    res.json({ success: true, message: 'ユーザー削除完了' });
   } catch (err) { 
     res.status(500).json({ error: err.message }); 
   }
