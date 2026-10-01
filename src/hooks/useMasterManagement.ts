@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { API_BASE_URL } from '../config/api';
 import { OfficeMaster, DivisionMaster, PositionMaster, ItemMaster, ApprovalFlowRule } from '../types';
 
@@ -442,6 +442,10 @@ export function useMasterManagement(
       await refetchMasters();
     } catch (e) { console.error('Failed to delete approval flow:', e); }
   };
+
+  useEffect(() => {
+    refetchMasters();
+  }, [refetchMasters]);
 
   return {
     offices,

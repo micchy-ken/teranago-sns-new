@@ -24,6 +24,41 @@ import {
 } from 'lucide-react';
 import { getAvatarUrl, SILHOUETTE_SVG, sanitizeAvatarUrlForSave } from '../utils/avatar';
 
+const DEFAULT_OFFICES: OfficeMaster[] = [
+  { id: 'off-1', name: '本社', type: 'headquarter', code: 'HONSHA' },
+  { id: 'off-2', name: '名古屋支店', type: 'branch', code: 'NAGOYA' },
+  { id: 'off-3', name: '静岡営業所', type: 'sales_office', code: 'SHIZUOKA' },
+  { id: 'off-4', name: '三河営業所', type: 'sales_office', code: 'MIKAWA' },
+  { id: 'off-5', name: '三重営業所', type: 'sales_office', code: 'MIE' },
+  { id: 'off-6', name: '岐阜営業所', type: 'sales_office', code: 'GIFU' },
+  { id: 'off-7', name: '東京支店', type: 'branch', code: 'TOKYO' },
+  { id: 'off-8', name: '大阪支店', type: 'branch', code: 'OSAKA' }
+];
+
+const DEFAULT_DIVISIONS: DivisionMaster[] = [
+  { id: 'div-1', name: '管理部', code: 'KANRI' },
+  { id: 'div-2', name: '営業部', code: 'EIGYO' },
+  { id: 'div-3', name: '設計部', code: 'SEKKEI' },
+  { id: 'div-4', name: '工務部', code: 'KOMU' },
+  { id: 'div-5', name: '保守部', code: 'HOSHU' },
+  { id: 'div-6', name: '総務部', code: 'SOUMU' },
+  { id: 'div-7', name: '製造部', code: 'SEIZO' },
+  { id: 'div-8', name: '開発部', code: 'KAIHATSU' },
+  { id: 'div-9', name: 'IT', code: 'IT' },
+  { id: 'div-10', name: '人事', code: 'JINJI' },
+  { id: 'div-11', name: '経理', code: 'KEIRI' }
+];
+
+const DEFAULT_POSITIONS: PositionMaster[] = [
+  { id: 'pos-1', name: '代表取締役', code: 'CEO' },
+  { id: 'pos-2', name: '役員', code: 'EXEC' },
+  { id: 'pos-3', name: '部長', code: 'BUCHO' },
+  { id: 'pos-4', name: '課長', code: 'KACHO' },
+  { id: 'pos-5', name: '係長', code: 'KAKARICHO' },
+  { id: 'pos-6', name: '主任', code: 'SHUNIN' },
+  { id: 'pos-7', name: '一般', code: 'IPPAN' }
+];
+
 interface LoginScreenProps {
   users: User[];
   offices?: OfficeMaster[];
@@ -48,6 +83,48 @@ export function LoginScreen({
   onUserRegistered
 }: LoginScreenProps) {
   const [authMode, setAuthMode] = useState<'login' | 'invite' | 'reset-password'>(initialAuthMode);
+  
+  // マスタデータ（プロップスまたはデフォルト、マスタAPI直接取得で補完）
+  const [masterOffices, setMasterOffices] = useState<OfficeMaster[]>(offices.length > 0 ? offices : DEFAULT_OFFICES);
+  const [masterDivisions, setMasterDivisions] = useState<DivisionMaster[]>(divisions.length > 0 ? divisions : DEFAULT_DIVISIONS);
+  const [masterPositions, setMasterPositions] = useState<PositionMaster[]>(positions.length > 0 ? positions : DEFAULT_POSITIONS);
+
+  useEffect(() => {
+    if (offices && offices.length > 0) setMasterOffices(offices);
+  }, [offices]);
+
+  useEffect(() => {
+    if (divisions && divisions.length > 0) setMasterDivisions(divisions);
+  }, [divisions]);
+
+  useEffect(() => {
+    if (positions && positions.length > 0) setMasterPositions(positions);
+  }, [positions]);
+
+  useEffect(() => {
+    const fetchMasters = async () => {
+      try {
+        const [offRes, divRes, posRes] = await Promise.allSettled([
+          fetch(`${API_BASE_URL}/masters/offices`),
+          fetch(`${API_BASE_URL}/masters/divisions`),
+          fetch(`${API_BASE_URL}/masters/positions`)
+        ]);
+        if (offRes.status === 'fulfilled' && offRes.value.ok) {
+          const d = await offRes.value.json();
+          if (Array.isArray(d) && d.length > 0) setMasterOffices(d);
+        }
+        if (divRes.status === 'fulfilled' && divRes.value.ok) {
+          const d = await divRes.value.json();
+          if (Array.isArray(d) && d.length > 0) setMasterDivisions(d);
+        }
+        if (posRes.status === 'fulfilled' && posRes.value.ok) {
+          const d = await posRes.value.json();
+          if (Array.isArray(d) && d.length > 0) setMasterPositions(d);
+        }
+      } catch (_) {}
+    };
+    fetchMasters();
+  }, []);
   
   // 通常ログイン用
   const [loginId, setLoginId] = useState('');
@@ -268,11 +345,26 @@ export function LoginScreen({
         })
       });
       const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'アカウント登録に失敗しました。');
-      }
+      const returnedUser = data.user || {};
+      const newUser: User = {
+        id: String(returnedUser.id || `u_${Date.now()}`),
+        name: returnedUser.name || inviteForm.name.trim() || 'ユーザー',
+        kanaName: returnedUser.kanaName || inviteForm.kanaName.trim() || '',
+        loginId: returnedUser.loginId || inviteForm.loginId.trim(),
+        role: returnedUser.role || inviteData?.role || 'user',
+        isAdmin: returnedUser.isAdmin ?? (inviteData?.role === 'admin'),
+        office: returnedUser.office || inviteForm.office || '',
+        division: returnedUser.division || inviteForm.division || '',
+        position: returnedUser.position || inviteForm.position || '',
+        department: returnedUser.department || [inviteForm.office, inviteForm.division, inviteForm.position].filter(Boolean).join(' '),
+        email: returnedUser.email || inviteData?.email || '',
+        mobileEmail: returnedUser.mobileEmail || inviteForm.mobileEmail.trim() || '',
+        mobilePhone: returnedUser.mobilePhone || inviteForm.mobilePhone.trim() || '',
+        phoneExtension: returnedUser.phoneExtension || inviteForm.phoneExtension.trim() || '',
+        avatarUrl: returnedUser.avatarUrl || sanitizeAvatarUrlForSave(inviteForm.avatarUrl) || '',
+        password: inviteForm.password
+      };
 
-      const newUser = data.user;
       if (onUserRegistered) {
         onUserRegistered(newUser);
       }
@@ -677,9 +769,12 @@ export function LoginScreen({
                       className="w-full px-3 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-slate-100 text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none cursor-pointer"
                     >
                       <option value="">未選択</option>
-                      {offices.map(o => (
-                        <option key={o.id} value={o.name}>{o.name}</option>
-                      ))}
+                      {masterOffices.map((o, idx) => {
+                        const name = typeof o === 'string' ? o : (o?.name || '');
+                        const id = typeof o === 'string' ? o : (o?.id || `off_${idx}`);
+                        if (!name) return null;
+                        return <option key={id} value={name}>{name}</option>;
+                      })}
                     </select>
                   </div>
                   <div>
@@ -690,9 +785,12 @@ export function LoginScreen({
                       className="w-full px-3 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-slate-100 text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none cursor-pointer"
                     >
                       <option value="">未選択</option>
-                      {divisions.map(d => (
-                        <option key={d.id} value={d.name}>{d.name}</option>
-                      ))}
+                      {masterDivisions.map((d, idx) => {
+                        const name = typeof d === 'string' ? d : (d?.name || '');
+                        const id = typeof d === 'string' ? d : (d?.id || `div_${idx}`);
+                        if (!name) return null;
+                        return <option key={id} value={name}>{name}</option>;
+                      })}
                     </select>
                   </div>
                   <div>
@@ -703,9 +801,12 @@ export function LoginScreen({
                       className="w-full px-3 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-slate-100 text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none cursor-pointer"
                     >
                       <option value="">一般 / 役職なし</option>
-                      {positions.map(p => (
-                        <option key={p.id} value={p.name}>{p.name}</option>
-                      ))}
+                      {masterPositions.map((p, idx) => {
+                        const name = typeof p === 'string' ? p : (p?.name || '');
+                        const id = typeof p === 'string' ? p : (p?.id || `pos_${idx}`);
+                        if (!name) return null;
+                        return <option key={id} value={name}>{name}</option>;
+                      })}
                     </select>
                   </div>
                 </div>

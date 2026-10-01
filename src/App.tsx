@@ -1175,7 +1175,8 @@ export default function App() {
   };
 
   useEffect(() => {
-    // Always load latest users from API on mount
+    // Always load latest users and masters from API on mount
+    refetchMasters();
     refetchUsers().then((latestUsers) => {
       if (isAuthenticated) {
         refetchAll();
