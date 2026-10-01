@@ -50,6 +50,7 @@ import { FilePreviewModal } from './FilePreviewModal';
 import { triggerPushNotification } from '../utils/pushNotifications';
 import { renderContentWithLinks } from '../utils/renderContentWithLinks';
 import { UrlPastePopup, useUrlPasteHandler } from './common/UrlPastePopup';
+import { logActivity } from '../utils/logger';
 
 interface ChatProps {
   rooms: ChatRoom[];
@@ -603,6 +604,16 @@ export function Chat({
     return () => window.removeEventListener('notifications_updated', handleSync);
   }, [currentUser?.id]);
 
+  // トークルーム閲覧ログの記録（部屋切り替え時に記録）
+  const lastLoggedRoomIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!activeRoom || !currentUser?.id) return;
+    if (lastLoggedRoomIdRef.current !== activeRoom.id) {
+      lastLoggedRoomIdRef.current = activeRoom.id;
+      logActivity('chat_view', `トーク「${getRoomName(activeRoom)}」を閲覧しました`, currentUser);
+    }
+  }, [activeRoom?.id, currentUser?.id]);
+
   // 未読メッセージを自動で既読にする
   useEffect(() => {
     if (!activeRoom || !currentUser) return;
@@ -1137,6 +1148,7 @@ export function Chat({
     };
 
     updateRoomMessages(activeRoom.id, newMessage);
+    logActivity('chat_message', `トーク「${getRoomName(activeRoom)}」でメッセージを送信しました`, currentUser);
     setMessageText('');
     setChatAttachments([]);
     if (chatTextareaRef.current) {
@@ -1287,6 +1299,7 @@ export function Chat({
       };
 
       updateRoomMessages(activeRoom.id, newMessage);
+      logActivity('chat_message', `トーク「${getRoomName(activeRoom)}」で写真アルバム（${uploadResults.length}枚）を送信しました`, currentUser);
 
       pendingAlbumPhotos.forEach(p => URL.revokeObjectURL(p.previewUrl));
       setPendingAlbumPhotos([]);
@@ -1353,6 +1366,7 @@ export function Chat({
     };
 
     updateRoomMessages(activeRoom.id, newMessage);
+    logActivity('chat_message', `トーク「${getRoomName(activeRoom)}」でスタンプ「${stamp.text}」を送信しました`, currentUser);
     setShowStampPicker(false);
   };
 
@@ -1371,6 +1385,7 @@ export function Chat({
     };
 
     updateRoomMessages(activeRoom.id, newMessage);
+    logActivity('chat_message', `トーク「${getRoomName(activeRoom)}」で写真を送信しました`, currentUser);
     setPendingPhotoUrl(null);
     setPendingThumbnailUrl(null);
     setPhotoCaption('');

@@ -369,14 +369,26 @@ export default function App() {
   useEffect(() => {
     if (userState?.id && isAuthenticated) {
       syncUserReadStatusesFromServer(userState.id);
+
+      // 自動ログイン時・PC起動時のセッション開始アクセスログ（ブラウザセッションまたは日付変わり目で自動記録）
+      if (userState.name && userState.name !== 'ユーザー情報取得中...') {
+        const sessionKey = `teranago_session_access_${userState.id}`;
+        const lastSessionDate = sessionStorage.getItem(sessionKey);
+        const todayStr = new Date().toDateString();
+        if (!lastSessionDate || lastSessionDate !== todayStr) {
+          logActivity('app_access', 'システムにアクセスしました（利用開始）', userState);
+          sessionStorage.setItem(sessionKey, todayStr);
+        }
+      }
     }
-  }, [userState?.id, isAuthenticated]);
+  }, [userState, isAuthenticated]);
 
   const handleLogin = (user: User) => {
     setUserState(user);
     setIsAuthenticated(true);
     localStorage.setItem('is_logged_in', 'true');
     localStorage.setItem('logged_in_user_id', user.id);
+    sessionStorage.setItem(`teranago_session_access_${user.id}`, new Date().toDateString());
     logActivity('login', 'システムにログインしました', user);
   };
 
@@ -388,6 +400,23 @@ export default function App() {
   };
 
   const [activeTab, setActiveTab] = useState<AppTab>(() => initialUrlParams.tab || 'mypage');
+
+  // 主要タブ閲覧時のアクティビティログ（頻繁なスパムを防ぐため10分以内の同一タブ閲覧は抑制）
+  const lastLoggedTabRef = useRef<Record<string, number>>({});
+  useEffect(() => {
+    if (!isAuthenticated || !userState?.id || !userState.name || userState.name === 'ユーザー情報取得中...') return;
+    const now = Date.now();
+    const lastTime = lastLoggedTabRef.current[activeTab] || 0;
+    if (now - lastTime < 10 * 60 * 1000) return;
+
+    if (activeTab === 'chat') {
+      logActivity('chat_view', 'チャット画面を開きました', userState);
+      lastLoggedTabRef.current[activeTab] = now;
+    } else if (activeTab === 'board') {
+      logActivity('bulletin_view', '社内掲示板を開きました', userState);
+      lastLoggedTabRef.current[activeTab] = now;
+    }
+  }, [activeTab, isAuthenticated, userState]);
 
   // URL末尾のクエリパラメータを完全除去してクリーンなURLを維持
   useEffect(() => {

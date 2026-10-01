@@ -4,8 +4,11 @@ import { User } from '../types';
 export type ActivityAction = 
   | 'login' 
   | 'logout' 
-  | 'bulletin_post' 
-  | 'chat_message' 
+  | 'app_access'      // アプリ起動・セッション開始（自動ログイン時等）
+  | 'chat_view'       // チャットルーム閲覧
+  | 'chat_message'    // チャットメッセージ・スタンプ・写真送信
+  | 'bulletin_view'   // 掲示板記事閲覧
+  | 'bulletin_post'   // 掲示板投稿
   | 'safety_answer' 
   | 'stamp_manage' 
   | 'user_manage' 

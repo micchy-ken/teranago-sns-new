@@ -19,7 +19,8 @@ import {
   Smartphone, 
   Clock,
   Trash2,
-  AlertCircle
+  AlertCircle,
+  Eye
 } from 'lucide-react';
 
 export function AdminLogs() {
@@ -112,7 +113,7 @@ export function AdminLogs() {
   const stats = useMemo(() => {
     const todayStr = new Date().toDateString();
     const todayLogs = logs.filter(l => new Date(l.timestamp).toDateString() === todayStr);
-    const todayLogins = todayLogs.filter(l => l.action === 'login');
+    const todayLogins = todayLogs.filter(l => l.action === 'login' || l.action === 'app_access');
     const uniqueUsersToday = new Set(todayLogs.map(l => l.userId)).size;
 
     return {
@@ -138,8 +139,11 @@ export function AdminLogs() {
       switch (act) {
         case 'login': return 'ログイン';
         case 'logout': return 'ログアウト';
-        case 'bulletin_post': return '掲示板投稿';
+        case 'app_access': return '利用開始（アクセス）';
+        case 'chat_view': return 'チャット閲覧';
         case 'chat_message': return 'チャット送信';
+        case 'bulletin_view': return '掲示板閲覧';
+        case 'bulletin_post': return '掲示板投稿';
         case 'safety_answer': return '安否確認回答';
         case 'stamp_manage': return 'スタンプ管理';
         case 'user_manage': return 'ユーザー管理';
@@ -188,6 +192,13 @@ export function AdminLogs() {
   // アクションバッジのレンダリング
   const renderActionBadge = (action: string) => {
     switch (action) {
+      case 'app_access':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-teal-50 text-teal-700 border border-teal-200">
+            <Laptop className="w-3 h-3 text-teal-600" />
+            利用開始
+          </span>
+        );
       case 'login':
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-sky-50 text-sky-700 border border-sky-200">
@@ -202,18 +213,32 @@ export function AdminLogs() {
             ログアウト
           </span>
         );
-      case 'bulletin_post':
+      case 'chat_view':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-            <FileCheck className="w-3 h-3 text-emerald-600" />
-            掲示板投稿
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-cyan-50 text-cyan-700 border border-cyan-200">
+            <Eye className="w-3 h-3 text-cyan-600" />
+            チャット閲覧
           </span>
         );
       case 'chat_message':
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
             <MessageSquare className="w-3 h-3 text-indigo-600" />
-            チャット
+            チャット送信
+          </span>
+        );
+      case 'bulletin_view':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+            <FileText className="w-3 h-3 text-amber-600" />
+            掲示板閲覧
+          </span>
+        );
+      case 'bulletin_post':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+            <FileCheck className="w-3 h-3 text-emerald-600" />
+            掲示板投稿
           </span>
         );
       case 'safety_answer':
@@ -356,13 +381,17 @@ export function AdminLogs() {
                 className="bg-transparent text-xs font-bold text-slate-700 focus:outline-hidden cursor-pointer"
               >
                 <option value="all">すべてのアクション</option>
+                <option value="app_access">利用開始（アクセス）</option>
                 <option value="login">ログイン</option>
                 <option value="logout">ログアウト</option>
-                <option value="bulletin_post">掲示板投稿</option>
+                <option value="chat_view">チャット閲覧</option>
                 <option value="chat_message">チャット送信</option>
+                <option value="bulletin_view">掲示板閲覧</option>
+                <option value="bulletin_post">掲示板投稿</option>
                 <option value="safety_answer">安否確認回答</option>
                 <option value="stamp_manage">スタンプ管理</option>
                 <option value="user_manage">ユーザー管理</option>
+                <option value="admin_action">管理操作</option>
               </select>
             </div>
 
