@@ -550,54 +550,6 @@ export function AdminPanel({
     description: '',
   });
 
-  // Access Control check
-  if (!currentUser.isAdmin) {
-    return (
-      <div className="flex-1 max-w-4xl mx-auto space-y-6">
-        <div className="bg-white rounded-2xl border border-red-200 p-8 shadow-sm text-center space-y-6">
-          <div className="w-16 h-16 bg-red-100 text-red-600 rounded-2xl flex items-center justify-center mx-auto ring-8 ring-red-50">
-            <ShieldAlert className="w-8 h-8" />
-          </div>
-          <div className="space-y-2 max-w-md mx-auto">
-            <h2 className="text-xl font-bold text-slate-900">管理者権限が必要です</h2>
-            <p className="text-sm text-slate-600 leading-relaxed">
-              現在ログイン中のユーザー <span className="font-semibold text-slate-800">「{currentUser.name}」</span> には管理者メニューの操作権限が付与されていません。
-            </p>
-          </div>
-
-          <div className="p-4 bg-amber-50 rounded-xl border border-amber-200 max-w-md mx-auto text-left text-xs text-amber-800 space-y-2">
-            <div className="font-semibold flex items-center gap-1.5 text-amber-900">
-              <Info className="w-4 h-4 shrink-0 text-amber-600" />
-              動作確認用のユーザー切り替え
-            </div>
-            <p>
-              「山道 健介」アカウントには管理者権限が付与されています。以下のボタンからユーザーを切り替えて操作をお試しいただけます。
-            </p>
-          </div>
-
-          {onSwitchUser && (
-            <div className="flex flex-wrap justify-center gap-3 pt-2">
-              {allUsers.map((user) => (
-                <button
-                  key={user.id}
-                  onClick={() => onSwitchUser(user)}
-                  className={`px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 border transition-all ${
-                    user.isAdmin
-                      ? 'bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700 shadow-sm'
-                      : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
-                  }`}
-                >
-                  <img src={getAvatarUrl(user.avatarUrl)} alt={user.name} className="w-5 h-5 rounded-full object-cover" />
-                  <span>{user.name}</span>
-                  {user.isAdmin && <span className="bg-indigo-500/80 text-white px-1.5 py-0.2 rounded text-[10px]">管理者</span>}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
 
   // --- USER HANDLERS ---
   const handleOpenAddUserModal = () => {
@@ -1743,6 +1695,55 @@ export function AdminPanel({
       setIsSavingUserOrder(false);
     }
   };
+
+  // Access Control check
+  if (!currentUser.isAdmin) {
+    return (
+      <div className="flex-1 max-w-4xl mx-auto space-y-6">
+        <div className="bg-white rounded-2xl border border-red-200 p-8 shadow-sm text-center space-y-6">
+          <div className="w-16 h-16 bg-red-100 text-red-600 rounded-2xl flex items-center justify-center mx-auto ring-8 ring-red-50">
+            <ShieldAlert className="w-8 h-8" />
+          </div>
+          <div className="space-y-2 max-w-md mx-auto">
+            <h2 className="text-xl font-bold text-slate-900">管理者権限が必要です</h2>
+            <p className="text-sm text-slate-600 leading-relaxed">
+              現在ログイン中のユーザー <span className="font-semibold text-slate-800">「{currentUser.name}」</span> には管理者メニューの操作権限が付与されていません。
+            </p>
+          </div>
+
+          <div className="p-4 bg-amber-50 rounded-xl border border-amber-200 max-w-md mx-auto text-left text-xs text-amber-800 space-y-2">
+            <div className="font-semibold flex items-center gap-1.5 text-amber-900">
+              <Info className="w-4 h-4 shrink-0 text-amber-600" />
+              動作確認用のユーザー切り替え
+            </div>
+            <p>
+              「山道 健介」アカウントには管理者権限が付与されています。以下のボタンからユーザーを切り替えて操作をお試しいただけます。
+            </p>
+          </div>
+
+          {onSwitchUser && (
+            <div className="flex flex-wrap justify-center gap-3 pt-2">
+              {allUsers.map((user) => (
+                <button
+                  key={user.id}
+                  onClick={() => onSwitchUser(user)}
+                  className={`px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 border transition-all cursor-pointer ${
+                    user.isAdmin
+                      ? 'bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700 shadow-sm'
+                      : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
+                  }`}
+                >
+                  <img src={getAvatarUrl(user.avatarUrl)} alt={user.name} className="w-5 h-5 rounded-full object-cover" />
+                  <span>{user.name}</span>
+                  {user.isAdmin && <span className="bg-indigo-500/80 text-white px-1.5 py-0.2 rounded text-[10px]">管理者</span>}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex-1 max-w-5xl mx-auto space-y-6">

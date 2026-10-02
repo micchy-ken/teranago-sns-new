@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { Hash, Home, Bookmark, User, Calendar as CalendarIcon, FileText, MessageSquare, Phone, ClipboardList, Monitor, Shield, HardDrive, Users, ShieldAlert, Wrench, ChevronDown, ChevronRight, FileCheck2 } from 'lucide-react';
+import { Hash, Home, Bookmark, User, Calendar as CalendarIcon, FileText, MessageSquare, Phone, ClipboardList, Monitor, Shield, HardDrive, Users, ShieldAlert, Wrench, ChevronDown, ChevronRight, FileCheck2, FolderArchive } from 'lucide-react';
 import { Post, BoardTopic, User as UserType } from '../types';
 
-export type AppTab = 'timeline' | 'calendar' | 'inspection_scheduler' | 'inspection_report' | 'workflow' | 'board' | 'chat' | 'memo' | 'daily_report' | 'files' | 'members' | 'mypage' | 'admin' | 'safety_confirmation';
+export type AppTab = 'timeline' | 'calendar' | 'inspection_scheduler' | 'inspection_report' | 'workflow' | 'board' | 'chat' | 'memo' | 'documents' | 'daily_report' | 'files' | 'members' | 'mypage' | 'admin' | 'safety_confirmation';
 
 export interface SidebarUnreadCounts {
   chat?: number;
@@ -249,6 +249,21 @@ export function Sidebar({
                 {(unreadCounts?.memo || 0) > 99 ? '99+' : unreadCounts?.memo}
               </span>
             )}
+          </button>
+        )}
+        {isTabAllowed('documents') && (
+          <button
+            onClick={() => onChangeTab('documents')}
+            className={`w-full flex items-center justify-between px-3 py-2 rounded-lg font-medium transition-colors ${
+              activeTab === 'documents'
+                ? 'bg-indigo-50 text-indigo-700 font-bold'
+                : 'text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <FolderArchive className="w-4 h-4" />
+              <span>文書管理</span>
+            </div>
           </button>
         )}
         {isTabAllowed('daily_report') && (

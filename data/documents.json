@@ -1,0 +1,34 @@
+{
+  "folders": [
+    {
+      "id": "folder_root_general",
+      "name": "全社共有キャビネット",
+      "description": "全社向けのマニュアル・社内規程・各種テンプレート集です。",
+      "parentId": null,
+      "createdById": "u1",
+      "createdByName": "システム管理者",
+      "createdAt": "2026-10-02T05:11:41.044Z",
+      "updatedAt": "2026-10-02T05:11:41.044Z",
+      "permission": {
+        "viewers": "all",
+        "editors": "all"
+      }
+    },
+    {
+      "id": "folder_general_forms",
+      "name": "各種申請書・届出書式",
+      "description": "総務・経理関連の申請書テンプレートです。",
+      "parentId": "folder_root_general",
+      "createdById": "u1",
+      "createdByName": "システム管理者",
+      "createdAt": "2026-10-02T05:11:41.044Z",
+      "updatedAt": "2026-10-02T05:11:41.044Z",
+      "permission": {
+        "viewers": "all",
+        "editors": "all"
+      }
+    }
+  ],
+  "items": [],
+  "downloads": []
+}

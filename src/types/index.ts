@@ -604,3 +604,75 @@ export interface SafetyConfirmationResponse {
   respondedAt: string;                // 回答日時 (ISO)
   updatedAt?: string;
 }
+
+// ==========================================
+// 文書管理・フォルダ機能 (Documents & Folders) 型定義
+// ==========================================
+export interface FolderPermission {
+  viewers: 'all' | string[]; // 閲覧許可ユーザーID配列（'all'で全員）
+  editors: 'all' | string[]; // 追加・編集・削除許可ユーザーID配列（'all'で全員）
+}
+
+export interface DocumentFolder {
+  id: string;
+  name: string;
+  description?: string;
+  parentId: string | null;   // null はルート階層
+  orderIndex?: number;
+  createdById: string;
+  createdByName: string;
+  createdAt: string;
+  updatedAt: string;
+  permission: FolderPermission;
+  // UI用補助フィールド
+  subfolderCount?: number;
+  documentCount?: number;
+}
+
+export interface DocumentAttachedFile {
+  fileId: string;
+  fileName: string;          // 元ファイル名
+  fileSize: number;          // バイト数
+  fileUrl: string;           // アクセスURL
+  fileType?: string;         // 拡張子 / MIME
+  storagePath?: string;      // サーバー内相対パス
+}
+
+export interface DocumentVersion {
+  versionNumber: number;     // 1, 2, 3...
+  uploadedAt: string;        // 添付日（アップロード日時）
+  uploadedById: string;      // アップロード者ID
+  uploadedByName: string;    // アップロード者名
+  changeNote?: string;       // 改定メモ・理由
+  files: DocumentAttachedFile[]; // 同梱添付ファイル群
+}
+
+export interface DocumentDownloadLog {
+  id: string;
+  documentId: string;
+  versionNumber: number;
+  fileId?: string;
+  fileName?: string;
+  userId: string;
+  userName: string;
+  userDepartment?: string;
+  downloadedAt: string;
+}
+
+export interface DocumentItem {
+  id: string;
+  folderId: string;
+  title: string;              // ドキュメントタイトル
+  description?: string;       // 概要・説明
+  createdById: string;
+  createdByName: string;
+  createdAt: string;          // 初回登録日
+  updatedById: string;        // 最終更新者ID
+  updatedByName: string;      // 最終更新者名
+  updatedAt: string;          // 添付日（最終更新日）
+  downloadCount: number;      // 累計ダウンロード数
+  versions: DocumentVersion[]; // バージョン履歴
+  latestVersionNumber: number;
+  latestFiles: DocumentAttachedFile[];
+}
+

@@ -1,7 +1,7 @@
 export const RECOMMEND_SERVER_JS = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年10月1日 (POP3メール受信・掲示板SQL Server動的所属INSERT完全同期・ユーザー招待＆パスワード管理RESTful刷新)
+ * 最終更新日時 (最終アップデート): 2026年10月1日 (文書管理・フォルダ機能 API (routes/documents.js) 連携・ZIP一括DL・履歴＆DL者追跡対応)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -32,6 +32,7 @@ import { createServer as createViteServer } from 'vite';
 import { expandRecurringEvents } from './src/utils/recurrenceUtils';
 import stampsRouter from './routes/stamps.js';
 import logsRouter from './routes/logs.js';
+import documentsRouter from './routes/documents.js';
 
 async function startServer() {
   const app = express();
@@ -660,6 +661,14 @@ async function startServer() {
 
   // スタンプ管理APIルーター
   app.use('/api/stamps', stampsRouter);
+
+  // 文書管理・フォルダ機能APIルーター
+  const documentsFilesDir = path.join(uploadsDir, 'documents');
+  if (!fs.existsSync(documentsFilesDir)) {
+    fs.mkdirSync(documentsFilesDir, { recursive: true });
+  }
+  app.use('/uploads/documents', express.static(documentsFilesDir, { maxAge: '30d', immutable: true }));
+  app.use('/api/documents', documentsRouter);
 
   // アクセス・操作ログ管理APIルーター
   app.use('/api/logs', logsRouter);
@@ -7078,6 +7087,11 @@ export interface ServerCodeHistoryItem {
 }
 
 export const SERVER_CODE_HISTORY: ServerCodeHistoryItem[] = [
+  {
+    version: 'v2026.10.01.2',
+    date: '2026-10-01',
+    summary: '文書管理・フォルダ機能 (routes/documents.js) 連携・階層フォルダ・権限設定・バージョン履歴・複数ファイル同梱・ZIP一括DL・DL者追跡ログ 完全同期版',
+  },
   {
     version: 'v2026.10.01',
     date: '2026-10-01',

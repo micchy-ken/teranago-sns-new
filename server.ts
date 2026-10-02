@@ -11,6 +11,7 @@ import { createServer as createViteServer } from 'vite';
 import { expandRecurringEvents } from './src/utils/recurrenceUtils';
 import stampsRouter from './routes/stamps.js';
 import logsRouter from './routes/logs.js';
+import documentsRouter from './routes/documents.js';
 
 async function startServer() {
   const app = express();
@@ -639,6 +640,14 @@ async function startServer() {
 
   // スタンプ管理APIルーター
   app.use('/api/stamps', stampsRouter);
+
+  // 文書管理・フォルダ機能APIルーター
+  const documentsFilesDir = path.join(uploadsDir, 'documents');
+  if (!fs.existsSync(documentsFilesDir)) {
+    fs.mkdirSync(documentsFilesDir, { recursive: true });
+  }
+  app.use('/uploads/documents', express.static(documentsFilesDir, { maxAge: '30d', immutable: true }));
+  app.use('/api/documents', documentsRouter);
 
   // アクセス・操作ログ管理APIルーター
   app.use('/api/logs', logsRouter);

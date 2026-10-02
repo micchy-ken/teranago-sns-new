@@ -27,6 +27,7 @@ const GuestSafetyResponse = lazyWithRetry(() => import('./components/GuestSafety
 const MyPage = lazyWithRetry(() => import('./components/MyPage').then(m => ({ default: m.MyPage })));
 const AdminPanel = lazyWithRetry(() => import('./components/AdminPanel').then(m => ({ default: m.AdminPanel })));
 const FileManager = lazyWithRetry(() => import('./components/FileManager'));
+const DocumentManager = lazyWithRetry(() => import('./components/DocumentManager'));
 import { Post, CalendarEvent, WorkflowApplication, User, OfficeMaster, DivisionMaster, PositionMaster, BoardTopic, ChatRoom, ApprovalFlowRule, ApprovalStepConfig, ItemMaster, ApplicationStatus, DailyReport, Memo, SafetyConfirmationEvent, SafetyConfirmationResponse } from './types';
 import { 
   syncUserReadStatusesFromServer, 
@@ -2965,6 +2966,14 @@ export default function App() {
                 setMemoInitialRecipientId(undefined);
               }}
               onSelectUser={handleOpenUserDetail}
+            />
+          )}
+          {activeTab === 'documents' && (
+            <DocumentManager 
+              currentUser={userState}
+              allUsers={usersList}
+              offices={offices}
+              divisions={divisions}
             />
           )}
           {activeTab === 'members' && (
