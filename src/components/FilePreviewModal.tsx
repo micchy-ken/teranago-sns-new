@@ -15,6 +15,28 @@ export function FilePreviewModal({ isOpen, onClose, file }: FilePreviewModalProp
   const resolvedUrl = resolveFileUrl(file.url);
   const isImage = file.type?.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(file.name);
   const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+  const isText = /\.(txt|csv|json|xml|log|ini|md)$/i.test(file.name);
+
+  const [textContent, setTextContent] = React.useState<string | null>(null);
+  const [textLoading, setTextLoading] = React.useState<boolean>(false);
+  const [imageError, setImageError] = React.useState<boolean>(false);
+
+  React.useEffect(() => {
+    setImageError(false);
+    if (isText && resolvedUrl) {
+      setTextLoading(true);
+      fetch(resolvedUrl)
+        .then(r => r.ok ? r.text() : Promise.reject('HTTP ' + r.status))
+        .then(t => setTextContent(t))
+        .catch(err => {
+          console.warn('[FilePreviewModal] Text fetch error:', err);
+          setTextContent(null);
+        })
+        .finally(() => setTextLoading(false));
+    } else {
+      setTextContent(null);
+    }
+  }, [file.url, resolvedUrl, isText]);
 
   // 拡張子に応じたアイコン
   const getFileIcon = (fileName: string) => {
@@ -82,12 +104,13 @@ export function FilePreviewModal({ isOpen, onClose, file }: FilePreviewModalProp
 
         {/* Preview Content */}
         <div className="flex-1 overflow-auto bg-slate-100 p-6 flex items-center justify-center min-h-[300px]">
-          {isImage && resolvedUrl ? (
+          {isImage && resolvedUrl && !imageError ? (
             <div className="max-w-full max-h-[70vh] flex items-center justify-center">
               <img
                 src={resolvedUrl || undefined}
                 alt={file.name}
                 referrerPolicy="no-referrer"
+                onError={() => setImageError(true)}
                 className="max-w-full max-h-[70vh] rounded-lg shadow-sm border border-slate-200/50 object-contain bg-white"
               />
             </div>
@@ -99,26 +122,41 @@ export function FilePreviewModal({ isOpen, onClose, file }: FilePreviewModalProp
                 title={file.name}
               />
             </div>
+          ) : isText && resolvedUrl ? (
+            textLoading ? (
+              <div className="text-slate-400 text-xs">テキストを読み込み中...</div>
+            ) : textContent !== null ? (
+              <pre className="w-full h-[70vh] p-4 bg-white rounded-lg border border-slate-200 text-xs text-slate-700 font-mono overflow-auto whitespace-pre-wrap leading-relaxed">
+                {textContent}
+              </pre>
+            ) : (
+              <div className="text-center py-12 px-6">
+                <p className="text-sm font-bold text-slate-700 mb-2">テキストの読み込みに失敗しました</p>
+                <button
+                  onClick={handleDownload}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold"
+                >
+                  ダウンロードして確認
+                </button>
+              </div>
+            )
           ) : (
             <div className="text-center py-12 px-6">
               <div className="flex justify-center mb-4">
                 {getFileIcon(file.name)}
               </div>
               <p className="text-sm font-bold text-slate-700 mb-1">
-                このファイル形式のオンラインプレビューは対応していません。
+                {imageError ? '画像の表示に失敗しました' : 'このファイル形式のオンラインプレビューは対応していません。'}
               </p>
               <p className="text-xs text-slate-400 mb-4 font-medium">
-                内容を確認するにはファイルをダウンロードしてください。
+                ダウンロードして端末上でファイルをご確認ください。
               </p>
-              {file.url && (
-                <button
-                  onClick={handleDownload}
-                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-md transition-all inline-flex items-center gap-1.5"
-                >
-                  <Download className="w-4 h-4" />
-                  ファイルをダウンロード
-                </button>
-              )}
+              <button
+                onClick={handleDownload}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors"
+              >
+                ファイルをダウンロード
+              </button>
             </div>
           )}
         </div>

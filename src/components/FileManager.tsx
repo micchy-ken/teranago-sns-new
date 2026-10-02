@@ -18,10 +18,11 @@ import {
   ExternalLink,
   CheckCircle,
   AlertCircle,
-  Paperclip
+  Paperclip,
+  FolderArchive
 } from 'lucide-react';
 import { API_BASE_URL } from '../config/api';
-import { User } from '../types';
+import { User, OfficeMaster, DivisionMaster } from '../types';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 
 interface ExternalFile {
@@ -34,24 +35,34 @@ interface ExternalFile {
   extension: string;
   fileObject?: File;
   blobUrl?: string;
-  source?: 'nas' | 'bulletin';
+  source?: 'nas' | 'bulletin' | 'documents';
   rawFilename?: string;
+  documentTitle?: string;
+  documentId?: string;
 }
 
 interface FileManagerProps {
   currentUser?: User;
+  allUsers?: User[];
+  offices?: OfficeMaster[];
+  divisions?: DivisionMaster[];
 }
 
 // プレビューが有効な拡張子
 const PREVIEW_IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'];
 const PREVIEW_TEXT_EXTS = ['txt', 'csv', 'json', 'xml', 'log', 'ini', 'md'];
 
-export default function FileManager({ currentUser }: FileManagerProps) {
+export default function FileManager({ 
+  currentUser,
+  allUsers = [],
+  offices = [],
+  divisions = []
+}: FileManagerProps) {
   const [files, setFiles] = useState<ExternalFile[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeSourceFilter, setActiveSourceFilter] = useState<'nas' | 'bulletin'>('nas');
+  const [activeSourceFilter, setActiveSourceFilter] = useState<'nas' | 'bulletin' | 'documents'>('nas');
   const [currentPath, setCurrentPath] = useState<string>(''); // 空文字はルート
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
@@ -78,29 +89,68 @@ export default function FileManager({ currentUser }: FileManagerProps) {
     fetchFileList();
   }, []);
 
-  // ファイル一覧取得 (NAS共有 + 掲示板添付ファイルを両方取得して統合)
+  // ファイル一覧取得 (NAS共有 + 掲示板添付ファイル + 文書管理ファイルを統合)
   const fetchFileList = async () => {
     setLoading(true);
     setError(null);
 
     try {
-      const [nasRes, bulletinRes] = await Promise.all([
+      const [nasRes, bulletinRes, docRes] = await Promise.all([
         fetch(`${API_BASE_URL}/external-files/list`).catch(() => null),
-        fetch(`${API_BASE_URL}/bulletinsfiles/list`).catch(() => null)
+        fetch(`${API_BASE_URL}/bulletinsfiles/list`).catch(() => null),
+        fetch(`${API_BASE_URL}/documents/items`).catch(() => null)
       ]);
 
       let combined: ExternalFile[] = [];
 
+      // 1. NAS共有ファイル
       if (nasRes && nasRes.ok) {
         const nasData: ExternalFile[] = await nasRes.json();
-        const formattedNas = nasData.map(f => ({ ...f, source: 'nas' as const }));
+        const formattedNas = nasData.map(f => {
+          const ext = (f.extension || (f.name && f.name.includes('.') ? f.name.split('.').pop() : '') || '').toLowerCase().replace('.', '');
+          return { ...f, extension: ext, source: 'nas' as const };
+        });
         combined = [...combined, ...formattedNas];
       }
 
+      // 2. 掲示板添付ファイル
       if (bulletinRes && bulletinRes.ok) {
-        const bulletinData: ExternalFile[] = await bulletinRes.json();
-        const formattedBulletin = bulletinData.map(f => ({ ...f, source: 'bulletin' as const }));
+        const bulletinData: any[] = await bulletinRes.json();
+        const formattedBulletin = bulletinData.map(f => {
+          const ext = (f.extension || (f.name && f.name.includes('.') ? f.name.split('.').pop() : '') || '').toLowerCase().replace('.', '');
+          return {
+            ...f,
+            extension: ext,
+            source: 'bulletin' as const
+          };
+        });
         combined = [...combined, ...formattedBulletin];
+      }
+
+      // 3. 文書管理ファイル（管理用として全添付ファイルをフラットに抽出）
+      if (docRes && docRes.ok) {
+        const docItems: any[] = await docRes.json();
+        const docFiles: ExternalFile[] = [];
+        docItems.forEach(item => {
+          const files = item.latestFiles || (item.versions && item.versions.length > 0 ? item.versions[item.versions.length - 1].files : []) || [];
+          files.forEach((f: any) => {
+            const ext = (f.fileType || (f.fileName && f.fileName.includes('.') ? f.fileName.split('.').pop() : '') || '').toLowerCase().replace('.', '');
+            docFiles.push({
+              name: f.fileName,
+              rawFilename: f.storagePath || f.fileName,
+              path: f.storagePath || f.fileName,
+              url: f.fileUrl,
+              size: f.fileSize || 0,
+              mtime: item.updatedAt || item.createdAt || new Date().toISOString(),
+              isDirectory: false,
+              extension: ext,
+              source: 'documents',
+              documentTitle: item.title,
+              documentId: item.id
+            });
+          });
+        });
+        combined = [...combined, ...docFiles];
       }
 
       setFiles(combined);
@@ -131,7 +181,14 @@ export default function FileManager({ currentUser }: FileManagerProps) {
       if (isDownload) {
         rawUrl = `/api/bulletins/file/${encodeURIComponent(filename)}?download=1`;
       } else {
-        rawUrl = file.url || `/bulletinsfiles/${encodeURIComponent(filename)}`;
+        rawUrl = `/api/bulletinsfiles/${encodeURIComponent(filename)}`;
+      }
+    } else if (file.source === 'documents') {
+      const filename = file.rawFilename || file.path || file.name;
+      if (file.url && file.url.startsWith('/uploads/documents/')) {
+        rawUrl = `/api${file.url}`;
+      } else {
+        rawUrl = `/api/uploads/documents/${encodeURIComponent(filename)}`;
       }
     } else {
       const relPath = file.path || '';
@@ -229,23 +286,24 @@ export default function FileManager({ currentUser }: FileManagerProps) {
       filtered = files.filter(f => f.source === 'nas');
     } else if (activeSourceFilter === 'bulletin') {
       filtered = files.filter(f => f.source === 'bulletin');
+    } else if (activeSourceFilter === 'documents') {
+      filtered = files.filter(f => f.source === 'documents');
     }
 
-    // 2. 検索キーワード指定、または掲示板添付ファイルモード
-    if (searchQuery.trim() !== '' || activeSourceFilter === 'bulletin') {
+    // 2. 検索キーワード指定、または掲示板添付ファイルモード・文書管理モード
+    if (searchQuery.trim() !== '' || activeSourceFilter === 'bulletin' || activeSourceFilter === 'documents') {
       const q = searchQuery.toLowerCase().trim();
       if (!q) return filtered;
       return filtered.filter(f => 
         f.name.toLowerCase().includes(q) || 
         f.path.toLowerCase().includes(q) ||
-        f.extension.toLowerCase().includes(q)
+        (f.documentTitle && f.documentTitle.toLowerCase().includes(q)) ||
+        (f.extension && f.extension.toLowerCase().includes(q))
       );
     }
 
     // 3. NAS階層ナビゲーションモード
     return filtered.filter(f => {
-      if (f.source === 'bulletin') return true; // 掲示板添付ファイルはリストアップ
-
       if (!currentPath) {
         return !f.path.includes('/');
       } else {
@@ -547,10 +605,10 @@ export default function FileManager({ currentUser }: FileManagerProps) {
       </div>
 
       {/* ソース切り替えタブ */}
-      <div className="px-6 pt-3 pb-0 bg-white border-b border-slate-100 flex items-center gap-2">
+      <div className="px-6 pt-3 pb-0 bg-white border-b border-slate-100 flex items-center gap-2 overflow-x-auto">
         <button
-          onClick={() => setActiveSourceFilter('nas')}
-          className={`px-4 py-2 rounded-t-xl text-xs font-bold transition-all flex items-center gap-2 border-b-2 cursor-pointer ${
+          onClick={() => { setActiveSourceFilter('nas'); setSearchQuery(''); }}
+          className={`px-4 py-2 rounded-t-xl text-xs font-bold transition-all flex items-center gap-2 border-b-2 cursor-pointer shrink-0 ${
             activeSourceFilter === 'nas'
               ? 'border-indigo-600 text-indigo-700 bg-indigo-50/60 shadow-xs'
               : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-50'
@@ -560,8 +618,8 @@ export default function FileManager({ currentUser }: FileManagerProps) {
           NAS共有ファイル ({files.filter(f => f.source === 'nas').length})
         </button>
         <button
-          onClick={() => setActiveSourceFilter('bulletin')}
-          className={`px-4 py-2 rounded-t-xl text-xs font-bold transition-all flex items-center gap-2 border-b-2 cursor-pointer ${
+          onClick={() => { setActiveSourceFilter('bulletin'); setSearchQuery(''); }}
+          className={`px-4 py-2 rounded-t-xl text-xs font-bold transition-all flex items-center gap-2 border-b-2 cursor-pointer shrink-0 ${
             activeSourceFilter === 'bulletin'
               ? 'border-indigo-600 text-indigo-700 bg-indigo-50/60 shadow-xs'
               : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-50'
@@ -569,6 +627,17 @@ export default function FileManager({ currentUser }: FileManagerProps) {
         >
           <Paperclip className="w-3.5 h-3.5" />
           掲示板添付ファイル ({files.filter(f => f.source === 'bulletin').length})
+        </button>
+        <button
+          onClick={() => { setActiveSourceFilter('documents'); setSearchQuery(''); }}
+          className={`px-4 py-2 rounded-t-xl text-xs font-bold transition-all flex items-center gap-2 border-b-2 cursor-pointer shrink-0 ${
+            activeSourceFilter === 'documents'
+              ? 'border-indigo-600 text-indigo-700 bg-indigo-50/60 shadow-xs'
+              : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-50'
+          }`}
+        >
+          <FolderArchive className="w-3.5 h-3.5 text-indigo-600" />
+          文書管理 ({files.filter(f => f.source === 'documents').length})
         </button>
       </div>
 
@@ -578,9 +647,21 @@ export default function FileManager({ currentUser }: FileManagerProps) {
         <div className="flex-1 flex items-center gap-1 overflow-x-auto w-full py-1">
           {activeSourceFilter === 'bulletin' ? (
             <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-slate-700 bg-purple-50 text-purple-700 px-2.5 py-1 rounded-lg border border-purple-200/60 flex items-center gap-1.5">
+              <span className="text-xs font-bold bg-purple-50 text-purple-700 px-2.5 py-1 rounded-lg border border-purple-200/60 flex items-center gap-1.5">
                 <Paperclip className="w-3.5 h-3.5" />
                 掲示板添付ファイル一覧
+              </span>
+              {searchQuery && (
+                <span className="text-xs bg-indigo-50 text-indigo-700 px-2 py-1 rounded-lg font-bold">
+                  検索結果: "{searchQuery}"
+                </span>
+              )}
+            </div>
+          ) : activeSourceFilter === 'documents' ? (
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-lg border border-emerald-200/60 flex items-center gap-1.5">
+                <FolderArchive className="w-3.5 h-3.5 text-emerald-600" />
+                文書管理ファイル一覧（全ファイル）
               </span>
               {searchQuery && (
                 <span className="text-xs bg-indigo-50 text-indigo-700 px-2 py-1 rounded-lg font-bold">
@@ -768,6 +849,11 @@ export default function FileManager({ currentUser }: FileManagerProps) {
                               <span className="font-medium truncate max-w-[240px] sm:max-w-[380px] text-slate-700">
                                 {file.name}
                               </span>
+                              {file.documentTitle && (
+                                <span className="text-[10px] text-emerald-600 font-semibold truncate max-w-[240px]">
+                                  文書: {file.documentTitle}
+                                </span>
+                              )}
                               {searchQuery && (
                                 <span className="text-[10px] text-slate-400 truncate max-w-[240px]">
                                   パス: {file.path}
@@ -781,6 +867,10 @@ export default function FileManager({ currentUser }: FileManagerProps) {
                         {file.source === 'bulletin' ? (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-200/60">
                             掲示板添付
+                          </span>
+                        ) : file.source === 'documents' ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/60">
+                            文書管理
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200/60">
@@ -803,16 +893,20 @@ export default function FileManager({ currentUser }: FileManagerProps) {
                       <td className="py-3.5 text-right pr-2">
                         <div className="flex items-center justify-end gap-1.5 opacity-80 group-hover:opacity-100 transition-opacity">
                           
-                          {/* プレビューボタン */}
-                          {!file.isDirectory && (PREVIEW_IMAGE_EXTS.includes(file.extension) || PREVIEW_TEXT_EXTS.includes(file.extension) || file.extension === 'pdf') && (
-                            <button
-                              onClick={() => handleOpenPreview(file)}
-                              className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
-                              title="ブラウザでプレビュー"
-                            >
-                              <Eye className="w-4 h-4" />
-                            </button>
-                          )}
+                          {/* プレビューボタン (拡張子判定をファイル名からもフォールバックして確実に表示) */}
+                          {!file.isDirectory && (() => {
+                            const ext = (file.extension || (file.name.includes('.') ? file.name.split('.').pop() : '') || '').toLowerCase().replace('.', '');
+                            const canPreview = PREVIEW_IMAGE_EXTS.includes(ext) || PREVIEW_TEXT_EXTS.includes(ext) || ext === 'pdf';
+                            return canPreview ? (
+                              <button
+                                onClick={() => handleOpenPreview({ ...file, extension: ext })}
+                                className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
+                                title="ブラウザでプレビュー"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </button>
+                            ) : null;
+                          })()}
 
                           {/* ダウンロード */}
                           {!file.isDirectory && (
@@ -825,8 +919,8 @@ export default function FileManager({ currentUser }: FileManagerProps) {
                             </button>
                           )}
 
-                          {/* 削除 (NAS共有ファイルのみ削除可能。掲示板添付ファイルは閲覧・ダウンロード専用) */}
-                          {file.source !== 'bulletin' && (
+                          {/* 削除 (NAS共有ファイルのみ削除可能。掲示板添付ファイル・文書管理ファイルは閲覧・ダウンロード専用) */}
+                          {file.source === 'nas' && (
                             <button
                               onClick={() => handleDeleteFile(file)}
                               className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"

@@ -3011,6 +3011,9 @@ export default function App() {
           {activeTab === 'files' && (
             <FileManager 
               currentUser={userState}
+              allUsers={usersList}
+              offices={offices}
+              divisions={divisions}
             />
           )}
           {activeTab === 'safety_confirmation' && (

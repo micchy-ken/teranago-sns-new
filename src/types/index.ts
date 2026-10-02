@@ -627,6 +627,8 @@ export interface DocumentFolder {
   // UI用補助フィールド
   subfolderCount?: number;
   documentCount?: number;
+  canView?: boolean;
+  canEdit?: boolean;
 }
 
 export interface DocumentAttachedFile {

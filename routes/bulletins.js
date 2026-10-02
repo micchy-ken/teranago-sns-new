@@ -44,17 +44,27 @@ router.get(['/bulletinsfiles/list', '/bulletins/files/list'], (req, res) => {
     const filenames = fs.readdirSync(bulletinsFilesDir);
     const result = filenames.map(filename => {
       const filePath = path.join(bulletinsFilesDir, filename);
-      const stat = fs.statSync(filePath);
+      let stat;
+      try {
+        stat = fs.statSync(filePath);
+      } catch (e) {
+        return null;
+      }
       if (stat.isDirectory()) return null;
+      const ext = path.extname(filename).toLowerCase().replace('.', '');
       return {
         name: filename,
         rawFilename: filename,
+        path: filename,
         url: `/bulletinsfiles/${encodeURIComponent(filename)}`,
         size: stat.size,
         mtime: stat.mtime.toISOString(),
-        isDirectory: false
+        isDirectory: false,
+        extension: ext,
+        source: 'bulletin'
       };
     }).filter(Boolean);
+    result.sort((a, b) => new Date(b.mtime).getTime() - new Date(a.mtime).getTime());
     res.json(result);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

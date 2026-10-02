@@ -137,7 +137,7 @@ export default function DocumentManager({
       });
       const [foldersRes, itemsRes] = await Promise.all([
         fetch(`${API_BASE_URL}/documents/folders?${q.toString()}`),
-        fetch(`${API_BASE_URL}/documents/items`)
+        fetch(`${API_BASE_URL}/documents/items?${q.toString()}`)
       ]);
 
       if (foldersRes.ok) {
@@ -156,11 +156,41 @@ export default function DocumentManager({
     }
   };
 
+  // フォルダ単体の閲覧権限判定ヘルパー
+  const canUserViewFolder = (f: DocumentFolder | null) => {
+    if (!f) return true; // ルート階層は全社閲覧可能
+    if (isAdmin) return true;
+    if (f.createdById === currentUser?.id) return true;
+    if (f.canView === false) return false;
+    if (!f.permission || f.permission.viewers === 'all') return true;
+    if (Array.isArray(f.permission.viewers)) {
+      return f.permission.viewers.includes(currentUser?.id || '');
+    }
+    return false;
+  };
+
+  // 祖先フォルダ（親、親の親...）を含めた完全な閲覧権限チェック
+  const hasAccessToFolder = (targetFolderId: string | null): boolean => {
+    if (!targetFolderId || targetFolderId === 'root') return true;
+    let curr = folders.find(f => f.id === targetFolderId);
+    while (curr) {
+      if (!canUserViewFolder(curr)) return false;
+      if (!curr.parentId) break;
+      curr = folders.find(f => f.id === curr?.parentId);
+    }
+    return true;
+  };
+
   // 現在のフォルダ情報
   const currentFolder = useMemo(() => {
     if (!selectedFolderId) return null;
     return folders.find(f => f.id === selectedFolderId) || null;
   }, [folders, selectedFolderId]);
+
+  // 現在選択中のフォルダの閲覧可否
+  const isCurrentFolderAllowed = useMemo(() => {
+    return hasAccessToFolder(selectedFolderId);
+  }, [selectedFolderId, folders, currentUser, isAdmin]);
 
   // パンくずリスト構築
   const breadcrumbs = useMemo(() => {
@@ -174,24 +204,31 @@ export default function DocumentManager({
     return list;
   }, [currentFolder, folders]);
 
-  // 現在の階層で表示すべきサブフォルダ
+  // 現在の階層で表示すべきサブフォルダ（閲覧権限のあるもののみ）
   const visibleSubfolders = useMemo(() => {
-    return folders.filter(f => f.parentId === selectedFolderId);
-  }, [folders, selectedFolderId]);
+    return folders.filter(f => f.parentId === selectedFolderId && canUserViewFolder(f));
+  }, [folders, selectedFolderId, currentUser, isAdmin]);
 
-  // 現在の階層で表示すべきドキュメント
+  // 現在の階層で表示すべきドキュメント（閲覧権限のないフォルダの文書は完全除外）
   const visibleItems = useMemo(() => {
+    if (!isCurrentFolderAllowed) return [];
     let list = items;
     if (selectedFolderId) {
       list = list.filter(it => it.folderId === selectedFolderId);
     } else {
-      // ルート階層では、ルートに直接紐づくアイテム または 全体検索時
-      list = list.filter(it => !it.folderId || it.folderId === 'root');
+      // ルート階層では、閲覧権限のあるフォルダに紐づくアイテム または ルート直下
+      list = list.filter(it => {
+        if (!it.folderId || it.folderId === 'root') return true;
+        return hasAccessToFolder(it.folderId);
+      });
     }
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim();
       list = items.filter(it => {
+        // 検索時も、所属フォルダの閲覧権限がない文書は除外
+        if (it.folderId && !hasAccessToFolder(it.folderId)) return false;
+
         const matchTitle = it.title?.toLowerCase().includes(q);
         const matchDesc = it.description?.toLowerCase().includes(q);
         const matchFiles = it.latestFiles?.some(f => f.fileName.toLowerCase().includes(q));
@@ -201,7 +238,7 @@ export default function DocumentManager({
     }
 
     return list;
-  }, [items, selectedFolderId, searchQuery]);
+  }, [items, selectedFolderId, searchQuery, folders, isCurrentFolderAllowed, currentUser, isAdmin]);
 
   // 現在のフォルダに対する権限チェック
   const canUploadToCurrentFolder = useMemo(() => {
@@ -689,7 +726,7 @@ export default function DocumentManager({
 
             {/* フォルダツリーリスト */}
             <div className="space-y-1 mt-2 max-h-[500px] overflow-y-auto pr-1">
-              {folders.filter(f => !f.parentId).map(rootFolder => (
+              {folders.filter(f => !f.parentId && canUserViewFolder(f)).map(rootFolder => (
                 <FolderTreeItem
                   key={rootFolder.id}
                   folder={rootFolder}
@@ -767,6 +804,26 @@ export default function DocumentManager({
             </div>
           </div>
 
+          {/* アクセス権限のないフォルダが開かれた場合の遮断画面 */}
+          {!isCurrentFolderAllowed ? (
+            <div className="bg-white rounded-2xl p-12 text-center border border-slate-200 shadow-xs">
+              <div className="w-16 h-16 rounded-2xl bg-rose-50 text-rose-500 border border-rose-200 flex items-center justify-center mx-auto mb-4">
+                <Lock className="w-8 h-8" />
+              </div>
+              <h3 className="text-base font-bold text-slate-800 mb-1">アクセス権限がありません</h3>
+              <p className="text-xs text-slate-500 mb-6 max-w-md mx-auto">
+                このフォルダの閲覧権限が付与されていません。管理者または作成者にアクセス権の付与をご依頼ください。
+              </p>
+              <button
+                type="button"
+                onClick={() => setSelectedFolderId(null)}
+                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer"
+              >
+                ルートフォルダへ戻る
+              </button>
+            </div>
+          ) : (
+            <>
           {/* サブフォルダのグリッド一覧（階層を潜るナビゲーション） */}
           {visibleSubfolders.length > 0 && !searchQuery && (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -1028,6 +1085,8 @@ export default function DocumentManager({
               </div>
             )}
           </div>
+          </>
+          )}
         </div>
       </div>
 
@@ -1748,7 +1807,19 @@ function FolderTreeItem({
   level = 0
 }: FolderTreeItemProps) {
   const [isOpen, setIsOpen] = useState(true);
-  const children = useMemo(() => allFolders.filter(f => f.parentId === folder.id), [allFolders, folder.id]);
+  const children = useMemo(() => {
+    return allFolders.filter(f => {
+      if (f.parentId !== folder.id) return false;
+      if (isAdmin) return true;
+      if (f.createdById === currentUser?.id) return true;
+      if (f.canView === false) return false;
+      if (!f.permission || f.permission.viewers === 'all') return true;
+      if (Array.isArray(f.permission.viewers)) {
+        return f.permission.viewers.includes(currentUser?.id || '');
+      }
+      return false;
+    });
+  }, [allFolders, folder.id, isAdmin, currentUser]);
   const isSelected = selectedId === folder.id;
   const isCustomViewer = folder.permission && folder.permission.viewers !== 'all';
 

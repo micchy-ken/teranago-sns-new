@@ -18,11 +18,11 @@ export async function uploadFile(file: File): Promise<AttachmentFile> {
 
   if (response.ok) {
     const data = await response.json();
-    const serverUrl = data.url || data.fileUrl || data.path || `/bulletinsfiles/${encodeURIComponent(file.name)}`;
+    const serverUrl = data.url || data.fileUrl || data.path || `/api/bulletinsfiles/${encodeURIComponent(file.name)}`;
     
     const finalUrl = serverUrl.startsWith('http') 
       ? serverUrl 
-      : `${API_BASE_URL.replace(/\/api$/, '')}${serverUrl}`;
+      : `${API_BASE_URL.replace(/\/+$/, '')}/${serverUrl.replace(/^\/+/, '').replace(/^api\//, '')}`;
 
     return {
       id: fileId,
@@ -39,15 +39,63 @@ export async function uploadFile(file: File): Promise<AttachmentFile> {
 
 /**
  * 添付ファイルのURL（相対パス /bulletinsfiles/... など）を完全な閲覧・DL用URLに変換します。
+ * Synology NASのリバースプロキシ環境（/api/* のみがNodeコンテナに転送される環境）でも
+ * 確実にプレビュー・ダウンロードできるよう、/api/bulletinsfiles/ または /api/bulletins/file/ に自動正規化します。
  */
 export function resolveFileUrl(url?: string): string {
   if (!url) return '';
-  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('blob:')) {
+  if (url.startsWith('blob:') || url.startsWith('data:')) {
     return url;
   }
-  const baseUrl = (API_BASE_URL || '').replace(/\/api\/?$/, '');
-  const cleanPath = url.startsWith('/') ? url : `/${url}`;
-  return `${baseUrl}${cleanPath}`;
+
+  const apiBase = (API_BASE_URL || '').replace(/\/+$/, '');
+
+  // 1. フルURL (http:// または https://) の場合
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    try {
+      const parsed = new URL(url);
+      // /bulletinsfiles/ で始まっているのに /api が抜けている場合、Synologyリバースプロキシを通過させるため /api/bulletinsfiles/ に補正
+      if (parsed.pathname.startsWith('/bulletinsfiles/')) {
+        const subPath = parsed.pathname.replace(/^\/bulletinsfiles\//, '');
+        return `${apiBase}/bulletinsfiles/${subPath}${parsed.search}`;
+      }
+      return url;
+    } catch (_) {
+      return url;
+    }
+  }
+
+  // 2. 相対パスまたはファイル名のみの場合
+  let clean = url.trim();
+  if (clean.startsWith('./')) clean = clean.substring(2);
+
+  if (clean.startsWith('/api/')) {
+    const sub = clean.substring(5);
+    return `${apiBase}/${sub}`;
+  }
+
+  if (clean.startsWith('/bulletinsfiles/')) {
+    const sub = clean.substring(16);
+    return `${apiBase}/bulletinsfiles/${sub}`;
+  }
+
+  if (clean.startsWith('bulletinsfiles/')) {
+    const sub = clean.substring(15);
+    return `${apiBase}/bulletinsfiles/${sub}`;
+  }
+
+  if (clean.startsWith('/uploads/')) {
+    const sub = clean.substring(9);
+    return `${apiBase}/uploads/${sub}`;
+  }
+
+  // ファイル名単体の場合 (例: "171234_report.pdf")
+  if (!clean.includes('/')) {
+    return `${apiBase}/bulletinsfiles/${encodeURIComponent(clean)}`;
+  }
+
+  const slash = clean.startsWith('/') ? clean : `/${clean}`;
+  return `${apiBase}${slash}`;
 }
 
 /**

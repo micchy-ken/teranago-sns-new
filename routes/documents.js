@@ -191,6 +191,7 @@ async function ensureDocumentsSchema(pool) {
 // ユーザーがフォルダを閲覧できるか判定するヘルパー
 function canUserViewFolder(folder, userId, isAdmin = false) {
   if (isAdmin) return true;
+  if (!folder) return true;
   if (!folder.permission || folder.permission.viewers === 'all') return true;
   if (folder.createdById === userId) return true;
   if (Array.isArray(folder.permission.viewers)) {
@@ -202,12 +203,26 @@ function canUserViewFolder(folder, userId, isAdmin = false) {
 // ユーザーがフォルダ内を編集（追加・更新・削除）できるか判定するヘルパー
 function canUserEditFolder(folder, userId, isAdmin = false) {
   if (isAdmin) return true;
+  if (!folder) return false;
   if (!folder.permission || folder.permission.editors === 'all') return true;
   if (folder.createdById === userId) return true;
   if (Array.isArray(folder.permission.editors)) {
     return folder.permission.editors.includes(userId);
   }
   return false;
+}
+
+// 祖先フォルダも含めてユーザーが閲覧できるかを判定するヘルパー
+function hasAccessToFolderRecursively(folderId, allFolders, userId, isAdmin = false) {
+  if (isAdmin) return true;
+  if (!folderId || folderId === 'root') return true;
+  let curr = allFolders.find(f => f.id === folderId);
+  while (curr) {
+    if (!canUserViewFolder(curr, userId, isAdmin)) return false;
+    if (!curr.parentId) break;
+    curr = allFolders.find(f => f.id === curr.parentId);
+  }
+  return true;
 }
 
 // ==========================================
@@ -251,7 +266,7 @@ router.get(['/folders', '/documents/folders', '/folders/list'], async (req, res)
     const result = folders.map(f => {
       const subfolderCount = folders.filter(sub => sub.parentId === f.id).length;
       const documentCount = items.filter(it => it.folderId === f.id).length;
-      const isViewer = canUserViewFolder(f, userId, isAdmin);
+      const isViewer = hasAccessToFolderRecursively(f.id, folders, userId, isAdmin);
       const isEditor = canUserEditFolder(f, userId, isAdmin);
       return {
         ...f,
@@ -427,11 +442,30 @@ router.delete(['/folders/:id', '/documents/folders/:id'], async (req, res) => {
 router.get(['/items', '/documents/items', '/items/list'], async (req, res) => {
   try {
     const { folderId, search } = req.query;
+    const userId = req.query.userId ? String(req.query.userId) : '';
+    const isAdmin = req.query.isAdmin === 'true' || req.query.isAdmin === '1';
+
+    let folders = [];
     let items = [];
 
     const pool = await getPool();
     if (pool) {
       await ensureDocumentsSchema(pool);
+
+      // 全フォルダの権限情報を取得
+      const folderRes = await pool.request().query(`SELECT id, parentId, createdById, permissionJson FROM dbo.DocumentFolders`);
+      folders = (folderRes.recordset || []).map(r => ({
+        id: r.id,
+        parentId: r.parentId || null,
+        createdById: r.createdById,
+        permission: safeParseJSON(r.permissionJson, { viewers: 'all', editors: 'all' })
+      }));
+
+      // 特定フォルダが指定された場合、そのフォルダの閲覧権限を検証
+      if (folderId && !hasAccessToFolderRecursively(String(folderId), folders, userId, isAdmin)) {
+        return res.json([]);
+      }
+
       let queryStr = `SELECT * FROM dbo.DocumentItems`;
       const request = pool.request();
       if (folderId) {
@@ -463,8 +497,12 @@ router.get(['/items', '/documents/items', '/items/list'], async (req, res) => {
       });
     } else {
       const local = loadLocalDocumentsData();
+      folders = local.folders || [];
       items = local.items || [];
       if (folderId) {
+        if (!hasAccessToFolderRecursively(String(folderId), folders, userId, isAdmin)) {
+          return res.json([]);
+        }
         items = items.filter(it => it.folderId === String(folderId));
       }
       items = items.map(r => {
@@ -475,6 +513,14 @@ router.get(['/items', '/documents/items', '/items/list'], async (req, res) => {
           latestVersionNumber: latestVer ? latestVer.versionNumber : 1,
           latestFiles: latestVer ? latestVer.files : []
         };
+      });
+    }
+
+    // 一般ユーザーの場合、閲覧権限のないフォルダに属するアイテムを完全に除外
+    if (!isAdmin && userId) {
+      items = items.filter(it => {
+        if (!it.folderId || it.folderId === 'root') return true;
+        return hasAccessToFolderRecursively(it.folderId, folders, userId, isAdmin);
       });
     }
 
