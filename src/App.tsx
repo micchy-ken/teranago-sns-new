@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense } from 'react';
 import { API_BASE_URL } from './config/api';
 import { getAvatarUrl, sanitizeAvatarUrlForSave } from './utils/avatar';
 import { Header } from './components/Header';
@@ -491,18 +491,21 @@ export default function App() {
     setAutoOpenSettings(true);
   };
 
-  const handleRecordError = (key: string, message: string) => {
-    setFetchErrors(prev => ({ ...prev, [key]: message }));
-  };
+  const handleRecordError = useCallback((key: string, message: string) => {
+    setFetchErrors(prev => {
+      if (prev[key] === message) return prev;
+      return { ...prev, [key]: message };
+    });
+  }, []);
 
-  const handleClearError = (key: string) => {
+  const handleClearError = useCallback((key: string) => {
     setFetchErrors(prev => {
       if (!prev[key]) return prev;
       const next = { ...prev };
       delete next[key];
       return next;
     });
-  };
+  }, []);
 
   const openConfirmModalHelper = (opts: {
     title: string;
@@ -1175,8 +1178,7 @@ export default function App() {
   };
 
   useEffect(() => {
-    // Always load latest users and masters from API on mount
-    refetchMasters();
+    // Load latest users from API on mount, then refetch other data if authenticated
     refetchUsers().then((latestUsers) => {
       if (isAuthenticated) {
         refetchAll();

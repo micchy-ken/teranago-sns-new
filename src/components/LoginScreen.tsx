@@ -102,6 +102,7 @@ export function LoginScreen({
   }, [positions]);
 
   useEffect(() => {
+    if (offices.length > 0 && divisions.length > 0 && positions.length > 0) return;
     const fetchMasters = async () => {
       try {
         const [offRes, divRes, posRes] = await Promise.allSettled([

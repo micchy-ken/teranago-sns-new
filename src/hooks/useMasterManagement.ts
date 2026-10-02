@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { API_BASE_URL } from '../config/api';
 import { OfficeMaster, DivisionMaster, PositionMaster, ItemMaster, ApprovalFlowRule } from '../types';
 
@@ -26,11 +26,23 @@ export function useMasterManagement(
     onClearError = onClearErrorArg;
     showMasterErrorModal = showMasterErrorModalArg;
   }
+
+  const onRecordErrorRef = useRef(onRecordError);
+  const onClearErrorRef = useRef(onClearError);
+  const showMasterErrorModalRef = useRef(showMasterErrorModal);
+  useEffect(() => {
+    onRecordErrorRef.current = onRecordError;
+    onClearErrorRef.current = onClearError;
+    showMasterErrorModalRef.current = showMasterErrorModal;
+  });
+
   const [offices, setOffices] = useState<OfficeMaster[]>([]);
   const [divisions, setDivisions] = useState<DivisionMaster[]>([]);
   const [positions, setPositions] = useState<PositionMaster[]>([]);
   const [approvalFlows, setApprovalFlows] = useState<ApprovalFlowRule[]>([]);
   const [itemMasters, setItemMasters] = useState<ItemMaster[]>([]);
+
+  const isFetchingRef = useRef(false);
 
   const getMasterErrorMessage = async (response: Response): Promise<string> => {
     try {
@@ -47,6 +59,9 @@ export function useMasterManagement(
   };
 
   const refetchMasters = useCallback(async () => {
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
+
     const parseError = async (res: Response, label: string) => {
       let msg = `${label}取得エラー (HTTP ${res.status})`;
       try {
@@ -65,106 +80,110 @@ export function useMasterManagement(
       return msg;
     };
 
-    // 拠点マスタ
     try {
-      const offRes = await fetch(`${API_BASE_URL}/masters/offices`);
-      if (offRes.ok) {
-        const data = await offRes.json();
-        if (Array.isArray(data)) {
-          setOffices(data);
-          onClearError?.('offices');
+      // 拠点マスタ
+      try {
+        const offRes = await fetch(`${API_BASE_URL}/masters/offices`);
+        if (offRes.ok) {
+          const data = await offRes.json();
+          if (Array.isArray(data)) {
+            setOffices(data);
+            onClearErrorRef.current?.('offices');
+          }
+        } else {
+          const errMsg = await parseError(offRes, '拠点マスタ');
+          onRecordErrorRef.current?.('offices', errMsg);
         }
-      } else {
-        const errMsg = await parseError(offRes, '拠点マスタ');
-        onRecordError?.('offices', errMsg);
+      } catch (e: any) {
+        onRecordErrorRef.current?.('offices', '拠点マスタ接続エラー: ' + e.message);
       }
-    } catch (e: any) {
-      onRecordError?.('offices', '拠点マスタ接続エラー: ' + e.message);
-    }
 
-    // 部署マスタ
-    try {
-      const divRes = await fetch(`${API_BASE_URL}/masters/divisions`);
-      if (divRes.ok) {
-        const data = await divRes.json();
-        if (Array.isArray(data)) {
-          setDivisions(data);
-          onClearError?.('divisions');
+      // 部署マスタ
+      try {
+        const divRes = await fetch(`${API_BASE_URL}/masters/divisions`);
+        if (divRes.ok) {
+          const data = await divRes.json();
+          if (Array.isArray(data)) {
+            setDivisions(data);
+            onClearErrorRef.current?.('divisions');
+          }
+        } else {
+          const errMsg = await parseError(divRes, '部署マスタ');
+          onRecordErrorRef.current?.('divisions', errMsg);
         }
-      } else {
-        const errMsg = await parseError(divRes, '部署マスタ');
-        onRecordError?.('divisions', errMsg);
+      } catch (e: any) {
+        onRecordErrorRef.current?.('divisions', '部署マスタ接続エラー: ' + e.message);
       }
-    } catch (e: any) {
-      onRecordError?.('divisions', '部署マスタ接続エラー: ' + e.message);
-    }
 
-    // 役職マスタ
-    try {
-      const posRes = await fetch(`${API_BASE_URL}/masters/positions`);
-      if (posRes.ok) {
-        const data = await posRes.json();
-        if (Array.isArray(data)) {
-          setPositions(data.filter((p: any) => p && p.name !== '一般'));
-          onClearError?.('positions');
+      // 役職マスタ
+      try {
+        const posRes = await fetch(`${API_BASE_URL}/masters/positions`);
+        if (posRes.ok) {
+          const data = await posRes.json();
+          if (Array.isArray(data)) {
+            setPositions(data.filter((p: any) => p && p.name !== '一般'));
+            onClearErrorRef.current?.('positions');
+          }
+        } else {
+          const errMsg = await parseError(posRes, '役職マスタ');
+          onRecordErrorRef.current?.('positions', errMsg);
         }
-      } else {
-        const errMsg = await parseError(posRes, '役職マスタ');
-        onRecordError?.('positions', errMsg);
+      } catch (e: any) {
+        onRecordErrorRef.current?.('positions', '役職マスタ接続エラー: ' + e.message);
       }
-    } catch (e: any) {
-      onRecordError?.('positions', '役職マスタ接続エラー: ' + e.message);
-    }
 
-    // 品目マスタ
-    try {
-      const itemRes = await fetch(`${API_BASE_URL}/masters/item-masters`);
-      if (itemRes.ok) {
-        const data = await itemRes.json();
-        if (Array.isArray(data)) {
-          const normalized: ItemMaster[] = data.map((item: any) => {
-            const rawPrice = item.defaultUnitPrice !== undefined && item.defaultUnitPrice !== null && item.defaultUnitPrice !== ''
-              ? item.defaultUnitPrice
-              : item.unitPrice !== undefined && item.unitPrice !== null && item.unitPrice !== ''
-              ? item.unitPrice
-              : item.price !== undefined && item.price !== null && item.price !== ''
-              ? item.price
-              : undefined;
-            const price = rawPrice !== undefined ? Number(rawPrice) : undefined;
-            return {
-              ...item,
-              defaultUnitPrice: price,
-              unitPrice: price,
-            };
-          });
-          setItemMasters(normalized);
-          onClearError?.('items');
+      // 品目マスタ
+      try {
+        const itemRes = await fetch(`${API_BASE_URL}/masters/item-masters`);
+        if (itemRes.ok) {
+          const data = await itemRes.json();
+          if (Array.isArray(data)) {
+            const normalized: ItemMaster[] = data.map((item: any) => {
+              const rawPrice = item.defaultUnitPrice !== undefined && item.defaultUnitPrice !== null && item.defaultUnitPrice !== ''
+                ? item.defaultUnitPrice
+                : item.unitPrice !== undefined && item.unitPrice !== null && item.unitPrice !== ''
+                ? item.unitPrice
+                : item.price !== undefined && item.price !== null && item.price !== ''
+                ? item.price
+                : undefined;
+              const price = rawPrice !== undefined ? Number(rawPrice) : undefined;
+              return {
+                ...item,
+                defaultUnitPrice: price,
+                unitPrice: price,
+              };
+            });
+            setItemMasters(normalized);
+            onClearErrorRef.current?.('items');
+          }
+        } else {
+          const errMsg = await parseError(itemRes, '品目マスタ');
+          onRecordErrorRef.current?.('items', errMsg);
         }
-      } else {
-        const errMsg = await parseError(itemRes, '品目マスタ');
-        onRecordError?.('items', errMsg);
+      } catch (e: any) {
+        onRecordErrorRef.current?.('items', '品目マスタ接続エラー: ' + e.message);
       }
-    } catch (e: any) {
-      onRecordError?.('items', '品目マスタ接続エラー: ' + e.message);
-    }
 
-    // 承認フローマスタ
-    try {
-      const flowRes = await fetch(`${API_BASE_URL}/masters/approval-flows`);
-      if (flowRes.ok) {
-        const data = await flowRes.json();
-        if (Array.isArray(data)) {
-          setApprovalFlows(data);
-          onClearError?.('flows');
+      // 承認フローマスタ
+      try {
+        const flowRes = await fetch(`${API_BASE_URL}/masters/approval-flows`);
+        if (flowRes.ok) {
+          const data = await flowRes.json();
+          if (Array.isArray(data)) {
+            setApprovalFlows(data);
+            onClearErrorRef.current?.('flows');
+          }
+        } else {
+          const errMsg = await parseError(flowRes, '承認フロー');
+          onRecordErrorRef.current?.('flows', errMsg);
         }
-      } else {
-        const errMsg = await parseError(flowRes, '承認フロー');
-        onRecordError?.('flows', errMsg);
+      } catch (e: any) {
+        onRecordErrorRef.current?.('flows', '承認フロー接続エラー: ' + e.message);
       }
-    } catch (e: any) {
-      onRecordError?.('flows', '承認フロー接続エラー: ' + e.message);
+    } finally {
+      isFetchingRef.current = false;
     }
-  }, [onRecordError, onClearError]);
+  }, []);
 
   // 拠点操作
   const handleAddOffice = async (officeData: Omit<OfficeMaster, 'id'>) => {
@@ -445,7 +464,8 @@ export function useMasterManagement(
 
   useEffect(() => {
     refetchMasters();
-  }, [refetchMasters]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return {
     offices,
