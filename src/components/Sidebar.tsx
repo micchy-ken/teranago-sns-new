@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Hash, Home, Bookmark, User, Calendar as CalendarIcon, FileText, MessageSquare, Phone, ClipboardList, Monitor, Shield, HardDrive, Users, ShieldAlert, Wrench, ChevronDown, ChevronRight, FileCheck2, FolderArchive } from 'lucide-react';
+import { Hash, Home, Bookmark, User, Calendar as CalendarIcon, FileText, MessageSquare, Phone, ClipboardList, Monitor, Shield, HardDrive, Users, ShieldAlert, Wrench, ChevronDown, ChevronRight, FileCheck2, FolderArchive, BookOpen, ExternalLink } from 'lucide-react';
 import { Post, BoardTopic, User as UserType } from '../types';
 
 export type AppTab = 'timeline' | 'calendar' | 'inspection_scheduler' | 'inspection_report' | 'workflow' | 'board' | 'chat' | 'memo' | 'documents' | 'daily_report' | 'files' | 'members' | 'mypage' | 'admin' | 'safety_confirmation';
@@ -397,6 +397,21 @@ export function Sidebar({
                     )}
                   </button>
                 )}
+                {/* 総合操作マニュアル (Manフォルダ) */}
+                <a
+                  href={`${import.meta.env.BASE_URL}Man/index.html`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs font-medium whitespace-nowrap text-slate-600 hover:bg-indigo-50/60 hover:text-indigo-700 transition-colors group cursor-pointer"
+                  title="網羅的な全機能操作マニュアル（HTML版）を新しいタブで開く"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <BookOpen className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                    <span className="truncate font-semibold">操作マニュアル</span>
+                  </div>
+                  <ExternalLink className="w-3 h-3 text-slate-400 group-hover:text-indigo-600 shrink-0 opacity-70 group-hover:opacity-100" />
+                </a>
+
                 {currentUser?.isAdmin && (
                   <button
                     type="button"

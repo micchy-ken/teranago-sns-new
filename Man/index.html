@@ -1,0 +1,873 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>寺岡オートドアSNS / 寺子屋SNS 総合操作マニュアル</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=Inter:wght@400;600;700;800&family=Noto+Sans+JP:wght@400;500;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #4f46e5;
+      --primary-dark: #3730a3;
+      --primary-light: #eef2ff;
+      --accent: #0ea5e9;
+      --warning: #d97706;
+      --warning-bg: #fef3c7;
+      --danger: #dc2626;
+      --danger-bg: #fee2e2;
+      --success: #059669;
+      --success-bg: #d1fae5;
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --border: #e2e8f0;
+      --text: #1e293b;
+      --text-muted: #64748b;
+      --sidebar-width: 280px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Noto Sans JP', 'BIZ UDPGothic', sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      line-height: 1.7;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* レイアウト構成 */
+    .app-container {
+      display: flex;
+      min-height: 100vh;
+    }
+
+    /* サイドバー目次 */
+    .sidebar {
+      width: var(--sidebar-width);
+      background: #ffffff;
+      border-right: 1px solid var(--border);
+      position: fixed;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      overflow-y: auto;
+      z-index: 40;
+      padding: 24px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .sidebar-header {
+      padding-bottom: 16px;
+      border-bottom: 2px solid var(--primary-light);
+    }
+
+    .brand-title {
+      font-size: 15px;
+      font-weight: 900;
+      color: var(--primary);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .brand-subtitle {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 4px;
+      font-weight: 500;
+    }
+
+    .nav-search {
+      width: 100%;
+      padding: 8px 12px;
+      font-size: 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      outline: none;
+      background: var(--bg);
+      transition: all 0.2s;
+    }
+
+    .nav-search:focus {
+      border-color: var(--primary);
+      background: #fff;
+      box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+    }
+
+    .nav-menu {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .nav-item a {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      border-radius: 8px;
+      text-decoration: none;
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 600;
+      transition: all 0.15s ease;
+    }
+
+    .nav-item a:hover {
+      background: var(--primary-light);
+      color: var(--primary);
+      transform: translateX(3px);
+    }
+
+    .nav-item a.active {
+      background: var(--primary);
+      color: #fff;
+    }
+
+    .nav-item a.active .badge-auth {
+      background: #fff;
+      color: var(--primary);
+    }
+
+    /* 要権限バッジ */
+    .badge-auth {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      font-size: 10px;
+      font-weight: 800;
+      padding: 2px 7px;
+      border-radius: 6px;
+      background: #fffbeb;
+      color: #b45309;
+      border: 1px solid #fde68a;
+      white-space: nowrap;
+    }
+
+    .badge-admin {
+      background: #fee2e2;
+      color: #b91c1c;
+      border-color: #fca5a5;
+    }
+
+    .badge-free {
+      background: #ecfdf5;
+      color: #047857;
+      border-color: #a7f3d0;
+    }
+
+    /* メインコンテンツ */
+    .main-content {
+      margin-left: var(--sidebar-width);
+      flex: 1;
+      padding: 40px 48px;
+      max-width: 1080px;
+    }
+
+    .header-banner {
+      background: linear-gradient(135deg, #4f46e5 0%, #3730a3 100%);
+      color: #ffffff;
+      padding: 36px 32px;
+      border-radius: 20px;
+      margin-bottom: 40px;
+      box-shadow: 0 10px 25px -5px rgba(79, 70, 229, 0.25);
+    }
+
+    .header-banner h1 {
+      font-size: 26px;
+      font-weight: 900;
+      letter-spacing: -0.02em;
+      margin-bottom: 8px;
+    }
+
+    .header-banner p {
+      font-size: 14px;
+      opacity: 0.9;
+      max-width: 700px;
+    }
+
+    .meta-bar {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-top: 18px;
+      font-size: 12px;
+      opacity: 0.85;
+      flex-wrap: wrap;
+    }
+
+    .meta-bar span {
+      background: rgba(255, 255, 255, 0.15);
+      padding: 4px 10px;
+      border-radius: 6px;
+      backdrop-filter: blur(4px);
+    }
+
+    /* セクションブロック */
+    .doc-section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 32px;
+      margin-bottom: 32px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
+      scroll-margin-top: 24px;
+    }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 2px solid var(--bg);
+      padding-bottom: 16px;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .section-title {
+      font-size: 20px;
+      font-weight: 800;
+      color: #0f172a;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .section-icon {
+      font-size: 24px;
+    }
+
+    h3 {
+      font-size: 16px;
+      font-weight: 800;
+      color: #1e293b;
+      margin: 24px 0 12px 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    h3::before {
+      content: '';
+      display: inline-block;
+      width: 4px;
+      height: 16px;
+      background: var(--primary);
+      border-radius: 2px;
+    }
+
+    p {
+      font-size: 14px;
+      color: #334155;
+      margin-bottom: 14px;
+    }
+
+    ul, ol {
+      margin-left: 20px;
+      margin-bottom: 16px;
+      font-size: 14px;
+      color: #334155;
+    }
+
+    li {
+      margin-bottom: 8px;
+    }
+
+    /* コールアウト・注意書き */
+    .callout {
+      padding: 16px 18px;
+      border-radius: 12px;
+      margin: 18px 0;
+      font-size: 13px;
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+      line-height: 1.6;
+    }
+
+    .callout-info {
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      color: #1e40af;
+    }
+
+    .callout-warning {
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      color: #92400e;
+    }
+
+    .callout-danger {
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      color: #991b1b;
+    }
+
+    .callout-success {
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      color: #166534;
+    }
+
+    .callout-icon {
+      font-size: 18px;
+      line-height: 1;
+      shrink: 0;
+    }
+
+    /* 機能テーブル */
+    .feature-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0 24px 0;
+      font-size: 13px;
+    }
+
+    .feature-table th, .feature-table td {
+      border: 1px solid var(--border);
+      padding: 10px 14px;
+      text-align: left;
+    }
+
+    .feature-table th {
+      background: #f8fafc;
+      font-weight: 700;
+      color: #475569;
+    }
+
+    .feature-table tr:hover td {
+      background: #f8fafc;
+    }
+
+    /* フッター */
+    .manual-footer {
+      text-align: center;
+      padding: 40px 0 20px 0;
+      font-size: 12px;
+      color: var(--text-muted);
+      border-top: 1px solid var(--border);
+      margin-top: 40px;
+    }
+
+    /* 印刷最適化 */
+    @media print {
+      .sidebar, .nav-search, .btn-print {
+        display: none !important;
+      }
+      .main-content {
+        margin-left: 0 !important;
+        padding: 0 !important;
+        max-width: 100% !important;
+      }
+      .doc-section {
+        border: none !important;
+        box-shadow: none !important;
+        page-break-inside: avoid;
+        padding: 16px 0 !important;
+        margin-bottom: 24px !important;
+      }
+      .header-banner {
+        background: #3730a3 !important;
+        color: #fff !important;
+        -webkit-print-color-adjust: exact;
+      }
+    }
+
+    @media (max-width: 768px) {
+      .sidebar {
+        display: none;
+      }
+      .main-content {
+        margin-left: 0;
+        padding: 20px 16px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-container">
+    <!-- サイドバーインデックス目次 -->
+    <nav class="sidebar">
+      <div class="sidebar-header">
+        <div class="brand-title">
+          <span>📖 操作マニュアル</span>
+        </div>
+        <div class="brand-subtitle">寺岡オートドアSNS / 寺子屋SNS</div>
+      </div>
+
+      <input type="text" id="manualSearch" class="nav-search" placeholder="🔍 機能を検索..." onkeyup="filterMenu()">
+
+      <ul class="nav-menu" id="menuList">
+        <li class="nav-item"><a href="#sec-intro">はじめに・概要 <span class="badge-auth badge-free">全般</span></a></li>
+        <li class="nav-item"><a href="#sec-timeline">🏠 タイムライン <span class="badge-auth badge-free">全員</span></a></li>
+        <li class="nav-item"><a href="#sec-reports">📋 業務日報・作業報告 <span class="badge-auth badge-free">全員</span></a></li>
+        <li class="nav-item"><a href="#sec-bulletins">📢 社内掲示板 <span class="badge-auth badge-free">全員</span></a></li>
+        <li class="nav-item"><a href="#sec-chat">💬 グループチャット <span class="badge-auth badge-free">全員</span></a></li>
+        <li class="nav-item"><a href="#sec-calendar">📅 共有カレンダー <span class="badge-auth badge-free">全員</span></a></li>
+        <li class="nav-item"><a href="#sec-inspection">🗓️ 点検予定一括登録 <span class="badge-auth">要権限</span></a></li>
+        <li class="nav-item"><a href="#sec-documents">📁 社内文書管理 <span class="badge-auth badge-free">全員</span></a></li>
+        <li class="nav-item"><a href="#sec-files">🗄️ NAS共有ファイル <span class="badge-auth">要権限</span></a></li>
+        <li class="nav-item"><a href="#sec-safety">🦺 安否確認・BCP <span class="badge-auth">発動:要権限</span></a></li>
+        <li class="nav-item"><a href="#sec-members">👥 社員名簿 <span class="badge-auth badge-free">全員</span></a></li>
+        <li class="nav-item"><a href="#sec-utility">🛠️ ユーティリティー <span class="badge-auth badge-free">全員</span></a></li>
+        <li class="nav-item"><a href="#sec-admin">⚙️ 管理者パネル <span class="badge-auth badge-admin">要管理者</span></a></li>
+        <li class="nav-item"><a href="#sec-roles">🔒 権限ロール一覧 <span class="badge-auth badge-free">仕様</span></a></li>
+      </ul>
+
+      <div style="margin-top: auto; padding-top: 16px; border-top: 1px solid var(--border);">
+        <button onclick="window.print()" class="btn-print" style="width: 100%; padding: 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; font-size: 12px; font-weight: 700; color: var(--text); cursor: pointer;">
+          🖨️ マニュアルを印刷 / PDF保存
+        </button>
+      </div>
+    </nav>
+
+    <!-- メインコンテンツ -->
+    <main class="main-content">
+      <!-- ヘッダーバナー -->
+      <div class="header-banner">
+        <h1>寺岡オートドアSNS / 寺子屋SNS 総合操作マニュアル</h1>
+        <p>社内ナレッジの蓄積・タイムライン・日報・チャット・点検予定管理・文書キャビネット・安否確認の全機能を網羅した公式操作ガイドです。</p>
+        <div class="meta-bar">
+          <span>バージョン: v2.6.0 (完全版)</span>
+          <span>最終改定日: 2026年10月2日</span>
+          <span>対象: 全社員・管理者・現場技術員</span>
+        </div>
+      </div>
+
+      <!-- 第1章: はじめに -->
+      <section id="sec-intro" class="doc-section">
+        <div class="section-header">
+          <div class="section-title">
+            <span class="section-icon">🌟</span>
+            <span>第1章: はじめに・システム概要・推奨環境</span>
+          </div>
+          <span class="badge-auth badge-free">全員対象</span>
+        </div>
+        <p>本システムは、寺岡オートドアグループの技術・現場ナレッジの共有、スケジュール・点検予定の可視化、災害時の迅速な安否確認を実現する社内統合プラットフォームです。</p>
+        
+        <h3>推奨利用環境・PWAインストール</h3>
+        <ul>
+          <li><strong>推奨ブラウザ</strong>: Google Chrome, Microsoft Edge, Safari (最新版)</li>
+          <li><strong>スマートフォン / タブレット (PWA対応)</strong>:
+            ブラウザのメニューから「ホーム画面に追加」または「アプリをインストール」を実行すると、ネイティブアプリのように全画面かつプッシュ通知受信対応で快適にご利用いただけます。
+          </li>
+          <li><strong>バックエンド同期</strong>: 社内Synology NAS上のセキュアなMS SQL Serverおよび暗号化ストレージとリアルタイムに同期しています。</li>
+        </ul>
+      </section>
+
+      <!-- 第2章: タイムライン -->
+      <section id="sec-timeline" class="doc-section">
+        <div class="section-header">
+          <div class="section-title">
+            <span class="section-icon">🏠</span>
+            <span>第2章: タイムライン (社内ナレッジSNS)</span>
+          </div>
+          <span class="badge-auth badge-free">全員対象</span>
+        </div>
+        <p>日常の気づき、現場でのトラブルシューティング、社内連絡を気軽に発信・共有できるタイムラインです。</p>
+        
+        <h3>主な機能と操作</h3>
+        <table class="feature-table">
+          <thead>
+            <tr>
+              <th>機能</th>
+              <th>説明</th>
+              <th>操作方法</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>新規投稿・つぶやき</strong></td>
+              <td>テキスト、画像添付（複数枚・自動リサイズ）、現場写真の投稿。</td>
+              <td>画面上部の投稿フォームから入力し「投稿」ボタンを押す。</td>
+            </tr>
+            <tr>
+              <td><strong>アンケート機能</strong></td>
+              <td>選択肢形式の社内アンケートを作成・即時集計。</td>
+              <td>投稿欄の「📊 アンケート作成」アイコンをクリック。</td>
+            </tr>
+            <tr>
+              <td><strong>スタンプ・リアクション</strong></td>
+              <td>いいね！、お疲れ様、感謝などのオリジナルスタンプをワンタップ送信。</td>
+              <td>投稿下のスタンプボタンから選択。</td>
+            </tr>
+            <tr>
+              <td><strong>コメント・スレッド返信</strong></td>
+              <td>投稿に対する詳細な議論や追加情報のスレッド返信。</td>
+              <td>「返信する」をクリックして入力。</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <!-- 第3章: 業務日報 -->
+      <section id="sec-reports" class="doc-section">
+        <div class="section-header">
+          <div class="section-title">
+            <span class="section-icon">📋</span>
+            <span>第3章: 業務日報・現場作業報告</span>
+          </div>
+          <span class="badge-auth badge-free">全員対象</span>
+        </div>
+        <p>日々の業務進捗、現場施工・保守点検の作業記録を作成し、上長やメンバーへ共有・フィードバックを受けるタブです。</p>
+        
+        <h3>日報の作成・承認フロー</h3>
+        <ol>
+          <li>「新規日報作成」ボタンをクリックします。</li>
+          <li>作業現場・件名・作業内容・特記事項を入力します（テンプレートから自動引用も可能）。</li>
+          <li>現場写真を添付し、「提出する」または「下書き保存」をクリックします。</li>
+          <li>上長・管理者は提出された日報を確認し、「承認・コメント」を行うことができます。</li>
+        </ol>
+      </section>
+
+      <!-- 第4章: 社内掲示板 -->
+      <section id="sec-bulletins" class="doc-section">
+        <div class="section-header">
+          <div class="section-title">
+            <span class="section-icon">📢</span>
+            <span>第4章: 社内掲示板・お知らせ</span>
+          </div>
+          <span class="badge-auth badge-free">全員対象</span>
+        </div>
+        <p>全社通達、総務・経理からの重要連絡、安全衛生情報などをカテゴリ別に閲覧できる公式掲示板です。</p>
+        
+        <h3>掲示板の特徴</h3>
+        <ul>
+          <li><strong>重要ピン留め</strong>: 最重要通達は一覧の最上部に固定表示されます。</li>
+          <li><strong>既読・未読トラッキング</strong>: 誰が掲示を確認したかを投稿者が確認できます。</li>
+          <li><strong>添付ファイルプレビュー</strong>: PDFや画像ファイルをブラウザ上で直接プレビューできます。</li>
+        </ul>
+      </section>
+
+      <!-- 第5章: グループチャット -->
+      <section id="sec-chat" class="doc-section">
+        <div class="section-header">
+          <div class="section-title">
+            <span class="section-icon">💬</span>
+            <span>第5章: グループチャット・ダイレクトメッセージ</span>
+          </div>
+          <span class="badge-auth badge-free">全員対象</span>
+        </div>
+        <p>部署別・プロジェクト別のルームチャットおよび個人間のダイレクトメッセージ（DM）が可能です。</p>
+        
+        <div class="callout callout-info">
+          <span class="callout-icon">💡</span>
+          <div>
+            <strong>メンション機能</strong>: <code>@名前</code> を入力すると、対象者にプッシュ通知・メール通知が送信されます。
+          </div>
+        </div>
+      </section>
+
+      <!-- 第6章: 共有カレンダー -->
+      <section id="sec-calendar" class="doc-section">
+        <div class="section-header">
+          <div class="section-title">
+            <span class="section-icon">📅</span>
+            <span>第6章: 共有カレンダー・予定管理</span>
+          </div>
+          <span class="badge-auth badge-free">全員対象</span>
+        </div>
+        <p>社員全員の予定、現場工事、定期点検、社内行事を日・週・月単位で可視化します。</p>
+        
+        <h3>カレンダー連携機能 (iCal / Google / Outlook)</h3>
+        <ul>
+          <li><strong>外部カレンダー購読</strong>: カレンダー右上の「iCal連携」からURLを取得し、GoogleカレンダーやiPhone/Outlookに登録すると、社外からでも自動同期されます。</li>
+        </ul>
+      </section>
+
+      <!-- 第7章: 点検予定一括登録 -->
+      <section id="sec-inspection" class="doc-section">
+        <div class="section-header">
+          <div class="section-title">
+            <span class="section-icon">🗓️</span>
+            <span>第7章: 点検予定一括登録・管理</span>
+          </div>
+          <span class="badge-auth">要権限（管理者または個別許可）</span>
+        </div>
+        
+        <div class="callout callout-warning">
+          <span class="callout-icon">🔑</span>
+          <div>
+            <strong>利用権限について</strong>: この機能は「管理者」または管理者パネルで「点検予定管理メニューの表示」が許可されたユーザーのみ利用可能です。
+          </div>
+        </div>
+
+        <p>毎月の定期点検Excel（26列実フォーマット）を取り込み、日付配置・担当者割り当て・現場カレンダーマトリクスExcel出力を一気通貫で行う専用機能です。</p>
+
+        <h3>主な機能一覧</h3>
+        <table class="feature-table">
+          <thead>
+            <tr>
+              <th>機能名</th>
+              <th>説明</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>実フォーマットExcel取込</strong></td>
+              <td>Excelファイル（.xlsx）をドラッグ＆ドロップし、C1セルの年月や26列の現場データを自動読み込み。</td>
+            </tr>
+            <tr>
+              <td><strong>現場マスター自動補正</strong></td>
+              <td>過去の点検実績から「現場ごとの開始時間・貼紙・作業届・WEB入力区分・備考」を自動引き継ぎ。</td>
+            </tr>
+            <tr>
+              <td><strong>他月・前月データコピー</strong></td>
+              <td>他月の下書きや配置済みデータをマスター情報付きでワンクリック一括コピー。</td>
+            </tr>
+            <tr>
+              <td><strong>点検予定表Excel出力</strong></td>
+              <td><strong>【新機能】</strong> 現場カレンダー形式（縦軸＝日付・曜日、横軸＝案件、土日色分け・特記事項オレンジ強調）で完全互換のExcelを出力。</td>
+            </tr>
+            <tr>
+              <td><strong>カレンダー確定反映</strong></td>
+              <td>仮配置した点検予定に担当メンバーを割り当て、共有カレンダーへ一括登録。</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <!-- 第8章: 社内文書管理 -->
+      <section id="sec-documents" class="doc-section">
+        <div class="section-header">
+          <div class="section-title">
+            <span class="section-icon">📁</span>
+            <span>第8章: 社内文書管理・キャビネット</span>
+          </div>
+          <span class="badge-auth badge-free">全員対象（一部フォルダは権限制御）</span>
+        </div>
+        <p>社内規程、マニュアル、申請書テンプレート、現場図面などを階層フォルダで安全に一元管理します。</p>
+
+        <h3>特徴と操作ルール</h3>
+        <ul>
+          <li><strong>文書タイトル・アイコンをクリック</strong>: 文書の詳細モーダルが開き、説明文・更新者・全バージョン改定履歴を確認できます。</li>
+          <li><strong>添付ファイル名をクリック</strong>: ファイル名をクリックするだけで、ブラウザ内で即座にインラインプレビュー（PDF・画像・テキスト）が表示されます。</li>
+          <li><strong>フォルダ公開範囲</strong>: 「全員公開」または「特定メンバーのみ閲覧許可」を設定できます（設定は作成者・管理者のみ）。</li>
+          <li><strong>バージョン管理</strong>: 改定時は「新バージョン登録」を行うことで、過去の履歴や旧ファイルを残したまま最新版へ更新できます。</li>
+          <li><strong>DL履歴トラッキング</strong>: 誰がいつ文書をダウンロード・閲覧したかの監査ログが自動記録されます。</li>
+        </ul>
+      </section>
+
+      <!-- 第9章: NAS共有ファイル -->
+      <section id="sec-files" class="doc-section">
+        <div class="section-header">
+          <div class="section-title">
+            <span class="section-icon">🗄️</span>
+            <span>第9章: NAS共有ファイル (社内ストレージ連携)</span>
+          </div>
+          <span class="badge-auth">要権限（個別許可）</span>
+        </div>
+        <p>社内NAS（Synology）上の特定共有フォルダと直接連携し、外出先やブラウザから安全にファイルを閲覧・ダウンロードできます。</p>
+      </section>
+
+      <!-- 第10章: 安否確認 -->
+      <section id="sec-safety" class="doc-section">
+        <div class="section-header">
+          <div class="section-title">
+            <span class="section-icon">🦺</span>
+            <span>第10章: 安否確認・緊急BCP連絡</span>
+          </div>
+          <span class="badge-auth">回答:全員 / 発動:要権限</span>
+        </div>
+        
+        <p>地震・風水害などの緊急事態発生時に、全社員へ一斉に安否確認を発動し、回答状況をリアルタイムで集計するBCP機能です。</p>
+
+        <h3>安否回答の流れ（全社員）</h3>
+        <ol>
+          <li>安否確認が発動されると、アプリ画面上部に「緊急安否確認バナー」が表示され、Webプッシュ通知およびメールが送信されます。</li>
+          <li>バナーの「安否を回答する」をクリックします。</li>
+          <li>「本人無事 / 軽傷 / 重傷」「出社可否」「家族の状況」「現在地（位置情報）」を選択して送信します。</li>
+        </ol>
+
+        <div class="callout callout-danger">
+          <span class="callout-icon">⚠️</span>
+          <div>
+            <strong>安否確認の発動権限</strong>: 誤発動を防ぐため、安否確認の一斉発動は「管理者」または「安否確認発動権限」を持つ担当者のみ実行できます。
+          </div>
+        </div>
+      </section>
+
+      <!-- 第11章: 社員名簿 -->
+      <section id="sec-members" class="doc-section">
+        <div class="section-header">
+          <div class="section-title">
+            <span class="section-icon">👥</span>
+            <span>第11章: 社員名簿・プロフィール</span>
+          </div>
+          <span class="badge-auth badge-free">全員対象</span>
+        </div>
+        <p>所属部署、役職、内線番号、緊急連絡先、顔写真を確認できる社員一覧です。名前や部署名での高速検索が可能です。</p>
+      </section>
+
+      <!-- 第12章: ユーティリティー -->
+      <section id="sec-utility" class="doc-section">
+        <div class="section-header">
+          <div class="section-title">
+            <span class="section-icon">🛠️</span>
+            <span>第12章: ユーティリティー・便利機能</span>
+          </div>
+          <span class="badge-auth badge-free">全員対象</span>
+        </div>
+        <p>左側サイドバーの「ユーティリティー」メニューを展開することで、本マニュアルの閲覧や各種専用ツールへ素早くアクセスできます。</p>
+      </section>
+
+      <!-- 第13章: 管理者パネル -->
+      <section id="sec-admin" class="doc-section">
+        <div class="section-header">
+          <div class="section-title">
+            <span class="section-icon">⚙️</span>
+            <span>第13章: 管理者パネル・システム設定</span>
+          </div>
+          <span class="badge-auth badge-admin">要管理者権限</span>
+        </div>
+        
+        <p>システム全体の管理、ユーザーの登録・権限付与、各メニューの表示制御、推奨サーバーコードの確認を行う管理機能です。</p>
+
+        <h3>管理者が設定できる項目</h3>
+        <ul>
+          <li><strong>社員アカウント管理</strong>: 新規登録、パスワード変更、アカウントの有効/無効化、管理者権限の付与。</li>
+          <li><strong>個別メニュー表示切り替え</strong>:
+            社員ごとに「点検予定管理」「共有ファイル」「安否確認発動」の各メニューの表示/非表示を個別にON/OFF可能。
+          </li>
+          <li><strong>推奨バックエンドコード (RecommendServerCode)</strong>: NAS本番サーバー用の最新のExpress/MS SQL Serverルーターコードの確認・エクスポート。</li>
+        </ul>
+      </section>
+
+      <!-- 第14章: 権限一覧 -->
+      <section id="sec-roles" class="doc-section">
+        <div class="section-header">
+          <div class="section-title">
+            <span class="section-icon">🔒</span>
+            <span>第14章: 権限マトリクス一覧</span>
+          </div>
+          <span class="badge-auth badge-free">仕様確認</span>
+        </div>
+        
+        <table class="feature-table">
+          <thead>
+            <tr>
+              <th>機能・操作</th>
+              <th>一般社員</th>
+              <th>個別許可ユーザー</th>
+              <th>システム管理者</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>タイムライン投稿・閲覧</td>
+              <td>◯</td>
+              <td>◯</td>
+              <td>◯</td>
+            </tr>
+            <tr>
+              <td>業務日報作成・閲覧</td>
+              <td>◯</td>
+              <td>◯</td>
+              <td>◯</td>
+            </tr>
+            <tr>
+              <td>掲示板閲覧・投稿</td>
+              <td>◯</td>
+              <td>◯</td>
+              <td>◯</td>
+            </tr>
+            <tr>
+              <td>共有カレンダー登録・iCal</td>
+              <td>◯</td>
+              <td>◯</td>
+              <td>◯</td>
+            </tr>
+            <tr>
+              <td>文書管理の閲覧・DL・登録</td>
+              <td>◯</td>
+              <td>◯</td>
+              <td>◯</td>
+            </tr>
+            <tr>
+              <td><strong>点検予定一括登録・管理</strong></td>
+              <td>✕</td>
+              <td><strong>◯ (要権限)</strong></td>
+              <td>◯</td>
+            </tr>
+            <tr>
+              <td><strong>NAS共有ファイル閲覧</strong></td>
+              <td>✕</td>
+              <td><strong>◯ (要権限)</strong></td>
+              <td>◯</td>
+            </tr>
+            <tr>
+              <td><strong>安否確認の一斉発動</strong></td>
+              <td>✕</td>
+              <td><strong>◯ (要権限)</strong></td>
+              <td>◯</td>
+            </tr>
+            <tr>
+              <td><strong>管理者パネル・ユーザー管理</strong></td>
+              <td>✕</td>
+              <td>✕</td>
+              <td><strong>◯ (要管理者)</strong></td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <footer class="manual-footer">
+        <p>© 2026 寺岡オートドア SNS / 寺子屋SNS All Rights Reserved. | 社内限定利用</p>
+      </footer>
+    </main>
+  </div>
+
+  <script>
+    // 検索フィルター
+    function filterMenu() {
+      const input = document.getElementById('manualSearch');
+      const filter = input.value.toLowerCase();
+      const list = document.getElementById('menuList');
+      const items = list.getElementsByTagName('li');
+
+      for (let i = 0; i < items.length; i++) {
+        const a = items[i].getElementsByTagName('a')[0];
+        const text = a.textContent || a.innerText;
+        if (text.toLowerCase().indexOf(filter) > -1) {
+          items[i].style.display = '';
+        } else {
+          items[i].style.display = 'none';
+        }
+      }
+    }
+
+    // スクロール追従アクティブハイライト
+    window.addEventListener('DOMContentLoaded', () => {
+      const links = document.querySelectorAll('.nav-item a');
+      const sections = document.querySelectorAll('.doc-section');
+
+      window.addEventListener('scroll', () => {
+        let current = '';
+        sections.forEach(section => {
+          const sectionTop = section.offsetTop - 100;
+          if (pageYOffset >= sectionTop) {
+            current = section.getAttribute('id');
+          }
+        });
+
+        links.forEach(link => {
+          link.classList.remove('active');
+          if (link.getAttribute('href') === `#${current}`) {
+            link.classList.add('active');
+          }
+        });
+      });
+    });
+  </script>
+</body>
+</html>
