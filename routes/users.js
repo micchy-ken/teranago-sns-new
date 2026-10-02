@@ -1,7 +1,7 @@
 /**
  * routes/users.js (本番環境・MS SQL Server 連携 メンバー管理モジュール)
  * 寺岡オートドアSNS ユーザー管理・所属・表示順・アバター・設定モジュール
- * 最終更新: 2026年10月1日 (パラメータ競合完全防止・ガード実装版)
+ * 最終更新: 2026年10月1日 (SQL Server動的カラムINSERT安全化・パラメータ競合完全防止版)
  */
 import { Router } from 'express';
 import path from 'path';
@@ -391,48 +391,46 @@ async function saveOrUpdateUser(req, res, targetUserId = null, next = null) {
       reqBuilder.input('mustChangePassword', sql.Bit, u.mustChangePassword ? 1 : 0);
     }
 
-    const updateSets = [
-      'loginId = @loginId',
-      'password = @password',
-      'name = @name',
-      'kanaName = @kanaName',
-      'department = @department',
-      'office = @office',
-      'division = @division',
-      'position = @position',
-      'role = @role',
-      'isAdmin = @isAdmin',
-      'avatarUrl = @avatarUrl',
-      'email = @email',
-      'mobileEmail = @mobileEmail',
-      'phone = @phone',
-      'phoneOutside = @phoneOutside',
-      'phoneExtension = @phoneExtension',
-      'mobilePhone = @mobilePhone',
-      'icalUrl = @icalUrl',
-      'supervisorId = @supervisorId'
+    const candidateFields = [
+      { col: 'loginId', set: 'loginId = @loginId' },
+      { col: 'password', set: 'password = @password' },
+      { col: 'name', set: 'name = @name' },
+      { col: 'kanaName', set: 'kanaName = @kanaName' },
+      { col: 'department', set: 'department = @department' },
+      { col: 'office', set: 'office = @office' },
+      { col: 'division', set: 'division = @division' },
+      { col: 'position', set: 'position = @position' },
+      { col: 'role', set: 'role = @role' },
+      { col: 'isAdmin', set: 'isAdmin = @isAdmin' },
+      { col: 'avatarUrl', set: 'avatarUrl = @avatarUrl' },
+      { col: 'email', set: 'email = @email' },
+      { col: 'mobileEmail', set: 'mobileEmail = @mobileEmail' },
+      { col: 'phone', set: 'phone = @phone' },
+      { col: 'phoneOutside', set: 'phoneOutside = @phoneOutside' },
+      { col: 'phoneExtension', set: 'phoneExtension = @phoneExtension' },
+      { col: 'mobilePhone', set: 'mobilePhone = @mobilePhone' },
+      { col: 'icalUrl', set: 'icalUrl = @icalUrl' },
+      { col: 'supervisorId', set: 'supervisorId = @supervisorId' }
     ];
-    if (hasSortOrderCol) updateSets.push('sortOrder = @sortOrder');
-    if (hasRolesCol) updateSets.push('roles = @roles');
-    if (hasCol) updateSets.push('preferences = @preferences');
-    if (hasPersonalEmailEncryptedCol && u.personalEmailEncrypted !== undefined) updateSets.push('personalEmailEncrypted = @personalEmailEncrypted');
-    if (hasPersonalEmailMaskedCol && u.personalEmailMasked !== undefined) updateSets.push('personalEmailMasked = @personalEmailMasked');
-    if (hasMustChangeCol) updateSets.push('mustChangePassword = @mustChangePassword');
 
-    const insertCols = [
-      'id', 'loginId', 'password', 'name', 'kanaName', 'department', 'office', 'division', 'position',
-      'role', 'isAdmin', 'avatarUrl', 'email', 'mobileEmail', 'phone', 'phoneOutside', 'phoneExtension', 'mobilePhone', 'icalUrl', 'supervisorId'
-    ];
-    const insertVals = [
-      '@id', '@loginId', '@password', '@name', '@kanaName', '@department', '@office', '@division', '@position',
-      '@role', '@isAdmin', '@avatarUrl', '@email', '@mobileEmail', '@phone', '@phoneOutside', '@phoneExtension', '@mobilePhone', '@icalUrl', '@supervisorId'
-    ];
-    if (hasSortOrderCol) { insertCols.push('sortOrder'); insertVals.push('@sortOrder'); }
-    if (hasRolesCol) { insertCols.push('roles'); insertVals.push('@roles'); }
-    if (hasCol) { insertCols.push('preferences'); insertVals.push('@preferences'); }
-    if (hasPersonalEmailEncryptedCol && u.personalEmailEncrypted !== undefined) { insertCols.push('personalEmailEncrypted'); insertVals.push('@personalEmailEncrypted'); }
-    if (hasPersonalEmailMaskedCol && u.personalEmailMasked !== undefined) { insertCols.push('personalEmailMasked'); insertVals.push('@personalEmailMasked'); }
-    if (hasMustChangeCol) { insertCols.push('mustChangePassword'); insertVals.push('@mustChangePassword'); }
+    const updateSets = [];
+    const insertCols = ['id'];
+    const insertVals = ['@id'];
+
+    for (const f of candidateFields) {
+      if (!cols || cols.has(f.col.toLowerCase())) {
+        updateSets.push(f.set);
+        insertCols.push(f.col);
+        insertVals.push(`@${f.col}`);
+      }
+    }
+
+    if (hasSortOrderCol) { updateSets.push('sortOrder = @sortOrder'); insertCols.push('sortOrder'); insertVals.push('@sortOrder'); }
+    if (hasRolesCol) { updateSets.push('roles = @roles'); insertCols.push('roles'); insertVals.push('@roles'); }
+    if (hasCol) { updateSets.push('preferences = @preferences'); insertCols.push('preferences'); insertVals.push('@preferences'); }
+    if (hasPersonalEmailEncryptedCol && u.personalEmailEncrypted !== undefined) { updateSets.push('personalEmailEncrypted = @personalEmailEncrypted'); insertCols.push('personalEmailEncrypted'); insertVals.push('@personalEmailEncrypted'); }
+    if (hasPersonalEmailMaskedCol && u.personalEmailMasked !== undefined) { updateSets.push('personalEmailMasked = @personalEmailMasked'); insertCols.push('personalEmailMasked'); insertVals.push('@personalEmailMasked'); }
+    if (hasMustChangeCol) { updateSets.push('mustChangePassword = @mustChangePassword'); insertCols.push('mustChangePassword'); insertVals.push('@mustChangePassword'); }
 
     const queryStr = `
       IF EXISTS (SELECT 1 FROM dbo.Users WHERE id = @id)

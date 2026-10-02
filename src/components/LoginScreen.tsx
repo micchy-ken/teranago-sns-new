@@ -346,6 +346,10 @@ export function LoginScreen({
         })
       });
       const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'アカウント登録に失敗しました。');
+      }
+
       const returnedUser = data.user || {};
       const newUser: User = {
         id: String(returnedUser.id || `u_${Date.now()}`),

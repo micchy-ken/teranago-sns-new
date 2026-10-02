@@ -1,7 +1,7 @@
 /**
  * routes/invitations.js
  * 寺岡オートドアSNS ユーザー招待管理モジュール (Express Router & MS SQL Server & JSON Dual Persistence)
- * 最終更新: 2026年10月1日 (ユニークRESTfulパス完全対応版)
+ * 最終更新: 2026年10月1日 (SQL Server動的カラムINSERT安全化・プロフィール二重保存・招待完了強化版)
  */
 import { Router } from 'express';
 import path from 'path';
@@ -15,6 +15,29 @@ import { dataDir } from '../config.js';
 const router = Router();
 const invitationsFile = path.join(dataDir, 'invitations.json');
 const userPrefsFile = path.join(dataDir, 'user_preferences.json');
+const usersFile = path.join(dataDir, 'users.json');
+
+function loadUsers() {
+  try {
+    if (fs.existsSync(usersFile)) {
+      return JSON.parse(fs.readFileSync(usersFile, 'utf8')) || [];
+    }
+  } catch (e) {
+    console.warn('[Invitations] Failed to read users.json:', e.message);
+  }
+  return [];
+}
+
+function saveUsers(users) {
+  try {
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
+    }
+    fs.writeFileSync(usersFile, JSON.stringify(users, null, 2), 'utf8');
+  } catch (e) {
+    console.error('[Invitations] Failed to write users.json:', e.message);
+  }
+}
 
 // =============================================================
 // メール送信ヘルパー (Nodemailer - 実環境 SMTP 設定完全準拠)
@@ -609,9 +632,17 @@ router.post(completePaths, async (req, res) => {
       return res.status(400).json({ error: '招待リンクの有効期限が切れています' });
     }
 
-    // テーブルカラムの検出
-    const uColRes = await pool.request().query("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Users'");
-    const userCols = new Set((uColRes.recordset || []).map(r => r.COLUMN_NAME.toLowerCase()));
+    // テーブルカラムの動的検出
+    let userCols = new Set();
+    if (pool) {
+      try {
+        const uColRes = await pool.request().query("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Users'");
+        userCols = new Set((uColRes.recordset || []).map(r => r.COLUMN_NAME.toLowerCase()));
+      } catch (colErr) {
+        console.warn('[Invitations] Could not query Users columns:', colErr.message);
+      }
+    }
+
     const hasRolesCol = userCols.has('roles');
     const hasCol = userCols.has('preferences');
     const hasMustChangeCol = userCols.has('mustchangepassword');
@@ -624,6 +655,18 @@ router.post(completePaths, async (req, res) => {
     const deptString = [finalOffice, finalDivision, finalPosition].filter(Boolean).join(' ') || inv.department || '未設定';
     const finalRole = inv.role || 'user';
     const isAdmin = finalRole === 'admin';
+
+    // preferences に全プロフィールメタデータを確実に退避（DBにカラムが存在しない場合でも100%復元可能）
+    const userPrefsData = {
+      roles: [finalRole],
+      invitedAt: new Date().toISOString(),
+      kanaName: (kanaName || '').trim(),
+      email: inv.email,
+      mobileEmail: (mobileEmail || '').trim(),
+      mobilePhone: (mobilePhone || '').trim(),
+      phoneExtension: (phoneExtension || '').trim(),
+      phone: (mobilePhone || '').trim() || ''
+    };
 
     const userObj = {
       id: newUserId,
@@ -645,54 +688,75 @@ router.post(completePaths, async (req, res) => {
       phone: (mobilePhone || '').trim() || '',
       mustChangePassword: false,
       roles: [finalRole],
-      preferences: {
-        roles: [finalRole],
-        invitedAt: new Date().toISOString()
-      }
+      preferences: userPrefsData
     };
 
-    const reqBuilder = pool.request()
-      .input('id', sql.VarChar, newUserId)
-      .input('loginId', sql.VarChar, finalLoginId)
-      .input('password', sql.VarChar, password)
-      .input('name', sql.NVarChar, userObj.name)
-      .input('kanaName', sql.NVarChar, userObj.kanaName)
-      .input('department', sql.NVarChar, userObj.department)
-      .input('office', sql.NVarChar, userObj.office)
-      .input('division', sql.NVarChar, userObj.division)
-      .input('position', sql.NVarChar, userObj.position)
-      .input('role', sql.VarChar, userObj.role)
-      .input('isAdmin', sql.Bit, isAdmin ? 1 : 0)
-      .input('avatarUrl', sql.NVarChar, userObj.avatarUrl)
-      .input('email', sql.NVarChar, userObj.email)
-      .input('mobileEmail', sql.NVarChar, userObj.mobileEmail)
-      .input('phone', sql.NVarChar, userObj.phone)
-      .input('phoneOutside', sql.NVarChar, '')
-      .input('phoneExtension', sql.NVarChar, userObj.phoneExtension)
-      .input('mobilePhone', sql.NVarChar, userObj.mobilePhone)
-      .input('icalUrl', sql.NVarChar, '')
-      .input('supervisorId', sql.VarChar, null);
+    // SQL Server への動的カラム登録（テーブルに実在するカラムのみを抽出して安全にINSERT）
+    if (pool && userCols.size > 0) {
+      try {
+        const candidateCols = [
+          { col: 'id', val: newUserId, type: sql.VarChar },
+          { col: 'loginId', val: finalLoginId, type: sql.VarChar },
+          { col: 'password', val: password, type: sql.VarChar },
+          { col: 'name', val: userObj.name, type: sql.NVarChar },
+          { col: 'kanaName', val: userObj.kanaName, type: sql.NVarChar },
+          { col: 'department', val: userObj.department, type: sql.NVarChar },
+          { col: 'office', val: userObj.office, type: sql.NVarChar },
+          { col: 'division', val: userObj.division, type: sql.NVarChar },
+          { col: 'position', val: userObj.position, type: sql.NVarChar },
+          { col: 'role', val: userObj.role, type: sql.VarChar },
+          { col: 'isAdmin', val: isAdmin ? 1 : 0, type: sql.Bit },
+          { col: 'avatarUrl', val: userObj.avatarUrl, type: sql.NVarChar },
+          { col: 'email', val: userObj.email, type: sql.NVarChar },
+          { col: 'mobileEmail', val: userObj.mobileEmail, type: sql.NVarChar },
+          { col: 'phone', val: userObj.phone, type: sql.NVarChar },
+          { col: 'phoneOutside', val: '', type: sql.NVarChar },
+          { col: 'phoneExtension', val: userObj.phoneExtension, type: sql.NVarChar },
+          { col: 'mobilePhone', val: userObj.mobilePhone, type: sql.NVarChar },
+          { col: 'icalUrl', val: '', type: sql.NVarChar },
+          { col: 'supervisorId', val: null, type: sql.VarChar }
+        ];
 
-    if (hasRolesCol) reqBuilder.input('roles', sql.NVarChar, JSON.stringify([finalRole]));
-    if (hasCol) reqBuilder.input('preferences', sql.NVarChar, JSON.stringify(userObj.preferences));
-    if (hasMustChangeCol) reqBuilder.input('mustChangePassword', sql.Bit, 0);
+        if (hasRolesCol) {
+          candidateCols.push({ col: 'roles', val: JSON.stringify([finalRole]), type: sql.NVarChar });
+        }
+        if (hasCol) {
+          candidateCols.push({ col: 'preferences', val: JSON.stringify(userPrefsData), type: sql.NVarChar });
+        }
+        if (hasMustChangeCol) {
+          candidateCols.push({ col: 'mustChangePassword', val: 0, type: sql.Bit });
+        }
 
-    const insertCols = [
-      'id', 'loginId', 'password', 'name', 'kanaName', 'department', 'office', 'division', 'position',
-      'role', 'isAdmin', 'avatarUrl', 'email', 'mobileEmail', 'phone', 'phoneOutside', 'phoneExtension', 'mobilePhone', 'icalUrl', 'supervisorId'
-    ];
-    const insertVals = [
-      '@id', '@loginId', '@password', '@name', '@kanaName', '@department', '@office', '@division', '@position',
-      '@role', '@isAdmin', '@avatarUrl', '@email', '@mobileEmail', '@phone', '@phoneOutside', '@phoneExtension', '@mobilePhone', '@icalUrl', '@supervisorId'
-    ];
-    if (hasRolesCol) { insertCols.push('roles'); insertVals.push('@roles'); }
-    if (hasCol) { insertCols.push('preferences'); insertVals.push('@preferences'); }
-    if (hasMustChangeCol) { insertCols.push('mustChangePassword'); insertVals.push('@mustChangePassword'); }
+        const insertCols = [];
+        const insertVals = [];
+        const reqBuilder = pool.request();
 
-    await reqBuilder.query(`INSERT INTO dbo.Users (${insertCols.join(', ')}) VALUES (${insertVals.join(', ')})`);
+        for (const item of candidateCols) {
+          if (userCols.has(item.col.toLowerCase())) {
+            insertCols.push(item.col);
+            insertVals.push(`@${item.col}`);
+            reqBuilder.input(item.col, item.type, item.val);
+          }
+        }
+
+        await reqBuilder.query(`INSERT INTO dbo.Users (${insertCols.join(', ')}) VALUES (${insertVals.join(', ')})`);
+      } catch (dbErr) {
+        console.warn('[Invitations] SQL Server user insert warning, falling back to local storage:', dbErr.message);
+      }
+    }
+
+    // users.json へのローカル二重保存（ハイブリッド同期）
+    const allUsers = loadUsers();
+    const existingIdx = allUsers.findIndex(u => u.id === newUserId || u.loginId === finalLoginId);
+    if (existingIdx >= 0) {
+      allUsers[existingIdx] = userObj;
+    } else {
+      allUsers.push(userObj);
+    }
+    saveUsers(allUsers);
 
     // ローカル preferences 保存
-    saveUserPrefs(newUserId, userObj.preferences);
+    saveUserPrefs(newUserId, userPrefsData);
 
     // 招待ステータスを accepted に更新
     if (hasTable) {

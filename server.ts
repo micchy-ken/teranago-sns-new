@@ -2639,7 +2639,13 @@ async function startServer() {
         roles: [finalRole],
         preferences: {
           roles: [finalRole],
-          invitedAt: new Date().toISOString()
+          invitedAt: new Date().toISOString(),
+          kanaName: (kanaName || '').trim(),
+          email: inv.email,
+          mobileEmail: (mobileEmail || '').trim(),
+          mobilePhone: (mobilePhone || '').trim(),
+          phoneExtension: (phoneExtension || '').trim(),
+          phone: (mobilePhone || '').trim() || ''
         }
       };
 
