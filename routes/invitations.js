@@ -340,16 +340,36 @@ router.get(listPaths, async (req, res) => {
   try {
     const pool = await getPool();
     const hasTable = pool ? await checkUserInvitationsTable(pool) : false;
+    const now = Date.now();
+
+    // 既に Users テーブルまたは users.json に存在する登録済みメールアドレスを収集
+    const registeredEmails = new Set();
+    if (pool) {
+      try {
+        const uRes = await pool.request().query("SELECT email FROM dbo.Users WHERE email IS NOT NULL AND email <> ''");
+        (uRes.recordset || []).forEach(r => {
+          if (r.email) registeredEmails.add(r.email.toLowerCase().trim());
+        });
+      } catch (_) {}
+    }
+    const localUsers = loadUsers();
+    localUsers.forEach(u => {
+      if (u.email) registeredEmails.add(u.email.toLowerCase().trim());
+    });
 
     if (hasTable) {
       try {
         const result = await pool.request().query('SELECT * FROM dbo.UserInvitations ORDER BY createdAt DESC');
-        const now = Date.now();
         const records = (result.recordset || []).map(inv => {
-          if (inv.status === 'pending' && new Date(inv.expiresAt).getTime() < now) {
-            return { ...inv, status: 'expired' };
+          let currentStatus = inv.status;
+          const invEmail = (inv.email || '').toLowerCase().trim();
+          if (currentStatus === 'pending' && registeredEmails.has(invEmail)) {
+            currentStatus = 'accepted';
+            pool.request().input('id', sql.VarChar, inv.id).query("UPDATE dbo.UserInvitations SET status = 'accepted' WHERE id = @id").catch(() => {});
+          } else if (currentStatus === 'pending' && new Date(inv.expiresAt).getTime() < now) {
+            currentStatus = 'expired';
           }
-          return inv;
+          return { ...inv, status: currentStatus };
         });
         return res.json(records);
       } catch (dbErr) {
@@ -358,13 +378,22 @@ router.get(listPaths, async (req, res) => {
     }
 
     const list = loadInvitations();
-    const now = Date.now();
+    let hasChanges = false;
     const mapped = list.map(inv => {
-      if (inv.status === 'pending' && new Date(inv.expiresAt).getTime() < now) {
-        return { ...inv, status: 'expired' };
+      let currentStatus = inv.status;
+      const invEmail = (inv.email || '').toLowerCase().trim();
+      if (currentStatus === 'pending' && registeredEmails.has(invEmail)) {
+        currentStatus = 'accepted';
+        inv.status = 'accepted';
+        hasChanges = true;
+      } else if (currentStatus === 'pending' && new Date(inv.expiresAt).getTime() < now) {
+        currentStatus = 'expired';
       }
-      return inv;
+      return { ...inv, status: currentStatus };
     });
+    if (hasChanges) {
+      saveInvitations(list);
+    }
     res.json(mapped);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -372,7 +401,7 @@ router.get(listPaths, async (req, res) => {
 });
 
 // =============================================================
-// 3. 招待取消 API (POST & DELETE /invitations/:id/cancel)
+// 3. 招待取消・削除 API (POST & DELETE /invitations/:id/cancel & /invitations/:id)
 // =============================================================
 const cancelInvitePaths = [
   '/invitations/:id/cancel',
@@ -388,8 +417,21 @@ const cancelInvitePaths = [
 async function cancelInviteHandler(req, res) {
   try {
     const invId = req.params.id;
+    const isPermanent = req.query.permanent === 'true' || req.query.hard === 'true';
     const pool = await getPool();
     const hasTable = pool ? await checkUserInvitationsTable(pool) : false;
+
+    if (isPermanent) {
+      if (hasTable) {
+        try {
+          await pool.request().input('id', sql.VarChar, invId).query("DELETE FROM dbo.UserInvitations WHERE id = @id");
+        } catch (_) {}
+      }
+      const list = loadInvitations();
+      const updatedList = list.filter(i => i.id !== invId);
+      saveInvitations(updatedList);
+      return res.json({ success: true, message: '招待履歴を完全に削除しました', deletedId: invId });
+    }
 
     if (hasTable) {
       try {
@@ -764,15 +806,28 @@ router.post(completePaths, async (req, res) => {
         await pool.request()
           .input('token', sql.VarChar, String(token))
           .input('acceptedUserId', sql.VarChar, newUserId)
-          .query("UPDATE dbo.UserInvitations SET status = 'accepted', acceptedAt = GETDATE(), acceptedUserId = @acceptedUserId WHERE token = @token");
-      } catch (_) {}
+          .query(`
+            IF COL_LENGTH('dbo.UserInvitations', 'acceptedUserId') IS NOT NULL AND COL_LENGTH('dbo.UserInvitations', 'acceptedAt') IS NOT NULL
+              UPDATE dbo.UserInvitations SET status = 'accepted', acceptedAt = GETDATE(), acceptedUserId = @acceptedUserId WHERE token = @token;
+            ELSE
+              UPDATE dbo.UserInvitations SET status = 'accepted' WHERE token = @token;
+          `);
+      } catch (sqlErr) {
+        try {
+          await pool.request()
+            .input('token', sql.VarChar, String(token))
+            .query("UPDATE dbo.UserInvitations SET status = 'accepted' WHERE token = @token");
+        } catch (_) {}
+      }
     }
 
-    if (jsonInv) {
-      jsonInv.status = 'accepted';
-      jsonInv.acceptedAt = new Date().toISOString();
-      jsonInv.acceptedUserId = newUserId;
-      saveInvitations(list);
+    const currentInvList = loadInvitations();
+    const targetJsonInv = currentInvList.find(i => i.token === token || (i.email && inv && i.email.toLowerCase() === inv.email.toLowerCase() && i.status === 'pending'));
+    if (targetJsonInv) {
+      targetJsonInv.status = 'accepted';
+      targetJsonInv.acceptedAt = new Date().toISOString();
+      targetJsonInv.acceptedUserId = newUserId;
+      saveInvitations(currentInvList);
     }
 
     res.json({

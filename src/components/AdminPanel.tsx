@@ -454,6 +454,7 @@ export function AdminPanel({
   const [inviteStatusMessage, setInviteStatusMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   
   const [invitationsList, setInvitationsList] = useState<UserInvitation[]>([]);
+  const [invitationFilter, setInvitationFilter] = useState<'pending' | 'accepted' | 'all'>('pending');
   const [isLoadingInvitations, setIsLoadingInvitations] = useState(false);
   const [userTabSubMode, setUserTabSubMode] = useState<'members' | 'invitations'>('members');
   const [resetPasswordSendingId, setResetPasswordSendingId] = useState<string | null>(null);
@@ -840,6 +841,28 @@ export function AdminPanel({
           }
         } catch (err) {
           console.error('Cancel invite error:', err);
+        }
+      }
+    });
+  };
+
+  const handleDeleteInvite = async (invitationId: string) => {
+    setConfirmModal({
+      isOpen: true,
+      title: '招待履歴の完全削除',
+      message: 'この招待履歴を一覧から完全に削除しますか？',
+      confirmText: '削除する',
+      type: 'danger',
+      onConfirm: async () => {
+        try {
+          const res = await fetch(`${API_BASE_URL}/invitations/${invitationId}?permanent=true`, {
+            method: 'DELETE'
+          });
+          if (res.ok) {
+            setInvitationsList(prev => prev.filter(inv => inv.id !== invitationId));
+          }
+        } catch (err) {
+          console.error('Delete invite error:', err);
         }
       }
     });
@@ -2023,13 +2046,49 @@ export function AdminPanel({
             </div>
           ) : userViewMode === 'list' && userTabSubMode === 'invitations' ? (
             /* 招待中一覧アクションバー */
-            <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm flex items-center justify-between gap-4">
-              <div className="flex items-center gap-2 text-xs text-slate-600">
-                <Mail className="w-4 h-4 text-indigo-600" />
-                <span className="font-bold text-slate-800">
-                  招待履歴・未登録メンバー管理
-                </span>
-                <span className="text-slate-400">（全 {invitationsList.length} 件）</span>
+            <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-2 text-xs text-slate-600">
+                  <Mail className="w-4 h-4 text-indigo-600" />
+                  <span className="font-bold text-slate-800">
+                    招待履歴・未登録メンバー管理
+                  </span>
+                </div>
+                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
+                  <button
+                    type="button"
+                    onClick={() => setInvitationFilter('pending')}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      invitationFilter === 'pending'
+                        ? 'bg-white text-indigo-600 shadow-2xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    招待中のみ ({invitationsList.filter(i => i.status === 'pending').length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setInvitationFilter('accepted')}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      invitationFilter === 'accepted'
+                        ? 'bg-white text-emerald-600 shadow-2xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    登録完了 ({invitationsList.filter(i => i.status === 'accepted').length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setInvitationFilter('all')}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      invitationFilter === 'all'
+                        ? 'bg-white text-slate-800 shadow-2xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    すべて ({invitationsList.length})
+                  </button>
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -2269,26 +2328,56 @@ export function AdminPanel({
                 <div className="flex items-center gap-2">
                   <Mail className="w-4 h-4 text-emerald-600" />
                   <span className="font-extrabold text-slate-800 text-sm">
-                    送信済み招待一覧 ({invitationsList.length}件)
+                    {invitationFilter === 'pending'
+                      ? `現在招待中のメンバー (${invitationsList.filter(i => i.status === 'pending').length}件)`
+                      : invitationFilter === 'accepted'
+                      ? `登録完了済み (${invitationsList.filter(i => i.status === 'accepted').length}件)`
+                      : `招待履歴一覧 (${invitationsList.length}件)`}
                   </span>
                 </div>
               </div>
 
-              {invitationsList.length === 0 ? (
-                <div className="p-12 text-center space-y-3">
-                  <Mail className="w-10 h-10 text-slate-300 mx-auto" />
-                  <p className="text-slate-500 text-xs font-bold">送信済みの招待はありません。</p>
-                  <button
-                    type="button"
-                    onClick={handleOpenInviteModal}
-                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl inline-flex items-center gap-2 cursor-pointer shadow-sm"
-                  >
-                    <UserPlus className="w-4 h-4" />
-                    新しいメンバーを招待する
-                  </button>
-                </div>
-              ) : (
-                invitationsList.map((inv) => (
+              {(() => {
+                const displayedInvitations = invitationsList.filter(inv => {
+                  if (invitationFilter === 'pending') return inv.status === 'pending';
+                  if (invitationFilter === 'accepted') return inv.status === 'accepted';
+                  return true;
+                });
+
+                if (displayedInvitations.length === 0) {
+                  return (
+                    <div className="p-12 text-center space-y-3">
+                      <Mail className="w-10 h-10 text-slate-300 mx-auto" />
+                      <p className="text-slate-500 text-xs font-bold">
+                        {invitationFilter === 'pending'
+                          ? '現在、未登録の招待中メンバーはいません（登録完了したメンバーは「メンバー一覧」に表示されます）。'
+                          : invitationFilter === 'accepted'
+                          ? '登録完了済みの招待履歴はありません。'
+                          : '送信済みの招待はありません。'}
+                      </p>
+                      {invitationFilter !== 'all' ? (
+                        <button
+                          type="button"
+                          onClick={() => setInvitationFilter('all')}
+                          className="text-xs text-indigo-600 font-bold hover:underline cursor-pointer"
+                        >
+                          すべての招待履歴を表示する
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={handleOpenInviteModal}
+                          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl inline-flex items-center gap-2 cursor-pointer shadow-sm"
+                        >
+                          <UserPlus className="w-4 h-4" />
+                          新しいメンバーを招待する
+                        </button>
+                      )}
+                    </div>
+                  );
+                }
+
+                return displayedInvitations.map((inv) => (
                   <div key={inv.id} className="p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-slate-50/80 transition-colors">
                     <div className="space-y-1.5">
                       <div className="flex flex-wrap items-center gap-2">
@@ -2335,6 +2424,11 @@ export function AdminPanel({
                             有効期限: {new Date(inv.expiresAt).toLocaleDateString('ja-JP')} まで
                           </span>
                         )}
+                        {inv.status === 'accepted' && inv.acceptedAt && (
+                          <span className="text-emerald-700 font-medium">
+                            登録日時: {new Date(inv.acceptedAt).toLocaleString('ja-JP')}
+                          </span>
+                        )}
                       </div>
                     </div>
 
@@ -2362,19 +2456,41 @@ export function AdminPanel({
                         </>
                       )}
                       {(inv.status === 'expired' || inv.status === 'revoked') && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleResendInvite(inv.id, inv.email)}
+                            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg border border-slate-300 flex items-center gap-1 transition cursor-pointer"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5" />
+                            再招待
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteInvite(inv.id)}
+                            className="px-2.5 py-1.5 bg-slate-100 hover:bg-rose-50 text-slate-500 hover:text-rose-600 text-xs font-bold rounded-lg border border-slate-200 hover:border-rose-200 flex items-center gap-1 transition cursor-pointer"
+                            title="履歴を削除"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            削除
+                          </button>
+                        </>
+                      )}
+                      {inv.status === 'accepted' && (
                         <button
                           type="button"
-                          onClick={() => handleResendInvite(inv.id, inv.email)}
-                          className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg border border-slate-300 flex items-center gap-1 transition cursor-pointer"
+                          onClick={() => handleDeleteInvite(inv.id)}
+                          className="px-2.5 py-1.5 bg-slate-100 hover:bg-rose-50 text-slate-500 hover:text-rose-600 text-xs font-bold rounded-lg border border-slate-200 hover:border-rose-200 flex items-center gap-1 transition cursor-pointer"
+                          title="完了した招待履歴を削除"
                         >
-                          <RefreshCw className="w-3.5 h-3.5" />
-                          再招待
+                          <Trash2 className="w-3.5 h-3.5" />
+                          履歴削除
                         </button>
                       )}
                     </div>
                   </div>
-                ))
-              )}
+                ));
+              })()}
             </div>
           ) : (
             /* 部署別ドラッグ＆ドロップ・上下ボタン並び替え画面 */

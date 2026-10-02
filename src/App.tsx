@@ -1678,36 +1678,32 @@ export default function App() {
   };
 
   const handleDeleteUser = async (userId: string) => {
-    setConfirmModal({
-      isOpen: true,
-      title: 'ユーザーの削除',
-      message: 'このユーザーを削除してもよろしいですか？',
-      type: 'danger',
-      confirmText: '削除する',
-      cancelText: 'キャンセル',
-      onConfirm: async () => {
-        setUsersList(prev => prev.filter((u) => u.id !== userId));
+    // UIを即時更新
+    setUsersList(prev => prev.filter((u) => u.id !== userId));
 
-        try {
-          console.log(`Attempting to delete user via DELETE on /api/users/${userId}...`);
-          let response = await fetch(`${API_BASE_URL}/users/${userId}`, {
-            method: 'DELETE',
-            headers: {
-              'Accept': 'application/json',
-            },
-          });
+    try {
+      console.log(`Attempting to delete user via DELETE on /api/users/${userId}...`);
+      const response = await fetch(`${API_BASE_URL}/users/${userId}`, {
+        method: 'DELETE',
+        headers: {
+          'Accept': 'application/json',
+        },
+      });
 
-          if (response.ok) {
-            console.log('User successfully deleted from server DB.');
-            await refetchUsers();
-          } else {
-            console.warn(`DELETE /api/users/:id failed with status ${response.status}. Keeping locally.`);
-          }
-        } catch (err: any) {
-          console.warn('Failed to delete user via API, keeping locally:', err);
-        }
+      if (response.ok) {
+        console.log('User successfully deleted from server DB.');
+        await refetchUsers();
+      } else {
+        const errData = await response.json().catch(() => ({}));
+        console.warn(`DELETE /api/users/:id failed with status ${response.status}.`, errData);
+        alert(`ユーザーの削除に失敗しました: ${errData.error || response.statusText}`);
+        await refetchUsers();
       }
-    });
+    } catch (err: any) {
+      console.warn('Failed to delete user via API:', err);
+      alert(`通信エラーによりユーザーを削除できませんでした: ${err.message}`);
+      await refetchUsers();
+    }
   };
 
   const handleToggleUserAdmin = async (userId: string) => {

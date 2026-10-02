@@ -86,6 +86,8 @@ export interface UserInvitation {
   status: 'pending' | 'accepted' | 'expired' | 'revoked';
   createdAt: string;
   createdByName?: string;
+  acceptedAt?: string;
+  acceptedUserId?: string;
 }
 
 export type OfficeType = 'headquarter' | 'branch' | 'sales_office' | 'other';

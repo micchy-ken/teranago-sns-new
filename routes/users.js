@@ -1,7 +1,7 @@
 /**
  * routes/users.js (本番環境・MS SQL Server 連携 メンバー管理モジュール)
  * 寺岡オートドアSNS ユーザー管理・所属・表示順・アバター・設定モジュール
- * 最終更新: 2026年10月1日 (SQL Server動的カラムINSERT安全化・パラメータ競合完全防止版)
+ * 最終更新: 2026年10月1日 (ユーザー削除API・SQL＆JSON完全二重削除同期対応版)
  */
 import { Router } from 'express';
 import path from 'path';
@@ -14,6 +14,29 @@ import { uploadDir, dataDir } from '../config.js';
 
 const router = Router();
 const userPrefsFile = path.join(dataDir, 'user_preferences.json');
+const usersFile = path.join(dataDir, 'users.json');
+
+function loadUsers() {
+  try {
+    if (fs.existsSync(usersFile)) {
+      return JSON.parse(fs.readFileSync(usersFile, 'utf8')) || [];
+    }
+  } catch (e) {
+    console.warn('[Users] Failed to read users.json:', e.message);
+  }
+  return [];
+}
+
+function saveUsers(users) {
+  try {
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
+    }
+    fs.writeFileSync(usersFile, JSON.stringify(users, null, 2), 'utf8');
+  } catch (e) {
+    console.error('[Users] Failed to write users.json:', e.message);
+  }
+}
 
 // 予約語（ユーザーIDと誤認させてはならないエンドポイント名）
 const RESERVED_USER_IDS = new Set([
@@ -533,16 +556,38 @@ router.put(preferencesPaths, updatePreferencesHandler);
 router.post(preferencesPaths, updatePreferencesHandler);
 
 // =============================================================
-// 6. ユーザー削除 (DELETE /users/:id & /api/users/:id)
+// 6. ユーザー削除 (DELETE /users/:id & /api/users/:id & /:id)
 // =============================================================
-router.delete(['/users/:id', '/api/users/:id'], async (req, res, next) => {
+router.delete(['/users/:id', '/api/users/:id', '/:id'], async (req, res) => {
   try {
     const userId = String(req.params.id);
-    if (isReservedUserId(userId)) return next();
 
     const pool = await getPool();
-    await pool.request().input('id', sql.VarChar, userId).query('DELETE FROM dbo.Users WHERE id = @id');
-    res.json({ success: true, message: 'ユーザー削除完了' });
+    if (pool) {
+      try {
+        await pool.request()
+          .input('id', sql.VarChar, userId)
+          .query('DELETE FROM dbo.Users WHERE id = @id');
+      } catch (dbErr) {
+        console.warn('[Users] Failed to delete user from SQL Server:', dbErr.message);
+      }
+    }
+
+    // users.json からも確実に削除（二重永続化同期）
+    const users = loadUsers();
+    const filteredUsers = users.filter(u => String(u.id) !== userId && String(u.loginId) !== userId);
+    saveUsers(filteredUsers);
+
+    // user_preferences.json からも削除
+    const allPrefs = loadAllUserPrefs();
+    if (allPrefs[userId]) {
+      delete allPrefs[userId];
+      try {
+        fs.writeFileSync(userPrefsFile, JSON.stringify(allPrefs, null, 2), 'utf8');
+      } catch (_) {}
+    }
+
+    res.json({ success: true, message: 'ユーザー削除完了', deletedId: userId });
   } catch (err) { 
     res.status(500).json({ error: err.message }); 
   }

@@ -2119,6 +2119,18 @@ async function startServer() {
     }
   });
 
+  app.delete(['/api/users/:id', '/api/users/:id/'], (req, res) => {
+    try {
+      const userId = req.params.id;
+      const users = loadUsers();
+      const filtered = users.filter((u: any) => String(u.id) !== userId && String(u.loginId) !== userId);
+      saveUsers(filtered);
+      res.json({ success: true, message: 'ユーザーを削除しました', deletedId: userId });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // 個人設定・通知設定の保存 API (PUT & POST 両対応 / 部分マージ対応)
   const handlePreferencesUpdate = (req: any, res: any) => {
     try {
@@ -2449,20 +2461,34 @@ async function startServer() {
   app.get(['/api/invitations', '/api/invitations/', '/api/users/invitations', '/api/users/invitations/'], (req, res) => {
     try {
       const list = loadInvitations();
+      const users = loadUsers();
+      const registeredEmails = new Set(users.map((u: any) => (u.email || '').toLowerCase().trim()).filter(Boolean));
       const now = Date.now();
+      let hasChanges = false;
+
       const mapped = list.map((inv: any) => {
-        if (inv.status === 'pending' && new Date(inv.expiresAt).getTime() < now) {
-          return { ...inv, status: 'expired' };
+        let currentStatus = inv.status;
+        const invEmail = (inv.email || '').toLowerCase().trim();
+        if (currentStatus === 'pending' && registeredEmails.has(invEmail)) {
+          currentStatus = 'accepted';
+          inv.status = 'accepted';
+          hasChanges = true;
+        } else if (currentStatus === 'pending' && new Date(inv.expiresAt).getTime() < now) {
+          currentStatus = 'expired';
         }
-        return inv;
+        return { ...inv, status: currentStatus };
       });
+
+      if (hasChanges) {
+        saveInvitations(list);
+      }
       res.json(mapped);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  // 3. 招待取消 API
+  // 3. 招待取消・削除 API
   app.post(['/api/invitations/:id/cancel', '/api/invitations/:id/cancel/', '/api/users/invitations/:id/cancel', '/api/users/invitations/:id/cancel/'], (req, res) => {
     try {
       const list = loadInvitations();
@@ -2479,7 +2505,14 @@ async function startServer() {
 
   app.delete(['/api/invitations/:id', '/api/invitations/:id/', '/api/users/invitations/:id', '/api/users/invitations/:id/'], (req, res) => {
     try {
+      const isPermanent = req.query.permanent === 'true' || req.query.hard === 'true';
       const list = loadInvitations();
+      if (isPermanent) {
+        const updatedList = list.filter((i: any) => i.id !== req.params.id);
+        saveInvitations(updatedList);
+        return res.json({ success: true, message: '招待履歴を完全に削除しました', deletedId: req.params.id });
+      }
+
       const target = list.find((i: any) => i.id === req.params.id);
       if (target) {
         target.status = 'revoked';
