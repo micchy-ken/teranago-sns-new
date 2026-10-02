@@ -926,12 +926,11 @@ export default function DocumentManager({
                 <table className="w-full text-left border-collapse text-xs">
                   <thead>
                     <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-500 font-bold">
-                      <th className="py-3 px-4 min-w-[200px]">文書タイトル / 概要</th>
-                      <th className="py-3 px-4 min-w-[180px]">添付ファイル (最新版)</th>
-                      <th className="py-3 px-3 min-w-[100px]">作成者</th>
-                      <th className="py-3 px-3 min-w-[130px]">最終更新者 (添付日)</th>
-                      <th className="py-3 px-3 text-center min-w-[90px]">DL数</th>
-                      <th className="py-3 px-4 text-right min-w-[170px]">操作</th>
+                      <th className="py-3 px-4 min-w-[220px]">文書タイトル</th>
+                      <th className="py-3 px-4 min-w-[240px]">添付ファイル (最新版)</th>
+                      <th className="py-3 px-3 min-w-[110px]">作成者</th>
+                      <th className="py-3 px-3 text-center min-w-[90px]">DL</th>
+                      <th className="py-3 px-4 text-center min-w-[100px]">履歴</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -942,140 +941,94 @@ export default function DocumentManager({
 
                       return (
                         <tr key={item.id} className="hover:bg-slate-50/80 transition-colors group">
-                          {/* タイトル & 概要 */}
-                          <td className="py-3.5 px-4 align-top">
-                            <div className="flex items-start gap-2">
-                              <div className="w-7 h-7 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 shrink-0 mt-0.5">
-                                <FileText className="w-4 h-4" />
+                          {/* ① 文書タイトル & 文書アイコン (クリックで詳細モーダル起動) */}
+                          <td className="py-3 px-4 align-middle">
+                            <div
+                              onClick={() => handleOpenHistoryModal(item)}
+                              className="flex items-center gap-2.5 cursor-pointer group/title select-none max-w-fit"
+                              title="クリックして文書の詳細・履歴を表示"
+                            >
+                              <div className="w-8 h-8 rounded-xl bg-indigo-50 group-hover/title:bg-indigo-100 border border-indigo-100 group-hover/title:border-indigo-200 flex items-center justify-center text-indigo-600 shrink-0 transition-all group-hover/title:scale-105 shadow-2xs">
+                                <FileText className="w-4.5 h-4.5" />
                               </div>
                               <div className="min-w-0">
                                 <div className="flex items-center gap-1.5 flex-wrap">
-                                  <span className="font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">
+                                  <span className="font-bold text-slate-800 group-hover/title:text-indigo-600 transition-colors text-xs">
                                     {item.title}
                                   </span>
-                                  <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.2 rounded">
+                                  <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200/60 px-1.5 py-0.2 rounded-full">
                                     v{latestVersion?.versionNumber || 1}
                                   </span>
                                 </div>
-                                {item.description && (
-                                  <p className="text-[11px] text-slate-500 line-clamp-1 mt-0.5">
-                                    {item.description}
-                                  </p>
-                                )}
                               </div>
                             </div>
                           </td>
 
-                          {/* 添付ファイル群 */}
-                          <td className="py-3.5 px-4 align-top">
-                            <div className="flex flex-col gap-1">
-                              {files.slice(0, 2).map(f => (
-                                <div key={f.fileId} className="flex items-center gap-1.5 text-[11px] text-slate-700 min-w-0">
-                                  {getFileIcon(f.fileName)}
-                                  <span className="truncate max-w-[140px] font-medium" title={f.fileName}>
+                          {/* ② 添付ファイル (最新版) - ファイル名全体をクリックでプレビュー */}
+                          <td className="py-3 px-4 align-middle">
+                            <div className="flex flex-col gap-1.5">
+                              {files.map(f => (
+                                <div
+                                  key={f.fileId}
+                                  onClick={() => handlePreviewFile(f)}
+                                  className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-slate-50 hover:bg-indigo-50/80 border border-slate-200/80 hover:border-indigo-200 text-slate-700 hover:text-indigo-700 transition-all cursor-pointer group/file w-fit max-w-full shadow-2xs"
+                                  title={`クリックして「${f.fileName}」をプレビュー`}
+                                >
+                                  <div className="shrink-0">
+                                    {getFileIcon(f.fileName)}
+                                  </div>
+                                  <span className="truncate max-w-[200px] font-semibold text-xs text-slate-800 group-hover/file:text-indigo-600">
                                     {f.fileName}
                                   </span>
-                                  <span className="text-[10px] text-slate-400 shrink-0">
+                                  <span className="text-[10px] text-slate-400 group-hover/file:text-indigo-400 shrink-0">
                                     ({formatBytes(f.fileSize)})
                                   </span>
-                                  <button
-                                    onClick={() => handlePreviewFile(f)}
-                                    className="p-0.5 text-slate-400 hover:text-indigo-600 transition-colors shrink-0"
-                                    title="プレビュー"
-                                  >
-                                    <Eye className="w-3 h-3" />
-                                  </button>
+                                  <Eye className="w-3.5 h-3.5 text-slate-400 group-hover/file:text-indigo-600 shrink-0 opacity-60 group-hover/file:opacity-100 transition-opacity ml-1" />
                                 </div>
                               ))}
-                              {files.length > 2 && (
-                                <span className="text-[10px] font-semibold text-slate-400">
-                                  他 {files.length - 2} 件のファイル同梱
-                                </span>
-                              )}
                             </div>
                           </td>
 
-                          {/* 作成者 */}
-                          <td className="py-3.5 px-3 align-top whitespace-nowrap">
-                            <span className="font-medium text-slate-700">{item.createdByName}</span>
+                          {/* ③ 作成者 */}
+                          <td className="py-3 px-3 align-middle whitespace-nowrap">
+                            <span className="font-semibold text-slate-700 text-xs">{item.createdByName}</span>
                           </td>
 
-                          {/* 最終更新者 (添付日) */}
-                          <td className="py-3.5 px-3 align-top whitespace-nowrap">
-                            <div className="font-semibold text-slate-800">{item.updatedByName}</div>
-                            <div className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
-                              <Calendar className="w-3 h-3" />
-                              <span>{item.updatedAt ? new Date(item.updatedAt).toLocaleDateString('ja-JP') : '-'}</span>
-                            </div>
+                          {/* ④ DL (ダウンロードボタン) */}
+                          <td className="py-3 px-3 align-middle text-center whitespace-nowrap">
+                            {isMulti ? (
+                              <button
+                                onClick={() => handleDownloadZip(item)}
+                                className="px-3 py-1 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-2xs hover:shadow-xs transition-all flex items-center gap-1.5 mx-auto cursor-pointer"
+                                title="全添付ファイルをZIPで一括ダウンロード"
+                              >
+                                <Archive className="w-3.5 h-3.5" />
+                                <span>一括DL</span>
+                              </button>
+                            ) : (
+                              files[0] && (
+                                <button
+                                  onClick={() => handleDownloadSingleFile(files[0])}
+                                  className="px-3 py-1 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-2xs hover:shadow-xs transition-all flex items-center gap-1.5 mx-auto cursor-pointer"
+                                  title="ファイルをダウンロード"
+                                >
+                                  <Download className="w-3.5 h-3.5" />
+                                  <span>DL</span>
+                                </button>
+                              )
+                            )}
                           </td>
 
-                          {/* DL数 & 履歴ポップアップトリガー */}
-                          <td className="py-3.5 px-3 align-top text-center whitespace-nowrap">
+                          {/* ⑤ 履歴 (履歴モーダルボタン) */}
+                          <td className="py-3 px-4 align-middle text-center whitespace-nowrap">
                             <button
-                              onClick={() => handleOpenDownloadsModal(item)}
-                              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-all hover:scale-105"
-                              title="ダウンロード履歴を確認"
+                              onClick={() => handleOpenHistoryModal(item)}
+                              className="px-2.5 py-1 text-xs font-bold text-slate-600 hover:text-indigo-600 bg-white hover:bg-indigo-50/60 border border-slate-200 hover:border-indigo-200 rounded-xl transition-all shadow-2xs inline-flex items-center gap-1.5 cursor-pointer"
+                              title="改定履歴・詳細・過去バージョンを確認"
                             >
-                              <Download className="w-3 h-3" />
-                              <span>{item.downloadCount || 0}回</span>
+                              <History className="w-3.5 h-3.5 text-slate-500" />
+                              <span>履歴</span>
                             </button>
-                          </td>
-
-                          {/* 操作ボタングループ */}
-                          <td className="py-3.5 px-4 align-top text-right whitespace-nowrap">
-                            <div className="flex items-center justify-end gap-1.5">
-                              {/* ダウンロード */}
-                              {isMulti ? (
-                                <button
-                                  onClick={() => handleDownloadZip(item)}
-                                  className="px-2.5 py-1 text-[11px] font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-2xs transition-colors flex items-center gap-1"
-                                  title="同梱ファイルをZIPで一括ダウンロード"
-                                >
-                                  <Archive className="w-3 h-3" />
-                                  <span>一括DL</span>
-                                </button>
-                              ) : (
-                                files[0] && (
-                                  <button
-                                    onClick={() => handleDownloadSingleFile(files[0])}
-                                    className="px-2.5 py-1 text-[11px] font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-2xs transition-colors flex items-center gap-1"
-                                    title="ファイルをダウンロード"
-                                  >
-                                    <Download className="w-3 h-3" />
-                                    <span>DL</span>
-                                  </button>
-                                )
-                              )}
-
-                              {/* 履歴モーダル */}
-                              <button
-                                onClick={() => handleOpenHistoryModal(item)}
-                                className="p-1.5 text-slate-600 hover:text-indigo-600 hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors"
-                                title="改定履歴・過去バージョン"
-                              >
-                                <History className="w-3.5 h-3.5" />
-                              </button>
-
-                              {/* 新バージョン登録 */}
-                              <button
-                                onClick={() => handleOpenVersionModal(item)}
-                                className="p-1.5 text-slate-600 hover:text-indigo-600 hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors"
-                                title="新バージョン登録 (ファイル差し替え)"
-                              >
-                                <Upload className="w-3.5 h-3.5" />
-                              </button>
-
-                              {/* 削除 */}
-                              {(isAdmin || item.createdById === currentUser?.id) && (
-                                <button
-                                  onClick={() => handleDeleteDocument(item)}
-                                  className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-100 rounded-lg transition-colors"
-                                  title="文書を削除"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              )}
-                            </div>
                           </td>
                         </tr>
                       );
@@ -1497,110 +1450,200 @@ export default function DocumentManager({
       {/* ========================================================= */}
       {/* 4. 改定履歴・バージョン一覧モーダル */}
       {/* ========================================================= */}
+      {/* ========================================================= */}
+      {/* 4. 文書詳細・改定履歴モーダル */}
+      {/* ========================================================= */}
       {showHistoryModal && selectedItemForHistory && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
           <div className="bg-white w-full max-w-2xl rounded-2xl shadow-xl border border-slate-200 overflow-hidden my-8">
-            <div className="p-5 border-b border-slate-100 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <History className="w-5 h-5 text-indigo-600" />
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-200 flex items-center justify-center text-indigo-600 shadow-2xs">
+                  <FileText className="w-5 h-5" />
+                </div>
                 <div>
-                  <h3 className="font-bold text-slate-800 text-base">バージョン改定履歴</h3>
-                  <p className="text-[11px] text-slate-400">{selectedItemForHistory.title}</p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="font-bold text-slate-800 text-base">{selectedItemForHistory.title}</h3>
+                    <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full">
+                      v{selectedItemForHistory.latestVersionNumber || selectedItemForHistory.versions?.length || 1} (最新)
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-0.5">文書の詳細情報・改定履歴</p>
                 </div>
               </div>
               <button
                 onClick={() => setShowHistoryModal(false)}
-                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg"
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
-              <div className="space-y-4">
-                {(selectedItemForHistory.versions || []).slice().reverse().map((ver, idx) => {
-                  const isLatest = idx === 0;
-                  return (
-                    <div
-                      key={ver.versionNumber}
-                      className={`p-4 rounded-2xl border transition-all ${
-                        isLatest
-                          ? 'bg-indigo-50/30 border-indigo-200 ring-1 ring-indigo-100'
-                          : 'bg-white border-slate-200'
-                      }`}
+            <div className="p-6 space-y-5 max-h-[70vh] overflow-y-auto">
+              {/* 文書概要・説明 */}
+              {selectedItemForHistory.description && (
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200/80">
+                  <div className="text-[11px] font-bold text-slate-400 mb-1">文書の説明・概要</div>
+                  <p className="text-xs text-slate-700 leading-relaxed whitespace-pre-wrap">
+                    {selectedItemForHistory.description}
+                  </p>
+                </div>
+              )}
+
+              {/* メタ情報カード (作成者・更新者・累計DL数) */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="p-3 bg-white rounded-xl border border-slate-200">
+                  <div className="text-[10px] font-bold text-slate-400">作成者</div>
+                  <div className="text-xs font-bold text-slate-800 mt-0.5">{selectedItemForHistory.createdByName}</div>
+                  <div className="text-[10px] text-slate-400 mt-0.5">
+                    {selectedItemForHistory.createdAt ? new Date(selectedItemForHistory.createdAt).toLocaleDateString('ja-JP') : '-'}
+                  </div>
+                </div>
+
+                <div className="p-3 bg-white rounded-xl border border-slate-200">
+                  <div className="text-[10px] font-bold text-slate-400">最終更新者</div>
+                  <div className="text-xs font-bold text-slate-800 mt-0.5">{selectedItemForHistory.updatedByName}</div>
+                  <div className="text-[10px] text-slate-400 mt-0.5">
+                    {selectedItemForHistory.updatedAt ? new Date(selectedItemForHistory.updatedAt).toLocaleDateString('ja-JP') : '-'}
+                  </div>
+                </div>
+
+                <div className="p-3 bg-white rounded-xl border border-slate-200 flex flex-col justify-between">
+                  <div>
+                    <div className="text-[10px] font-bold text-slate-400">累計ダウンロード数</div>
+                    <div className="text-xs font-bold text-indigo-700 mt-0.5">{selectedItemForHistory.downloadCount || 0} 回</div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setShowHistoryModal(false);
+                      handleOpenDownloadsModal(selectedItemForHistory);
+                    }}
+                    className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 mt-1 cursor-pointer"
+                  >
+                    <Download className="w-3 h-3" />
+                    <span>DL履歴を確認</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* バージョン改定履歴一覧 */}
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <History className="w-4 h-4 text-indigo-600" />
+                    <span>バージョン改定履歴 (全{(selectedItemForHistory.versions || []).length}版)</span>
+                  </h4>
+                  {(isAdmin || selectedItemForHistory.createdById === currentUser?.id) && (
+                    <button
+                      onClick={() => {
+                        setShowHistoryModal(false);
+                        handleOpenVersionModal(selectedItemForHistory);
+                      }}
+                      className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold border border-indigo-200 transition-colors flex items-center gap-1 cursor-pointer shadow-2xs"
                     >
-                      <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
-                        <div className="flex items-center gap-2">
-                          <span className={`text-xs font-black px-2.5 py-0.5 rounded-full ${
-                            isLatest ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-700'
-                          }`}>
-                            第 {ver.versionNumber} 版 {isLatest && '(最新)'}
-                          </span>
-                          <span className="text-xs font-bold text-slate-700">{ver.uploadedByName}</span>
-                        </div>
-                        <div className="text-[11px] text-slate-400 flex items-center gap-1">
-                          <Clock className="w-3.5 h-3.5" />
-                          <span>{ver.uploadedAt ? new Date(ver.uploadedAt).toLocaleString('ja-JP') : '-'}</span>
-                        </div>
-                      </div>
+                      <Upload className="w-3 h-3" />
+                      <span>新バージョンを登録</span>
+                    </button>
+                  )}
+                </div>
 
-                      {ver.changeNote && (
-                        <p className="text-xs text-slate-600 mb-3 bg-slate-50/80 p-2 rounded-lg border border-slate-100">
-                          {ver.changeNote}
-                        </p>
-                      )}
-
-                      {/* この版の添付ファイル群 */}
-                      <div className="space-y-1.5 pt-2 border-t border-slate-100">
-                        <div className="flex items-center justify-between text-[11px] font-bold text-slate-500 mb-1">
-                          <span>添付ファイル ({ver.files?.length || 0}件)</span>
-                          {ver.files && ver.files.length > 1 && (
-                            <button
-                              onClick={() => handleDownloadZip(selectedItemForHistory, ver.versionNumber)}
-                              className="text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-semibold"
-                            >
-                              <Archive className="w-3 h-3" />
-                              <span>この版を一括ZIPダウンロード</span>
-                            </button>
-                          )}
-                        </div>
-
-                        {ver.files?.map(f => (
-                          <div key={f.fileId} className="flex items-center justify-between p-2 bg-white border border-slate-100 rounded-xl text-xs hover:border-slate-300 transition-colors">
-                            <div className="flex items-center gap-2 min-w-0">
-                              {getFileIcon(f.fileName)}
-                              <span className="truncate font-medium text-slate-800">{f.fileName}</span>
-                              <span className="text-[10px] text-slate-400">({formatBytes(f.fileSize)})</span>
-                            </div>
-                            <div className="flex items-center gap-1 shrink-0">
-                              <button
-                                onClick={() => handlePreviewFile(f)}
-                                className="p-1 text-slate-400 hover:text-indigo-600 rounded"
-                                title="プレビュー"
-                              >
-                                <Eye className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                onClick={() => handleDownloadSingleFile(f)}
-                                className="p-1 text-slate-600 hover:text-indigo-600 rounded"
-                                title="ダウンロード"
-                              >
-                                <Download className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
+                <div className="space-y-3">
+                  {(selectedItemForHistory.versions || []).slice().reverse().map((ver, idx) => {
+                    const isLatest = idx === 0;
+                    return (
+                      <div
+                        key={ver.versionNumber}
+                        className={`p-4 rounded-xl border transition-all ${
+                          isLatest
+                            ? 'bg-indigo-50/20 border-indigo-200 ring-1 ring-indigo-100/70'
+                            : 'bg-white border-slate-200'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+                          <div className="flex items-center gap-2">
+                            <span className={`text-xs font-black px-2.5 py-0.5 rounded-full ${
+                              isLatest ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-700'
+                            }`}>
+                              第 {ver.versionNumber} 版 {isLatest && '(最新)'}
+                            </span>
+                            <span className="text-xs font-bold text-slate-700">{ver.uploadedByName}</span>
                           </div>
-                        ))}
+                          <div className="text-[11px] text-slate-400 flex items-center gap-1">
+                            <Clock className="w-3.5 h-3.5" />
+                            <span>{ver.uploadedAt ? new Date(ver.uploadedAt).toLocaleString('ja-JP') : '-'}</span>
+                          </div>
+                        </div>
+
+                        {ver.changeNote && (
+                          <p className="text-xs text-slate-600 mb-3 bg-slate-50/80 p-2 rounded-lg border border-slate-100">
+                            {ver.changeNote}
+                          </p>
+                        )}
+
+                        {/* この版の添付ファイル群 */}
+                        <div className="space-y-1.5 pt-2 border-t border-slate-100">
+                          <div className="flex items-center justify-between text-[11px] font-bold text-slate-500 mb-1">
+                            <span>添付ファイル ({ver.files?.length || 0}件)</span>
+                            {ver.files && ver.files.length > 1 && (
+                              <button
+                                onClick={() => handleDownloadZip(selectedItemForHistory, ver.versionNumber)}
+                                className="text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-semibold cursor-pointer"
+                              >
+                                <Archive className="w-3 h-3" />
+                                <span>この版を一括ZIPダウンロード</span>
+                              </button>
+                            )}
+                          </div>
+
+                          {ver.files?.map(f => (
+                            <div key={f.fileId} className="flex items-center justify-between p-2 bg-white border border-slate-100 rounded-xl text-xs hover:border-slate-300 transition-colors">
+                              <div
+                                onClick={() => handlePreviewFile(f)}
+                                className="flex items-center gap-2 min-w-0 cursor-pointer group/f"
+                                title={`クリックして「${f.fileName}」をプレビュー`}
+                              >
+                                {getFileIcon(f.fileName)}
+                                <span className="truncate font-medium text-slate-800 group-hover/f:text-indigo-600 underline-offset-2 hover:underline">{f.fileName}</span>
+                                <span className="text-[10px] text-slate-400">({formatBytes(f.fileSize)})</span>
+                                <Eye className="w-3 h-3 text-slate-400 group-hover/f:text-indigo-600 opacity-60 group-hover/f:opacity-100 shrink-0" />
+                              </div>
+                              <div className="flex items-center gap-1 shrink-0 ml-2">
+                                <button
+                                  onClick={() => handleDownloadSingleFile(f)}
+                                  className="p-1.5 text-slate-600 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                                  title="ダウンロード"
+                                >
+                                  <Download className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
             </div>
 
-            <div className="p-4 border-t border-slate-100 bg-slate-50 text-right">
+            <div className="p-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between">
+              <div>
+                {(isAdmin || selectedItemForHistory.createdById === currentUser?.id) && (
+                  <button
+                    onClick={() => {
+                      setShowHistoryModal(false);
+                      handleDeleteDocument(selectedItemForHistory);
+                    }}
+                    className="px-3 py-1.5 text-xs font-bold text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-xl transition-colors flex items-center gap-1 cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>文書を削除</span>
+                  </button>
+                )}
+              </div>
               <button
                 onClick={() => setShowHistoryModal(false)}
-                className="px-4 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors"
+                className="px-4 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
               >
                 閉じる
               </button>

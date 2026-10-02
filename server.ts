@@ -631,7 +631,7 @@ async function startServer() {
     fs.mkdirSync(uploadsDir, { recursive: true });
   }
   app.use('/public', express.static(publicDir, { maxAge: '7d' }));
-  app.use('/uploads', express.static(uploadsDir, { maxAge: '30d', immutable: true }));
+  app.use(['/uploads', '/api/uploads'], express.static(uploadsDir, { maxAge: '30d', immutable: true }));
   app.use('/stamps', express.static(path.join(publicDir, 'stamps'), { maxAge: '30d', immutable: true }));
   app.use('/api/stamps-static', express.static(path.join(publicDir, 'stamps'), { maxAge: '30d', immutable: true }));
   app.use('/external-files', express.static(externalFilesDir, { maxAge: '30d' }));
@@ -646,7 +646,7 @@ async function startServer() {
   if (!fs.existsSync(documentsFilesDir)) {
     fs.mkdirSync(documentsFilesDir, { recursive: true });
   }
-  app.use('/uploads/documents', express.static(documentsFilesDir, { maxAge: '30d', immutable: true }));
+  app.use(['/uploads/documents', '/api/uploads/documents', '/api/documents/uploads'], express.static(documentsFilesDir, { maxAge: '30d', immutable: true }));
   app.use('/api/documents', documentsRouter);
 
   // アクセス・操作ログ管理APIルーター

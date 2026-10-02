@@ -73,7 +73,8 @@ import {
   applyMasterToItem,
   batchApplyMasterToItems,
   duplicateInspectionItem,
-  copyMonthInspectionSchedule
+  copyMonthInspectionSchedule,
+  exportInspectionCalendarMatrixToExcel
 } from '../utils/excelInspection';
 import { getAvatarUrl } from '../utils/avatar';
 import { markEventAsRead } from '../utils/notifications';
@@ -1763,6 +1764,23 @@ export function InspectionScheduler({
 
           {/* アクションボタン: 他月コピー & サーバー同期 & 下書きクリア */}
           <div className="flex items-center gap-2 flex-wrap">
+            {items.length > 0 && (
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await exportInspectionCalendarMatrixToExcel(items, targetYearMonth);
+                  } catch (err: any) {
+                    alert('点検予定表Excelの出力中にエラーが発生しました: ' + err.message);
+                  }
+                }}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition-all shadow-xs hover:shadow-sm cursor-pointer"
+                title={`${targetYearMonth} の点検予定を現場カレンダー形式（日付×案件マトリクス）でExcel出力します`}
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 text-white" />
+                <span>点検予定表Excel出力</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={() => handleOpenCopyMonthModal()}
@@ -1969,6 +1987,23 @@ export function InspectionScheduler({
                 <Copy className="w-4 h-4 text-indigo-600" />
                 他月・前月データから一括コピー
               </button>
+              {items.length > 0 && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await exportInspectionCalendarMatrixToExcel(items, targetYearMonth);
+                    } catch (err: any) {
+                      alert('点検予定表Excelの出力中にエラーが発生しました: ' + err.message);
+                    }
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer"
+                  title={`${targetYearMonth} の点検予定を現場カレンダー形式（日付×案件マトリクス）でExcel出力します`}
+                >
+                  <FileSpreadsheet className="w-4 h-4 text-white" />
+                  点検予定表Excel(現場カレンダー)を出力
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => generateSampleInspectionExcel(targetYearMonth)}
@@ -2173,6 +2208,21 @@ export function InspectionScheduler({
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await exportInspectionCalendarMatrixToExcel(items, targetYearMonth);
+                  } catch (err: any) {
+                    alert('点検予定表Excelの出力中にエラーが発生しました: ' + err.message);
+                  }
+                }}
+                className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition-all shadow-xs hover:shadow-sm flex items-center gap-1.5 cursor-pointer"
+                title={`${targetYearMonth} の点検予定を現場カレンダー形式（日付×案件マトリクス）でExcel出力します`}
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 text-white" />
+                <span>点検予定表Excel出力</span>
+              </button>
               <button
                 type="button"
                 onClick={() => handleOpenCopyMonthModal()}

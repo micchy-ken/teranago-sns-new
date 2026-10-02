@@ -2,7 +2,7 @@
  * routes/documents.js
  * 寺岡オートドアSNS / 寺子屋SNS 文書管理・フォルダ機能モジュール (Express & MS SQL Server & JSON Fallback)
  * 
- * 最終更新: 2026年10月1日 (文書管理・フォルダ機能新規実装: 階層フォルダ・権限設定・バージョン履歴・複数ファイル同梱・ZIP一括DL・DL者追跡ログ)
+ * 最終更新: 2026年10月2日 (閲覧権限フィルタ厳密化 & プレビュー配信エンドポイント /api/uploads/documents 追加)
  */
 import { Router } from 'express';
 import multer from 'multer';
@@ -212,7 +212,7 @@ function canUserEditFolder(folder, userId, isAdmin = false) {
   return false;
 }
 
-// 祖先フォルダも含めてユーザーが閲覧できるかを判定するヘルパー
+// 祖先フォルダも含めてユーザーが閲覧できるかを再帰判定するヘルパー
 function hasAccessToFolderRecursively(folderId, allFolders, userId, isAdmin = false) {
   if (isAdmin) return true;
   if (!folderId || folderId === 'root') return true;
@@ -224,6 +224,40 @@ function hasAccessToFolderRecursively(folderId, allFolders, userId, isAdmin = fa
   }
   return true;
 }
+
+// ==========================================
+// プレビュー・ファイル直接配信 API (画像・PDFをブラウザでインライン表示)
+// マウント方式 (/api または /api/documents) を問わず配信可能
+// ==========================================
+router.get([
+  '/uploads/documents/:filename',
+  '/documents/uploads/:filename',
+  '/uploads/:filename',
+  '/file/:filename',
+  '/preview/:filename'
+], (req, res) => {
+  try {
+    const rawFilename = decodeURIComponent(req.params.filename || '');
+    const safeName = path.basename(rawFilename);
+    const filePath = path.join(documentsDir, safeName);
+
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).send('ファイルが見つかりません。');
+    }
+
+    const ext = path.extname(safeName).toLowerCase();
+    if (ext === '.pdf') {
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', 'inline');
+    } else if (['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp'].includes(ext)) {
+      res.setHeader('Content-Disposition', 'inline');
+    }
+
+    res.sendFile(filePath);
+  } catch (err) {
+    res.status(500).send(err.message);
+  }
+});
 
 // ==========================================
 // 1. フォルダ一覧取得 API

@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 import { User, CalendarEvent } from '../types';
 
 export type InspectionFaxStatus = 'none' | 'required' | 'sent' | 'confirmed';
@@ -660,4 +661,219 @@ export function generateDemoInspectionItems(targetYearMonth: string = '2026-08',
       status: 'pending',
     };
   });
+}
+
+/**
+ * 添付画像（点検予定表）と全く同じ書式・レイアウトのExcel（マトリクスカレンダー形式）を出力する
+ */
+export async function exportInspectionCalendarMatrixToExcel(
+  items: InspectionItem[],
+  targetYearMonth: string // 例: '2026-10'
+): Promise<void> {
+  const [yearStr, monthStr] = targetYearMonth.split('-');
+  const year = parseInt(yearStr, 10);
+  const month = parseInt(monthStr, 10); // 1-12
+
+  // 対象月の日数を取得
+  const daysInMonth = new Date(year, month, 0).getDate();
+
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = '寺岡オートドアSNS';
+  workbook.created = new Date();
+
+  const worksheet = workbook.addWorksheet('点検予定表', {
+    views: [{ showGridLines: true, state: 'frozen', xSplit: 2, ySplit: 1 }]
+  });
+
+  // 列定義 (A: 日付, B: 曜日, C〜: 各案件)
+  worksheet.columns = [
+    { header: '日付', key: 'date', width: 14 },
+    { header: '曜日', key: 'dayOfWeek', width: 6 },
+    { width: 34 },
+    { width: 34 },
+    { width: 34 },
+    { width: 34 },
+    { width: 34 },
+    { width: 34 },
+    { width: 34 },
+    { width: 34 },
+    { width: 34 },
+    { width: 34 },
+    { width: 34 },
+    { width: 34 },
+    { width: 34 },
+    { width: 34 },
+    { width: 34 }
+  ];
+
+  // ヘッダー行のスタイリング (Row 1)
+  const headerRow = worksheet.getRow(1);
+  headerRow.height = 24;
+  headerRow.font = { name: 'Meiryo', size: 10, bold: true, color: { argb: 'FF000000' } };
+  headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+  
+  headerRow.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F2F2' } };
+  headerRow.getCell(2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F2F2' } };
+  
+  for (let c = 1; c <= 20; c++) {
+    const cell = headerRow.getCell(c);
+    cell.border = {
+      top: { style: 'thin', color: { argb: 'FF000000' } },
+      bottom: { style: 'double', color: { argb: 'FF000000' } },
+      left: { style: 'thin', color: { argb: 'FFD9D9D9' } },
+      right: { style: 'thin', color: { argb: 'FFD9D9D9' } }
+    };
+  }
+
+  const DAY_NAMES = ['日', '月', '火', '水', '木', '金', '土'];
+
+  // 日付ごとの行を生成 (1日〜末日)
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateObj = new Date(year, month - 1, d);
+    const dayOfWeekIdx = dateObj.getDay();
+    const dayOfWeekStr = DAY_NAMES[dayOfWeekIdx];
+
+    const dayPad = String(d).padStart(2, '0');
+    const monthPad = String(month).padStart(2, '0');
+    const ymd = `${year}-${monthPad}-${dayPad}`;
+    const dateDisplay = `${year}/${month}/${d}`;
+
+    const row = worksheet.addRow([]);
+    row.height = 70; // 案件が改行で入るため十分な高さを確保
+
+    const cellDate = row.getCell(1);
+    const cellDay = row.getCell(2);
+
+    cellDate.value = dateDisplay;
+    cellDate.font = { name: 'Meiryo', size: 9, bold: true };
+    cellDate.alignment = { vertical: 'middle', horizontal: 'center' };
+
+    cellDay.value = dayOfWeekStr;
+    cellDay.font = { name: 'Meiryo', size: 9, bold: true };
+    cellDay.alignment = { vertical: 'middle', horizontal: 'center' };
+
+    // 土日祝日の背景色・フォント色
+    if (dayOfWeekIdx === 6) {
+      // 土曜日（薄い青/水色）
+      cellDate.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE6F0FA' } };
+      cellDay.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE6F0FA' } };
+      cellDay.font = { name: 'Meiryo', size: 9, bold: true, color: { argb: 'FF002060' } };
+    } else if (dayOfWeekIdx === 0) {
+      // 日曜日（薄いピンク）
+      cellDate.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFCE4D6' } };
+      cellDay.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFCE4D6' } };
+      cellDay.font = { name: 'Meiryo', size: 9, bold: true, color: { argb: 'FFC00000' } };
+    } else {
+      // 平日
+      cellDate.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFFF' } };
+      cellDay.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFFF' } };
+    }
+
+    cellDate.border = {
+      top: { style: 'thin', color: { argb: 'FFBFBFBF' } },
+      bottom: { style: 'thin', color: { argb: 'FFBFBFBF' } },
+      left: { style: 'medium', color: { argb: 'FF002060' } },
+      right: { style: 'thin', color: { argb: 'FFBFBFBF' } }
+    };
+    cellDay.border = {
+      top: { style: 'thin', color: { argb: 'FFBFBFBF' } },
+      bottom: { style: 'thin', color: { argb: 'FFBFBFBF' } },
+      left: { style: 'thin', color: { argb: 'FFBFBFBF' } },
+      right: { style: 'medium', color: { argb: 'FF002060' } }
+    };
+
+    // この日の点検案件を抽出・ソート (assignedDate または initialDate が一致するもの)
+    const dayItems = items.filter(it => {
+      const dVal = it.assignedDate || it.initialDate;
+      return dVal === ymd || dVal === `${year}/${monthPad}/${dayPad}` || dVal === `${year}/${month}/${d}`;
+    });
+    dayItems.sort((a, b) => (a.assignedStartTime || '99:99').localeCompare(b.assignedStartTime || '99:99'));
+
+    // 各案件をセルに書き込む
+    dayItems.forEach((item, idx) => {
+      const colIdx = 3 + idx;
+      const cell = row.getCell(colIdx);
+
+      // テキスト行の構築
+      const lines: string[] = [];
+
+      // 1行目: 物件名 + 開始時間 + 台数 + 地区
+      const timeStr = item.assignedStartTime ? (item.assignedEndTime ? `${item.assignedStartTime}〜${item.assignedEndTime}` : item.assignedStartTime) : '';
+      const qtyStr = item.quantity ? `${item.quantity}台` : '';
+      const areaStr = item.area ? `${item.area}` : '';
+      const line1 = [item.siteName, timeStr, qtyStr, areaStr].filter(Boolean).join(' ');
+      lines.push(line1);
+
+      // 2行目: 貼紙ステータス
+      if (item.metaA?.posterType && item.metaA.posterType !== 'none') {
+        const typeLabel = item.metaA.posterType === 'direct' ? '行く' :
+                          item.metaA.posterType === 'mail' ? '郵送' :
+                          item.metaA.posterType === 'fax' ? 'FAX' :
+                          item.metaA.posterType === 'postal' || item.metaA.posterType === 'post' ? '郵送' : item.metaA.posterType;
+        const doneLabel = item.metaA.posterDone ? '済' : '(未)';
+        lines.push(`貼紙${typeLabel}${doneLabel}`);
+      }
+
+      // 3行目: 作業届・WEB入力・連絡
+      const subNotes: string[] = [];
+      if (item.metaA?.webEntryType && item.metaA.webEntryType !== 'none') {
+        subNotes.push(`WEB入力${item.metaA.webEntryDone ? '済' : '(未)'}`);
+      }
+      if (item.metaA?.workNoticeType && item.metaA.workNoticeType !== 'none') {
+        const wnLabel = item.metaA.workNoticeType === 'mail' ? 'メール' : 'FAX';
+        subNotes.push(`作業届${wnLabel}${item.metaA.workNoticeDone ? '済' : '(未)'}`);
+      }
+      if (item.metaA?.mailStatus && item.metaA.mailStatus !== 'none') {
+        subNotes.push(`日程メール${item.metaA.mailStatus === 'sent' || item.metaA.mailStatus === 'confirmed' ? '済' : ''}`);
+      }
+      if (item.metaA?.faxStatus && item.metaA.faxStatus !== 'none') {
+        subNotes.push(`日程FAX${item.metaA.faxStatus === 'sent' || item.metaA.faxStatus === 'confirmed' ? '済' : ''}`);
+      }
+      if (subNotes.length > 0) {
+        lines.push(subNotes.join(' '));
+      }
+
+      // 4行目: 備考・客先規則・特記事項
+      if (item.metaA?.remarks) {
+        lines.push(item.metaA.remarks);
+      } else if (item.customerRules) {
+        lines.push(item.customerRules);
+      }
+
+      cell.value = lines.join('\n');
+      cell.font = { name: 'Meiryo', size: 9 };
+      cell.alignment = { vertical: 'top', horizontal: 'left', wrapText: true };
+
+      // 背景色の判定
+      // 「土曜希望」「要確認」「注意」など、特記事項がある案件はオレンジ・黄色背景
+      const isHighlighted = (item.customerRules && (item.customerRules.includes('土曜') || item.customerRules.includes('希望') || item.customerRules.includes('確認'))) ||
+                            (item.metaA?.remarks && (item.metaA.remarks.includes('土曜') || item.metaA.remarks.includes('希望') || item.metaA.remarks.includes('注意') || item.metaA.remarks.includes('確認')));
+
+      if (isHighlighted) {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFC000' } }; // 明るいオレンジ/黄色
+        cell.font = { name: 'Meiryo', size: 9, bold: true, color: { argb: 'FF000000' } };
+      } else {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFFF' } };
+      }
+
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FFBFBFBF' } },
+        bottom: { style: 'thin', color: { argb: 'FFBFBFBF' } },
+        left: { style: 'thin', color: { argb: 'FFBFBFBF' } },
+        right: { style: 'thin', color: { argb: 'FFBFBFBF' } }
+      };
+    });
+  }
+
+  // ファイル生成・ダウンロード
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `点検予定表_${targetYearMonth.replace('-', '_')}.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  window.URL.revokeObjectURL(url);
 }
