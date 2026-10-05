@@ -23,6 +23,7 @@ export interface InspectionPhotoReport {
   workDate?: string;                  // 実施日 (YYYY-MM-DD)
   layoutType: PhotoReportLayoutType;  // '3_items' | '2_items' | '4_items'
   photos: PhotoReportItem[];          // 写真リスト (2〜4枚)
+  status?: 'draft' | 'completed';     // ステータス: 'draft' (下書き) | 'completed' (完了)
   createdById: string;
   createdByName: string;
   createdAt: string;

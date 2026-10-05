@@ -2,7 +2,7 @@
  * =====================================================================
  * routes/photoReports.js - 点検・写真報告書 API ルーター (完全版)
  * 最終更新日時: 2026年10月4日
- * 機能: 写真報告書(2〜4枚構成)の作成・更新・一覧取得・画像アップロード・MS SQL Server連携
+ * 機能: 写真報告書(2〜4枚構成)の作成・更新・一覧取得・下書き保存・No手動紐付け・画像アップロード・MS SQL Server連携
  * =====================================================================
  */
 import { Router } from 'express';
@@ -47,7 +47,7 @@ const upload = multer({
   limits: { fileSize: 20 * 1024 * 1024 }, // 20MB (フロントエンドで1200px圧縮されるため十分)
 });
 
-// テーブル自動初期化
+// テーブル自動初期化 ＆ マイグレーション
 async function initTables(pool) {
   try {
     await pool.request().query(`
@@ -65,6 +65,7 @@ async function initTables(pool) {
           workDate NVARCHAR(32) NULL,
           layoutType NVARCHAR(32) NOT NULL DEFAULT '3_items',
           photos NVARCHAR(MAX) NOT NULL,
+          status NVARCHAR(32) NOT NULL DEFAULT 'completed',
           createdById NVARCHAR(64) NOT NULL,
           createdByName NVARCHAR(128) NOT NULL,
           createdAt DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
@@ -73,6 +74,14 @@ async function initTables(pool) {
         CREATE INDEX IX_InspectionPhotoReports_reportId ON dbo.InspectionPhotoReports(inspectionReportId);
         CREATE INDEX IX_InspectionPhotoReports_jobNo ON dbo.InspectionPhotoReports(jobNo);
         CREATE INDEX IX_InspectionPhotoReports_createdAt ON dbo.InspectionPhotoReports(createdAt DESC);
+      END
+      ELSE
+      BEGIN
+        -- 既存テーブルへの status カラム追加マイグレーション
+        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('dbo.InspectionPhotoReports') AND name = 'status')
+        BEGIN
+          ALTER TABLE dbo.InspectionPhotoReports ADD status NVARCHAR(32) NOT NULL DEFAULT 'completed';
+        END
       END
     `);
   } catch (err) {
@@ -85,7 +94,7 @@ async function initTables(pool) {
 // ==========================================
 router.get(['/photo-reports', '/api/photo-reports', '/inspection-photo-reports'], async (req, res) => {
   try {
-    const { inspectionReportId, jobNo, userId } = req.query;
+    const { inspectionReportId, jobNo, userId, status } = req.query;
     const pool = await getPool();
 
     if (pool) {
@@ -105,6 +114,10 @@ router.get(['/photo-reports', '/api/photo-reports', '/inspection-photo-reports']
         queryStr += ` AND createdById = @userId`;
         request.input('userId', sql.NVarChar(64), String(userId));
       }
+      if (status) {
+        queryStr += ` AND status = @status`;
+        request.input('status', sql.NVarChar(32), String(status));
+      }
 
       queryStr += ` ORDER BY createdAt DESC`;
 
@@ -121,6 +134,7 @@ router.get(['/photo-reports', '/api/photo-reports', '/inspection-photo-reports']
         workDate: row.workDate || '',
         layoutType: row.layoutType || '3_items',
         photos: safeParseJSON(row.photos, []),
+        status: row.status || 'completed',
         createdById: String(row.createdById),
         createdByName: row.createdByName,
         createdAt: row.createdAt ? row.createdAt.toISOString() : null,
@@ -141,6 +155,9 @@ router.get(['/photo-reports', '/api/photo-reports', '/inspection-photo-reports']
       }
       if (userId) {
         reports = reports.filter(r => r.createdById === String(userId));
+      }
+      if (status) {
+        reports = reports.filter(r => r.status === String(status));
       }
 
       return res.json(reports);
@@ -182,6 +199,7 @@ router.get(['/photo-reports/:id', '/api/photo-reports/:id', '/inspection-photo-r
         workDate: row.workDate || '',
         layoutType: row.layoutType || '3_items',
         photos: safeParseJSON(row.photos, []),
+        status: row.status || 'completed',
         createdById: String(row.createdById),
         createdByName: row.createdByName,
         createdAt: row.createdAt ? row.createdAt.toISOString() : null,
@@ -251,6 +269,7 @@ router.post(['/photo-reports', '/api/photo-reports', '/inspection-photo-reports'
       workDate = '',
       layoutType = '3_items',
       photos = [],
+      status = 'completed',
       createdById,
       createdByName,
     } = req.body;
@@ -274,6 +293,7 @@ router.post(['/photo-reports', '/api/photo-reports', '/inspection-photo-reports'
       workDate: workDate || '',
       layoutType: layoutType || '3_items',
       photos: Array.isArray(photos) ? photos : [],
+      status: status || 'completed',
       createdById: String(createdById),
       createdByName,
       createdAt: nowIso,
@@ -295,16 +315,17 @@ router.post(['/photo-reports', '/api/photo-reports', '/inspection-photo-reports'
         .input('workDate', sql.NVarChar(32), newReport.workDate)
         .input('layoutType', sql.NVarChar(32), newReport.layoutType)
         .input('photos', sql.NVarChar(sql.MAX), JSON.stringify(newReport.photos))
+        .input('status', sql.NVarChar(32), newReport.status)
         .input('createdById', sql.NVarChar(64), newReport.createdById)
         .input('createdByName', sql.NVarChar(128), newReport.createdByName)
         .query`
           INSERT INTO dbo.InspectionPhotoReports (
             id, inspectionReportId, jobNo, title, customerName, buildingName,
-            location, workSubject, workDate, layoutType, photos,
+            location, workSubject, workDate, layoutType, photos, status,
             createdById, createdByName, createdAt, updatedAt
           ) VALUES (
             @id, @inspectionReportId, @jobNo, @title, @customerName, @buildingName,
-            @location, @workSubject, @workDate, @layoutType, @photos,
+            @location, @workSubject, @workDate, @layoutType, @photos, @status,
             @createdById, @createdByName, SYSUTCDATETIME(), SYSUTCDATETIME()
           )
         `;
@@ -340,6 +361,7 @@ router.put(['/photo-reports/:id', '/api/photo-reports/:id', '/inspection-photo-r
       workDate,
       layoutType,
       photos,
+      status,
     } = req.body;
 
     const pool = await getPool();
@@ -359,6 +381,7 @@ router.put(['/photo-reports/:id', '/api/photo-reports/:id', '/inspection-photo-r
         .input('workDate', sql.NVarChar(32), workDate || '')
         .input('layoutType', sql.NVarChar(32), layoutType || '3_items')
         .input('photos', sql.NVarChar(sql.MAX), JSON.stringify(photos || []))
+        .input('status', sql.NVarChar(32), status || 'completed')
         .query`
           UPDATE dbo.InspectionPhotoReports SET
             inspectionReportId = @inspectionReportId,
@@ -371,6 +394,7 @@ router.put(['/photo-reports/:id', '/api/photo-reports/:id', '/inspection-photo-r
             workDate = @workDate,
             layoutType = @layoutType,
             photos = @photos,
+            status = @status,
             updatedAt = SYSUTCDATETIME()
           WHERE id = @id
         `;
@@ -392,6 +416,7 @@ router.put(['/photo-reports/:id', '/api/photo-reports/:id', '/inspection-photo-r
           workDate: workDate !== undefined ? workDate : list[idx].workDate,
           layoutType: layoutType !== undefined ? layoutType : list[idx].layoutType,
           photos: photos !== undefined ? photos : list[idx].photos,
+          status: status !== undefined ? status : list[idx].status,
           updatedAt: nowIso,
         };
         fs.writeFileSync(PHOTO_REPORTS_FILE, JSON.stringify(list, null, 2), 'utf8');

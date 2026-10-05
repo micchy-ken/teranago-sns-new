@@ -18,13 +18,16 @@ import {
   MapPin,
   Wrench,
   Loader2,
-  ArrowRight,
   Sparkles,
   RotateCw,
   RotateCcw,
   Clipboard,
   Images,
-  Layers
+  Layers,
+  Clock,
+  CheckCircle2,
+  Link2,
+  Unlink
 } from 'lucide-react';
 import { InspectionPhotoReport, PhotoReportItem, PhotoReportLayoutType } from '../../types/photoReport';
 import { InspectionReportRecord } from '../../types/inspectionReport';
@@ -38,6 +41,7 @@ interface InspectionPhotoReportModalProps {
   currentUser: User;
   initialInspectionReport?: InspectionReportRecord | null;
   existingPhotoReport?: InspectionPhotoReport | null;
+  inspectionReportsList?: InspectionReportRecord[];
   onSaved?: (savedReport: InspectionPhotoReport) => void;
 }
 
@@ -62,6 +66,7 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
   currentUser,
   initialInspectionReport,
   existingPhotoReport,
+  inspectionReportsList = [],
   onSaved,
 }) => {
   // 基本情報ステート
@@ -75,6 +80,7 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
   const [workSubject, setWorkSubject] = useState<string>('');
   const [workDate, setWorkDate] = useState<string>('');
   const [layoutType, setLayoutType] = useState<PhotoReportLayoutType>('3_items');
+  const [status, setStatus] = useState<'draft' | 'completed'>('completed');
   const [photos, setPhotos] = useState<PhotoReportItem[]>([]);
 
   // UI・操作ステート
@@ -104,6 +110,7 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
     setWorkSubject(rep.workSubject || '');
     setWorkDate(rep.workDate || '');
     setLayoutType(rep.layoutType || '3_items');
+    setStatus(rep.status || 'completed');
     setPhotos(Array.isArray(rep.photos) ? rep.photos : []);
   };
 
@@ -578,8 +585,41 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
     };
   }, [isOpen, activeTab, photos, buildingName, location, workSubject, workDate]);
 
-  // 保存処理
-  const handleSave = async () => {
+  // 点検報告書リストから選択して親Noおよび現場情報を自動セット
+  const handleSelectInspectionReport = (rep: InspectionReportRecord | null) => {
+    if (!rep) {
+      setInspectionReportId(null);
+      setJobNo('');
+      return;
+    }
+    setInspectionReportId(rep.id);
+    setJobNo(rep.jobNo || '');
+
+    // タイトルや現場名が未設定、またはデフォルトの場合に自動補完
+    const bName = rep.customerName || rep.address || '';
+    const loc = rep.doors?.[0]?.location || '';
+    const subj = rep.contractType ? `${rep.contractType} 定期点検修理` : '自動ドア点検修理';
+    let formattedDate = rep.inspectionDate || '';
+    if (rep.inspectionDate && rep.inspectionDate.includes('-')) {
+      const [y, m, d] = rep.inspectionDate.split('-');
+      formattedDate = `${y}年${Number(m)}月${Number(d)}日`;
+    }
+
+    if (!buildingName || buildingName === '現場名未設定') setBuildingName(bName);
+    if (!customerName) setCustomerName(rep.customerName || '');
+    if (!location) setLocation(loc);
+    if (!workSubject) setWorkSubject(subj);
+    if (!workDate) setWorkDate(formattedDate);
+    if (!title || title === '写真報告書' || title.includes('未設定')) {
+      setTitle(`${bName || '点検現場'} 写真報告書`);
+    }
+
+    setSuccessToast(`点検報告書（No. ${rep.jobNo || rep.customerName}）に紐付けました`);
+    setTimeout(() => setSuccessToast(null), 3000);
+  };
+
+  // 保存処理（確定保存 or 下書き保存）
+  const handleSave = async (targetStatus: 'draft' | 'completed' = 'completed') => {
     if (!title.trim()) {
       setErrorMessage('報告書タイトルを入力してください');
       return;
@@ -588,6 +628,7 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
     try {
       setIsSaving(true);
       setErrorMessage(null);
+      setStatus(targetStatus);
 
       const payload = {
         inspectionReportId: inspectionReportId || null,
@@ -600,6 +641,7 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
         workDate: workDate.trim(),
         layoutType,
         photos,
+        status: targetStatus,
         createdById: currentUser.id,
         createdByName: currentUser.name,
       };
@@ -641,7 +683,11 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
         return [savedData, ...prev];
       });
 
-      setSuccessToast('写真報告書を保存しました');
+      setSuccessToast(
+        targetStatus === 'draft'
+          ? '下書きとして保存しました（フォルダから再開可能）'
+          : '写真報告書を確定保存しました'
+      );
       setTimeout(() => setSuccessToast(null), 3000);
 
       if (onSaved) {
@@ -753,14 +799,28 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
               <span className="hidden sm:inline">印刷 / PDF出力</span>
             </button>
 
+            {/* 下書き保存ボタン */}
             <button
               type="button"
-              onClick={handleSave}
+              onClick={() => handleSave('draft')}
               disabled={isSaving}
-              className="flex items-center gap-1.5 px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white text-xs font-bold rounded-xl transition-all shadow-md cursor-pointer"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-amber-300 border border-amber-500/40 text-xs font-bold rounded-xl transition-all shadow-xs cursor-pointer"
+              title="後から再編集・紐付けできるように下書きとして保存します"
             >
-              {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-              <span>保存</span>
+              {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Clock className="w-3.5 h-3.5" />}
+              <span>下書き保存</span>
+            </button>
+
+            {/* 確定保存ボタン */}
+            <button
+              type="button"
+              onClick={() => handleSave('completed')}
+              disabled={isSaving}
+              className="flex items-center gap-1.5 px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-400 text-white text-xs font-bold rounded-xl transition-all shadow-md cursor-pointer"
+              title="写真報告書を確定保存します"
+            >
+              {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+              <span>確定保存</span>
             </button>
 
             <button
@@ -917,6 +977,80 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
                   </div>
                 </div>
 
+                {/* 親点検報告書との紐付けセクション */}
+                <div className="bg-indigo-50/80 border border-indigo-200 rounded-xl p-3.5 space-y-2.5">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-indigo-950">
+                      <Link2 className="w-4 h-4 text-indigo-600 shrink-0" />
+                      <span>親点検報告書との紐付け（報告書No / 管理番号）</span>
+                    </div>
+                    {jobNo ? (
+                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-indigo-600 text-white font-bold flex items-center gap-1">
+                        <Check className="w-3 h-3" />
+                        <span>No. {jobNo} に紐付け中</span>
+                      </span>
+                    ) : (
+                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300 font-bold flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3" />
+                        <span>親No未設定（単独下書き）</span>
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-center">
+                    {/* 1. 点検報告書リストから選択 */}
+                    <div className="sm:col-span-7">
+                      <label className="block text-[11px] font-bold text-slate-600 mb-0.5">
+                        点検報告書から選択して自動紐付け:
+                      </label>
+                      <select
+                        value={inspectionReportId || ''}
+                        onChange={e => {
+                          const selected = inspectionReportsList.find(r => r.id === e.target.value);
+                          handleSelectInspectionReport(selected || null);
+                        }}
+                        className="w-full px-2.5 py-1.5 rounded-lg border border-indigo-200 bg-white text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-indigo-400"
+                      >
+                        <option value="">-- 点検報告書を選択してください ({inspectionReportsList.length}件) --</option>
+                        {inspectionReportsList.map(ir => (
+                          <option key={ir.id} value={ir.id}>
+                            {ir.jobNo ? `[No.${ir.jobNo}] ` : ''}{ir.customerName} ({ir.inspectionDate})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* 2. または報告書Noを手打ち */}
+                    <div className="sm:col-span-5">
+                      <label className="block text-[11px] font-bold text-slate-600 mb-0.5">
+                        または 管理番号 / 作業No を手打ち:
+                      </label>
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="text"
+                          value={jobNo}
+                          onChange={e => setJobNo(e.target.value)}
+                          placeholder="例: 202609-001"
+                          className="w-full px-2.5 py-1.5 rounded-lg border border-indigo-200 bg-white text-xs font-mono font-bold text-indigo-900 outline-none focus:ring-2 focus:ring-indigo-400"
+                        />
+                        {jobNo && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setJobNo('');
+                              setInspectionReportId(null);
+                            }}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 bg-white rounded-lg border border-slate-200 shrink-0"
+                            title="紐付け解除"
+                          >
+                            <Unlink className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
                   <div className="sm:col-span-2">
                     <label className="block text-xs font-bold text-slate-700 mb-1">
@@ -933,14 +1067,14 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
 
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">
-                      管理番号 / 作業No.
+                      実施日 / 点検日
                     </label>
                     <input
                       type="text"
-                      value={jobNo}
-                      onChange={e => setJobNo(e.target.value)}
-                      placeholder="例: 202609-001"
-                      className="w-full px-3 py-2 rounded-xl border border-slate-300 focus:border-indigo-500 outline-none text-xs font-mono"
+                      value={workDate}
+                      onChange={e => setWorkDate(e.target.value)}
+                      placeholder="例: 2026年9月18日"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 focus:border-indigo-500 outline-none text-xs"
                     />
                   </div>
 
@@ -966,6 +1100,19 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
                       value={location}
                       onChange={e => setLocation(e.target.value)}
                       placeholder="例: 1階HUG北側"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 focus:border-indigo-500 outline-none text-xs"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      顧客名 / ビル管理会社
+                    </label>
+                    <input
+                      type="text"
+                      value={customerName}
+                      onChange={e => setCustomerName(e.target.value)}
+                      placeholder="例: 株式会社〇〇 ビルマネジメント部"
                       className="w-full px-3 py-2 rounded-xl border border-slate-300 focus:border-indigo-500 outline-none text-xs"
                     />
                   </div>
@@ -1489,12 +1636,22 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
             </button>
             <button
               type="button"
-              onClick={handleSave}
+              onClick={() => handleSave('draft')}
+              disabled={isSaving}
+              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl border border-slate-300 transition-colors cursor-pointer flex items-center gap-1.5"
+              title="下書き保存"
+            >
+              <Clock className="w-4 h-4 text-amber-600" />
+              <span>下書き保存</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSave('completed')}
               disabled={isSaving}
               className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white text-xs font-bold rounded-xl transition-all shadow-sm cursor-pointer flex items-center gap-1.5"
             >
-              {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-              <span>報告書を保存</span>
+              {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+              <span>確定保存（完了）</span>
             </button>
           </div>
         </div>

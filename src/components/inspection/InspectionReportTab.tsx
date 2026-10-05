@@ -24,6 +24,7 @@ import { getLocalDateStr, formatTimeJST } from '../../utils/dateUtils';
 import { InspectionReportEditorModal } from './InspectionReportEditorModal';
 import { InspectionReportPrintView } from './InspectionReportPrintView';
 import { InspectionPhotoReportModal } from './InspectionPhotoReportModal';
+import { InspectionPhotoReportFolderModal } from './InspectionPhotoReportFolderModal';
 import { 
   FileCheck2, 
   Calendar as CalendarIcon, 
@@ -49,7 +50,8 @@ import {
   Stamp,
   CheckCircle2,
   Settings,
-  Camera
+  Camera,
+  FolderOpen
 } from 'lucide-react';
 import { InspectionCheckItemMasterModal } from './InspectionCheckItemMasterModal';
 
@@ -172,6 +174,7 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
   const [photoReportTarget, setPhotoReportTarget] = useState<InspectionReportRecord | null>(null);
   const [selectedExistingPhotoReport, setSelectedExistingPhotoReport] = useState<InspectionPhotoReport | null>(null);
   const [isPhotoModalOpen, setIsPhotoModalOpen] = useState(false);
+  const [isFolderModalOpen, setIsFolderModalOpen] = useState(false);
   const [isMasterModalOpen, setIsMasterModalOpen] = useState(false);
 
   // 点検予定の登録・表示権限（管理者または点検予定管理が表示許可されているユーザー）
@@ -523,11 +526,41 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
             今日
           </button>
 
-          {/* 点検・写真報告書作成ボタン */}
+          {/* 写真報告書フォルダボタン */}
+          {(() => {
+            const unlinkedCount = photoReports.filter(
+              p => !(p.inspectionReportId || (p.jobNo && p.jobNo.trim()))
+            ).length;
+            const draftCount = photoReports.filter(p => p.status === 'draft').length;
+
+            return (
+              <button
+                type="button"
+                onClick={() => setIsFolderModalOpen(true)}
+                className="px-3 py-2 bg-white hover:bg-slate-50 text-indigo-900 border border-slate-300 rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer flex items-center gap-1.5"
+                title="作成済み写真報告書のフォルダ一覧・検索・下書き管理・点検報告書No紐付け"
+              >
+                <FolderOpen className="w-3.5 h-3.5 text-indigo-600" />
+                <span>写真報告書フォルダ</span>
+                {unlinkedCount > 0 ? (
+                  <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-500 text-white font-bold" title={`${unlinkedCount}件の未紐づけ写真報告書があります`}>
+                    未紐付{unlinkedCount}
+                  </span>
+                ) : draftCount > 0 ? (
+                  <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-600 text-white font-bold">
+                    下書{draftCount}
+                  </span>
+                ) : null}
+              </button>
+            );
+          })()}
+
+          {/* 点検・写真報告書新規作成ボタン */}
           <button
             type="button"
             onClick={() => {
               setPhotoReportTarget(null);
+              setSelectedExistingPhotoReport(null);
               setIsPhotoModalOpen(true);
             }}
             className="px-3 py-2 bg-gradient-to-r from-indigo-50 to-purple-50 hover:from-indigo-100 hover:to-purple-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer flex items-center gap-1.5"
@@ -1232,7 +1265,40 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
           currentUser={currentUser}
           initialInspectionReport={photoReportTarget}
           existingPhotoReport={selectedExistingPhotoReport}
+          inspectionReportsList={reports}
           onSaved={() => {
+            refreshData();
+          }}
+        />
+      )}
+
+      {/* 写真報告書フォルダ管理モーダル */}
+      {isFolderModalOpen && (
+        <InspectionPhotoReportFolderModal
+          isOpen={isFolderModalOpen}
+          onClose={() => setIsFolderModalOpen(false)}
+          currentUser={currentUser}
+          allReports={photoReports}
+          inspectionReportsList={reports}
+          onOpenCreateNew={() => {
+            setPhotoReportTarget(null);
+            setSelectedExistingPhotoReport(null);
+            setIsPhotoModalOpen(true);
+          }}
+          onOpenEditReport={(report) => {
+            setSelectedExistingPhotoReport(report);
+            setPhotoReportTarget(null);
+            setIsPhotoModalOpen(true);
+          }}
+          onOpenPreviewReport={(report) => {
+            setSelectedExistingPhotoReport(report);
+            setPhotoReportTarget(null);
+            setIsPhotoModalOpen(true);
+          }}
+          onDeleteReport={(deletedId) => {
+            setPhotoReports(prev => prev.filter(r => r.id !== deletedId));
+          }}
+          onRefresh={() => {
             refreshData();
           }}
         />
