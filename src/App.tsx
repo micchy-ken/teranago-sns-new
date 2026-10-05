@@ -2692,7 +2692,7 @@ export default function App() {
 
 
   return (
-    <div className="min-h-screen text-slate-900 font-sans selection:bg-indigo-100 selection:text-indigo-900 overflow-x-hidden transition-colors duration-300" style={{ backgroundColor: 'var(--app-bg, #f5f7fa)' }}>
+    <div className={`min-h-screen ${activeTab === 'chat' ? 'h-[100dvh] flex flex-col overflow-hidden sm:h-auto sm:overflow-visible sm:block' : ''} text-slate-900 font-sans selection:bg-indigo-100 selection:text-indigo-900 overflow-x-clip transition-colors duration-300`} style={{ backgroundColor: 'var(--app-bg, #f5f7fa)' }}>
       <InstallPwaPrompt />
       <Header 
         searchQuery={searchQuery} 
@@ -2811,7 +2811,7 @@ export default function App() {
         </div>
       )}
 
-      <main className={`w-full ${activeTab === 'chat' || activeTab === 'calendar' ? 'px-2 py-2 sm:px-6 lg:px-8 sm:py-6' : 'px-4 sm:px-6 lg:px-8 py-6'} flex flex-col lg:flex-row gap-6 transition-all duration-300`}>
+      <main className={`w-full ${activeTab === 'chat' ? 'p-0 sm:px-6 lg:px-8 sm:py-6 flex-1 min-h-0' : activeTab === 'calendar' ? 'px-2 py-2 sm:px-6 lg:px-8 sm:py-6' : 'px-4 sm:px-6 lg:px-8 py-6'} flex flex-col lg:flex-row gap-6 transition-all duration-300`}>
         
         {/* Left Sidebar Column / Restore Button */}
         {!isSidebarCollapsed ? (

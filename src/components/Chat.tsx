@@ -826,19 +826,24 @@ export function Chat({
   const [showScrollToBottom, setShowScrollToBottom] = useState<boolean>(false);
   const [hasNewMessagesBelow, setHasNewMessagesBelow] = useState<boolean>(false);
 
+  const checkScrollBottom = useCallback(() => {
+    const container = chatContainerRef.current;
+    if (!container) return;
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    const isNearBottom = distanceFromBottom < 100;
+    setShowScrollToBottom(!isNearBottom);
+    if (isNearBottom) {
+      setHasNewMessagesBelow(false);
+    }
+  }, []);
+
   const handleTimelineScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const container = e.currentTarget;
     // 上部付近（60px以内）にスクロールした際に過去メッセージを自動読み込み
     if (container.scrollTop < 60 && visibleStartIndex > 0 && !isLoadingMorePrevious) {
       loadMorePreviousMessages();
     }
-    // 最下部からの距離を判定（140px以上離れている場合は「最新メッセージへ」ボタンを表示）
-    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-    const isNearBottom = distanceFromBottom < 140;
-    setShowScrollToBottom(!isNearBottom);
-    if (isNearBottom) {
-      setHasNewMessagesBelow(false);
-    }
+    checkScrollBottom();
   };
 
   useEffect(() => {
@@ -1049,6 +1054,7 @@ export function Chat({
           // 未読がない場合は既読の最後（最下部）へ即座にスクロール
           c.scrollTop = c.scrollHeight;
         }
+        setTimeout(checkScrollBottom, 60);
       };
 
       // 安定した単一フレーム実行（チラつき・カクツキの防止）
@@ -1057,7 +1063,7 @@ export function Chat({
       prevRoomIdRef.current = activeRoom.id;
       prevMessagesLengthRef.current = msgCount;
     } else if (lengthIncreased) {
-      const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 140;
+      const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100;
       if (sentByMe) {
         // 自分が送信したメッセージの場合は即座に最下部へスムーズスクロール
         requestAnimationFrame(() => {
@@ -1730,7 +1736,7 @@ export function Chat({
     });
 
   return (
-    <div className="flex-1 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex h-[calc(100dvh-8rem)] sm:h-[calc(100vh-8.5rem)] relative w-full">
+    <div className="flex-1 bg-white rounded-none sm:rounded-xl border-0 sm:border border-slate-200 shadow-none sm:shadow-sm overflow-hidden flex h-full sm:h-[calc(100vh-8.5rem)] relative w-full">
       {/* 隠しファイルインプット */}
       <input
         type="file"
@@ -2108,7 +2114,7 @@ export function Chat({
 
             {/* 最新・新着メッセージへ移動するフローティングボタン */}
             {(showScrollToBottom || hasNewMessagesBelow) && (
-              <div className="absolute bottom-16 sm:bottom-20 left-1/2 -translate-x-1/2 z-20 pointer-events-none animate-in fade-in slide-in-from-bottom-2 duration-150">
+              <div className="absolute bottom-3 sm:bottom-4 left-1/2 -translate-x-1/2 z-20 pointer-events-none animate-in fade-in slide-in-from-bottom-2 duration-150">
                 {hasNewMessagesBelow ? (
                   <button
                     type="button"
