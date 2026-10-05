@@ -4,6 +4,8 @@ import {
   InspectionReportRecord, 
   CrmInspectionData 
 } from '../../types/inspectionReport';
+import { InspectionPhotoReport } from '../../types/photoReport';
+import { API_BASE_URL } from '../../config/api';
 import { 
   getAllInspectionReports, 
   saveInspectionReport, 
@@ -161,10 +163,14 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
   // CRMデータリスト
   const [crmList, setCrmList] = useState<CrmInspectionData[]>(() => getAllCrmInspectionData());
 
+  // 写真報告書リスト
+  const [photoReports, setPhotoReports] = useState<InspectionPhotoReport[]>([]);
+
   // モーダル状態
   const [editingReport, setEditingReport] = useState<InspectionReportRecord | null>(null);
   const [previewingReport, setPreviewingReport] = useState<InspectionReportRecord | null>(null);
   const [photoReportTarget, setPhotoReportTarget] = useState<InspectionReportRecord | null>(null);
+  const [selectedExistingPhotoReport, setSelectedExistingPhotoReport] = useState<InspectionPhotoReport | null>(null);
   const [isPhotoModalOpen, setIsPhotoModalOpen] = useState(false);
   const [isMasterModalOpen, setIsMasterModalOpen] = useState(false);
 
@@ -206,6 +212,16 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
         setCrmList(serverCrm);
       }
     });
+
+    // 3. 写真報告書一覧の取得
+    fetch(`${API_BASE_URL}/photo-reports`)
+      .then(res => res.ok ? res.json() : [])
+      .then(list => {
+        if (Array.isArray(list)) {
+          setPhotoReports(list);
+        }
+      })
+      .catch(err => console.error('写真報告書一覧取得エラー:', err));
   };
 
   useEffect(() => {
@@ -778,18 +794,31 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
                           <span>{rep.officeConfirmed ? '確認済解除' : '事務確認済にする'}</span>
                         </button>
 
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setPhotoReportTarget(rep);
-                            setIsPhotoModalOpen(true);
-                          }}
-                          className="px-3.5 py-2 rounded-xl text-xs font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
-                          title="この点検報告書から写真報告書を作成・編集"
-                        >
-                          <Camera className="w-4 h-4 text-indigo-600" />
-                          <span>写真報告書</span>
-                        </button>
+                        {(() => {
+                          const matchedPhotos = photoReports.filter(
+                            p => p.inspectionReportId === rep.id || (rep.jobNo && p.jobNo === rep.jobNo)
+                          );
+                          const hasPhoto = matchedPhotos.length > 0;
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPhotoReportTarget(rep);
+                                setSelectedExistingPhotoReport(hasPhoto ? matchedPhotos[0] : null);
+                                setIsPhotoModalOpen(true);
+                              }}
+                              className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs ${
+                                hasPhoto
+                                  ? 'bg-purple-50 text-purple-700 border border-purple-300 hover:bg-purple-100'
+                                  : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200'
+                              }`}
+                              title={hasPhoto ? `写真報告書 (${matchedPhotos.length}件作成済)` : 'この点検報告書から写真報告書を作成・編集'}
+                            >
+                              <Camera className="w-4 h-4 text-indigo-600" />
+                              <span>{hasPhoto ? `写真報告書 (${matchedPhotos.length}件)` : '写真報告書'}</span>
+                            </button>
+                          );
+                        })()}
 
                         <button
                           type="button"
@@ -1041,18 +1070,31 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
                               </button>
                             )}
 
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setPhotoReportTarget(existingReport);
-                                setIsPhotoModalOpen(true);
-                              }}
-                              className="px-3 py-2 rounded-xl text-xs font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
-                              title="この点検報告書から写真報告書を作成・編集"
-                            >
-                              <Camera className="w-4 h-4 text-indigo-600" />
-                              <span>写真報告書</span>
-                            </button>
+                            {(() => {
+                              const matchedPhotos = photoReports.filter(
+                                p => p.inspectionReportId === existingReport.id || (existingReport.jobNo && p.jobNo === existingReport.jobNo)
+                              );
+                              const hasPhoto = matchedPhotos.length > 0;
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setPhotoReportTarget(existingReport);
+                                    setSelectedExistingPhotoReport(hasPhoto ? matchedPhotos[0] : null);
+                                    setIsPhotoModalOpen(true);
+                                  }}
+                                  className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs ${
+                                    hasPhoto
+                                      ? 'bg-purple-50 text-purple-700 border border-purple-300 hover:bg-purple-100'
+                                      : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200'
+                                  }`}
+                                  title={hasPhoto ? `写真報告書 (${matchedPhotos.length}件作成済)` : 'この点検報告書から写真報告書を作成・編集'}
+                                >
+                                  <Camera className="w-4 h-4 text-indigo-600" />
+                                  <span>{hasPhoto ? `写真報告書 (${matchedPhotos.length}件)` : '写真報告書'}</span>
+                                </button>
+                              );
+                            })()}
 
                             <button
                               type="button"
@@ -1185,9 +1227,14 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
           onClose={() => {
             setIsPhotoModalOpen(false);
             setPhotoReportTarget(null);
+            setSelectedExistingPhotoReport(null);
           }}
           currentUser={currentUser}
           initialInspectionReport={photoReportTarget}
+          existingPhotoReport={selectedExistingPhotoReport}
+          onSaved={() => {
+            refreshData();
+          }}
         />
       )}
     </div>

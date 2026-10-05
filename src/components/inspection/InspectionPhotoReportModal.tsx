@@ -19,13 +19,18 @@ import {
   Wrench,
   Loader2,
   ArrowRight,
-  Sparkles
+  Sparkles,
+  RotateCw,
+  RotateCcw,
+  Clipboard,
+  Images,
+  Layers
 } from 'lucide-react';
 import { InspectionPhotoReport, PhotoReportItem, PhotoReportLayoutType } from '../../types/photoReport';
 import { InspectionReportRecord } from '../../types/inspectionReport';
 import { User } from '../../types';
 import { API_BASE_URL } from '../../config/api';
-import { compressImageToDataUrl } from '../../utils/imageCompressor';
+import { compressImageToDataUrl, rotateImage } from '../../utils/imageCompressor';
 
 interface InspectionPhotoReportModalProps {
   isOpen: boolean;
@@ -75,136 +80,189 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
   // UI・操作ステート
   const [activeTab, setActiveTab] = useState<'edit' | 'preview'>('edit');
   const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [isLoadingExisting, setIsLoadingExisting] = useState<boolean>(false);
+  const [historyReports, setHistoryReports] = useState<InspectionPhotoReport[]>([]);
   const [isUploadingIdx, setIsUploadingIdx] = useState<number | null>(null);
+  const [isRotatingIdx, setIsRotatingIdx] = useState<number | null>(null);
+  const [isBulkUploading, setIsBulkUploading] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successToast, setSuccessToast] = useState<string | null>(null);
 
   // ファイルアップロード用Ref
   const fileInputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const bulkFileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // 初期値セットアップ
+  // 報告書データをフォームステートに適用する関数
+  const applyReportToState = (rep: InspectionPhotoReport) => {
+    setReportId(rep.id);
+    setInspectionReportId(rep.inspectionReportId || null);
+    setJobNo(rep.jobNo || '');
+    setTitle(rep.title || '');
+    setCustomerName(rep.customerName || '');
+    setBuildingName(rep.buildingName || '');
+    setLocation(rep.location || '');
+    setWorkSubject(rep.workSubject || '');
+    setWorkDate(rep.workDate || '');
+    setLayoutType(rep.layoutType || '3_items');
+    setPhotos(Array.isArray(rep.photos) ? rep.photos : []);
+  };
+
+  // 初期値セットアップ ＆ APIからの自動復元
   useEffect(() => {
     if (!isOpen) return;
 
-    if (existingPhotoReport) {
-      // 既存の写真報告書を編集
-      setReportId(existingPhotoReport.id);
-      setInspectionReportId(existingPhotoReport.inspectionReportId || null);
-      setJobNo(existingPhotoReport.jobNo || '');
-      setTitle(existingPhotoReport.title || '');
-      setCustomerName(existingPhotoReport.customerName || '');
-      setBuildingName(existingPhotoReport.buildingName || '');
-      setLocation(existingPhotoReport.location || '');
-      setWorkSubject(existingPhotoReport.workSubject || '');
-      setWorkDate(existingPhotoReport.workDate || '');
-      setLayoutType(existingPhotoReport.layoutType || '3_items');
-      setPhotos(existingPhotoReport.photos || []);
-    } else if (initialInspectionReport) {
-      // 点検報告書から新規作成
-      const rep = initialInspectionReport;
-      const bName = rep.customerName || rep.address || '現場名未設定';
-      const loc = rep.doors?.[0]?.location || '1階 エントランス';
-      const subj = rep.contractType ? `${rep.contractType} 定期点検修理` : '自動ドア点検修理';
-      
-      let formattedDate = rep.inspectionDate || '';
-      if (rep.inspectionDate && rep.inspectionDate.includes('-')) {
-        const [y, m, d] = rep.inspectionDate.split('-');
-        formattedDate = `${y}年${Number(m)}月${Number(d)}日`;
+    let isMounted = true;
+
+    const loadData = async () => {
+      if (existingPhotoReport) {
+        // 1. propsで直接写真報告書が渡された場合
+        applyReportToState(existingPhotoReport);
+        setHistoryReports([existingPhotoReport]);
+      } else if (initialInspectionReport) {
+        // 2. 点検報告書から開かれた場合 -> まずサーバーから作成済み写真報告書を検索
+        const rep = initialInspectionReport;
+        setIsLoadingExisting(true);
+
+        try {
+          // inspectionReportId で検索
+          let queryUrl = `${API_BASE_URL}/photo-reports?inspectionReportId=${encodeURIComponent(rep.id)}`;
+          let res = await fetch(queryUrl);
+          let matchedList: InspectionPhotoReport[] = res.ok ? await res.json() : [];
+
+          // 見つからず jobNo がある場合は jobNo でも検索
+          if (matchedList.length === 0 && rep.jobNo) {
+            queryUrl = `${API_BASE_URL}/photo-reports?jobNo=${encodeURIComponent(rep.jobNo)}`;
+            res = await fetch(queryUrl);
+            if (res.ok) {
+              matchedList = await res.json();
+            }
+          }
+
+          if (!isMounted) return;
+
+          if (matchedList && matchedList.length > 0) {
+            // 作成済みの写真報告書が存在する場合 -> 最新のものを自動復元！
+            setHistoryReports(matchedList);
+            applyReportToState(matchedList[0]);
+          } else {
+            // まだ作成されていない場合 -> 点検報告書から新規初期値を生成
+            setHistoryReports([]);
+            const bName = rep.customerName || rep.address || '現場名未設定';
+            const loc = rep.doors?.[0]?.location || '1階 エントランス';
+            const subj = rep.contractType ? `${rep.contractType} 定期点検修理` : '自動ドア点検修理';
+            
+            let formattedDate = rep.inspectionDate || '';
+            if (rep.inspectionDate && rep.inspectionDate.includes('-')) {
+              const [y, m, d] = rep.inspectionDate.split('-');
+              formattedDate = `${y}年${Number(m)}月${Number(d)}日`;
+            }
+
+            setReportId('');
+            setInspectionReportId(rep.id);
+            setJobNo(rep.jobNo || '');
+            setTitle(`${bName} 写真報告書`);
+            setCustomerName(rep.customerName || '');
+            setBuildingName(bName);
+            setLocation(loc);
+            setWorkSubject(subj);
+            setWorkDate(formattedDate);
+            setLayoutType('3_items');
+
+            setPhotos([
+              {
+                id: `p_${Date.now()}_1`,
+                imageUrl: '',
+                buildingName: bName,
+                location: loc,
+                workSubject: subj,
+                workDate: formattedDate,
+                stageTitle: '点検前',
+                comment: '',
+              },
+              {
+                id: `p_${Date.now()}_2`,
+                imageUrl: '',
+                buildingName: bName,
+                location: loc,
+                workSubject: subj,
+                workDate: formattedDate,
+                stageTitle: '取替中',
+                comment: '',
+              },
+              {
+                id: `p_${Date.now()}_3`,
+                imageUrl: '',
+                buildingName: bName,
+                location: loc,
+                workSubject: subj,
+                workDate: formattedDate,
+                stageTitle: '取替後',
+                comment: '',
+              },
+            ]);
+          }
+        } catch (err) {
+          console.error('既存写真報告書取得エラー:', err);
+        } finally {
+          if (isMounted) setIsLoadingExisting(false);
+        }
+      } else {
+        // 3. まったくの新規作成
+        setHistoryReports([]);
+        const today = new Date();
+        const formattedDate = `${today.getFullYear()}年${today.getMonth() + 1}月${today.getDate()}日`;
+        
+        setReportId('');
+        setInspectionReportId(null);
+        setJobNo('');
+        setTitle('写真報告書');
+        setCustomerName('');
+        setBuildingName('');
+        setLocation('');
+        setWorkSubject('');
+        setWorkDate(formattedDate);
+        setLayoutType('3_items');
+
+        setPhotos([
+          {
+            id: `p_${Date.now()}_1`,
+            imageUrl: '',
+            buildingName: '',
+            location: '',
+            workSubject: '',
+            workDate: formattedDate,
+            stageTitle: '取替前',
+            comment: '',
+          },
+          {
+            id: `p_${Date.now()}_2`,
+            imageUrl: '',
+            buildingName: '',
+            location: '',
+            workSubject: '',
+            workDate: formattedDate,
+            stageTitle: '取替中',
+            comment: '',
+          },
+          {
+            id: `p_${Date.now()}_3`,
+            imageUrl: '',
+            buildingName: '',
+            location: '',
+            workSubject: '',
+            workDate: formattedDate,
+            stageTitle: '取替後',
+            comment: '',
+          },
+        ]);
       }
+    };
 
-      setReportId('');
-      setInspectionReportId(rep.id);
-      setJobNo(rep.jobNo || '');
-      setTitle(`${bName} 写真報告書`);
-      setCustomerName(rep.customerName || '');
-      setBuildingName(bName);
-      setLocation(loc);
-      setWorkSubject(subj);
-      setWorkDate(formattedDate);
-      setLayoutType('3_items');
+    loadData();
 
-      // デフォルト3枚の枠を用意
-      setPhotos([
-        {
-          id: `p_${Date.now()}_1`,
-          imageUrl: '',
-          buildingName: bName,
-          location: loc,
-          workSubject: subj,
-          workDate: formattedDate,
-          stageTitle: '点検前',
-          comment: '',
-        },
-        {
-          id: `p_${Date.now()}_2`,
-          imageUrl: '',
-          buildingName: bName,
-          location: loc,
-          workSubject: subj,
-          workDate: formattedDate,
-          stageTitle: '取替中',
-          comment: '',
-        },
-        {
-          id: `p_${Date.now()}_3`,
-          imageUrl: '',
-          buildingName: bName,
-          location: loc,
-          workSubject: subj,
-          workDate: formattedDate,
-          stageTitle: '取替後',
-          comment: '',
-        },
-      ]);
-    } else {
-      // まったくの新規作成
-      const today = new Date();
-      const formattedDate = `${today.getFullYear()}年${today.getMonth() + 1}月${today.getDate()}日`;
-      
-      setReportId('');
-      setInspectionReportId(null);
-      setJobNo('');
-      setTitle('写真報告書');
-      setCustomerName('');
-      setBuildingName('');
-      setLocation('');
-      setWorkSubject('');
-      setWorkDate(formattedDate);
-      setLayoutType('3_items');
-
-      setPhotos([
-        {
-          id: `p_${Date.now()}_1`,
-          imageUrl: '',
-          buildingName: '',
-          location: '',
-          workSubject: '',
-          workDate: formattedDate,
-          stageTitle: '取替前',
-          comment: '',
-        },
-        {
-          id: `p_${Date.now()}_2`,
-          imageUrl: '',
-          buildingName: '',
-          location: '',
-          workSubject: '',
-          workDate: formattedDate,
-          stageTitle: '取替中',
-          comment: '',
-        },
-        {
-          id: `p_${Date.now()}_3`,
-          imageUrl: '',
-          buildingName: '',
-          location: '',
-          workSubject: '',
-          workDate: formattedDate,
-          stageTitle: '取替後',
-          comment: '',
-        },
-      ]);
-    }
+    return () => {
+      isMounted = false;
+    };
   }, [isOpen, existingPhotoReport, initialInspectionReport]);
 
   if (!isOpen) return null;
@@ -317,6 +375,209 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
     }
   };
 
+  // 写真の回転処理 (90度 / -90度)
+  const handleRotatePhoto = async (index: number, degrees: number) => {
+    const photo = photos[index];
+    if (!photo || !photo.imageUrl) return;
+
+    try {
+      setIsRotatingIdx(index);
+      setErrorMessage(null);
+
+      // Canvas で回転させた Base64 DataURL を取得
+      const rotatedDataUrl = await rotateImage(photo.imageUrl, degrees, 0.85);
+
+      // サーバーへ回転後画像をアップロードしてURL更新を試みる
+      try {
+        const response = await fetch(rotatedDataUrl);
+        const blob = await response.blob();
+        const formData = new FormData();
+        formData.append('photo', blob, `rotated_${Date.now()}.jpg`);
+
+        const uploadRes = await fetch(`${API_BASE_URL}/photo-reports/upload`, {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (uploadRes.ok) {
+          const data = await uploadRes.json();
+          const finalUrl = data.fileUrl ? `${API_BASE_URL.replace('/api', '')}${data.fileUrl}` : rotatedDataUrl;
+          handleUpdatePhoto(index, { imageUrl: finalUrl });
+        } else {
+          handleUpdatePhoto(index, { imageUrl: rotatedDataUrl });
+        }
+      } catch (_) {
+        handleUpdatePhoto(index, { imageUrl: rotatedDataUrl });
+      }
+
+      setSuccessToast(`写真${index + 1}を${degrees > 0 ? '右' : '左'}に90°回転しました`);
+      setTimeout(() => setSuccessToast(null), 2500);
+    } catch (err: any) {
+      console.error('写真回転エラー:', err);
+      setErrorMessage('写真の回転に失敗しました');
+    } finally {
+      setIsRotatingIdx(null);
+    }
+  };
+
+  // 複数写真の一括アップロード・流し込み処理
+  const handleBulkUploadFiles = async (fileList: FileList | File[]) => {
+    const rawFiles = Array.from(fileList).filter(f => f.type.startsWith('image/'));
+    if (rawFiles.length === 0) {
+      setErrorMessage('選択されたファイルに画像が含まれていません');
+      return;
+    }
+
+    try {
+      setIsBulkUploading(true);
+      setErrorMessage(null);
+
+      // 現在の写真リストをコピー
+      let updatedPhotos = [...photos];
+      let currentEmptyIdx = 0;
+
+      for (let i = 0; i < rawFiles.length; i++) {
+        const file = rawFiles[i];
+        
+        // 1. 長辺1200pxに圧縮
+        const compressedDataUrl = await compressImageToDataUrl(file, {
+          maxDimension: 1200,
+          quality: 0.85,
+        });
+
+        // 2. サーバーへアップロード
+        let finalUrl = compressedDataUrl;
+        try {
+          const res = await fetch(compressedDataUrl);
+          const blob = await res.blob();
+          const formData = new FormData();
+          formData.append('photo', blob, `bulk_photo_${Date.now()}_${i}.jpg`);
+
+          const uploadRes = await fetch(`${API_BASE_URL}/photo-reports/upload`, {
+            method: 'POST',
+            body: formData,
+          });
+
+          if (uploadRes.ok) {
+            const data = await uploadRes.json();
+            if (data.fileUrl) {
+              finalUrl = `${API_BASE_URL.replace('/api', '')}${data.fileUrl}`;
+            }
+          }
+        } catch (_) {
+          finalUrl = compressedDataUrl;
+        }
+
+        // 3. 空いているスロット（imageUrlが未設定の枠）を探す
+        while (currentEmptyIdx < updatedPhotos.length && updatedPhotos[currentEmptyIdx].imageUrl) {
+          currentEmptyIdx++;
+        }
+
+        if (currentEmptyIdx < updatedPhotos.length) {
+          // 既存の空枠にセット
+          updatedPhotos[currentEmptyIdx] = {
+            ...updatedPhotos[currentEmptyIdx],
+            imageUrl: finalUrl,
+          };
+          currentEmptyIdx++;
+        } else if (updatedPhotos.length < 6) {
+          // スロットが足りない場合は新規枠を追加（最大6枠）
+          const first = updatedPhotos[0];
+          const newSlot: PhotoReportItem = {
+            id: `p_${Date.now()}_${updatedPhotos.length + 1}`,
+            imageUrl: finalUrl,
+            buildingName: first?.buildingName || buildingName,
+            location: first?.location || location,
+            workSubject: first?.workSubject || workSubject,
+            workDate: first?.workDate || workDate,
+            stageTitle: STAGE_PRESETS[updatedPhotos.length] || '作業中',
+            comment: '',
+          };
+          updatedPhotos.push(newSlot);
+          currentEmptyIdx = updatedPhotos.length;
+        } else {
+          // 枠上限到達
+          break;
+        }
+      }
+
+      setPhotos(updatedPhotos);
+      setSuccessToast(`${rawFiles.length}枚の写真を一括貼付け・登録しました`);
+      setTimeout(() => setSuccessToast(null), 3000);
+    } catch (err: any) {
+      console.error('一括アップロードエラー:', err);
+      setErrorMessage('写真の一括登録に失敗しました');
+    } finally {
+      setIsBulkUploading(false);
+      if (bulkFileInputRef.current) bulkFileInputRef.current.value = '';
+    }
+  };
+
+  // クリップボードからの画像貼り付けボタンハンドラー
+  const handlePasteFromClipboard = async () => {
+    try {
+      if (!navigator.clipboard || !navigator.clipboard.read) {
+        setErrorMessage('お使いのブラウザはクリップボード読取に対応していません。Ctrl+V / Cmd+Vキーをお試しください');
+        return;
+      }
+      const clipboardItems = await navigator.clipboard.read();
+      const imageFiles: File[] = [];
+
+      for (const item of clipboardItems) {
+        const imageType = item.types.find(t => t.startsWith('image/'));
+        if (imageType) {
+          const blob = await item.getType(imageType);
+          const file = new File([blob], `pasted_${Date.now()}.png`, { type: imageType });
+          imageFiles.push(file);
+        }
+      }
+
+      if (imageFiles.length > 0) {
+        await handleBulkUploadFiles(imageFiles);
+      } else {
+        setErrorMessage('クリップボードに画像が見つかりませんでした。画像をコピーした状態でお試しください');
+      }
+    } catch (err: any) {
+      console.warn('クリップボード読取失敗:', err);
+      setErrorMessage('クリップボードの読み取り許可がないか、画像がありません。Ctrl+V / Cmd+V での直接貼付けもお試しください');
+    }
+  };
+
+  // グローバルペーストイベント（Ctrl+V / Cmd+V）のハンドリング
+  useEffect(() => {
+    if (!isOpen || activeTab !== 'edit') return;
+
+    const onGlobalPaste = (e: ClipboardEvent) => {
+      // テキストエリアや入力欄にフォーカスがある通常のテキスト入力時は妨害しない
+      const target = e.target as HTMLElement;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
+        // もし画像が含まれていれば画像貼り付けを優先
+        if (e.clipboardData && e.clipboardData.files && e.clipboardData.files.length > 0) {
+          const files = Array.from(e.clipboardData.files).filter(f => f.type.startsWith('image/'));
+          if (files.length > 0) {
+            e.preventDefault();
+            handleBulkUploadFiles(files);
+            return;
+          }
+        }
+        return;
+      }
+
+      if (e.clipboardData && e.clipboardData.files && e.clipboardData.files.length > 0) {
+        const files = Array.from(e.clipboardData.files).filter(f => f.type.startsWith('image/'));
+        if (files.length > 0) {
+          e.preventDefault();
+          handleBulkUploadFiles(files);
+        }
+      }
+    };
+
+    window.addEventListener('paste', onGlobalPaste);
+    return () => {
+      window.removeEventListener('paste', onGlobalPaste);
+    };
+  }, [isOpen, activeTab, photos, buildingName, location, workSubject, workDate]);
+
   // 保存処理
   const handleSave = async () => {
     if (!title.trim()) {
@@ -369,6 +630,16 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
         savedData = await res.json();
         setReportId(savedData.id);
       }
+
+      setHistoryReports(prev => {
+        const existingIdx = prev.findIndex(r => r.id === savedData.id);
+        if (existingIdx >= 0) {
+          const next = [...prev];
+          next[existingIdx] = savedData;
+          return next;
+        }
+        return [savedData, ...prev];
+      });
 
       setSuccessToast('写真報告書を保存しました');
       setTimeout(() => setSuccessToast(null), 3000);
@@ -527,8 +798,103 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
         {/* モーダル本体 */}
         {/* ============================================================ */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-100/70">
-          {activeTab === 'edit' ? (
+          {isLoadingExisting ? (
+            <div className="flex flex-col items-center justify-center py-16 gap-3 text-indigo-600">
+              <Loader2 className="w-8 h-8 animate-spin" />
+              <span className="text-xs font-bold">作成済みの写真報告書を確認中...</span>
+            </div>
+          ) : activeTab === 'edit' ? (
             <div className="max-w-4xl mx-auto space-y-6">
+
+              {/* 既存の写真報告書が複数ある場合、または作成済みの切り替えバー */}
+              {historyReports.length > 0 && (
+                <div className="bg-indigo-50/70 border border-indigo-200 rounded-2xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shadow-2xs">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-indigo-600 shrink-0" />
+                    <span className="text-xs font-bold text-indigo-950">
+                      作成済みの写真報告書 ({historyReports.length}件):
+                    </span>
+                    <select
+                      value={reportId}
+                      onChange={e => {
+                        const target = historyReports.find(r => r.id === e.target.value);
+                        if (target) applyReportToState(target);
+                      }}
+                      className="px-2.5 py-1 rounded-lg border border-indigo-300 bg-white text-xs font-bold text-indigo-900 outline-none focus:ring-2 focus:ring-indigo-500 max-w-[260px] truncate"
+                    >
+                      {historyReports.map(hr => (
+                        <option key={hr.id} value={hr.id}>
+                          {hr.title} ({new Date(hr.updatedAt || hr.createdAt).toLocaleDateString('ja-JP')})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // 新規別枠で作成
+                      if (initialInspectionReport) {
+                        const rep = initialInspectionReport;
+                        const bName = rep.customerName || rep.address || '現場名未設定';
+                        const loc = rep.doors?.[0]?.location || '1階 エントランス';
+                        const subj = rep.contractType ? `${rep.contractType} 定期点検修理` : '自動ドア点検修理';
+                        let formattedDate = rep.inspectionDate || '';
+                        if (rep.inspectionDate && rep.inspectionDate.includes('-')) {
+                          const [y, m, d] = rep.inspectionDate.split('-');
+                          formattedDate = `${y}年${Number(m)}月${Number(d)}日`;
+                        }
+                        setReportId('');
+                        setInspectionReportId(rep.id);
+                        setJobNo(rep.jobNo || '');
+                        setTitle(`${bName} 写真報告書`);
+                        setCustomerName(rep.customerName || '');
+                        setBuildingName(bName);
+                        setLocation(loc);
+                        setWorkSubject(subj);
+                        setWorkDate(formattedDate);
+                        setLayoutType('3_items');
+                        setPhotos([
+                          {
+                            id: `p_${Date.now()}_1`,
+                            imageUrl: '',
+                            buildingName: bName,
+                            location: loc,
+                            workSubject: subj,
+                            workDate: formattedDate,
+                            stageTitle: '点検前',
+                            comment: '',
+                          },
+                          {
+                            id: `p_${Date.now()}_2`,
+                            imageUrl: '',
+                            buildingName: bName,
+                            location: loc,
+                            workSubject: subj,
+                            workDate: formattedDate,
+                            stageTitle: '取替中',
+                            comment: '',
+                          },
+                          {
+                            id: `p_${Date.now()}_3`,
+                            imageUrl: '',
+                            buildingName: bName,
+                            location: loc,
+                            workSubject: subj,
+                            workDate: formattedDate,
+                            stageTitle: '取替後',
+                            comment: '',
+                          },
+                        ]);
+                      }
+                    }}
+                    className="px-3 py-1 bg-white hover:bg-indigo-100 text-indigo-700 border border-indigo-300 rounded-lg text-xs font-bold transition-colors cursor-pointer shrink-0 inline-flex items-center gap-1 shadow-2xs"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>新しく別の写真報告書を作成</span>
+                  </button>
+                </div>
+              )}
               
               {/* 1. 報告書基本情報 */}
               <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-4">
@@ -635,19 +1001,69 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
 
               {/* 2. 写真明細リスト */}
               <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
-                    <Camera className="w-4 h-4 text-indigo-600" />
-                    写真明細登録 ({photos.length}枠)
-                  </h3>
-                  <button
-                    type="button"
-                    onClick={handleAddPhotoSlot}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold rounded-xl transition-colors cursor-pointer"
-                  >
-                    <Plus className="w-3.5 h-3.5 text-indigo-600" />
-                    <span>写真枠を追加</span>
-                  </button>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
+                  <div className="flex items-center gap-2">
+                    <Camera className="w-4 h-4 text-indigo-600 shrink-0" />
+                    <h3 className="text-sm font-bold text-slate-800">
+                      写真明細登録 ({photos.length}枠)
+                    </h3>
+                    <span className="text-[11px] text-slate-400 hidden md:inline">
+                      (ドラッグ＆ドロップまたは Ctrl+V で直接貼付け可能)
+                    </span>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    {/* 複数写真の一括選択 */}
+                    <button
+                      type="button"
+                      onClick={() => bulkFileInputRef.current?.click()}
+                      disabled={isBulkUploading}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-indigo-50 to-purple-50 hover:from-indigo-100 hover:to-purple-100 text-indigo-700 border border-indigo-200 text-xs font-bold rounded-xl transition-colors cursor-pointer shadow-2xs"
+                      title="複数の写真をまとめて選択して順番に自動配置します"
+                    >
+                      {isBulkUploading ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600" />
+                      ) : (
+                        <Images className="w-3.5 h-3.5 text-indigo-600" />
+                      )}
+                      <span>{isBulkUploading ? '一括処理中...' : '複数写真を一括選択'}</span>
+                    </button>
+
+                    {/* クリップボード貼付け */}
+                    <button
+                      type="button"
+                      onClick={handlePasteFromClipboard}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-300 text-xs font-bold rounded-xl transition-colors cursor-pointer shadow-2xs"
+                      title="コピーした画像をクリップボードから貼り付けます (Ctrl+Vも対応)"
+                    >
+                      <Clipboard className="w-3.5 h-3.5 text-slate-600" />
+                      <span>クリップボード貼付け</span>
+                    </button>
+
+                    {/* 写真枠を追加 */}
+                    <button
+                      type="button"
+                      onClick={handleAddPhotoSlot}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer shadow-2xs"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>写真枠を追加</span>
+                    </button>
+
+                    {/* 隠し一括ファイル選択input */}
+                    <input
+                      ref={bulkFileInputRef}
+                      type="file"
+                      multiple
+                      accept="image/*"
+                      onChange={e => {
+                        if (e.target.files && e.target.files.length > 0) {
+                          handleBulkUploadFiles(e.target.files);
+                        }
+                      }}
+                      className="hidden"
+                    />
+                  </div>
                 </div>
 
                 {photos.map((photo, index) => (
@@ -686,8 +1102,26 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
 
                     <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
                       {/* 写真アップロード / プレビュー (md: 5列) */}
-                      <div className="md:col-span-5 flex flex-col">
-                        <div className="relative aspect-4/3 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 overflow-hidden flex flex-col items-center justify-center group">
+                      <div className="md:col-span-5 flex flex-col space-y-2">
+                        <div
+                          onDragOver={e => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                          }}
+                          onDrop={e => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                              const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+                              if (files.length === 1) {
+                                handleFileChange(index, { target: { files: [files[0]] } } as any);
+                              } else if (files.length > 1) {
+                                handleBulkUploadFiles(files);
+                              }
+                            }
+                          }}
+                          className="relative aspect-4/3 rounded-xl border-2 border-dashed border-slate-300 hover:border-indigo-400 bg-slate-50 overflow-hidden flex flex-col items-center justify-center transition-colors"
+                        >
                           {photo.imageUrl ? (
                             <>
                               <img
@@ -695,24 +1129,16 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
                                 alt={`写真${index + 1}`}
                                 className="w-full h-full object-contain bg-slate-900"
                               />
-                              <div className="absolute inset-0 bg-slate-900/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => fileInputRefs.current[index]?.click()}
-                                  className="px-3 py-1.5 bg-white/90 hover:bg-white text-slate-800 rounded-lg text-xs font-bold shadow-md cursor-pointer flex items-center gap-1.5"
-                                >
-                                  <Camera className="w-3.5 h-3.5 text-indigo-600" />
-                                  <span>写真を変更</span>
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleUpdatePhoto(index, { imageUrl: '' })}
-                                  className="px-3 py-1.5 bg-rose-600/90 hover:bg-rose-600 text-white rounded-lg text-xs font-bold shadow-md cursor-pointer flex items-center gap-1.5"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                  <span>削除</span>
-                                </button>
-                              </div>
+
+                              {/* 回転中・アップロード中インジケーター */}
+                              {(isRotatingIdx === index || isUploadingIdx === index) && (
+                                <div className="absolute inset-0 bg-slate-900/70 backdrop-blur-xs flex flex-col items-center justify-center gap-2 text-white">
+                                  <Loader2 className="w-7 h-7 animate-spin text-indigo-400" />
+                                  <span className="text-xs font-bold">
+                                    {isRotatingIdx === index ? '画像を回転中...' : '画像を処理中...'}
+                                  </span>
+                                </div>
+                              )}
                             </>
                           ) : (
                             <div className="p-4 text-center">
@@ -723,13 +1149,13 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
                                 </div>
                               ) : (
                                 <div className="space-y-3">
-                                  <div className="w-12 h-12 mx-auto rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                                  <div className="w-12 h-12 mx-auto rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center shadow-2xs">
                                     <Camera className="w-6 h-6" />
                                   </div>
                                   <div>
                                     <p className="text-xs font-bold text-slate-700">写真を登録</p>
                                     <p className="text-[10px] text-slate-400 mt-0.5">
-                                      長辺1200pxに自動圧縮されます
+                                      ドラッグ＆ドロップ または 選択
                                     </p>
                                   </div>
                                   <button
@@ -756,6 +1182,54 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
                             className="hidden"
                           />
                         </div>
+
+                        {/* 写真登録済みの時の操作ツールバー（回転・変更・削除） */}
+                        {photo.imageUrl && (
+                          <div className="flex items-center justify-between gap-1.5 bg-slate-100 p-1.5 rounded-xl border border-slate-200">
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => handleRotatePhoto(index, -90)}
+                                disabled={isRotatingIdx === index}
+                                className="flex items-center gap-1 px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-bold border border-slate-300 shadow-2xs transition-colors cursor-pointer"
+                                title="左に90度回転"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5 text-indigo-600" />
+                                <span className="hidden sm:inline">左90°</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleRotatePhoto(index, 90)}
+                                disabled={isRotatingIdx === index}
+                                className="flex items-center gap-1 px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-bold border border-slate-300 shadow-2xs transition-colors cursor-pointer"
+                                title="右に90度回転"
+                              >
+                                <RotateCw className="w-3.5 h-3.5 text-indigo-600" />
+                                <span className="hidden sm:inline">右90°</span>
+                              </button>
+                            </div>
+
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => fileInputRefs.current[index]?.click()}
+                                className="flex items-center gap-1 px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-bold border border-slate-300 shadow-2xs transition-colors cursor-pointer"
+                                title="写真を撮り直す・別の写真に変更"
+                              >
+                                <Camera className="w-3.5 h-3.5 text-slate-600" />
+                                <span>変更</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleUpdatePhoto(index, { imageUrl: '' })}
+                                className="flex items-center gap-1 p-1 bg-white hover:bg-rose-50 text-rose-600 rounded-lg text-xs font-bold border border-slate-300 shadow-2xs transition-colors cursor-pointer"
+                                title="この写真を削除"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
 
                       {/* 写真情報・工程・コメント入力 (md: 7列) */}

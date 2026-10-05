@@ -71,3 +71,55 @@ export async function compressImageToDataUrl(
     reader.readAsDataURL(file);
   });
 }
+
+/**
+ * 画像DataURLまたは画像URLを受け取り、指定角度（90度, -90度, 180度）回転させたBase64 DataURLを返す
+ */
+export async function rotateImage(
+  imageSource: string,
+  degrees: number = 90,
+  quality: number = 0.85
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const rad = ((degrees % 360) * Math.PI) / 180;
+      const is90or270 = Math.abs(degrees % 180) === 90;
+
+      // 90度・270度回転時は縦横を反転
+      if (is90or270) {
+        canvas.width = img.height;
+        canvas.height = img.width;
+      } else {
+        canvas.width = img.width;
+        canvas.height = img.height;
+      }
+
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        resolve(imageSource);
+        return;
+      }
+
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+
+      // 回転中心を中心点に移動
+      ctx.translate(canvas.width / 2, canvas.height / 2);
+      ctx.rotate(rad);
+      ctx.drawImage(img, -img.width / 2, -img.height / 2);
+
+      const rotatedDataUrl = canvas.toDataURL('image/jpeg', quality);
+      resolve(rotatedDataUrl);
+    };
+
+    img.onerror = () => {
+      reject(new Error('画像の回転処理に失敗しました'));
+    };
+
+    img.src = imageSource;
+  });
+}
