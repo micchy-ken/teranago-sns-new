@@ -274,12 +274,13 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
 
   if (!isOpen) return null;
 
-  // 写真スロット数に合わせた写真リストの調整
-  const targetCount = layoutType === '2_items' ? 2 : layoutType === '4_items' ? 4 : 3;
+  // 1ページあたりの写真スロット数と総ページ数計算
+  const itemsPerPage = layoutType === '2_items' ? 2 : layoutType === '4_items' ? 4 : 3;
+  const totalPages = Math.max(1, Math.ceil(photos.length / itemsPerPage));
 
-  // 写真枠の追加
+  // 写真枠の追加 (最大12枠まで追加可能・複数ページ対応)
   const handleAddPhotoSlot = () => {
-    if (photos.length >= 6) return;
+    if (photos.length >= 12) return;
     setPhotos([
       ...photos,
       {
@@ -487,8 +488,8 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
             imageUrl: finalUrl,
           };
           currentEmptyIdx++;
-        } else if (updatedPhotos.length < 6) {
-          // スロットが足りない場合は新規枠を追加（最大6枠）
+        } else if (updatedPhotos.length < 12) {
+          // スロットが足りない場合は新規枠を追加（最大12枠・複数ページ対応）
           const first = updatedPhotos[0];
           const newSlot: PhotoReportItem = {
             id: `p_${Date.now()}_${updatedPhotos.length + 1}`,
@@ -701,13 +702,17 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
     }
   };
 
-  // 印刷・PDF出力
+  // 印刷・PDF出力ハンドラー (編集タブからでも確実に印刷可能)
   const handlePrint = () => {
-    window.print();
+    // プレビュータブに切り替えてレンダリング完了を待って印刷
+    setActiveTab('preview');
+    setTimeout(() => {
+      window.print();
+    }, 150);
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/75 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/75 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto">
       {/* 印刷用スタイル定義 */}
       <style>{`
         @media print {
@@ -718,17 +723,40 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
             visibility: visible;
           }
           #photo-report-print-area {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 100%;
-            margin: 0;
-            padding: 0;
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: transparent !important;
+            display: block !important;
+            z-index: 99999 !important;
+          }
+          .photo-report-page {
+            width: 210mm !important;
+            height: 297mm !important;
+            min-height: 297mm !important;
+            max-height: 297mm !important;
+            margin: 0 auto !important;
+            padding: 8mm 10mm !important;
+            box-sizing: border-box !important;
+            page-break-after: always !important;
+            break-after: page !important;
             background: white !important;
+            box-shadow: none !important;
+            border: none !important;
+            display: flex !important;
+            flex-direction: column !important;
+            justify-content: space-between !important;
+          }
+          .photo-report-page:last-child {
+            page-break-after: avoid !important;
+            break-after: avoid !important;
           }
           @page {
             size: A4 portrait;
-            margin: 8mm 10mm;
+            margin: 0;
           }
         }
       `}</style>
@@ -863,8 +891,10 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
               <Loader2 className="w-8 h-8 animate-spin" />
               <span className="text-xs font-bold">作成済みの写真報告書を確認中...</span>
             </div>
-          ) : activeTab === 'edit' ? (
-            <div className="max-w-4xl mx-auto space-y-6">
+          ) : (
+            <>
+              {/* 編集入力フォーム */}
+              <div className={activeTab === 'edit' ? 'max-w-4xl mx-auto space-y-6' : 'hidden'}>
 
               {/* 既存の写真報告書が複数ある場合、または作成済みの切り替えバー */}
               {historyReports.length > 0 && (
@@ -1495,127 +1525,166 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
                 ))}
               </div>
             </div>
-          ) : (
-            /* ============================================================ */
-            /* 帳票プレビュー (添付PDF完全準拠 A4縦レイアウト) */
-            /* ============================================================ */
-            <div className="flex flex-col items-center">
-              <div className="mb-4 flex items-center gap-3">
-                <span className="text-xs font-bold text-slate-600">
-                  A4縦 印刷プレビュー (実寸比率)
-                </span>
+
+            {/* ============================================================ */}
+            {/* 帳票プレビュー (添付PDF完全準拠 A4縦レイアウト・複数ページ対応) */}
+            {/* activeTabに関わらずDOMに常時マウントし、印刷時は常に最前面で出力 */}
+            {/* ============================================================ */}
+            <div className={activeTab === 'preview' ? 'flex flex-col items-center w-full' : 'hidden print:block w-full'}>
+              <div className="mb-4 flex items-center justify-between gap-3 w-full max-w-[210mm] print:hidden">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-700">
+                    A4縦 印刷プレビュー
+                  </span>
+                  <span className="text-xs px-2.5 py-0.5 rounded-full bg-indigo-100 text-indigo-800 font-bold border border-indigo-200">
+                    全 {totalPages} ページ ({photos.length}枠登録)
+                  </span>
+                </div>
                 <button
                   type="button"
                   onClick={handlePrint}
-                  className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm transition-colors cursor-pointer flex items-center gap-1.5"
+                  className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm transition-colors cursor-pointer flex items-center gap-1.5"
                 >
                   <Printer className="w-3.5 h-3.5" />
-                  <span>この内容で印刷 / PDF保存</span>
+                  <span>この内容で全ページ印刷 / PDF保存</span>
                 </button>
               </div>
 
-              {/* A4 帳票コンテナ */}
+              {/* A4 帳票コンテナ (複数ページ改ページ対応) */}
               <div
                 id="photo-report-print-area"
-                className="w-full max-w-[210mm] min-h-[297mm] bg-white p-6 sm:p-8 shadow-xl border border-slate-300 mx-auto text-slate-900 font-sans flex flex-col justify-between"
-                style={{ minHeight: '297mm' }}
+                className="w-full flex flex-col items-center gap-8 print:gap-0 print:block"
               >
-                {/* 各写真ブロック (3枚構成が標準) */}
-                <div className="flex-1 flex flex-col justify-around gap-4">
-                  {Array.from({ length: targetCount }).map((_, index) => {
-                    const photo = photos[index];
-                    const hasPhoto = Boolean(photo && (photo.imageUrl || photo.buildingName || photo.stageTitle));
+                {Array.from({ length: totalPages }).map((_, pageIdx) => {
+                  const pageNumber = pageIdx + 1;
+                  const startIndex = pageIdx * itemsPerPage;
 
-                    if (!hasPhoto) {
-                      // 余白枠 (添付見本準拠)
-                      return (
-                        <div
-                          key={`empty_${index}`}
-                          className="flex-1 border border-slate-400 p-2 flex items-center justify-center min-h-[75mm] bg-slate-50/50"
-                        >
-                          <div className="text-center text-slate-400 font-bold tracking-[1.5em] text-sm">
-                            余　　　　白
-                          </div>
+                  return (
+                    <div
+                      key={`photo_report_page_${pageNumber}`}
+                      className="photo-report-page w-full max-w-[210mm] min-h-[297mm] bg-white p-6 sm:p-8 shadow-xl border border-slate-300 mx-auto text-slate-900 font-sans flex flex-col justify-between relative print:shadow-none print:border-none print:m-0"
+                      style={{ minHeight: '297mm' }}
+                    >
+                      {/* 複数ページある場合のページヘッダー */}
+                      {totalPages > 1 && (
+                        <div className="flex items-center justify-between text-[11px] text-slate-500 font-bold border-b border-slate-300 pb-1 mb-2">
+                          <span className="truncate text-slate-700">
+                            {title || '点検・写真報告書'}
+                          </span>
+                          <span className="font-mono bg-slate-100 px-2 py-0.5 rounded print:bg-transparent text-slate-800">
+                            {pageNumber} / {totalPages} ページ
+                          </span>
                         </div>
-                      );
-                    }
+                      )}
 
-                    return (
-                      <div
-                        key={photo.id || index}
-                        className="flex-1 border border-slate-400 p-2.5 flex flex-row gap-4 min-h-[75mm]"
-                      >
-                        {/* 左側: 現場写真 */}
-                        <div className="w-[52%] border border-slate-300 bg-slate-100 flex items-center justify-center overflow-hidden relative">
-                          {photo.imageUrl ? (
-                            <img
-                              src={photo.imageUrl}
-                              alt={photo.stageTitle || `写真${index + 1}`}
-                              className="w-full h-full object-contain"
-                            />
-                          ) : (
-                            <div className="text-center text-slate-400 text-xs font-bold p-4">
-                              <Camera className="w-8 h-8 mx-auto mb-1 text-slate-300" />
-                              <span>(写真未登録)</span>
-                            </div>
-                          )}
-                        </div>
+                      {/* ページ内の写真ブロック (1ページあたり itemsPerPage 枚) */}
+                      <div className="flex-1 flex flex-col justify-around gap-4">
+                        {Array.from({ length: itemsPerPage }).map((_, slotIdx) => {
+                          const photoIndex = startIndex + slotIdx;
+                          const photo = photos[photoIndex];
+                          const hasPhoto = Boolean(photo && (photo.imageUrl || photo.buildingName || photo.stageTitle));
 
-                        {/* 右側: 5行ヘッダー ＋ ノート風横罫線コメント欄 */}
-                        <div className="w-[48%] flex flex-col justify-between">
-                          {/* 5行ヘッダー (中央揃え・下線付き) */}
-                          <div className="space-y-1.5 text-center text-xs">
-                            {/* 1. 現場名 */}
-                            <div className="border-b border-slate-800 pb-0.5 font-bold tracking-wider text-slate-900 min-h-[1.5em]">
-                              {photo.buildingName || buildingName || '　'}
-                            </div>
-
-                            {/* 2. 取付場所 */}
-                            <div className="border-b border-slate-800 pb-0.5 font-bold text-slate-800 min-h-[1.5em]">
-                              {photo.location || location || '　'}
-                            </div>
-
-                            {/* 3. 件名 */}
-                            <div className="border-b border-slate-800 pb-0.5 font-bold text-slate-800 min-h-[1.5em]">
-                              {photo.workSubject || workSubject || '　'}
-                            </div>
-
-                            {/* 4. 実施日 */}
-                            <div className="border-b border-slate-800 pb-0.5 text-slate-800 min-h-[1.5em]">
-                              {photo.workDate || workDate || '　'}
-                            </div>
-
-                            {/* 5. 工程・区分 (強調下線) */}
-                            <div className="border-b-2 border-slate-900 pb-1 font-extrabold text-sm text-slate-950 min-h-[1.6em] tracking-wide">
-                              {photo.stageTitle || '　'}
-                            </div>
-                          </div>
-
-                          {/* ノート風横罫線コメントエリア */}
-                          <div className="mt-3 flex-1 flex flex-col justify-between min-h-[30mm] border-t border-slate-300 pt-1">
-                            {photo.comment ? (
-                              <div className="text-xs text-slate-800 whitespace-pre-wrap leading-relaxed px-1">
-                                {photo.comment}
+                          if (!hasPhoto) {
+                            // 余白枠 (添付見本準拠)
+                            return (
+                              <div
+                                key={`empty_${pageNumber}_${slotIdx}`}
+                                className="flex-1 border border-slate-400 p-2 flex items-center justify-center min-h-[75mm] bg-slate-50/50"
+                              >
+                                <div className="text-center text-slate-400 font-bold tracking-[1.5em] text-sm">
+                                  余　　　　白
+                                </div>
                               </div>
-                            ) : (
-                              // 空白時のノート罫線演出
-                              <div className="w-full h-full flex flex-col justify-between py-1 opacity-40">
-                                <div className="border-b border-slate-300 w-full h-4" />
-                                <div className="border-b border-slate-300 w-full h-4" />
-                                <div className="border-b border-slate-300 w-full h-4" />
-                                <div className="border-b border-slate-300 w-full h-4" />
-                                <div className="border-b border-slate-300 w-full h-4" />
+                            );
+                          }
+
+                          return (
+                            <div
+                              key={photo.id || `photo_${photoIndex}`}
+                              className="flex-1 border border-slate-400 p-2.5 flex flex-row gap-4 min-h-[75mm]"
+                            >
+                              {/* 左側: 現場写真 */}
+                              <div className="w-[52%] border border-slate-300 bg-slate-100 flex items-center justify-center overflow-hidden relative">
+                                {photo.imageUrl ? (
+                                  <img
+                                    src={photo.imageUrl}
+                                    alt={photo.stageTitle || `写真${photoIndex + 1}`}
+                                    className="w-full h-full object-contain"
+                                  />
+                                ) : (
+                                  <div className="text-center text-slate-400 text-xs font-bold p-4">
+                                    <Camera className="w-8 h-8 mx-auto mb-1 text-slate-300" />
+                                    <span>(写真未登録)</span>
+                                  </div>
+                                )}
                               </div>
-                            )}
-                          </div>
-                        </div>
+
+                              {/* 右側: 5行ヘッダー ＋ ノート風横罫線コメント欄 */}
+                              <div className="w-[48%] flex flex-col justify-between">
+                                {/* 5行ヘッダー (中央揃え・下線付き) */}
+                                <div className="space-y-1.5 text-center text-xs">
+                                  {/* 1. 現場名 */}
+                                  <div className="border-b border-slate-800 pb-0.5 font-bold tracking-wider text-slate-900 min-h-[1.5em]">
+                                    {photo.buildingName || buildingName || '　'}
+                                  </div>
+
+                                  {/* 2. 取付場所 */}
+                                  <div className="border-b border-slate-800 pb-0.5 font-bold text-slate-800 min-h-[1.5em]">
+                                    {photo.location || location || '　'}
+                                  </div>
+
+                                  {/* 3. 件名 */}
+                                  <div className="border-b border-slate-800 pb-0.5 font-bold text-slate-800 min-h-[1.5em]">
+                                    {photo.workSubject || workSubject || '　'}
+                                  </div>
+
+                                  {/* 4. 実施日 */}
+                                  <div className="border-b border-slate-800 pb-0.5 text-slate-800 min-h-[1.5em]">
+                                    {photo.workDate || workDate || '　'}
+                                  </div>
+
+                                  {/* 5. 工程・区分 (強調下線) */}
+                                  <div className="border-b-2 border-slate-900 pb-1 font-extrabold text-sm text-slate-950 min-h-[1.6em] tracking-wide">
+                                    {photo.stageTitle || '　'}
+                                  </div>
+                                </div>
+
+                                {/* ノート風横罫線コメントエリア */}
+                                <div className="mt-3 flex-1 flex flex-col justify-between min-h-[30mm] border-t border-slate-300 pt-1">
+                                  {photo.comment ? (
+                                    <div className="text-xs text-slate-800 whitespace-pre-wrap leading-relaxed px-1">
+                                      {photo.comment}
+                                    </div>
+                                  ) : (
+                                    // 空白時のノート罫線演出
+                                    <div className="w-full h-full flex flex-col justify-between py-1 opacity-40">
+                                      <div className="border-b border-slate-300 w-full h-4" />
+                                      <div className="border-b border-slate-300 w-full h-4" />
+                                      <div className="border-b border-slate-300 w-full h-4" />
+                                      <div className="border-b border-slate-300 w-full h-4" />
+                                      <div className="border-b border-slate-300 w-full h-4" />
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
-                    );
-                  })}
-                </div>
+
+                      {/* 複数ページある場合のページフッター */}
+                      {totalPages > 1 && (
+                        <div className="text-center text-[10px] text-slate-400 font-mono pt-1.5 border-t border-slate-200 mt-2 print:border-slate-300">
+                          - {pageNumber} / {totalPages} -
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
-          )}
+          </>
+        )}
         </div>
 
         {/* ============================================================ */}

@@ -1281,16 +1281,19 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
           allReports={photoReports}
           inspectionReportsList={reports}
           onOpenCreateNew={() => {
+            setIsFolderModalOpen(false);
             setPhotoReportTarget(null);
             setSelectedExistingPhotoReport(null);
             setIsPhotoModalOpen(true);
           }}
           onOpenEditReport={(report) => {
+            setIsFolderModalOpen(false);
             setSelectedExistingPhotoReport(report);
             setPhotoReportTarget(null);
             setIsPhotoModalOpen(true);
           }}
           onOpenPreviewReport={(report) => {
+            setIsFolderModalOpen(false);
             setSelectedExistingPhotoReport(report);
             setPhotoReportTarget(null);
             setIsPhotoModalOpen(true);
