@@ -90,6 +90,7 @@ import {
   Lock,
   ChevronDown,
   ChevronUp,
+  Pin,
 } from 'lucide-react';
 import { TopicDetailModal } from './TopicDetailModal';
 import { EventModal } from './EventModal';
@@ -97,6 +98,7 @@ import { GlobalEventDetailModal } from './GlobalEventDetailModal';
 import { TopicCreateModal } from './TopicCreateModal';
 import { ApplicationModal } from './ApplicationModal';
 import { MyPageSectionCard } from './MyPageSectionCard';
+import { isTopicCurrentlyPinned, formatPinnedUntilBadge } from '../utils/boardHelpers';
 import { ApprovalFlowRule, ItemMaster, ApplicationStatus } from '../types';
 
 interface MyPageProps {
@@ -873,7 +875,15 @@ export function MyPage({
 
       return matchOffice && matchDivision;
     })
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    .sort((a, b) => {
+      // 1. 有効なピン留め（期限内）があるものを最上位に表示
+      const aPinned = isTopicCurrentlyPinned(a);
+      const bPinned = isTopicCurrentlyPinned(b);
+      if (aPinned && !bPinned) return -1;
+      if (!aPinned && bPinned) return 1;
+      // 2. 作成日時降順
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
 
   const unreadTopics = myTopics.filter((t) => isTopicUnread(t, user, readTopicIds));
 
@@ -1107,6 +1117,7 @@ export function MyPage({
               {myTopics.length > 0 ? (
                 myTopics.slice(0, 5).map((topic) => {
                   const unread = isTopicUnread(topic, user, readTopicIds);
+                  const isPinned = isTopicCurrentlyPinned(topic);
 
                   return (
                     <div
@@ -1124,13 +1135,27 @@ export function MyPage({
                         }
                       }}
                       className={`p-3.5 rounded-xl border transition-all cursor-pointer flex items-start justify-between gap-3 relative ${
-                        unread
+                        isPinned
+                          ? 'border-amber-300/90 bg-gradient-to-r from-amber-50/40 via-white to-white hover:border-amber-400 shadow-xs'
+                          : unread
                           ? 'bg-indigo-50/40 border-indigo-300 hover:border-indigo-400 shadow-xs'
                           : 'bg-white border-slate-200 hover:border-indigo-300 hover:bg-slate-50/50'
                       }`}
                     >
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          {isPinned && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 bg-amber-500 text-white rounded-md shadow-2xs">
+                              <Pin className="w-2.5 h-2.5 fill-white" />
+                              <span>ピン留め</span>
+                              {topic.pinnedUntil && (
+                                <span className="text-[9px] text-amber-100 font-normal">
+                                  {formatPinnedUntilBadge(topic.pinnedUntil)}
+                                </span>
+                              )}
+                            </span>
+                          )}
+
                           {unread ? (
                             <span className="px-2 py-0.5 bg-rose-500 text-white font-black text-[9px] rounded-full">
                               未読
