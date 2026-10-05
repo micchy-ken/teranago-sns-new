@@ -13,6 +13,7 @@ import stampsRouter from './routes/stamps.js';
 import logsRouter from './routes/logs.js';
 import documentsRouter from './routes/documents.js';
 import schedulePollsRouter from './routes/schedulePolls.js';
+import photoReportsRouter from './routes/photoReports.js';
 
 async function startServer() {
   const app = express();
@@ -653,6 +654,15 @@ async function startServer() {
   // 日程調整APIルーター
   app.use(['/api/schedule-polls', '/api/schedule/polls', '/api/polls'], schedulePollsRouter);
   app.use('/api', schedulePollsRouter);
+
+  // 点検・写真報告書APIルーター
+  const photoReportsDir = path.join(uploadsDir, 'photo-reports');
+  if (!fs.existsSync(photoReportsDir)) {
+    fs.mkdirSync(photoReportsDir, { recursive: true });
+  }
+  app.use(['/uploads/photo-reports', '/api/uploads/photo-reports'], express.static(photoReportsDir, { maxAge: '30d', immutable: true }));
+  app.use(['/api/photo-reports', '/api/inspection-photo-reports'], photoReportsRouter);
+  app.use('/api', photoReportsRouter);
 
   // アクセス・操作ログ管理APIルーター
   app.use('/api/logs', logsRouter);

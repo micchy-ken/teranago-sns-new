@@ -21,6 +21,7 @@ import {
 import { getLocalDateStr, formatTimeJST } from '../../utils/dateUtils';
 import { InspectionReportEditorModal } from './InspectionReportEditorModal';
 import { InspectionReportPrintView } from './InspectionReportPrintView';
+import { InspectionPhotoReportModal } from './InspectionPhotoReportModal';
 import { 
   FileCheck2, 
   Calendar as CalendarIcon, 
@@ -45,7 +46,8 @@ import {
   Briefcase,
   Stamp,
   CheckCircle2,
-  Settings
+  Settings,
+  Camera
 } from 'lucide-react';
 import { InspectionCheckItemMasterModal } from './InspectionCheckItemMasterModal';
 
@@ -162,6 +164,8 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
   // モーダル状態
   const [editingReport, setEditingReport] = useState<InspectionReportRecord | null>(null);
   const [previewingReport, setPreviewingReport] = useState<InspectionReportRecord | null>(null);
+  const [photoReportTarget, setPhotoReportTarget] = useState<InspectionReportRecord | null>(null);
+  const [isPhotoModalOpen, setIsPhotoModalOpen] = useState(false);
   const [isMasterModalOpen, setIsMasterModalOpen] = useState(false);
 
   // 点検予定の登録・表示権限（管理者または点検予定管理が表示許可されているユーザー）
@@ -503,6 +507,20 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
             今日
           </button>
 
+          {/* 点検・写真報告書作成ボタン */}
+          <button
+            type="button"
+            onClick={() => {
+              setPhotoReportTarget(null);
+              setIsPhotoModalOpen(true);
+            }}
+            className="px-3 py-2 bg-gradient-to-r from-indigo-50 to-purple-50 hover:from-indigo-100 hover:to-purple-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer flex items-center gap-1.5"
+            title="現場写真（2〜4枚）を添付した写真報告書を作成・PDF出力"
+          >
+            <Camera className="w-3.5 h-3.5 text-indigo-600" />
+            <span>写真報告書作成</span>
+          </button>
+
           {/* 点検項目マスター設定ボタン（点検予定登録・表示権限者のみ表示） */}
           {canManageInspectionSettings && (
             <button
@@ -762,6 +780,19 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
 
                         <button
                           type="button"
+                          onClick={() => {
+                            setPhotoReportTarget(rep);
+                            setIsPhotoModalOpen(true);
+                          }}
+                          className="px-3.5 py-2 rounded-xl text-xs font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+                          title="この点検報告書から写真報告書を作成・編集"
+                        >
+                          <Camera className="w-4 h-4 text-indigo-600" />
+                          <span>写真報告書</span>
+                        </button>
+
+                        <button
+                          type="button"
                           onClick={() => setPreviewingReport(rep)}
                           className="px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-900 text-white flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
                         >
@@ -1012,6 +1043,19 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
 
                             <button
                               type="button"
+                              onClick={() => {
+                                setPhotoReportTarget(existingReport);
+                                setIsPhotoModalOpen(true);
+                              }}
+                              className="px-3 py-2 rounded-xl text-xs font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+                              title="この点検報告書から写真報告書を作成・編集"
+                            >
+                              <Camera className="w-4 h-4 text-indigo-600" />
+                              <span>写真報告書</span>
+                            </button>
+
+                            <button
+                              type="button"
                               onClick={() => setPreviewingReport(existingReport)}
                               className="px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-900 text-white flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
                             >
@@ -1133,6 +1177,19 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
         isOpen={isMasterModalOpen}
         onClose={() => setIsMasterModalOpen(false)}
       />
+
+      {/* 点検・写真報告書モーダル */}
+      {isPhotoModalOpen && (
+        <InspectionPhotoReportModal
+          isOpen={isPhotoModalOpen}
+          onClose={() => {
+            setIsPhotoModalOpen(false);
+            setPhotoReportTarget(null);
+          }}
+          currentUser={currentUser}
+          initialInspectionReport={photoReportTarget}
+        />
+      )}
     </div>
   );
 };

@@ -1,7 +1,7 @@
 export const RECOMMEND_SERVER_JS = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年10月4日 (日程調整機能 API (routes/schedulePolls.js) 連携・カレンダー空き枠自動抽出＆手動レコメンド・回答マトリクス・本番Events自動登録)
+ * 最終更新日時 (最終アップデート): 2026年10月4日 (点検・写真報告書 (2〜4枚構成) 作成・PDF印刷レイアウト・長辺1200px画像圧縮・MS SQL Server連携 (routes/photoReports.js) 実装)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -34,6 +34,7 @@ import stampsRouter from './routes/stamps.js';
 import logsRouter from './routes/logs.js';
 import documentsRouter from './routes/documents.js';
 import schedulePollsRouter from './routes/schedulePolls.js';
+import photoReportsRouter from './routes/photoReports.js';
 
 async function startServer() {
   const app = express();
@@ -674,6 +675,15 @@ async function startServer() {
   // 日程調整APIルーター
   app.use(['/api/schedule-polls', '/api/schedule/polls', '/api/polls'], schedulePollsRouter);
   app.use('/api', schedulePollsRouter);
+
+  // 点検・写真報告書APIルーター
+  const photoReportsDir = path.join(uploadsDir, 'photo-reports');
+  if (!fs.existsSync(photoReportsDir)) {
+    fs.mkdirSync(photoReportsDir, { recursive: true });
+  }
+  app.use(['/uploads/photo-reports', '/api/uploads/photo-reports'], express.static(photoReportsDir, { maxAge: '30d', immutable: true }));
+  app.use(['/api/photo-reports', '/api/inspection-photo-reports'], photoReportsRouter);
+  app.use('/api', photoReportsRouter);
 
   // アクセス・操作ログ管理APIルーター
   app.use('/api/logs', logsRouter);

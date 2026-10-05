@@ -25,14 +25,17 @@ import {
   Award
 } from 'lucide-react';
 import { SchedulePoll, SchedulePollAnswer, ScheduleCandidate, FreeSlotSuggestion, PollResponseStatus } from '../types/schedulePoll';
-import { User } from '../types';
+import { User, OfficeMaster, DivisionMaster } from '../types';
 import { API_BASE_URL } from '../config/api';
+import { MemberSelector } from './MemberSelector';
 
 interface SchedulePollModalProps {
   isOpen: boolean;
   onClose: () => void;
   currentUser: User;
   users: User[];
+  offices?: OfficeMaster[];
+  divisions?: DivisionMaster[];
   onEventCreated?: () => void; // カレンダー再取得用コールバック
   initialPollId?: string | null;
 }
@@ -44,6 +47,8 @@ export function SchedulePollModal({
   onClose,
   currentUser,
   users,
+  offices = [],
+  divisions = [],
   onEventCreated,
   initialPollId = null,
 }: SchedulePollModalProps) {
@@ -653,40 +658,16 @@ export function SchedulePollModal({
                   </div>
                 </div>
 
-                {/* 対象参加者 */}
+                {/* 対象参加者 (MemberSelector 流用) */}
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    対象参加メンバー ({formTargetUserIds.length}名選択中)
-                  </label>
-                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl max-h-40 overflow-y-auto grid grid-cols-2 sm:grid-cols-3 gap-2">
-                    {users.map(u => {
-                      const isSelected = formTargetUserIds.includes(u.id);
-                      return (
-                        <label
-                          key={u.id}
-                          className={`flex items-center gap-2 p-1.5 rounded-lg border text-xs cursor-pointer transition-colors ${
-                            isSelected
-                              ? 'bg-indigo-50 border-indigo-300 text-indigo-800 font-bold'
-                              : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={() => {
-                              if (isSelected) {
-                                setFormTargetUserIds(formTargetUserIds.filter(id => id !== u.id));
-                              } else {
-                                setFormTargetUserIds([...formTargetUserIds, u.id]);
-                              }
-                            }}
-                            className="rounded text-indigo-600 focus:ring-0"
-                          />
-                          <span className="truncate">{u.name}</span>
-                        </label>
-                      );
-                    })}
-                  </div>
+                  <MemberSelector
+                    allUsers={users}
+                    selectedUserIds={formTargetUserIds}
+                    onChangeSelectedUserIds={setFormTargetUserIds}
+                    offices={offices}
+                    divisions={divisions}
+                    label="参加対象メンバー (複数選択・拠点部署絞り込み可能)"
+                  />
                 </div>
 
                 {/* 説明・アジェンダ */}

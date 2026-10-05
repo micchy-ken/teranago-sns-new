@@ -3285,6 +3285,8 @@ export default function App() {
           onClose={() => setShowSchedulePollModal(false)}
           currentUser={userState}
           users={usersList}
+          offices={offices}
+          divisions={divisions}
           onEventCreated={refetchEvents}
         />
       )}
