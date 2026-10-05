@@ -99,8 +99,28 @@ export function InspectionScheduler({
 }: InspectionSchedulerProps) {
   const [currentStep, setCurrentStep] = useState<StepType>('import');
 
-  // Excel / アイテム状態 (デフォルト 2026-08)
-  const [targetYearMonth, setTargetYearMonth] = useState<string>('2026-08');
+  // Excel / アイテム状態 (前回記憶 または 当月 YYYY-MM を初期値とする)
+  const [targetYearMonth, setTargetYearMonth] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem('inspection_scheduler_target_ym');
+      if (saved && /^\d{4}-\d{2}$/.test(saved)) {
+        return saved;
+      }
+    } catch (_) {}
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    return `${y}-${m}`;
+  });
+
+  // 対象年月が切り替わったら localStorage に記憶保存
+  useEffect(() => {
+    if (targetYearMonth && /^\d{4}-\d{2}$/.test(targetYearMonth)) {
+      try {
+        localStorage.setItem('inspection_scheduler_target_ym', targetYearMonth);
+      } catch (_) {}
+    }
+  }, [targetYearMonth]);
   const [items, setItems] = useState<InspectionItem[]>([]);
   const [dragOverDate, setDragOverDate] = useState<string | null>(null);
   const [draggedItemId, setDraggedItemId] = useState<string | null>(null);

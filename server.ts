@@ -12,6 +12,7 @@ import { expandRecurringEvents } from './src/utils/recurrenceUtils';
 import stampsRouter from './routes/stamps.js';
 import logsRouter from './routes/logs.js';
 import documentsRouter from './routes/documents.js';
+import schedulePollsRouter from './routes/schedulePolls.js';
 
 async function startServer() {
   const app = express();
@@ -648,6 +649,10 @@ async function startServer() {
   }
   app.use(['/uploads/documents', '/api/uploads/documents', '/api/documents/uploads'], express.static(documentsFilesDir, { maxAge: '30d', immutable: true }));
   app.use('/api/documents', documentsRouter);
+
+  // 日程調整APIルーター
+  app.use(['/api/schedule-polls', '/api/schedule/polls', '/api/polls'], schedulePollsRouter);
+  app.use('/api', schedulePollsRouter);
 
   // アクセス・操作ログ管理APIルーター
   app.use('/api/logs', logsRouter);

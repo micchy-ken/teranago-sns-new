@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { CalendarEvent, EventType, User, OfficeMaster, DivisionMaster, Memo, RequirementType, MemoUserRecipientStatus, CalendarPreset } from '../types';
 import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
-import { ChevronLeft, ChevronRight, List as ListIcon, Calendar as CalendarIcon, Plus, MapPin, Video, AlignLeft, RefreshCw, Clock, Link as LinkIcon, Loader2, Building2, Users, Paperclip, MessageSquare, Phone, X, Monitor, Maximize2, Minimize2, FileSpreadsheet, Share2, Check, Star, Trash2, Pin, BookmarkCheck } from 'lucide-react';
+import { ChevronLeft, ChevronRight, List as ListIcon, Calendar as CalendarIcon, Plus, MapPin, Video, AlignLeft, RefreshCw, Clock, Link as LinkIcon, Loader2, Building2, Users, Paperclip, MessageSquare, Phone, X, Monitor, Maximize2, Minimize2, FileSpreadsheet, Share2, Check, Star, Trash2, Pin, BookmarkCheck, CalendarDays } from 'lucide-react';
 import { EventModal } from './EventModal';
 import { GlobalEventDetailModal } from './GlobalEventDetailModal';
 import { renderWithClickableLinks } from '../utils/linkify';
@@ -37,6 +37,7 @@ interface CalendarProps {
   onUpdateMemos?: (updatedMemos: Memo[]) => void;
   onRefetchEvents?: () => void;
   onNavigateToInspectionScheduler?: () => void;
+  onOpenSchedulePollModal?: () => void;
   onUpdateUser?: (updatedUser: User) => void;
 }
 
@@ -82,6 +83,7 @@ export function Calendar({
   onUpdateMemos,
   onRefetchEvents,
   onNavigateToInspectionScheduler,
+  onOpenSchedulePollModal,
   onUpdateUser,
 }: CalendarProps) {
   // ユーザーが最近操作した楽観的更新（D&D、リサイズ、編集）を保持するRef（親からの古いデータによる巻き戻りを完全遮断）
@@ -2250,6 +2252,18 @@ export function Calendar({
             >
               <FileSpreadsheet className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-indigo-600" />
               <span className="hidden sm:inline">点検予定一括登録</span>
+            </button>
+          )}
+
+          {onOpenSchedulePollModal && (
+            <button
+              type="button"
+              onClick={onOpenSchedulePollModal}
+              className="flex items-center justify-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 bg-gradient-to-r from-amber-50 to-orange-50 text-amber-800 hover:from-amber-100 hover:to-orange-100 border border-amber-200 text-xs font-bold rounded-lg transition-all shadow-2xs cursor-pointer shrink-0"
+              title="空き枠自動抽出 ＆ アンケート集計で会議日程を調整"
+            >
+              <CalendarDays className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-600" />
+              <span className="hidden sm:inline">日程調整</span>
             </button>
           )}
 

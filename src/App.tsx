@@ -28,6 +28,7 @@ const MyPage = lazyWithRetry(() => import('./components/MyPage').then(m => ({ de
 const AdminPanel = lazyWithRetry(() => import('./components/AdminPanel').then(m => ({ default: m.AdminPanel })));
 const FileManager = lazyWithRetry(() => import('./components/FileManager'));
 const DocumentManager = lazyWithRetry(() => import('./components/DocumentManager'));
+import { SchedulePollModal } from './components/SchedulePollModal';
 import { Post, CalendarEvent, WorkflowApplication, User, OfficeMaster, DivisionMaster, PositionMaster, BoardTopic, ChatRoom, ApprovalFlowRule, ApprovalStepConfig, ItemMaster, ApplicationStatus, DailyReport, Memo, SafetyConfirmationEvent, SafetyConfirmationResponse } from './types';
 import { 
   syncUserReadStatusesFromServer, 
@@ -401,6 +402,7 @@ export default function App() {
   };
 
   const [activeTab, setActiveTab] = useState<AppTab>(() => initialUrlParams.tab || 'mypage');
+  const [showSchedulePollModal, setShowSchedulePollModal] = useState<boolean>(false);
 
   // 主要タブ閲覧時のアクティビティログ（頻繁なスパムを防ぐため10分以内の同一タブ閲覧は抑制）
   const lastLoggedTabRef = useRef<Record<string, number>>({});
@@ -2771,6 +2773,10 @@ export default function App() {
               unreadCounts={sidebarUnreadCounts}
               isUtilityOpen={isUtilityOpen}
               onToggleUtility={handleToggleUtilityOpen}
+              onOpenSchedulePollModal={() => {
+                setShowSchedulePollModal(true);
+                setIsMobileMenuOpen(false);
+              }}
               className="bg-white flex flex-col gap-6"
             />
           </div>
@@ -2821,6 +2827,7 @@ export default function App() {
               unreadCounts={sidebarUnreadCounts}
               isUtilityOpen={isUtilityOpen}
               onToggleUtility={handleToggleUtilityOpen}
+              onOpenSchedulePollModal={() => setShowSchedulePollModal(true)}
               onCollapse={() => handleToggleSidebarCollapse(true)}
             />
           </aside>
@@ -2882,6 +2889,7 @@ export default function App() {
               onUpdateMemos={handleUpdateMemos}
               onRefetchEvents={refetchEvents}
               onNavigateToInspectionScheduler={() => setActiveTab('inspection_scheduler')}
+              onOpenSchedulePollModal={() => setShowSchedulePollModal(true)}
               onUpdateUser={handleUpdateUser}
             />
           )}
@@ -3267,6 +3275,17 @@ export default function App() {
           onViewSchedule={handleViewScheduleFromModal}
           onOpenChat={handleOpenChatFromModal}
           currentUser={userState}
+        />
+      )}
+
+      {/* 日程調整アシスタントモーダル */}
+      {showSchedulePollModal && userState && (
+        <SchedulePollModal
+          isOpen={showSchedulePollModal}
+          onClose={() => setShowSchedulePollModal(false)}
+          currentUser={userState}
+          users={usersList}
+          onEventCreated={refetchEvents}
         />
       )}
     </div>

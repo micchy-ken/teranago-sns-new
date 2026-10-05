@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Hash, Home, Bookmark, User, Calendar as CalendarIcon, FileText, MessageSquare, Phone, ClipboardList, Monitor, Shield, HardDrive, Users, ShieldAlert, Wrench, ChevronDown, ChevronRight, FileCheck2, FolderArchive, BookOpen, ExternalLink } from 'lucide-react';
+import { Hash, Home, Bookmark, User, Calendar as CalendarIcon, FileText, MessageSquare, Phone, ClipboardList, Monitor, Shield, HardDrive, Users, ShieldAlert, Wrench, ChevronDown, ChevronRight, FileCheck2, FolderArchive, BookOpen, ExternalLink, CalendarDays } from 'lucide-react';
 import { Post, BoardTopic, User as UserType } from '../types';
 
 export type AppTab = 'timeline' | 'calendar' | 'inspection_scheduler' | 'inspection_report' | 'workflow' | 'board' | 'chat' | 'memo' | 'documents' | 'daily_report' | 'files' | 'members' | 'mypage' | 'admin' | 'safety_confirmation';
@@ -27,6 +27,7 @@ interface SidebarProps {
   unreadCounts?: SidebarUnreadCounts;
   isUtilityOpen?: boolean;
   onToggleUtility?: (open: boolean) => void;
+  onOpenSchedulePollModal?: () => void;
 }
 
 export function Sidebar({
@@ -42,6 +43,7 @@ export function Sidebar({
   unreadCounts,
   isUtilityOpen: propIsUtilityOpen,
   onToggleUtility,
+  onOpenSchedulePollModal,
 }: SidebarProps) {
   const [internalUtilityOpen, setInternalUtilityOpen] = useState<boolean>(() => {
     const saved = localStorage.getItem('is_utility_open');
@@ -397,6 +399,24 @@ export function Sidebar({
                     )}
                   </button>
                 )}
+                {/* 日程調整アシスタント */}
+                {onOpenSchedulePollModal && (
+                  <button
+                    type="button"
+                    onClick={onOpenSchedulePollModal}
+                    className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs font-medium whitespace-nowrap text-slate-600 hover:bg-amber-50/70 hover:text-amber-800 transition-colors group cursor-pointer"
+                    title="空き枠自動抽出 ＆ アンケート集計で会議日程を調整"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <CalendarDays className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                      <span className="truncate font-semibold">日程調整</span>
+                    </div>
+                    <span className="text-[9px] px-1.5 py-0.2 rounded font-bold bg-amber-100 text-amber-800 shrink-0 ml-1">
+                      New
+                    </span>
+                  </button>
+                )}
+
                 {/* 総合操作マニュアル (Manフォルダ) */}
                 <a
                   href={`${import.meta.env.BASE_URL}Man/index.html`}

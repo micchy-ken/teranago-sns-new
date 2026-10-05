@@ -1,7 +1,7 @@
 export const RECOMMEND_SERVER_JS = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年10月1日 (文書管理・フォルダ機能 API (routes/documents.js) 連携・ZIP一括DL・履歴＆DL者追跡対応)
+ * 最終更新日時 (最終アップデート): 2026年10月4日 (日程調整機能 API (routes/schedulePolls.js) 連携・カレンダー空き枠自動抽出＆手動レコメンド・回答マトリクス・本番Events自動登録)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -33,6 +33,7 @@ import { expandRecurringEvents } from './src/utils/recurrenceUtils';
 import stampsRouter from './routes/stamps.js';
 import logsRouter from './routes/logs.js';
 import documentsRouter from './routes/documents.js';
+import schedulePollsRouter from './routes/schedulePolls.js';
 
 async function startServer() {
   const app = express();
@@ -669,6 +670,10 @@ async function startServer() {
   }
   app.use(['/uploads/documents', '/api/uploads/documents', '/api/documents/uploads'], express.static(documentsFilesDir, { maxAge: '30d', immutable: true }));
   app.use('/api/documents', documentsRouter);
+
+  // 日程調整APIルーター
+  app.use(['/api/schedule-polls', '/api/schedule/polls', '/api/polls'], schedulePollsRouter);
+  app.use('/api', schedulePollsRouter);
 
   // アクセス・操作ログ管理APIルーター
   app.use('/api/logs', logsRouter);
