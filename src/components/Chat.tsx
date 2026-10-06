@@ -461,15 +461,23 @@ const ChatMessageItem = React.memo(function ChatMessageItem({
             <div className={`flex flex-col text-[10px] text-slate-400 shrink-0 mb-0.5 ${isMine ? 'items-end' : 'items-start'}`}>
               {(() => {
                 const viewersList = msg.viewers || [];
-                // 送信者を除外した既読メンバー
-                const readMembers = viewersList.filter(v => v.user.id !== msg.sender.id);
+                const senderId = String(msg.sender?.id ?? '');
+                // 送信者を除外した既読メンバー (IDをString型に正規化して数値・文字列の型違いによる誤カウントを完全防止)
+                const readMembers = viewersList.filter((v: any) => {
+                  const viewerId = String(v?.user?.id ?? v?.userId ?? v?.id ?? '');
+                  return viewerId !== '' && viewerId !== senderId;
+                });
                 const readCount = readMembers.length;
 
                 // 送信者を除いたトーク参加メンバー
-                const otherParticipants = (activeRoom?.participants || []).filter(p => p.id !== msg.sender.id);
+                const otherParticipants = (activeRoom?.participants || []).filter(
+                  (p: any) => String(p?.id ?? '') !== senderId
+                );
                 
                 let displayText = `[既読 ${readCount}]`;
-                const isAllRead = otherParticipants.length > 0 && otherParticipants.every(p => readMembers.some(v => v.user.id === p.id));
+                const isAllRead = otherParticipants.length > 0 && otherParticipants.every(
+                  (p: any) => readMembers.some((v: any) => String(v?.user?.id ?? v?.userId ?? v?.id ?? '') === String(p?.id ?? ''))
+                );
                 
                 if (readCount === 0) {
                   displayText = '[未読]';
@@ -624,11 +632,12 @@ export function Chat({
     const messages = activeRoom.messages || [];
 
     // 自分以外のメッセージで、自分がまだ既読になっていないメッセージ
+    const currentUserIdStr = String(currentUser.id);
     const unreadMsgs = messages.filter(msg => {
-      const isMine = msg.sender.id === currentUser.id;
+      const isMine = String(msg.sender?.id ?? '') === currentUserIdStr;
       if (isMine) return false;
       const viewers = msg.viewers || [];
-      const alreadyRead = viewers.some(v => v.user.id === currentUser.id);
+      const alreadyRead = viewers.some((v: any) => String(v?.user?.id ?? v?.userId ?? v?.id ?? '') === currentUserIdStr);
       return !alreadyRead;
     });
 
@@ -760,11 +769,12 @@ export function Chat({
 
       // タイムスタンプで未検出の場合は msg.viewers（閲覧履歴）によるフォールバック検索
       if (!unreadMsg) {
+        const currentUserIdStr = String(currentUser.id);
         unreadMsg = messages.find((msg) => {
-          if (msg.sender.id === currentUser.id) return false;
+          if (String(msg.sender?.id ?? '') === currentUserIdStr) return false;
           const viewers = msg.viewers || [];
           const isViewed = viewers.some((v: any) =>
-            v?.user?.id === currentUser.id || v?.userId === currentUser.id || v?.id === currentUser.id
+            String(v?.user?.id ?? v?.userId ?? v?.id ?? '') === currentUserIdStr
           );
           return !isViewed;
         });
@@ -2839,9 +2849,17 @@ export function Chat({
                 </span>
                 {(() => {
                   const viewersList = selectedMsgForViewers.viewers || [];
-                  const readMembers = viewersList.filter(v => v.user.id !== selectedMsgForViewers.sender.id);
-                  const otherParticipants = (activeRoom?.participants || []).filter(p => p.id !== selectedMsgForViewers.sender.id);
-                  const isAllRead = otherParticipants.length > 0 && otherParticipants.every(p => readMembers.some(v => v.user.id === p.id));
+                  const senderId = String(selectedMsgForViewers.sender?.id ?? '');
+                  const readMembers = viewersList.filter((v: any) => {
+                    const viewerId = String(v?.user?.id ?? v?.userId ?? v?.id ?? '');
+                    return viewerId !== '' && viewerId !== senderId;
+                  });
+                  const otherParticipants = (activeRoom?.participants || []).filter(
+                    (p: any) => String(p?.id ?? '') !== senderId
+                  );
+                  const isAllRead = otherParticipants.length > 0 && otherParticipants.every(
+                    (p: any) => readMembers.some((v: any) => String(v?.user?.id ?? v?.userId ?? v?.id ?? '') === String(p?.id ?? ''))
+                  );
                   
                   if (readMembers.length === 0) {
                     return (
@@ -2868,7 +2886,11 @@ export function Chat({
               <div className="grid grid-cols-1 gap-2.5 max-h-80 overflow-y-auto pr-1">
                 {(() => {
                   const viewersList = selectedMsgForViewers.viewers || [];
-                  const readMembers = viewersList.filter(v => v.user.id !== selectedMsgForViewers.sender.id);
+                  const senderId = String(selectedMsgForViewers.sender?.id ?? '');
+                  const readMembers = viewersList.filter((v: any) => {
+                    const viewerId = String(v?.user?.id ?? v?.userId ?? v?.id ?? '');
+                    return viewerId !== '' && viewerId !== senderId;
+                  });
                   if (readMembers.length === 0) {
                     return (
                       <div className="text-center py-8 text-xs text-slate-400 bg-slate-50/50 rounded-xl border border-dashed border-slate-200">

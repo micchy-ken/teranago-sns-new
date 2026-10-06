@@ -1,7 +1,7 @@
 export const RECOMMEND_SERVER_JS = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年10月4日 (写真報告書フォルダ・下書き保存機能・点検報告書No手動紐付け・routes/photoReports.js statusカラム同期)
+ * 最終更新日時 (最終アップデート): 2026年10月6日 (チャットメッセージ既読数・送信者除外判定型正規化 String(id) & viewersJson 型不一致バグ修正)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -1393,7 +1393,7 @@ async function startServer() {
         stampText: stampText || null,
         stampCategory: stampCategory || null,
         attachments: Array.isArray(attachments) ? attachments : [],
-        viewers: senderId ? [{ user: { id: senderId }, viewedAt: nowIso }] : []
+        viewers: senderId ? [{ user: { id: String(senderId), name: req.body.senderName || 'ユーザー', avatarUrl: req.body.senderAvatar || '', department: req.body.senderDepartment || '' }, viewedAt: nowIso }] : []
       };
 
       if (!Array.isArray(room.messages)) {
@@ -1426,9 +1426,9 @@ async function startServer() {
           const msg = room.messages.find((m: any) => String(m.id) === String(messageId));
           if (msg) {
             if (!Array.isArray(msg.viewers)) msg.viewers = [];
-            const exists = msg.viewers.some((v: any) => String(v?.user?.id || v?.userId) === String(user.id));
+            const exists = msg.viewers.some((v: any) => String(v?.user?.id || v?.userId || v?.id || '') === String(user.id));
             if (!exists) {
-              msg.viewers.push({ user, viewedAt: new Date().toISOString() });
+              msg.viewers.push({ user: { ...user, id: String(user.id) }, viewedAt: new Date().toISOString() });
               updated = true;
             }
             currentViewers = msg.viewers;
@@ -7102,6 +7102,11 @@ export interface ServerCodeHistoryItem {
 }
 
 export const SERVER_CODE_HISTORY: ServerCodeHistoryItem[] = [
+  {
+    version: 'v2026.10.06',
+    date: '2026-10-06',
+    summary: 'チャットメッセージ既読数・送信者除外判定型正規化 String(id) & viewersJson 型不一致バグ修正版',
+  },
   {
     version: 'v2026.10.01.2',
     date: '2026-10-01',

@@ -1372,7 +1372,7 @@ async function startServer() {
         stampText: stampText || null,
         stampCategory: stampCategory || null,
         attachments: Array.isArray(attachments) ? attachments : [],
-        viewers: senderId ? [{ user: { id: senderId }, viewedAt: nowIso }] : []
+        viewers: senderId ? [{ user: { id: String(senderId), name: req.body.senderName || 'ユーザー', avatarUrl: req.body.senderAvatar || '', department: req.body.senderDepartment || '' }, viewedAt: nowIso }] : []
       };
 
       if (!Array.isArray(room.messages)) {
@@ -1405,9 +1405,9 @@ async function startServer() {
           const msg = room.messages.find((m: any) => String(m.id) === String(messageId));
           if (msg) {
             if (!Array.isArray(msg.viewers)) msg.viewers = [];
-            const exists = msg.viewers.some((v: any) => String(v?.user?.id || v?.userId) === String(user.id));
+            const exists = msg.viewers.some((v: any) => String(v?.user?.id || v?.userId || v?.id || '') === String(user.id));
             if (!exists) {
-              msg.viewers.push({ user, viewedAt: new Date().toISOString() });
+              msg.viewers.push({ user: { ...user, id: String(user.id) }, viewedAt: new Date().toISOString() });
               updated = true;
             }
             currentViewers = msg.viewers;

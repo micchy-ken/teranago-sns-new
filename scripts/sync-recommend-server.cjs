@@ -15,7 +15,7 @@ const escapedContent = serverContent
 const header = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年10月1日 (文書管理・フォルダ機能 API (routes/documents.js) 連携・ZIP一括DL・履歴＆DL者追跡対応)
+ * 最終更新日時 (最終アップデート): 2026年10月6日 (チャットメッセージ既読数・送信者除外判定型正規化 String(id) & viewersJson 型不一致バグ修正)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -43,6 +43,11 @@ export interface ServerCodeHistoryItem {
 }
 
 export const SERVER_CODE_HISTORY: ServerCodeHistoryItem[] = [
+  {
+    version: 'v2026.10.06',
+    date: '2026-10-06',
+    summary: 'チャットメッセージ既読数・送信者除外判定型正規化 String(id) & viewersJson 型不一致バグ修正版',
+  },
   {
     version: 'v2026.10.01.2',
     date: '2026-10-01',

@@ -590,7 +590,7 @@ export function isChatUnread(
   // メッセージ単位の既読チェック: 最後のメッセージの viewers に自分が入っている場合は既読
   if (
     Array.isArray(lastMsg.viewers) &&
-    lastMsg.viewers.some((v: any) => String(v?.user?.id || v?.userId) === String(user.id))
+    lastMsg.viewers.some((v: any) => String(v?.user?.id || v?.userId || v?.id || '') === String(user.id))
   ) {
     return false;
   }

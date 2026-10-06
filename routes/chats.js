@@ -64,7 +64,7 @@ router.get(['/chats', '/chats/rooms', '/', '/rooms'], async (req, res) => {
               id: String(m.id),
               roomId: String(m.roomId),
               sender: {
-                id: m.senderId,
+                id: String(m.senderId),
                 name: m.senderName || '不明',
                 avatarUrl: m.senderAvatar || '',
                 department: m.senderDepartment || ''
@@ -79,7 +79,10 @@ router.get(['/chats', '/chats/rooms', '/', '/rooms'], async (req, res) => {
               stampText: m.stampText || null,
               stampCategory: m.stampCategory || null,
               attachments: safeParseJSON(m.attachments || m.attachmentsJson, []),
-              viewers: safeParseJSON(m.viewersJson || m.viewers, [])
+              viewers: safeParseJSON(m.viewersJson || m.viewers, []).map(v => ({
+                ...v,
+                user: v.user ? { ...v.user, id: String(v.user.id) } : { id: String(v.userId || v.id || '') }
+              }))
             };
           })
       };
@@ -216,12 +219,17 @@ router.post(['/chats', '/chats/message', '/', '/message'], async (req, res) => {
     let initialViewers = [];
     if (senderId) {
       const userRes = await pool.request()
-        .input('userId', sql.VarChar, senderId)
+        .input('userId', sql.VarChar, String(senderId))
         .query('SELECT id, name, avatarUrl, department FROM dbo.Users WHERE id = @userId');
       if (userRes.recordset && userRes.recordset.length > 0) {
         const u = userRes.recordset[0];
         initialViewers.push({
-          user: { id: u.id, name: u.name, avatarUrl: u.avatarUrl || '', department: u.department || '' },
+          user: { id: String(u.id), name: u.name, avatarUrl: u.avatarUrl || '', department: u.department || '' },
+          viewedAt: new Date().toISOString()
+        });
+      } else {
+        initialViewers.push({
+          user: { id: String(senderId), name: req.body.senderName || 'ユーザー', avatarUrl: req.body.senderAvatar || '', department: req.body.senderDepartment || '' },
           viewedAt: new Date().toISOString()
         });
       }
@@ -279,11 +287,14 @@ router.post(['/chats/messages/:messageId/viewers', '/messages/:messageId/viewers
     
     if (result.recordset && result.recordset.length > 0) {
       const currentViewers = safeParseJSON(result.recordset[0].viewersJson, []);
-      const alreadyExists = currentViewers.some(v => v.user && String(v.user.id) === String(user.id));
+      const alreadyExists = currentViewers.some(v => v && String(v.user?.id || v.userId || v.id || '') === String(user.id));
       if (!alreadyExists) {
-        const newViewers = [...currentViewers, { user, viewedAt: new Date().toISOString() }];
+        const newViewers = [...currentViewers, {
+          user: { id: String(user.id), name: user.name || '', avatarUrl: user.avatarUrl || '', department: user.department || '' },
+          viewedAt: new Date().toISOString()
+        }];
         await pool.request()
-          .input('messageId', sql.VarChar, messageId)
+          .input('messageId', sql.VarChar, String(messageId))
           .input('viewersJson', sql.NVarChar, JSON.stringify(newViewers))
           .query('UPDATE dbo.ChatMessages SET viewersJson = @viewersJson WHERE id = @messageId');
         return res.status(200).json({ success: true, viewers: newViewers });

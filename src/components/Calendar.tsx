@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { CalendarEvent, EventType, User, OfficeMaster, DivisionMaster, Memo, RequirementType, MemoUserRecipientStatus, CalendarPreset } from '../types';
 import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
-import { ChevronLeft, ChevronRight, List as ListIcon, Calendar as CalendarIcon, Plus, MapPin, Video, AlignLeft, RefreshCw, Clock, Link as LinkIcon, Loader2, Building2, Users, Paperclip, MessageSquare, Phone, X, Monitor, Maximize2, Minimize2, FileSpreadsheet, Share2, Check, Star, Trash2, Pin, BookmarkCheck, CalendarDays } from 'lucide-react';
+import { ChevronLeft, ChevronRight, List as ListIcon, Calendar as CalendarIcon, Plus, MapPin, Video, AlignLeft, RefreshCw, Clock, Link as LinkIcon, Loader2, Building2, Users, Paperclip, MessageSquare, Phone, X, Monitor, Maximize2, Minimize2, FileSpreadsheet, Share2, Check, Star, Trash2, Pin, BookmarkCheck, CalendarDays, SlidersHorizontal, Filter, ChevronDown } from 'lucide-react';
 import { EventModal } from './EventModal';
 import { GlobalEventDetailModal } from './GlobalEventDetailModal';
 import { renderWithClickableLinks } from '../utils/linkify';
@@ -254,6 +254,51 @@ export function Calendar({
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [isFavoritesOpen]);
+
+  // モバイル用お気に入り表示設定メニュー開閉
+  const [isFavoritesMobileOpen, setIsFavoritesMobileOpen] = useState(false);
+  const favoritesMobileRef = useRef<HTMLDivElement>(null);
+
+  // モバイル月表示用：選択中の日付 (Googleカレンダー風：タップで下部にその日の予定一覧を表示)
+  const [selectedMobileDate, setSelectedMobileDate] = useState<string>(() => getLocalDateStr(new Date()));
+
+  // モバイル週表示用：3日表示 / 7日表示モード、および選択中の曜日インデックス
+  const [mobileWeekMode, setMobileWeekMode] = useState<'3day' | '7day'>('3day');
+  const [mobileWeekActiveDay, setMobileWeekActiveDay] = useState<number>(() => {
+    const today = new Date();
+    return today.getDay();
+  });
+
+  // モバイルお気に入りポップオーバー外タップ・クリックで閉じる
+  useEffect(() => {
+    const handleClickOutsideMobileFavs = (event: MouseEvent | TouchEvent) => {
+      if (favoritesMobileRef.current && !favoritesMobileRef.current.contains(event.target as Node)) {
+        setIsFavoritesMobileOpen(false);
+      }
+    };
+    if (isFavoritesMobileOpen) {
+      document.addEventListener('mousedown', handleClickOutsideMobileFavs);
+      document.addEventListener('touchstart', handleClickOutsideMobileFavs);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutsideMobileFavs);
+      document.removeEventListener('touchstart', handleClickOutsideMobileFavs);
+    };
+  }, [isFavoritesMobileOpen]);
+
+  // イベント区分ごとのドット色（Googleカレンダー風のミニマムインジケータ用）
+  const getEventDotColor = useCallback((type?: EventType) => {
+    switch (type) {
+      case 'personal': return 'bg-emerald-500';
+      case 'construction': return 'bg-amber-500';
+      case 'inspection': return 'bg-indigo-500';
+      case 'replacement': return 'bg-cyan-500';
+      case 'repair': return 'bg-rose-500';
+      case 'visitor': return 'bg-orange-500';
+      case 'business_trip': return 'bg-sky-500';
+      default: return 'bg-indigo-500';
+    }
+  }, []);
 
   // 現在の設定に合わせたデフォルト名称の生成
   const getDefaultPresetName = useCallback(() => {
@@ -1774,7 +1819,7 @@ export function Calendar({
   const weekDays = getWeekDays(currentDate);
 
   // Formatting date range for header
-  const getHeaderTitle = () => {
+  const getHeaderTitle = (isCompact = false) => {
     if (view === 'month' || view === 'list') {
       return `${year}年${month + 1}月`;
     }
@@ -1783,6 +1828,12 @@ export function Calendar({
       const endD = weekDays[6];
       const startM = startD.getMonth() + 1;
       const endM = endD.getMonth() + 1;
+      if (isCompact) {
+        if (startM === endM) {
+          return `${startM}/${startD.getDate()} - ${endD.getDate()}`;
+        }
+        return `${startM}/${startD.getDate()} - ${endM}/${endD.getDate()}`;
+      }
       if (startM === endM) {
         return `${startD.getFullYear()}年${startM}月${startD.getDate()}日 - ${endD.getDate()}日`;
       }
@@ -1790,6 +1841,9 @@ export function Calendar({
     }
     if (view === 'day') {
       const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
+      if (isCompact) {
+        return `${month + 1}/${currentDate.getDate()} (${dayNames[currentDate.getDay()]})`;
+      }
       return `${year}年${month + 1}月${currentDate.getDate()}日 (${dayNames[currentDate.getDay()]})`;
     }
     return `${year}年${month + 1}月`;
@@ -1871,407 +1925,644 @@ export function Calendar({
           }
         ` : ''}
       `}</style>
-      {/* Header Toolbar */}
-      <div className="p-3 sm:p-4 border-b border-slate-200 flex flex-col xl:flex-row gap-3 sm:gap-4 items-stretch xl:items-center justify-between bg-slate-50 shrink-0">
-        <div className="flex items-center justify-between sm:justify-start gap-2 sm:gap-4 min-w-0">
-          <h2 className="text-base sm:text-lg xl:text-xl font-bold text-slate-800 tracking-tight min-w-0 truncate">
-            {getHeaderTitle()}
-          </h2>
-          <div className="flex items-center gap-0.5 sm:gap-1 bg-white rounded-lg border border-slate-200 p-0.5 sm:p-1 shadow-sm shrink-0">
-            <button onClick={() => changeDate(-1)} className="p-1 hover:bg-slate-100 rounded-md text-slate-600 transition-colors" title="前へ"><ChevronLeft className="w-4 h-4 sm:w-5 sm:h-5"/></button>
-            <button onClick={() => setCurrentDate(new Date())} className="px-2 sm:px-3 py-1 text-xs sm:text-sm font-semibold hover:bg-slate-100 rounded-md text-slate-700 transition-colors">今日</button>
-            <button onClick={() => changeDate(1)} className="p-1 hover:bg-slate-100 rounded-md text-slate-600 transition-colors" title="次へ"><ChevronRight className="w-4 h-4 sm:w-5 sm:h-5"/></button>
-          </div>
-        </div>
-        
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full xl:w-auto">
-          {/* Filters */}
-          <div className="flex flex-wrap items-center gap-2 sm:gap-3 bg-white px-2.5 sm:px-3 py-1.5 rounded-lg border border-slate-200 text-xs sm:text-sm shadow-sm flex-1 sm:flex-none">
-            {calendarMode === 'team' && (
-              <>
-                {/* 拠点プルダウン (チームメンバー表示用) */}
-                <div className="flex items-center gap-1">
-                  <Building2 className="w-3.5 h-3.5 text-orange-500 shrink-0" />
-                  <span className="font-semibold text-slate-600 text-xs shrink-0 hidden sm:inline">拠点:</span>
-                  <select
-                    value={selectedOffice}
-                    onChange={e => setSelectedOffice(e.target.value)}
-                    className="bg-slate-50 border border-slate-200 rounded px-1.5 sm:px-2 py-1 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
-                  >
-                    {officeNames.filter(o => o !== '全社' && o !== '全拠点').map(o => (
-                      <option key={o} value={o}>{o}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* 部署プルダウン (チームメンバー表示用) */}
-                <div className="flex items-center gap-1 pl-2 border-l border-slate-200">
-                  <Users className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                  <span className="font-semibold text-slate-600 text-xs shrink-0 hidden sm:inline">部署:</span>
-                  <select
-                    value={selectedDivision}
-                    onChange={e => setSelectedDivision(e.target.value)}
-                    className="bg-slate-50 border border-slate-200 rounded px-1.5 sm:px-2 py-1 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
-                  >
-                    {divisionNames.filter(d => d !== '全部署').map(d => (
-                      <option key={d} value={d}>{d}</option>
-                    ))}
-                  </select>
-                </div>
-              </>
-            )}
-
-            {/* 区分プルダウン */}
-            <div className={`flex items-center gap-1 ${calendarMode === 'team' ? 'pl-2 border-l border-slate-200' : ''}`}>
-              <span className="font-semibold text-slate-600 text-xs shrink-0">区分:</span>
-              <select
-                value={selectedTypeFilter}
-                onChange={e => setSelectedTypeFilter(e.target.value)}
-                className="bg-slate-50 border border-slate-200 rounded px-1.5 sm:px-2 py-1 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
-              >
-                <option value="all">全区分</option>
-                {Object.keys(typeLabels).map(key => (
-                  <option key={key} value={key}>{typeLabels[key as EventType]}</option>
-                ))}
-              </select>
+      {/* Header Toolbar (Google Calendar style simplified responsive header) */}
+      <div className="border-b border-slate-200 bg-slate-50/90 shrink-0">
+        {/* --- DESKTOP TOOLBAR (md:flex hidden) --- */}
+        <div className="hidden md:flex items-center justify-between gap-3 px-4 py-2.5">
+          {/* Zone 1: Navigation & Title */}
+          <div className="flex items-center gap-3 min-w-0 shrink-0">
+            <h2 className="text-lg font-bold text-slate-800 tracking-tight min-w-0 truncate">
+              {getHeaderTitle()}
+            </h2>
+            <div className="flex items-center gap-0.5 bg-white rounded-lg border border-slate-200 p-0.5 shadow-2xs shrink-0">
+              <button onClick={() => changeDate(-1)} className="p-1 hover:bg-slate-100 rounded text-slate-600 transition-colors" title="前へ"><ChevronLeft className="w-4 h-4"/></button>
+              <button onClick={() => setCurrentDate(new Date())} className="px-2.5 py-0.5 text-xs font-semibold hover:bg-slate-100 rounded text-slate-700 transition-colors">今日</button>
+              <button onClick={() => changeDate(1)} className="p-1 hover:bg-slate-100 rounded text-slate-600 transition-colors" title="次へ"><ChevronRight className="w-4 h-4"/></button>
             </div>
           </div>
 
-          {/* Mode Selector */}
-          <div className="flex items-center bg-white rounded-lg border border-slate-200 p-0.5 sm:p-1 shadow-sm text-xs font-semibold shrink-0">
-            <button
-              onClick={() => handleToggleMode('personal')}
-              className={`px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-md transition-all ${calendarMode === 'personal' ? 'bg-amber-500 text-white font-bold shadow-xs' : 'text-slate-600 hover:bg-slate-50'}`}
-            >
-              個人
-            </button>
-            <button
-              onClick={() => handleToggleMode('team')}
-              className={`px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-md transition-all ${calendarMode === 'team' ? 'bg-indigo-600 text-white font-bold shadow-xs' : 'text-slate-600 hover:bg-slate-50'}`}
-            >
-              チーム
-            </button>
-          </div>
-          
-          {/* View selector */}
-          <div className="flex items-center bg-white rounded-lg border border-slate-200 p-0.5 sm:p-1 shadow-sm text-xs font-semibold shrink-0">
-            {calendarMode !== 'team' && (
+          {/* Zone 2: Mode & View Switchers */}
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Mode Switcher */}
+            <div className="flex items-center bg-white rounded-lg border border-slate-200 p-0.5 shadow-2xs text-xs font-semibold">
               <button
-                onClick={() => setView('month')}
-                className={`px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-md transition-colors ${view === 'month' ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}
+                onClick={() => handleToggleMode('personal')}
+                className={`px-2.5 py-1 rounded transition-all ${calendarMode === 'personal' ? 'bg-amber-500 text-white font-bold shadow-xs' : 'text-slate-600 hover:bg-slate-50'}`}
               >
-                月
+                個人
               </button>
-            )}
-            <button
-              onClick={() => setView('week')}
-              className={`px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-md transition-colors ${view === 'week' ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}
-            >
-              週
-            </button>
-            <button
-              onClick={() => setView('day')}
-              className={`px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-md transition-colors ${view === 'day' ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}
-            >
-              日
-            </button>
-            {calendarMode !== 'team' && (
               <button
-                onClick={() => setView('list')}
-                className={`p-1 sm:p-1.5 rounded-md transition-colors ${view === 'list' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-50'}`}
-                title="リスト表示"
+                onClick={() => handleToggleMode('team')}
+                className={`px-2.5 py-1 rounded transition-all ${calendarMode === 'team' ? 'bg-indigo-600 text-white font-bold shadow-xs' : 'text-slate-600 hover:bg-slate-50'}`}
               >
-                <ListIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4"/>
+                チーム
               </button>
-            )}
+            </div>
+
+            {/* View Switcher (Google Calendar Segmented) */}
+            <div className="flex items-center bg-white rounded-lg border border-slate-200 p-0.5 shadow-2xs text-xs font-semibold">
+              {calendarMode !== 'team' && (
+                <button
+                  onClick={() => setView('month')}
+                  className={`px-2.5 py-1 rounded transition-colors ${view === 'month' ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}
+                >
+                  月
+                </button>
+              )}
+              <button
+                onClick={() => setView('week')}
+                className={`px-2.5 py-1 rounded transition-colors ${view === 'week' ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}
+              >
+                週
+              </button>
+              <button
+                onClick={() => setView('day')}
+                className={`px-2.5 py-1 rounded transition-colors ${view === 'day' ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}
+              >
+                日
+              </button>
+              {calendarMode !== 'team' && (
+                <button
+                  onClick={() => setView('list')}
+                  className={`p-1 rounded transition-colors ${view === 'list' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-50'}`}
+                  title="リスト表示"
+                >
+                  <ListIcon className="w-4 h-4"/>
+                </button>
+              )}
+            </div>
           </div>
 
-          {/* 現在の設定を含むカレンダーURLリンクをコピーするボタン */}
-          <button
-            type="button"
-            onClick={() => {
-              const currentDateStr = getLocalDateStr(currentDate);
-              const shareParams: AppQueryParams = {
-                tab: 'calendar',
-                mode: calendarMode,
-                view: view,
-                date: currentDateStr,
-              };
-              if (calendarMode === 'team') {
-                if (selectedOffice && selectedOffice !== '全社' && selectedOffice !== '全拠点') {
-                  shareParams.office = selectedOffice;
-                }
-                if (selectedDivision && selectedDivision !== '全部署') {
-                  shareParams.division = selectedDivision;
-                }
-              }
-              if (selectedTypeFilter && selectedTypeFilter !== 'all') {
-                shareParams.type = selectedTypeFilter;
-              }
-
-              const url = buildAppUrl(shareParams);
-              const copyToClipboard = (text: string) => {
-                if (navigator.clipboard && window.isSecureContext) {
-                  return navigator.clipboard.writeText(text);
-                } else {
-                  const textArea = document.createElement('textarea');
-                  textArea.value = text;
-                  textArea.style.position = 'fixed';
-                  textArea.style.left = '-999999px';
-                  textArea.style.top = '-999999px';
-                  document.body.appendChild(textArea);
-                  textArea.focus();
-                  textArea.select();
-                  return new Promise<void>((resolve, reject) => {
-                    const successful = document.execCommand('copy');
-                    textArea.remove();
-                    if (successful) resolve();
-                    else reject(new Error('execCommand copy failed'));
-                  });
-                }
-              };
-
-              copyToClipboard(url).then(() => {
-                setCopiedLink(true);
-                setTimeout(() => setCopiedLink(false), 2500);
-              }).catch(() => {
-                // ignore
-              });
-            }}
-            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all shadow-2xs cursor-pointer shrink-0 ${
-              copiedLink
-                ? 'bg-emerald-50 text-emerald-700 border-emerald-300 ring-2 ring-emerald-200'
-                : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-            }`}
-            title="現在の表示設定（日付・表示形式・拠点・部署等）を含んだ共有リンクをコピー"
-          >
-            {copiedLink ? (
+          {/* Zone 3: Filters, Presets, Actions & Primary CTA */}
+          <div className="flex items-center gap-2 shrink-0">
+            {calendarMode === 'team' && (
               <>
-                <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                <span className="font-bold">URLコピー完了!</span>
-              </>
-            ) : (
-              <>
-                <Share2 className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                <span className="hidden sm:inline">リンク共有</span>
-                <span className="sm:hidden">共有</span>
+                <select
+                  value={selectedOffice}
+                  onChange={e => setSelectedOffice(e.target.value)}
+                  className="bg-white border border-slate-200 rounded px-2 py-1 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-2xs"
+                >
+                  {officeNames.filter(o => o !== '全社' && o !== '全拠点').map(o => (
+                    <option key={o} value={o}>{o}</option>
+                  ))}
+                </select>
+                <select
+                  value={selectedDivision}
+                  onChange={e => setSelectedDivision(e.target.value)}
+                  className="bg-white border border-slate-200 rounded px-2 py-1 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-2xs"
+                >
+                  {divisionNames.filter(d => d !== '全部署').map(d => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </select>
               </>
             )}
-          </button>
 
-          {/* お気に入り表示設定ドロップダウンメニュー */}
-          <div className="relative shrink-0" ref={favoritesRef}>
+            {/* 区分フィルター */}
+            <select
+              value={selectedTypeFilter}
+              onChange={e => setSelectedTypeFilter(e.target.value)}
+              className="bg-white border border-slate-200 rounded px-2 py-1 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-2xs"
+            >
+              <option value="all">全区分</option>
+              {Object.keys(typeLabels).map(key => (
+                <option key={key} value={key}>{typeLabels[key as EventType]}</option>
+              ))}
+            </select>
+
+            {/* 共有リンクコピー */}
             <button
               type="button"
               onClick={() => {
-                setIsFavoritesOpen(prev => {
-                  const next = !prev;
-                  if (next && !customPresetName) {
-                    setCustomPresetName(getDefaultPresetName());
+                const currentDateStr = getLocalDateStr(currentDate);
+                const shareParams: AppQueryParams = {
+                  tab: 'calendar',
+                  mode: calendarMode,
+                  view: view,
+                  date: currentDateStr,
+                };
+                if (calendarMode === 'team') {
+                  if (selectedOffice && selectedOffice !== '全社' && selectedOffice !== '全拠点') {
+                    shareParams.office = selectedOffice;
                   }
-                  return next;
-                });
+                  if (selectedDivision && selectedDivision !== '全部署') {
+                    shareParams.division = selectedDivision;
+                  }
+                }
+                if (selectedTypeFilter && selectedTypeFilter !== 'all') {
+                  shareParams.type = selectedTypeFilter;
+                }
+                const url = buildAppUrl(shareParams);
+                if (navigator.clipboard && window.isSecureContext) {
+                  navigator.clipboard.writeText(url).then(() => {
+                    setCopiedLink(true);
+                    setTimeout(() => setCopiedLink(false), 2500);
+                  });
+                }
               }}
-              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all shadow-2xs cursor-pointer shrink-0 ${
-                isFavoritesOpen
-                  ? 'bg-amber-50 text-amber-900 border-amber-300 ring-2 ring-amber-200'
-                  : presets.length > 0
-                  ? 'bg-amber-50/40 text-amber-800 border-amber-200 hover:bg-amber-100/60'
+              className={`p-1.5 rounded-lg border text-xs font-semibold transition-all shadow-2xs cursor-pointer ${
+                copiedLink
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-300 ring-2 ring-emerald-200'
                   : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
               }`}
-              title="カレンダー表示設定のお気に入り登録と呼び出し"
+              title="URL共有リンクをコピー"
             >
-              <Star className={`w-3.5 h-3.5 ${presets.length > 0 ? 'text-amber-500 fill-amber-400' : 'text-slate-400'} shrink-0`} />
-              <span className="hidden sm:inline">お気に入り</span>
-              <span className="sm:hidden">★</span>
-              {presets.length > 0 && (
-                <span className="px-1.5 py-0.2 bg-amber-200/70 text-amber-900 rounded-full text-[10px] font-bold">
-                  {presets.length}
-                </span>
-              )}
+              {copiedLink ? <Check className="w-4 h-4 text-emerald-600" /> : <Share2 className="w-4 h-4 text-slate-500" />}
             </button>
 
-            {isFavoritesOpen && (
-              <div className="absolute right-0 sm:right-auto sm:left-0 top-full mt-2 w-80 sm:w-96 bg-white rounded-xl shadow-2xl border border-slate-200 p-3.5 sm:p-4 z-50 text-slate-800">
-                {/* Header */}
-                <div className="flex items-center justify-between pb-2.5 mb-3 border-b border-slate-100">
-                  <div className="flex items-center gap-2">
-                    <div className="w-6 h-6 rounded-md bg-amber-100 text-amber-600 flex items-center justify-center">
-                      <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-600" />
-                    </div>
-                    <span className="font-bold text-sm text-slate-800">表示設定のお気に入り</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setIsFavoritesOpen(false)}
-                    className="text-slate-400 hover:text-slate-600 p-1 rounded-md hover:bg-slate-100 cursor-pointer"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
+            {/* お気に入り表示設定 */}
+            <div className="relative" ref={favoritesRef}>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsFavoritesOpen(prev => {
+                    const next = !prev;
+                    if (next && !customPresetName) {
+                      setCustomPresetName(getDefaultPresetName());
+                    }
+                    return next;
+                  });
+                }}
+                className={`flex items-center gap-1 px-2 py-1 rounded-lg border text-xs font-semibold transition-all shadow-2xs cursor-pointer ${
+                  isFavoritesOpen
+                    ? 'bg-amber-50 text-amber-900 border-amber-300 ring-2 ring-amber-200'
+                    : presets.length > 0
+                    ? 'bg-amber-50/50 text-amber-800 border-amber-200 hover:bg-amber-100/60'
+                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                }`}
+                title="表示設定のお気に入り"
+              >
+                <Star className={`w-3.5 h-3.5 ${presets.length > 0 ? 'text-amber-500 fill-amber-400' : 'text-slate-400'}`} />
+                {presets.length > 0 && (
+                  <span className="text-[10px] font-bold text-amber-900">{presets.length}</span>
+                )}
+              </button>
 
-                {/* Section 1: 現在の表示をお気に入り登録 */}
-                <div className="bg-amber-50/70 border border-amber-200/80 rounded-lg p-2.5 sm:p-3 mb-3">
-                  <div className="text-[11px] font-bold text-amber-900 mb-1.5 flex items-center gap-1">
-                    <BookmarkCheck className="w-3.5 h-3.5 text-amber-600" />
-                    <span>現在の表示条件を登録</span>
-                  </div>
-                  <div className="bg-white/90 rounded px-2 py-1 text-[11px] font-medium text-slate-600 border border-amber-200/60 mb-2 truncate">
-                    {getCurrentSummary()}
-                  </div>
-                  <form onSubmit={handleSavePreset} className="flex gap-1.5 items-center">
-                    <input
-                      type="text"
-                      value={customPresetName}
-                      onChange={(e) => setCustomPresetName(e.target.value)}
-                      placeholder="お気に入り名（例: 名古屋・保守）"
-                      className="flex-1 bg-white border border-slate-200 rounded px-2 py-1 text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500 min-w-0"
-                    />
-                    <button
-                      type="submit"
-                      disabled={!onUpdateUser}
-                      className="px-3 py-1 bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-white rounded text-xs font-bold transition-colors cursor-pointer shrink-0 disabled:opacity-50"
-                    >
-                      追加
+              {isFavoritesOpen && (
+                <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-xl shadow-2xl border border-slate-200 p-3.5 z-50 text-slate-800">
+                  <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-100">
+                    <span className="font-bold text-xs text-slate-800">表示設定のお気に入り</span>
+                    <button type="button" onClick={() => setIsFavoritesOpen(false)} className="text-slate-400 hover:text-slate-600 p-0.5">
+                      <X className="w-4 h-4" />
                     </button>
-                  </form>
-                </div>
-
-                {/* Section 2: 登録済み一覧 */}
-                <div>
-                  <div className="flex items-center justify-between text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">
-                    <span>登録済みのお気に入り ({presets.length})</span>
-                    {defaultPresetId && (
-                      <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-0.5">
-                        <Check className="w-3 h-3" />
-                        初期表示設定あり
-                      </span>
-                    )}
                   </div>
-
-                  {presets.length === 0 ? (
-                    <div className="py-6 text-center text-slate-400 text-xs bg-slate-50 rounded-lg border border-dashed border-slate-200">
-                      お気に入りはまだありません。<br />
-                      よく使う表示条件を上記から登録できます。
+                  <div className="bg-amber-50/70 border border-amber-200/80 rounded-lg p-2 mb-2.5">
+                    <div className="text-[10px] font-bold text-amber-900 mb-1 flex items-center gap-1">
+                      <BookmarkCheck className="w-3 h-3 text-amber-600" />
+                      <span>現在の条件を登録: {getCurrentSummary()}</span>
                     </div>
-                  ) : (
-                    <div className="max-h-56 overflow-y-auto space-y-1.5 pr-0.5">
-                      {presets.map((preset) => {
+                    <form onSubmit={handleSavePreset} className="flex gap-1 items-center">
+                      <input
+                        type="text"
+                        value={customPresetName}
+                        onChange={(e) => setCustomPresetName(e.target.value)}
+                        placeholder="お気に入り名"
+                        className="flex-1 bg-white border border-slate-200 rounded px-2 py-0.5 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-amber-500 min-w-0"
+                      />
+                      <button
+                        type="submit"
+                        disabled={!onUpdateUser}
+                        className="px-2.5 py-0.5 bg-amber-500 hover:bg-amber-600 text-white rounded text-xs font-bold transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+                      >
+                        追加
+                      </button>
+                    </form>
+                  </div>
+                  <div className="max-h-48 overflow-y-auto space-y-1">
+                    {presets.length === 0 ? (
+                      <div className="py-4 text-center text-slate-400 text-xs">お気に入りはまだありません</div>
+                    ) : (
+                      presets.map((preset) => {
                         const isDefault = defaultPresetId === preset.id;
                         return (
                           <div
                             key={preset.id}
                             onClick={() => handleApplyPreset(preset)}
-                            className={`group flex items-center justify-between p-2 rounded-lg border transition-all cursor-pointer ${
-                              isDefault
-                                ? 'bg-emerald-50/50 border-emerald-200 hover:bg-emerald-50 hover:border-emerald-300'
-                                : 'bg-white border-slate-200 hover:bg-indigo-50/60 hover:border-indigo-200'
-                            }`}
-                            title="クリックしてこの表示設定を適用"
+                            className="flex items-center justify-between p-1.5 rounded border border-slate-100 hover:bg-indigo-50/50 cursor-pointer text-xs"
                           >
-                            <div className="min-w-0 flex-1 mr-2">
-                              <div className="flex items-center gap-1.5">
-                                <span className="font-bold text-xs text-slate-800 truncate group-hover:text-indigo-600">
-                                  {preset.name}
-                                </span>
-                                {isDefault && (
-                                  <span className="px-1.5 py-0.2 bg-emerald-100 text-emerald-800 rounded text-[9px] font-bold shrink-0">
-                                    初期表示
-                                  </span>
-                                )}
-                              </div>
-                              <div className="text-[10px] text-slate-500 truncate mt-0.5">
-                                {getPresetSummary(preset)}
-                              </div>
+                            <div className="min-w-0 flex-1 mr-1 truncate">
+                              <span className="font-bold text-slate-800 truncate">{preset.name}</span>
+                              {isDefault && <span className="ml-1 text-[9px] px-1 bg-emerald-100 text-emerald-800 rounded font-bold">初期</span>}
                             </div>
-
                             <div className="flex items-center gap-1 shrink-0">
                               <button
                                 type="button"
                                 onClick={(e) => handleToggleDefaultPreset(preset.id, e)}
-                                className={`p-1.5 rounded transition-colors cursor-pointer ${
-                                  isDefault
-                                    ? 'text-emerald-700 bg-emerald-100 hover:bg-emerald-200'
-                                    : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
-                                }`}
-                                title={isDefault ? 'カレンダー起動時の初期表示を解除' : 'カレンダー起動時の初期表示に設定'}
+                                className={`p-1 rounded ${isDefault ? 'text-emerald-700 bg-emerald-100' : 'text-slate-400 hover:text-slate-700'}`}
+                                title={isDefault ? '初期表示解除' : '初期表示に設定'}
                               >
-                                <Pin className={`w-3.5 h-3.5 ${isDefault ? 'fill-emerald-600 text-emerald-600' : ''}`} />
+                                <Pin className="w-3 h-3" />
                               </button>
                               <button
                                 type="button"
                                 onClick={(e) => handleDeletePreset(preset.id, preset.name, e)}
-                                className="p-1.5 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
-                                title="このお気に入りを削除"
+                                className="p-1 rounded text-slate-400 hover:text-rose-600"
+                                title="削除"
                               >
-                                <Trash2 className="w-3.5 h-3.5" />
+                                <Trash2 className="w-3 h-3" />
                               </button>
                             </div>
                           </div>
                         );
-                      })}
-                    </div>
-                  )}
+                      })
+                    )}
+                  </div>
                 </div>
-              </div>
+              )}
+            </div>
+
+            {/* デジタルサイネージモード */}
+            {calendarMode === 'team' && view === 'day' && (
+              <button
+                type="button"
+                onClick={() => handleToggleSignageMode(!isSignageMode)}
+                className={`p-1.5 rounded-lg border text-xs font-bold transition-all shadow-2xs cursor-pointer ${
+                  isSignageMode ? 'bg-rose-600 text-white border-rose-700' : 'bg-slate-800 text-white border-slate-700'
+                }`}
+                title="デジタルサイネージ"
+              >
+                <Monitor className="w-4 h-4 text-amber-300" />
+              </button>
             )}
+
+            {/* 点検予定一括登録 */}
+            {onNavigateToInspectionScheduler && (
+              <button
+                type="button"
+                onClick={onNavigateToInspectionScheduler}
+                className="p-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition-colors shadow-2xs cursor-pointer"
+                title="点検予定一括登録"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-indigo-600" />
+              </button>
+            )}
+
+            {/* 日程調整 */}
+            {onOpenSchedulePollModal && (
+              <button
+                type="button"
+                onClick={onOpenSchedulePollModal}
+                className="p-1.5 bg-gradient-to-r from-amber-50 to-orange-50 text-amber-800 border border-amber-200 rounded-lg transition-all shadow-2xs cursor-pointer"
+                title="日程調整"
+              >
+                <CalendarDays className="w-4 h-4 text-amber-600" />
+              </button>
+            )}
+
+            {/* Primary Action Button */}
+            <button
+              onClick={() => openAddModalWithDate()}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg transition-colors shadow-xs cursor-pointer shrink-0"
+            >
+              <Plus className="w-4 h-4"/>
+              <span>予定追加</span>
+            </button>
+          </div>
+        </div>
+
+        {/* --- MOBILE TOOLBAR (<md: 2 clean compact rows) --- */}
+        <div className="flex md:hidden flex-col px-3 py-2 gap-1.5 relative">
+          {/* Mobile Row 1: Nav & Title + Quick Mode + Plus Icon Button + Favorites Button */}
+          <div className="flex items-center justify-between gap-1.5">
+            {/* Left: Nav & Title (Plenty of space secured) */}
+            <div className="flex items-center gap-1.5 min-w-0 flex-1 mr-1">
+              <div className="flex items-center bg-white rounded-lg border border-slate-200 p-0.5 shadow-2xs shrink-0">
+                <button onClick={() => changeDate(-1)} className="p-1 hover:bg-slate-100 rounded text-slate-600 transition-colors" title="前へ"><ChevronLeft className="w-3.5 h-3.5"/></button>
+                <button onClick={() => setCurrentDate(new Date())} className="px-1.5 py-0.5 text-[11px] font-bold hover:bg-slate-100 rounded text-slate-700 transition-colors">今</button>
+                <button onClick={() => changeDate(1)} className="p-1 hover:bg-slate-100 rounded text-slate-600 transition-colors" title="次へ"><ChevronRight className="w-3.5 h-3.5"/></button>
+              </div>
+              <h2 className="text-xs sm:text-sm font-bold text-slate-800 tracking-tight truncate min-w-0">
+                <span className="hidden sm:inline">{getHeaderTitle(false)}</span>
+                <span className="inline sm:hidden">{getHeaderTitle(true)}</span>
+              </h2>
+            </div>
+
+            {/* Right: Mode + Plus Icon Only + Favorites Button (Ultra-compact & efficient) */}
+            <div className="flex items-center gap-1 shrink-0">
+              {/* Mode Toggle */}
+              <div className="flex items-center bg-white rounded-lg border border-slate-200 p-0.5 shadow-2xs text-[11px] font-bold">
+                <button
+                  onClick={() => handleToggleMode('personal')}
+                  className={`px-1.5 py-0.5 rounded transition-all ${calendarMode === 'personal' ? 'bg-amber-500 text-white font-bold' : 'text-slate-600'}`}
+                >
+                  個人
+                </button>
+                <button
+                  onClick={() => handleToggleMode('team')}
+                  className={`px-1.5 py-0.5 rounded transition-all ${calendarMode === 'team' ? 'bg-indigo-600 text-white font-bold' : 'text-slate-600'}`}
+                >
+                  チーム
+                </button>
+              </div>
+
+              {/* Add Event Button (+ Icon Only) */}
+              <button
+                type="button"
+                onClick={() => openAddModalWithDate()}
+                className="w-7 h-7 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-lg flex items-center justify-center shadow-xs cursor-pointer shrink-0 transition-colors"
+                title="予定を追加"
+              >
+                <Plus className="w-4 h-4 stroke-[2.5]" />
+              </button>
+
+              {/* Favorites Button on Mobile (Only button retained, settings button removed) */}
+              <div className="relative" ref={favoritesMobileRef}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsFavoritesMobileOpen(prev => {
+                      const next = !prev;
+                      if (next && !customPresetName) {
+                        setCustomPresetName(getDefaultPresetName());
+                      }
+                      return next;
+                    });
+                  }}
+                  className={`w-7 h-7 rounded-lg border flex items-center justify-center transition-all shadow-2xs cursor-pointer ${
+                    isFavoritesMobileOpen
+                      ? 'bg-amber-100 text-amber-900 border-amber-400 ring-2 ring-amber-200'
+                      : presets.length > 0
+                      ? 'bg-amber-50 text-amber-800 border-amber-300'
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                  }`}
+                  title="表示設定のお気に入り"
+                >
+                  <Star className={`w-3.5 h-3.5 ${presets.length > 0 ? 'text-amber-500 fill-amber-400' : 'text-slate-400'}`} />
+                </button>
+
+                {/* Mobile Favorites Popover */}
+                {isFavoritesMobileOpen && (
+                  <div className="absolute right-0 top-full mt-1.5 w-76 sm:w-80 max-w-[calc(100vw-24px)] bg-white rounded-xl shadow-2xl border border-slate-200 p-3 z-50 text-slate-800 space-y-2.5 max-h-[80vh] overflow-y-auto">
+                    <div className="flex items-center justify-between pb-1.5 border-b border-slate-100">
+                      <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                        <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-400" />
+                        表示設定のお気に入り
+                      </span>
+                      <button type="button" onClick={() => setIsFavoritesMobileOpen(false)} className="text-slate-400 p-0.5 hover:text-slate-600">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    {/* ★ お気に入り登録（現在の画面をお気に入りに追加） */}
+                    <div className="bg-amber-50/90 border border-amber-200/90 rounded-xl p-2.5 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-amber-950 flex items-center gap-1">
+                          <BookmarkCheck className="w-3.5 h-3.5 text-amber-600" />
+                          現在の画面をお気に入りに追加
+                        </span>
+                        <span className="text-[10px] text-amber-800 font-semibold bg-amber-100/70 px-1.5 py-0.5 rounded truncate max-w-[120px]">
+                          {getCurrentSummary()}
+                        </span>
+                      </div>
+
+                      {/* 登録フォーム */}
+                      <form onSubmit={handleSavePreset} className="flex gap-1.5 items-center">
+                        <input
+                          type="text"
+                          value={customPresetName}
+                          onChange={(e) => setCustomPresetName(e.target.value)}
+                          placeholder={getDefaultPresetName()}
+                          className="flex-1 bg-white border border-amber-200 rounded-lg px-2 py-1 text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-amber-500 min-w-0"
+                        />
+                        <button
+                          type="submit"
+                          className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer shrink-0 shadow-2xs"
+                        >
+                          追加
+                        </button>
+                      </form>
+
+                      {favoritesFeedback && (
+                        <div className="text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded px-2 py-1 flex items-center gap-1">
+                          <Check className="w-3 h-3 text-emerald-600 shrink-0" />
+                          <span>{favoritesFeedback}</span>
+                        </div>
+                      )}
+
+                      {/* 登録済みお気に入り一覧 */}
+                      {presets.length > 0 && (
+                        <div className="pt-2 border-t border-amber-200/80 space-y-1">
+                          <div className="flex items-center justify-between text-[10px] font-bold text-amber-900 mb-1">
+                            <span>登録済みのお気に入り ({presets.length})</span>
+                            {defaultPresetId && (
+                              <span className="text-emerald-700 font-semibold flex items-center gap-0.5">
+                                <Check className="w-2.5 h-2.5" />
+                                初期表示あり
+                              </span>
+                            )}
+                          </div>
+                          <div className="space-y-1 max-h-36 overflow-y-auto pr-0.5">
+                            {presets.map((preset) => {
+                              const isDefault = defaultPresetId === preset.id;
+                              return (
+                                <div
+                                  key={preset.id}
+                                  onClick={() => { handleApplyPreset(preset); setIsFavoritesMobileOpen(false); }}
+                                  className="flex items-center justify-between p-1.5 rounded-lg bg-white border border-amber-200/60 hover:border-amber-300 hover:bg-amber-50/50 cursor-pointer text-xs transition-colors"
+                                >
+                                  <div className="min-w-0 flex-1 mr-1 truncate">
+                                    <div className="flex items-center gap-1">
+                                      <span className="font-bold text-slate-800 truncate">{preset.name}</span>
+                                      {isDefault && <span className="text-[9px] px-1 bg-emerald-100 text-emerald-800 rounded font-bold shrink-0">初期</span>}
+                                    </div>
+                                    <div className="text-[10px] text-slate-500 truncate">{getPresetSummary(preset)}</div>
+                                  </div>
+                                  <div className="flex items-center gap-0.5 shrink-0" onClick={e => e.stopPropagation()}>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => handleToggleDefaultPreset(preset.id, e)}
+                                      className={`p-1 rounded ${isDefault ? 'text-emerald-700 bg-emerald-100' : 'text-slate-400 hover:text-slate-700'}`}
+                                      title={isDefault ? '初期表示解除' : 'カレンダー起動時の初期表示に設定'}
+                                    >
+                                      <Pin className={`w-3 h-3 ${isDefault ? 'fill-emerald-600 text-emerald-600' : ''}`} />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => handleDeletePreset(preset.id, preset.name, e)}
+                                      className="p-1 rounded text-slate-400 hover:text-rose-600"
+                                      title="削除"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* 区分フィルター */}
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-600 mb-1 block">予定区分フィルター</label>
+                      <select
+                        value={selectedTypeFilter}
+                        onChange={e => setSelectedTypeFilter(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      >
+                        <option value="all">全区分</option>
+                        {Object.keys(typeLabels).map(key => (
+                          <option key={key} value={key}>{typeLabels[key as EventType]}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* チーム表示時フィルター */}
+                    {calendarMode === 'team' && (
+                      <div className="space-y-2 pt-1 border-t border-slate-100">
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-600 mb-1 block">拠点</label>
+                          <select
+                            value={selectedOffice}
+                            onChange={e => setSelectedOffice(e.target.value)}
+                            className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs font-semibold text-slate-800"
+                          >
+                            {officeNames.filter(o => o !== '全社' && o !== '全拠点').map(o => (
+                              <option key={o} value={o}>{o}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-600 mb-1 block">部署</label>
+                          <select
+                            value={selectedDivision}
+                            onChange={e => setSelectedDivision(e.target.value)}
+                            className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs font-semibold text-slate-800"
+                          >
+                            {divisionNames.filter(d => d !== '全部署').map(d => (
+                              <option key={d} value={d}>{d}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* クイックツールボタン一覧（スマホでは一括登録Excelは非表示） */}
+                    <div className="pt-2 border-t border-slate-100 flex flex-col gap-1.5">
+                      {/* URL共有 */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const currentDateStr = getLocalDateStr(currentDate);
+                          const shareParams: AppQueryParams = {
+                            tab: 'calendar',
+                            mode: calendarMode,
+                            view: view,
+                            date: currentDateStr,
+                          };
+                          if (calendarMode === 'team') {
+                            if (selectedOffice && selectedOffice !== '全社' && selectedOffice !== '全拠点') {
+                              shareParams.office = selectedOffice;
+                            }
+                            if (selectedDivision && selectedDivision !== '全部署') {
+                              shareParams.division = selectedDivision;
+                            }
+                          }
+                          if (selectedTypeFilter && selectedTypeFilter !== 'all') {
+                            shareParams.type = selectedTypeFilter;
+                          }
+                          const url = buildAppUrl(shareParams);
+                          if (navigator.clipboard && window.isSecureContext) {
+                            navigator.clipboard.writeText(url).then(() => {
+                              setCopiedLink(true);
+                              setTimeout(() => setCopiedLink(false), 2500);
+                            });
+                          }
+                        }}
+                        className="w-full flex items-center justify-center gap-1.5 py-1.5 px-2 bg-slate-50 hover:bg-slate-100 rounded-lg text-xs font-semibold text-slate-700 border border-slate-200"
+                      >
+                        {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Share2 className="w-3.5 h-3.5 text-slate-500" />}
+                        <span>{copiedLink ? 'URLコピー完了!' : '現在の表示URLをコピー'}</span>
+                      </button>
+
+                      {/* 日程調整アンケート */}
+                      {onOpenSchedulePollModal && (
+                        <button
+                          type="button"
+                          onClick={() => { setIsFavoritesMobileOpen(false); onOpenSchedulePollModal(); }}
+                          className="w-full flex items-center justify-center gap-1.5 py-1.5 px-2 bg-amber-50 hover:bg-amber-100 rounded-lg text-xs font-semibold text-amber-800 border border-amber-200"
+                        >
+                          <CalendarDays className="w-3.5 h-3.5 text-amber-600" />
+                          <span>日程調整アンケート</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
 
-          {/* デジタルサイネージモード トグル (スケジュール・チーム・日 選択時のみ表示) */}
-          {calendarMode === 'team' && view === 'day' && (
-            <button
-              type="button"
-              onClick={() => handleToggleSignageMode(!isSignageMode)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-bold transition-all shadow-sm cursor-pointer shrink-0 ${
-                isSignageMode
-                  ? 'bg-rose-600 text-white border-rose-700 ring-2 ring-rose-300'
-                  : 'bg-slate-800 text-white border-slate-700 hover:bg-slate-700'
-              }`}
-              title="デジタルサイネージモード（30秒自動更新・全画面表示）"
-            >
-              <Monitor className="w-4 h-4 text-amber-300 shrink-0" />
-              <span className="hidden sm:inline">デジタルサイネージ</span>
-              <span className="sm:hidden">サイネージ</span>
-              {isSignageMode ? (
-                <span className="flex h-2 w-2 relative">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                </span>
-              ) : (
-                <span className="text-[10px] bg-indigo-500/30 text-indigo-200 px-1.5 py-0.5 rounded font-mono">30s</span>
+
+          {/* Mobile Row 2: View Switcher (Google Calendar segmented) + Quick Sub-Controls */}
+          <div className="flex items-center justify-between gap-1.5">
+            {/* View Switcher Segmented */}
+            <div className="flex-1 flex items-center bg-white rounded-lg border border-slate-200 p-0.5 shadow-2xs text-xs font-bold">
+              {calendarMode !== 'team' && (
+                <button
+                  onClick={() => setView('month')}
+                  className={`flex-1 py-1 rounded text-center transition-colors ${view === 'month' ? 'bg-indigo-600 text-white font-bold' : 'text-slate-600'}`}
+                >
+                  月
+                </button>
               )}
-            </button>
-          )}
-          
-          {onNavigateToInspectionScheduler && (
-            <button
-              type="button"
-              onClick={onNavigateToInspectionScheduler}
-              className="flex items-center justify-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 text-xs font-bold rounded-lg transition-colors shadow-2xs cursor-pointer shrink-0"
-              title="Excelから毎月の点検予定を一括取込・仮配置・メンバー登録"
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-indigo-600" />
-              <span className="hidden sm:inline">点検予定一括登録</span>
-            </button>
-          )}
+              <button
+                onClick={() => setView('week')}
+                className={`flex-1 py-1 rounded text-center transition-colors ${view === 'week' ? 'bg-indigo-600 text-white font-bold' : 'text-slate-600'}`}
+              >
+                週
+              </button>
+              <button
+                onClick={() => setView('day')}
+                className={`flex-1 py-1 rounded text-center transition-colors ${view === 'day' ? 'bg-indigo-600 text-white font-bold' : 'text-slate-600'}`}
+              >
+                日
+              </button>
+              {calendarMode !== 'team' && (
+                <button
+                  onClick={() => setView('list')}
+                  className={`px-2.5 py-1 rounded transition-colors flex items-center justify-center ${view === 'list' ? 'bg-indigo-600 text-white' : 'text-slate-500'}`}
+                  title="リスト表示"
+                >
+                  <ListIcon className="w-3.5 h-3.5"/>
+                </button>
+              )}
+            </div>
 
-          {onOpenSchedulePollModal && (
-            <button
-              type="button"
-              onClick={onOpenSchedulePollModal}
-              className="flex items-center justify-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 bg-gradient-to-r from-amber-50 to-orange-50 text-amber-800 hover:from-amber-100 hover:to-orange-100 border border-amber-200 text-xs font-bold rounded-lg transition-all shadow-2xs cursor-pointer shrink-0"
-              title="空き枠自動抽出 ＆ アンケート集計で会議日程を調整"
-            >
-              <CalendarDays className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-600" />
-              <span className="hidden sm:inline">日程調整</span>
-            </button>
-          )}
+            {/* Mobile Week View Mode Switcher (3日 vs 7日) - 個人カレンダーの週表示でのみ表示 */}
+            {calendarMode === 'personal' && view === 'week' && (
+              <div className="flex items-center bg-white rounded-lg border border-slate-200 p-0.5 shadow-2xs text-[11px] font-bold shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setMobileWeekMode('3day')}
+                  className={`px-2 py-0.5 rounded transition-all ${mobileWeekMode === '3day' ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-slate-500'}`}
+                >
+                  3日
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMobileWeekMode('7day')}
+                  className={`px-2 py-0.5 rounded transition-all ${mobileWeekMode === '7day' ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-slate-500'}`}
+                >
+                  全7日
+                </button>
+              </div>
+            )}
 
-          <button onClick={() => openAddModalWithDate()} className="flex items-center justify-center gap-1 sm:gap-1.5 px-3 sm:px-4 py-1.5 sm:py-2 bg-indigo-600 text-white text-xs sm:text-sm font-semibold rounded-lg hover:bg-indigo-700 transition-colors shadow-sm ml-auto sm:ml-0 shrink-0">
-            <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4"/>
-            <span className="hidden sm:inline">予定追加</span>
-            <span className="sm:hidden">追加</span>
-          </button>
+            {/* Active Type Filter Chip */}
+            {selectedTypeFilter !== 'all' && (
+              <button
+                type="button"
+                onClick={() => setSelectedTypeFilter('all')}
+                className="px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-full text-[10px] font-bold flex items-center gap-1 shrink-0"
+                title="区分フィルター解除"
+              >
+                <span>{typeLabels[selectedTypeFilter as EventType] || selectedTypeFilter}</span>
+                <X className="w-2.5 h-2.5" />
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -2283,358 +2574,586 @@ export function Calendar({
           <>
             {/* 1. MONTH VIEW */}
             {view === 'month' && (
-              <div className="min-w-[680px] h-full flex flex-col">
-                <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50 shrink-0 sticky top-0 z-10">
-                  {['日', '月', '火', '水', '木', '金', '土'].map((d, idx) => (
-                    <div key={d} className={`py-2 text-center text-xs font-bold tracking-wider ${idx === 0 ? 'text-red-500' : idx === 6 ? 'text-blue-500' : 'text-slate-500'}`}>{d}</div>
-                  ))}
+              <div className="w-full h-full flex flex-col">
+                {/* --- DESKTOP MONTH VIEW (hidden on mobile, sm:flex) --- */}
+                <div className="hidden sm:flex min-w-full h-full flex-col">
+                  <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50 shrink-0 sticky top-0 z-10">
+                    {['日', '月', '火', '水', '木', '金', '土'].map((d, idx) => (
+                      <div key={d} className={`py-2 text-center text-xs font-bold tracking-wider ${idx === 0 ? 'text-red-500' : idx === 6 ? 'text-blue-500' : 'text-slate-500'}`}>{d}</div>
+                    ))}
+                  </div>
+                  <div className={`flex-1 grid grid-cols-7 ${totalWeeks >= 6 ? 'grid-rows-6' : 'grid-rows-5'}`}>
+                    {days.map((day, i) => {
+                      const isToday = day === new Date().getDate() && month === new Date().getMonth() && year === new Date().getFullYear();
+                      const cellDateStr = day ? `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}` : null;
+                      const cellEvents = cellDateStr ? (eventDictionary.get(`date_${cellDateStr}`) || []) : [];
+                      const cellKey = `month-cell-${i}`;
+                      const isDragOver = dragOverKey === cellKey;
+                      const isSelectedRange = cellDateStr ? isDateInSelectionRange(cellDateStr) : false;
+                      
+                      return (
+                        <div
+                          key={i}
+                          onMouseDown={(e) => cellDateStr && handleCellMouseDown(e, cellDateStr)}
+                          onMouseEnter={() => cellDateStr && handleCellMouseEnter(cellDateStr)}
+                          onDragOver={(e) => cellDateStr && handleDragOver(e, cellKey)}
+                          onDragLeave={handleDragLeave}
+                          onDrop={(e) => cellDateStr && handleDrop(e, cellDateStr)}
+                          className={`border-b border-r border-slate-100 py-1 sm:py-1.5 px-0 min-h-[90px] sm:min-h-[100px] group relative transition-colors select-none ${
+                            !day ? 'bg-slate-50/50' : isSelectedRange ? 'bg-indigo-100/90 ring-2 ring-indigo-500/70 z-10' : isDragOver ? 'bg-indigo-100/70 ring-2 ring-indigo-400' : 'hover:bg-indigo-50/20 cursor-pointer'
+                          }`}
+                        >
+                          {day && (
+                            <div className="h-full flex flex-col">
+                              <div className="flex items-center justify-between mb-1 px-1 sm:px-1.5">
+                                <div className={`text-[11px] sm:text-xs font-semibold w-5 h-5 sm:w-6 sm:h-6 flex items-center justify-center rounded-full ${isToday ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-700'}`}>
+                                  {day}
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); openAddModalWithDate(cellDateStr!, undefined, cellDateStr!, false); }}
+                                  className="opacity-0 group-hover:opacity-100 p-0.5 text-indigo-600 hover:bg-indigo-100 rounded transition-all"
+                                  title="この日に予定を追加"
+                                >
+                                  <Plus className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                                </button>
+                              </div>
+                              <div className="flex-1 space-y-0.5 sm:space-y-1 overflow-y-auto px-0">
+                                {sortEvents(cellEvents).map(e => {
+                                  const multiProps = getMultiDayStyle(e, cellDateStr!, true);
+                                  return (
+                                    <div
+                                      key={e.id}
+                                      data-event-card="true"
+                                      draggable={!e.isIcal}
+                                      onDragStart={(eDrag) => handleDragStart(eDrag, e.id)}
+                                      onDragEnd={handleDragEnd}
+                                      onMouseDown={(eClick) => eClick.stopPropagation()}
+                                      onClick={(eClick) => handleEventClick(eClick, e)}
+                                      className={`text-[9px] sm:text-[10px] py-0.5 px-1 sm:px-1.5 border font-bold cursor-pointer transition-all flex items-center h-5 sm:h-5.5 select-none truncate ${getEventStyle(e)} ${multiProps.containerClass} ${
+                                        draggedEventId === e.id ? 'opacity-40 select-none' : (draggedEventId ? 'pointer-events-none' : '')
+                                      }`}
+                                      title={`${e.isIcal ? '[iCal連携] ' : ''}${e.title} (${formatEventTime(e)})`}
+                                    >
+                                      <span className="truncate font-bold tracking-tight">
+                                        {multiProps.showTitle ? (e.isIcal ? `[iCal] ${e.title}` : e.title) : '\u00A0'}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-                <div className={`flex-1 grid grid-cols-7 ${totalWeeks >= 6 ? 'grid-rows-6' : 'grid-rows-5'}`}>
-                  {days.map((day, i) => {
-                    const isToday = day === new Date().getDate() && month === new Date().getMonth() && year === new Date().getFullYear();
-                    const cellDateStr = day ? `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}` : null;
-                    const cellEvents = cellDateStr ? (eventDictionary.get(`date_${cellDateStr}`) || []) : [];
-                    const cellKey = `month-cell-${i}`;
-                    const isDragOver = dragOverKey === cellKey;
-                    const isSelectedRange = cellDateStr ? isDateInSelectionRange(cellDateStr) : false;
-                    
-                    return (
-                      <div
-                        key={i}
-                        onMouseDown={(e) => cellDateStr && handleCellMouseDown(e, cellDateStr)}
-                        onMouseEnter={() => cellDateStr && handleCellMouseEnter(cellDateStr)}
-                        onDragOver={(e) => cellDateStr && handleDragOver(e, cellKey)}
-                        onDragLeave={handleDragLeave}
-                        onDrop={(e) => cellDateStr && handleDrop(e, cellDateStr)}
-                        className={`border-b border-r border-slate-100 py-1 sm:py-1.5 px-0 min-h-[90px] sm:min-h-[100px] group relative transition-colors select-none ${
-                          !day ? 'bg-slate-50/50' : isSelectedRange ? 'bg-indigo-100/90 ring-2 ring-indigo-500/70 z-10' : isDragOver ? 'bg-indigo-100/70 ring-2 ring-indigo-400' : 'hover:bg-indigo-50/20 cursor-pointer'
-                        }`}
-                      >
-                        {day && (
-                          <div className="h-full flex flex-col">
-                            <div className="flex items-center justify-between mb-1 px-1 sm:px-1.5">
-                              <div className={`text-[11px] sm:text-xs font-semibold w-5 h-5 sm:w-6 sm:h-6 flex items-center justify-center rounded-full ${isToday ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-700'}`}>
+
+                {/* --- MOBILE MONTH VIEW (Google Calendar Style: 7-day dot grid + selected day agenda list) --- */}
+                <div className="flex sm:hidden flex-col h-full overflow-hidden bg-white">
+                  {/* Day of Week Header */}
+                  <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50/90 shrink-0">
+                    {['日', '月', '火', '水', '木', '金', '土'].map((d, idx) => (
+                      <div key={d} className={`py-1.5 text-center text-[11px] font-bold ${idx === 0 ? 'text-red-500' : idx === 6 ? 'text-blue-500' : 'text-slate-500'}`}>{d}</div>
+                    ))}
+                  </div>
+
+                  {/* 7-Day Month Grid (Fit to full mobile width, no horizontal scroll) */}
+                  <div className="grid grid-cols-7 border-b border-slate-200 bg-white shrink-0">
+                    {days.map((day, i) => {
+                      const isToday = day === new Date().getDate() && month === new Date().getMonth() && year === new Date().getFullYear();
+                      const cellDateStr = day ? `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}` : null;
+                      const cellEvents = cellDateStr ? (eventDictionary.get(`date_${cellDateStr}`) || []) : [];
+                      const isSelected = cellDateStr === selectedMobileDate;
+
+                      return (
+                        <div
+                          key={i}
+                          onClick={() => {
+                            if (cellDateStr) setSelectedMobileDate(cellDateStr);
+                          }}
+                          className={`min-h-[46px] p-0.5 border-b border-r border-slate-100 flex flex-col items-center justify-start transition-colors cursor-pointer select-none ${
+                            !day ? 'bg-slate-50/30' : isSelected ? 'bg-indigo-50/90' : 'hover:bg-slate-50'
+                          }`}
+                        >
+                          {day && (
+                            <>
+                              <div
+                                className={`w-6 h-6 flex items-center justify-center text-xs font-semibold rounded-full mt-0.5 transition-all ${
+                                  isToday
+                                    ? 'bg-indigo-600 text-white font-bold shadow-xs'
+                                    : isSelected
+                                    ? 'bg-indigo-100 text-indigo-700 font-bold ring-2 ring-indigo-500'
+                                    : 'text-slate-700'
+                                }`}
+                              >
                                 {day}
                               </div>
+                              {/* Event indicator dots */}
+                              {cellEvents.length > 0 && (
+                                <div className="flex items-center justify-center gap-0.5 mt-1 max-w-full px-0.5">
+                                  {cellEvents.slice(0, 3).map((ev, dotIdx) => (
+                                    <span
+                                      key={dotIdx}
+                                      className={`w-1.5 h-1.5 rounded-full shrink-0 ${getEventDotColor(ev.type)}`}
+                                    />
+                                  ))}
+                                  {cellEvents.length > 3 && (
+                                    <span className="text-[8px] font-bold text-slate-400 leading-none">+</span>
+                                  )}
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Selected Day Agenda / Schedule List */}
+                  <div className="flex-1 overflow-y-auto bg-slate-50/50 flex flex-col">
+                    {(() => {
+                      const selectedEvents = eventDictionary.get(`date_${selectedMobileDate}`) || [];
+                      const selDateObj = new Date(selectedMobileDate + 'T00:00:00');
+                      const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
+                      const isSelectedToday = isSameDay(selDateObj, new Date());
+                      const dateTitle = `${selDateObj.getMonth() + 1}月${selDateObj.getDate()}日 (${dayNames[selDateObj.getDay()]})`;
+
+                      return (
+                        <div className="p-3 space-y-2 flex-1 flex flex-col">
+                          {/* Agenda Header */}
+                          <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-bold text-slate-800">
+                                {dateTitle} の予定
+                              </span>
+                              {isSelectedToday && (
+                                <span className="px-1.5 py-0.5 bg-indigo-100 text-indigo-700 text-[10px] font-bold rounded">
+                                  今日
+                                </span>
+                              )}
+                              <span className="text-[11px] text-slate-500">
+                                ({selectedEvents.length}件)
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => openAddModalWithDate(selectedMobileDate)}
+                              className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg flex items-center gap-1 shadow-2xs cursor-pointer"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>追加</span>
+                            </button>
+                          </div>
+
+                          {/* Event Cards List */}
+                          {selectedEvents.length === 0 ? (
+                            <div className="py-8 text-center flex-1 flex flex-col items-center justify-center">
+                              <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mb-2">
+                                <CalendarIcon className="w-5 h-5" />
+                              </div>
+                              <p className="text-xs text-slate-500 font-medium">この日の予定はありません</p>
                               <button
                                 type="button"
-                                onClick={(e) => { e.stopPropagation(); openAddModalWithDate(cellDateStr!, undefined, cellDateStr!, false); }}
-                                className="opacity-0 group-hover:opacity-100 p-0.5 text-indigo-600 hover:bg-indigo-100 rounded transition-all"
-                                title="この日に予定を追加"
+                                onClick={() => openAddModalWithDate(selectedMobileDate)}
+                                className="mt-2.5 text-xs text-indigo-600 hover:text-indigo-800 font-bold hover:underline"
                               >
-                                <Plus className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                                + 予定を登録する
                               </button>
                             </div>
-                            <div className="flex-1 space-y-0.5 sm:space-y-1 overflow-y-auto px-0">
-                              {sortEvents(cellEvents).map(e => {
-                                const multiProps = getMultiDayStyle(e, cellDateStr!, true);
+                          ) : (
+                            <div className="space-y-1.5 flex-1 overflow-y-auto">
+                              {sortEvents(selectedEvents).map(e => {
                                 return (
                                   <div
                                     key={e.id}
-                                    data-event-card="true"
-                                    draggable={!e.isIcal}
-                                    onDragStart={(eDrag) => handleDragStart(eDrag, e.id)}
-                                    onDragEnd={handleDragEnd}
-                                    onMouseDown={(eClick) => eClick.stopPropagation()}
                                     onClick={(eClick) => handleEventClick(eClick, e)}
-                                    className={`text-[9px] sm:text-[10px] py-0.5 px-1 sm:px-1.5 border font-bold cursor-pointer transition-all flex items-center h-5 sm:h-5.5 select-none truncate ${getEventStyle(e)} ${multiProps.containerClass} ${
-                                      draggedEventId === e.id ? 'opacity-40 select-none' : (draggedEventId ? 'pointer-events-none' : '')
-                                    }`}
-                                    title={`${e.isIcal ? '[iCal連携] ' : ''}${e.title} (${formatEventTime(e)})`}
+                                    className="p-2.5 bg-white rounded-lg border border-slate-200 hover:border-indigo-300 shadow-2xs hover:shadow-xs transition-all cursor-pointer flex items-start gap-2 relative overflow-hidden group"
                                   >
-                                    <span className="truncate font-bold tracking-tight">
-                                      {multiProps.showTitle ? (e.isIcal ? `[iCal] ${e.title}` : e.title) : '\u00A0'}
-                                    </span>
+                                    <div className={`w-1 self-stretch rounded-full shrink-0 ${getEventDotColor(e.type)}`} />
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-1.5 mb-0.5">
+                                        <span className="text-[11px] font-bold text-slate-600 font-mono">
+                                          {formatEventTime(e)}
+                                        </span>
+                                        <span className="text-[10px] px-1.5 py-0.2 bg-slate-100 text-slate-600 rounded font-semibold shrink-0">
+                                          {typeLabels[e.type] || e.type}
+                                        </span>
+                                        {e.isIcal && (
+                                          <span className="text-[9px] px-1 py-0.2 bg-amber-100 text-amber-800 rounded font-bold shrink-0">
+                                            iCal
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="text-xs font-bold text-slate-900 group-hover:text-indigo-600 leading-snug break-words">
+                                        {e.title}
+                                      </div>
+                                      {e.location && (
+                                        <div className="text-[11px] text-slate-500 flex items-center gap-1 mt-1 truncate">
+                                          <MapPin className="w-3 h-3 shrink-0 text-slate-400" />
+                                          <span className="truncate">{e.location}</span>
+                                        </div>
+                                      )}
+                                    </div>
                                   </div>
                                 );
                               })}
                             </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
                 </div>
               </div>
             )}
 
             {/* 2. WEEK VIEW */}
             {view === 'week' && (() => {
-              const personalWeekHasEvents = weekDays.map(d => {
-                const dateStr = getLocalDateStr(d);
-                const dayEvs = eventDictionary.get(`date_${dateStr}`);
-                return dayEvs ? dayEvs.length > 0 : false;
-              });
+              const renderWeekGrid = (daysToRender: Date[], isMobile3Day = false) => {
+                const daysHasEvents = daysToRender.map(d => {
+                  const dateStr = getLocalDateStr(d);
+                  const dayEvs = eventDictionary.get(`date_${dateStr}`);
+                  return dayEvs ? dayEvs.length > 0 : false;
+                });
 
-              const personalWeekGridStyle = {
-                display: 'grid',
-                gridTemplateColumns: `60px ${weekDays.map((d, idx) => {
-                  const isWeekend = d.getDay() === 0 || d.getDay() === 6;
-                  const hasEv = personalWeekHasEvents[idx];
-                  if (isWeekend && !hasEv) {
-                    return 'minmax(46px, 0.45fr)';
-                  }
-                  return 'minmax(110px, 1fr)';
-                }).join(' ')}`,
+                const gridStyle = isMobile3Day
+                  ? {
+                      display: 'grid',
+                      gridTemplateColumns: '38px repeat(3, minmax(0, 1fr))',
+                    }
+                  : {
+                      display: 'grid',
+                      gridTemplateColumns: `60px ${daysToRender.map((d, idx) => {
+                        const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+                        const hasEv = daysHasEvents[idx];
+                        if (isWeekend && !hasEv) {
+                          return 'minmax(46px, 0.45fr)';
+                        }
+                        return 'minmax(110px, 1fr)';
+                      }).join(' ')}`,
+                    };
+
+                return (
+                  <div className={`${isMobile3Day ? 'w-full' : 'min-w-full'} h-full overflow-auto flex flex-col bg-white`}>
+                    {/* Week Header */}
+                    <div
+                      style={gridStyle}
+                      className="border-b border-slate-200 bg-slate-50 shrink-0 sticky top-0 z-20 shadow-2xs"
+                    >
+                      <div className={`py-2 px-1 text-center font-bold text-slate-400 border-r border-slate-200 sticky left-0 z-30 bg-slate-50 flex items-center justify-center ${isMobile3Day ? 'text-[10px]' : 'text-[11px] sm:text-xs'}`}>
+                        時間
+                      </div>
+                      {daysToRender.map((d, idx) => {
+                        const isToday = isSameDay(d, new Date());
+                        const dayName = ['日', '月', '火', '水', '木', '金', '土'][d.getDay()];
+                        const dateStr = getLocalDateStr(d);
+                        const isSelectedRange = isDateInSelectionRange(dateStr);
+                        const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+                        const hasEv = daysHasEvents[idx];
+                        const isShrunk = !isMobile3Day && isWeekend && !hasEv;
+
+                        return (
+                          <div
+                            key={idx}
+                            onMouseDown={(e) => handleCellMouseDown(e, dateStr)}
+                            onMouseEnter={() => handleCellMouseEnter(dateStr)}
+                            className={`py-1.5 px-0.5 sm:px-1 text-center border-r border-slate-200 cursor-pointer select-none transition-colors ${
+                              isSelectedRange
+                                ? 'bg-indigo-100/90 ring-2 ring-indigo-500/70 z-10'
+                                : isToday
+                                ? 'bg-indigo-50/60'
+                                : isShrunk
+                                ? 'bg-slate-100/60'
+                                : 'hover:bg-indigo-50/40'
+                            }`}
+                          >
+                            <div className={`text-[10px] sm:text-xs font-semibold ${isShrunk ? 'text-slate-400' : d.getDay() === 0 ? 'text-red-500' : d.getDay() === 6 ? 'text-blue-500' : 'text-slate-500'}`}>
+                              {dayName}
+                            </div>
+                            <div className={`text-xs sm:text-sm font-bold mt-0.5 inline-flex items-center justify-center w-5 h-5 sm:w-7 sm:h-7 rounded-full ${isToday ? 'bg-indigo-600 text-white font-bold' : isShrunk ? 'text-slate-400' : 'text-slate-800'}`}>
+                              {d.getDate()}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* All-Day Events row */}
+                    <div
+                      style={gridStyle}
+                      className="border-b border-slate-200 bg-slate-50/50 shrink-0"
+                    >
+                      <div className={`py-1.5 px-0.5 text-center font-bold text-slate-500 border-r border-slate-200 flex items-center justify-center sticky left-0 z-10 bg-slate-50/95 ${isMobile3Day ? 'text-[9px]' : 'text-[10px] sm:text-[11px]'}`}>
+                        終日
+                      </div>
+                      {daysToRender.map((d, idx) => {
+                        const dateStr = getLocalDateStr(d);
+                        const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+                        const hasEv = daysHasEvents[idx];
+                        const isShrunk = !isMobile3Day && isWeekend && !hasEv;
+
+                        const dayEvs = eventDictionary.get(`date_${dateStr}`) || [];
+                        const allDayEvs = dayEvs.filter(e => (e.isAllDay || getLocalDateStr(e.start) !== getLocalDateStr(e.end)));
+                        const slotKey = `week-allday-${idx}-${isMobile3Day ? 'm' : 'd'}`;
+                        const isDragOver = dragOverKey === slotKey;
+                        const isSelectedRange = isDateInSelectionRange(dateStr);
+
+                        return (
+                          <div
+                            key={idx}
+                            onMouseDown={(e) => handleCellMouseDown(e, dateStr)}
+                            onMouseEnter={() => handleCellMouseEnter(dateStr)}
+                            onDragOver={(e) => handleDragOver(e, slotKey)}
+                            onDragLeave={handleDragLeave}
+                            onDrop={(e) => handleDrop(e, dateStr)}
+                            className={`p-0.5 sm:p-1 border-r border-slate-200 min-h-[32px] sm:min-h-[40px] cursor-pointer space-y-0.5 sm:space-y-1 transition-colors select-none ${
+                              isSelectedRange
+                                ? 'bg-indigo-100/90 ring-2 ring-indigo-500/70 z-10'
+                                : isDragOver
+                                ? 'bg-indigo-100/70 ring-2 ring-indigo-400'
+                                : isShrunk
+                                ? 'bg-slate-50/40 hover:bg-indigo-50/20'
+                                : 'hover:bg-indigo-50/30'
+                            }`}
+                          >
+                            {sortEvents(allDayEvs).map(e => {
+                              const multiProps = getMultiDayStyle(e, dateStr);
+                              return (
+                                <div
+                                  key={e.id}
+                                  data-event-card="true"
+                                  draggable={!e.isIcal && !isMobile3Day}
+                                  onDragStart={(eDrag) => handleDragStart(eDrag, e.id)}
+                                  onDragEnd={handleDragEnd}
+                                  onMouseDown={(eClick) => eClick.stopPropagation()}
+                                  onClick={eClick => handleEventClick(eClick, e)}
+                                  className={`text-[9px] sm:text-[10px] py-0.5 px-1 sm:px-1.5 border font-semibold cursor-pointer transition-all flex items-center h-4.5 sm:h-5.5 select-none truncate ${getEventStyle(e, true)} ${multiProps.containerClass} ${
+                                    draggedEventId === e.id ? 'opacity-40 select-none' : (draggedEventId ? 'pointer-events-none' : '')
+                                  }`}
+                                  title={e.title}
+                                >
+                                  <span className="truncate font-bold tracking-tight">
+                                    {multiProps.showTitle ? (e.isIcal ? `[iCal] ${e.title}` : e.title) : '\u00A0'}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Hourly Grid */}
+                    <div className="flex-1">
+                      {hoursList.map(h => {
+                        const hourFormatted = `${String(h).padStart(2, '0')}:00`;
+                        return (
+                          <div
+                            key={h}
+                            style={gridStyle}
+                            className="border-b border-slate-100 h-[50px]"
+                          >
+                            <div className={`py-1 px-0.5 text-center font-medium text-slate-400 border-r border-slate-200 bg-slate-50/95 sticky left-0 z-10 flex items-center justify-center ${isMobile3Day ? 'text-[9px]' : 'text-[10px] sm:text-xs'}`}>
+                              {hourFormatted}
+                            </div>
+                            {daysToRender.map((d, idx) => {
+                              const dateStr = getLocalDateStr(d);
+                              const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+                              const hasEv = daysHasEvents[idx];
+                              const isShrunk = !isMobile3Day && isWeekend && !hasEv;
+
+                              const slotDateTimeStr = `${dateStr}T${String(h).padStart(2, '0')}:00`;
+                              const slotKey = `week-slot-${idx}-${h}-${isMobile3Day ? 'm' : 'd'}`;
+                              const isDragOver = dragOverKey === slotKey;
+                              
+                              const dayEvs = eventDictionary.get(`date_${dateStr}`) || [];
+                              const slotEvents = dayEvs.filter(e => {
+                                if (e.isAllDay) return false;
+                                const eventHour = new Date(e.start).getHours();
+                                return eventHour === h;
+                              });
+
+                              return (
+                                <div
+                                  key={idx}
+                                  onClick={() => openAddModalWithDate(slotDateTimeStr)}
+                                  onDragOver={(e) => handleDragOver(e, slotKey)}
+                                  onDragLeave={handleDragLeave}
+                                  onDrop={(e) => handleDrop(e, dateStr, h)}
+                                  className={`border-r border-slate-100 p-0.5 cursor-pointer transition-colors relative group ${
+                                    isDragOver
+                                      ? 'bg-indigo-100/70 ring-2 ring-indigo-400'
+                                      : isShrunk
+                                      ? 'bg-slate-50/30 hover:bg-indigo-50/20'
+                                      : 'hover:bg-indigo-50/30'
+                                  }`}
+                                >
+                                  {slotEvents.map((e, evIdx) => {
+                                    const isBeingResized = resizingEvent?.event.id === e.id && resizingEvent?.direction === 'vertical';
+                                    let displayTimeString = formatEventTime(e);
+                                    const sDateMs = new Date(e.start).getTime();
+                                    let eDateMs = e.end ? new Date(e.end).getTime() : sDateMs + 60 * 60 * 1000;
+
+                                    if (isBeingResized && resizingEvent) {
+                                      eDateMs = resizingEvent.currentEndMs;
+                                      const sDate = new Date(e.start);
+                                      const currEnd = new Date(eDateMs);
+                                      const sH = String(sDate.getHours()).padStart(2, '0');
+                                      const sM = String(sDate.getMinutes()).padStart(2, '0');
+                                      const eH = String(currEnd.getHours()).padStart(2, '0');
+                                      const eM = String(currEnd.getMinutes()).padStart(2, '0');
+                                      displayTimeString = `${sH}:${sM} ～ ${eH}:${eM}`;
+                                    }
+
+                                    const durationMinutes = Math.max(15, (eDateMs - sDateMs) / 60000);
+                                    const cardHeightPx = Math.max(26, durationMinutes * (50 / 60));
+                                    const startMinutes = new Date(e.start).getMinutes();
+                                    const topOffsetPx = (startMinutes / 60) * 50;
+
+                                    return (
+                                      <div
+                                        key={e.id}
+                                        data-event-card="true"
+                                        draggable={!e.isIcal && !isBeingResized && !isMobile3Day}
+                                        onDragStart={(eDrag) => handleDragStart(eDrag, e.id)}
+                                        onDragEnd={handleDragEnd}
+                                        onDragOver={(eDragOver) => {
+                                          eDragOver.stopPropagation();
+                                          const parent = eDragOver.currentTarget.parentElement;
+                                          if (!parent) return;
+                                          const parentRect = parent.getBoundingClientRect();
+                                          const offsetY = Math.max(0, eDragOver.clientY - parentRect.top);
+                                          const hourDiff = Math.floor(offsetY / 50);
+                                          const targetH = Math.max(hoursList[0], Math.min(hoursList[hoursList.length - 1], h + hourDiff));
+                                          handleDragOver(eDragOver, `week-slot-${idx}-${targetH}-${isMobile3Day ? 'm' : 'd'}`);
+                                        }}
+                                        onDrop={(eDrop) => {
+                                          eDrop.stopPropagation();
+                                          const parent = eDrop.currentTarget.parentElement;
+                                          if (!parent) return;
+                                          const parentRect = parent.getBoundingClientRect();
+                                          const offsetY = Math.max(0, eDrop.clientY - parentRect.top);
+                                          const hourDiff = Math.floor(offsetY / 50);
+                                          const targetH = Math.max(hoursList[0], Math.min(hoursList[hoursList.length - 1], h + hourDiff));
+                                          handleDrop(eDrop, dateStr, targetH);
+                                        }}
+                                        onMouseDown={(eClick) => eClick.stopPropagation()}
+                                        onClick={eClick => handleEventClick(eClick, e)}
+                                        style={{ 
+                                          height: `${cardHeightPx}px`,
+                                          top: `${topOffsetPx}px`,
+                                          left: `${2 + (evIdx * 4)}px`,
+                                          right: '2px',
+                                          zIndex: 10 + evIdx
+                                        }}
+                                        className={`absolute group/wkcard text-[9px] sm:text-[11px] p-1 rounded border font-medium shadow-2xs flex flex-col items-start cursor-pointer transition-all overflow-hidden ${getEventStyle(e)} ${
+                                          draggedEventId === e.id ? 'opacity-40 select-none' : (draggedEventId ? 'pointer-events-none' : '')
+                                        } ${
+                                          isBeingResized ? 'ring-2 ring-indigo-500 shadow-md brightness-95' : ''
+                                        }`}
+                                        title={`${e.isIcal ? '[iCal] ' : ''}${e.title} (${displayTimeString})`}
+                                      >
+                                        <div className="font-bold w-full break-words leading-tight pointer-events-none line-clamp-2">{e.isIcal ? `[iCal] ${e.title}` : e.title}</div>
+                                        <div className="text-[8px] sm:text-[9px] opacity-85 pointer-events-none mt-0.5">{displayTimeString}</div>
+
+                                        {!e.isIcal && !isMobile3Day && (
+                                          <div
+                                            onMouseDown={(evt) => {
+                                              evt.stopPropagation();
+                                              evt.preventDefault();
+                                              const currentEnd = e.end ? new Date(e.end).getTime() : new Date(e.start).getTime() + 60 * 60 * 1000;
+                                              startResize({
+                                                event: e,
+                                                direction: 'vertical',
+                                                initialStartX: evt.clientX,
+                                                initialStartY: evt.clientY,
+                                                initialEndMs: currentEnd,
+                                                currentEndMs: currentEnd,
+                                                slotHeightPx: 50,
+                                                dateStr,
+                                              });
+                                            }}
+                                            className="absolute bottom-0 left-0 right-0 h-5 hover:h-6 cursor-ns-resize flex items-center justify-center opacity-0 group-hover/wkcard:opacity-100 transition-opacity z-20 group/handle"
+                                            title="下端をドラッグして終了時刻を変更"
+                                          >
+                                            <div className="w-8 h-1 bg-slate-500/80 group-hover/handle:bg-indigo-600 rounded-full shadow-xs transition-colors" />
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
               };
 
+              // Mobile 3-day window centered around mobileWeekActiveDay
+              const startIdx = Math.min(4, Math.max(0, mobileWeekActiveDay - 1));
+              const active3Days = weekDays.slice(startIdx, startIdx + 3);
+
               return (
-                <div className="min-w-full h-full overflow-auto flex flex-col bg-white">
-                  {/* Week Header */}
-                  <div
-                    style={personalWeekGridStyle}
-                    className="border-b border-slate-200 bg-slate-50 shrink-0 sticky top-0 z-20 shadow-2xs"
-                  >
-                    <div className="py-2.5 sm:py-3 px-1 sm:px-2 text-center text-[11px] sm:text-xs font-bold text-slate-400 border-r border-slate-200 sticky left-0 z-30 bg-slate-50">
-                      時間
-                    </div>
-                    {weekDays.map((d, idx) => {
-                      const isToday = isSameDay(d, new Date());
-                      const dayName = ['日', '月', '火', '水', '木', '金', '土'][d.getDay()];
-                      const dateStr = getLocalDateStr(d);
-                      const isSelectedRange = isDateInSelectionRange(dateStr);
-                      const isWeekend = d.getDay() === 0 || d.getDay() === 6;
-                      const hasEv = personalWeekHasEvents[idx];
-                      const isShrunk = isWeekend && !hasEv;
-
-                      return (
-                        <div
-                          key={idx}
-                          onMouseDown={(e) => handleCellMouseDown(e, dateStr)}
-                          onMouseEnter={() => handleCellMouseEnter(dateStr)}
-                          className={`py-1.5 sm:py-2 px-1 text-center border-r border-slate-200 cursor-pointer select-none transition-colors ${
-                            isSelectedRange
-                              ? 'bg-indigo-100/90 ring-2 ring-indigo-500/70 z-10'
-                              : isToday
-                              ? 'bg-indigo-50/60'
-                              : isShrunk
-                              ? 'bg-slate-100/60'
-                              : 'hover:bg-indigo-50/40'
-                          }`}
-                        >
-                          <div className={`text-[11px] sm:text-xs font-semibold ${isShrunk ? 'text-slate-400' : idx === 0 ? 'text-red-500' : idx === 6 ? 'text-blue-500' : 'text-slate-500'}`}>
-                            {dayName}
-                          </div>
-                          <div className={`text-xs sm:text-sm font-bold mt-0.5 inline-flex items-center justify-center w-6 h-6 sm:w-7 sm:h-7 rounded-full ${isToday ? 'bg-indigo-600 text-white' : isShrunk ? 'text-slate-400' : 'text-slate-800'}`}>
-                            {d.getDate()}
-                          </div>
-                        </div>
-                      );
-                    })}
+                <div className="w-full h-full flex flex-col">
+                  {/* --- DESKTOP WEEK VIEW (hidden on mobile, sm:flex) --- */}
+                  <div className="hidden sm:flex min-w-full h-full flex-col">
+                    {renderWeekGrid(weekDays, false)}
                   </div>
 
-                  {/* All-Day Events row */}
-                  <div
-                    style={personalWeekGridStyle}
-                    className="border-b border-slate-200 bg-slate-50/50 shrink-0"
-                  >
-                    <div className="py-2 px-1 sm:px-2 text-center text-[10px] sm:text-[11px] font-bold text-slate-500 border-r border-slate-200 flex items-center justify-center sticky left-0 z-10 bg-slate-50/95 shadow-xs sm:shadow-none">
-                      終日
+                  {/* --- MOBILE WEEK VIEW (Google Calendar Style: Top week bar + 3-day/7-day grid) --- */}
+                  <div className="flex sm:hidden flex-col h-full overflow-hidden bg-white">
+                    {/* Top Week Bar (日〜土 7日間タップバー) */}
+                    <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50/90 shrink-0 p-1 gap-1">
+                      {weekDays.map((d, idx) => {
+                        const isToday = isSameDay(d, new Date());
+                        const isActive = idx === mobileWeekActiveDay;
+                        const dateStr = getLocalDateStr(d);
+                        const dayEvs = eventDictionary.get(`date_${dateStr}`) || [];
+                        const dayName = ['日', '月', '火', '水', '木', '金', '土'][d.getDay()];
+
+                        return (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => setMobileWeekActiveDay(idx)}
+                            className={`flex flex-col items-center py-1 rounded-lg transition-all ${
+                              isActive
+                                ? 'bg-indigo-100/90 text-indigo-900 font-bold ring-2 ring-indigo-500'
+                                : 'hover:bg-slate-200/50 text-slate-700'
+                            }`}
+                          >
+                            <span className={`text-[10px] ${idx === 0 ? 'text-red-500' : idx === 6 ? 'text-blue-500' : 'text-slate-500'}`}>{dayName}</span>
+                            <span className={`text-xs font-bold w-5 h-5 flex items-center justify-center rounded-full mt-0.5 ${isToday ? 'bg-indigo-600 text-white' : ''}`}>
+                              {d.getDate()}
+                            </span>
+                            {dayEvs.length > 0 ? (
+                              <span className="w-1 h-1 rounded-full bg-indigo-500 mt-0.5" />
+                            ) : (
+                              <span className="w-1 h-1 mt-0.5" />
+                            )}
+                          </button>
+                        );
+                      })}
                     </div>
-                    {weekDays.map((d, idx) => {
-                      const dateStr = getLocalDateStr(d);
-                      const isWeekend = d.getDay() === 0 || d.getDay() === 6;
-                      const hasEv = personalWeekHasEvents[idx];
-                      const isShrunk = isWeekend && !hasEv;
 
-                      const dayEvs = eventDictionary.get(`date_${dateStr}`) || [];
-                      const allDayEvs = dayEvs.filter(e => (e.isAllDay || getLocalDateStr(e.start) !== getLocalDateStr(e.end)));
-                      const slotKey = `week-allday-${idx}`;
-                      const isDragOver = dragOverKey === slotKey;
-                      const isSelectedRange = isDateInSelectionRange(dateStr);
-
-                      return (
-                        <div
-                          key={idx}
-                          onMouseDown={(e) => handleCellMouseDown(e, dateStr)}
-                          onMouseEnter={() => handleCellMouseEnter(dateStr)}
-                          onDragOver={(e) => handleDragOver(e, slotKey)}
-                          onDragLeave={handleDragLeave}
-                          onDrop={(e) => handleDrop(e, dateStr)}
-                          className={`p-1 border-r border-slate-200 min-h-[36px] sm:min-h-[40px] cursor-pointer space-y-1 transition-colors select-none ${
-                            isSelectedRange
-                              ? 'bg-indigo-100/90 ring-2 ring-indigo-500/70 z-10'
-                              : isDragOver
-                              ? 'bg-indigo-100/70 ring-2 ring-indigo-400'
-                              : isShrunk
-                              ? 'bg-slate-50/40 hover:bg-indigo-50/20'
-                              : 'hover:bg-indigo-50/30'
-                          }`}
-                        >
-                          {sortEvents(allDayEvs).map(e => {
-                            const multiProps = getMultiDayStyle(e, dateStr);
-                            return (
-                              <div
-                                key={e.id}
-                                data-event-card="true"
-                                draggable={!e.isIcal}
-                                onDragStart={(eDrag) => handleDragStart(eDrag, e.id)}
-                                onDragEnd={handleDragEnd}
-                                onMouseDown={(eClick) => eClick.stopPropagation()}
-                                onClick={eClick => handleEventClick(eClick, e)}
-                                className={`text-[9px] sm:text-[10px] py-0.5 px-1 sm:px-1.5 border font-semibold cursor-pointer transition-all flex items-center h-5 sm:h-5.5 select-none truncate ${getEventStyle(e, true)} ${multiProps.containerClass} ${
-                                  draggedEventId === e.id ? 'opacity-40 select-none' : (draggedEventId ? 'pointer-events-none' : '')
-                                }`}
-                                title={e.title}
-                              >
-                                <span className="truncate font-bold tracking-tight">
-                                  {multiProps.showTitle ? (e.isIcal ? `[iCal] ${e.title}` : e.title) : '\u00A0'}
-                                </span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* Hourly Grid */}
-                  <div className="flex-1">
-                    {hoursList.map(h => {
-                      const hourFormatted = `${String(h).padStart(2, '0')}:00`;
-                      return (
-                        <div
-                          key={h}
-                          style={personalWeekGridStyle}
-                          className="border-b border-slate-100 h-[50px]"
-                        >
-                          <div className="py-2 px-1 sm:px-2 text-center text-[10px] sm:text-xs font-medium text-slate-400 border-r border-slate-200 bg-slate-50/95 sticky left-0 z-10 shadow-xs sm:shadow-none flex items-center justify-center">
-                            {hourFormatted}
+                    {/* Timeline Content */}
+                    <div className="flex-1 overflow-hidden flex flex-col">
+                      {mobileWeekMode === '3day' ? (
+                        renderWeekGrid(active3Days, true)
+                      ) : (
+                        <div className="w-full h-full overflow-x-auto">
+                          <div className="min-w-[650px] h-full flex flex-col">
+                            {renderWeekGrid(weekDays, false)}
                           </div>
-                          {weekDays.map((d, idx) => {
-                            const dateStr = getLocalDateStr(d);
-                            const isWeekend = d.getDay() === 0 || d.getDay() === 6;
-                            const hasEv = personalWeekHasEvents[idx];
-                            const isShrunk = isWeekend && !hasEv;
-
-                            const slotDateTimeStr = `${dateStr}T${String(h).padStart(2, '0')}:00`;
-                            const slotKey = `week-slot-${idx}-${h}`;
-                            const isDragOver = dragOverKey === slotKey;
-                            
-                            const dayEvs = eventDictionary.get(`date_${dateStr}`) || [];
-                            const slotEvents = dayEvs.filter(e => {
-                              if (e.isAllDay) return false;
-                              const eventHour = new Date(e.start).getHours();
-                              return eventHour === h;
-                            });
-
-                            return (
-                              <div
-                                key={idx}
-                                onClick={() => openAddModalWithDate(slotDateTimeStr)}
-                                onDragOver={(e) => handleDragOver(e, slotKey)}
-                                onDragLeave={handleDragLeave}
-                                onDrop={(e) => handleDrop(e, dateStr, h)}
-                                className={`border-r border-slate-100 p-0.5 sm:p-1 cursor-pointer transition-colors relative group ${
-                                  isDragOver
-                                    ? 'bg-indigo-100/70 ring-2 ring-indigo-400'
-                                    : isShrunk
-                                    ? 'bg-slate-50/30 hover:bg-indigo-50/20'
-                                    : 'hover:bg-indigo-50/30'
-                                }`}
-                              >
-                                {slotEvents.map((e, evIdx) => {
-                                  const isBeingResized = resizingEvent?.event.id === e.id && resizingEvent?.direction === 'vertical';
-                                  let displayTimeString = formatEventTime(e);
-                                  const sDateMs = new Date(e.start).getTime();
-                                  let eDateMs = e.end ? new Date(e.end).getTime() : sDateMs + 60 * 60 * 1000;
-
-                                  if (isBeingResized && resizingEvent) {
-                                    eDateMs = resizingEvent.currentEndMs;
-                                    const sDate = new Date(e.start);
-                                    const currEnd = new Date(eDateMs);
-                                    const sH = String(sDate.getHours()).padStart(2, '0');
-                                    const sM = String(sDate.getMinutes()).padStart(2, '0');
-                                    const eH = String(currEnd.getHours()).padStart(2, '0');
-                                    const eM = String(currEnd.getMinutes()).padStart(2, '0');
-                                    displayTimeString = `${sH}:${sM} ～ ${eH}:${eM}`;
-                                  }
-
-                                  // 1時間あたり50pxとして高さを計算
-                                  const durationMinutes = Math.max(15, (eDateMs - sDateMs) / 60000);
-                                  const cardHeightPx = Math.max(26, durationMinutes * (50 / 60));
-                                  const startMinutes = new Date(e.start).getMinutes();
-                                  const topOffsetPx = (startMinutes / 60) * 50;
-
-                                  return (
-                                    <div
-                                      key={e.id}
-                                      data-event-card="true"
-                                      draggable={!e.isIcal && !isBeingResized}
-                                      onDragStart={(eDrag) => handleDragStart(eDrag, e.id)}
-                                      onDragEnd={handleDragEnd}
-                                      onDragOver={(eDragOver) => {
-                                        eDragOver.stopPropagation();
-                                        const parent = eDragOver.currentTarget.parentElement;
-                                        if (!parent) return;
-                                        const parentRect = parent.getBoundingClientRect();
-                                        const offsetY = Math.max(0, eDragOver.clientY - parentRect.top);
-                                        const hourDiff = Math.floor(offsetY / 50);
-                                        const targetH = Math.max(hoursList[0], Math.min(hoursList[hoursList.length - 1], h + hourDiff));
-                                        handleDragOver(eDragOver, `week-slot-${idx}-${targetH}`);
-                                      }}
-                                      onDrop={(eDrop) => {
-                                        eDrop.stopPropagation();
-                                        const parent = eDrop.currentTarget.parentElement;
-                                        if (!parent) return;
-                                        const parentRect = parent.getBoundingClientRect();
-                                        const offsetY = Math.max(0, eDrop.clientY - parentRect.top);
-                                        const hourDiff = Math.floor(offsetY / 50);
-                                        const targetH = Math.max(hoursList[0], Math.min(hoursList[hoursList.length - 1], h + hourDiff));
-                                        handleDrop(eDrop, dateStr, targetH);
-                                      }}
-                                      onMouseDown={(eClick) => eClick.stopPropagation()}
-                                      onClick={eClick => handleEventClick(eClick, e)}
-                                      style={{ 
-                                        height: `${cardHeightPx}px`,
-                                        top: `${topOffsetPx}px`,
-                                        left: `${2 + (evIdx * 6)}px`,
-                                        right: '2px',
-                                        zIndex: 10 + evIdx
-                                      }}
-                                      className={`absolute group/wkcard text-[10px] sm:text-[11px] p-1 sm:p-1.5 rounded border font-medium shadow-xs flex flex-col items-start cursor-pointer transition-all overflow-hidden ${getEventStyle(e)} ${
-                                        draggedEventId === e.id ? 'opacity-40 select-none' : (draggedEventId ? 'pointer-events-none' : '')
-                                      } ${
-                                        isBeingResized ? 'ring-2 ring-indigo-500 shadow-md brightness-95' : ''
-                                      }`}
-                                      title={`${e.isIcal ? '[iCal] ' : ''}${e.title} (${displayTimeString})`}
-                                    >
-                                      <div className="font-bold w-full break-words leading-tight pointer-events-none line-clamp-2">{e.isIcal ? `[iCal] ${e.title}` : e.title}</div>
-                                      <div className="text-[8px] sm:text-[9px] opacity-80 pointer-events-none mt-0.5">{displayTimeString}</div>
-
-                                      {/* 縦方向リサイズハンドル */}
-                                      {!e.isIcal && (
-                                        <div
-                                          onMouseDown={(evt) => {
-                                            evt.stopPropagation();
-                                            evt.preventDefault();
-                                            const currentEnd = e.end ? new Date(e.end).getTime() : new Date(e.start).getTime() + 60 * 60 * 1000;
-                                            startResize({
-                                              event: e,
-                                              direction: 'vertical',
-                                              initialStartX: evt.clientX,
-                                              initialStartY: evt.clientY,
-                                              initialEndMs: currentEnd,
-                                              currentEndMs: currentEnd,
-                                              slotHeightPx: 50, // 1時間 = 50px
-                                              dateStr,
-                                            });
-                                          }}
-                                          className="absolute bottom-0 left-0 right-0 h-5 hover:h-6 cursor-ns-resize flex items-center justify-center opacity-0 group-hover/wkcard:opacity-100 transition-opacity z-20 group/handle"
-                                          title="下端をドラッグして終了時刻を15分単位で変更"
-                                        >
-                                          <div className="w-10 h-1.5 bg-slate-500/80 group-hover/handle:bg-indigo-600 rounded-full shadow-xs transition-colors" />
-                                        </div>
-                                      )}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            );
-                          })}
                         </div>
-                      );
-                    })}
+                      )}
+                    </div>
                   </div>
                 </div>
               );
