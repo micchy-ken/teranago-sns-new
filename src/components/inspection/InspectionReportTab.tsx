@@ -331,12 +331,19 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
     return matchedScheduleItems;
   }, [matchedScheduleItems, statusFilter]);
 
-  // 事務用：全サイン受領済み報告書リスト（全期間・全拠点）
-  const allSignedReportsList = useMemo(() => {
+  // 事務用：自拠点のサイン受領済み報告書リスト（自拠点・全期間）
+  const myOfficeSignedReportsList = useMemo(() => {
+    const targetOffice = (selectedOffice !== 'all' && selectedOffice) || currentUser.office || '';
     return reports
-      .filter((r) => r.status === 'signed')
+      .filter((r) => {
+        if (r.status !== 'signed') return false;
+        if (!targetOffice) return true;
+        const inspectorUser = allUsers.find(u => u.id === r.inspectorId || u.name === r.inspectorName);
+        const repOffice = (r as any).office || inspectorUser?.office;
+        return !repOffice || repOffice === targetOffice;
+      })
       .sort((a, b) => new Date(b.signedAt || b.inspectionDate || b.updatedAt).getTime() - new Date(a.signedAt || a.inspectionDate || a.updatedAt).getTime());
-  }, [reports]);
+  }, [reports, selectedOffice, currentUser.office, allUsers]);
 
   // サマリー集計
   const summary = useMemo(() => {
@@ -389,31 +396,20 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       {/* ページタイトルバー */}
-      <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4">
         <div className="flex items-center gap-3">
-          <div className={`w-12 h-12 rounded-xl text-white flex items-center justify-center shadow-md shrink-0 ${
+          <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-xl text-white flex items-center justify-center shadow-md shrink-0 ${
             isOfficeViewMode ? 'bg-teal-600 shadow-teal-100' : 'bg-indigo-600 shadow-indigo-100'
           }`}>
-            {isOfficeViewMode ? <Briefcase className="w-6 h-6" /> : <FileCheck2 className="w-6 h-6" />}
+            {isOfficeViewMode ? <Briefcase className="w-5 h-5 sm:w-6 sm:h-6" /> : <FileCheck2 className="w-5 h-5 sm:w-6 sm:h-6" />}
           </div>
           <div>
             <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-xl font-black text-slate-900 tracking-tight">点検報告書</h1>
-              <span className="px-2 py-0.5 text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200 rounded-md">
+              <h1 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight">点検報告書</h1>
+              <span className="px-2 py-0.5 text-[11px] sm:text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200 rounded-md">
                 開発中
               </span>
-              {isOfficeViewMode && (
-                <span className="px-2 py-0.5 text-xs font-bold bg-teal-50 text-teal-700 border border-teal-200 rounded-md flex items-center gap-1">
-                  <Stamp className="w-3 h-3" />
-                  事務確認用画面
-                </span>
-              )}
             </div>
-            <p className="text-xs text-slate-500 mt-0.5">
-              {isOfficeViewMode 
-                ? '現場で受領されたお客様サインを確認し、A4帳票印刷・事務確認（検印）を行います。'
-                : '本日の点検スケジュールから点検報告書を作成し、お客様から電子署名（サイン）を受領します。'}
-            </p>
           </div>
         </div>
 
@@ -449,7 +445,7 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
               }`}
             >
               <Stamp className="w-3.5 h-3.5" />
-              <span>事務用（サイン確認）</span>
+              <span>事務用</span>
             </button>
           </div>
 
@@ -464,13 +460,27 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
             />
           </div>
 
-          {/* 営業所セレクト（初期値: ユーザーの所属営業所） */}
-          <div className="flex items-center bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 shadow-2xs">
-            <Building2 className="w-4 h-4 text-indigo-600 mr-1.5 shrink-0" />
+          {/* 営業所セレクト（スマホではアイコンのみ） */}
+          <div className="relative flex items-center bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 shadow-2xs" title={`営業所: ${selectedOffice === 'all' ? '全営業所' : selectedOffice}`}>
+            <Building2 className="w-4 h-4 text-indigo-600 shrink-0 sm:mr-1.5" />
             <select
               value={selectedOffice}
               onChange={(e) => setSelectedOffice(e.target.value)}
-              className="text-xs sm:text-sm font-bold text-slate-800 bg-transparent focus:outline-none cursor-pointer"
+              className="text-xs sm:text-sm font-bold text-slate-800 bg-transparent focus:outline-none cursor-pointer hidden sm:inline"
+              title="営業所を選択"
+            >
+              <option value="all">全営業所</option>
+              {officeOptions.map((off) => (
+                <option key={off} value={off}>
+                  {off}
+                </option>
+              ))}
+            </select>
+            {/* スマホ用タップ選択オーバーレイ */}
+            <select
+              value={selectedOffice}
+              onChange={(e) => setSelectedOffice(e.target.value)}
+              className="sm:hidden absolute inset-0 opacity-0 w-full h-full cursor-pointer"
               title="営業所を選択"
             >
               <option value="all">全営業所</option>
@@ -482,13 +492,27 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
             </select>
           </div>
 
-          {/* 部署セレクト（初期値: 保守） */}
-          <div className="flex items-center bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 shadow-2xs">
-            <Shield className="w-4 h-4 text-indigo-600 mr-1.5 shrink-0" />
+          {/* 部署セレクト（スマホではアイコンのみ） */}
+          <div className="relative flex items-center bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 shadow-2xs" title={`部署: ${selectedDivision === 'all' ? '全部署' : selectedDivision}`}>
+            <Shield className="w-4 h-4 text-indigo-600 shrink-0 sm:mr-1.5" />
             <select
               value={selectedDivision}
               onChange={(e) => setSelectedDivision(e.target.value)}
-              className="text-xs sm:text-sm font-bold text-slate-800 bg-transparent focus:outline-none cursor-pointer"
+              className="text-xs sm:text-sm font-bold text-slate-800 bg-transparent focus:outline-none cursor-pointer hidden sm:inline"
+              title="部署を選択"
+            >
+              <option value="all">全部署</option>
+              {divisionOptions.map((div) => (
+                <option key={div} value={div}>
+                  {div}
+                </option>
+              ))}
+            </select>
+            {/* スマホ用タップ選択オーバーレイ */}
+            <select
+              value={selectedDivision}
+              onChange={(e) => setSelectedDivision(e.target.value)}
+              className="sm:hidden absolute inset-0 opacity-0 w-full h-full cursor-pointer"
               title="部署を選択"
             >
               <option value="all">全部署</option>
@@ -500,13 +524,27 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
             </select>
           </div>
 
-          {/* 担当者セレクト（選択された営業所・部署のメンバー） */}
-          <div className="flex items-center bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 shadow-2xs">
-            <UserCheck className="w-4 h-4 text-indigo-600 mr-1.5 shrink-0" />
+          {/* 担当者セレクト（選択された営業所・部署のメンバー / スマホではアイコンのみ） */}
+          <div className="relative flex items-center bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 shadow-2xs" title={`担当者: ${selectedUserId === 'all' ? '全員' : matchingUsers.find(u => u.id === selectedUserId)?.name || '未選択'}`}>
+            <UserCheck className="w-4 h-4 text-indigo-600 shrink-0 sm:mr-1.5" />
             <select
               value={selectedUserId}
               onChange={(e) => setSelectedUserId(e.target.value)}
-              className="text-xs sm:text-sm font-bold text-slate-800 bg-transparent focus:outline-none cursor-pointer max-w-[150px] sm:max-w-[180px]"
+              className="text-xs sm:text-sm font-bold text-slate-800 bg-transparent focus:outline-none cursor-pointer max-w-[120px] sm:max-w-[180px] hidden sm:inline"
+              title="担当者を選択"
+            >
+              <option value="all">担当者: 全員 ({matchingUsers.length}名)</option>
+              {matchingUsers.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.name} {u.id === currentUser.id ? '★自分' : ''}
+                </option>
+              ))}
+            </select>
+            {/* スマホ用タップ選択オーバーレイ */}
+            <select
+              value={selectedUserId}
+              onChange={(e) => setSelectedUserId(e.target.value)}
+              className="sm:hidden absolute inset-0 opacity-0 w-full h-full cursor-pointer"
               title="担当者を選択"
             >
               <option value="all">担当者: 全員 ({matchingUsers.length}名)</option>
@@ -518,68 +556,44 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
             </select>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setSelectedDate(todayJst)}
-            className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-colors cursor-pointer"
-          >
-            今日
-          </button>
+          {/* 写真報告書グループ（作成 & フォルダ） */}
+          <div className="flex items-center bg-slate-50 p-0.5 rounded-xl border border-slate-200 text-xs shadow-2xs">
+            <span className="px-2 py-1 text-[11px] font-bold text-slate-500 border-r border-slate-200 mr-0.5">
+              写真報告書
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setPhotoReportTarget(null);
+                setSelectedExistingPhotoReport(null);
+                setIsPhotoModalOpen(true);
+              }}
+              className="px-2.5 sm:px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
+              title="現場写真（2〜4枚）を添付した写真報告書を作成・PDF出力"
+            >
+              <Camera className="w-3.5 h-3.5 text-indigo-600" />
+              <span>作成</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsFolderModalOpen(true)}
+              className="px-2.5 sm:px-3 py-1.5 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ml-0.5"
+              title="写真報告書フォルダ一覧"
+            >
+              <FolderOpen className="w-3.5 h-3.5 text-slate-600" />
+              <span>フォルダ</span>
+            </button>
+          </div>
 
-          {/* 写真報告書フォルダボタン */}
-          {(() => {
-            const unlinkedCount = photoReports.filter(
-              p => !(p.inspectionReportId || (p.jobNo && p.jobNo.trim()))
-            ).length;
-            const draftCount = photoReports.filter(p => p.status === 'draft').length;
-
-            return (
-              <button
-                type="button"
-                onClick={() => setIsFolderModalOpen(true)}
-                className="px-3 py-2 bg-white hover:bg-slate-50 text-indigo-900 border border-slate-300 rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer flex items-center gap-1.5"
-                title="作成済み写真報告書のフォルダ一覧・検索・下書き管理・点検報告書No紐付け"
-              >
-                <FolderOpen className="w-3.5 h-3.5 text-indigo-600" />
-                <span>写真報告書フォルダ</span>
-                {unlinkedCount > 0 ? (
-                  <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-500 text-white font-bold" title={`${unlinkedCount}件の未紐づけ写真報告書があります`}>
-                    未紐付{unlinkedCount}
-                  </span>
-                ) : draftCount > 0 ? (
-                  <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-600 text-white font-bold">
-                    下書{draftCount}
-                  </span>
-                ) : null}
-              </button>
-            );
-          })()}
-
-          {/* 点検・写真報告書新規作成ボタン */}
-          <button
-            type="button"
-            onClick={() => {
-              setPhotoReportTarget(null);
-              setSelectedExistingPhotoReport(null);
-              setIsPhotoModalOpen(true);
-            }}
-            className="px-3 py-2 bg-gradient-to-r from-indigo-50 to-purple-50 hover:from-indigo-100 hover:to-purple-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer flex items-center gap-1.5"
-            title="現場写真（2〜4枚）を添付した写真報告書を作成・PDF出力"
-          >
-            <Camera className="w-3.5 h-3.5 text-indigo-600" />
-            <span>写真報告書作成</span>
-          </button>
-
-          {/* 点検項目マスター設定ボタン（点検予定登録・表示権限者のみ表示） */}
+          {/* 点検項目マスター設定ボタン（点検予定登録・表示権限者のみ表示・アイコンのみ） */}
           {canManageInspectionSettings && (
             <button
               type="button"
               onClick={() => setIsMasterModalOpen(true)}
-              className="px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 hover:border-indigo-300 rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer flex items-center gap-1.5"
-              title="点検項目マスター設定（項目の追加・編集・並び替え・初期値カスタマイズ）"
+              className="p-2 bg-slate-50 hover:bg-indigo-50 text-slate-600 hover:text-indigo-600 border border-slate-200 hover:border-indigo-200 rounded-xl transition-all shadow-2xs cursor-pointer flex items-center justify-center shrink-0"
+              title="点検項目設定"
             >
-              <Settings className="w-3.5 h-3.5 text-indigo-600" />
-              <span>点検項目設定</span>
+              <Settings className="w-4 h-4" />
             </button>
           )}
         </div>
@@ -587,21 +601,13 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
 
       {/* 事務用専用バナー（事務確認モード時） */}
       {isOfficeViewMode && (
-        <div className="bg-teal-50 border border-teal-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-teal-600 text-white flex items-center justify-center shrink-0">
-              <Stamp className="w-5 h-5" />
+        <div className="bg-teal-50 border border-teal-200 rounded-2xl p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-teal-600 text-white flex items-center justify-center shrink-0">
+              <Stamp className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-teal-900 text-sm">事務用サイン確認・検印管理</span>
-                <span className="px-2 py-0.5 text-[11px] font-bold bg-white text-teal-700 border border-teal-300 rounded-full">
-                  初期値：完了（サイン受領済）
-                </span>
-              </div>
-              <p className="text-xs text-teal-700 mt-0.5">
-                現場で受領されたお客様サインを確認し、帳票プレビュー・印刷や事務確認スタンプの押印を行います。
-              </p>
+              <span className="font-bold text-teal-900 text-sm">事務用確認</span>
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -614,7 +620,7 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
                   : 'bg-white text-teal-800 border border-teal-300 hover:bg-teal-100/50'
               }`}
             >
-              📅 選択日の案件 ({matchedScheduleItems.length})
+              📅 選択日 ({matchedScheduleItems.length})
             </button>
             <button
               type="button"
@@ -626,7 +632,7 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
               }`}
             >
               <CheckCircle className="w-3.5 h-3.5 text-emerald-500" />
-              <span>全拠点のサイン済一覧 ({allSignedReportsList.length})</span>
+              <span>自拠点のサイン済一覧 ({myOfficeSignedReportsList.length})</span>
             </button>
           </div>
         </div>
@@ -721,24 +727,24 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
         </div>
       )}
 
-      {/* 事務用「全拠点サイン受領済み一覧」モードの場合 */}
+      {/* 事務用「自拠点サイン受領済み一覧」モードの場合 */}
       {isOfficeViewMode && officeViewScope === 'all_signed' ? (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">
               <CheckCircle className="w-4 h-4 text-emerald-600" />
-              <span>全拠点のサイン受領済み点検報告書一覧（{allSignedReportsList.length}件）</span>
+              <span>自拠点のサイン受領済み点検報告書一覧（{myOfficeSignedReportsList.length}件）</span>
             </h2>
             <span className="text-xs text-slate-500">受領日時の新しい順で表示</span>
           </div>
 
-          {allSignedReportsList.length === 0 ? (
+          {myOfficeSignedReportsList.length === 0 ? (
             <div className="bg-white rounded-2xl p-12 text-center border border-dashed border-slate-300">
-              <p className="text-slate-500 text-sm">サイン受領済みの点検報告書はまだありません。</p>
+              <p className="text-slate-500 text-sm">自拠点のサイン受領済み点検報告書はまだありません。</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-4">
-              {allSignedReportsList.map((rep) => {
+              {myOfficeSignedReportsList.map((rep) => {
                 return (
                   <div
                     key={rep.id}
