@@ -708,41 +708,65 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
     setActiveTab('preview');
     setTimeout(() => {
       window.print();
-    }, 150);
+    }, 250);
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/75 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto">
-      {/* 印刷用スタイル定義 */}
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/75 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto print:static print:p-0 print:m-0 print:bg-white print:overflow-visible print:z-auto print:block">
+      {/* 印刷用スタイル定義 (2ページ以上の複数ページも確実に印刷出力) */}
       <style>{`
         @media print {
-          body * {
-            visibility: hidden;
+          @page {
+            size: A4 portrait;
+            margin: 6mm 6mm 6mm 6mm;
           }
-          #photo-report-print-area, #photo-report-print-area * {
-            visibility: visible;
-          }
-          #photo-report-print-area {
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
-            width: 100% !important;
+
+          html, body {
             margin: 0 !important;
             padding: 0 !important;
-            background: transparent !important;
-            display: block !important;
-            z-index: 99999 !important;
+            background: white !important;
+            height: auto !important;
+            min-height: 100% !important;
+            overflow: visible !important;
+            position: static !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
           }
-          .photo-report-page {
-            width: 210mm !important;
-            height: 297mm !important;
-            min-height: 297mm !important;
-            max-height: 297mm !important;
+
+          /* 画面上のアプリ全体の背景や親コンテナのoverflow・fixedを解除して複数ページ改ページを有効化 */
+          #root, #root > div, .fixed, [class*="overflow-"], [class*="max-h-"] {
+            overflow: visible !important;
+            height: auto !important;
+            max-height: none !important;
+            position: static !important;
+          }
+
+          .print\\:hidden, header, nav, aside {
+            display: none !important;
+          }
+
+          #photo-report-print-area {
+            position: static !important;
+            width: 100% !important;
             margin: 0 auto !important;
-            padding: 8mm 10mm !important;
+            padding: 0 !important;
+            background: white !important;
+            display: block !important;
+            overflow: visible !important;
+          }
+
+          .photo-report-page {
+            width: 100% !important;
+            max-width: 198mm !important;
+            min-height: 280mm !important;
+            height: 280mm !important;
+            margin: 0 auto !important;
+            padding: 4mm 4mm !important;
             box-sizing: border-box !important;
             page-break-after: always !important;
             break-after: page !important;
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
             background: white !important;
             box-shadow: none !important;
             border: none !important;
@@ -750,23 +774,20 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
             flex-direction: column !important;
             justify-content: space-between !important;
           }
+
           .photo-report-page:last-child {
-            page-break-after: avoid !important;
-            break-after: avoid !important;
-          }
-          @page {
-            size: A4 portrait;
-            margin: 0;
+            page-break-after: auto !important;
+            break-after: auto !important;
           }
         }
       `}</style>
 
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl max-h-[92vh] flex flex-col overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95 duration-200">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl max-h-[92vh] flex flex-col overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95 duration-200 print:shadow-none print:border-none print:max-h-none print:h-auto print:overflow-visible print:w-full print:rounded-none print:block print:m-0 print:p-0">
         
         {/* ============================================================ */}
-        {/* モーダルヘッダー */}
+        {/* モーダルヘッダー (印刷時は非表示) */}
         {/* ============================================================ */}
-        <div className="px-5 py-3.5 bg-slate-900 text-white flex items-center justify-between shrink-0 border-b border-slate-800">
+        <div className="px-5 py-3.5 bg-slate-900 text-white flex items-center justify-between shrink-0 border-b border-slate-800 print:hidden">
           <div className="flex items-center gap-3 min-w-0">
             <div className="p-2 bg-indigo-600/80 rounded-xl text-white shadow-xs">
               <Camera className="w-5 h-5" />
@@ -864,7 +885,7 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
 
         {/* トースト・アラート */}
         {errorMessage && (
-          <div className="px-5 py-2.5 bg-rose-50 border-b border-rose-200 text-rose-700 text-xs font-bold flex items-center justify-between">
+          <div className="px-5 py-2.5 bg-rose-50 border-b border-rose-200 text-rose-700 text-xs font-bold flex items-center justify-between print:hidden">
             <div className="flex items-center gap-2">
               <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
               <span>{errorMessage}</span>
@@ -876,7 +897,7 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
         )}
 
         {successToast && (
-          <div className="px-5 py-2 bg-emerald-50 border-b border-emerald-200 text-emerald-800 text-xs font-bold flex items-center gap-2">
+          <div className="px-5 py-2 bg-emerald-50 border-b border-emerald-200 text-emerald-800 text-xs font-bold flex items-center gap-2 print:hidden">
             <Check className="w-4 h-4 text-emerald-600 shrink-0" />
             <span>{successToast}</span>
           </div>
@@ -885,16 +906,16 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
         {/* ============================================================ */}
         {/* モーダル本体 */}
         {/* ============================================================ */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-100/70">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-100/70 print:p-0 print:m-0 print:bg-white print:overflow-visible print:h-auto print:max-h-none print:block">
           {isLoadingExisting ? (
-            <div className="flex flex-col items-center justify-center py-16 gap-3 text-indigo-600">
+            <div className="flex flex-col items-center justify-center py-16 gap-3 text-indigo-600 print:hidden">
               <Loader2 className="w-8 h-8 animate-spin" />
               <span className="text-xs font-bold">作成済みの写真報告書を確認中...</span>
             </div>
           ) : (
             <>
               {/* 編集入力フォーム */}
-              <div className={activeTab === 'edit' ? 'max-w-4xl mx-auto space-y-6' : 'hidden'}>
+              <div className={activeTab === 'edit' ? 'max-w-4xl mx-auto space-y-6 print:hidden' : 'hidden'}>
 
               {/* 既存の写真報告書が複数ある場合、または作成済みの切り替えバー */}
               {historyReports.length > 0 && (
@@ -1530,7 +1551,7 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
             {/* 帳票プレビュー (添付PDF完全準拠 A4縦レイアウト・複数ページ対応) */}
             {/* activeTabに関わらずDOMに常時マウントし、印刷時は常に最前面で出力 */}
             {/* ============================================================ */}
-            <div className={activeTab === 'preview' ? 'flex flex-col items-center w-full' : 'hidden print:block w-full'}>
+            <div className={activeTab === 'preview' ? 'flex flex-col items-center w-full print:block' : 'hidden print:block w-full'}>
               <div className="mb-4 flex items-center justify-between gap-3 w-full max-w-[210mm] print:hidden">
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-bold text-slate-700">
@@ -1562,7 +1583,7 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
                   return (
                     <div
                       key={`photo_report_page_${pageNumber}`}
-                      className="photo-report-page w-full max-w-[210mm] min-h-[297mm] bg-white p-6 sm:p-8 shadow-xl border border-slate-300 mx-auto text-slate-900 font-sans flex flex-col justify-between relative print:shadow-none print:border-none print:m-0"
+                      className="photo-report-page w-full max-w-[210mm] min-h-[297mm] bg-white p-6 sm:p-8 shadow-xl border border-slate-300 mx-auto text-slate-900 font-sans flex flex-col justify-between relative print:shadow-none print:border-none print:m-0 print:p-0 print:min-h-0"
                       style={{ minHeight: '297mm' }}
                     >
                       {/* 複数ページある場合のページヘッダー */}
@@ -1690,7 +1711,7 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
         {/* ============================================================ */}
         {/* モーダルフッター */}
         {/* ============================================================ */}
-        <div className="px-5 py-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
+        <div className="px-5 py-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0 print:hidden">
           <div className="text-xs text-slate-500">
             作成者: <span className="font-bold text-slate-700">{currentUser.name}</span>
           </div>

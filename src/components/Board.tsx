@@ -214,137 +214,131 @@ export function Board({
   const divisionNames = Array.from(new Set(divisions.map(d => d.name)));
 
   return (
-    <div className="flex-1 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-[calc(100vh-8rem)]">
+    <div className="flex-1 bg-white rounded-xl sm:rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-[calc(100vh-7rem)] sm:h-[calc(100vh-8rem)]">
       {/* Top Filter & Header Area */}
-      <div className="p-5 border-b border-slate-200 bg-slate-50/80 shrink-0 space-y-4">
-        {/* Popular Tags Row (旧カテゴリーのリプレース) */}
-        <div>
-          <div className="flex items-center gap-1.5 text-xs font-bold text-slate-500 mb-2 uppercase tracking-wider">
-            <Flame className="w-4 h-4 text-amber-500 fill-amber-500" />
-            人気のタグ（カテゴリー・絞り込み）
+      <div className="p-3 sm:p-5 border-b border-slate-200 bg-slate-50/90 shrink-0 space-y-2.5 sm:space-y-3.5">
+        {/* Row 1: Search & New Topic Button */}
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
+            <Search className="w-3.5 h-3.5 sm:w-4 sm:h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              placeholder="掲示板内を検索..."
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              className="w-full pl-8 sm:pl-9 pr-3 py-1.5 sm:py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs font-medium shadow-2xs"
+            />
           </div>
-          <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
-            <button
-              onClick={() => {
-                setSelectedTag('ALL');
-                setOnlyFavorites(false);
-              }}
-              className={`px-3.5 py-1.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap flex items-center gap-1 cursor-pointer ${
-                selectedTag === 'ALL' && !onlyFavorites
-                  ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
-                  : 'bg-white text-slate-600 hover:bg-slate-200/60 border border-slate-200'
-              }`}
-            >
-              すべて表示
-            </button>
 
-            {/* お気に入りフィルターボタン */}
-            <button
-              onClick={() => setOnlyFavorites(prev => !prev)}
-              className={`px-3.5 py-1.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap flex items-center gap-1.5 cursor-pointer ${
-                onlyFavorites
-                  ? 'bg-amber-500 text-white shadow-sm shadow-amber-500/30 font-bold'
-                  : favoriteTopicIds.length > 0
-                  ? 'bg-amber-50/90 text-amber-800 hover:bg-amber-100 border border-amber-300 shadow-2xs'
-                  : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-              }`}
-              title="お気に入りに登録したトピックのみ表示"
-            >
-              <Star className={`w-3.5 h-3.5 ${onlyFavorites ? 'fill-white text-white' : favoriteTopicIds.length > 0 ? 'fill-amber-400 text-amber-500' : 'text-slate-400'}`} />
-              <span>お気に入り</span>
-              {favoriteTopicIds.length > 0 && (
-                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
-                  onlyFavorites ? 'bg-amber-600 text-white' : 'bg-amber-200/70 text-amber-900'
-                }`}>
-                  {favoriteTopicIds.length}
-                </span>
-              )}
-            </button>
+          <button
+            onClick={() => setIsCreateModalOpen(true)}
+            className="flex items-center gap-1.5 px-3 sm:px-4 py-1.5 sm:py-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-bold rounded-xl transition-all shadow-xs shrink-0 cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.5]" />
+            <span className="hidden sm:inline">新規トピック作成</span>
+            <span className="inline sm:hidden">新規作成</span>
+          </button>
+        </div>
 
-            {popularTags.map(({ tag, count }) => (
-              <button
-                key={tag}
-                onClick={() => setSelectedTag(tag)}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-xl transition-all whitespace-nowrap flex items-center gap-1.5 ${
-                  selectedTag === tag
-                    ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30 font-bold'
-                    : 'bg-white text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 border border-slate-200'
-                }`}
-              >
-                <Tag className="w-3 h-3 text-indigo-400" />
-                <span>#{tag}</span>
-                <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
-                  selectedTag === tag ? 'bg-indigo-700 text-white' : 'bg-slate-100 text-slate-500'
-                }`}>
-                  {count}
-                </span>
-              </button>
-            ))}
+        {/* Row 2: Office & Division Filter (2 columns on mobile, flex on desktop) */}
+        <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2">
+          {/* 拠点フィルタ */}
+          <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs shadow-2xs min-w-0">
+            <Building2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+            <span className="font-semibold text-slate-500 shrink-0 hidden sm:inline">拠点:</span>
+            <select
+              value={selectedOffice}
+              onChange={e => setSelectedOffice(e.target.value)}
+              className="bg-transparent font-bold text-slate-800 focus:outline-none cursor-pointer w-full truncate"
+            >
+              <option value="全社">全社（全拠点）</option>
+              {officeNames.map(o => (
+                <option key={o} value={o}>{o}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* 部署フィルタ */}
+          <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs shadow-2xs min-w-0">
+            <Users className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+            <span className="font-semibold text-slate-500 shrink-0 hidden sm:inline">部署:</span>
+            <select
+              value={selectedDivision}
+              onChange={e => setSelectedDivision(e.target.value)}
+              className="bg-transparent font-bold text-slate-800 focus:outline-none cursor-pointer w-full truncate"
+            >
+              <option value="全部署">全部署（全チーム）</option>
+              {divisionNames.map(d => (
+                <option key={d} value={d}>{d}</option>
+              ))}
+            </select>
           </div>
         </div>
 
-        {/* Search & Office/Division Filters */}
-        <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between pt-1 border-t border-slate-200/60">
-          <div className="flex flex-wrap items-center gap-2.5">
-            {/* 拠点フィルタ */}
-            <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs">
-              <Building2 className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-              <span className="font-semibold text-slate-500 shrink-0">拠点:</span>
-              <select
-                value={selectedOffice}
-                onChange={e => setSelectedOffice(e.target.value)}
-                className="bg-transparent font-bold text-slate-800 focus:outline-none cursor-pointer"
-              >
-                <option value="全社">全社（全拠点）</option>
-                {officeNames.map(o => (
-                  <option key={o} value={o}>{o}</option>
-                ))}
-              </select>
-            </div>
+        {/* Row 3: Tags & Favorites Quick Scroll Bar */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-none">
+          <button
+            onClick={() => {
+              setSelectedTag('ALL');
+              setOnlyFavorites(false);
+            }}
+            className={`px-3 py-1 text-xs font-bold rounded-lg transition-all whitespace-nowrap flex items-center gap-1 cursor-pointer shrink-0 ${
+              selectedTag === 'ALL' && !onlyFavorites
+                ? 'bg-indigo-600 text-white shadow-2xs font-bold'
+                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+            }`}
+          >
+            すべて
+          </button>
 
-            {/* 部署フィルタ */}
-            <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs">
-              <Users className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-              <span className="font-semibold text-slate-500 shrink-0">部署:</span>
-              <select
-                value={selectedDivision}
-                onChange={e => setSelectedDivision(e.target.value)}
-                className="bg-transparent font-bold text-slate-800 focus:outline-none cursor-pointer"
-              >
-                <option value="全部署">全部署（全チーム）</option>
-                {divisionNames.map(d => (
-                  <option key={d} value={d}>{d}</option>
-                ))}
-              </select>
-            </div>
-          </div>
+          {/* お気に入りフィルターボタン */}
+          <button
+            onClick={() => setOnlyFavorites(prev => !prev)}
+            className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-all whitespace-nowrap flex items-center gap-1 cursor-pointer shrink-0 ${
+              onlyFavorites
+                ? 'bg-amber-500 text-white shadow-2xs font-bold'
+                : favoriteTopicIds.length > 0
+                ? 'bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-300'
+                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+            }`}
+            title="お気に入りに登録したトピックのみ表示"
+          >
+            <Star className={`w-3.5 h-3.5 ${onlyFavorites ? 'fill-white text-white' : favoriteTopicIds.length > 0 ? 'fill-amber-400 text-amber-500' : 'text-slate-400'}`} />
+            <span>お気に入り</span>
+            {favoriteTopicIds.length > 0 && (
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                onlyFavorites ? 'bg-amber-600 text-white' : 'bg-amber-200/80 text-amber-900'
+              }`}>
+                {favoriteTopicIds.length}
+              </span>
+            )}
+          </button>
 
-          <div className="flex items-center gap-2.5">
-            <div className="relative flex-1 md:w-60">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                placeholder="掲示板内を検索..."
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs font-medium"
-              />
-            </div>
-
+          {popularTags.map(({ tag, count }) => (
             <button
-              onClick={() => setIsCreateModalOpen(true)}
-              className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition-all shadow-md active:scale-[0.99] whitespace-nowrap shrink-0"
+              key={tag}
+              onClick={() => setSelectedTag(tag)}
+              className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all whitespace-nowrap flex items-center gap-1 shrink-0 cursor-pointer ${
+                selectedTag === tag
+                  ? 'bg-indigo-600 text-white shadow-2xs font-bold'
+                  : 'bg-white text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 border border-slate-200'
+              }`}
             >
-              <Plus className="w-4 h-4" />
-              新規トピック作成
+              <Tag className="w-3 h-3 text-indigo-400" />
+              <span>#{tag}</span>
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                selectedTag === tag ? 'bg-indigo-700 text-white' : 'bg-slate-100 text-slate-500'
+              }`}>
+                {count}
+              </span>
             </button>
-          </div>
+          ))}
         </div>
       </div>
 
       {/* Main Board Topic List */}
-      <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-50/40">
-        <div className="w-full space-y-3">
+      <div className="flex-1 overflow-y-auto p-2.5 sm:p-5 bg-slate-50/40">
+        <div className="w-full space-y-2.5 sm:space-y-3">
           {filteredAndSortedTopics.length > 0 ? (
             filteredAndSortedTopics.map(topic => {
               const viewersCount = topic.viewers?.length || 0;
@@ -354,14 +348,14 @@ export function Board({
                 <div
                   key={topic.id}
                   onClick={() => handleOpenDetail(topic)}
-                  className={`bg-white border rounded-2xl p-5 hover:border-indigo-400 hover:shadow-md transition-all cursor-pointer group relative ${
+                  className={`bg-white border rounded-xl sm:rounded-2xl p-3 sm:p-5 hover:border-indigo-400 hover:shadow-md transition-all cursor-pointer group relative ${
                     isTopicCurrentlyPinned(topic)
                       ? 'border-amber-300/80 bg-gradient-to-r from-amber-50/30 via-white to-white'
                       : 'border-slate-200'
                   }`}
                 >
-                  <div className="flex items-start gap-4">
-                    {/* User Avatar */}
+                  <div className="flex items-start gap-3 sm:gap-4">
+                    {/* User Avatar (Desktop) */}
                     <img
                       src={getAvatarUrl(topic.author?.id === currentUser?.id ? (currentUser?.avatarUrl || topic.author?.avatarUrl) : topic.author?.avatarUrl)}
                       alt={topic.author?.name}
@@ -371,30 +365,34 @@ export function Board({
 
                     <div className="flex-1 min-w-0">
                       {/* Meta badges row */}
-                      <div className="flex flex-wrap items-center gap-2 mb-2">
-                        {isTopicCurrentlyPinned(topic) && (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 bg-amber-500 text-white rounded-md shadow-xs">
-                            <Pin className="w-3 h-3 fill-white" />
-                            <span>ピン留め</span>
-                            <span className="text-[10px] text-amber-100 font-normal">
-                              {formatPinnedUntilBadge(topic.pinnedUntil)}
+                      <div className="flex flex-wrap items-center justify-between gap-1.5 mb-1.5 sm:mb-2">
+                        {/* Badges Left */}
+                        <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+                          {isTopicCurrentlyPinned(topic) && (
+                            <span className="inline-flex items-center gap-1 text-[10px] sm:text-[11px] font-bold px-1.5 sm:px-2 py-0.5 bg-amber-500 text-white rounded-md shadow-2xs shrink-0">
+                              <Pin className="w-3 h-3 fill-white" />
+                              <span>ピン留め</span>
+                              <span className="text-[9px] sm:text-[10px] text-amber-100 font-normal">
+                                {formatPinnedUntilBadge(topic.pinnedUntil)}
+                              </span>
                             </span>
+                          )}
+
+                          <span className="text-[10px] sm:text-[11px] font-semibold px-1.5 sm:px-2 py-0.5 bg-slate-100 text-slate-700 rounded-md shrink-0">
+                            {topic.office || '全社'} / {topic.division || '全部署'}
                           </span>
-                        )}
 
-                        <span className="text-[11px] font-semibold px-2 py-0.5 bg-slate-100 text-slate-700 rounded-md">
-                          {topic.office || '全社'} / {topic.division || '全部署'}
-                        </span>
+                          {topic.hasPeriod && topic.startDate && topic.endDate && (
+                            <span className="text-[10px] font-semibold px-1.5 py-0.5 bg-amber-50 text-amber-800 border border-amber-200 rounded-md flex items-center gap-1 shrink-0">
+                              <CalendarIcon className="w-3 h-3 text-amber-600" />
+                              <span>{topic.startDate} ～ {topic.endDate}</span>
+                            </span>
+                          )}
+                        </div>
 
-                        {topic.hasPeriod && topic.startDate && topic.endDate && (
-                          <span className="text-[10px] font-semibold px-2 py-0.5 bg-amber-50 text-amber-800 border border-amber-200 rounded-md flex items-center gap-1">
-                            <CalendarIcon className="w-3 h-3 text-amber-600" />
-                            {topic.startDate} ～ {topic.endDate}
-                          </span>
-                        )}
-
-                        <div className="flex items-center gap-1.5 ml-auto">
-                          <span className="text-xs text-slate-400 mr-0.5">
+                        {/* Actions Right */}
+                        <div className="flex items-center gap-1 shrink-0 ml-auto" onClick={e => e.stopPropagation()}>
+                          <span className="text-[11px] sm:text-xs text-slate-400 mr-0.5">
                             {new Date(topic.createdAt).toLocaleDateString('ja-JP')}
                           </span>
                           <button
@@ -416,7 +414,7 @@ export function Board({
                               e.stopPropagation();
                               handleShareTopic(topic.id);
                             }}
-                            className={`px-2 py-1 rounded-lg border transition-all flex items-center gap-1 text-[11px] font-semibold cursor-pointer ${
+                            className={`p-1 sm:px-2 sm:py-1 rounded-lg border transition-all flex items-center gap-1 text-[11px] font-semibold cursor-pointer ${
                               copiedTopicId === topic.id
                                 ? 'bg-emerald-50 text-emerald-700 border-emerald-300 ring-2 ring-emerald-200'
                                 : 'text-slate-500 bg-slate-50 hover:bg-slate-100 hover:text-indigo-600 border-slate-200 shadow-2xs'
@@ -426,12 +424,12 @@ export function Board({
                             {copiedTopicId === topic.id ? (
                               <>
                                 <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                                <span className="text-emerald-700 font-bold">コピー完了!</span>
+                                <span className="text-emerald-700 font-bold hidden sm:inline">コピー完了!</span>
                               </>
                             ) : (
                               <>
                                 <Share2 className="w-3.5 h-3.5 shrink-0" />
-                                <span>共有</span>
+                                <span className="hidden sm:inline">共有</span>
                               </>
                             )}
                           </button>
@@ -442,28 +440,28 @@ export function Board({
                                 e.stopPropagation();
                                 setTopicToDelete(topic.id);
                               }}
-                              className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                              className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
                               title="トピックを削除"
                             >
-                              <Trash2 className="w-4 h-4" />
+                              <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                             </button>
                           )}
                         </div>
                       </div>
 
                       {/* Title */}
-                      <h3 className="text-base sm:text-lg font-bold text-slate-900 leading-snug mb-2 group-hover:text-indigo-600 transition-colors">
+                      <h3 className="text-sm sm:text-base font-bold text-slate-900 leading-snug mb-1.5 sm:mb-2 group-hover:text-indigo-600 transition-colors break-words">
                         {topic.title}
                       </h3>
 
                       {/* Snippet */}
-                      <p className="text-xs sm:text-sm text-slate-600 line-clamp-2 mb-3 leading-relaxed">
+                      <p className="text-xs sm:text-sm text-slate-600 line-clamp-2 mb-2 sm:mb-3 leading-relaxed break-words">
                         {topic.content}
                       </p>
 
                       {/* Tags List */}
                       {topic.tags && topic.tags.length > 0 && (
-                        <div className="flex flex-wrap items-center gap-1.5 mb-3">
+                        <div className="flex flex-wrap items-center gap-1 sm:gap-1.5 mb-2.5 sm:mb-3">
                           {topic.tags.map(tag => (
                             <span
                               key={tag}
@@ -471,7 +469,7 @@ export function Board({
                                 e.stopPropagation();
                                 setSelectedTag(tag);
                               }}
-                              className="text-[11px] font-semibold px-2 py-0.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-md transition-colors border border-indigo-100"
+                              className="text-[10px] sm:text-[11px] font-semibold px-1.5 sm:px-2 py-0.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-md transition-colors border border-indigo-100 cursor-pointer"
                             >
                               #{tag}
                             </span>
@@ -480,32 +478,32 @@ export function Board({
                       )}
 
                       {/* Card Footer Info */}
-                      <div className="flex flex-wrap items-center justify-between gap-3 text-xs font-semibold text-slate-500 pt-2 border-t border-slate-100">
-                        <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-semibold text-slate-500 pt-2 border-t border-slate-100">
+                        <div className="flex items-center gap-1.5 min-w-0">
                           <img
                             src={getAvatarUrl(topic.author?.id === currentUser?.id ? (currentUser?.avatarUrl || topic.author?.avatarUrl) : topic.author?.avatarUrl)}
                             alt={topic.author?.name}
                             onError={handleAvatarError}
-                            className="w-5 h-5 rounded-full sm:hidden border border-slate-200"
+                            className="w-4 h-4 sm:w-5 sm:h-5 rounded-full sm:hidden border border-slate-200 object-cover shrink-0"
                           />
-                          <span className="text-slate-800">{topic.author?.name}</span>
+                          <span className="text-slate-800 text-[11px] sm:text-xs font-bold truncate max-w-[110px] sm:max-w-none">{topic.author?.name}</span>
                         </div>
 
-                        <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-2.5 sm:gap-4 text-[11px] sm:text-xs">
                           {hasAttachments && (
-                            <div className="flex items-center gap-1 text-slate-600" title="添付ファイルあり">
+                            <div className="flex items-center gap-0.5 text-slate-600 shrink-0" title="添付ファイルあり">
                               <Paperclip className="w-3.5 h-3.5 text-indigo-500" />
-                              <span className="text-[11px]">{topic.attachments?.length}</span>
+                              <span>{topic.attachments?.length}</span>
                             </div>
                           )}
 
-                          <div className="flex items-center gap-1 hover:text-indigo-600 transition-colors" title="閲覧数/確認済み人数">
+                          <div className="flex items-center gap-0.5 hover:text-indigo-600 transition-colors shrink-0" title="閲覧数/確認済み人数">
                             <Eye className="w-3.5 h-3.5 text-slate-400" />
                             <span>{topic.views}</span>
-                            <span className="text-[10px] text-slate-400">({viewersCount}確認)</span>
+                            <span className="text-[10px] text-slate-400">({viewersCount})</span>
                           </div>
 
-                          <div className="flex items-center gap-1 hover:text-indigo-600 transition-colors" title="コメント数">
+                          <div className="flex items-center gap-0.5 hover:text-indigo-600 transition-colors shrink-0" title="コメント数">
                             <MessageSquare className="w-3.5 h-3.5 text-slate-400" />
                             <span>{topic.commentsCount}</span>
                           </div>
