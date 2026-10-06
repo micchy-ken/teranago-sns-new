@@ -172,12 +172,12 @@ export const TeamWeekMemberRow: React.FC<TeamWeekMemberRowProps> = React.memo(({
                       </span>
                     ) : (
                       <>
-                        <div className="flex items-center gap-1 truncate text-[8px] sm:text-[9px]">
+                        <div className="truncate font-extrabold text-[9px] sm:text-[10px] leading-tight text-slate-800">
+                          {e.title}
+                        </div>
+                        <div className="flex items-center gap-1 truncate text-[8px] sm:text-[9px] text-slate-500 opacity-90 mt-0.5">
                           <Clock className="w-2 h-2 sm:w-2.5 sm:h-2.5 shrink-0" />
                           <span>{formatEventTime(e)}</span>
-                        </div>
-                        <div className="mt-0.5 truncate font-extrabold">
-                          {e.title}
                         </div>
                       </>
                     )}

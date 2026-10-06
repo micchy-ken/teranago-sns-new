@@ -3011,6 +3011,7 @@ export function Calendar({
                                     const cardHeightPx = Math.max(26, durationMinutes * (50 / 60));
                                     const startMinutes = new Date(e.start).getMinutes();
                                     const topOffsetPx = (startMinutes / 60) * 50;
+                                    const isShortEvent = durationMinutes <= 35 || cardHeightPx < 42;
 
                                     return (
                                       <div
@@ -3048,15 +3049,27 @@ export function Calendar({
                                           right: '2px',
                                           zIndex: 10 + evIdx
                                         }}
-                                        className={`absolute group/wkcard text-[9px] sm:text-[11px] p-1 rounded border font-medium shadow-2xs flex flex-col items-start cursor-pointer transition-all overflow-hidden ${getEventStyle(e)} ${
+                                        className={`absolute group/wkcard text-[9px] sm:text-[11px] ${isShortEvent ? 'px-1 py-0.5 justify-center' : 'p-1 flex-col items-start'} rounded border font-medium shadow-2xs flex cursor-pointer transition-all overflow-hidden ${getEventStyle(e)} ${
                                           draggedEventId === e.id ? 'opacity-40 select-none' : (draggedEventId ? 'pointer-events-none' : '')
                                         } ${
                                           isBeingResized ? 'ring-2 ring-indigo-500 shadow-md brightness-95' : ''
                                         }`}
                                         title={`${e.isIcal ? '[iCal] ' : ''}${e.title} (${displayTimeString})`}
                                       >
-                                        <div className="font-bold w-full break-words leading-tight pointer-events-none line-clamp-2">{e.isIcal ? `[iCal] ${e.title}` : e.title}</div>
-                                        <div className="text-[8px] sm:text-[9px] opacity-85 pointer-events-none mt-0.5">{displayTimeString}</div>
+                                        {isShortEvent ? (
+                                          <div className="font-bold w-full truncate leading-tight pointer-events-none text-[9px] sm:text-[10px]">
+                                            {e.isIcal ? `[iCal] ${e.title}` : e.title}
+                                          </div>
+                                        ) : (
+                                          <>
+                                            <div className="font-bold w-full break-words leading-tight pointer-events-none line-clamp-2">
+                                              {e.isIcal ? `[iCal] ${e.title}` : e.title}
+                                            </div>
+                                            <div className="text-[8px] sm:text-[9px] opacity-85 pointer-events-none mt-0.5">
+                                              {displayTimeString}
+                                            </div>
+                                          </>
+                                        )}
 
                                         {!e.isIcal && !isMobile3Day && (
                                           <div
