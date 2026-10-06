@@ -1350,6 +1350,91 @@ export function Chat({
     });
   };
 
+  // クリップボードからの画像・ファイル貼り付け処理
+  const handleChatClipboardPaste = useCallback(async (clipboardData: DataTransfer | null, e?: React.ClipboardEvent | ClipboardEvent) => {
+    if (!clipboardData) return false;
+
+    const items = clipboardData.items;
+    const files: File[] = [];
+
+    if (items && items.length > 0) {
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.kind === 'file') {
+          const file = item.getAsFile();
+          if (file) {
+            // クリップボードからの画像（スクリーンショット等）で名前が空またはimage.pngの場合、タイムスタンプ付きの名前に正規化
+            if (file.type.startsWith('image/') && (!file.name || file.name === 'image.png')) {
+              const ext = file.type.split('/')[1] || 'png';
+              const timeStr = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+              const namedFile = new File([file], `screenshot_${timeStr}.${ext}`, { type: file.type });
+              files.push(namedFile);
+            } else {
+              files.push(file);
+            }
+          }
+        }
+      }
+    } else if (clipboardData.files && clipboardData.files.length > 0) {
+      for (let i = 0; i < clipboardData.files.length; i++) {
+        files.push(clipboardData.files[i]);
+      }
+    }
+
+    if (files.length === 0) return false;
+
+    const imageFiles = files.filter(f => f.type.startsWith('image/') || /\.(jpe?g|png|webp|gif|svg)$/i.test(f.name));
+    const otherFiles = files.filter(f => !imageFiles.includes(f));
+
+    if (e && typeof e.preventDefault === 'function') {
+      e.preventDefault();
+    }
+
+    if (imageFiles.length > 0) {
+      if (messageText.trim()) {
+        setPhotoCaption(messageText.trim());
+        setMessageText('');
+      }
+      handlePhotoFilesSelected(imageFiles);
+      if (otherFiles.length > 0) {
+        await processChatUploadedFiles(otherFiles);
+      }
+      return true;
+    }
+
+    if (otherFiles.length > 0) {
+      await processChatUploadedFiles(otherFiles);
+      return true;
+    }
+
+    return false;
+  }, [messageText, handlePhotoFilesSelected, processChatUploadedFiles]);
+
+  const handleChatTextareaPaste = async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const handled = await handleChatClipboardPaste(e.clipboardData, e);
+    if (!handled) {
+      chatPasteHandler.handlePaste(e);
+    }
+  };
+
+  // チャット画面表示中のグローバル画像貼り付け (Ctrl+V / Cmd+V)
+  useEffect(() => {
+    const handleGlobalPaste = (e: ClipboardEvent) => {
+      if (!activeRoom) return;
+      // 他のモーダルやインプット（トークルーム名変更、検索バー等）にフォーカスがある場合はスキップ
+      const activeEl = document.activeElement;
+      if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA') && activeEl !== chatTextareaRef.current) {
+        return;
+      }
+      if (e.clipboardData) {
+        handleChatClipboardPaste(e.clipboardData, e);
+      }
+    };
+
+    window.addEventListener('paste', handleGlobalPaste);
+    return () => window.removeEventListener('paste', handleGlobalPaste);
+  }, [activeRoom, handleChatClipboardPaste]);
+
   const handleChatDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -2285,17 +2370,26 @@ export function Chat({
                     type="text"
                     value={photoCaption}
                     onChange={(e) => setPhotoCaption(e.target.value)}
-                    placeholder="写真に添えるコメント（任意）..."
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSendPhoto(pendingPhotoUrl, photoCaption, pendingThumbnailUrl || undefined);
+                      }
+                    }}
+                    placeholder="写真に添えるコメント（任意）... (Enterで送信)"
                     className="w-full px-3 py-1.5 bg-white border border-indigo-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    autoFocus
                   />
                   <div className="flex gap-2 mt-2">
                     <button
+                      type="button"
                       onClick={() => handleSendPhoto(pendingPhotoUrl, photoCaption, pendingThumbnailUrl || undefined)}
                       className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-xs font-bold transition-colors cursor-pointer"
                     >
                       送信する
                     </button>
                     <button
+                      type="button"
                       onClick={() => {
                         setPendingPhotoUrl(null);
                         setPendingThumbnailUrl(null);
@@ -2474,22 +2568,29 @@ export function Chat({
             {/* 選択中の添付ファイルプレビュー */}
             {chatAttachments.length > 0 && (
               <div className="flex flex-wrap gap-1.5 p-2 bg-slate-50 border border-slate-200 rounded-xl mb-2">
-                {chatAttachments.map(att => (
-                  <div
-                    key={att.id}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-semibold"
-                  >
-                    <Paperclip className="w-3.5 h-3.5 text-slate-400" />
-                    <span className="text-slate-700 truncate max-w-[120px] sm:max-w-[150px]">{att.name}</span>
-                    <button
-                      type="button"
-                      onClick={() => setChatAttachments(chatAttachments.filter(a => a.id !== att.id))}
-                      className="text-slate-400 hover:text-red-500 font-bold ml-1 transition-colors"
+                {chatAttachments.map(att => {
+                  const isImage = att.type?.startsWith('image/') || /\.(jpe?g|png|webp|gif|svg)$/i.test(att.name);
+                  return (
+                    <div
+                      key={att.id}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-semibold shadow-2xs"
                     >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                ))}
+                      {isImage && att.url ? (
+                        <img src={att.url} alt={att.name} className="w-4 h-4 rounded object-cover shrink-0 border border-slate-200" />
+                      ) : (
+                        <Paperclip className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      )}
+                      <span className="text-slate-700 truncate max-w-[120px] sm:max-w-[150px]">{att.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => setChatAttachments(chatAttachments.filter(a => a.id !== att.id))}
+                        className="text-slate-400 hover:text-red-500 font-bold ml-1 transition-colors cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             )}
 
@@ -2564,8 +2665,8 @@ export function Chat({
                 onKeyDown={handleKeyDown}
                 onCompositionStart={() => setIsComposing(true)}
                 onCompositionEnd={() => setIsComposing(false)}
-                onPaste={chatPasteHandler.handlePaste}
-                placeholder={isBossMode ? "業務連絡・メッセージを入力... (Shift+Enterで改行, Enterで送信)" : "メッセージを入力... (Shift+Enterで改行, Enterで送信)"}
+                onPaste={handleChatTextareaPaste}
+                placeholder={isBossMode ? "業務連絡・メッセージを入力... (Shift+Enterで改行, Enterで送信, 画像貼付可)" : "メッセージを入力... (Shift+Enterで改行, 画像の貼り付け・ファイル添付可)"}
                 className="flex-1 min-w-0 px-3.5 sm:px-4 py-2 sm:py-2.5 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-xs sm:text-sm font-semibold text-slate-800 resize-none overflow-y-auto leading-relaxed"
                 style={{ minHeight: '38px', maxHeight: '120px' }}
               />

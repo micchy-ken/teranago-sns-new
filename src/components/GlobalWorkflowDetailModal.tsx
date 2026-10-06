@@ -416,6 +416,7 @@ export const GlobalWorkflowDetailModal: React.FC<GlobalWorkflowDetailModalProps>
                   <table className="w-full text-left text-xs border-collapse">
                     <thead>
                       <tr className="bg-slate-100 text-slate-600 font-bold border-b border-slate-200">
+                        <th className="p-2.5">品番</th>
                         <th className="p-2.5">品目・名称</th>
                         <th className="p-2.5">規格・型番</th>
                         <th className="p-2.5 text-center">数量</th>
@@ -429,8 +430,9 @@ export const GlobalWorkflowDetailModal: React.FC<GlobalWorkflowDetailModalProps>
                         const itemSubtotal = (item.quantity || 0) * (item.unitPrice || 0);
                         return (
                           <tr key={idx} className="hover:bg-slate-50/80 transition-colors">
+                            <td className="p-2.5 text-slate-600 font-mono text-[11px] font-semibold">{item.itemCode || item.code || '-'}</td>
                             <td className="p-2.5 font-bold text-slate-800">{item.itemName || item.name}</td>
-                            <td className="p-2.5 text-slate-500 font-mono text-[11px]">{item.specification || item.code || '-'}</td>
+                            <td className="p-2.5 text-slate-500 font-mono text-[11px]">{item.specification || '-'}</td>
                             <td className="p-2.5 text-center font-bold text-slate-700">{item.quantity} {item.unit || '個'}</td>
                             <td className="p-2.5 text-right font-medium text-slate-600">{formatCurrency(item.unitPrice)}</td>
                             <td className="p-2.5 text-right font-bold text-indigo-900">{formatCurrency(itemSubtotal)}</td>

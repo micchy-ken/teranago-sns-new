@@ -273,10 +273,18 @@ export function ApplicationModal({
       // 購入申請 (purchase_request) の場合は品名マスターとの自動連動を行わず、完全手入力とする
       if (type !== 'purchase_request') {
         const matchedMaster = itemMasters.find(m => m.name === nameVal);
-        const masterPrice = matchedMaster?.defaultUnitPrice ?? matchedMaster?.unitPrice;
-        if (matchedMaster && masterPrice !== undefined && masterPrice !== null) {
-          targetItem.unitPrice = Number(masterPrice);
-          targetItem.amount = (Number(targetItem.quantity) || 1) * Number(masterPrice);
+        if (matchedMaster) {
+          if (matchedMaster.code) {
+            targetItem.itemCode = matchedMaster.code;
+          }
+          const masterPrice = matchedMaster.defaultUnitPrice ?? matchedMaster.unitPrice;
+          if (masterPrice !== undefined && masterPrice !== null) {
+            targetItem.unitPrice = Number(masterPrice);
+            targetItem.amount = (Number(targetItem.quantity) || 1) * Number(masterPrice);
+          } else {
+            const p = Number(targetItem.unitPrice) || 0;
+            targetItem.amount = (Number(targetItem.quantity) || 0) * p;
+          }
         } else {
           const p = Number(targetItem.unitPrice) || 0;
           targetItem.amount = (Number(targetItem.quantity) || 0) * p;
@@ -284,6 +292,20 @@ export function ApplicationModal({
       } else {
         const p = Number(targetItem.unitPrice) || 0;
         targetItem.amount = (Number(targetItem.quantity) || 0) * p;
+      }
+    } else if (field === 'itemCode') {
+      const codeVal = String(value);
+      targetItem.itemCode = codeVal;
+      if (type !== 'purchase_request' && codeVal.trim()) {
+        const matchedByCode = itemMasters.find(m => m.code && m.code.toLowerCase() === codeVal.trim().toLowerCase());
+        if (matchedByCode && !targetItem.itemName) {
+          targetItem.itemName = matchedByCode.name;
+          const masterPrice = matchedByCode.defaultUnitPrice ?? matchedByCode.unitPrice;
+          if (masterPrice !== undefined && masterPrice !== null) {
+            targetItem.unitPrice = Number(masterPrice);
+            targetItem.amount = (Number(targetItem.quantity) || 1) * Number(masterPrice);
+          }
+        }
       }
     } else if (field === 'quantity') {
       if (value === '') {
@@ -413,10 +435,12 @@ export function ApplicationModal({
 
     const sanitizedPurchaseItems = isItemType
       ? purchaseItems.map(pi => {
+          const matchedMaster = itemMasters.find(m => m.name === pi.itemName);
           const qty = Math.max(1, Number(pi.quantity) || 1);
           const price = Math.max(0, Number(pi.unitPrice) || 0);
           return {
             ...pi,
+            itemCode: pi.itemCode || matchedMaster?.code || undefined,
             quantity: qty,
             unitPrice: price,
             amount: qty * price
@@ -542,10 +566,12 @@ export function ApplicationModal({
 
     const sanitizedPurchaseItems = isItemType
       ? purchaseItems.map(pi => {
+          const matchedMaster = itemMasters.find(m => m.name === pi.itemName);
           const qty = Math.max(1, Number(pi.quantity) || 1);
           const price = Math.max(0, Number(pi.unitPrice) || 0);
           return {
             ...pi,
+            itemCode: pi.itemCode || matchedMaster?.code || undefined,
             quantity: qty,
             unitPrice: price,
             amount: qty * price
@@ -1171,7 +1197,21 @@ export function ApplicationModal({
                     </div>
 
                     <div className="grid grid-cols-12 gap-2">
-                      <div className="col-span-12 sm:col-span-5">
+                      <div className="col-span-5 sm:col-span-2">
+                        <label className="block text-[10px] font-bold text-slate-600 mb-1">
+                          品番
+                        </label>
+                        <input
+                          type="text"
+                          autoComplete="off"
+                          value={item.itemCode || ''}
+                          onChange={e => handlePurchaseItemChange(idx, 'itemCode', e.target.value)}
+                          placeholder="例: M3-001"
+                          className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono font-medium text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                        />
+                      </div>
+
+                      <div className="col-span-7 sm:col-span-4">
                         <label className="block text-[10px] font-bold text-slate-600 mb-1">
                           品名 {type === 'purchase_request' ? <span className="text-slate-400 font-normal">(手入力)</span> : <span className="text-slate-400 font-normal">(マスタサジェスト/直接入力)</span>}
                         </label>
@@ -1201,7 +1241,7 @@ export function ApplicationModal({
                         />
                       </div>
 
-                      <div className="col-span-4 sm:col-span-2.5">
+                      <div className="col-span-4 sm:col-span-2">
                         <label className="block text-[10px] font-bold text-slate-600 mb-1">単価 (円)</label>
                         <input
                           type="number"
@@ -1215,8 +1255,8 @@ export function ApplicationModal({
                         />
                       </div>
 
-                      <div className="col-span-4 sm:col-span-2.5">
-                        <label className="block text-[10px] font-bold text-slate-600 mb-1">小計 (自動計算)</label>
+                      <div className="col-span-4 sm:col-span-2">
+                        <label className="block text-[10px] font-bold text-slate-600 mb-1">小計</label>
                         <div className="px-2.5 py-1.5 bg-slate-100/80 border border-slate-200/80 rounded-lg text-xs font-extrabold text-slate-800 text-right truncate">
                           ¥{(item.amount || 0).toLocaleString()}
                         </div>

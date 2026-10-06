@@ -190,7 +190,7 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
     }
 
     const itemsSummary = app.purchaseItems && app.purchaseItems.length > 0
-      ? app.purchaseItems.map(pi => `・${pi.itemName}: ${pi.quantity}個 (単価: ¥${pi.unitPrice.toLocaleString()})`).join('\n')
+      ? app.purchaseItems.map(pi => `・${pi.itemCode ? `[${pi.itemCode}] ` : ''}${pi.itemName}: ${pi.quantity}個 (単価: ¥${pi.unitPrice.toLocaleString()})`).join('\n')
       : '';
 
     setTransitioningApp(app);
@@ -710,24 +710,32 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
                       <table className="w-full text-left text-xs">
                         <thead>
                           <tr className="text-[11px] text-slate-500 border-b border-indigo-100/60">
-                            <th className="py-1 px-1 font-bold">品名</th>
-                            <th className="py-1 px-1 font-bold text-right">数量</th>
-                            <th className="py-1 px-1 font-bold text-right">想定単価</th>
-                            <th className="py-1 px-1 font-bold text-right">小計</th>
+                            <th className="py-1 px-1.5 font-bold">品番</th>
+                            <th className="py-1 px-1.5 font-bold">品名</th>
+                            <th className="py-1 px-1.5 font-bold text-right">数量</th>
+                            <th className="py-1 px-1.5 font-bold text-right">単価</th>
+                            <th className="py-1 px-1.5 font-bold text-right">小計</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-indigo-100/40 text-slate-800">
-                          {app.purchaseItems.map((pi, pidx) => (
-                            <tr key={pidx} className="hover:bg-indigo-100/30">
-                              <td className="py-1.5 px-1 font-medium">
-                                {pi.itemName}
-                                {pi.note && <span className="block text-[10px] text-slate-500 font-normal">{pi.note}</span>}
-                              </td>
-                              <td className="py-1.5 px-1 font-bold text-right shrink-0">{pi.quantity}</td>
-                              <td className="py-1.5 px-1 font-medium text-right shrink-0">¥{pi.unitPrice?.toLocaleString()}</td>
-                              <td className="py-1.5 px-1 font-extrabold text-indigo-900 text-right shrink-0">¥{pi.amount?.toLocaleString()}</td>
-                            </tr>
-                          ))}
+                          {app.purchaseItems.map((pi, pidx) => {
+                            const matchedMaster = itemMasters?.find(m => m.name === pi.itemName || m.id === (pi as any).itemId);
+                            const itemCode = pi.itemCode || (pi as any).code || matchedMaster?.code || '-';
+                            return (
+                              <tr key={pidx} className="hover:bg-indigo-100/30">
+                                <td className="py-1.5 px-1.5 font-mono text-[11px] text-slate-500 font-semibold shrink-0">
+                                  {itemCode}
+                                </td>
+                                <td className="py-1.5 px-1.5 font-medium">
+                                  {pi.itemName}
+                                  {pi.note && <span className="block text-[10px] text-slate-500 font-normal">{pi.note}</span>}
+                                </td>
+                                <td className="py-1.5 px-1.5 font-bold text-right shrink-0">{pi.quantity}</td>
+                                <td className="py-1.5 px-1.5 font-medium text-right shrink-0">¥{pi.unitPrice?.toLocaleString()}</td>
+                                <td className="py-1.5 px-1.5 font-extrabold text-indigo-900 text-right shrink-0">¥{pi.amount?.toLocaleString()}</td>
+                              </tr>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>

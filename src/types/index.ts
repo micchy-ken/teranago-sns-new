@@ -216,9 +216,10 @@ export interface ApprovalHistoryRecord {
 
 export interface PurchaseOrderItem {
   id?: string;
+  itemCode?: string;    // 品番・品名コード
   itemName: string;     // 品名
   quantity: number;     // 数量
-  unitPrice: number;    // 想定単価
+  unitPrice: number;    // 単価
   amount: number;       // 小計 (quantity * unitPrice)
   note?: string;        // 備考
 }
