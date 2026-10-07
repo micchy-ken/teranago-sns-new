@@ -132,6 +132,10 @@ export function TopicDetailModal({
           return null;
         }
 
+        if (!resolvedUser.name || resolvedUser.name === 'ユーザー情報取得中...') {
+          resolvedUser = { ...resolvedUser, name: matchedUser?.name || 'メンバー' };
+        }
+
         return {
           ...v,
           id: v.id || uId,
@@ -145,7 +149,10 @@ export function TopicDetailModal({
     if (currentUser?.id && topic && !list.some(v => String(v.user?.id) === String(currentUser.id) || v.user?.name === currentUser.name)) {
       list.push({
         id: currentUser.id,
-        user: currentUser,
+        user: {
+          ...currentUser,
+          name: (!currentUser.name || currentUser.name === 'ユーザー情報取得中...') ? 'メンバー' : currentUser.name
+        },
         viewedAt: new Date().toISOString()
       });
     }
@@ -206,11 +213,19 @@ export function TopicDetailModal({
         viewRecordedTopicIdsRef.current.add(topic.id);
         markTopicAsRead(currentUser.id, topic.id);
 
+        const effectiveUser = (currentUser.name && currentUser.name !== 'ユーザー情報取得中...')
+          ? currentUser
+          : (users.find(u => String(u.id) === String(currentUser.id)) || currentUser);
+        const payloadUser = {
+          ...effectiveUser,
+          name: (!effectiveUser.name || effectiveUser.name === 'ユーザー情報取得中...') ? 'メンバー' : effectiveUser.name
+        };
+
         // サーバー側の既読登録APIを直接呼び出し（永続化を確実にする）
         fetch(`${API_BASE_URL}/bulletins/${topic.id}/viewers`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId: currentUser.id, user: currentUser })
+          body: JSON.stringify({ userId: currentUser.id, user: payloadUser })
         }).catch(err => console.warn('Failed to post viewer to API:', err));
 
         const isAlreadyViewer = (topic.viewers || []).some(v => {

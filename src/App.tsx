@@ -361,9 +361,18 @@ export default function App() {
   });
 
   const [userState, setUserState] = useState<User>(() => {
+    const cachedUserData = localStorage.getItem('logged_in_user_data');
+    if (cachedUserData) {
+      try {
+        const parsed = JSON.parse(cachedUserData);
+        if (parsed && parsed.id && parsed.name && parsed.name !== 'ユーザー情報取得中...') {
+          return parsed;
+        }
+      } catch (_) {}
+    }
     const savedUserId = localStorage.getItem('logged_in_user_id');
     if (savedUserId) {
-      return { id: savedUserId, name: 'ユーザー情報取得中...', role: 'user', department: '', avatarUrl: '' };
+      return { id: savedUserId, name: '', role: 'user', department: '', avatarUrl: '' };
     }
     return { id: 'u1', name: 'ユーザー', role: 'user', department: '', avatarUrl: '' };
   });
@@ -390,6 +399,7 @@ export default function App() {
     setIsAuthenticated(true);
     localStorage.setItem('is_logged_in', 'true');
     localStorage.setItem('logged_in_user_id', user.id);
+    localStorage.setItem('logged_in_user_data', JSON.stringify(user));
     sessionStorage.setItem(`teranago_session_access_${user.id}`, new Date().toDateString());
     logActivity('login', 'システムにログインしました', user);
   };
@@ -399,6 +409,7 @@ export default function App() {
     setIsAuthenticated(false);
     localStorage.removeItem('is_logged_in');
     localStorage.removeItem('logged_in_user_id');
+    localStorage.removeItem('logged_in_user_data');
   };
 
   const [activeTab, setActiveTab] = useState<AppTab>(() => initialUrlParams.tab || 'mypage');
@@ -638,6 +649,7 @@ export default function App() {
           const found = processedUsers.find(u => u.id === String(targetId));
           if (found) {
             setUserState(found);
+            localStorage.setItem('logged_in_user_data', JSON.stringify(found));
           }
         }
         return processedUsers;
@@ -1126,11 +1138,70 @@ export default function App() {
               }
             }
 
+            const rawMessages = Array.isArray(room.messages) ? room.messages : [];
+            const resolvedMessages = rawMessages.map((msg: any) => {
+              if (!msg) return msg;
+              // 送信者(sender)のユーザー情報補正
+              let resolvedSender = msg.sender;
+              if (resolvedSender) {
+                const sId = String(resolvedSender.id ?? '');
+                const sName = resolvedSender.name;
+                const matchedSender = currentUsers.find(u =>
+                  (sId && (String(u.id) === sId || String(u.loginId) === sId)) ||
+                  (sName && sName !== 'ユーザー情報取得中...' && u.name === sName)
+                );
+                if (matchedSender) {
+                  resolvedSender = { ...resolvedSender, ...matchedSender };
+                } else if (resolvedSender.name === 'ユーザー情報取得中...') {
+                  resolvedSender = { ...resolvedSender, name: 'メンバー' };
+                }
+              }
+
+              // 既読者(viewers)のユーザー情報補正
+              let resolvedViewers = msg.viewers;
+              if (Array.isArray(msg.viewers)) {
+                resolvedViewers = msg.viewers.map((v: any) => {
+                  if (!v) return null;
+                  const vUserObj = typeof v.user === 'object' && v.user ? v.user : {};
+                  const vUserId = String(vUserObj.id ?? v.user ?? v.userId ?? v.user_id ?? v.id ?? '');
+                  const vUserName = vUserObj.name || v.name;
+                  const vLoginId = vUserObj.loginId || v.loginId;
+
+                  const matched = currentUsers.find(u =>
+                    (vUserId && (String(u.id) === vUserId || String(u.loginId) === vUserId)) ||
+                    (vLoginId && (String(u.loginId) === String(vLoginId) || String(u.id) === String(vLoginId))) ||
+                    (vUserName && vUserName !== 'ユーザー情報取得中...' && u.name === vUserName)
+                  ) || (userState && (
+                    (vUserId && (String(userState.id) === vUserId || String(userState.loginId) === vUserId)) ||
+                    (vUserName && vUserName !== 'ユーザー情報取得中...' && userState.name === vUserName)
+                  ) ? userState : null);
+
+                  let resolvedUser = matched ? { ...vUserObj, ...matched } : vUserObj;
+                  if (!resolvedUser.name || resolvedUser.name === 'ユーザー情報取得中...') {
+                    resolvedUser = { ...resolvedUser, name: matched?.name || 'メンバー' };
+                  }
+
+                  return {
+                    ...v,
+                    id: v.id || vUserId,
+                    user: resolvedUser,
+                    viewedAt: v.viewedAt || v.viewed_at || new Date().toISOString()
+                  };
+                }).filter(Boolean);
+              }
+
+              return {
+                ...msg,
+                sender: resolvedSender,
+                viewers: resolvedViewers
+              };
+            });
+
             return {
               ...room,
               id: String(room.id),
               participants: resolvedParticipants,
-              messages: Array.isArray(room.messages) ? room.messages : []
+              messages: resolvedMessages
             };
           })
           .filter((room: any) => {
@@ -1558,6 +1629,7 @@ export default function App() {
   const handleSwitchUser = (user: User) => {
     setUserState(user);
     localStorage.setItem('logged_in_user_id', user.id);
+    localStorage.setItem('logged_in_user_data', JSON.stringify(user));
   };
 
   // User Management

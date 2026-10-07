@@ -647,11 +647,20 @@ export function Chat({
 
     const markAsRead = async () => {
       try {
+        const effectiveUser = (currentUser?.name && currentUser.name !== 'ユーザー情報取得中...')
+          ? currentUser
+          : (users.find(u => String(u.id) === String(currentUser?.id)) || currentUser);
+
+        const payloadUser = {
+          ...effectiveUser,
+          name: (!effectiveUser?.name || effectiveUser.name === 'ユーザー情報取得中...') ? 'メンバー' : effectiveUser.name
+        };
+
         const promises = unreadMsgs.map(async (msg) => {
           await fetch(`${API_BASE_URL}/chats/messages/${msg.id}/viewers`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user: currentUser })
+            body: JSON.stringify({ user: payloadUser })
           });
         });
         await Promise.all(promises);
@@ -3106,38 +3115,60 @@ export function Chat({
                       </div>
                     );
                   }
-                  return readMembers.map((v, idx) => (
-                    <div
-                      key={idx}
-                      className="flex items-center justify-between p-3 bg-slate-50 border border-slate-200/80 rounded-xl text-xs"
-                    >
-                      <div className="flex items-center gap-2.5">
-                        {(() => {
-                          const viewerUser = (v.user.id === currentUser.id ? currentUser : undefined) || users.find((u) => u.id === v.user.id) || v.user;
-                          const viewerAvatar = (v.user.id === currentUser.id ? currentUser.avatarUrl : viewerUser?.avatarUrl) || v.user.avatarUrl;
-                          const viewerName = (v.user.id === currentUser.id ? currentUser.name : viewerUser?.name) || v.user.name;
-                          return (
-                            <img
-                              src={getAvatarUrl(viewerAvatar)}
-                              alt={viewerName}
-                              onError={handleAvatarError}
-                              className="w-8 h-8 rounded-full border border-slate-200 object-cover"
-                              referrerPolicy="no-referrer"
-                            />
-                          );
-                        })()}
-                        <div>
-                          <div className="font-bold text-slate-800">{v.user.name}</div>
-                          <div className="text-[10px] text-slate-500">
-                            {v.user.office || ''} {v.user.division || ''}
+                  return readMembers.map((vItem: any, idx) => {
+                    const v = vItem || {};
+                    const vUserObj: any = (v.user && typeof v.user === 'object') ? v.user : {};
+                    const vUserId = String(vUserObj.id ?? v.user ?? v.userId ?? v.user_id ?? v.id ?? '');
+                    const vUserName = vUserObj.name || v.name;
+                    const vLoginId = vUserObj.loginId || v.loginId;
+
+                    // ユーザー特定 (ID, ログインID, 氏名からユーザーマスターを参照)
+                    const matchedUser = (users || []).find((u) =>
+                      (vUserId && (String(u.id) === vUserId || String(u.loginId) === vUserId)) ||
+                      (vLoginId && (String(u.loginId) === String(vLoginId) || String(u.id) === String(vLoginId))) ||
+                      (vUserName && vUserName !== 'ユーザー情報取得中...' && u.name === vUserName)
+                    ) || (currentUser && (
+                      (vUserId && (String(currentUser.id) === vUserId || String(currentUser.loginId) === vUserId)) ||
+                      (vUserName && vUserName !== 'ユーザー情報取得中...' && currentUser.name === vUserName)
+                    ) ? currentUser : null);
+
+                    const finalUser: any = matchedUser ? { ...vUserObj, ...matchedUser } : vUserObj;
+                    let displayName = finalUser.name;
+                    if (!displayName || displayName === 'ユーザー情報取得中...') {
+                      displayName = matchedUser?.name || 'メンバー';
+                    }
+                    const displayAvatar = finalUser.avatarUrl || matchedUser?.avatarUrl;
+                    const displayOffice = finalUser.office || matchedUser?.office || '';
+                    const displayDivision = finalUser.division || matchedUser?.division || '';
+
+                    return (
+                      <div
+                        key={idx}
+                        className="flex items-center justify-between p-3 bg-slate-50 border border-slate-200/80 rounded-xl text-xs"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <img
+                            src={getAvatarUrl(displayAvatar)}
+                            alt={displayName}
+                            onError={handleAvatarError}
+                            className="w-8 h-8 rounded-full border border-slate-200 object-cover"
+                            referrerPolicy="no-referrer"
+                          />
+                          <div>
+                            <div className="font-bold text-slate-800">{displayName}</div>
+                            {(displayOffice || displayDivision) && (
+                              <div className="text-[10px] text-slate-500">
+                                {displayOffice} {displayDivision}
+                              </div>
+                            )}
                           </div>
                         </div>
+                        <div className="text-[10px] font-mono text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                          {new Date(v.viewedAt).toLocaleDateString('ja-JP')} {new Date(v.viewedAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}
+                        </div>
                       </div>
-                      <div className="text-[10px] font-mono text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                        {new Date(v.viewedAt).toLocaleDateString('ja-JP')} {new Date(v.viewedAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}
-                      </div>
-                    </div>
-                  ));
+                    );
+                  });
                 })()}
               </div>
             </div>
