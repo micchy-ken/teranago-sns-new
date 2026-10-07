@@ -445,35 +445,65 @@ export function MemoList({
   ).length;
   const allCount = memos.length;
 
-  const filteredMemos = memos.filter((m) => {
-    const statuses = m.recipientStatuses || [];
-    const isRecipient = statuses.some((st) => st.userId === currentUser?.id) ||
-      (m.toUsers && m.toUsers.some((u) => u.id === currentUser?.id)) ||
-      (m.toUser && m.toUser.id === currentUser?.id);
-    const isCreator = (m.createdByUser?.id === currentUser?.id || m.senderId === currentUser?.id);
+  const filteredMemos = memos
+    .filter((m) => {
+      const statuses = m.recipientStatuses || [];
+      const isRecipient = statuses.some((st) => st.userId === currentUser?.id) ||
+        (m.toUsers && m.toUsers.some((u) => u.id === currentUser?.id)) ||
+        (m.toUser && m.toUser.id === currentUser?.id);
+      const isCreator = (m.createdByUser?.id === currentUser?.id || m.senderId === currentUser?.id);
 
-    // 1. スコープフィルター (自分宛て / 作成した伝言 / すべて)
-    if (scope === 'inbox' && !isRecipient) return false;
-    if (scope === 'sent' && !isCreator) return false;
+      // 1. スコープフィルター (自分宛て / 作成した伝言 / すべて)
+      if (scope === 'inbox' && !isRecipient) return false;
+      if (scope === 'sent' && !isCreator) return false;
 
-    // 2. ステータスフィルター
-    const myStatus = statuses.find((st) => st.userId === currentUser?.id);
-    const isHandledForMe = isRecipient
-      ? (myStatus ? myStatus.isHandled : m.status === 'handled')
-      : (m.status === 'handled' || (statuses.length > 0 && statuses.every((s) => s.isHandled)));
+      // 2. ステータスフィルター
+      const myStatus = statuses.find((st) => st.userId === currentUser?.id);
+      const isHandledForMe = isRecipient
+        ? (myStatus ? myStatus.isHandled : m.status === 'handled')
+        : (m.status === 'handled' || (statuses.length > 0 && statuses.every((s) => s.isHandled)));
 
-    if (filter === 'unread' && isHandledForMe) return false;
-    if (filter === 'handled' && !isHandledForMe) return false;
+      if (filter === 'unread' && isHandledForMe) return false;
+      if (filter === 'handled' && !isHandledForMe) return false;
 
-    // 3. 拠点フィルター
-    if (selectedOfficeFilter !== 'all') {
-      const matchOffice = m.targetOffices?.includes(selectedOfficeFilter);
-      const matchUserOffice = statuses.some((st) => st.office === selectedOfficeFilter);
-      if (!matchOffice && !matchUserOffice) return false;
-    }
+      // 3. 拠点フィルター
+      if (selectedOfficeFilter !== 'all') {
+        const matchOffice = m.targetOffices?.includes(selectedOfficeFilter);
+        const matchUserOffice = statuses.some((st) => st.office === selectedOfficeFilter);
+        if (!matchOffice && !matchUserOffice) return false;
+      }
 
-    return true;
-  });
+      return true;
+    })
+    .sort((a, b) => {
+      // 未対応を最優先で一番上に表示（同ステータス内は作成日時の新しい順）
+      const aStatuses = a.recipientStatuses || [];
+      const aIsRecipient = aStatuses.some((st) => st.userId === currentUser?.id) ||
+        (a.toUsers && a.toUsers.some((u) => u.id === currentUser?.id)) ||
+        (a.toUser && a.toUser.id === currentUser?.id);
+      const aMyStatus = aStatuses.find((st) => st.userId === currentUser?.id);
+      const aHandled = aIsRecipient
+        ? (aMyStatus ? aMyStatus.isHandled : a.status === 'handled')
+        : (a.status === 'handled' || (aStatuses.length > 0 && aStatuses.every((s) => s.isHandled)));
+
+      const bStatuses = b.recipientStatuses || [];
+      const bIsRecipient = bStatuses.some((st) => st.userId === currentUser?.id) ||
+        (b.toUsers && b.toUsers.some((u) => u.id === currentUser?.id)) ||
+        (b.toUser && b.toUser.id === currentUser?.id);
+      const bMyStatus = bStatuses.find((st) => st.userId === currentUser?.id);
+      const bHandled = bIsRecipient
+        ? (bMyStatus ? bMyStatus.isHandled : b.status === 'handled')
+        : (b.status === 'handled' || (bStatuses.length > 0 && bStatuses.every((s) => s.isHandled)));
+
+      const aScore = aHandled ? 0 : 1;
+      const bScore = bHandled ? 0 : 1;
+
+      if (aScore !== bScore) {
+        return bScore - aScore; // 未対応(1)が先頭
+      }
+
+      return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+    });
 
   return (
     <div className="flex-1 bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden flex flex-col h-[calc(100vh-8rem)]">

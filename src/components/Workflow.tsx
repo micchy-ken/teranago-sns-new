@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { WorkflowApplication, ApplicationType, ApplicationStatus, User as UserType, ApprovalFlowRule, ApprovalStepConfig, ItemMaster, AttachmentFile } from '../types';
+import { WorkflowApplication, ApplicationType, ApplicationStatus, User as UserType, ApprovalFlowRule, ApprovalStepConfig, ItemMaster, AttachmentFile, OfficeMaster } from '../types';
 import { FileText, CheckCircle2, XCircle, Clock, Plus, ArrowRight, GitMerge, UserCheck, AlertTriangle, Edit3, MessageSquare, Send, X, ShoppingBag, Building2, Hash, ExternalLink, Package, Calendar, RotateCcw, Trash2, Paperclip, ChevronDown, ChevronUp, Zap, Store, CreditCard, UserPlus, Coins } from 'lucide-react';
 import { ApplicationModal } from './ApplicationModal';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
@@ -18,6 +18,7 @@ interface WorkflowProps {
   onWorkflowAction?: (id: string, status: 'approved' | 'rejected', comment?: string) => void;
   itemMasters?: ItemMaster[];
   initialAppId?: string;
+  offices?: OfficeMaster[];
 }
 
 const typeLabels: Record<string, string> = {
@@ -47,7 +48,7 @@ const getStatusConfig = (status?: string) => {
   return statusConfig.pending;
 };
 
-export function Workflow({ applications, onAddApplication, onUpdateApplication, onDeleteApplication, allUsers, currentUser, approvalFlows, onWorkflowAction, itemMasters = [], initialAppId }: WorkflowProps) {
+export function Workflow({ applications, onAddApplication, onUpdateApplication, onDeleteApplication, allUsers, currentUser, approvalFlows, onWorkflowAction, itemMasters = [], initialAppId, offices = [] }: WorkflowProps) {
   const [filter, setFilter] = useState<'my_applications' | 'pending_approval' | 'approved' | 'draft'>('my_applications');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [highlightedAppId, setHighlightedAppId] = useState<string | null>(null);
@@ -607,7 +608,10 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
                     <div className="flex items-center justify-between text-xs font-bold text-amber-950 border-b border-amber-200/50 pb-1.5">
                       <span className="flex items-center gap-1.5">
                         <Coins className="w-4 h-4 text-amber-600" />
-                        <span>金銀日報 保管残高 {app.location ? `(${app.location})` : ''}</span>
+                        {(() => {
+                          const offName = offices?.find(o => o.id === app.officeId)?.name || app.location || '';
+                          return <span>金銀日報 保管残高 {offName ? `(${offName})` : ''}</span>;
+                        })()}
                       </span>
                       {app.currentBalance !== undefined && app.previousBalance !== undefined && (() => {
                         const diff = app.currentBalance - app.previousBalance;
@@ -1192,6 +1196,7 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
         approvalFlows={approvalFlows}
         itemMasters={itemMasters}
         applications={applications}
+        offices={offices}
       />
 
       {/* 編集・再申請用モーダル */}
@@ -1214,6 +1219,7 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
         initialData={editingApp}
         itemMasters={itemMasters}
         applications={applications}
+        offices={offices}
       />
 
       {/* 却下理由入力ダイアログ */}

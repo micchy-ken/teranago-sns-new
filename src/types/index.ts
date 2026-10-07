@@ -269,6 +269,7 @@ export interface WorkflowApplication {
   previousBalance?: number; // 前回残高
   currentBalance?: number;  // 今回残高
   location?: string;        // 拠点
+  officeId?: string;        // 拠点マスターID (名称変更耐性)
 
   // 承認フロー拡張
   flowId?: string;

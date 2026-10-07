@@ -3,7 +3,8 @@ import {
   WorkflowApplication, 
   User, 
   AttachmentFile,
-  PurchaseOrderItem 
+  PurchaseOrderItem,
+  OfficeMaster
 } from '../types';
 import { 
   FileText, 
@@ -40,6 +41,7 @@ export interface GlobalWorkflowDetailModalProps {
   application: WorkflowApplication | null;
   currentUser: User;
   allUsers?: User[];
+  offices?: OfficeMaster[];
   onClose: () => void;
   onWorkflowAction?: (id: string, status: 'approved' | 'rejected', comment?: string) => Promise<void> | void;
   onUpdateApplication?: (app: WorkflowApplication) => Promise<void> | void;
@@ -84,6 +86,7 @@ export const GlobalWorkflowDetailModal: React.FC<GlobalWorkflowDetailModalProps>
   application,
   currentUser,
   allUsers = [],
+  offices = [],
   onClose,
   onWorkflowAction,
   onUpdateApplication,
@@ -382,7 +385,10 @@ export const GlobalWorkflowDetailModal: React.FC<GlobalWorkflowDetailModalProps>
               <div className="flex items-center justify-between text-xs font-bold text-amber-950 border-b border-amber-200/60 pb-2">
                 <span className="flex items-center gap-1.5">
                   <Coins className="w-4 h-4 text-amber-600" />
-                  <span>金銀日報 保管残高 {application.location ? `(${application.location})` : ''}</span>
+                  {(() => {
+                    const offName = offices.find(o => o.id === application.officeId)?.name || application.location || '';
+                    return <span>金銀日報 保管残高 {offName ? `(${offName})` : ''}</span>;
+                  })()}
                 </span>
                 {application.currentBalance !== undefined && application.previousBalance !== undefined && (() => {
                   const diff = application.currentBalance - application.previousBalance;

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, GitMerge, ArrowRight, CheckCircle2, UserCheck, ShieldCheck, AlertCircle, Plus, Trash2, Building2, ShoppingBag, Calculator, Calendar, Save, Send, Paperclip, Loader2, UploadCloud, Store, Clock, CreditCard, FileText, UserPlus, Zap, Coins } from 'lucide-react';
-import { ApplicationType, WorkflowApplication, User, ApprovalFlowRule, ApprovalStepConfig, ItemMaster, PurchaseOrderItem, ApplicationStatus, AttachmentFile } from '../types';
+import { ApplicationType, WorkflowApplication, User, ApprovalFlowRule, ApprovalStepConfig, ItemMaster, PurchaseOrderItem, ApplicationStatus, AttachmentFile, OfficeMaster } from '../types';
 import { filterStepsForApplicant, getSupervisorAtLevel, resolveApproverForStep, resolveApproverForStepDetails, isDuplicateApproverStep } from '../utils/workflowHelpers';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { uploadMultipleFiles } from '../utils/fileUpload';
@@ -19,6 +19,7 @@ interface ApplicationModalProps {
   initialTitle?: string;
   initialDescription?: string;
   applications?: WorkflowApplication[];
+  offices?: OfficeMaster[];
 }
 
 const typeLabels: Record<ApplicationType, string> = {
@@ -45,6 +46,7 @@ export function ApplicationModal({
   initialTitle,
   initialDescription,
   applications = [],
+  offices = [],
 }: ApplicationModalProps) {
   const [type, setType] = useState<ApplicationType>('purchase_order');
   const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
@@ -60,6 +62,29 @@ export function ApplicationModal({
   const [previousBalance, setPreviousBalance] = useState<number | ''>('');
   const [currentBalance, setCurrentBalance] = useState<number | ''>('');
   const [reportOffice, setReportOffice] = useState<string>('');
+  const [reportOfficeId, setReportOfficeId] = useState<string>('');
+
+  // 拠点マスターIDおよび名称を特定するヘルパー（ID最優先・マスター名称変更耐性）
+  const resolveOfficeInfo = (targetOfficeNameOrId?: string, fallbackId?: string) => {
+    const raw = (targetOfficeNameOrId || reportOffice || currentUser.office || '').trim();
+    const hintId = fallbackId || reportOfficeId;
+
+    // 1. offices マスターからIDまたは名称で完全一致検索
+    let matched = offices.find(o => (hintId && o.id === hintId) || o.id === raw || o.name === raw);
+    if (!matched) {
+      // 2. 部分一致検索
+      matched = offices.find(o => raw && (o.name.includes(raw) || raw.includes(o.name)));
+    }
+    if (!matched && currentUser.office) {
+      matched = offices.find(o => o.name === currentUser.office || o.id === currentUser.office);
+    }
+    
+    return {
+      id: matched?.id || hintId || undefined,
+      name: matched?.name || raw || currentUser.office || '本社',
+      code: matched?.code || undefined
+    };
+  };
 
   // 今日の日付 (YYYY/MM/DD)
   const getTodayFormatted = () => {
@@ -72,26 +97,47 @@ export function ApplicationModal({
 
   // 金銀日報のタイトル自動生成
   const getGoldSilverReportTitle = (officeName?: string) => {
-    const off = officeName || currentUser.office || '本社';
+    const off = officeName || reportOffice || currentUser.office || '本社';
     return `金銀日報-${off} (${getTodayFormatted()})`;
   };
 
   // 同一拠点の直近の金銀日報から「今回残高」を検索して「前回残高」として引き継ぐ
-  const findLatestBalanceForOffice = (targetOffice?: string) => {
+  // 【拠点ID照合】を最優先とし、マスター名称変更や異なるユーザー間でも確実に残高を継承
+  const findLatestBalanceForOffice = (targetOfficeIdOrName?: string, explicitName?: string) => {
     if (!applications || applications.length === 0) return undefined;
-    const off = (targetOffice || currentUser.office || '').trim();
+    const currentOffice = resolveOfficeInfo(explicitName || targetOfficeIdOrName, targetOfficeIdOrName);
+
     const matched = applications.filter(a => {
       if (a.type !== 'gold_silver_daily_report') return false;
       if (a.status === 'draft' || a.status === 'rejected') return false;
       if (a.currentBalance === undefined || a.currentBalance === null) return false;
+
+      // ① 【最優先】拠点マスターIDによる照合（マスター名称変更耐性・ユーザー不問）
+      if (currentOffice.id) {
+        // 保存済み a.officeId との完全一致
+        if (a.officeId && String(a.officeId) === String(currentOffice.id)) return true;
+
+        // 過去の申請で a.officeId が未保存の場合、過去の location / applicant.office / title から該当IDを逆引き照合
+        const pastAppOffice = (a.location || a.applicant?.office || '').trim();
+        const pastOfficeObj = offices.find(o => 
+          (pastAppOffice && (o.name === pastAppOffice || o.id === pastAppOffice || o.code === pastAppOffice || o.name.includes(pastAppOffice) || pastAppOffice.includes(o.name))) ||
+          (a.title && o.name && a.title.includes(o.name))
+        );
+        if (pastOfficeObj && String(pastOfficeObj.id) === String(currentOffice.id)) return true;
+      }
+
+      // ② 【後方互換】名称によるフォールバック照合（マスター未登録拠点等の場合）
+      const offName = currentOffice.name.trim();
       const appOffice = (a.location || a.applicant?.office || '').trim();
-      if (off && appOffice && appOffice === off) return true;
-      if (off && a.title?.includes(off)) return true;
-      if (!off) return true;
+      if (offName && appOffice && (appOffice === offName || appOffice.includes(offName) || offName.includes(appOffice))) return true;
+      if (offName && a.title && a.title.includes(offName)) return true;
+      if (!offName) return true;
+
       return false;
     });
+
     if (matched.length === 0) return undefined;
-    // 作成日時が新しい順にソート
+    // 作成日時が新しい順にソート (createdAt 降順)
     matched.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
     return matched[0].currentBalance;
   };
@@ -179,7 +225,10 @@ export function ApplicationModal({
         setDescription(initialData.description);
         setPreviousBalance(initialData.previousBalance !== undefined ? initialData.previousBalance : '');
         setCurrentBalance(initialData.currentBalance !== undefined ? initialData.currentBalance : '');
-        setReportOffice(initialData.location || initialData.applicant?.office || currentUser.office || '本社');
+        const initOffId = initialData.officeId || offices.find(o => o.name === initialData.location || o.id === initialData.location || (initialData.applicant?.office && (o.name === initialData.applicant.office || o.id === initialData.applicant.office)))?.id || '';
+        const initOffName = offices.find(o => o.id === initOffId)?.name || initialData.location || initialData.applicant?.office || currentUser.office || '本社';
+        setReportOfficeId(initOffId);
+        setReportOffice(initOffName);
         setPurchasePurpose(initialData.purchasePurpose || '');
         setPurchaseTiming(initialData.purchaseTiming || 'urgent');
         setPurchaseDueDate(initialData.purchaseDueDate ? initialData.purchaseDueDate.substring(0, 10) : '');
@@ -203,13 +252,16 @@ export function ApplicationModal({
         }
       } else {
         const defaultType: ApplicationType = initialType || 'purchase_order';
-        const initialOffice = currentUser.office || '本社';
-        setReportOffice(initialOffice);
+        const userOfficeObj = offices.find(o => (o.name && currentUser.office && o.name === currentUser.office) || o.id === currentUser.office || (o.name && currentUser.department && currentUser.department.includes(o.name)));
+        const initialOfficeId = userOfficeObj?.id || '';
+        const initialOfficeName = userOfficeObj?.name || currentUser.office || (offices.length > 0 ? offices[0].name : '本社');
+        setReportOfficeId(initialOfficeId);
+        setReportOffice(initialOfficeName);
         setType(defaultType);
         
         if (defaultType === 'gold_silver_daily_report') {
-          setTitle(initialTitle || getGoldSilverReportTitle(initialOffice));
-          const latestPrev = findLatestBalanceForOffice(initialOffice);
+          setTitle(initialTitle || getGoldSilverReportTitle(initialOfficeName));
+          const latestPrev = findLatestBalanceForOffice(initialOfficeId, initialOfficeName);
           setPreviousBalance(latestPrev !== undefined ? latestPrev : '');
           setCurrentBalance('');
         } else {
@@ -256,7 +308,7 @@ export function ApplicationModal({
         }
       }
     }
-  }, [isOpen, initialData, initialType, initialTitle, initialDescription]);
+  }, [isOpen, initialData, initialType, initialTitle, initialDescription, applications, offices, currentUser]);
 
   // 明細行の更新
   const handlePurchaseItemChange = (
@@ -357,14 +409,14 @@ export function ApplicationModal({
     setType(newType);
     if (!initialData) {
       if (newType === 'gold_silver_daily_report') {
-        const off = reportOffice || currentUser.office || '本社';
-        setTitle(getGoldSilverReportTitle(off));
-        if (previousBalance === '') {
-          const latestPrev = findLatestBalanceForOffice(off);
-          if (latestPrev !== undefined) {
-            setPreviousBalance(latestPrev);
-          }
-        }
+        const userOffObj = offices.find(o => (reportOfficeId && o.id === reportOfficeId) || (reportOffice && o.name === reportOffice) || (currentUser.office && o.name === currentUser.office) || (currentUser.office && o.id === currentUser.office));
+        const offId = reportOfficeId || userOffObj?.id || (offices.length > 0 ? offices[0].id : '');
+        const offName = userOffObj?.name || reportOffice || currentUser.office || (offices.length > 0 ? offices[0].name : '本社');
+        setReportOfficeId(offId);
+        setReportOffice(offName);
+        setTitle(getGoldSilverReportTitle(offName));
+        const latestPrev = findLatestBalanceForOffice(offId, offName);
+        setPreviousBalance(latestPrev !== undefined ? latestPrev : '');
       } else if (title.startsWith('金銀日報-')) {
         setTitle('');
       }
@@ -454,6 +506,8 @@ export function ApplicationModal({
         ? (currentBalance !== '' ? Number(currentBalance) : undefined)
         : (amount !== '' ? Number(amount) : undefined);
 
+    const resolvedOff = resolveOfficeInfo(reportOffice, reportOfficeId);
+
     onSave({
       id: initialData?.id,
       type,
@@ -463,7 +517,8 @@ export function ApplicationModal({
       amount: finalAmount,
       previousBalance: isGoldSilver ? (previousBalance !== '' ? Number(previousBalance) : undefined) : undefined,
       currentBalance: isGoldSilver ? (currentBalance !== '' ? Number(currentBalance) : undefined) : undefined,
-      location: isGoldSilver ? (reportOffice || currentUser.office || '本社') : undefined,
+      location: isGoldSilver ? (resolvedOff.name || reportOffice || currentUser.office || '本社') : undefined,
+      officeId: isGoldSilver ? (resolvedOff.id || reportOfficeId || undefined) : undefined,
       purchasePurpose: type === 'purchase_request' ? purchasePurpose : undefined,
       purchaseTiming: type === 'purchase_request' ? purchaseTiming : undefined,
       purchaseDueDate: (type === 'purchase_request' && purchaseTiming === 'by_date' && purchaseDueDate) ? purchaseDueDate : undefined,
@@ -585,6 +640,8 @@ export function ApplicationModal({
         ? Number(currentBalance)
         : (amount !== '' ? Number(amount) : undefined);
 
+    const resolvedOff = resolveOfficeInfo(reportOffice, reportOfficeId);
+
     onSave({
       id: initialData?.id,
       type,
@@ -594,7 +651,8 @@ export function ApplicationModal({
       amount: finalAmount,
       previousBalance: isGoldSilver ? Number(previousBalance) : undefined,
       currentBalance: isGoldSilver ? Number(currentBalance) : undefined,
-      location: isGoldSilver ? (reportOffice || currentUser.office || '本社') : undefined,
+      location: isGoldSilver ? (resolvedOff.name || reportOffice || currentUser.office || '本社') : undefined,
+      officeId: isGoldSilver ? (resolvedOff.id || reportOfficeId || undefined) : undefined,
       purchasePurpose: type === 'purchase_request' ? purchasePurpose : undefined,
       purchaseTiming: type === 'purchase_request' ? purchaseTiming : undefined,
       purchaseDueDate: (type === 'purchase_request' && purchaseTiming === 'by_date' && purchaseDueDate) ? purchaseDueDate : undefined,
@@ -963,21 +1021,48 @@ export function ApplicationModal({
           {/* 金銀日報 専用フィールド (前回残高・今回残高・拠点表示) */}
           {type === 'gold_silver_daily_report' && (
             <div className="p-4 bg-gradient-to-br from-amber-50/90 to-yellow-50/60 border border-amber-200/90 rounded-2xl space-y-4">
-              <div className="flex items-center justify-between border-b border-amber-200/70 pb-2.5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b border-amber-200/70 pb-2.5">
                 <div className="flex items-center gap-2">
                   <div className="p-1.5 bg-amber-500 text-white rounded-lg shadow-xs">
                     <Coins className="w-4 h-4" />
                   </div>
                   <div>
                     <h4 className="text-xs font-black text-amber-950">金銀日報 保管残高入力</h4>
-                    <p className="text-[11px] text-amber-800 font-medium">
-                      対象拠点: <span className="font-bold underline">{reportOffice || currentUser.office || '本社'}</span>
-                    </p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-[11px] text-amber-800 font-bold flex items-center gap-1">
+                        <Building2 className="w-3 h-3 text-amber-700" />
+                        対象拠点:
+                      </span>
+                      {offices.length > 0 ? (
+                        <select
+                          value={reportOfficeId || (offices.find(o => o.name === reportOffice)?.id || '')}
+                          onChange={(e) => {
+                            const selectedId = e.target.value;
+                            const targetOffice = offices.find(o => o.id === selectedId);
+                            const newName = targetOffice?.name || reportOffice;
+                            setReportOfficeId(selectedId);
+                            setReportOffice(newName);
+                            setTitle(getGoldSilverReportTitle(newName));
+                            const latest = findLatestBalanceForOffice(selectedId, newName);
+                            setPreviousBalance(latest !== undefined ? latest : '');
+                          }}
+                          className="text-xs font-extrabold text-amber-950 bg-white border border-amber-300 rounded-lg px-2.5 py-1 focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer shadow-2xs"
+                        >
+                          {offices.map((off) => (
+                            <option key={off.id} value={off.id}>
+                              {off.name} {off.code ? `(${off.code})` : ''}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span className="text-xs font-bold underline text-amber-950">{reportOffice || currentUser.office || '本社'}</span>
+                      )}
+                    </div>
                   </div>
                 </div>
-                {findLatestBalanceForOffice(reportOffice || currentUser.office || '本社') !== undefined && (
-                  <span className="text-[10px] font-bold text-amber-900 bg-amber-100/90 px-2 py-1 rounded-md border border-amber-300">
-                    同拠点の直近残高を自動引継
+                {findLatestBalanceForOffice(reportOfficeId, reportOffice) !== undefined && (
+                  <span className="text-[10px] font-bold text-amber-900 bg-amber-100/90 px-2.5 py-1 rounded-md border border-amber-300 self-start sm:self-center">
+                    同拠点の直近残高を自動引継 (前回: ¥{Number(findLatestBalanceForOffice(reportOfficeId, reportOffice)).toLocaleString()})
                   </span>
                 )}
               </div>

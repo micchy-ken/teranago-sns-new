@@ -891,6 +891,11 @@ export default function App() {
           const rawDelegateUserId = app.purchaserDelegateUserId || detailsObj.purchaserDelegateUserId || undefined;
           const rawDelegateUser = rawDelegateUserId ? currentUsers.find(u => u.id === rawDelegateUserId) : (detailsObj.purchaserDelegateUser || undefined);
 
+          const rawOfficeId = app.officeId || detailsObj.officeId || undefined;
+          const rawLocation = app.location || detailsObj.location || undefined;
+          const rawPrevBalance = app.previousBalance !== undefined ? app.previousBalance : detailsObj.previousBalance;
+          const rawCurrBalance = app.currentBalance !== undefined ? app.currentBalance : detailsObj.currentBalance;
+
           return {
             id: String(app.id),
             title: app.title || '無題の申請',
@@ -898,6 +903,10 @@ export default function App() {
             approver: approverUserObj,
             createdAt: app.createdAt || new Date().toISOString(),
             ...detailsObj,
+            officeId: rawOfficeId,
+            location: rawLocation,
+            previousBalance: rawPrevBalance !== undefined ? Number(rawPrevBalance) : undefined,
+            currentBalance: rawCurrBalance !== undefined ? Number(rawCurrBalance) : undefined,
             purchaseOrderNumber: rawPo,
             constructionDate: rawConstDate,
             linkedInventoryIssueId: rawLinkedInv,
@@ -1405,7 +1414,7 @@ export default function App() {
       refetchTopics(usersList);
     } else if (activeTab === 'safety_confirmation') {
       refetchSafetyEvents();
-    } else if (activeTab === 'workflow') {
+    } else if (activeTab === 'workflow' || activeTab === 'mypage') {
       refetchApplications(usersList);
     } else if (activeTab === 'memo') {
       refetchMemos(usersList);
@@ -1630,6 +1639,7 @@ export default function App() {
     setUserState(user);
     localStorage.setItem('logged_in_user_id', user.id);
     localStorage.setItem('logged_in_user_data', JSON.stringify(user));
+    refetchApplications(usersList);
   };
 
   // User Management
@@ -2187,6 +2197,10 @@ export default function App() {
           approverId: initialApprover.id,
           status: appData.status || 'pending',
           category: appData.type || 'other',
+          officeId: (appData as any).officeId || null,
+          location: (appData as any).location || null,
+          previousBalance: (appData as any).previousBalance !== undefined ? (appData as any).previousBalance : null,
+          currentBalance: (appData as any).currentBalance !== undefined ? (appData as any).currentBalance : null,
           purchaseOrderNumber: appData.purchaseOrderNumber || null,
           constructionDate: appData.constructionDate || null,
           linkedInventoryIssueId: appData.linkedInventoryIssueId || null,
@@ -3035,6 +3049,7 @@ export default function App() {
               onWorkflowAction={handleWorkflowAction}
               itemMasters={itemMasters}
               initialAppId={targetApplicationId}
+              offices={offices}
             />
           )}
           {activeTab === 'board' && (
@@ -3348,6 +3363,7 @@ export default function App() {
           application={globalSelectedApplication}
           currentUser={userState}
           allUsers={usersList}
+          offices={offices}
           onClose={() => setGlobalSelectedApplication(null)}
           onWorkflowAction={async (id, status, comment) => {
             await handleWorkflowAction(id, status, comment);
