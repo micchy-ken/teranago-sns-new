@@ -448,9 +448,9 @@ export function MemoList({
   const filteredMemos = memos
     .filter((m) => {
       const statuses = m.recipientStatuses || [];
-      const isRecipient = statuses.some((st) => st.userId === currentUser?.id) ||
-        (m.toUsers && m.toUsers.some((u) => u.id === currentUser?.id)) ||
-        (m.toUser && m.toUser.id === currentUser?.id);
+      const isRecipient = statuses.some((st) => String(st.userId) === String(currentUser?.id) || (st.userName && st.userName === currentUser?.name)) ||
+        (m.toUsers && m.toUsers.some((u) => String(u?.id) === String(currentUser?.id) || u?.name === currentUser?.name)) ||
+        (m.toUser && (String(m.toUser.id) === String(currentUser?.id) || m.toUser.name === currentUser?.name));
       const isCreator = (m.createdByUser?.id === currentUser?.id || m.senderId === currentUser?.id);
 
       // 1. スコープフィルター (自分宛て / 作成した伝言 / すべて)
@@ -458,10 +458,13 @@ export function MemoList({
       if (scope === 'sent' && !isCreator) return false;
 
       // 2. ステータスフィルター
-      const myStatus = statuses.find((st) => st.userId === currentUser?.id);
+      const myStatus = statuses.find((st) => String(st.userId) === String(currentUser?.id) || (st.userName && st.userName === currentUser?.name));
+      const allHandled = statuses.length > 0
+        ? statuses.every((s) => s.isHandled || s.status === 'handled')
+        : m.status === 'handled';
       const isHandledForMe = isRecipient
-        ? (myStatus ? myStatus.isHandled : m.status === 'handled')
-        : (m.status === 'handled' || (statuses.length > 0 && statuses.every((s) => s.isHandled)));
+        ? (myStatus ? (myStatus.isHandled || myStatus.status === 'handled') : m.status === 'handled')
+        : allHandled;
 
       if (filter === 'unread' && isHandledForMe) return false;
       if (filter === 'handled' && !isHandledForMe) return false;
@@ -477,29 +480,35 @@ export function MemoList({
     })
     .sort((a, b) => {
       // 未対応を最優先で一番上に表示（同ステータス内は作成日時の新しい順）
-      const aStatuses = a.recipientStatuses || [];
-      const aIsRecipient = aStatuses.some((st) => st.userId === currentUser?.id) ||
-        (a.toUsers && a.toUsers.some((u) => u.id === currentUser?.id)) ||
-        (a.toUser && a.toUser.id === currentUser?.id);
-      const aMyStatus = aStatuses.find((st) => st.userId === currentUser?.id);
-      const aHandled = aIsRecipient
-        ? (aMyStatus ? aMyStatus.isHandled : a.status === 'handled')
-        : (a.status === 'handled' || (aStatuses.length > 0 && aStatuses.every((s) => s.isHandled)));
+      // 「すべて」選択時や全体表示時も含め、未対応を最上位に固定表示
+      const getMemoUnhandledScore = (m: Memo): number => {
+        const statuses = m.recipientStatuses || [];
+        const isRecipient = statuses.some((st) => String(st.userId) === String(currentUser?.id) || (st.userName && st.userName === currentUser?.name)) ||
+          (m.toUsers && m.toUsers.some((u) => String(u?.id) === String(currentUser?.id) || u?.name === currentUser?.name)) ||
+          (m.toUser && (String(m.toUser.id) === String(currentUser?.id) || m.toUser.name === currentUser?.name));
+        const myStatus = statuses.find((st) => String(st.userId) === String(currentUser?.id) || (st.userName && st.userName === currentUser?.name));
 
-      const bStatuses = b.recipientStatuses || [];
-      const bIsRecipient = bStatuses.some((st) => st.userId === currentUser?.id) ||
-        (b.toUsers && b.toUsers.some((u) => u.id === currentUser?.id)) ||
-        (b.toUser && b.toUser.id === currentUser?.id);
-      const bMyStatus = bStatuses.find((st) => st.userId === currentUser?.id);
-      const bHandled = bIsRecipient
-        ? (bMyStatus ? bMyStatus.isHandled : b.status === 'handled')
-        : (b.status === 'handled' || (bStatuses.length > 0 && bStatuses.every((s) => s.isHandled)));
+        // 1. 自分宛てで自分が未対応の場合 -> 最優先 (スコア 2)
+        const myUnhandled = isRecipient && (myStatus ? (!myStatus.isHandled && myStatus.status !== 'handled') : m.status !== 'handled');
+        if (myUnhandled) return 2;
 
-      const aScore = aHandled ? 0 : 1;
-      const bScore = bHandled ? 0 : 1;
+        // 2. メモ全体として未対応（受信者の誰かが未対応、または memo.status !== 'handled'） -> 次点 (スコア 1)
+        const allHandled = statuses.length > 0
+          ? statuses.every((s) => s.isHandled || s.status === 'handled')
+          : m.status === 'handled';
+        if (!allHandled) {
+          return 1;
+        }
+
+        // 3. 全員対応完了 (スコア 0)
+        return 0;
+      };
+
+      const aScore = getMemoUnhandledScore(a);
+      const bScore = getMemoUnhandledScore(b);
 
       if (aScore !== bScore) {
-        return bScore - aScore; // 未対応(1)が先頭
+        return bScore - aScore; // 未対応 (2 または 1) が先頭、対応完了 (0) は後
       }
 
       return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
@@ -631,9 +640,11 @@ export function MemoList({
             filteredMemos.map((memo) => {
               const reqBadge = getRequirementLabel(memo);
               const statuses = memo.recipientStatuses || [];
-              const isRecipient = statuses.some((st) => st.userId === currentUser.id);
-              const myStatus = statuses.find((st) => st.userId === currentUser.id);
-              const isHandled = myStatus ? myStatus.isHandled : (memo.status === 'handled');
+              const isRecipient = statuses.some((st) => String(st.userId) === String(currentUser?.id) || (st.userName && st.userName === currentUser?.name)) ||
+                (memo.toUsers && memo.toUsers.some((u) => String(u?.id) === String(currentUser?.id) || u?.name === currentUser?.name)) ||
+                (memo.toUser && (String(memo.toUser.id) === String(currentUser?.id) || memo.toUser.name === currentUser?.name));
+              const myStatus = statuses.find((st) => String(st.userId) === String(currentUser?.id) || (st.userName && st.userName === currentUser?.name));
+              const isHandled = myStatus ? (myStatus.isHandled || myStatus.status === 'handled') : (memo.status === 'handled');
               const isCreator = memo.createdByUser?.id === currentUser?.id || memo.senderId === currentUser?.id;
               const viewedCount = statuses.filter((s) => s.isViewed).length;
               const handledCount = statuses.filter((s) => s.isHandled).length;

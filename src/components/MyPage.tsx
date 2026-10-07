@@ -769,14 +769,14 @@ export function MyPage({
         if (m.id === memoId) {
           const nowIso = new Date().toISOString();
           const statuses = m.recipientStatuses || [];
-          const isRecipient = statuses.some((st) => st.userId === user.id);
+          const isRecipient = statuses.some((st) => String(st.userId) === String(user.id) || (st.userName && st.userName === user.name));
 
           if (!isRecipient) {
             // 宛先メンバーでない場合は配列を変更しない
             return m;
           }
 
-          const myStatus = statuses.find((st) => st.userId === user.id);
+          const myStatus = statuses.find((st) => String(st.userId) === String(user.id) || (st.userName && st.userName === user.name));
           const nextHandled = !myStatus?.isHandled;
 
           // キャッシュの同期
@@ -890,27 +890,29 @@ export function MyPage({
   const unreadTopics = myTopics.filter((t) => isTopicUnread(t, user, readTopicIds));
 
   // 3. 自分宛ての伝言メモ (未対応を一番上に表示、同ステータス内は新しい順)
-  const myMemos = memos
-    .filter((m) => {
-      if (m.recipientStatuses && m.recipientStatuses.length > 0) {
-        return m.recipientStatuses.some((st) => st.userId === user?.id);
-      }
-      if (m.toUsers && m.toUsers.length > 0) {
-        return m.toUsers.some((u) => u?.id === user?.id || u?.name === user?.name);
-      }
-      if (m.toUser) {
-        return m.toUser.id === user?.id || m.toUser.name === user?.name || (m.toUser.loginId && m.toUser.loginId === user?.loginId);
-      }
-      return true;
-    })
-    .sort((a, b) => {
-      const aUnhandled = isMemoUnhandled(a, user) ? 1 : 0;
-      const bUnhandled = isMemoUnhandled(b, user) ? 1 : 0;
-      if (aUnhandled !== bUnhandled) {
-        return bUnhandled - aUnhandled; // 未対応 (1) が一番上
-      }
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-    });
+  const myMemos = useMemo(() => {
+    return (memos || [])
+      .filter((m) => {
+        if (m.recipientStatuses && m.recipientStatuses.length > 0) {
+          return m.recipientStatuses.some((st) => String(st.userId) === String(user?.id) || (st.userName && st.userName === user?.name));
+        }
+        if (m.toUsers && m.toUsers.length > 0) {
+          return m.toUsers.some((u) => String(u?.id) === String(user?.id) || u?.name === user?.name);
+        }
+        if (m.toUser) {
+          return String(m.toUser.id) === String(user?.id) || m.toUser.name === user?.name || (m.toUser.loginId && m.toUser.loginId === user?.loginId);
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        const aUnhandled = isMemoUnhandled(a, user) ? 1 : 0;
+        const bUnhandled = isMemoUnhandled(b, user) ? 1 : 0;
+        if (aUnhandled !== bUnhandled) {
+          return bUnhandled - aUnhandled; // 未対応 (1) が一番上
+        }
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
+  }, [memos, user]);
 
   const unhandledMemos = myMemos.filter((m) => isMemoUnhandled(m, user));
   const unreadMemos = myMemos.filter((m) => isMemoUnread(m, user, readMemoIds));
@@ -1240,72 +1242,94 @@ export function MyPage({
           >
             <div className="space-y-3">
               {myMemos.length > 0 ? (
-                myMemos.map((memo) => {
-                  const isUnhandled = isMemoUnhandled(memo, user);
-                  const isUnread = isMemoUnread(memo, user, readMemoIds);
+                <>
+                  {myMemos.slice(0, 5).map((memo) => {
+                    const isUnhandled = isMemoUnhandled(memo, user);
+                    const isUnread = isMemoUnread(memo, user, readMemoIds);
+                    const memoSnippet = (memo.content || '').replace(/[\r\n\t]+/g, ' ').trim();
 
-                  return (
-                    <div
-                      key={memo.id}
-                      onClick={() => {
-                        markMemoAsReadUtil(user?.id, memo.id);
-                        if (onNavigateToContent) {
-                          onNavigateToContent({ tab: 'memo', memoId: memo.id });
-                        }
-                      }}
-                      className={`p-3.5 rounded-xl border transition-all flex flex-col gap-2 cursor-pointer hover:border-rose-400 ${
-                        isUnhandled
-                          ? 'bg-rose-50/40 border-rose-300 shadow-xs'
-                          : 'bg-white border-slate-200 opacity-80'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2">
-                          {isUnhandled ? (
-                            <span className="px-2 py-0.5 bg-rose-500 text-white font-black text-[10px] rounded-full flex items-center gap-1">
-                              <Clock className="w-3 h-3" /> 未対応
+                    return (
+                      <div
+                        key={memo.id}
+                        onClick={() => {
+                          markMemoAsReadUtil(user?.id, memo.id);
+                          if (onNavigateToContent) {
+                            onNavigateToContent({ tab: 'memo', memoId: memo.id });
+                          }
+                        }}
+                        className={`p-3.5 rounded-xl border transition-all flex flex-col gap-2 cursor-pointer hover:border-rose-400 ${
+                          isUnhandled
+                            ? 'bg-rose-50/40 border-rose-300 shadow-xs'
+                            : 'bg-white border-slate-200 opacity-80'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 flex-wrap min-w-0">
+                            {isUnhandled ? (
+                              <span className="px-2 py-0.5 bg-rose-500 text-white font-black text-[10px] rounded-full flex items-center gap-1 shrink-0">
+                                <Clock className="w-3 h-3" /> 未対応
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 bg-slate-100 text-slate-600 font-bold text-[10px] rounded-full flex items-center gap-1 shrink-0">
+                                <Check className="w-3 h-3 text-emerald-600" /> 対応完了
+                              </span>
+                            )}
+                            {isUnread && (
+                              <span className="px-1.5 py-0.5 bg-amber-500 text-white font-black text-[9px] rounded-full shrink-0">
+                                未読
+                              </span>
+                            )}
+                            {memo.requirementText && (
+                              <span className="px-1.5 py-0.5 bg-rose-50 text-rose-700 border border-rose-200 font-bold text-[9px] rounded shrink-0">
+                                {memo.requirementText}
+                              </span>
+                            )}
+                            <span className="text-xs font-bold text-slate-900 truncate">
+                              {memo.fromName} 様 {memo.fromCompany && <span className="text-slate-500 font-normal">({memo.fromCompany})</span>}
                             </span>
-                          ) : (
-                            <span className="px-2 py-0.5 bg-slate-100 text-slate-600 font-bold text-[10px] rounded-full flex items-center gap-1">
-                              <Check className="w-3 h-3 text-emerald-600" /> 対応完了
-                            </span>
-                          )}
-                          {isUnread && (
-                            <span className="px-1.5 py-0.5 bg-amber-500 text-white font-black text-[9px] rounded-full">
-                              未読
-                            </span>
-                          )}
-                          <span className="text-xs font-bold text-slate-900">
-                            {memo.fromName} 様 {memo.fromCompany && <span className="text-slate-500 font-normal">({memo.fromCompany})</span>}
-                          </span>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleToggleMemoStatus(memo.id);
+                            }}
+                            className={`relative z-10 cursor-pointer px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all border shrink-0 ${
+                              isUnhandled
+                                ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700 hover:shadow-xs'
+                                : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
+                            }`}
+                          >
+                            {isUnhandled ? '対応完了にする' : '未対応に戻す'}
+                          </button>
                         </div>
 
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleToggleMemoStatus(memo.id);
-                          }}
-                          className={`relative z-10 cursor-pointer px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all border ${
-                            isUnhandled
-                              ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700 hover:shadow-xs'
-                              : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
-                          }`}
-                        >
-                          {isUnhandled ? '対応完了にする' : '未対応に戻す'}
-                        </button>
-                      </div>
+                        <div className="min-w-0">
+                          <p className="text-xs text-slate-500 truncate" title={memo.content}>
+                            {memoSnippet || '（用件・本文なし）'}
+                          </p>
+                        </div>
 
-                      <div className="bg-white/80 p-2.5 rounded-lg border border-slate-100 text-xs text-slate-700 whitespace-pre-wrap leading-relaxed">
-                        {memo.content}
+                        <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-100">
+                          <span>受付: {memo.createdByUser?.name || '社内'}</span>
+                          <span>{new Date(memo.createdAt).toLocaleDateString('ja-JP')}</span>
+                        </div>
                       </div>
-
-                      <div className="text-[10px] text-slate-400 text-right">
-                        {new Date(memo.createdAt).toLocaleString('ja-JP')}
-                      </div>
+                    );
+                  })}
+                  {myMemos.length > 5 && (
+                    <div className="text-center pt-1">
+                      <button
+                        type="button"
+                        onClick={() => onChangeTab('memo')}
+                        className="text-xs text-rose-600 hover:text-rose-700 font-bold hover:underline cursor-pointer"
+                      >
+                        他 {myMemos.length - 5} 件の伝言メモをすべて表示
+                      </button>
                     </div>
-                  );
-                })
+                  )}
+                </>
               ) : (
                 <div className="p-8 text-center text-slate-400 text-xs">
                   自分宛ての伝言メモはありません

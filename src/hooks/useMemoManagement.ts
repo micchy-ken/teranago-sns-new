@@ -87,7 +87,7 @@ export function useMemoManagement({
                       division: uObj?.division || '',
                       isViewed: val.isRead || val.isViewed || false,
                       viewedAt: val.readAt || val.viewedAt || undefined,
-                      isHandled: val.isHandled !== undefined ? val.isHandled : (val.isRead || false),
+                      isHandled: val.isHandled !== undefined ? !!val.isHandled : false,
                       handledAt: val.handledAt || undefined,
                     };
                   });

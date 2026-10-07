@@ -2,7 +2,7 @@
  * routes/memos.js (本番環境・MS SQL Server & 伝言メモ & 受領者別対応ステータス管理 完全連携版)
  * 寺岡オートドアSNS / 寺子屋SNS 伝言メモ管理モジュール
  * 
- * 最終更新: 2026年9月16日 (伝言メモ「対応完了」PUT更新エンドポイント追加・受領者別閲覧&対応状況・スキーマ自動補正・ルーティング耐障害性配列対応 完全版)
+ * 最終更新: 2026年10月7日 (伝言メモ未対応優先ソート対応・受領者別閲覧と対応ステータス分離正規化・ルーティング耐障害性配列対応 完全版)
  */
 import { Router } from 'express';
 import sql from 'mssql';
@@ -92,7 +92,7 @@ router.get(['/memos', '/memos/', '/'], async (req, res) => {
               division: val.division || '',
               isViewed: !!(val.isRead || val.isViewed),
               viewedAt: val.readAt || val.viewedAt || undefined,
-              isHandled: val.isHandled !== undefined ? !!val.isHandled : !!(val.isRead || val.isViewed),
+              isHandled: val.isHandled !== undefined ? !!val.isHandled : false,
               handledAt: val.handledAt || undefined,
               handledByUserId: val.handledByUserId || undefined,
               handledByUserName: val.handledByUserName || undefined
@@ -110,7 +110,7 @@ router.get(['/memos', '/memos/', '/'], async (req, res) => {
             office: '',
             division: '',
             isViewed: !!row.isRead,
-            isHandled: row.status === 'handled' || detailsObj.status === 'handled' || !!row.isRead
+            isHandled: row.status === 'handled' || detailsObj.status === 'handled'
           };
           parsedRecipientStatuses = [defaultUser];
         }
