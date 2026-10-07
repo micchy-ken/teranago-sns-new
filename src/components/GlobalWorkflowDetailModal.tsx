@@ -376,25 +376,36 @@ export const GlobalWorkflowDetailModal: React.FC<GlobalWorkflowDetailModalProps>
             </div>
           )}
 
-          {/* 金銀日報の詳細情報 */}
+          {/* 金銀日報の残高報告サマリーカード */}
           {application.type === 'gold_silver_daily_report' && (
-            <div className="p-4 rounded-2xl bg-amber-50/60 border border-amber-200/80 space-y-3">
-              <h4 className="text-xs font-bold text-amber-950 flex items-center gap-1.5">
-                <Coins className="w-4 h-4 text-amber-600" />
-                <span>金銀保有量・日報データ</span>
-              </h4>
+            <div className="p-4 bg-gradient-to-br from-amber-50/90 to-yellow-50/50 border border-amber-200/90 rounded-2xl space-y-3">
+              <div className="flex items-center justify-between text-xs font-bold text-amber-950 border-b border-amber-200/60 pb-2">
+                <span className="flex items-center gap-1.5">
+                  <Coins className="w-4 h-4 text-amber-600" />
+                  <span>金銀日報 保管残高 {application.location ? `(${application.location})` : ''}</span>
+                </span>
+                {application.currentBalance !== undefined && application.previousBalance !== undefined && (() => {
+                  const diff = application.currentBalance - application.previousBalance;
+                  return (
+                    <span className={`font-black text-xs ${diff > 0 ? 'text-emerald-700' : diff < 0 ? 'text-rose-700' : 'text-slate-600'}`}>
+                      受払増減: {diff > 0 ? `+¥${diff.toLocaleString()}` : diff < 0 ? `-¥${Math.abs(diff).toLocaleString()}` : '±¥0'}
+                    </span>
+                  );
+                })()}
+              </div>
+
               <div className="grid grid-cols-2 gap-3 text-xs">
-                <div className="p-3 bg-white rounded-xl border border-amber-200">
-                  <div className="font-bold text-amber-800 mb-1">【金】の保有量</div>
-                  <div>前日: <span className="font-semibold">{(application as any).goldPreviousAmount ?? application.previousBalance ?? 0}g</span></div>
-                  <div>当日: <span className="font-bold text-amber-700">{(application as any).goldCurrentAmount ?? application.currentBalance ?? 0}g</span></div>
-                  <div className="text-[11px] text-slate-500 mt-0.5">差分: {(((application as any).goldCurrentAmount ?? application.currentBalance ?? 0) - ((application as any).goldPreviousAmount ?? application.previousBalance ?? 0)).toFixed(2)}g</div>
+                <div className="bg-white/90 p-3 rounded-xl border border-amber-100/90">
+                  <span className="text-[10px] text-slate-500 font-bold block mb-0.5">前回残高</span>
+                  <span className="text-base font-extrabold text-slate-800">
+                    ¥{(application.previousBalance ?? 0).toLocaleString()}
+                  </span>
                 </div>
-                <div className="p-3 bg-white rounded-xl border border-slate-200">
-                  <div className="font-bold text-slate-800 mb-1">【銀】の保有量</div>
-                  <div>前日: <span className="font-semibold">{(application as any).silverPreviousAmount ?? 0}g</span></div>
-                  <div>当日: <span className="font-bold text-slate-700">{(application as any).silverCurrentAmount ?? 0}g</span></div>
-                  <div className="text-[11px] text-slate-500 mt-0.5">差分: {(((application as any).silverCurrentAmount ?? 0) - ((application as any).silverPreviousAmount ?? 0)).toFixed(2)}g</div>
+                <div className="bg-white p-3 rounded-xl border border-amber-300 shadow-2xs">
+                  <span className="text-[10px] text-amber-700 font-bold block mb-0.5">今回残高</span>
+                  <span className="text-base font-black text-amber-950">
+                    ¥{(application.currentBalance ?? 0).toLocaleString()}
+                  </span>
                 </div>
               </div>
             </div>
