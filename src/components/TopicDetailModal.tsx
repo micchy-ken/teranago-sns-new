@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { X, MessageSquare, Eye, Pin, Paperclip, Calendar as CalendarIcon, Send, Trash2, Building2, Users, Tag, CheckCircle2, Edit3, Save, Plus, Loader2, Eye as EyeIcon, Download, UploadCloud, Share2, Check, Star } from 'lucide-react';
-import { BoardTopic, User, OfficeMaster, DivisionMaster, AttachmentFile } from '../types';
+import { BoardTopic, User, OfficeMaster, DivisionMaster, AttachmentFile, BoardViewer } from '../types';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
 import { uploadMultipleFiles, deleteAttachmentFile, deleteAttachmentFiles, resolveFileUrl } from '../utils/fileUpload';
@@ -24,6 +24,7 @@ interface TopicDetailModalProps {
   divisions?: DivisionMaster[];
   isFavorite?: boolean;
   onToggleFavorite?: (topicId: string) => void;
+  users?: User[];
 }
 
 export function TopicDetailModal({
@@ -37,6 +38,7 @@ export function TopicDetailModal({
   divisions = [],
   isFavorite = false,
   onToggleFavorite,
+  users = [],
 }: TopicDetailModalProps) {
   const [activeTab, setActiveTab] = useState<'content' | 'viewers'>('content');
   const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
@@ -100,73 +102,148 @@ export function TopicDetailModal({
     return list;
   }, [divisions, topic?.division]);
 
+  const viewersList = useMemo(() => {
+    const list = (topic?.viewers || [])
+      .map((v: any) => {
+        if (!v) return null;
+        const uId = typeof v.user === 'string' ? v.user : (v.userId || v.user_id || v.id || v.user?.id || v.user?.userId);
+        const uName = v.user?.name || v.name || (typeof v.user === 'string' ? v.user : undefined);
+        const uLoginId = v.user?.loginId || v.loginId;
+
+        // Try to match user from users prop or currentUser
+        const matchedUser = (users || []).find(u => 
+          (uId && (String(u.id) === String(uId) || String(u.loginId) === String(uId))) ||
+          (uLoginId && (String(u.loginId) === String(uLoginId) || String(u.id) === String(uLoginId))) ||
+          (uName && u.name === uName)
+        ) || (currentUser && (
+          (uId && (String(currentUser.id) === String(uId) || String(currentUser.loginId) === String(uId))) ||
+          (uLoginId && (String(currentUser.loginId) === String(uLoginId) || String(currentUser.id) === String(uLoginId))) ||
+          (uName && currentUser.name === uName)
+        ) ? currentUser : null);
+
+        let resolvedUser: User;
+        if (matchedUser) {
+          resolvedUser = typeof v.user === 'object' && v.user ? { ...v.user, ...matchedUser } : matchedUser;
+        } else if (typeof v.user === 'object' && v.user) {
+          resolvedUser = v.user;
+        } else if (v.name || v.id) {
+          resolvedUser = v as unknown as User;
+        } else {
+          return null;
+        }
+
+        return {
+          ...v,
+          id: v.id || uId,
+          user: resolvedUser,
+          viewedAt: v.viewedAt || v.viewed_at || new Date().toISOString()
+        };
+      })
+      .filter(Boolean) as BoardViewer[];
+
+    // currentUser が閲覧中の場合、万が一API同期待ち等で未反映でも画面上に常時表示を維持
+    if (currentUser?.id && topic && !list.some(v => String(v.user?.id) === String(currentUser.id) || v.user?.name === currentUser.name)) {
+      list.push({
+        id: currentUser.id,
+        user: currentUser,
+        viewedAt: new Date().toISOString()
+      });
+    }
+
+    return list;
+  }, [topic?.viewers, currentUser, users, topic?.id]);
+
+  // 既読記録済みのトピックIDを記憶し、無限更新ループを防止
+  const viewRecordedTopicIdsRef = useRef<Set<string>>(new Set());
+  const lastInitializedTopicIdRef = useRef<string | null>(null);
+
   // モーダルが開かれた時に自動的に既読（閲覧メンバー）を記録、及び編集用フォーム初期化
   useEffect(() => {
     if (isOpen && topic) {
-      if (currentUser?.id) {
-        markTopicAsRead(currentUser.id, topic.id);
-      }
-      if (!isEditing) {
-        setEditTitle(topic.title);
-        setEditContent(topic.content);
-        setEditOffice(topic.office || '全社');
-        setEditDivision(topic.division || '全部署');
-        setEditIsPinned(!!topic.isPinned);
-        if (topic.isPinned) {
-          if (topic.pinnedDuration) {
-            setEditPinnedPeriod(topic.pinnedDuration);
-          } else if (topic.pinnedUntil) {
-            const untilMs = new Date(topic.pinnedUntil).getTime();
-            const nowMs = Date.now();
-            const diffDays = Math.ceil((untilMs - nowMs) / (1000 * 60 * 60 * 24));
-            if (diffDays <= 10) {
-              setEditPinnedPeriod('1week');
+      // 編集フォーム初期化（トピックIDが切り替わった時のみ実行）
+      if (lastInitializedTopicIdRef.current !== topic.id) {
+        lastInitializedTopicIdRef.current = topic.id;
+        if (!isEditing) {
+          setEditTitle(topic.title || '');
+          setEditContent(topic.content || '');
+          setEditOffice(topic.office || '全社');
+          setEditDivision(topic.division || '全部署');
+          setEditIsPinned(!!topic.isPinned);
+          if (topic.isPinned) {
+            if (topic.pinnedDuration) {
+              setEditPinnedPeriod(topic.pinnedDuration);
+            } else if (topic.pinnedUntil) {
+              const untilMs = new Date(topic.pinnedUntil).getTime();
+              const nowMs = Date.now();
+              const diffDays = Math.ceil((untilMs - nowMs) / (1000 * 60 * 60 * 24));
+              if (diffDays <= 10) {
+                setEditPinnedPeriod('1week');
+              } else {
+                setEditPinnedPeriod('1month');
+              }
             } else {
-              setEditPinnedPeriod('1month');
+              setEditPinnedPeriod('forever');
             }
           } else {
-            setEditPinnedPeriod('forever');
+            setEditPinnedPeriod('1week');
           }
-        } else {
-          setEditPinnedPeriod('1week');
+          setEditHasPeriod(!!topic.hasPeriod);
+          setEditStartDate(topic.startDate || '');
+          setEditEndDate(topic.endDate || '');
+          setEditTags(topic.tags || []);
+          setEditAttachments((topic.attachments || []).map((a, i) => ({
+            ...a,
+            id: a.id || `att-${i}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`
+          })));
         }
-        setEditHasPeriod(!!topic.hasPeriod);
-        setEditStartDate(topic.startDate || '');
-        setEditEndDate(topic.endDate || '');
-        setEditTags(topic.tags || []);
-        setEditAttachments((topic.attachments || []).map((a, i) => ({
-          ...a,
-          id: a.id || `att-${i}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`
-        })));
+        setCommentAttachments([]);
+        setIsCommentUploading(false);
+        setIsEditingUploading(false);
       }
-      setCommentAttachments([]);
-      setIsCommentUploading(false);
-      setIsEditingUploading(false);
 
-      const isAlreadyViewer = topic.viewers?.some(v => v.user.id === currentUser.id);
-      if (!isAlreadyViewer) {
-        const newViewers = [
-          ...(topic.viewers || []),
-          { user: currentUser, viewedAt: new Date().toISOString() }
-        ];
-        const updatedTopic: BoardTopic = {
-          ...topic,
-          views: topic.views + 1,
-          viewers: newViewers,
-        };
-        onUpdateTopic(updatedTopic);
+      // 既読・閲覧者記録（1トピックにつき初回1度のみ安全に実行）
+      if (currentUser?.id && !viewRecordedTopicIdsRef.current.has(topic.id)) {
+        viewRecordedTopicIdsRef.current.add(topic.id);
+        markTopicAsRead(currentUser.id, topic.id);
+
+        // サーバー側の既読登録APIを直接呼び出し（永続化を確実にする）
+        fetch(`${API_BASE_URL}/bulletins/${topic.id}/viewers`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: currentUser.id, user: currentUser })
+        }).catch(err => console.warn('Failed to post viewer to API:', err));
+
+        const isAlreadyViewer = (topic.viewers || []).some(v => {
+          const vUserId = v?.user?.id || (v as any)?.userId || (v as any)?.id;
+          return vUserId === currentUser.id;
+        });
+
+        if (!isAlreadyViewer) {
+          const newViewers = [
+            ...(topic.viewers || []),
+            { user: currentUser, viewedAt: new Date().toISOString() }
+          ];
+          const updatedTopic: BoardTopic = {
+            ...topic,
+            views: (topic.views || 0) + 1,
+            viewers: newViewers,
+          };
+          onUpdateTopic(updatedTopic);
+        }
       }
     } else if (!isOpen) {
+      lastInitializedTopicIdRef.current = null;
       setIsEditing(false);
     }
-  }, [isOpen, topic]);
+  }, [isOpen, topic?.id, currentUser?.id]);
 
-  if (!isOpen || !topic) return null;
-
-  const isAuthor = 
-    topic.author.id === currentUser.id || 
-    (topic.author.loginId && currentUser.loginId && topic.author.loginId === currentUser.loginId) ||
-    topic.author.name === currentUser.name;
+  const isAuthor = Boolean(
+    topic && (
+      topic.author?.id === currentUser?.id || 
+      (topic.author?.loginId && currentUser?.loginId && topic.author.loginId === currentUser.loginId) ||
+      topic.author?.name === currentUser?.name
+    )
+  );
 
   const isAdmin = !!(currentUser && (currentUser.isAdmin || currentUser.role === 'admin'));
   const canDeleteTopic = isAuthor || isAdmin;
@@ -378,7 +455,7 @@ export function TopicDetailModal({
     });
   };
 
-  const viewersList = topic.viewers || [];
+  if (!isOpen || !topic) return null;
 
   return (
     <div
@@ -1171,30 +1248,30 @@ export function TopicDetailModal({
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-80 overflow-y-auto pr-1">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pr-1">
                     {viewersList.map((v, idx) => (
                       <div
-                        key={idx}
+                        key={v.user?.id || idx}
                         onClick={() => v.user && triggerOpenUserModal(v.user)}
-                        className="flex items-center justify-between p-3 bg-slate-50 hover:bg-indigo-50/50 border border-slate-200 hover:border-indigo-200 rounded-xl text-xs cursor-pointer transition-all group/viewer"
-                        title={`${v.user.name}のプロフィールを表示`}
+                        className="flex items-center justify-between p-3 bg-slate-50 hover:bg-indigo-50/50 border border-slate-200 hover:border-indigo-300 rounded-xl text-xs cursor-pointer transition-colors group/viewer"
+                        title={`${v.user?.name || ''}のプロフィールを表示`}
                       >
-                        <div className="flex items-center gap-2.5">
+                        <div className="flex items-center gap-2.5 min-w-0">
                           <img
                             src={getAvatarUrl(v.user?.id === currentUser?.id ? (currentUser?.avatarUrl || v.user?.avatarUrl) : v.user?.avatarUrl)}
-                            alt={v.user?.name}
+                            alt={v.user?.name || ''}
                             onError={handleAvatarError}
-                            className="w-8 h-8 rounded-full border border-slate-200 object-cover group-hover/viewer:ring-1 ring-indigo-200"
+                            className="w-8 h-8 rounded-full border border-slate-200 object-cover group-hover/viewer:border-indigo-400 shrink-0"
                           />
-                          <div>
-                            <div className="font-bold text-slate-800 group-hover/viewer:text-indigo-600 transition-colors">{v.user.name}</div>
-                            <div className="text-[10px] text-slate-500">
-                              {v.user.office || ''} {v.user.division || ''}
+                          <div className="min-w-0">
+                            <div className="font-bold text-slate-800 group-hover/viewer:text-indigo-600 transition-colors truncate">{v.user?.name || 'メンバー'}</div>
+                            <div className="text-[10px] text-slate-500 truncate">
+                              {v.user?.office || ''} {v.user?.division || ''}
                             </div>
                           </div>
                         </div>
-                        <div className="text-[10px] font-mono text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                          {new Date(v.viewedAt).toLocaleDateString('ja-JP')} {new Date(v.viewedAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}
+                        <div className="text-[10px] font-mono text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 shrink-0 ml-2">
+                          {v.viewedAt ? `${new Date(v.viewedAt).toLocaleDateString('ja-JP')} ${new Date(v.viewedAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}` : ''}
                         </div>
                       </div>
                     ))}

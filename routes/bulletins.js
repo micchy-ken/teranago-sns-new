@@ -296,6 +296,28 @@ router.put(['/bulletins/:id', '/board/:id'], async (req, res) => {
         WHERE id = @id
       `);
 
+    if (Array.isArray(req.body.viewers) && req.body.viewers.length > 0) {
+      for (const v of req.body.viewers) {
+        const uid = v?.user?.id || v?.userId || v?.user_id || (typeof v?.user === 'string' ? v?.user : null);
+        if (uid) {
+          const dateVal = v.viewedAt || v.viewed_at ? new Date(v.viewedAt || v.viewed_at) : new Date();
+          try {
+            await pool.request()
+              .input('topicId', sql.VarChar, String(id))
+              .input('userId', sql.VarChar, String(uid))
+              .input('viewedAt', sql.DateTime, dateVal)
+              .query(`
+                IF NOT EXISTS (SELECT 1 FROM dbo.BoardViewers WHERE topicId = @topicId AND userId = @userId)
+                BEGIN
+                  INSERT INTO dbo.BoardViewers (topicId, userId, viewedAt)
+                  VALUES (@topicId, @userId, @viewedAt)
+                END
+              `);
+          } catch (_) {}
+        }
+      }
+    }
+
     res.json({ success: true, message: '掲示板トピック更新完了' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -355,12 +377,15 @@ router.delete([
 // ==========================================
 // 閲覧者（足跡）追加 API (POST /api/bulletins/:id/viewers)
 // ==========================================
-router.post(['/bulletins/:id/viewers', '/topics/:id/viewers', '/board/:id/viewers'], async (req, res) => {
+router.post(['/bulletins/:id/viewers', '/topics/:id/viewers', '/board/:id/viewers', '/:id/viewers'], async (req, res) => {
   try {
-    const { userId, user_id, viewedAt, viewed_at } = req.body;
+    const { userId, user_id, user, viewedAt, viewed_at } = req.body;
     const topicId = req.params.id;
     const pool = await getPool();
-    const uid = userId || user_id || 'u1';
+    const uid = userId || user_id || user?.id || (typeof user === 'string' ? user : null);
+    if (!uid) {
+      return res.status(400).json({ error: 'ユーザーIDが必要です' });
+    }
     const dateVal = viewedAt || viewed_at ? new Date(viewedAt || viewed_at) : new Date();
 
     await pool.request()

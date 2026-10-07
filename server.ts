@@ -4466,6 +4466,32 @@ async function startServer() {
         updatedAt: new Date().toISOString()
       };
       saveBulletins(bulletinsList);
+
+      if (Array.isArray(req.body.viewers) && req.body.viewers.length > 0) {
+        let viewersList = loadBulletinViewers();
+        req.body.viewers.forEach((v: any) => {
+          const u = v.user || (v.userId ? { id: v.userId, name: v.name || '' } : null);
+          if (u && u.id) {
+            const existingIdx = viewersList.findIndex(
+              (item: any) => String(item.topicId || item.topic_id) === String(topicId) && String(item.user?.id || item.userId) === String(u.id)
+            );
+            const viewedAt = v.viewedAt || new Date().toISOString();
+            if (existingIdx >= 0) {
+              viewersList[existingIdx].viewedAt = viewedAt;
+              if (u) viewersList[existingIdx].user = u;
+            } else {
+              viewersList.push({
+                id: `viewer-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+                topicId: topicId,
+                user: u,
+                viewedAt: viewedAt
+              });
+            }
+          }
+        });
+        saveBulletinViewers(viewersList);
+      }
+
       res.json(bulletinsList[idx]);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -4564,10 +4590,10 @@ async function startServer() {
   });
 
   // 既読登録 (POST /api/bulletins/:id/viewers & /api/topics/:id/viewers)
-  app.post(['/api/bulletins/:id/viewers', '/api/topics/:id/viewers'], (req, res) => {
+  app.post(['/api/bulletins/:id/viewers', '/api/topics/:id/viewers', '/api/board/:id/viewers'], (req, res) => {
     try {
       const topicId = req.params.id;
-      const user = req.body.user;
+      const user = req.body.user || (req.body.userId ? { id: req.body.userId, name: req.body.name || 'メンバー' } : null);
       if (!user || !user.id) {
         return res.status(400).json({ error: 'ユーザー情報が必要です' });
       }
@@ -4577,9 +4603,10 @@ async function startServer() {
         (v: any) => String(v.topicId || v.topic_id) === String(topicId) && String(v.user?.id || v.userId) === String(user.id)
       );
 
-      const nowIso = new Date().toISOString();
+      const nowIso = req.body.viewedAt || new Date().toISOString();
       if (existingIdx >= 0) {
         viewersList[existingIdx].viewedAt = nowIso;
+        if (user) viewersList[existingIdx].user = user;
       } else {
         viewersList.push({
           id: `viewer-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,

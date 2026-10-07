@@ -996,14 +996,49 @@ export default function App() {
           const commentsList = Array.isArray(t.comments) ? t.comments : [];
 
           // APIから取得した閲覧者をそのまま使用
-          let parsedViewers = [];
+          let rawViewers: any[] = [];
           if (Array.isArray(t.viewers)) {
-            parsedViewers = t.viewers;
+            rawViewers = t.viewers;
           } else if (typeof t.viewers === 'string' && t.viewers.startsWith('[')) {
-            try { parsedViewers = JSON.parse(t.viewers); } catch (_) {}
+            try { rawViewers = JSON.parse(t.viewers); } catch (_) {}
           } else if (detailsObj.viewers && Array.isArray(detailsObj.viewers)) {
-            parsedViewers = detailsObj.viewers;
+            rawViewers = detailsObj.viewers;
           }
+
+          const parsedViewers = rawViewers.map((v: any) => {
+            if (!v) return null;
+            const uId = typeof v.user === 'string' ? v.user : (v.userId || v.user_id || v.id || v.user?.id || v.user?.userId);
+            const uName = v.user?.name || v.name || (typeof v.user === 'string' ? v.user : undefined);
+            const uLoginId = v.user?.loginId || v.loginId;
+
+            const matchedUser = currentUsers.find(u => 
+              (uId && (String(u.id) === String(uId) || String(u.loginId) === String(uId))) ||
+              (uLoginId && (String(u.loginId) === String(uLoginId) || String(u.id) === String(uLoginId))) ||
+              (uName && u.name === uName)
+            ) || (userState && (
+              (uId && (String(userState.id) === String(uId) || String(userState.loginId) === String(uId))) ||
+              (uLoginId && (String(userState.loginId) === String(uLoginId) || String(userState.id) === String(uLoginId))) ||
+              (uName && userState.name === uName)
+            ) ? userState : null);
+
+            let resolvedUser = matchedUser;
+            if (!resolvedUser) {
+              if (typeof v.user === 'object' && v.user) {
+                resolvedUser = v.user;
+              } else if (v.name || v.id) {
+                resolvedUser = v;
+              }
+            } else if (typeof v.user === 'object' && v.user) {
+              resolvedUser = { ...v.user, ...matchedUser };
+            }
+
+            if (!resolvedUser) return null;
+            return {
+              id: v.id || uId,
+              user: resolvedUser,
+              viewedAt: v.viewedAt || v.viewed_at || new Date().toISOString()
+            };
+          }).filter(Boolean);
 
           let parsedAtts = [];
           if (Array.isArray(t.attachments)) {
@@ -3140,6 +3175,7 @@ export default function App() {
           }}
           offices={offices}
           divisions={divisions}
+          users={usersList}
         />
       )}
 

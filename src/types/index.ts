@@ -292,6 +292,7 @@ export interface BoardComment {
 }
 
 export interface BoardViewer {
+  id?: string;
   user: User;
   viewedAt: string;
 }

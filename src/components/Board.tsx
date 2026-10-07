@@ -16,6 +16,7 @@ interface BoardProps {
   onUpdateTopic?: (topic: BoardTopic) => void;
   onDeleteTopic?: (topicId: string) => void;
   currentUser: User;
+  users?: User[];
   offices?: OfficeMaster[];
   divisions?: DivisionMaster[];
   initialTopicId?: string;
@@ -28,6 +29,7 @@ export function Board({
   onUpdateTopic,
   onDeleteTopic,
   currentUser,
+  users = [],
   offices = [],
   divisions = [],
   initialTopicId,
@@ -555,6 +557,7 @@ export function Board({
         isOpen={isDetailModalOpen}
         onClose={() => setIsDetailModalOpen(false)}
         currentUser={currentUser}
+        users={users}
         onUpdateTopic={handleUpdateTopicInternal}
         onDeleteTopic={(topicId) => {
           setIsDetailModalOpen(false);
