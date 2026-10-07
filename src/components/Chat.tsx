@@ -41,7 +41,8 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Glasses,
-  FileText
+  FileText,
+  Share2
 } from 'lucide-react';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { uploadMultipleFiles, uploadFile } from '../utils/fileUpload';
@@ -51,6 +52,7 @@ import { triggerPushNotification } from '../utils/pushNotifications';
 import { renderContentWithLinks } from '../utils/renderContentWithLinks';
 import { UrlPastePopup, useUrlPasteHandler } from './common/UrlPastePopup';
 import { logActivity } from '../utils/logger';
+import { buildAppUrl, copyTextToClipboard } from '../utils/urlParams';
 
 interface ChatProps {
   rooms: ChatRoom[];
@@ -705,17 +707,53 @@ export function Chat({
     });
   };
 
+  const [copiedLink, setCopiedLink] = useState<boolean>(false);
+
+  const handleShareRoom = async () => {
+    if (!activeRoom) return;
+    const url = buildAppUrl({ tab: 'chat', chatRoomId: activeRoom.id });
+    const success = await copyTextToClipboard(url);
+    if (success) {
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2500);
+    }
+  };
+
   const processedInitialRoomIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (initialRoomId && processedInitialRoomIdRef.current !== initialRoomId) {
-      if (rooms.some(r => r.id === initialRoomId)) {
+      if (rooms.length > 0) {
         processedInitialRoomIdRef.current = initialRoomId;
-        setActiveRoomId(initialRoomId);
-        setMobileView('room');
+        const targetRoom = rooms.find(r => r.id === initialRoomId);
+        if (targetRoom) {
+          const isMember = targetRoom.participants && targetRoom.participants.some(p => p.id === currentUser.id);
+          if (isMember) {
+            setActiveRoomId(initialRoomId);
+            setMobileView('room');
+          } else {
+            setConfirmModal({
+              isOpen: true,
+              title: 'チャットルームへの参加制限',
+              message: `対象のトークルーム「${getRoomName(targetRoom)}」のメンバーではないため参加・閲覧できません。ルーム管理者またはメンバーに参加者追加を依頼してください。`,
+              type: 'info',
+              confirmText: '閉じる',
+              onConfirm: () => {}
+            });
+          }
+        } else {
+          setConfirmModal({
+            isOpen: true,
+            title: 'ルームが見つかりません',
+            message: '指定されたチャットルームは削除されたか、存在しません。',
+            type: 'info',
+            confirmText: '閉じる',
+            onConfirm: () => {}
+          });
+        }
       }
     }
-  }, [initialRoomId, rooms]);
+  }, [initialRoomId, rooms, currentUser.id]);
 
   // 「ここから未読メッセージ」ライン用の最初の未読メッセージIDを記録するステート
   const [firstUnreadMessageId, setFirstUnreadMessageId] = useState<string | null>(null);
@@ -1117,11 +1155,29 @@ export function Chat({
   // トークルーム名・アイコン取得
   const getRoomName = (room: ChatRoom) => {
     if (!room) return 'トークルーム';
-    if (room.name) return room.name;
+    if (isGroupRoom(room)) {
+      if (room.name) return room.name;
+      const participants = room.participants || [];
+      const others = participants.filter((p) => p && p.id !== currentUser.id);
+      if (others.length === 0) return 'グループ';
+      return others.map((o) => {
+        const found = users.find((u) => u.id === o.id);
+        return found?.name || o.name || 'メンバー';
+      }).join(', ');
+    }
+    // ダイレクトトーク（DM）の場合: 「D:ユーザー名」形式で表示
     const participants = room.participants || [];
     const others = participants.filter((p) => p && p.id !== currentUser.id);
-    if (others.length === 0) return '自分とのメモ';
-    return others.map((o) => o.name || 'メンバー').join(', ');
+    if (others.length === 0) {
+      return `D:${currentUser.name || '自分'}`;
+    }
+    const targetName = others
+      .map((o) => {
+        const found = users.find((u) => u.id === o.id);
+        return found?.name || o.name || 'メンバー';
+      })
+      .join(', ');
+    return `D:${targetName}`;
   };
 
   const getRoomIcon = (room: ChatRoom) => {
@@ -2098,6 +2154,30 @@ export function Chat({
             </div>
 
             <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+              {/* 共有リンクコピーボタン */}
+              <button
+                type="button"
+                onClick={handleShareRoom}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-bold transition-all shadow-2xs select-none cursor-pointer ${
+                  copiedLink
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-300 ring-2 ring-emerald-200'
+                    : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200 hover:text-indigo-600'
+                }`}
+                title="このチャットルームの参加・共有リンク（URL）をコピー"
+              >
+                {copiedLink ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span className="text-[11px] font-bold hidden xs:inline">URLコピー完了!</span>
+                  </>
+                ) : (
+                  <>
+                    <Share2 className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                    <span className="text-[11px] font-bold hidden xs:inline">共有</span>
+                  </>
+                )}
+              </button>
+
               {/* 立体的なメガネ切り替えボタン */}
               <button
                 type="button"
@@ -2320,6 +2400,33 @@ export function Chat({
                       );
                     })}
                     </div>
+                  </div>
+
+                  {/* 共有リンクボタン */}
+                  <div className="pt-1">
+                    <button
+                      type="button"
+                      onClick={handleShareRoom}
+                      className={`w-full py-2 px-3 rounded-lg border text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs ${
+                        copiedLink
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-300 ring-2 ring-emerald-200'
+                          : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200 hover:text-indigo-600'
+                      }`}
+                      title="このチャットルームの共有リンク（URL）をコピー"
+                    >
+                      {copiedLink ? (
+                        <>
+                          <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <span>共有リンクをコピーしました!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Share2 className="w-4 h-4 text-slate-500 shrink-0" />
+                          <span>トークルームの共有リンクをコピー</span>
+                        </>
+                      )}
+                    </button>
+                    <p className="text-[10px] text-slate-400 text-center mt-1">※ 参加メンバーのみ閲覧・発言できます</p>
                   </div>
 
                   {isGroupRoom(activeRoom) && (
