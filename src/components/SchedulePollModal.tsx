@@ -84,6 +84,7 @@ export function SchedulePollModal({
   });
   const [autoTimeStart, setAutoTimeStart] = useState<string>('09:00');
   const [autoTimeEnd, setAutoTimeEnd] = useState<string>('18:00');
+  const [autoExcludeWeekends, setAutoExcludeWeekends] = useState<boolean>(true);
   const [autoExcludeLunch, setAutoExcludeLunch] = useState<boolean>(true);
   const [searchingSlots, setSearchingSlots] = useState<boolean>(false);
   const [suggestedSlots, setSuggestedSlots] = useState<FreeSlotSuggestion[]>([]);
@@ -191,7 +192,7 @@ export function SchedulePollModal({
           endDate: autoEndDate,
           durationMinutes: formDuration,
           timeRange: { start: autoTimeStart, end: autoTimeEnd },
-          excludeWeekends: true,
+          excludeWeekends: autoExcludeWeekends,
           excludeLunch: autoExcludeLunch,
         }),
       });
@@ -830,6 +831,29 @@ export function SchedulePollModal({
                         className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white font-medium"
                       />
                     </div>
+                  </div>
+
+                  {/* 抽出オプション（土日・昼休憩の除外） */}
+                  <div className="flex flex-wrap items-center gap-4 sm:gap-6 pt-0.5">
+                    <label className="inline-flex items-center gap-2 cursor-pointer select-none text-xs text-slate-700 font-medium hover:text-slate-900 transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={autoExcludeWeekends}
+                        onChange={e => setAutoExcludeWeekends(e.target.checked)}
+                        className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                      />
+                      <span>土日は含まない</span>
+                    </label>
+
+                    <label className="inline-flex items-center gap-2 cursor-pointer select-none text-xs text-slate-700 font-medium hover:text-slate-900 transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={autoExcludeLunch}
+                        onChange={e => setAutoExcludeLunch(e.target.checked)}
+                        className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                      />
+                      <span>昼休憩 (12:00〜13:00) を含まない</span>
+                    </label>
                   </div>
 
                   {/* 抽出結果スロット一覧 */}

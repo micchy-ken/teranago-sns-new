@@ -136,6 +136,7 @@ export const TeamWeekMemberRow: React.FC<TeamWeekMemberRowProps> = React.memo(({
             {dayEvents.length > 0 &&
               sortEvents(dayEvents).map((e) => {
                 const multiProps = getMultiDayStyle(e, dateStr);
+                const isSolid = multiProps.isMultiDay || e.isAllDay;
                 return (
                   <div
                     key={e.id}
@@ -162,18 +163,22 @@ export const TeamWeekMemberRow: React.FC<TeamWeekMemberRowProps> = React.memo(({
                     className={`border text-[9px] sm:text-[10px] font-bold leading-snug transition-all hover:shadow-xs shadow-2xs truncate select-none ${getEventStyle(e)} ${multiProps.containerClass} ${
                       draggedEventId === e.id ? 'opacity-40 select-none' : (draggedEventId ? 'pointer-events-none' : '')
                     } ${
-                      multiProps.isMultiDay ? 'py-0.5 px-1 sm:px-1.5 flex items-center h-5 sm:h-5.5' : 'p-1 sm:p-1.5'
+                      isSolid ? 'py-0.5 px-1 sm:px-1.5 flex items-center h-5 sm:h-5.5 text-white' : 'p-1 sm:p-1.5'
                     }`}
-                    title={`${e.title} (${formatEventTime(e)})`}
+                    title={`${e.isIcal ? '[iCal] ' : ''}${e.title} (${formatEventTime(e)})`}
                   >
                     {multiProps.isMultiDay ? (
-                      <span className="truncate font-bold tracking-tight">
-                        {multiProps.showTitle ? e.title : '\u00A0'}
+                      <span className="truncate font-bold tracking-tight text-white">
+                        {multiProps.showTitle ? (e.isIcal ? `[iCal] ${e.title}` : e.title) : '\u00A0'}
+                      </span>
+                    ) : e.isAllDay ? (
+                      <span className="truncate font-bold tracking-tight text-white">
+                        {e.isIcal ? `[iCal] ${e.title}` : e.title}
                       </span>
                     ) : (
                       <>
                         <div className="truncate font-extrabold text-[9px] sm:text-[10px] leading-tight text-slate-800">
-                          {e.title}
+                          {e.isIcal ? `[iCal] ${e.title}` : e.title}
                         </div>
                         <div className="flex items-center gap-1 truncate text-[8px] sm:text-[9px] text-slate-500 opacity-90 mt-0.5">
                           <Clock className="w-2 h-2 sm:w-2.5 sm:h-2.5 shrink-0" />

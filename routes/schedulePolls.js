@@ -138,150 +138,185 @@ router.post(['/schedule-polls/find-free-slots', '/schedule/polls/find-free-slots
       durationMinutes = 60,
       timeRange = { start: '09:00', end: '18:00' },
       excludeWeekends = true,
-      excludeLunch = true, // 12:00〜13:00を除外
+      excludeLunch = true, // 12:00〜13:00 (JST) を除外
     } = req.body;
 
     if (!startDate || !endDate) {
       return res.status(400).json({ error: 'startDate と endDate は必須です' });
     }
 
-    const startD = new Date(startDate);
-    const endD = new Date(endDate);
-
     // 1. 全Eventsを取得（非公開含む）
-    let allEvents = [];
+    let rawEvents = [];
     const pool = await getPool();
     if (pool) {
       const result = await pool.request().query`
-        SELECT id, title, startAt, endAt, isAllDay, isPrivate, createdById, participants
+        SELECT id, title, startAt, endAt, isAllDay, isPrivate, createdById, participants, description
         FROM dbo.Events
       `;
-      allEvents = (result.recordset || []).map(row => ({
-        id: String(row.id),
-        title: row.title,
-        startAt: new Date(row.startAt),
-        endAt: new Date(row.endAt),
-        isAllDay: !!row.isAllDay,
-        isPrivate: !!row.isPrivate,
-        createdById: String(row.createdById || ''),
-        participants: safeParseJSON(row.participants, []),
-      }));
+      rawEvents = (result.recordset || []);
     } else {
       if (fs.existsSync(EVENTS_FILE)) {
         const raw = fs.readFileSync(EVENTS_FILE, 'utf8');
-        const list = safeParseJSON(raw, []);
-        allEvents = list.map(e => ({
-          ...e,
-          startAt: new Date(e.startAt),
-          endAt: new Date(e.endAt),
-        }));
+        rawEvents = safeParseJSON(raw, []);
       }
     }
 
-    // 2. 対象ユーザーの関連イベント（作成者または参加者）のみをフィルタ
-    const userEvents = allEvents.filter(e => {
-      if (targetUserIds.length === 0) return true; // 全員未指定なら全予定
-      const isCreator = targetUserIds.includes(e.createdById);
-      const isParticipant = Array.isArray(e.participants) && e.participants.some(p => {
-        const pId = typeof p === 'string' ? p : (p?.id || p?.userId);
-        return targetUserIds.includes(pId);
+    // イベントの正規化（JSTタイムゾーンを厳格考慮）
+    const normalizedEvents = [];
+    for (const row of rawEvents) {
+      let detailsObj = {};
+      if (typeof row.description === 'string' && row.description.startsWith('{')) {
+        try { detailsObj = JSON.parse(row.description); } catch (_) {}
+      }
+
+      const rawStart = row.startAt || row.start || detailsObj.startAt || detailsObj.start;
+      const rawEnd = row.endAt || row.end || detailsObj.endAt || detailsObj.end || rawStart;
+      if (!rawStart) continue;
+
+      const isAllDay = !!(row.isAllDay || detailsObj.isAllDay);
+      let evStart = new Date(rawStart);
+      let evEnd = new Date(rawEnd);
+
+      // 終日予定の場合は JST 基準の 00:00:00+09:00 〜 23:59:59.999+09:00 に厳密設定
+      if (isAllDay) {
+        let startYmd = typeof rawStart === 'string' && rawStart.length >= 10 ? rawStart.slice(0, 10) : null;
+        let endYmd = typeof rawEnd === 'string' && rawEnd.length >= 10 ? rawEnd.slice(0, 10) : startYmd;
+        if (!startYmd || isNaN(new Date(`${startYmd}T00:00:00+09:00`).getTime())) {
+          const jstD = new Date(evStart.getTime() + 9 * 3600 * 1000);
+          startYmd = jstD.toISOString().slice(0, 10);
+          const jstEndD = new Date(evEnd.getTime() + 9 * 3600 * 1000);
+          endYmd = jstEndD.toISOString().slice(0, 10);
+        }
+        evStart = new Date(`${startYmd}T00:00:00+09:00`);
+        evEnd = new Date(`${endYmd}T23:59:59.999+09:00`);
+      }
+
+      // ユーザーID（作成者）
+      const creatorId = String(
+        row.createdById ||
+        (typeof row.createdBy === 'object' ? row.createdBy?.id : row.createdBy) ||
+        row.userId ||
+        detailsObj.createdById ||
+        (typeof detailsObj.createdBy === 'object' ? detailsObj.createdBy?.id : detailsObj.createdBy) ||
+        detailsObj.userId ||
+        ''
+      );
+
+      // 参加者IDリスト
+      let rawAtt = row.attendees || row.participants || detailsObj.attendees || detailsObj.participants || [];
+      if (typeof rawAtt === 'string') {
+        try { rawAtt = JSON.parse(rawAtt); } catch (_) { rawAtt = []; }
+      }
+      const participantIds = new Set();
+      if (Array.isArray(rawAtt)) {
+        rawAtt.forEach(a => {
+          const aId = typeof a === 'string' ? a : (a?.id || a?.userId);
+          if (aId) participantIds.add(String(aId));
+        });
+      }
+      if (creatorId) participantIds.add(creatorId);
+
+      normalizedEvents.push({
+        id: String(row.id),
+        title: row.title,
+        evStart,
+        evEnd,
+        isAllDay,
+        creatorId,
+        participantIds: Array.from(participantIds),
       });
-      return isCreator || isParticipant;
+    }
+
+    // 2. 対象ユーザーのイベントのみを抽出
+    const targetSet = new Set((targetUserIds || []).map(String));
+    const userEvents = normalizedEvents.filter(ev => {
+      if (targetSet.size === 0) return true; // 全員未指定ならすべての予定を対象
+      if (targetSet.has(ev.creatorId)) return true;
+      return ev.participantIds.some(pId => targetSet.has(pId));
     });
 
-    // 3. スロット生成（30分刻み）
-    const [startHour, startMin] = (timeRange.start || '09:00').split(':').map(Number);
-    const [endHour, endMin] = (timeRange.end || '18:00').split(':').map(Number);
+    // 3. JST 日付リストの生成 (start〜end)
+    const startYmd = String(startDate).split('T')[0];
+    const endYmd = String(endDate).split('T')[0];
+    const jstStartDate = new Date(`${startYmd}T12:00:00+09:00`);
+    const jstEndDate = new Date(`${endYmd}T12:00:00+09:00`);
 
+    const dateList = [];
+    const curDate = new Date(jstStartDate.getTime());
+    while (curDate.getTime() <= jstEndDate.getTime()) {
+      const y = curDate.getUTCFullYear();
+      const m = String(curDate.getUTCMonth() + 1).padStart(2, '0');
+      const d = String(curDate.getUTCDate()).padStart(2, '0');
+      dateList.push(`${y}-${m}-${d}`);
+      curDate.setUTCDate(curDate.getUTCDate() + 1);
+    }
+
+    // 4. スロット生成（30分刻み・JST時間基準）
+    const startTimeStr = timeRange?.start || '09:00';
+    const endTimeStr = timeRange?.end || '18:00';
+    const durMs = Number(durationMinutes || 60) * 60 * 1000;
     const suggestedSlots = [];
-    const durMs = Number(durationMinutes) * 60 * 1000;
 
-    // 日付ループ
-    const curr = new Date(startD);
-    curr.setHours(0, 0, 0, 0);
+    for (const dateStr of dateList) {
+      // 曜日チェック（JST基準）
+      const noonD = new Date(`${dateStr}T12:00:00+09:00`);
+      const dayOfWeek = noonD.getUTCDay(); // 0: 日, 6: 土
+      if (excludeWeekends && (dayOfWeek === 0 || dayOfWeek === 6)) {
+        continue;
+      }
 
-    const endBoundary = new Date(endD);
-    endBoundary.setHours(23, 59, 59, 999);
+      let slotStart = new Date(`${dateStr}T${startTimeStr}:00+09:00`);
+      const dayEnd = new Date(`${dateStr}T${endTimeStr}:00+09:00`);
 
-    while (curr <= endBoundary) {
-      const dayOfWeek = curr.getDay(); // 0: 日, 6: 土
-      if (!excludeWeekends || (dayOfWeek !== 0 && dayOfWeek !== 6)) {
-        const slotStart = new Date(curr);
-        slotStart.setHours(startHour, startMin, 0, 0);
+      if (isNaN(slotStart.getTime()) || isNaN(dayEnd.getTime())) continue;
 
-        const dayEnd = new Date(curr);
-        dayEnd.setHours(endHour, endMin, 0, 0);
+      while (slotStart.getTime() + durMs <= dayEnd.getTime()) {
+        const slotEnd = new Date(slotStart.getTime() + durMs);
 
-        while (slotStart.getTime() + durMs <= dayEnd.getTime()) {
-          const slotEnd = new Date(slotStart.getTime() + durMs);
-
-          // 昼休み (12:00〜13:00) 重複チェック
-          let isLunchOverlap = false;
-          if (excludeLunch) {
-            const lunchStart = new Date(curr);
-            lunchStart.setHours(12, 0, 0, 0);
-            const lunchEnd = new Date(curr);
-            lunchEnd.setHours(13, 0, 0, 0);
-            if (slotStart < lunchEnd && slotEnd > lunchStart) {
-              isLunchOverlap = true;
-            }
+        // 昼休み (12:00〜13:00 JST) 重複チェック
+        let isLunchOverlap = false;
+        if (excludeLunch) {
+          const lunchStart = new Date(`${dateStr}T12:00:00+09:00`);
+          const lunchEnd = new Date(`${dateStr}T13:00:00+09:00`);
+          if (slotStart < lunchEnd && slotEnd > lunchStart) {
+            isLunchOverlap = true;
           }
+        }
 
-          if (!isLunchOverlap) {
-            // 対象メンバーの予定と重複しているかチェック
-            const busyUsers = new Set();
-            for (const ev of userEvents) {
-              // 終日予定
-              if (ev.isAllDay) {
-                const evStart = new Date(ev.startAt);
-                evStart.setHours(0, 0, 0, 0);
-                const evEnd = new Date(ev.endAt);
-                evEnd.setHours(23, 59, 59, 999);
-                if (slotStart <= evEnd && slotEnd >= evStart) {
-                  if (ev.createdById) busyUsers.add(ev.createdById);
-                  if (Array.isArray(ev.participants)) {
-                    ev.participants.forEach(p => {
-                      const pId = typeof p === 'string' ? p : (p?.id || p?.userId);
-                      if (pId) busyUsers.add(pId);
-                    });
-                  }
-                }
-              } else {
-                // 時間帯重複: slotStart < ev.endAt && slotEnd > ev.startAt
-                if (slotStart < ev.endAt && slotEnd > ev.startAt) {
-                  if (ev.createdById) busyUsers.add(ev.createdById);
-                  if (Array.isArray(ev.participants)) {
-                    ev.participants.forEach(p => {
-                      const pId = typeof p === 'string' ? p : (p?.id || p?.userId);
-                      if (pId) busyUsers.add(pId);
-                    });
-                  }
-                }
+        if (!isLunchOverlap) {
+          // 対象メンバーの予定と重複しているかチェック
+          const busyUsers = new Set();
+          for (const ev of userEvents) {
+            if (slotStart < ev.evEnd && slotEnd > ev.evStart) {
+              if (ev.creatorId && targetSet.has(ev.creatorId)) {
+                busyUsers.add(ev.creatorId);
               }
-            }
-
-            const busyList = Array.from(busyUsers).filter(id => targetUserIds.includes(id));
-            const availableCount = Math.max(0, targetUserIds.length - busyList.length);
-
-            // 全員または大半が空いているスロットを候補として追加
-            if (busyList.length === 0 || (targetUserIds.length > 2 && busyList.length <= 1)) {
-              suggestedSlots.push({
-                id: `slot_${slotStart.getTime()}`,
-                startAt: slotStart.toISOString(),
-                endAt: slotEnd.toISOString(),
-                availableCount: targetUserIds.length > 0 ? availableCount : 0,
-                totalCount: targetUserIds.length,
-                busyUserIds: busyList,
-                isPerfect: busyList.length === 0,
+              ev.participantIds.forEach(pId => {
+                if (targetSet.has(pId)) busyUsers.add(pId);
               });
             }
           }
 
-          // 30分進める
-          slotStart.setMinutes(slotStart.getMinutes() + 30);
+          const busyList = Array.from(busyUsers);
+          const availableCount = Math.max(0, targetSet.size - busyList.length);
+
+          // 全員または大半が空いているスロットを候補として追加
+          if (busyList.length === 0 || (targetSet.size > 2 && busyList.length <= 1)) {
+            suggestedSlots.push({
+              id: `slot_${slotStart.getTime()}`,
+              startAt: slotStart.toISOString(),
+              endAt: slotEnd.toISOString(),
+              availableCount: targetSet.size > 0 ? availableCount : 0,
+              totalCount: targetSet.size,
+              busyUserIds: busyList,
+              isPerfect: busyList.length === 0,
+            });
+          }
         }
+
+        // 30分進める
+        slotStart = new Date(slotStart.getTime() + 30 * 60 * 1000);
       }
-      curr.setDate(curr.getDate() + 1);
     }
 
     // スコア順（全員空いている完璧スロット優先、日時順）

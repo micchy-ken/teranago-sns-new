@@ -334,11 +334,11 @@ export const TeamDayMemberRow: React.FC<TeamDayMemberRowProps> = React.memo(({
                 }`}
                 title={`${e.isIcal ? '[iCal] ' : ''}${e.title} (${displayTimeString})${e.location ? `\n場所: ${e.location}` : ''}${e.memo ? `\nメモ: ${e.memo}` : ''}`}
               >
-                <div className="font-medium text-[11px] sm:text-xs text-slate-800 truncate leading-tight select-none pointer-events-none">
+                <div className={`font-medium text-[11px] sm:text-xs truncate leading-tight select-none pointer-events-none ${e.isAllDay ? 'text-white font-bold' : 'text-slate-800'}`}>
                   {e.isIcal ? `[iCal] ${e.title}` : e.title}
                 </div>
                 {displayWidthPx > 50 && (
-                  <div className="text-[9px] sm:text-[10px] text-slate-500 font-medium truncate leading-tight mt-0.5 opacity-90 pointer-events-none">
+                  <div className={`text-[9px] sm:text-[10px] font-medium truncate leading-tight mt-0.5 opacity-90 pointer-events-none ${e.isAllDay ? 'text-white/90' : 'text-slate-500'}`}>
                     {displayTimeString}{e.location ? ` • ${e.location}` : ''}
                   </div>
                 )}
