@@ -14,6 +14,7 @@ import logsRouter from './routes/logs.js';
 import documentsRouter from './routes/documents.js';
 import schedulePollsRouter from './routes/schedulePolls.js';
 import photoReportsRouter from './routes/photoReports.js';
+import sitesRouter from './routes/sites.js';
 
 async function startServer() {
   const app = express();
@@ -667,6 +668,9 @@ async function startServer() {
   // アクセス・操作ログ管理APIルーター
   app.use('/api/logs', logsRouter);
   app.use('/api/access-logs', logsRouter);
+
+  // 現場管理・施工スケジュール・在庫DB部品連携APIルーター
+  app.use(['/api/sites', '/api/genba-sites'], sitesRouter);
 
   // PWA・静的アイコン・マニフェスト等の明示的エンドポイント（開発/本番問わずバイナリとして確実に返却）
   const publicStaticFiles = ['pwa-192x192.png', 'pwa-512x512.png', 'icon.svg', 'manifest.json'];

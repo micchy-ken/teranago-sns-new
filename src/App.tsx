@@ -22,6 +22,7 @@ const MemoList = lazyWithRetry(() => import('./components/MemoList').then(m => (
 const DailyReportView = lazyWithRetry(() => import('./components/DailyReport').then(m => ({ default: m.DailyReportView })));
 const InspectionScheduler = lazyWithRetry(() => import('./components/InspectionScheduler').then(m => ({ default: m.InspectionScheduler })));
 const InspectionReportTab = lazyWithRetry(() => import('./components/inspection/InspectionReportTab').then(m => ({ default: m.InspectionReportTab })));
+const SiteManagement = lazyWithRetry(() => import('./components/SiteManagement/SiteManagement').then(m => ({ default: m.SiteManagement })));
 const SafetyConfirmation = lazyWithRetry(() => import('./components/SafetyConfirmation').then(m => ({ default: m.SafetyConfirmation })));
 const GuestSafetyResponse = lazyWithRetry(() => import('./components/GuestSafetyResponse').then(m => ({ default: m.GuestSafetyResponse })));
 const MyPage = lazyWithRetry(() => import('./components/MyPage').then(m => ({ default: m.MyPage })));
@@ -3035,6 +3036,12 @@ export default function App() {
               events={events}
               offices={offices}
               divisions={divisions}
+            />
+          )}
+          {activeTab === 'site_management' && (
+            <SiteManagement
+              currentUser={userState}
+              allUsers={usersList}
             />
           )}
           {activeTab === 'workflow' && (

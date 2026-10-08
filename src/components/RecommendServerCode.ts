@@ -1,7 +1,7 @@
 export const RECOMMEND_SERVER_JS = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年10月6日 (掲示板閲覧者・既読足跡の永続化同期およびPUT/POSTデータ構造正規化修正)
+ * 最終更新日時 (最終アップデート): 2026年10月8日 (現場管理タブ在庫DBレスポンスcode/name正規化対応・routes/sites.js同期)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -35,6 +35,7 @@ import logsRouter from './routes/logs.js';
 import documentsRouter from './routes/documents.js';
 import schedulePollsRouter from './routes/schedulePolls.js';
 import photoReportsRouter from './routes/photoReports.js';
+import sitesRouter from './routes/sites.js';
 
 async function startServer() {
   const app = express();
@@ -688,6 +689,9 @@ async function startServer() {
   // アクセス・操作ログ管理APIルーター
   app.use('/api/logs', logsRouter);
   app.use('/api/access-logs', logsRouter);
+
+  // 現場管理・施工スケジュール・在庫DB部品連携APIルーター
+  app.use(['/api/sites', '/api/genba-sites'], sitesRouter);
 
   // PWA・静的アイコン・マニフェスト等の明示的エンドポイント（開発/本番問わずバイナリとして確実に返却）
   const publicStaticFiles = ['pwa-192x192.png', 'pwa-512x512.png', 'icon.svg', 'manifest.json'];

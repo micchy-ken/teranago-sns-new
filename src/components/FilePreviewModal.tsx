@@ -10,12 +10,10 @@ interface FilePreviewModalProps {
 }
 
 export function FilePreviewModal({ isOpen, onClose, file }: FilePreviewModalProps) {
-  if (!isOpen || !file) return null;
-
-  const resolvedUrl = resolveFileUrl(file.url);
-  const isImage = file.type?.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(file.name);
-  const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
-  const isText = /\.(txt|csv|json|xml|log|ini|md)$/i.test(file.name);
+  const resolvedUrl = file?.url ? resolveFileUrl(file.url) : '';
+  const isImage = file?.type?.startsWith('image/') || (file?.name ? /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(file.name) : false);
+  const isPdf = file?.type === 'application/pdf' || (file?.name ? /\.pdf$/i.test(file.name) : false);
+  const isText = file?.name ? /\.(txt|csv|json|xml|log|ini|md)$/i.test(file.name) : false;
 
   const [textContent, setTextContent] = React.useState<string | null>(null);
   const [textLoading, setTextLoading] = React.useState<boolean>(false);
@@ -36,7 +34,9 @@ export function FilePreviewModal({ isOpen, onClose, file }: FilePreviewModalProp
     } else {
       setTextContent(null);
     }
-  }, [file.url, resolvedUrl, isText]);
+  }, [file?.url, resolvedUrl, isText]);
+
+  if (!isOpen || !file) return null;
 
   // 拡張子に応じたアイコン
   const getFileIcon = (fileName: string) => {

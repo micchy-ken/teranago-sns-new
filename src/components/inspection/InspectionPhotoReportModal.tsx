@@ -272,8 +272,6 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
     };
   }, [isOpen, existingPhotoReport, initialInspectionReport]);
 
-  if (!isOpen) return null;
-
   // 1ページあたりの写真スロット数と総ページ数計算
   const itemsPerPage = layoutType === '2_items' ? 2 : layoutType === '4_items' ? 4 : 3;
   const totalPages = Math.max(1, Math.ceil(photos.length / itemsPerPage));
@@ -710,6 +708,8 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
       window.print();
     }, 250);
   };
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/75 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto print:static print:p-0 print:m-0 print:bg-white print:overflow-visible print:z-auto print:block">
