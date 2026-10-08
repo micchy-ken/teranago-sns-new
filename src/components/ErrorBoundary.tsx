@@ -28,6 +28,37 @@ export class ErrorBoundary extends React.Component<Props, State> {
       error,
       errorInfo,
     });
+
+    // 開発サーバー再起動やモジュール更新による不整合（Invalid hook call / useState読み取り不能など）を検知し1回自動同期
+    try {
+      const errorMsg = (
+        (error?.name || '') + ' ' +
+        (error?.message || '') + ' ' +
+        (error?.stack || '') + ' ' +
+        String(error || '')
+      ).toLowerCase();
+
+      const isMismatch =
+        errorMsg.includes('invalid hook call') ||
+        errorMsg.includes("reading 'usestate'") ||
+        errorMsg.includes('expected static flag was missing') ||
+        errorMsg.includes('failed to fetch dynamically imported module') ||
+        errorMsg.includes('importing a module script failed') ||
+        errorMsg.includes('error loading dynamically imported module') ||
+        errorMsg.includes('loading chunk') ||
+        errorMsg.includes('css chunk load failed') ||
+        errorMsg.includes('chunkloaderror');
+
+      if (isMismatch) {
+        const lastReloadTime = sessionStorage.getItem('last_version_mismatch_reload');
+        const now = Date.now();
+        // 10秒以内にリロードしていない場合は自動リロードして最新モジュールと同期
+        if (!lastReloadTime || now - Number(lastReloadTime) > 10000) {
+          sessionStorage.setItem('last_version_mismatch_reload', String(now));
+          window.location.reload();
+        }
+      }
+    } catch (_) {}
   }
 
   private handleReset = () => {
@@ -35,6 +66,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
     try {
       localStorage.removeItem('selected_user');
       localStorage.removeItem('teranago_sns_auth');
+      sessionStorage.removeItem('last_version_mismatch_reload');
     } catch (_) {}
     window.location.reload();
   };
@@ -49,6 +81,9 @@ export class ErrorBoundary extends React.Component<Props, State> {
       ).toLowerCase();
 
       const isChunkLoadError = 
+        errorMsg.includes('invalid hook call') ||
+        errorMsg.includes("reading 'usestate'") ||
+        errorMsg.includes('expected static flag was missing') ||
         errorMsg.includes('failed to fetch dynamically imported module') ||
         errorMsg.includes('importing a module script failed') ||
         errorMsg.includes('error loading dynamically imported module') ||
@@ -57,7 +92,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
         errorMsg.includes('chunkloaderror') ||
         (errorMsg.includes('failed to fetch') && errorMsg.includes('.js'));
 
-      // バージョン更新（チャンクロードエラー）時の穏やかで分かりやすい画面
+      // バージョン更新・モジュール再読み込み時の穏やかで分かりやすい画面
       if (isChunkLoadError) {
         return (
           <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans">
