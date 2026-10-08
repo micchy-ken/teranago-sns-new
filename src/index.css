@@ -292,3 +292,15 @@
   --color-violet-500: #8b5cf6;
   --color-violet-600: #7c3aed;
 }
+
+/* ==========================================================================
+   Icon & Avatar High-Quality Downscaling (縮小表示の滑らかさ・高精細化)
+   ========================================================================== */
+img.rounded-full,
+img[alt*="avatar"],
+img.avatar-img,
+[data-avatar] img {
+  image-rendering: auto;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}

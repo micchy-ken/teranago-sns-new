@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { User, CalendarEvent, BoardTopic, Memo, WorkflowApplication, ChatRoom, OfficeMaster, DivisionMaster, PositionMaster, DailyReport, EmailNotificationSettings, ApplicationType } from '../types';
 import { AppTab } from './Sidebar';
-import { getAvatarUrl, SILHOUETTE_SVG } from '../utils/avatar';
+import { getAvatarUrl, SILHOUETTE_SVG, optimizeAvatarFile } from '../utils/avatar';
 import { API_BASE_URL } from '../config/api';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { getLocalDateStr } from '../utils/dateUtils';
@@ -377,10 +377,13 @@ export function MyPage({
     setAvatarUploading(true);
     setAvatarError(null);
 
-    const formData = new FormData();
-    formData.append('avatar', file);
-
     try {
+      // 登録画像の縮小表示が粗くならないよう、正方形プレスケール・高品質リサイズ処理を実行
+      const fileToUpload = await optimizeAvatarFile(file);
+
+      const formData = new FormData();
+      formData.append('avatar', fileToUpload);
+
       const response = await fetch(`${API_BASE_URL}/upload-avatar`, {
         method: 'POST',
         body: formData,
@@ -918,15 +921,17 @@ export function MyPage({
   const unreadMemos = myMemos.filter((m) => isMemoUnread(m, user, readMemoIds));
 
   // 4. 自分に関係するワークフロー（自分が申請者、または承認者・承認履歴・ステップ対象者）
+  // ※ 金銀日報はマイページ内ワークフローの表示対象外
   const myApplications = applications
     .filter(
       (a) =>
-        a.applicant?.id === user?.id ||
+        a.type !== 'gold_silver_daily_report' &&
+        (a.applicant?.id === user?.id ||
         a.applicant?.name === user?.name ||
         a.approver?.id === user?.id ||
         a.approver?.name === user?.name ||
         a.history?.some(h => h.approver?.id === user?.id || h.approver?.name === user?.name) ||
-        (a.stepsConfig && a.stepsConfig.some(s => s.specificUserId === user?.id))
+        (a.stepsConfig && a.stepsConfig.some(s => s.specificUserId === user?.id)))
     )
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
@@ -1246,7 +1251,8 @@ export function MyPage({
                   {myMemos.slice(0, 5).map((memo) => {
                     const isUnhandled = isMemoUnhandled(memo, user);
                     const isUnread = isMemoUnread(memo, user, readMemoIds);
-                    const memoSnippet = (memo.content || '').replace(/[\r\n\t]+/g, ' ').trim();
+                    const rawContent = (memo.content || '').replace(/[\r\n\t]+/g, ' ').trim();
+                    const memoSnippet = rawContent.length > 45 ? `${rawContent.slice(0, 45)}…` : rawContent;
 
                     return (
                       <div
@@ -1306,7 +1312,7 @@ export function MyPage({
                         </div>
 
                         <div className="min-w-0">
-                          <p className="text-xs text-slate-500 truncate" title={memo.content}>
+                          <p className="text-xs text-slate-500 line-clamp-1 truncate" title={memo.content}>
                             {memoSnippet || '（用件・本文なし）'}
                           </p>
                         </div>
@@ -1352,31 +1358,17 @@ export function MyPage({
             badgeBgColor="bg-purple-600"
             onNavigate={() => onChangeTab('workflow')}
             actionButton={
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCreateAppInitialType('gold_silver_daily_report');
-                    setIsCreateApplicationOpen(true);
-                  }}
-                  className="text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white px-2.5 py-1.5 rounded-lg flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
-                  title="金銀日報を直接新規作成"
-                >
-                  <Coins className="w-3.5 h-3.5" />
-                  金銀日報
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCreateAppInitialType('purchase_order');
-                    setIsCreateApplicationOpen(true);
-                  }}
-                  className="text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white px-2.5 py-1.5 rounded-lg flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  新規申請
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setCreateAppInitialType('purchase_order');
+                  setIsCreateApplicationOpen(true);
+                }}
+                className="text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white px-2.5 py-1.5 rounded-lg flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                新規申請
+              </button>
             }
             isFullWidth={isFullWidth}
             isDragging={isDragging}
@@ -1395,9 +1387,9 @@ export function MyPage({
                     const curIdx = (app.currentStepIndex || 1) - 1;
                     const curStep = app.stepsConfig[curIdx];
                     if (curStep) {
-                      const { user: stepUser } = resolveApproverForStepDetails(app.applicant, curStep, curIdx, allUsers);
-                      if (stepUser?.name) {
-                        currentApproverName = stepUser.name;
+                      const res = resolveApproverForStepDetails(app.applicant, curStep, curIdx, allUsers || []);
+                      if (res?.user?.name) {
+                        currentApproverName = res.user.name;
                       }
                     }
                   }
@@ -1461,36 +1453,6 @@ export function MyPage({
                       </div>
 
                       <p className="text-xs text-slate-500 line-clamp-1">{app.description}</p>
-
-                      {/* 金銀日報の残高報告サマリーカード */}
-                      {app.type === 'gold_silver_daily_report' && (
-                        <div className="p-2.5 bg-gradient-to-br from-amber-50 to-yellow-50/50 rounded-xl border border-amber-200/90 flex flex-col gap-1.5">
-                          <div className="flex items-center justify-between text-xs">
-                            <div className="flex items-center gap-1.5 font-bold text-amber-950">
-                              <Coins className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                              <span>金銀日報 {offices?.find(o => o.id === app.officeId)?.name || app.location ? `(${offices?.find(o => o.id === app.officeId)?.name || app.location})` : ''}</span>
-                            </div>
-                            {app.currentBalance !== undefined && app.previousBalance !== undefined && (() => {
-                              const diff = Number(app.currentBalance) - Number(app.previousBalance);
-                              return (
-                                <span className={`text-[10px] font-extrabold ${diff > 0 ? 'text-emerald-700' : diff < 0 ? 'text-rose-700' : 'text-slate-600'}`}>
-                                  増減: {diff > 0 ? `+¥${diff.toLocaleString()}` : diff < 0 ? `-¥${Math.abs(diff).toLocaleString()}` : '±¥0'}
-                                </span>
-                              );
-                            })()}
-                          </div>
-                          <div className="flex items-center gap-3 text-[11px] font-extrabold">
-                            {app.previousBalance !== undefined && (
-                              <span className="text-slate-600">前回: ¥{Number(app.previousBalance).toLocaleString()}</span>
-                            )}
-                            {app.currentBalance !== undefined && (
-                              <span className="text-amber-950 bg-amber-200/70 px-2 py-0.5 rounded-md">
-                                今回残高: ¥{Number(app.currentBalance).toLocaleString()}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      )}
 
                       <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-100">
                         <span>申請者: {app.applicant?.name || '不明'}</span>

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { RECOMMEND_SERVER_JS, SERVER_CODE_HISTORY } from './RecommendServerCode';
-import { getAvatarUrl, handleAvatarError, SILHOUETTE_SVG } from '../utils/avatar';
+import { getAvatarUrl, handleAvatarError, SILHOUETTE_SVG, optimizeAvatarFile } from '../utils/avatar';
 import { API_BASE_URL } from '../config/api';
 import { 
   Shield, 
@@ -389,10 +389,13 @@ export function AdminPanel({
     setAvatarUploading(true);
     setAvatarError(null);
 
-    const formData = new FormData();
-    formData.append('avatar', file);
-
     try {
+      // 登録画像の縮小が粗くならないよう、正方形高品質プレスケール処理を実行
+      const fileToUpload = await optimizeAvatarFile(file);
+
+      const formData = new FormData();
+      formData.append('avatar', fileToUpload);
+
       const response = await fetch(`${API_BASE_URL}/upload-avatar`, {
         method: 'POST',
         body: formData,
