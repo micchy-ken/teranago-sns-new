@@ -227,11 +227,13 @@ export function SchedulePollModal({
     }
   };
 
-  // 全ての推奨空き枠を一括追加
-  const handleAddAllSuggestedSlots = () => {
+  // 全員が参加可能な空き枠のみを一括追加
+  const handleAddPerfectSuggestedSlots = () => {
+    const perfectSlots = suggestedSlots.filter(s => s.isPerfect || (s.availableCount === s.totalCount && s.totalCount > 0));
     const newItems: ScheduleCandidate[] = [];
-    suggestedSlots.forEach(slot => {
-      if (!formCandidates.some(c => c.startAt === slot.startAt && c.endAt === slot.endAt)) {
+    perfectSlots.forEach(slot => {
+      if (!formCandidates.some(c => c.startAt === slot.startAt && c.endAt === slot.endAt) &&
+          !newItems.some(c => c.startAt === slot.startAt && c.endAt === slot.endAt)) {
         const start = new Date(slot.startAt);
         const end = new Date(slot.endAt);
         const dateStr = start.toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric', weekday: 'short' });
@@ -244,7 +246,28 @@ export function SchedulePollModal({
         });
       }
     });
-    setFormCandidates([...formCandidates, ...newItems]);
+    setFormCandidates(prev => [...prev, ...newItems]);
+  };
+
+  // 全ての推奨空き枠を一括追加
+  const handleAddAllSuggestedSlots = () => {
+    const newItems: ScheduleCandidate[] = [];
+    suggestedSlots.forEach(slot => {
+      if (!formCandidates.some(c => c.startAt === slot.startAt && c.endAt === slot.endAt) &&
+          !newItems.some(c => c.startAt === slot.startAt && c.endAt === slot.endAt)) {
+        const start = new Date(slot.startAt);
+        const end = new Date(slot.endAt);
+        const dateStr = start.toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric', weekday: 'short' });
+        const timeStr = `${start.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}〜${end.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`;
+        newItems.push({
+          id: `c_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+          startAt: slot.startAt,
+          endAt: slot.endAt,
+          text: `${dateStr} ${timeStr}`,
+        });
+      }
+    });
+    setFormCandidates(prev => [...prev, ...newItems]);
   };
 
   // 手動で候補を追加
@@ -863,13 +886,32 @@ export function SchedulePollModal({
                         おすすめの空き枠スロット ({suggestedSlots.length}件検出)
                       </span>
                       {suggestedSlots.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={handleAddAllSuggestedSlots}
-                          className="text-xs font-bold text-indigo-600 hover:text-indigo-800"
-                        >
-                          ＋ すべて候補に追加
-                        </button>
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={handleAddPerfectSuggestedSlots}
+                            disabled={!suggestedSlots.some(s => s.isPerfect || (s.availableCount === s.totalCount && s.totalCount > 0))}
+                            className={`text-xs font-bold transition-colors flex items-center gap-1 ${
+                              suggestedSlots.some(s => s.isPerfect || (s.availableCount === s.totalCount && s.totalCount > 0))
+                                ? 'text-emerald-600 hover:text-emerald-800 cursor-pointer'
+                                : 'text-slate-400 cursor-not-allowed'
+                            }`}
+                            title={
+                              suggestedSlots.some(s => s.isPerfect || (s.availableCount === s.totalCount && s.totalCount > 0))
+                                ? '全員が参加可能な空き枠のみを一括追加します'
+                                : '全員が空いている枠はありません'
+                            }
+                          >
+                            ＋ 全員参加のみ追加
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleAddAllSuggestedSlots}
+                            className="text-xs font-bold text-indigo-600 hover:text-indigo-800 transition-colors flex items-center gap-1 cursor-pointer"
+                          >
+                            ＋ すべて候補に追加
+                          </button>
+                        </div>
                       )}
                     </div>
 

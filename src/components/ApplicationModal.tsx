@@ -213,8 +213,37 @@ export function ApplicationModal({
     setAttachments(attachments.filter(att => att.id !== id));
   };
 
+  // モーダルが開いた瞬間または編集対象が変わった時のみ初期化を行い、
+  // バックグラウンド同期（applications/offices/currentUserの更新など）による入力中フォームのリセットを防止
+  const prevIsOpenRef = useRef(false);
+  const prevInitialDataIdRef = useRef<string | undefined>(undefined);
+  const prevInitialDataRef = useRef<WorkflowApplication | null | undefined>(undefined);
+
   // モーダルが開いたとき、initialData があればそのデータをセット、無ければデフォルト設定
   useEffect(() => {
+    if (!isOpen) {
+      prevIsOpenRef.current = false;
+      prevInitialDataIdRef.current = undefined;
+      prevInitialDataRef.current = undefined;
+      return;
+    }
+
+    const isNewlyOpened = !prevIsOpenRef.current && isOpen;
+    const initialDataChanged = initialData !== prevInitialDataRef.current && (
+      initialData?.id !== prevInitialDataIdRef.current ||
+      (!initialData && !!prevInitialDataRef.current) ||
+      (!!initialData && !prevInitialDataRef.current)
+    );
+
+    // すでに開いており、かつ編集対象データも変化していない場合は、入力中データを保持するため再初期化しない
+    if (!isNewlyOpened && !initialDataChanged) {
+      return;
+    }
+
+    prevIsOpenRef.current = true;
+    prevInitialDataIdRef.current = initialData?.id;
+    prevInitialDataRef.current = initialData;
+
     if (isOpen) {
       if (initialData) {
         if (currentUser?.id && initialData.id) {
