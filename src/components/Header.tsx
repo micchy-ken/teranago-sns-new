@@ -28,6 +28,7 @@ import {
 } from '../utils/notifications';
 import { triggerOpenUserModal } from '../utils/userModal';
 import { isEventVisibleToUser } from '../utils/eventVisibility';
+import { APP_VERSION } from '../config/version';
 
 export interface GlobalSearchResultItem {
   id: string;
@@ -730,15 +731,23 @@ export function Header({
           </button>
           <div
             onClick={() => onSelectTab && onSelectTab('mypage')}
-            className="flex items-center gap-2 cursor-pointer select-none hover:opacity-90 transition-opacity"
-            title="マイページへ"
+            className="flex items-center gap-2 cursor-pointer select-none hover:opacity-90 transition-opacity relative group/teranago-logo"
+            title={`マイページへ (TERANAGO SNS ${APP_VERSION.display})`}
           >
             <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center shadow-xs">
               <span className="text-white font-bold text-lg leading-none">T</span>
             </div>
-            <span className="text-xl font-bold tracking-tight text-slate-800 hidden sm:block">
-              TERANAGO<span className="text-indigo-600">SNS</span>
-            </span>
+            <div className="relative flex items-center">
+              <span className="text-xl font-bold tracking-tight text-slate-800 hidden sm:block">
+                TERANAGO<span className="text-indigo-600">SNS</span>
+              </span>
+              {/* バージョン表示ツールチップ（マウスオーバーで表示） */}
+              <div className="absolute left-0 top-full mt-2 hidden group-hover/teranago-logo:flex items-center gap-1.5 px-2.5 py-1 bg-slate-900/95 text-white text-[11px] font-medium rounded-md shadow-xl border border-slate-700/60 backdrop-blur-xs whitespace-nowrap z-50 pointer-events-none transition-all duration-150 animate-in fade-in slide-in-from-top-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span className="font-semibold text-emerald-300">{APP_VERSION.display}</span>
+                <span className="text-slate-400 text-[10px]">({APP_VERSION.date})</span>
+              </div>
+            </div>
           </div>
         </div>
 

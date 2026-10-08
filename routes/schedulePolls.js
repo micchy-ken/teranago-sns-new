@@ -69,6 +69,25 @@ async function initTables(pool) {
   }
 }
 
+// 日時文字列を安全にパース（タイムゾーンオフセットがない場合は JST +09:00 として解釈）
+function parseEventDate(val) {
+  if (!val) return null;
+  if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
+  const s = String(val).trim();
+  if (!s) return null;
+  // 既に Z や +09:00 等のオフセット指定がある場合
+  if (s.endsWith('Z') || s.includes('+') || (s.includes('-') && s.length > 19 && s[19] === '-')) {
+    const d = new Date(s);
+    if (!isNaN(d.getTime())) return d;
+  }
+  // "YYYY-MM-DDTHH:mm:ss" または "YYYY-MM-DD HH:mm:ss" でオフセットなしの場合、JST (+09:00) を補完
+  const normalized = s.replace(' ', 'T');
+  const dJst = new Date(`${normalized}+09:00`);
+  if (!isNaN(dJst.getTime())) return dJst;
+  const fallback = new Date(s);
+  return isNaN(fallback.getTime()) ? null : fallback;
+}
+
 // ==========================================
 // 1. 日程調整一覧取得 (GET /api/schedule-polls)
 // ==========================================
@@ -145,12 +164,12 @@ router.post(['/schedule-polls/find-free-slots', '/schedule/polls/find-free-slots
       return res.status(400).json({ error: 'startDate と endDate は必須です' });
     }
 
-    // 1. 全Eventsを取得（非公開含む）
+    // 1. 全Eventsを取得（dbo.Events の既存物理カラムに合致する安全なSELECT）
     let rawEvents = [];
     const pool = await getPool();
     if (pool) {
       const result = await pool.request().query`
-        SELECT id, title, startAt, endAt, isAllDay, isPrivate, createdById, participants, description
+        SELECT *
         FROM dbo.Events
       `;
       rawEvents = (result.recordset || []);
@@ -165,8 +184,17 @@ router.post(['/schedule-polls/find-free-slots', '/schedule/polls/find-free-slots
     const normalizedEvents = [];
     for (const row of rawEvents) {
       let detailsObj = {};
-      if (typeof row.description === 'string' && row.description.startsWith('{')) {
-        try { detailsObj = JSON.parse(row.description); } catch (_) {}
+      if (typeof row.description === 'string') {
+        const trimmed = row.description.trim();
+        if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+          try { detailsObj = JSON.parse(trimmed); } catch (_) {}
+        }
+      }
+      if (Object.keys(detailsObj).length === 0 && typeof row.details === 'string') {
+        const trimmed = row.details.trim();
+        if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+          try { detailsObj = JSON.parse(trimmed); } catch (_) {}
+        }
       }
 
       const rawStart = row.startAt || row.start || detailsObj.startAt || detailsObj.start;
@@ -174,8 +202,10 @@ router.post(['/schedule-polls/find-free-slots', '/schedule/polls/find-free-slots
       if (!rawStart) continue;
 
       const isAllDay = !!(row.isAllDay || detailsObj.isAllDay);
-      let evStart = new Date(rawStart);
-      let evEnd = new Date(rawEnd);
+      let evStart = parseEventDate(rawStart);
+      let evEnd = parseEventDate(rawEnd);
+      if (!evStart) continue;
+      if (!evEnd || evEnd < evStart) evEnd = evStart;
 
       // 終日予定の場合は JST 基準の 00:00:00+09:00 〜 23:59:59.999+09:00 に厳密設定
       if (isAllDay) {
@@ -199,6 +229,7 @@ router.post(['/schedule-polls/find-free-slots', '/schedule/polls/find-free-slots
         detailsObj.createdById ||
         (typeof detailsObj.createdBy === 'object' ? detailsObj.createdBy?.id : detailsObj.createdBy) ||
         detailsObj.userId ||
+        detailsObj.authorId ||
         ''
       );
 
@@ -210,7 +241,7 @@ router.post(['/schedule-polls/find-free-slots', '/schedule/polls/find-free-slots
       const participantIds = new Set();
       if (Array.isArray(rawAtt)) {
         rawAtt.forEach(a => {
-          const aId = typeof a === 'string' ? a : (a?.id || a?.userId);
+          const aId = typeof a === 'string' ? a : (a?.id || a?.userId || a?.loginId);
           if (aId) participantIds.add(String(aId));
         });
       }
@@ -294,6 +325,10 @@ router.post(['/schedule-polls/find-free-slots', '/schedule/polls/find-free-slots
               ev.participantIds.forEach(pId => {
                 if (targetSet.has(pId)) busyUsers.add(pId);
               });
+              if (targetSet.size === 0) {
+                if (ev.creatorId) busyUsers.add(ev.creatorId);
+                ev.participantIds.forEach(pId => busyUsers.add(pId));
+              }
             }
           }
 
@@ -596,8 +631,8 @@ router.post(['/schedule-polls/:id/confirm', '/schedule/polls/:id/confirm', '/pol
       }
     } else {
       ensureDataFiles();
-      const raw = fs.readFileSync(POLLS_FILE, 'utf8');
-      const polls = safeParseJSON(raw, []);
+      const rawP = fs.readFileSync(POLLS_FILE, 'utf8');
+      const polls = safeParseJSON(rawP, []);
       poll = polls.find(p => p.id === id);
     }
 
@@ -616,6 +651,20 @@ router.post(['/schedule-polls/:id/confirm', '/schedule/polls/:id/confirm', '/pol
     const eventLocation = finalLocation !== undefined ? finalLocation : (poll.location || '');
     const eventDesc = finalDescription || (poll.description ? `${poll.description}\n\n(日程調整より自動確定)` : '(日程調整より自動確定)');
 
+    const descPayload = {
+      memo: eventDesc,
+      createdBy: {
+        id: poll.organizerId,
+        name: poll.organizerName,
+      },
+      createdById: poll.organizerId,
+      attendees: (poll.targetUserIds || []).map(uId => ({ id: uId })),
+      participants: poll.targetUserIds || [],
+      location: eventLocation,
+      source: 'schedule_poll',
+      pollId: id,
+    };
+
     const newEvent = {
       id: eventId,
       title: eventTitle,
@@ -624,40 +673,48 @@ router.post(['/schedule-polls/:id/confirm', '/schedule/polls/:id/confirm', '/pol
       isAllDay: false,
       isPrivate: false,
       category: 'meeting',
-      description: eventDesc,
+      description: JSON.stringify(descPayload),
       location: eventLocation,
-      createdById: poll.organizerId,
-      createdByName: poll.organizerName,
-      participants: poll.targetUserIds || [],
+      office: '全社',
+      division: '全部署',
       attachments: [],
       recurrence: null,
+      recurrenceParentId: null,
+      recurrenceOriginalDate: null,
+      recurrenceExceptions: [],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
 
     if (pool) {
       await pool.request()
-        .input('eId', sql.NVarChar(64), newEvent.id)
-        .input('eTitle', sql.NVarChar(255), newEvent.title)
+        .input('eId', sql.VarChar, String(newEvent.id))
+        .input('eTitle', sql.NVarChar, newEvent.title)
         .input('eStartAt', sql.DateTime2, new Date(newEvent.startAt))
         .input('eEndAt', sql.DateTime2, new Date(newEvent.endAt))
         .input('eIsAllDay', sql.Bit, 0)
         .input('eIsPrivate', sql.Bit, 0)
-        .input('eCategory', sql.NVarChar(64), newEvent.category)
-        .input('eDesc', sql.NVarChar(sql.MAX), newEvent.description)
-        .input('eLoc', sql.NVarChar(255), newEvent.location)
-        .input('eCreatedById', sql.NVarChar(64), newEvent.createdById)
-        .input('eCreatedByName', sql.NVarChar(128), newEvent.createdByName)
-        .input('eParticipants', sql.NVarChar(sql.MAX), JSON.stringify(newEvent.participants))
-        .query`
+        .input('eCategory', sql.NVarChar, newEvent.category)
+        .input('eDesc', sql.NVarChar, newEvent.description)
+        .input('eLoc', sql.NVarChar, newEvent.location)
+        .input('eOffice', sql.NVarChar, newEvent.office)
+        .input('eDivision', sql.NVarChar, newEvent.division)
+        .input('eAttachments', sql.NVarChar, null)
+        .input('eRecurrence', sql.NVarChar, null)
+        .input('eRecurrenceParentId', sql.VarChar, null)
+        .input('eRecurrenceOriginalDate', sql.VarChar, null)
+        .input('eRecurrenceExceptions', sql.NVarChar, null)
+        .query(`
           INSERT INTO dbo.Events (
             id, title, startAt, endAt, isAllDay, isPrivate, category, description,
-            location, createdById, createdByName, participants, createdAt, updatedAt
+            location, office, division, attachments, recurrence, recurrenceParentId,
+            recurrenceOriginalDate, recurrenceExceptions
           ) VALUES (
             @eId, @eTitle, @eStartAt, @eEndAt, @eIsAllDay, @eIsPrivate, @eCategory, @eDesc,
-            @eLoc, @eCreatedById, @eCreatedByName, @eParticipants, SYSUTCDATETIME(), SYSUTCDATETIME()
+            @eLoc, @eOffice, @eDivision, @eAttachments, @eRecurrence, @eRecurrenceParentId,
+            @eRecurrenceOriginalDate, @eRecurrenceExceptions
           )
-        `;
+        `);
 
       // 2. SchedulePolls ステータスを 'confirmed' に更新
       await pool.request()
