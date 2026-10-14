@@ -40,9 +40,24 @@ export function TextViewer({ url, fileName, onDownload }: TextViewerProps) {
         if (!response.ok) {
           throw new Error(`HTTP ${response.status} ${response.statusText}`);
         }
-        const text = await response.text();
+        const buffer = await response.arrayBuffer();
+
+        // 日本語環境対応: UTF-8 でデコードを試み、不正な文字シーケンスがあれば Shift-JIS (CP932) でデコード
+        let decodedText = '';
+        try {
+          const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
+          decodedText = utf8Decoder.decode(buffer);
+        } catch (_) {
+          try {
+            const sjisDecoder = new TextDecoder('shift-jis');
+            decodedText = sjisDecoder.decode(buffer);
+          } catch (__) {
+            decodedText = new TextDecoder().decode(buffer);
+          }
+        }
+
         if (!isMounted) return;
-        setContent(text);
+        setContent(decodedText);
         setLoading(false);
       } catch (err: any) {
         if (!isMounted) return;
@@ -102,15 +117,26 @@ export function TextViewer({ url, fileName, onDownload }: TextViewerProps) {
         </div>
         <p className="text-sm font-bold text-slate-800 mb-1">テキストの読み込みに失敗しました</p>
         <p className="text-xs text-slate-500 mb-4">{error}</p>
-        {onDownload && (
-          <button
-            onClick={onDownload}
-            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+        <div className="flex items-center gap-2 flex-wrap justify-center">
+          {onDownload && (
+            <button
+              onClick={onDownload}
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+            >
+              <Download className="w-4 h-4" />
+              <span>ダウンロードして確認</span>
+            </button>
+          )}
+          <a
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
           >
-            <Download className="w-4 h-4" />
-            <span>ダウンロードして確認</span>
-          </button>
-        )}
+            <FileText className="w-4 h-4 text-indigo-600" />
+            <span>ブラウザ別タブで開く</span>
+          </a>
+        </div>
       </div>
     );
   }

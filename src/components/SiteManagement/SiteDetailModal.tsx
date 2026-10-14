@@ -658,7 +658,13 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
                           <button
                             type="button"
                             onClick={() => {
-                              setPreviewFile(att);
+                              setPreviewFile({
+                                id: att.id,
+                                name: att.name,
+                                url: att.url,
+                                size: typeof att.size === 'number' ? `${(att.size / 1024 / 1024).toFixed(2)} MB` : String(att.size || ''),
+                                type: (att as any).type || '',
+                              });
                               setIsPreviewOpen(true);
                             }}
                             className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-md flex items-center gap-1 text-[11px] transition-colors cursor-pointer"

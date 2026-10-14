@@ -40,17 +40,15 @@ export function FilePreviewModal({ isOpen, onClose, file }: FilePreviewModalProp
   const resolvedUrl = file?.url ? resolveFileUrl(file.url) : '';
   const fileName = file.name || 'ファイル';
 
-  // ファイル種類の判定
-  const isPdf = file?.type === 'application/pdf' || /\.pdf$/i.test(fileName);
-  const isExcel = /\.(xlsx|xls|xlsm|xlsb)$/i.test(fileName) || 
-    file?.type?.includes('spreadsheet') || 
-    file?.type?.includes('excel');
-  const isDocx = /\.docx$/i.test(fileName) || 
-    file?.type?.includes('wordprocessingml');
-  const isOldDoc = /\.doc$/i.test(fileName);
-  const isImage = file?.type?.startsWith('image/') || 
-    /\.(jpg|jpeg|png|gif|webp|svg|bmp|ico)$/i.test(fileName);
-  const isText = /\.(txt|csv|tsv|json|xml|log|ini|md|yaml|yml|sql)$/i.test(fileName);
+  // ファイル種類の判定（拡張子優先で確実に判定）
+  const ext = (fileName.split('.').pop() || '').toLowerCase();
+  const isPdf = ext === 'pdf' || file?.type === 'application/pdf';
+  const isExcel = ['xlsx', 'xls', 'xlsm', 'xlsb'].includes(ext) || 
+    (!['csv', 'tsv', 'txt'].includes(ext) && (file?.type?.includes('spreadsheet') || file?.type?.includes('excel')));
+  const isDocx = ext === 'docx' || file?.type?.includes('wordprocessingml');
+  const isOldDoc = ext === 'doc';
+  const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico'].includes(ext) || file?.type?.startsWith('image/');
+  const isText = ['txt', 'csv', 'tsv', 'json', 'xml', 'log', 'ini', 'md', 'yaml', 'yml', 'sql'].includes(ext) || file?.type?.startsWith('text/');
 
   // アイコン判定
   const getHeaderIcon = () => {
@@ -75,12 +73,12 @@ export function FilePreviewModal({ isOpen, onClose, file }: FilePreviewModalProp
   return (
     <div
       onClick={onClose}
-      className="fixed inset-0 z-[100] flex items-center justify-center p-2 sm:p-4 bg-slate-950/80 backdrop-blur-md overflow-y-auto"
+      className="fixed inset-0 z-[100] flex items-center justify-center p-2 sm:p-4 bg-slate-950/80 backdrop-blur-md overflow-hidden"
       id="file-preview-backdrop"
     >
       <div
         onClick={e => e.stopPropagation()}
-        className="bg-white rounded-2xl sm:rounded-3xl max-w-5xl w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col h-[94vh] sm:h-auto sm:max-h-[90vh]"
+        className="bg-white rounded-2xl sm:rounded-3xl max-w-5xl w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col h-[94vh] sm:h-[90vh]"
         id="file-preview-container"
       >
         {/* Header */}

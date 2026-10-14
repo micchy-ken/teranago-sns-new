@@ -148,3 +148,26 @@ export async function deleteAttachmentFiles(attachments?: (AttachmentFile | stri
     console.error('Failed to delete multiple attachment files:', err);
   }
 }
+
+/**
+ * プレビュー対応ファイル形式かどうかを判定します。
+ * 画像、PDF、Excel（.xlsx, .xls, .xlsm, .xlsb）、Word（.docx, .doc）、テキスト/CSV/TSV/JSON/XML/MD/Log等に対応
+ */
+export function isPreviewable(fileName: string = '', fileType: string = ''): boolean {
+  if (!fileName && !fileType) return false;
+  if (fileType?.startsWith('image/')) return true;
+  if (fileType?.includes('pdf')) return true;
+  if (fileType?.includes('spreadsheet') || fileType?.includes('excel')) return true;
+  if (fileType?.includes('wordprocessingml')) return true;
+  if (fileType?.startsWith('text/')) return true;
+
+  const ext = (fileName.split('.').pop() || '').toLowerCase();
+  const supported = [
+    'pdf',
+    'xlsx', 'xls', 'xlsm', 'xlsb',
+    'docx', 'doc',
+    'txt', 'csv', 'tsv', 'json', 'xml', 'log', 'ini', 'md', 'yaml', 'yml', 'sql',
+    'jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico'
+  ];
+  return supported.includes(ext);
+}

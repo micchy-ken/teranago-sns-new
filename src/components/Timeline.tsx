@@ -30,6 +30,7 @@ import { API_BASE_URL } from '../config/api';
 import { renderContentWithLinks } from '../utils/renderContentWithLinks';
 import { buildAppUrl, copyTextToClipboard } from '../utils/urlParams';
 import { FilePreviewModal } from './FilePreviewModal';
+import { isPreviewable } from '../utils/fileUpload';
 import { isEventVisibleToUser } from '../utils/eventVisibility';
 
 interface TimelineProps {
@@ -702,7 +703,7 @@ export function Timeline({
                                   </div>
                                 </div>
                                 <div className="flex items-center gap-1.5 shrink-0">
-                                  {(att.type?.startsWith('image/') || /\.pdf$/i.test(att.name) || /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(att.name)) && (
+                                  {isPreviewable(att.name, att.type) && (
                                     <button
                                       type="button"
                                       onClick={() => {

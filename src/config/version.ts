@@ -14,9 +14,9 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.14.1',
+  version: '2026.10.14.2',
   date: '2026-10-14',
-  releaseNumber: 1,
-  display: 'v2026.10.14 #1',
-  description: 'スマホ対応マルチモーダルプレビュー機能（PDF Canvas描画・Excelシート別表示・Word文書HTML表示・CSV表形式・画像）の実装',
+  releaseNumber: 2,
+  display: 'v2026.10.14 #2',
+  description: 'PDFプレビューの上下途切れ解消＆全体表示・幅合わせ切替追加、チャット・掲示板等でのExcel・Word・テキスト・CSVマルチモーダルプレビュー完全対応',
 };

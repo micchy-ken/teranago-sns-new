@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { X, RefreshCw, Trash2, AlertCircle, Link as LinkIcon, Building2, Users, Paperclip, Plus, Check, UserCheck, Copy, Loader2, Repeat, Clock, UploadCloud } from 'lucide-react';
 import { EventType, CalendarEvent, OfficeMaster, DivisionMaster, User, AttachmentFile, RecurrenceRule, RecurrenceFrequency, RecurrenceMonthlyType } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
-import { uploadMultipleFiles } from '../utils/fileUpload';
+import { uploadMultipleFiles, isPreviewable } from '../utils/fileUpload';
 import { FilePreviewModal } from './FilePreviewModal';
 import { getLocalDateStr } from '../utils/dateUtils';
 import { calculateWeekOfMonth, isRecurringEvent, getRecurrenceLabel, safeParseRecurrence } from '../utils/recurrenceUtils';
@@ -1345,14 +1345,14 @@ export function EventModal({
                             <span className="text-[10px] text-slate-400 shrink-0">({att.size})</span>
                           </div>
                           <div className="flex items-center gap-1.5 shrink-0 ml-2">
-                            {(att.type?.startsWith('image/') || /\.pdf$/i.test(att.name) || /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(att.name)) && (
+                            {isPreviewable(att.name, att.type) && (
                               <button
                                 type="button"
                                 onClick={() => {
                                   setPreviewFile(att);
                                   setIsPreviewOpen(true);
                                 }}
-                                className="px-2 py-0.5 text-[10px] font-bold text-emerald-600 hover:bg-emerald-50 rounded-md transition-colors"
+                                className="px-2 py-0.5 text-[10px] font-bold text-emerald-600 hover:bg-emerald-50 rounded-md transition-colors cursor-pointer"
                               >
                                 プレビュー
                               </button>

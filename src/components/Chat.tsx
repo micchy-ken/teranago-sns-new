@@ -45,7 +45,7 @@ import {
   Share2
 } from 'lucide-react';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
-import { uploadMultipleFiles, uploadFile } from '../utils/fileUpload';
+import { uploadMultipleFiles, uploadFile, isPreviewable } from '../utils/fileUpload';
 import { createImageVariants } from '../utils/imageResize';
 import { FilePreviewModal } from './FilePreviewModal';
 import { triggerPushNotification } from '../utils/pushNotifications';
@@ -429,7 +429,7 @@ const ChatMessageItem = React.memo(function ChatMessageItem({
                           </div>
                         </div>
                         <div className="flex items-center gap-1 shrink-0 border-l border-slate-100 pl-1.5 font-bold">
-                          {(att.type?.startsWith('image/') || /\.pdf$/i.test(att.name) || /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(att.name)) && (
+                          {isPreviewable(att.name, att.type) && (
                             <button
                               type="button"
                               onClick={() => onOpenPreview(att)}

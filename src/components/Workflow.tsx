@@ -4,6 +4,7 @@ import { FileText, CheckCircle2, XCircle, Clock, Plus, ArrowRight, GitMerge, Use
 import { ApplicationModal } from './ApplicationModal';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { FilePreviewModal } from './FilePreviewModal';
+import { isPreviewable } from '../utils/fileUpload';
 import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
 import { filterStepsForApplicant, getSupervisorAtLevel, resolveApproverForStep, isDuplicateApproverStep, isUserCurrentApprover as isUserCurrentApproverHelper } from '../utils/workflowHelpers';
 
@@ -658,7 +659,7 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
                         <span className="truncate max-w-[150px]" title={att.name}>{att.name}</span>
                         <span className="text-[10px] text-slate-400">({att.size})</span>
                         <div className="flex items-center gap-1.5 border-l border-slate-200 pl-1.5 ml-1 font-bold shrink-0">
-                          {(att.type?.startsWith('image/') || /\.pdf$/i.test(att.name) || /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(att.name)) && (
+                          {isPreviewable(att.name, att.type) && (
                             <button
                               type="button"
                               onClick={() => {

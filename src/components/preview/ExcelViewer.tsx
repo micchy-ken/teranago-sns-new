@@ -18,7 +18,7 @@ interface ExcelViewerProps {
 
 interface SheetData {
   name: string;
-  rows: (string | number | boolean | null)[][];
+  rows: any[][];
 }
 
 export function ExcelViewer({ url, fileName, onDownload }: ExcelViewerProps) {
@@ -43,7 +43,8 @@ export function ExcelViewer({ url, fileName, onDownload }: ExcelViewerProps) {
         }
         const buffer = await response.arrayBuffer();
 
-        const workbook = XLSX.read(buffer, { type: 'array', cellDates: true });
+        const uint8Array = new Uint8Array(buffer);
+        const workbook = XLSX.read(uint8Array, { type: 'array', cellDates: true });
         if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
           throw new Error('スプレッドシート内に有効なシートが見つかりませんでした');
         }
@@ -59,7 +60,7 @@ export function ExcelViewer({ url, fileName, onDownload }: ExcelViewerProps) {
 
           return {
             name: sheetName,
-            rows: jsonData,
+            rows: jsonData || [],
           };
         });
 
@@ -130,15 +131,26 @@ export function ExcelViewer({ url, fileName, onDownload }: ExcelViewerProps) {
         </div>
         <p className="text-sm font-bold text-slate-800 mb-1">スプレッドシートの表示に失敗しました</p>
         <p className="text-xs text-slate-500 mb-4">{error || 'データが空です'}</p>
-        {onDownload && (
-          <button
-            onClick={onDownload}
-            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+        <div className="flex items-center gap-2 flex-wrap justify-center">
+          {onDownload && (
+            <button
+              onClick={onDownload}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+            >
+              <Download className="w-4 h-4" />
+              <span>ダウンロードして確認</span>
+            </button>
+          )}
+          <a
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
           >
-            <Download className="w-4 h-4" />
-            <span>ダウンロードして確認</span>
-          </button>
-        )}
+            <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+            <span>ブラウザ別タブで開く</span>
+          </a>
+        </div>
       </div>
     );
   }
@@ -239,7 +251,11 @@ export function ExcelViewer({ url, fileName, onDownload }: ExcelViewerProps) {
                         {/* 各セル */}
                         {Array.from({ length: maxCols }).map((_, cIdx) => {
                           const cellVal = row[cIdx];
-                          const strVal = cellVal !== undefined && cellVal !== null ? String(cellVal) : '';
+                          const strVal = cellVal !== undefined && cellVal !== null 
+                            ? (cellVal instanceof Date 
+                                ? cellVal.toLocaleDateString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' }) 
+                                : String(cellVal)) 
+                            : '';
                           const isHighlighted = searchTerm && strVal.toLowerCase().includes(searchTerm.toLowerCase());
 
                           return (

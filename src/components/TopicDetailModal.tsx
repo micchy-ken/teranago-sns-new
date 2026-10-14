@@ -3,7 +3,7 @@ import { X, MessageSquare, Eye, Pin, Paperclip, Calendar as CalendarIcon, Send, 
 import { BoardTopic, User, OfficeMaster, DivisionMaster, AttachmentFile, BoardViewer } from '../types';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
-import { uploadMultipleFiles, deleteAttachmentFile, deleteAttachmentFiles, resolveFileUrl } from '../utils/fileUpload';
+import { uploadMultipleFiles, deleteAttachmentFile, deleteAttachmentFiles, resolveFileUrl, isPreviewable } from '../utils/fileUpload';
 import { FilePreviewModal } from './FilePreviewModal';
 import { renderContentWithLinks } from '../utils/renderContentWithLinks';
 import { UrlPastePopup, useUrlPasteHandler } from './common/UrlPastePopup';
@@ -1018,14 +1018,14 @@ export function TopicDetailModal({
                               </div>
                             </div>
                             <div className="flex items-center gap-1.5 shrink-0">
-                              {(att.type?.startsWith('image/') || /\.pdf$/i.test(att.name) || /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(att.name)) && (
+                              {isPreviewable(att.name, att.type) && (
                                 <button
                                   type="button"
                                   onClick={() => {
                                     setPreviewFile({ ...att, url: resolveFileUrl(att.url) });
                                     setIsPreviewOpen(true);
                                   }}
-                                  className="px-2.5 py-1 text-[11px] font-bold text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                                  className="px-2.5 py-1 text-[11px] font-bold text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
                                 >
                                   プレビュー
                                 </button>
@@ -1111,14 +1111,14 @@ export function TopicDetailModal({
                                     <Paperclip className="w-3 h-3 text-slate-400 shrink-0" />
                                     <span className="font-semibold text-slate-600 truncate max-w-[150px]">{att.name}</span>
                                     <div className="flex gap-1 border-l border-slate-200 pl-1.5 ml-1.5 shrink-0 font-bold">
-                                      {(att.type?.startsWith('image/') || /\.pdf$/i.test(att.name) || /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(att.name)) && (
+                                      {isPreviewable(att.name, att.type) && (
                                         <button
                                           type="button"
                                           onClick={() => {
                                             setPreviewFile({ ...att, url: resolveFileUrl(att.url) });
                                             setIsPreviewOpen(true);
                                           }}
-                                          className="text-emerald-600 hover:text-emerald-800"
+                                          className="text-emerald-600 hover:text-emerald-800 cursor-pointer"
                                         >
                                           プレビュー
                                         </button>
