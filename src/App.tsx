@@ -62,7 +62,7 @@ import { GlobalWorkflowDetailModal } from './components/GlobalWorkflowDetailModa
 import { UserDirectory } from './components/UserDirectory';
 import { UserDetailModal } from './components/UserDetailModal';
 import { filterStepsForApplicant, resolveApproverForStep, getSupervisorAtLevel } from './utils/workflowHelpers';
-import { planRecurrenceSave, planRecurrenceDelete, safeParseRecurrence, safeParseExceptions, expandRecurringEvents } from './utils/recurrenceUtils';
+import { planRecurrenceSave, planRecurrenceDelete, safeParseRecurrence, safeParseExceptions, expandRecurringEvents, isExpandedRecurrenceId, extractParentIdFromInstanceId, extractDateFromInstanceId } from './utils/recurrenceUtils';
 import { sortUsersByDivision } from './utils/userSort';
 import { RecurrenceActionScope } from './components/RecurrenceActionModal';
 import { parseAppQueryParams, updateBrowserUrl, AppQueryParams } from './utils/urlParams';
@@ -2155,11 +2155,11 @@ export default function App() {
       return;
     }
 
-    const isExpandedInstance = eventId.includes('_');
+    const isExpandedInstance = isExpandedRecurrenceId(eventId);
     const targetEvent = events.find(e => e.id === eventId);
-    const parentId = targetEvent?.recurrenceParentId || (isExpandedInstance ? eventId.split('_')[0] : eventId);
+    const parentId = targetEvent?.recurrenceParentId || (isExpandedInstance ? extractParentIdFromInstanceId(eventId) : eventId);
     const parentEvent = events.find(e => e.id === parentId);
-    const targetDate = instanceDate || targetEvent?.instanceDate || (isExpandedInstance ? eventId.split('_')[1] : (targetEvent?.start ? targetEvent.start.split('T')[0] : undefined));
+    const targetDate = instanceDate || targetEvent?.instanceDate || (isExpandedInstance ? extractDateFromInstanceId(eventId) : (targetEvent?.start ? targetEvent.start.split('T')[0] : undefined));
 
     const hasRecurrence = isExpandedInstance ||
       !!(targetEvent && (targetEvent.recurrence?.frequency !== 'none' || targetEvent.recurrenceParentId || targetEvent.instanceDate)) ||
@@ -2179,7 +2179,7 @@ export default function App() {
         // 2. 削除対象を削除 (仮想IDや一時IDを正規化し、重複除去)
         const realDeleteIds = Array.from(new Set(
           plan.toDelete
-            .map(delId => delId.includes('_') ? delId.split('_')[0] : delId)
+            .map(delId => isExpandedRecurrenceId(delId) ? extractParentIdFromInstanceId(delId) : delId)
             .filter(delId => delId && !delId.startsWith('e-temp-'))
         ));
 

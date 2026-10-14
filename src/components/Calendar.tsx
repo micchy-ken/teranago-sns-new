@@ -10,7 +10,7 @@ import { UrlPastePopup, useUrlPasteHandler } from './common/UrlPastePopup';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { getLocalDateStr, addMinutesToLocalDatetime } from '../utils/dateUtils';
 import { triggerPushNotification } from '../utils/pushNotifications';
-import { expandRecurringEvents, planRecurrenceSave } from '../utils/recurrenceUtils';
+import { expandRecurringEvents, planRecurrenceSave, isExpandedRecurrenceId, extractDateFromInstanceId } from '../utils/recurrenceUtils';
 import { RecurrenceActionModal, RecurrenceActionScope } from './RecurrenceActionModal';
 import { buildAppUrl, AppQueryParams } from '../utils/urlParams';
 import { TeamDayMemberRow } from './TeamDayMemberRow';
@@ -759,11 +759,11 @@ export function Calendar({
 
         const isRecurring = !!(resizedEv.recurrence && resizedEv.recurrence.frequency && resizedEv.recurrence.frequency !== 'none') ||
           !!resizedEv.recurrenceParentId ||
-          resizedEv.id.includes('_') ||
+          isExpandedRecurrenceId(resizedEv.id) ||
           !!resizedEv.instanceDate ||
           !!resizedEv.recurrenceOriginalDate;
 
-        const origDate = resizedEv.instanceDate || resizedEv.recurrenceOriginalDate || (resizedEv.id.includes('_') ? resizedEv.id.split('_')[1] : (resizedEv.start ? getLocalDateStr(resizedEv.start) : undefined));
+        const origDate = resizedEv.instanceDate || resizedEv.recurrenceOriginalDate || (isExpandedRecurrenceId(resizedEv.id) ? extractDateFromInstanceId(resizedEv.id) : (resizedEv.start ? getLocalDateStr(resizedEv.start) : undefined));
 
         const updatedEvObj: CalendarEvent = {
           ...resizedEv,
@@ -1819,11 +1819,11 @@ export function Calendar({
 
     const isRecurring = !!(ev.recurrence && ev.recurrence.frequency && ev.recurrence.frequency !== 'none') ||
       !!ev.recurrenceParentId ||
-      ev.id.includes('_') ||
+      isExpandedRecurrenceId(ev.id) ||
       !!ev.instanceDate ||
       !!ev.recurrenceOriginalDate;
 
-    const origDate = ev.instanceDate || ev.recurrenceOriginalDate || (ev.id.includes('_') ? ev.id.split('_')[1] : (ev.start ? getLocalDateStr(ev.start) : undefined));
+    const origDate = ev.instanceDate || ev.recurrenceOriginalDate || (isExpandedRecurrenceId(ev.id) ? extractDateFromInstanceId(ev.id) : (ev.start ? getLocalDateStr(ev.start) : undefined));
 
     const updatedEvObj: CalendarEvent = {
       ...ev,

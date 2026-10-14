@@ -397,6 +397,36 @@ export function expandRecurringEvents(
 }
 
 /**
+ * 展開された繰り返しインスタンスID（例: 'eventId_2026-10-15'）かどうかを判定
+ * 末尾が '_YYYY-MM-DD' 形式であるかを厳密に判定（ID内にアンダースコアを含む単発予定の誤認を防止）
+ */
+export function isExpandedRecurrenceId(id: string | undefined | null): boolean {
+  if (!id) return false;
+  return /_\d{4}-\d{2}-\d{2}$/.test(id);
+}
+
+/**
+ * 展開された繰り返しインスタンスIDから親イベントIDを抽出
+ * 例: 'ev_poll_123_2026-10-15' -> 'ev_poll_123'
+ */
+export function extractParentIdFromInstanceId(id: string | undefined | null): string {
+  if (!id) return '';
+  if (!isExpandedRecurrenceId(id)) return id;
+  const lastUnderscore = id.lastIndexOf('_');
+  return lastUnderscore > 0 ? id.substring(0, lastUnderscore) : id;
+}
+
+/**
+ * 展開された繰り返しインスタンスIDからインスタンス日付 (YYYY-MM-DD) を抽出
+ * 例: 'ev_poll_123_2026-10-15' -> '2026-10-15'
+ */
+export function extractDateFromInstanceId(id: string | undefined | null): string | undefined {
+  if (!id) return undefined;
+  const match = id.match(/_(\d{4}-\d{2}-\d{2})$/);
+  return match ? match[1] : undefined;
+}
+
+/**
  * 繰り返し予定の編集処理（スコープに応じた分割・更新）
  */
 export interface RecurrencePlanResult {
@@ -417,11 +447,11 @@ export function planRecurrenceSave(
 
   // 親イベントIDの特定
   const rawId = eventData.id || '';
-  const isExpandedId = rawId.includes('_');
+  const isExpandedId = isExpandedRecurrenceId(rawId);
 
   let parentId = eventData.recurrenceParentId;
   if (!parentId && isExpandedId) {
-    parentId = rawId.split('_')[0];
+    parentId = extractParentIdFromInstanceId(rawId);
   }
   if (!parentId && rawId) {
     const rawMatch = currentEvents.find(e => String(e.id) === String(rawId));
@@ -435,14 +465,14 @@ export function planRecurrenceSave(
   const parentEvent = parentId ? currentEvents.find(e => String(e.id) === String(parentId)) : null;
 
   // 元のインスタンス日付と新しい日付の特定
-  const origDate = (eventData as any).recurrenceOriginalDate || (eventData as any).instanceDate || instanceDate || (isExpandedId ? rawId.split('_')[1] : undefined);
+  const origDate = (eventData as any).recurrenceOriginalDate || (eventData as any).instanceDate || instanceDate || (isExpandedId ? extractDateFromInstanceId(rawId) : undefined);
   const newStartIso = eventData.start || parentEvent?.start || new Date().toISOString();
   const newDate = getLocalDateStr(newStartIso);
   const targetDate = origDate || newDate;
 
   if (!parentEvent || scope === 'all' || !targetDate) {
-    // 1. 全ての予定を変更 (親予定そのものを更新)
-    const targetId = parentId || (rawId && !isExpandedId ? rawId : `e-recur-${Date.now()}`);
+    // 1. 全ての予定を変更 (親予定そのものを更新、または単発予定をそのまま更新)
+    const targetId = parentEvent ? parentEvent.id : (rawId && !isExpandedId ? rawId : (parentId || `e-recur-${Date.now()}`));
     const updatedParent: CalendarEvent = {
       ...(parentEvent || {}),
       ...eventData,
@@ -458,7 +488,7 @@ export function planRecurrenceSave(
     if (targetId) {
       const childEvents = currentEvents.filter(e => String(e.recurrenceParentId) === String(targetId) && String(e.id) !== String(targetId));
       for (const child of childEvents) {
-        const realChildId = child.id.includes('_') ? child.id.split('_')[0] : child.id;
+        const realChildId = isExpandedRecurrenceId(child.id) ? extractParentIdFromInstanceId(child.id) : child.id;
         if (realChildId && !toDelete.includes(realChildId)) {
           toDelete.push(realChildId);
         }
@@ -568,7 +598,7 @@ export function planRecurrenceSave(
          (e.instanceDate && e.instanceDate >= targetDate))
       );
       for (const child of oldChildEvents) {
-        const realChildId = child.id.includes('_') ? child.id.split('_')[0] : child.id;
+        const realChildId = isExpandedRecurrenceId(child.id) ? extractParentIdFromInstanceId(child.id) : child.id;
         if (realChildId && !toDelete.includes(realChildId)) {
           toDelete.push(realChildId);
         }
@@ -620,11 +650,11 @@ export function planRecurrenceDelete(
 
   // 対象イベントと親イベントの特定
   const targetEvent = currentEvents.find(e => String(e.id) === String(eventId));
-  const isExpandedInstance = eventId.includes('_');
+  const isExpandedInstance = isExpandedRecurrenceId(eventId);
 
   let parentId = targetEvent?.recurrenceParentId;
   if (!parentId && isExpandedInstance) {
-    parentId = eventId.split('_')[0];
+    parentId = extractParentIdFromInstanceId(eventId);
   }
   if (!parentId && eventId) {
     const rawMatch = currentEvents.find(e => String(e.id) === String(eventId));
@@ -636,15 +666,15 @@ export function planRecurrenceDelete(
   }
 
   const parentEvent = parentId ? currentEvents.find(e => String(e.id) === String(parentId)) : null;
-  const targetDate = instanceDate || targetEvent?.instanceDate || (targetEvent as any)?.recurrenceOriginalDate || (isExpandedInstance ? eventId.split('_')[1] : (targetEvent?.start ? getLocalDateStr(targetEvent.start) : undefined));
+  const targetDate = instanceDate || targetEvent?.instanceDate || (targetEvent as any)?.recurrenceOriginalDate || (isExpandedInstance ? extractDateFromInstanceId(eventId) : (targetEvent?.start ? getLocalDateStr(targetEvent.start) : undefined));
 
   if (!parentEvent || scope === 'all' || !targetDate) {
     // 1. 全てのスケジュールを削除
-    const deleteId = parentId || (isExpandedInstance ? eventId.split('_')[0] : eventId);
+    const deleteId = parentEvent ? parentEvent.id : (isExpandedInstance ? extractParentIdFromInstanceId(eventId) : eventId);
 
     const relatedEvents = allEvents.filter(e => String(e.id) === String(deleteId) || String(e.recurrenceParentId) === String(deleteId) || String(e.id) === String(eventId));
     for (const rel of relatedEvents) {
-      const realId = rel.id.includes('_') ? rel.id.split('_')[0] : rel.id;
+      const realId = isExpandedRecurrenceId(rel.id) ? extractParentIdFromInstanceId(rel.id) : rel.id;
       if (realId && !toDelete.includes(realId)) {
         toDelete.push(realId);
       }
@@ -677,7 +707,7 @@ export function planRecurrenceDelete(
       (e.recurrenceOriginalDate === targetDate || e.instanceDate === targetDate || e.id.includes(overrideKeyDate))
     );
     for (const ovr of matchingOverrides) {
-      const realOvrId = ovr.id.includes('_') ? ovr.id.split('_')[0] : ovr.id;
+      const realOvrId = isExpandedRecurrenceId(ovr.id) ? extractParentIdFromInstanceId(ovr.id) : ovr.id;
       if (realOvrId && !toDelete.includes(realOvrId)) {
         toDelete.push(realOvrId);
       }
@@ -699,7 +729,7 @@ export function planRecurrenceDelete(
       }
       const childEvents = currentEvents.filter(e => e.recurrenceParentId === parentEvent.id);
       for (const child of childEvents) {
-        const realId = child.id.includes('_') ? child.id.split('_')[0] : child.id;
+        const realId = isExpandedRecurrenceId(child.id) ? extractParentIdFromInstanceId(child.id) : child.id;
         if (realId && !toDelete.includes(realId)) toDelete.push(realId);
       }
       currentEvents = currentEvents.filter(e => !toDelete.includes(e.id));
@@ -723,7 +753,7 @@ export function planRecurrenceDelete(
          (e.instanceDate && e.instanceDate >= targetDate))
       );
       for (const fo of followingOverrides) {
-        const realFoId = fo.id.includes('_') ? fo.id.split('_')[0] : fo.id;
+        const realFoId = isExpandedRecurrenceId(fo.id) ? extractParentIdFromInstanceId(fo.id) : fo.id;
         if (realFoId && !toDelete.includes(realFoId)) {
           toDelete.push(realFoId);
         }

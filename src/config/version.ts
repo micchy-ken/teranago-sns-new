@@ -14,9 +14,9 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.14.9',
+  version: '2026.10.14.10',
   date: '2026-10-14',
-  releaseNumber: 9,
-  display: 'v2026.10.14 #9',
-  description: '確定前の日程調整のスケジュール常時表示・回答状況表示（何人中何人回答済）および全員回答完了時の主催者確定依頼通知機能の実装',
+  releaseNumber: 10,
+  display: 'v2026.10.14 #10',
+  description: '日程調整確定スケジュールの更新・編集時における重複増殖不具合の解消（繰り返し展開ID判定の正規表現厳密化および親ID抽出ロジック修正）',
 };

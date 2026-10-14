@@ -758,7 +758,7 @@ router.post(['/schedule-polls/:id/confirm', '/schedule/polls/:id/confirm', '/pol
     }
 
     // 1. 本番 Events テーブルに自動 INSERT
-    const eventId = `ev_poll_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const eventId = `e-poll-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
     const eventTitle = finalTitle || `【確定】${poll.title}`;
     const eventLocation = finalLocation !== undefined ? finalLocation : (poll.location || '');
     const eventDesc = finalDescription || (poll.description ? `${poll.description}\n\n(日程調整より自動確定)` : '(日程調整より自動確定)');
