@@ -1,7 +1,7 @@
 export const RECOMMEND_SERVER_JS = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年10月14日 (日程調整APIの一覧取得時の回答者一覧(answeredUserIds)紐付け・未回答判定サポート・routes/schedulePolls.js同期)
+ * 最終更新日時 (最終アップデート): 2026年10月14日 (日程調整APIの回答進捗集計(answeredCount/totalTargetCount)・全員回答完了(isAllAnswered)判定・主催者自動通知同期・routes/schedulePolls.js同期)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、

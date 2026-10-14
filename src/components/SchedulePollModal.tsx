@@ -409,9 +409,40 @@ export function SchedulePollModal({
       });
 
       if (res.ok) {
+        const answerResult = await res.json();
         await fetchPollDetail(selectedPoll.id);
         fetchPolls();
         if (onPollChange) onPollChange();
+
+        // 全員回答が完了した場合、主催者に「確定依頼通知（Web Push & メール）」を送信
+        if (answerResult.isAllAnswered && answerResult.organizerId) {
+          triggerPushNotification({
+            targetUserIds: [String(answerResult.organizerId)],
+            excludeUserId: currentUser.id,
+            title: `📅 全員回答完了: ${selectedPoll.title}`,
+            body: `参加対象の全員（${answerResult.totalTargetCount}名）の回答が集まりました！日程を確定してください。`,
+            url: `/?tab=calendar&pollId=${selectedPoll.id}`,
+            tag: `poll-all-answered-${selectedPoll.id}`,
+          });
+
+          const organizer = users.find(u => String(u.id) === String(answerResult.organizerId));
+          if (organizer) {
+            dispatchNotificationEmail([organizer], {
+              category: 'schedule',
+              categoryLabel: '日程調整',
+              title: `【全員回答完了】日程の確定をお願いします: ${selectedPoll.title}`,
+              actorName: currentUser.name,
+              details: [
+                { label: '案件名', value: selectedPoll.title },
+                { label: '回答状況', value: `全員回答完了 (${answerResult.totalTargetCount}/${answerResult.totalTargetCount}名)` },
+                { label: '主催者', value: selectedPoll.organizerName },
+                { label: '所要時間', value: `${selectedPoll.durationMinutes}分` },
+              ],
+              mainContent: `参加対象のメンバー全員から回答が集まりました。\n下記リンクよりアンケート結果を確認し、確定候補日時を選択して本登録を行ってください。`,
+              pathParams: `tab=calendar&pollId=${selectedPoll.id}`,
+            }, currentUser);
+          }
+        }
       } else {
         alert('回答の送信に失敗しました');
       }
@@ -633,6 +664,13 @@ export function SchedulePollModal({
                   {polls.map(poll => {
                     const isOrganizer = poll.organizerId === currentUser.id;
                     const isConfirmed = poll.status === 'confirmed';
+                    const targetCount = poll.targetUserIds?.length || 0;
+                    const answeredUserIds = poll.answeredUserIds || [];
+                    const answeredCount = poll.answeredCount !== undefined
+                      ? poll.answeredCount
+                      : answeredUserIds.filter(uid => (poll.targetUserIds || []).includes(uid)).length;
+                    const isAllDone = targetCount > 0 && answeredCount >= targetCount;
+                    const percent = Math.min(100, Math.round((answeredCount / Math.max(1, targetCount)) * 100));
 
                     return (
                       <div
@@ -641,6 +679,8 @@ export function SchedulePollModal({
                         className={`p-4 rounded-2xl border transition-all cursor-pointer hover:shadow-md ${
                           isConfirmed
                             ? 'bg-slate-50/70 border-slate-200 hover:border-slate-300'
+                            : isOrganizer && isAllDone
+                            ? 'bg-gradient-to-r from-emerald-500/15 via-teal-500/10 to-emerald-500/10 border-emerald-300 hover:border-emerald-400'
                             : 'bg-white border-indigo-100 hover:border-indigo-300 hover:bg-indigo-50/20 shadow-2xs'
                         }`}
                       >
@@ -650,9 +690,15 @@ export function SchedulePollModal({
                               <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
                                 isConfirmed
                                   ? 'bg-emerald-100 text-emerald-700'
+                                  : isOrganizer && isAllDone
+                                  ? 'bg-rose-600 text-white animate-pulse shadow-2xs'
                                   : 'bg-amber-100 text-amber-800 animate-pulse'
                               }`}>
-                                {isConfirmed ? '日程確定済' : '回答募集中'}
+                                {isConfirmed
+                                  ? '日程確定済'
+                                  : isOrganizer && isAllDone
+                                  ? '全員回答完了・要確定'
+                                  : '回答募集中'}
                               </span>
                               {isOrganizer && (
                                 <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-indigo-100 text-indigo-700">
@@ -667,10 +713,10 @@ export function SchedulePollModal({
                           <ChevronRight className="w-4 h-4 text-slate-300 shrink-0 mt-1" />
                         </div>
 
-                        <div className="space-y-1 text-xs text-slate-500 mb-3">
+                        <div className="space-y-1.5 text-xs text-slate-500 mb-3">
                           <div className="flex items-center gap-1.5">
                             <Users className="w-3.5 h-3.5 text-slate-400" />
-                            <span>主催: {poll.organizerName} / 参加対象: {poll.targetUserIds?.length || 0}名</span>
+                            <span>主催: {poll.organizerName} / 参加対象: {targetCount}名</span>
                           </div>
                           <div className="flex items-center gap-1.5">
                             <Clock className="w-3.5 h-3.5 text-slate-400" />
@@ -682,6 +728,28 @@ export function SchedulePollModal({
                               <span>締切: {new Date(poll.deadlineAt).toLocaleDateString('ja-JP')}</span>
                             </div>
                           )}
+
+                          {/* 回答状況プログレスバー */}
+                          <div className="pt-1.5 pb-0.5 space-y-1">
+                            <div className="flex items-center justify-between text-[11px]">
+                              <span className="font-semibold text-slate-700">
+                                回答状況: <strong className={isAllDone ? 'text-emerald-700 font-bold' : 'text-slate-800 font-bold'}>{answeredCount} / {targetCount}人 回答済み</strong> ({percent}%)
+                              </span>
+                              {isAllDone && !isConfirmed && (
+                                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
+                                  全員完了
+                                </span>
+                              )}
+                            </div>
+                            <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden border border-slate-200">
+                              <div
+                                className={`h-1.5 rounded-full transition-all duration-300 ${
+                                  isAllDone ? 'bg-emerald-500' : percent > 50 ? 'bg-amber-500' : 'bg-indigo-500'
+                                }`}
+                                style={{ width: `${percent}%` }}
+                              />
+                            </div>
+                          </div>
                         </div>
 
                         <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between text-xs">
@@ -689,7 +757,11 @@ export function SchedulePollModal({
                             {new Date(poll.createdAt).toLocaleDateString('ja-JP')} 作成
                           </span>
                           <span className="font-bold text-indigo-600 hover:text-indigo-800">
-                            {isConfirmed ? '確定日程を確認 →' : '回答・マトリクスを開く →'}
+                            {isConfirmed
+                              ? '確定日程を確認 →'
+                              : isOrganizer && isAllDone
+                              ? '日程を確定する →'
+                              : '回答・マトリクスを開く →'}
                           </span>
                         </div>
                       </div>
@@ -1190,7 +1262,7 @@ export function SchedulePollModal({
               </div>
 
               {/* 調整情報カード */}
-              <div className="p-4 bg-gradient-to-r from-slate-50 to-indigo-50/30 rounded-2xl border border-slate-200 shadow-2xs space-y-2">
+              <div className="p-4 bg-gradient-to-r from-slate-50 to-indigo-50/30 rounded-2xl border border-slate-200 shadow-2xs space-y-2.5">
                 <h3 className="text-base font-bold text-slate-900">{selectedPoll.title}</h3>
                 {selectedPoll.description && (
                   <p className="text-xs text-slate-600 whitespace-pre-wrap">{selectedPoll.description}</p>
@@ -1207,7 +1279,60 @@ export function SchedulePollModal({
                     </span>
                   )}
                 </div>
+
+                {/* 回答進捗状況 */}
+                <div className="pt-2 border-t border-slate-200/60 space-y-1">
+                  <div className="flex items-center justify-between text-xs font-semibold text-slate-700">
+                    <span className="flex items-center gap-1">
+                      <Users className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>回答進捗:</span>
+                      <strong className={answers.length >= (selectedPoll.targetUserIds?.length || 0) && (selectedPoll.targetUserIds?.length || 0) > 0 ? 'text-emerald-700' : 'text-slate-900'}>
+                        {answers.length} / {selectedPoll.targetUserIds?.length || 0}人 回答済み
+                      </strong>
+                      <span className="text-slate-500 font-normal">
+                        ({Math.min(100, Math.round((answers.length / Math.max(1, selectedPoll.targetUserIds?.length || 0)) * 100))}%)
+                      </span>
+                    </span>
+                    {answers.length >= (selectedPoll.targetUserIds?.length || 0) && (selectedPoll.targetUserIds?.length || 0) > 0 && selectedPoll.status !== 'confirmed' && (
+                      <span className="text-[10px] font-black text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full animate-pulse shadow-2xs">
+                        全員回答完了
+                      </span>
+                    )}
+                  </div>
+                  <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden border border-slate-200">
+                    <div
+                      className={`h-1.5 rounded-full transition-all duration-300 ${
+                        answers.length >= (selectedPoll.targetUserIds?.length || 0) && (selectedPoll.targetUserIds?.length || 0) > 0 ? 'bg-emerald-500' : 'bg-indigo-500'
+                      }`}
+                      style={{
+                        width: `${Math.min(100, Math.round((answers.length / Math.max(1, selectedPoll.targetUserIds?.length || 0)) * 100))}%`
+                      }}
+                    />
+                  </div>
+                </div>
               </div>
+
+              {/* 主催者向け：全員回答完了の確定案内バナー */}
+              {selectedPoll.organizerId === currentUser.id &&
+                (selectedPoll.targetUserIds?.length || 0) > 0 &&
+                answers.length >= (selectedPoll.targetUserIds?.length || 0) &&
+                selectedPoll.status !== 'confirmed' && (
+                  <div className="p-3.5 bg-gradient-to-r from-emerald-500/15 via-teal-500/10 to-emerald-500/15 border-2 border-emerald-400 rounded-2xl text-emerald-950 flex items-center justify-between gap-3 shadow-xs animate-in fade-in">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                        <Award className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="text-xs font-black text-emerald-900">
+                          参加対象の全員（{selectedPoll.targetUserIds?.length || 0}名）から回答が集まりました！
+                        </div>
+                        <div className="text-[11px] text-emerald-700 mt-0.5">
+                          下の「希望日程マトリクス集計」から最適な候補枠を選び、「この日程で確定」ボタンを押してください。
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
               {/* 自分の回答フォーム (未確定時のみ入力可能) */}
               {selectedPoll.status !== 'confirmed' && (

@@ -42,6 +42,9 @@ export interface SchedulePoll {
   updatedAt: string;
   answeredUserIds?: string[];
   hasAnswered?: boolean;
+  answeredCount?: number;
+  totalTargetCount?: number;
+  isAllAnswered?: boolean;
 }
 
 export interface FreeSlotSuggestion {

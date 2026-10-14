@@ -14,9 +14,9 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.14.8',
+  version: '2026.10.14.9',
   date: '2026-10-14',
-  releaseNumber: 8,
-  display: 'v2026.10.14 #8',
-  description: '日程調整通知（Web Push & メール配信）および未回答バッジ（マイページ・カレンダー・サイドバー）機能の実装',
+  releaseNumber: 9,
+  display: 'v2026.10.14 #9',
+  description: '確定前の日程調整のスケジュール常時表示・回答状況表示（何人中何人回答済）および全員回答完了時の主催者確定依頼通知機能の実装',
 };

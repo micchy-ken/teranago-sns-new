@@ -151,14 +151,30 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({
         }
       }
 
+      // siteオブジェクトの内包に対応
+      const siteObj = (detailData.site && typeof detailData.site === 'object') ? detailData.site : detailData;
+
       // 基本情報の反映 (code / siteCode, name / siteName のどちらでも取得)
-      const finalCode = detailData.code || detailData.siteCode || item.code || item.siteCode || '';
-      const finalName = detailData.name || detailData.siteName || item.name || item.siteName || '';
-      const finalEgCount = typeof detailData.egCount === 'number' ? detailData.egCount : (typeof item.egCount === 'number' ? item.egCount : 1);
-      const finalCustomer = detailData.customerName || detailData.customer || item.customerName || '';
-      const finalAddress = detailData.address || item.address || '';
-      const finalOrderNo = detailData.orderNo || item.orderNo || '';
-      const finalPeriod = detailData.period || item.period || '';
+      const finalCode = siteObj.code || siteObj.siteCode || item.code || item.siteCode || '';
+      const finalName = siteObj.name || siteObj.siteName || item.name || item.siteName || '';
+      const finalCustomer = siteObj.customerName || siteObj.client || siteObj.customer || item.customerName || item.customer || '';
+      const finalAddress = siteObj.address || item.address || '';
+      const finalOrderNo = siteObj.orderNo || item.orderNo || '';
+      const finalPeriod = siteObj.period || item.period || '';
+
+      // 部品の展開処理
+      const rawParts = detailData.parts || siteObj.parts || item.parts || [];
+      const expandedMains: SiteMainPart[] = [];
+      const subs: SiteSubPart[] = [];
+
+      // 主要部品のみカウントして総台数を算出
+      const majorParts = rawParts.filter((p: any) => p.category === 'major' || p.type === 'main' || p.isMain === true || (!p.type && p.category !== 'sub'));
+      const totalMajorUnits = majorParts.reduce((sum: number, p: any) => sum + Math.max(1, parseInt(String(p.quantity || p.count || p.qty || 1), 10)), 0);
+
+      let finalEgCount = typeof siteObj.egCount === 'number' ? siteObj.egCount : (typeof item.egCount === 'number' ? item.egCount : (parseInt(String(siteObj.egCount || item.egCount || '0'), 10) || 0));
+      if (finalEgCount <= 0) {
+        finalEgCount = totalMajorUnits > 0 ? totalMajorUnits : 1;
+      }
 
       setSiteCode(finalCode);
       setSiteName(finalName);
@@ -167,8 +183,8 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({
       setAddress(finalAddress);
       setOrderNo(finalOrderNo);
 
-      let sDate = detailData.scheduledStartDate || item.scheduledStartDate || '';
-      let eDate = detailData.scheduledEndDate || item.scheduledEndDate || '';
+      let sDate = siteObj.scheduledStartDate || detailData.scheduledStartDate || item.scheduledStartDate || '';
+      let eDate = siteObj.scheduledEndDate || detailData.scheduledEndDate || item.scheduledEndDate || '';
       if (finalPeriod && (!sDate || !eDate)) {
         const pParts = finalPeriod.split(/[～~-]/);
         if (pParts[0] && !sDate) sDate = pParts[0].trim().replace(/\//g, '-');
@@ -180,30 +196,37 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({
         setConstructionDate(sDate);
       }
       if (eDate) setEndDate(eDate);
-      if (detailData.drawingUrl) setDrawingUrl(detailData.drawingUrl);
+      if (detailData.drawingUrl || siteObj.drawingUrl) setDrawingUrl(detailData.drawingUrl || siteObj.drawingUrl);
 
-      // 部品の展開処理
-      const rawParts = detailData.parts || item.parts || [];
-      const expandedMains: SiteMainPart[] = [];
-      const subs: SiteSubPart[] = [];
+      const totalUnits = Math.max(finalEgCount, totalMajorUnits);
+      let globalMainIdx = 0;
 
       rawParts.forEach((p: any, idx: number) => {
-        const pCode = String(p.partCode || p.code || '').trim();
-        const pName = String(p.partName || p.name || '部品').trim();
-        const isMain = p.type === 'main' || p.isMain === true || (!p.type && p.isMain !== false);
+        const pCode = String(p.partCode || p.modelNumber || p.code || p.model || '').trim();
+        const pName = String(p.partName || p.name || '主要部品').trim();
+        const isMain = p.category === 'major' || p.type === 'main' || p.isMain === true || (!p.type && p.category !== 'sub');
         const qty = Math.max(1, parseInt(String(p.quantity || p.count || p.qty || 1), 10));
-        const inDate = p.inStockDate || p.nyukoDate || p.inDate || '';
-        const outDate = p.outStockDate || p.syukkoDate || p.outDate || '';
+        const inDate = p.inboundDate || p.inStockDate || p.nyukoDate || p.inDate || '';
+        const outDate = p.outboundDate || p.outStockDate || p.syukkoDate || p.outDate || '';
 
         if (isMain) {
-          // ★重要要件: 「型番 2台」を「型番 1台」「型番 1台」と1台ごとに分割展開！
+          // 品名から号機番号を抽出 (例: "(1号機)" -> 1)
+          const noteStr = p.note || p.bikou || p.stockStatus || '';
+          const machineMatch = (pName + ' ' + noteStr).match(/[(（]?(\d+)\s*(?:号機|台目|号)[)）]?/);
+          const detectedUnitIndex = machineMatch ? parseInt(machineMatch[1], 10) : null;
+
+          // ★重要: 「型番 2台」の分割、および複数台現場（1台ずつ別行）の号機・総台数付与
           for (let i = 1; i <= qty; i++) {
+            globalMainIdx++;
+            const unitIndex = (qty === 1 && detectedUnitIndex) ? detectedUnitIndex : (qty > 1 ? i : (totalUnits > 1 ? globalMainIdx : 1));
+            const originalQuantity = totalUnits > 1 ? totalUnits : Math.max(qty, 1);
+
             expandedMains.push({
-              id: `part-${Date.now()}-${idx}-${i}`,
+              id: p.id ? `${p.id}-${i}` : `part-${Date.now()}-${idx}-${i}`,
               partCode: pCode,
               partName: pName,
-              originalQuantity: qty,
-              unitIndex: i,
+              originalQuantity,
+              unitIndex,
               quantity: 1,
               unit: p.unit || '台',
               inStockDate: inDate,
@@ -212,20 +235,20 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({
               workerId: primaryWorkerId,
               workerName: allUsers.find(u => u.id === primaryWorkerId)?.name || currentUser.name,
               status: outDate ? 'stock_out' : (inDate ? 'stock_in' : 'waiting_stock'),
-              note: qty > 1 ? `(${qty}台中 ${i}台目)` : ''
+              note: p.note || (originalQuantity > 1 ? `(${originalQuantity}台中 ${unitIndex}台目)` : '')
             });
           }
         } else {
           // 付属部品は都度参照
           subs.push({
-            id: `sub-${idx}`,
+            id: p.id ? String(p.id) : `sub-${idx}`,
             partCode: pCode,
             partName: pName,
             quantity: qty,
             unit: p.unit || '個',
             inStockDate: inDate,
             outStockDate: outDate,
-            note: p.note || p.bikou
+            note: p.note || p.bikou || p.stockStatus || ''
           });
         }
       });
@@ -239,22 +262,32 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({
     } finally {
       setIsSearching(false);
     }
-
   };
 
   // 主要部品の手動追加
   const handleAddCustomPart = () => {
-    const newPart: SiteMainPart = {
-      id: `part-custom-${Date.now()}`,
-      partCode: '',
-      partName: '',
-      quantity: 1,
-      unit: '台',
-      status: 'waiting_stock',
-      workerId: primaryWorkerId,
-      workerName: allUsers.find(u => u.id === primaryWorkerId)?.name || currentUser.name
-    };
-    setMainParts(prev => [...prev, newPart]);
+    setMainParts(prev => {
+      const nextIndex = prev.length + 1;
+      const nextTotal = Math.max(egCount, nextIndex);
+      const updatedPrev = prev.map((p, i) => ({
+        ...p,
+        originalQuantity: nextTotal,
+        unitIndex: p.unitIndex || (i + 1)
+      }));
+      const newPart: SiteMainPart = {
+        id: `part-custom-${Date.now()}`,
+        partCode: '',
+        partName: '',
+        originalQuantity: nextTotal,
+        unitIndex: nextIndex,
+        quantity: 1,
+        unit: '台',
+        status: 'waiting_stock',
+        workerId: primaryWorkerId,
+        workerName: allUsers.find(u => u.id === primaryWorkerId)?.name || currentUser.name
+      };
+      return [...updatedPrev, newPart];
+    });
   };
 
   // 主要部品の更新
@@ -632,7 +665,11 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2 flex-1">
                         <span className="text-xs font-bold text-indigo-700 bg-white border border-indigo-200 px-2 py-0.5 rounded shadow-2xs">
-                          {part.unitIndex && part.originalQuantity ? `${part.unitIndex}/${part.originalQuantity}台目` : `部品 ${index + 1}`}
+                          {(() => {
+                            const total = part.originalQuantity && part.originalQuantity > 1 ? part.originalQuantity : (egCount > 1 ? egCount : (mainParts.length > 1 ? mainParts.length : 1));
+                            const uIdx = part.unitIndex || (index + 1);
+                            return total > 1 ? `${uIdx}/${total}台目` : `${uIdx}台目`;
+                          })()}
                         </span>
                         <input
                           type="text"

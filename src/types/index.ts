@@ -184,6 +184,15 @@ export interface CalendarEvent {
   recurrenceOriginalDate?: string; // 個別変更された元のインスタンス日付 (YYYY-MM-DD)
   recurrenceExceptions?: string[]; // 除外されたインスタンスの日付一覧 (YYYY-MM-DD[])
   instanceDate?: string;           // 展開されたインスタンスの日付 (YYYY-MM-DD)
+
+  // 日程調整連携
+  isSchedulePoll?: boolean;
+  pollId?: string;
+  isPollOrganizer?: boolean;
+  isPollAllAnswered?: boolean;
+  hasMyPollAnswer?: boolean;
+  pollAnsweredCount?: number;
+  pollTotalTargetCount?: number;
 }
 
 export type ApplicationType = 'purchase_order' | 'purchase_request' | 'inventory_issue' | 'business_trip' | 'gold_silver_daily_report' | 'other';

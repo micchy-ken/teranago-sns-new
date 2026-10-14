@@ -322,11 +322,16 @@ export const SiteGanttView: React.FC<SiteGanttViewProps> = ({ sites, onSelectSit
                             <span className="font-medium text-slate-700 truncate">
                               {part.partCode}
                             </span>
-                            {part.originalQuantity && part.originalQuantity > 1 && (
-                              <span className="text-[10px] px-1 bg-amber-50 text-amber-700 border border-amber-200 rounded font-semibold shrink-0">
-                                {part.unitIndex}/{part.originalQuantity}台目
-                              </span>
-                            )}
+                            {(() => {
+                              const total = part.originalQuantity && part.originalQuantity > 1 ? part.originalQuantity : (site.egCount > 1 ? site.egCount : (site.mainParts.length > 1 ? site.mainParts.length : 1));
+                              const uIdx = part.unitIndex || (idx + 1);
+                              if (total <= 1) return null;
+                              return (
+                                <span className="text-[10px] px-1 bg-amber-50 text-amber-700 border border-amber-200 rounded font-semibold shrink-0">
+                                  {uIdx}/{total}台目
+                                </span>
+                              );
+                            })()}
                           </div>
                           <div className="text-right shrink-0">
                             <span className="text-[11px] text-slate-500">

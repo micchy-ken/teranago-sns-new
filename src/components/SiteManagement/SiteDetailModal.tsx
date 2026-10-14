@@ -216,23 +216,29 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
   const handleExportCsv = () => {
     if (!currentSite) return;
     const rows = [
-      ['現場コード', '現場名', 'EG台数', '元請', '工期開始', '工期終了', '施工日', '主担当', '部品型番', '品名', '出庫日', '部品施工日', '部品担当', '進捗状況'],
-      ...currentSite.mainParts.map(p => [
-        currentSite.siteCode,
-        currentSite.siteName,
-        currentSite.egCount,
-        currentSite.customerName || '',
-        currentSite.startDate || '',
-        currentSite.endDate || '',
-        currentSite.constructionDate || '',
-        currentSite.primaryWorkerName || '',
-        p.partCode,
-        p.partName,
-        p.outStockDate || '',
-        p.constructionDate || '',
-        p.workerName || '',
-        p.status
-      ])
+      ['現場コード', '現場名', 'EG台数', '号機/台数', '元請', '工期開始', '工期終了', '施工日', '主担当', '部品型番', '品名', '出庫日', '部品施工日', '部品担当', '進捗状況'],
+      ...currentSite.mainParts.map((p, idx) => {
+        const total = p.originalQuantity && p.originalQuantity > 1 ? p.originalQuantity : (currentSite.egCount > 1 ? currentSite.egCount : (currentSite.mainParts.length > 1 ? currentSite.mainParts.length : 1));
+        const uIdx = p.unitIndex || (idx + 1);
+        const unitLabel = total > 1 ? `${uIdx}/${total}台目` : `${uIdx}台目`;
+        return [
+          currentSite.siteCode,
+          currentSite.siteName,
+          currentSite.egCount,
+          unitLabel,
+          currentSite.customerName || '',
+          currentSite.startDate || '',
+          currentSite.endDate || '',
+          currentSite.constructionDate || '',
+          currentSite.primaryWorkerName || '',
+          p.partCode,
+          p.partName,
+          p.outStockDate || '',
+          p.constructionDate || '',
+          p.workerName || '',
+          p.status
+        ];
+      })
     ];
 
     const csvContent = "data:text/csv;charset=utf-8,\uFEFF" + rows.map(e => e.map(cell => `"${cell}"`).join(",")).join("\n");
@@ -376,7 +382,11 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <div className="flex items-center gap-3">
                           <span className="font-bold text-xs text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded shadow-2xs">
-                            {part.unitIndex && part.originalQuantity ? `${part.unitIndex}/${part.originalQuantity}台目` : `${idx + 1}台目`}
+                            {(() => {
+                              const total = part.originalQuantity && part.originalQuantity > 1 ? part.originalQuantity : (currentSite.egCount > 1 ? currentSite.egCount : (currentSite.mainParts.length > 1 ? currentSite.mainParts.length : 1));
+                              const uIdx = part.unitIndex || (idx + 1);
+                              return total > 1 ? `${uIdx}/${total}台目` : `${uIdx}台目`;
+                            })()}
                           </span>
                           <div>
                             <div className="flex items-center gap-2">

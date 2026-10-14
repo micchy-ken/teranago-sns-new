@@ -327,7 +327,7 @@ export const SiteManagement: React.FC<SiteManagementProps> = ({ currentUser, all
                           </div>
                         )}
                         <div className="flex items-center gap-4 text-[11px] pt-1">
-                          <span>EG台数: <strong className="text-slate-800">{site.egCount}台</strong></span>
+                          <span>EG台数: <strong className="text-slate-800">{site.egCount || site.mainParts.length || 1}台</strong></span>
                           <span>担当: <strong className="text-slate-800">{site.primaryWorkerName || '未定'}</strong></span>
                           <span>施工日: <strong className="text-indigo-600">{site.constructionDate || site.startDate || '未定'}</strong></span>
                         </div>

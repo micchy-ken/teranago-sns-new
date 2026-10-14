@@ -16,6 +16,7 @@ import { buildAppUrl, AppQueryParams } from '../utils/urlParams';
 import { TeamDayMemberRow } from './TeamDayMemberRow';
 import { TeamWeekMemberRow } from './TeamWeekMemberRow';
 import { isEventVisibleToUser } from '../utils/eventVisibility';
+import { SchedulePoll } from '../types/schedulePoll';
 
 interface CalendarProps {
   events: CalendarEvent[];
@@ -37,8 +38,9 @@ interface CalendarProps {
   onUpdateMemos?: (updatedMemos: Memo[]) => void;
   onRefetchEvents?: () => void;
   onNavigateToInspectionScheduler?: () => void;
-  onOpenSchedulePollModal?: () => void;
+  onOpenSchedulePollModal?: (pollId?: string) => void;
   pendingPollCount?: number;
+  openSchedulePolls?: SchedulePoll[];
   onUpdateUser?: (updatedUser: User) => void;
 }
 
@@ -86,6 +88,7 @@ export function Calendar({
   onNavigateToInspectionScheduler,
   onOpenSchedulePollModal,
   pendingPollCount = 0,
+  openSchedulePolls = [],
   onUpdateUser,
 }: CalendarProps) {
   // ユーザーが最近操作した楽観的更新（D&D、リサイズ、編集）を保持するRef（親からの古いデータによる巻き戻りを完全遮断）
@@ -870,7 +873,7 @@ export function Calendar({
   
   // イベントのフィルタリング処理をメモ化して再計算を防止
   const filteredEvents = React.useMemo(() => {
-    return expandedEvents.filter(e => {
+    const list = expandedEvents.filter(e => {
       if (selectedTypeFilter !== 'all' && e.type !== selectedTypeFilter) {
         return false;
       }
@@ -894,7 +897,56 @@ export function Calendar({
 
       return true;
     });
-  }, [expandedEvents, selectedTypeFilter, currentUser, calendarMode]);
+
+    // 確定前（オープン）の日程調整候補枠をカレンダー予定に常に表示
+    if (openSchedulePolls && openSchedulePolls.length > 0 && selectedTypeFilter === 'all') {
+      openSchedulePolls.forEach(poll => {
+        if (poll.status !== 'open') return;
+        const myId = String(currentUser?.id || '');
+        const isOrganizer = String(poll.organizerId) === myId;
+        const isTarget = Array.isArray(poll.targetUserIds) && poll.targetUserIds.map(String).includes(myId);
+        
+        // 個人モード時は自身が主催または参加対象のもののみ
+        if (calendarMode === 'personal' && !isOrganizer && !isTarget) return;
+
+        const targetCount = poll.targetUserIds?.length || 0;
+        const ansCount = poll.answeredCount !== undefined
+          ? poll.answeredCount
+          : (poll.answeredUserIds || []).filter(uid => (poll.targetUserIds || []).includes(uid)).length;
+        const isAllDone = targetCount > 0 && ansCount >= targetCount;
+        const hasMyAnswer = (poll.answeredUserIds || []).includes(myId);
+
+        const attendeesList = (allUsers || []).filter(u =>
+          (poll.targetUserIds || []).includes(u.id) || String(u.id) === String(poll.organizerId)
+        );
+
+        (poll.candidates || []).forEach(cand => {
+          if (!cand.startAt) return;
+          const virtualEv: CalendarEvent = {
+            id: `poll_${poll.id}_${cand.id}`,
+            title: `⏳[調整中] ${poll.title} (${ansCount}/${targetCount}人回答)`,
+            start: cand.startAt,
+            end: cand.endAt || cand.startAt,
+            type: 'personal',
+            memo: `【日程調整候補枠】${poll.title}\n主催者: ${poll.organizerName}\n回答状況: ${ansCount} / ${targetCount}人 回答済み\n所要時間: ${poll.durationMinutes}分\n\n※クリックすると日程調整アンケートの詳細・回答・確定画面を開きます。`,
+            attendees: attendeesList,
+            isAllDay: false,
+            isGoogleSynced: false,
+            isSchedulePoll: true,
+            pollId: poll.id,
+            isPollOrganizer: isOrganizer,
+            isPollAllAnswered: isAllDone,
+            hasMyPollAnswer: hasMyAnswer,
+            pollAnsweredCount: ansCount,
+            pollTotalTargetCount: targetCount,
+          };
+          list.push(virtualEv);
+        });
+      });
+    }
+
+    return list;
+  }, [expandedEvents, selectedTypeFilter, currentUser, calendarMode, openSchedulePolls, allUsers]);
 
   // チーム表示用の所属メンバー抽出をメモ化
   const teamMembers = React.useMemo(() => {
@@ -1064,6 +1116,15 @@ export function Calendar({
   };
 
   const getEventStyle = (e: CalendarEvent, forceSolid = false) => {
+    if (e.isSchedulePoll) {
+      if (e.isPollOrganizer && e.isPollAllAnswered) {
+        return 'bg-gradient-to-r from-emerald-100 to-teal-100 text-emerald-950 border-emerald-400 border-dashed animate-pulse font-bold hover:bg-emerald-200';
+      }
+      if (!e.isPollOrganizer && !e.hasMyPollAnswer) {
+        return 'bg-gradient-to-r from-amber-100 to-orange-100 text-amber-950 border-amber-400 border-dashed animate-pulse font-bold hover:bg-amber-200';
+      }
+      return 'bg-amber-50 text-amber-900 border-amber-300 border-dashed hover:bg-amber-100';
+    }
     const startStr = getLocalDateStr(e.start);
     const endStr = e.end ? getLocalDateStr(e.end) : startStr;
     const isMultiDay = startStr !== endStr;
@@ -1174,6 +1235,12 @@ export function Calendar({
   const handleEventClick = (e: React.MouseEvent, event: CalendarEvent) => {
     e.stopPropagation();
     e.preventDefault();
+    if (event.isSchedulePoll && event.pollId) {
+      if (onOpenSchedulePollModal) {
+        onOpenSchedulePollModal(event.pollId);
+      }
+      return;
+    }
     if (wasResizedRef.current) return; // リサイズ操作直後のクリックを無効化
     setSelectedDetailEvent(event);
   };
@@ -2203,7 +2270,7 @@ export function Calendar({
             {onOpenSchedulePollModal && (
               <button
                 type="button"
-                onClick={onOpenSchedulePollModal}
+                onClick={() => onOpenSchedulePollModal()}
                 className="relative p-1.5 bg-gradient-to-r from-amber-50 to-orange-50 hover:from-amber-100 hover:to-orange-100 text-amber-800 border border-amber-200 rounded-lg transition-all shadow-2xs cursor-pointer"
                 title={pendingPollCount > 0 ? `日程調整（未回答の調整依頼: ${pendingPollCount}件）` : '日程調整'}
               >
@@ -2580,6 +2647,68 @@ export function Calendar({
 
       {/* Main View Area */}
       <div className="flex-1 overflow-auto bg-white">
+        {/* 進行中の日程調整案内バー */}
+        {openSchedulePolls && openSchedulePolls.length > 0 && (
+          <div className="mx-2 sm:mx-4 mt-2.5 mb-1.5 p-2 sm:p-2.5 bg-gradient-to-r from-amber-500/10 via-orange-500/5 to-amber-500/10 border border-amber-200/90 rounded-xl flex items-center justify-between gap-3 shadow-2xs">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="p-1.5 bg-amber-500 text-white rounded-lg shrink-0 shadow-2xs">
+                <CalendarDays className="w-3.5 h-3.5" />
+              </span>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-bold text-amber-950 shrink-0">
+                    進行中の日程調整 ({openSchedulePolls.length}件):
+                  </span>
+                  {openSchedulePolls.slice(0, 3).map((p) => {
+                    const targetCount = p.targetUserIds?.length || 0;
+                    const ansCount = p.answeredCount !== undefined
+                      ? p.answeredCount
+                      : (p.answeredUserIds || []).filter(uid => (p.targetUserIds || []).includes(uid)).length;
+                    const isAllDone = targetCount > 0 && ansCount >= targetCount;
+                    const isOrganizer = String(p.organizerId) === String(currentUser?.id);
+                    const hasMyAnswer = (p.answeredUserIds || []).includes(String(currentUser?.id));
+
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => onOpenSchedulePollModal && onOpenSchedulePollModal(p.id)}
+                        className={`text-xs px-2 py-0.5 rounded-md border truncate max-w-[260px] flex items-center gap-1.5 cursor-pointer transition-colors ${
+                          isOrganizer && isAllDone
+                            ? 'bg-emerald-50 text-emerald-900 border-emerald-300 hover:bg-emerald-100 font-bold'
+                            : !isOrganizer && !hasMyAnswer
+                            ? 'bg-rose-50 text-rose-900 border-rose-300 hover:bg-rose-100 font-bold'
+                            : 'bg-white/80 text-slate-700 border-amber-200 hover:bg-white'
+                        }`}
+                        title={`「${p.title}」をクリックして回答・確認`}
+                      >
+                        {isOrganizer && isAllDone ? (
+                          <span className="text-[9px] px-1 bg-emerald-600 text-white rounded-sm font-black shrink-0 animate-pulse">要確定</span>
+                        ) : !isOrganizer && !hasMyAnswer ? (
+                          <span className="text-[9px] px-1 bg-rose-600 text-white rounded-sm font-black shrink-0 animate-pulse">要回答</span>
+                        ) : null}
+                        <span className="truncate">「{p.title}」</span>
+                        <strong className="text-amber-900 font-bold shrink-0">({ansCount}/{targetCount}人回答済)</strong>
+                      </button>
+                    );
+                  })}
+                  {openSchedulePolls.length > 3 && (
+                    <span className="text-[11px] text-slate-500">他{openSchedulePolls.length - 3}件</span>
+                  )}
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => onOpenSchedulePollModal && onOpenSchedulePollModal()}
+              className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-lg shadow-2xs shrink-0 flex items-center gap-1 cursor-pointer transition-colors"
+            >
+              <span>一覧・新規</span>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
         {calendarMode === 'team' ? (
           renderTeamView()
         ) : (
@@ -3346,7 +3475,7 @@ export function Calendar({
                           <div className="w-full flex justify-between items-start pointer-events-none gap-2">
                             <div className="font-extrabold text-xs sm:text-sm text-slate-900 leading-snug break-words">{e.title}</div>
                             <span className="text-[9px] sm:text-[10px] px-2 py-0.5 rounded-md font-bold border bg-white/80 shrink-0">
-                              {typeLabels[e.type]}
+                              {e.isSchedulePoll ? '日程調整' : typeLabels[e.type]}
                             </span>
                           </div>
                           <div className="text-[10px] sm:text-xs font-semibold text-slate-600 mt-0.5 pointer-events-none">{displayTimeString}</div>
@@ -3489,7 +3618,7 @@ export function Calendar({
                       <div className="flex-1 min-w-0 py-0.5">
                         <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                           <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold tracking-wider border ${getEventStyle(e)}`}>
-                            {typeLabels[e.type]}
+                            {e.isSchedulePoll ? '日程調整' : typeLabels[e.type]}
                           </span>
                           <h3 className="font-bold text-slate-900 truncate text-sm sm:text-base flex-1 min-w-0">{e.title}</h3>
                         </div>

@@ -146,6 +146,7 @@ interface MyPageProps {
   autoOpenEmergencyContact?: boolean;
   onCloseEmergencyContact?: () => void;
   pendingSchedulePolls?: SchedulePoll[];
+  schedulePolls?: SchedulePoll[];
   onOpenSchedulePollModal?: (pollId?: string) => void;
 }
 
@@ -180,6 +181,7 @@ export function MyPage({
   autoOpenEmergencyContact,
   onCloseEmergencyContact,
   pendingSchedulePolls = [],
+  schedulePolls = [],
   onOpenSchedulePollModal,
 }: MyPageProps) {
   // ローカル既読状態管理
@@ -857,6 +859,61 @@ export function MyPage({
 
   const unreadEvents = myEvents.filter((e) => isEventUnread(e, user, readEventIds));
 
+  // 確定前（オープン）の日程調整一覧（主催または参加対象）
+  const allActivePolls = useMemo(() => {
+    const sourcePolls = (schedulePolls && schedulePolls.length > 0) ? schedulePolls : (pendingSchedulePolls || []);
+    if (!user?.id || !sourcePolls.length) return [];
+
+    return sourcePolls
+      .filter((poll) => {
+        if (poll.status !== 'open') return false;
+        const myId = String(user.id);
+        const isOrganizer = String(poll.organizerId) === myId;
+        const isTarget = Array.isArray(poll.targetUserIds) && poll.targetUserIds.map(String).includes(myId);
+        return isOrganizer || isTarget;
+      })
+      .sort((a, b) => {
+        const myId = String(user.id);
+        const aMyAnswered = (a.answeredUserIds || []).includes(myId);
+        const bMyAnswered = (b.answeredUserIds || []).includes(myId);
+        const aIsOrganizer = String(a.organizerId) === myId;
+        const bIsOrganizer = String(b.organizerId) === myId;
+
+        const aTargetCount = a.targetUserIds?.length || 0;
+        const aAnsCount = a.answeredCount !== undefined ? a.answeredCount : (a.answeredUserIds || []).filter(uid => (a.targetUserIds || []).includes(uid)).length;
+        const aAllDone = aTargetCount > 0 && aAnsCount >= aTargetCount;
+
+        const bTargetCount = b.targetUserIds?.length || 0;
+        const bAnsCount = b.answeredCount !== undefined ? b.answeredCount : (b.answeredUserIds || []).filter(uid => (b.targetUserIds || []).includes(uid)).length;
+        const bAllDone = bTargetCount > 0 && bAnsCount >= bTargetCount;
+
+        // 参加者で未回答のものを最優先
+        if (!aIsOrganizer && !aMyAnswered && (bIsOrganizer || bMyAnswered)) return -1;
+        if (!bIsOrganizer && !bMyAnswered && (aIsOrganizer || aMyAnswered)) return 1;
+
+        // 主催者で全員回答完了（要確定）のものを次点
+        if (aIsOrganizer && aAllDone && !(bIsOrganizer && bAllDone)) return -1;
+        if (bIsOrganizer && bAllDone && !(aIsOrganizer && aAllDone)) return 1;
+
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
+  }, [schedulePolls, pendingSchedulePolls, user?.id]);
+
+  const actionablePollCount = useMemo(() => {
+    return allActivePolls.filter((poll) => {
+      const myId = String(user?.id);
+      const isOrganizer = String(poll.organizerId) === myId;
+      if (isOrganizer) {
+        const targetCount = poll.targetUserIds?.length || 0;
+        const ansCount = poll.answeredCount !== undefined ? poll.answeredCount : (poll.answeredUserIds || []).filter(uid => (poll.targetUserIds || []).includes(uid)).length;
+        return targetCount > 0 && ansCount >= targetCount;
+      } else {
+        const hasMyAnswer = (poll.answeredUserIds || []).includes(myId);
+        return !hasMyAnswer;
+      }
+    }).length;
+  }, [allActivePolls, user?.id]);
+
   // 2. 対象の掲示板トピック（全社・自拠点・自部署宛て、または自分が投稿）
   const myTopics = topics
     .filter((t) => {
@@ -1006,8 +1063,8 @@ export function MyPage({
             title="スケジュール"
             icon={CalendarIcon}
             iconBgColor="bg-amber-500 hover:bg-amber-600"
-            badgeCount={unreadEvents.length + pendingSchedulePolls.length}
-            badgeLabel={pendingSchedulePolls.length > 0 ? (unreadEvents.length > 0 ? '未確認/要回答' : '要回答あり') : '未確認'}
+            badgeCount={unreadEvents.length + actionablePollCount}
+            badgeLabel={actionablePollCount > 0 ? (unreadEvents.length > 0 ? '未確認/要対応' : '要対応あり') : '未確認'}
             badgeBgColor="bg-rose-500"
             onNavigate={() => onChangeTab('calendar')}
             actionButton={
@@ -1027,53 +1084,138 @@ export function MyPage({
             onDrop={(e) => handleDrop(e, index)}
           >
             <div className="space-y-3">
-              {/* 未回答の日程調整リクエスト一覧 */}
-              {pendingSchedulePolls.length > 0 && (
-                <div className="space-y-2 mb-3 pb-3 border-b border-amber-200">
+              {/* 確定前の日程調整一覧（常にスケジュール上部に表示） */}
+              {allActivePolls.length > 0 && (
+                <div className="space-y-2.5 mb-3.5 pb-3.5 border-b border-amber-200">
                   <div className="flex items-center justify-between text-xs font-bold text-amber-900">
                     <span className="flex items-center gap-1.5">
                       <Clock className="w-3.5 h-3.5 text-amber-600 animate-pulse" />
-                      日程調整の回答依頼（未回答 {pendingSchedulePolls.length}件）
+                      進行中の日程調整（{allActivePolls.length}件）
                     </span>
-                  </div>
-                  {pendingSchedulePolls.map((poll) => (
-                    <div
-                      key={poll.id}
-                      onClick={() => onOpenSchedulePollModal && onOpenSchedulePollModal(poll.id)}
-                      className="p-3 bg-gradient-to-r from-amber-500/10 via-orange-500/5 to-amber-500/10 hover:from-amber-500/20 hover:to-orange-500/15 border border-amber-300 rounded-xl transition-all cursor-pointer flex items-center justify-between gap-3 shadow-2xs group"
+                    <button
+                      type="button"
+                      onClick={() => onOpenSchedulePollModal && onOpenSchedulePollModal()}
+                      className="text-[11px] text-indigo-600 hover:text-indigo-800 font-semibold cursor-pointer"
                     >
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="px-1.5 py-0.5 bg-rose-500 text-white text-[9px] font-black rounded-full animate-pulse shadow-2xs">
-                            要回答
-                          </span>
-                          <span className="text-xs font-bold text-slate-800 truncate group-hover:text-amber-900">
-                            {poll.title}
-                          </span>
-                        </div>
-                        <div className="text-[11px] text-slate-600 flex flex-wrap items-center gap-x-3 gap-y-0.5">
-                          <span>主催: {poll.organizerName}</span>
-                          <span>所要: {poll.durationMinutes}分</span>
-                          {poll.deadlineAt && (
-                            <span className="text-rose-600 font-semibold">
-                              期限: {new Date(poll.deadlineAt).toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric', weekday: 'short' })}
+                      一覧を開く →
+                    </button>
+                  </div>
+                  {allActivePolls.map((poll) => {
+                    const isOrganizer = String(poll.organizerId) === String(user.id);
+                    const targetCount = poll.targetUserIds?.length || 0;
+                    const answeredUserIds = poll.answeredUserIds || [];
+                    const answeredCount = poll.answeredCount !== undefined
+                      ? poll.answeredCount
+                      : answeredUserIds.filter(uid => (poll.targetUserIds || []).includes(uid)).length;
+                    const isAllDone = targetCount > 0 && answeredCount >= targetCount;
+                    const hasMyAnswer = answeredUserIds.includes(String(user.id));
+                    const percent = Math.min(100, Math.round((answeredCount / Math.max(1, targetCount)) * 100));
+
+                    return (
+                      <div
+                        key={poll.id}
+                        onClick={() => onOpenSchedulePollModal && onOpenSchedulePollModal(poll.id)}
+                        className={`p-3 rounded-xl border transition-all cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs group ${
+                          isOrganizer && isAllDone
+                            ? 'bg-gradient-to-r from-emerald-500/15 via-teal-500/10 to-emerald-500/10 border-emerald-300 hover:border-emerald-400'
+                            : !isOrganizer && !hasMyAnswer
+                            ? 'bg-gradient-to-r from-amber-500/15 via-orange-500/10 to-amber-500/10 border-amber-300 hover:border-amber-400'
+                            : 'bg-white border-slate-200 hover:border-indigo-300 hover:bg-slate-50/50'
+                        }`}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 mb-1 flex-wrap">
+                            {isOrganizer ? (
+                              isAllDone ? (
+                                <span className="px-2 py-0.5 bg-rose-600 text-white text-[9px] font-black rounded-full animate-pulse shadow-2xs">
+                                  全員回答済・要確定
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 bg-indigo-100 text-indigo-800 text-[9px] font-bold rounded-full">
+                                  主催・調整中
+                                </span>
+                              )
+                            ) : !hasMyAnswer ? (
+                              <span className="px-2 py-0.5 bg-rose-500 text-white text-[9px] font-black rounded-full animate-pulse shadow-2xs">
+                                要回答
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[9px] font-bold rounded-full">
+                                回答済
+                              </span>
+                            )}
+                            <span className="text-xs font-bold text-slate-800 truncate group-hover:text-indigo-600">
+                              {poll.title}
                             </span>
-                          )}
+                          </div>
+
+                          <div className="text-[11px] text-slate-600 flex flex-wrap items-center gap-x-3 gap-y-0.5 mb-1.5">
+                            <span>主催: {poll.organizerName}</span>
+                            <span>所要: {poll.durationMinutes}分</span>
+                            {poll.deadlineAt && (
+                              <span className="text-rose-600 font-semibold">
+                                期限: {new Date(poll.deadlineAt).toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric', weekday: 'short' })}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* 何人中何人が回答済みか表示 ＆ プログレスバー */}
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between text-[11px]">
+                              <span className="font-semibold text-slate-700 flex items-center gap-1">
+                                <Users className="w-3 h-3 text-slate-400" />
+                                <span>回答状況:</span>
+                                <span className={`font-bold ${isAllDone ? 'text-emerald-700' : 'text-slate-800'}`}>
+                                  {answeredCount} / {targetCount}人 回答済み ({percent}%)
+                                </span>
+                              </span>
+                              {isAllDone && (
+                                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
+                                  回答完了
+                                </span>
+                              )}
+                            </div>
+                            <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden border border-slate-200">
+                              <div
+                                className={`h-1.5 rounded-full transition-all duration-300 ${
+                                  isAllDone ? 'bg-emerald-500' : percent > 50 ? 'bg-amber-500' : 'bg-indigo-500'
+                                }`}
+                                style={{ width: `${percent}%` }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="shrink-0 flex items-center gap-2 self-end sm:self-center">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (onOpenSchedulePollModal) onOpenSchedulePollModal(poll.id);
+                            }}
+                            className={`px-3 py-1.5 text-xs font-bold rounded-lg shadow-xs flex items-center gap-1 transition-colors cursor-pointer ${
+                              isOrganizer && isAllDone
+                                ? 'bg-rose-600 hover:bg-rose-700 text-white animate-pulse'
+                                : !isOrganizer && !hasMyAnswer
+                                ? 'bg-amber-500 hover:bg-amber-600 text-white'
+                                : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300'
+                            }`}
+                          >
+                            <span>
+                              {isOrganizer && isAllDone
+                                ? '日程を確定する'
+                                : !isOrganizer && !hasMyAnswer
+                                ? '回答する'
+                                : isOrganizer
+                                ? '集計を確認'
+                                : '回答を確認・変更'}
+                            </span>
+                            <ChevronRight className="w-3.5 h-3.5" />
+                          </button>
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (onOpenSchedulePollModal) onOpenSchedulePollModal(poll.id);
-                        }}
-                        className="px-2.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-lg shadow-xs flex items-center gap-1 shrink-0 transition-colors cursor-pointer"
-                      >
-                        <span>回答する</span>
-                        <ChevronRight className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
 

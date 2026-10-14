@@ -1331,6 +1331,38 @@ export default function App() {
     });
   }, [userState?.id, schedulePolls]);
 
+  // 確定前（status === 'open'）で自身が主催または参加対象の日程調整一覧
+  const openSchedulePolls = useMemo(() => {
+    if (!userState?.id || !schedulePolls.length) return [];
+    return schedulePolls.filter(poll => {
+      if (poll.status !== 'open') return false;
+      const myId = String(userState.id);
+      const isOrganizer = String(poll.organizerId) === myId;
+      const isTarget = Array.isArray(poll.targetUserIds) && poll.targetUserIds.map(String).includes(myId);
+      return isOrganizer || isTarget;
+    });
+  }, [userState?.id, schedulePolls]);
+
+  // アクション（参加者の未回答、または主催者で全員回答完了かつ未確定）が必要な件数
+  const actionablePollCount = useMemo(() => {
+    if (!userState?.id || !openSchedulePolls.length) return 0;
+    return openSchedulePolls.filter(poll => {
+      const myId = String(userState.id);
+      const isOrganizer = String(poll.organizerId) === myId;
+      if (isOrganizer) {
+        const targetCount = Array.isArray(poll.targetUserIds) ? poll.targetUserIds.length : 0;
+        const ansCount = poll.answeredCount !== undefined
+          ? poll.answeredCount
+          : (poll.answeredUserIds || []).filter(uid => (poll.targetUserIds || []).includes(uid)).length;
+        return targetCount > 0 && ansCount >= targetCount;
+      } else {
+        const isTarget = Array.isArray(poll.targetUserIds) && poll.targetUserIds.map(String).includes(myId);
+        const hasAnswered = (poll.answeredUserIds || []).map(String).includes(myId) || poll.hasAnswered;
+        return isTarget && !hasAnswered;
+      }
+    }).length;
+  }, [openSchedulePolls, userState?.id]);
+
   const refetchAll = async (existingUsers?: User[]) => {
     const latestUsers = (existingUsers && existingUsers.length > 0) ? existingUsers : await refetchUsers();
     await Promise.all([
@@ -2962,7 +2994,7 @@ export default function App() {
               unreadCounts={sidebarUnreadCounts}
               isUtilityOpen={isUtilityOpen}
               onToggleUtility={handleToggleUtilityOpen}
-              pendingPollCount={pendingSchedulePolls.length}
+              pendingPollCount={actionablePollCount}
               onOpenSchedulePollModal={() => {
                 setShowSchedulePollModal(true);
                 setIsMobileMenuOpen(false);
@@ -3081,6 +3113,7 @@ export default function App() {
               onRefetchEvents={refetchEvents}
               onNavigateToInspectionScheduler={() => setActiveTab('inspection_scheduler')}
               pendingPollCount={pendingSchedulePolls.length}
+              openSchedulePolls={openSchedulePolls}
               onOpenSchedulePollModal={(pollId?: string) => {
                 setInitialSchedulePollId(pollId || null);
                 setShowSchedulePollModal(true);
@@ -3273,6 +3306,7 @@ export default function App() {
               onAddApplication={handleAddApplication}
               approvalFlows={approvalFlows}
               itemMasters={itemMasters}
+              schedulePolls={openSchedulePolls}
               pendingSchedulePolls={pendingSchedulePolls}
               onOpenSchedulePollModal={(pollId?: string) => {
                 setInitialSchedulePollId(pollId || null);

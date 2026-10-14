@@ -123,6 +123,10 @@ router.get(['/schedule-polls', '/schedule/polls', '/polls'], async (req, res) =>
       const polls = (result.recordset || []).map(row => {
         const pollId = String(row.id);
         const answeredUserIds = answersMap[pollId] || [];
+        const targetUserIds = safeParseJSON(row.targetUserIds, []);
+        const targetCount = targetUserIds.length;
+        const answeredCount = answeredUserIds.filter(uid => targetUserIds.includes(uid)).length;
+        const isAllAnswered = targetCount > 0 && answeredCount >= targetCount;
         return {
           id: pollId,
           title: row.title,
@@ -132,7 +136,7 @@ router.get(['/schedule-polls', '/schedule/polls', '/polls'], async (req, res) =>
           status: row.status || 'open',
           durationMinutes: Number(row.durationMinutes) || 60,
           location: row.location || '',
-          targetUserIds: safeParseJSON(row.targetUserIds, []),
+          targetUserIds,
           candidates: safeParseJSON(row.candidates, []),
           deadlineAt: row.deadlineAt ? row.deadlineAt.toISOString() : null,
           confirmedCandidateId: row.confirmedCandidateId || null,
@@ -140,6 +144,9 @@ router.get(['/schedule-polls', '/schedule/polls', '/polls'], async (req, res) =>
           createdAt: row.createdAt ? row.createdAt.toISOString() : null,
           updatedAt: row.updatedAt ? row.updatedAt.toISOString() : null,
           answeredUserIds,
+          answeredCount,
+          totalTargetCount: targetCount,
+          isAllAnswered,
           hasAnswered: userId ? answeredUserIds.includes(userId) : false,
         };
       });
@@ -179,9 +186,17 @@ router.get(['/schedule-polls', '/schedule/polls', '/polls'], async (req, res) =>
       const polls = rawPolls.map(p => {
         const pollId = String(p.id);
         const answeredUserIds = answersMap[pollId] || [];
+        const targetUserIds = Array.isArray(p.targetUserIds) ? p.targetUserIds : safeParseJSON(p.targetUserIds, []);
+        const targetCount = targetUserIds.length;
+        const answeredCount = answeredUserIds.filter(uid => targetUserIds.includes(uid)).length;
+        const isAllAnswered = targetCount > 0 && answeredCount >= targetCount;
         return {
           ...p,
+          targetUserIds,
           answeredUserIds,
+          answeredCount,
+          totalTargetCount: targetCount,
+          isAllAnswered,
           hasAnswered: userId ? answeredUserIds.includes(userId) : false,
         };
       });
@@ -636,6 +651,30 @@ router.post(['/schedule-polls/:id/answers', '/schedule/polls/:id/answers', '/pol
             INSERT (id, pollId, userId, userName, responses, overallComment, answeredAt, updatedAt)
             VALUES (@id, @pollId, @userId, @userName, @responses, @overallComment, SYSUTCDATETIME(), SYSUTCDATETIME());
         `;
+      // 全員回答完了の判定 (SQL)
+      const ansCheck = await pool.request()
+        .input('pollId', sql.NVarChar(64), id)
+        .query`SELECT userId FROM dbo.SchedulePollAnswers WHERE pollId = @pollId`;
+      const allUserIds = (ansCheck.recordset || []).map(r => String(r.userId));
+
+      const pollRes = await pool.request()
+        .input('id', sql.NVarChar(64), id)
+        .query`SELECT organizerId, organizerName, targetUserIds, title FROM dbo.SchedulePolls WHERE id = @id`;
+      const pollRow = (pollRes.recordset && pollRes.recordset[0]) || null;
+      const targetUserIds = pollRow ? safeParseJSON(pollRow.targetUserIds, []) : [];
+      const answeredCount = allUserIds.filter(uid => targetUserIds.includes(uid)).length;
+      const totalTargetCount = targetUserIds.length;
+      const isAllAnswered = totalTargetCount > 0 && answeredCount >= totalTargetCount;
+
+      res.json({
+        ...answerData,
+        isAllAnswered,
+        organizerId: pollRow ? String(pollRow.organizerId) : null,
+        organizerName: pollRow ? pollRow.organizerName : null,
+        pollTitle: pollRow ? pollRow.title : '',
+        answeredCount,
+        totalTargetCount,
+      });
     } else {
       ensureDataFiles();
       const raw = fs.readFileSync(ANSWERS_FILE, 'utf8');
@@ -647,9 +686,27 @@ router.post(['/schedule-polls/:id/answers', '/schedule/polls/:id/answers', '/pol
         allAnswers.push(answerData);
       }
       fs.writeFileSync(ANSWERS_FILE, JSON.stringify(allAnswers, null, 2), 'utf8');
-    }
 
-    res.json(answerData);
+      // 全員回答完了の判定 (JSON)
+      const allUserIds = allAnswers.filter(a => a.pollId === id).map(a => String(a.userId));
+      const rawP = fs.readFileSync(POLLS_FILE, 'utf8');
+      const polls = safeParseJSON(rawP, []);
+      const pollRow = polls.find(p => p.id === id);
+      const targetUserIds = pollRow ? (Array.isArray(pollRow.targetUserIds) ? pollRow.targetUserIds : safeParseJSON(pollRow.targetUserIds, [])) : [];
+      const answeredCount = allUserIds.filter(uid => targetUserIds.includes(uid)).length;
+      const totalTargetCount = targetUserIds.length;
+      const isAllAnswered = totalTargetCount > 0 && answeredCount >= totalTargetCount;
+
+      res.json({
+        ...answerData,
+        isAllAnswered,
+        organizerId: pollRow ? String(pollRow.organizerId) : null,
+        organizerName: pollRow ? pollRow.organizerName : null,
+        pollTitle: pollRow ? pollRow.title : '',
+        answeredCount,
+        totalTargetCount,
+      });
+    }
   } catch (err) {
     console.error('[SchedulePolls Answer POST Error]:', err);
     res.status(500).json({ error: '回答の保存に失敗しました', details: err.message });

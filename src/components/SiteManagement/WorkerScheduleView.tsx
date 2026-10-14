@@ -258,11 +258,16 @@ export const WorkerScheduleView: React.FC<WorkerScheduleViewProps> = ({
                         <div className="mt-2 inline-flex items-center gap-2 bg-amber-50/80 border border-amber-200/70 text-amber-900 text-xs px-2.5 py-1 rounded-md font-medium">
                           <Wrench className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                           <span>施工対象: <strong>{part.partCode}</strong> ({part.partName})</span>
-                          {part.originalQuantity && part.originalQuantity > 1 && (
-                            <span className="bg-amber-200/80 text-amber-800 text-[10px] px-1 py-0.5 rounded font-bold">
-                              {part.unitIndex}/{part.originalQuantity}台目
-                            </span>
-                          )}
+                          {(() => {
+                            const total = part.originalQuantity && part.originalQuantity > 1 ? part.originalQuantity : (site.egCount > 1 ? site.egCount : (site.mainParts.length > 1 ? site.mainParts.length : 1));
+                            const uIdx = part.unitIndex || 1;
+                            if (total <= 1) return null;
+                            return (
+                              <span className="bg-amber-200/80 text-amber-800 text-[10px] px-1 py-0.5 rounded font-bold">
+                                {uIdx}/{total}台目
+                              </span>
+                            );
+                          })()}
                           <span className="text-[10px] text-amber-700 ml-1">
                             状況: {part.status === 'constructed' ? '施工済' : '予定'}
                           </span>

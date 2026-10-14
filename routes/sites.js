@@ -1,7 +1,7 @@
 /**
  * routes/sites.js
  * 寺岡オートドアSNS 現場管理・施工スケジュール・在庫DB部品連携 APIモジュール
- * 最終更新: 2026年10月8日 (現場管理タブ新設、MS SQL Server dbo.Sites & Local JSON二重対応、部品分割展開・在庫DB連携)
+ * 最終更新: 2026年10月14日 (現場管理のEG台数・主要部品号機番号展開・在庫DB連携正規化・複数台現場の1/1表記不具合解消)
  */
 import { Router } from 'express';
 import sql from 'mssql';
@@ -67,11 +67,33 @@ function mapDbRowToSite(row) {
     return String(d).slice(0, 10);
   };
 
+  const rowEgCount = typeof row.egCount === 'number' ? row.egCount : parseInt(row.egCount || '1', 10);
+  const totalEg = Math.max(rowEgCount, mainParts.length);
+  // 既存データで 1/1 になってしまっている場合の自動修復
+  if (totalEg > 1 && Array.isArray(mainParts) && mainParts.length > 0) {
+    const isAllOne = mainParts.every(p => !p.originalQuantity || p.originalQuantity === 1);
+    if (isAllOne) {
+      let gIdx = 0;
+      mainParts = mainParts.map((p, idx) => {
+        gIdx++;
+        const pName = p.partName || '';
+        const match = (pName + ' ' + (p.note || '')).match(/[(（]?(\d+)\s*(?:号機|台目|号)[)）]?/);
+        const uIdx = match ? parseInt(match[1], 10) : gIdx;
+        return {
+          ...p,
+          unitIndex: uIdx,
+          originalQuantity: totalEg,
+          note: p.note || `（${totalEg}台中 ${uIdx}台目）`
+        };
+      });
+    }
+  }
+
   return {
     id: String(row.id),
     siteCode: String(row.siteCode || ''),
     siteName: String(row.siteName || ''),
-    egCount: typeof row.egCount === 'number' ? row.egCount : parseInt(row.egCount || '1', 10),
+    egCount: totalEg > 0 ? totalEg : 1,
     customerName: row.customerName || '',
     address: row.address || '',
     orderNo: row.orderNo || '',
@@ -95,33 +117,54 @@ function mapDbRowToSite(row) {
   };
 }
 
-// 部品分割展開ヘルパー（「型番 2台」を「型番 1台」「型番 1台」に1台ずつ分割）
-export function expandMainParts(rawParts = []) {
+// 部品分割展開ヘルパー（「型番 2台」を「型番 1台」「型番 1台」に1台ずつ分割、複数台現場の号機展開・総台数付与）
+export function expandMainParts(rawParts = [], fallbackTotalEgCount = 0) {
   if (!Array.isArray(rawParts)) return [];
   const expanded = [];
   
+  // 主要部品のみ抽出
+  const mainPartsList = rawParts.filter(p => p.isMain === true || p.type === 'main' || (!p.type && p.category !== 'sub'));
+  
+  // 主要部品の合計台数を算出
+  let totalMainUnits = mainPartsList.reduce((sum, p) => sum + Math.max(1, parseInt(p.quantity || 1, 10)), 0);
+  const totalSiteEgCount = Math.max(totalMainUnits, parseInt(fallbackTotalEgCount || 0, 10));
+
+  let globalMainIdx = 0;
+
   rawParts.forEach((part, partIdx) => {
     const qty = Math.max(1, parseInt(part.quantity || 1, 10));
-    const isMain = part.isMain === true || part.type === 'main' || !part.type;
-    if (!isMain) return; // 付属部品は除外（都度取得）
+    const isMain = part.isMain === true || part.type === 'main' || (!part.type && part.category !== 'sub');
+    if (!isMain) return; // 付属部品は除外
+
+    // 品名や備考から「(1号機)」「1号機」「#1」などの号機番号を抽出
+    const pName = part.partName || part.name || '';
+    const noteStr = part.note || '';
+    const machineMatch = (pName + ' ' + noteStr).match(/[(（]?(\d+)\s*(?:号機|台目|号)[)）]?/);
+    const detectedUnitIndex = machineMatch ? parseInt(machineMatch[1], 10) : null;
 
     for (let i = 1; i <= qty; i++) {
+      globalMainIdx++;
+      // 号機番号: 品名で検出された番号、または全体インデックス、または数量内のインデックス
+      const unitIndex = (qty === 1 && detectedUnitIndex) ? detectedUnitIndex : (qty > 1 ? i : (totalSiteEgCount > 1 ? globalMainIdx : 1));
+      // 総台数: 現場全体の総台数（totalSiteEgCount > 1 ならその値、または qty）
+      const originalQuantity = totalSiteEgCount > 1 ? totalSiteEgCount : Math.max(qty, 1);
+
       expanded.push({
         id: part.id ? `${part.id}-${i}` : `part-${Date.now()}-${partIdx}-${i}`,
-        partCode: part.partCode || part.modelNumber || '',
-        partName: part.partName || part.name || '',
-        originalQuantity: qty,
-        unitIndex: i,
+        partCode: part.partCode || part.modelNumber || part.code || '',
+        partName: pName,
+        originalQuantity,
+        unitIndex,
         quantity: 1,
-        unit: '台',
+        unit: part.unit || '台',
         serialNo: part.serialNo || '',
-        inStockDate: part.inStockDate || undefined,
-        outStockDate: part.outStockDate || undefined,
+        inStockDate: part.inStockDate || part.inboundDate || undefined,
+        outStockDate: part.outStockDate || part.outboundDate || undefined,
         constructionDate: part.constructionDate || undefined,
         workerId: part.workerId || undefined,
         workerName: part.workerName || undefined,
         status: part.status || (part.outStockDate ? 'stock_out' : (part.inStockDate ? 'stock_in' : 'waiting_stock')),
-        note: part.note || (qty > 1 ? `（${qty}台中 ${i}台目）` : '')
+        note: part.note || (originalQuantity > 1 ? `（${originalQuantity}台中 ${unitIndex}台目）` : '')
       });
     }
   });
@@ -204,16 +247,23 @@ router.get(['/', '/sites'], async (req, res) => {
 // 外部在庫DBからのレスポンスを標準形式 (siteCode, siteName, partsなど) に正規化
 function normalizeExternalItem(item) {
   if (!item || typeof item !== 'object') return item;
-  const siteCode = String(item.code || item.siteCode || '').trim();
-  const siteName = String(item.name || item.siteName || '').trim();
-  const customerName = String(item.customerName || item.customer || '').trim();
-  const address = String(item.address || '').trim();
-  const egCount = typeof item.egCount === 'number' ? item.egCount : (parseInt(item.egCount, 10) || 0);
-  const period = String(item.period || '').trim();
+
+  // item.site が内包されている場合（?code=... のレスポンスなど）
+  const siteObj = (item.site && typeof item.site === 'object') ? item.site : item;
+
+  const siteCode = String(siteObj.code || siteObj.siteCode || item.code || item.siteCode || '').trim();
+  const siteName = String(siteObj.name || siteObj.siteName || item.name || item.siteName || '').trim();
+  const customerName = String(siteObj.client || siteObj.customerName || siteObj.customer || item.customerName || item.customer || '').trim();
+  const address = String(siteObj.address || item.address || '').trim();
+  let egCount = typeof siteObj.egCount === 'number' ? siteObj.egCount : (parseInt(siteObj.egCount, 10) || 0);
+  if (!egCount && typeof item.egCount === 'number') egCount = item.egCount;
+  if (!egCount && item.egCount) egCount = parseInt(item.egCount, 10) || 0;
+
+  const period = String(siteObj.period || item.period || '').trim();
 
   // 工期テキストの分割 (例: "2026/10/10 ～ 2026/10/20")
-  let scheduledStartDate = item.scheduledStartDate || '';
-  let scheduledEndDate = item.scheduledEndDate || '';
+  let scheduledStartDate = siteObj.scheduledStartDate || item.scheduledStartDate || '';
+  let scheduledEndDate = siteObj.scheduledEndDate || item.scheduledEndDate || '';
   if (period && (!scheduledStartDate || !scheduledEndDate)) {
     const pParts = period.split(/[～~-]/);
     if (pParts[0]) scheduledStartDate = pParts[0].trim().replace(/\//g, '-');
@@ -221,18 +271,28 @@ function normalizeExternalItem(item) {
   }
 
   // 部品データの正規化
-  const rawParts = item.parts || [];
-  const parts = Array.isArray(rawParts) ? rawParts.map(p => ({
-    type: p.type || (p.isMain === false ? 'sub' : 'main'),
-    isMain: p.isMain !== undefined ? p.isMain : (p.type !== 'sub'),
-    partCode: String(p.partCode || p.code || '').trim(),
-    partName: String(p.partName || p.name || '').trim(),
-    quantity: typeof p.quantity === 'number' ? p.quantity : (parseInt(p.count || p.qty || p.quantity || 1, 10) || 1),
-    unit: p.unit || '台',
-    inStockDate: p.inStockDate || p.nyukoDate || p.inDate || '',
-    outStockDate: p.outStockDate || p.syukkoDate || p.outDate || '',
-    note: p.note || p.bikou || ''
-  })) : [];
+  const rawParts = item.parts || siteObj.parts || [];
+  const parts = Array.isArray(rawParts) ? rawParts.map(p => {
+    const isMajor = p.category === 'major' || p.type === 'main' || p.isMain === true || (!p.type && p.category !== 'sub');
+    return {
+      type: isMajor ? 'main' : 'sub',
+      isMain: isMajor,
+      id: p.id || '',
+      partCode: String(p.modelNumber || p.partCode || p.code || p.model || '').trim(),
+      partName: String(p.name || p.partName || '').trim(),
+      quantity: typeof p.quantity === 'number' ? p.quantity : (parseInt(p.count || p.qty || p.quantity || 1, 10) || 1),
+      unit: p.unit || (isMajor ? '台' : '個'),
+      inStockDate: p.inboundDate || p.inStockDate || p.nyukoDate || p.inDate || '',
+      outStockDate: p.outboundDate || p.outStockDate || p.syukkoDate || p.outDate || '',
+      note: p.note || p.bikou || p.stockStatus || ''
+    };
+  }) : [];
+
+  // もし egCount が 0 の場合、主要部品の台数から自動算出
+  const majorPartsCount = parts.filter(p => p.isMain).reduce((sum, p) => sum + (p.quantity || 1), 0);
+  if (egCount <= 0 && majorPartsCount > 0) {
+    egCount = majorPartsCount;
+  }
 
   return {
     ...item,
@@ -242,7 +302,7 @@ function normalizeExternalItem(item) {
     siteName: siteName,
     customerName,
     address,
-    egCount,
+    egCount: egCount > 0 ? egCount : (majorPartsCount > 0 ? majorPartsCount : 1),
     period,
     scheduledStartDate,
     scheduledEndDate,
@@ -381,14 +441,15 @@ router.post(['/', '/sites'], async (req, res) => {
     const nowIso = new Date().toISOString();
     const id = body.id || `site-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
-    // 主要部品の1台ずつ分割展開処理 (型番 2台 -> 1台×2台)
+    const egCountNum = parseInt(body.egCount || '1', 10);
+
+    // 主要部品の1台ずつ分割展開処理 (型番 2台 -> 1台×2台、および複数台現場の総数反映)
     let processedMainParts = [];
     if (Array.isArray(body.mainParts) && body.mainParts.length > 0) {
-      // 既に分割されているか判定
-      const needsExpansion = body.mainParts.some(p => (parseInt(p.quantity, 10) || 1) > 1);
-      processedMainParts = needsExpansion ? expandMainParts(body.mainParts) : body.mainParts;
+      const needsExpansion = body.mainParts.some(p => (parseInt(p.quantity, 10) || 1) > 1 || !p.originalQuantity || (egCountNum > 1 && p.originalQuantity === 1));
+      processedMainParts = needsExpansion ? expandMainParts(body.mainParts, egCountNum) : body.mainParts;
     } else if (Array.isArray(body.rawParts)) {
-      processedMainParts = expandMainParts(body.rawParts);
+      processedMainParts = expandMainParts(body.rawParts, egCountNum);
     }
 
     const newSite = {
@@ -501,11 +562,20 @@ router.put(['/:id', '/sites/:id'], async (req, res) => {
       return res.status(404).json({ success: false, error: 'Site not found' });
     }
 
+    const targetEgCount = body.egCount !== undefined ? parseInt(body.egCount, 10) : currentSite.egCount;
+    let targetMainParts = body.mainParts !== undefined ? body.mainParts : currentSite.mainParts;
+    if (Array.isArray(targetMainParts) && targetMainParts.length > 0) {
+      const needsExpansion = targetMainParts.some(p => (parseInt(p.quantity, 10) || 1) > 1 || !p.originalQuantity || (targetEgCount > 1 && p.originalQuantity === 1));
+      if (needsExpansion) {
+        targetMainParts = expandMainParts(targetMainParts, targetEgCount);
+      }
+    }
+
     const updatedSite = {
       ...currentSite,
       siteCode: body.siteCode !== undefined ? String(body.siteCode).trim() : currentSite.siteCode,
       siteName: body.siteName !== undefined ? String(body.siteName).trim() : currentSite.siteName,
-      egCount: body.egCount !== undefined ? parseInt(body.egCount, 10) : currentSite.egCount,
+      egCount: targetEgCount,
       customerName: body.customerName !== undefined ? body.customerName : currentSite.customerName,
       address: body.address !== undefined ? body.address : currentSite.address,
       orderNo: body.orderNo !== undefined ? body.orderNo : currentSite.orderNo,
@@ -516,7 +586,7 @@ router.put(['/:id', '/sites/:id'], async (req, res) => {
       primaryWorkerId: body.primaryWorkerId !== undefined ? body.primaryWorkerId : currentSite.primaryWorkerId,
       primaryWorkerName: body.primaryWorkerName !== undefined ? body.primaryWorkerName : currentSite.primaryWorkerName,
       coWorkers: body.coWorkers !== undefined ? body.coWorkers : currentSite.coWorkers,
-      mainParts: body.mainParts !== undefined ? body.mainParts : currentSite.mainParts,
+      mainParts: targetMainParts,
       subPartsCache: body.subPartsCache !== undefined ? body.subPartsCache : currentSite.subPartsCache,
       notes: body.notes !== undefined ? body.notes : currentSite.notes,
       comments: body.comments !== undefined ? body.comments : currentSite.comments,
