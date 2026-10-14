@@ -40,6 +40,8 @@ export interface SchedulePoll {
   createdEventId?: string | null;
   createdAt: string;
   updatedAt: string;
+  answeredUserIds?: string[];
+  hasAnswered?: boolean;
 }
 
 export interface FreeSlotSuggestion {

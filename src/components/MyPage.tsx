@@ -104,6 +104,7 @@ import { ApplicationModal } from './ApplicationModal';
 import { MyPageSectionCard } from './MyPageSectionCard';
 import { isTopicCurrentlyPinned, formatPinnedUntilBadge } from '../utils/boardHelpers';
 import { ApprovalFlowRule, ItemMaster, ApplicationStatus } from '../types';
+import { SchedulePoll } from '../types/schedulePoll';
 
 interface MyPageProps {
   user: User;
@@ -144,6 +145,8 @@ interface MyPageProps {
   onCloseSettings?: () => void;
   autoOpenEmergencyContact?: boolean;
   onCloseEmergencyContact?: () => void;
+  pendingSchedulePolls?: SchedulePoll[];
+  onOpenSchedulePollModal?: (pollId?: string) => void;
 }
 
 export function MyPage({
@@ -176,6 +179,8 @@ export function MyPage({
   onCloseSettings,
   autoOpenEmergencyContact,
   onCloseEmergencyContact,
+  pendingSchedulePolls = [],
+  onOpenSchedulePollModal,
 }: MyPageProps) {
   // ローカル既読状態管理
   const [readEventIds, setReadEventIds] = useState<string[]>(() => getReadEventIds(user?.id));
@@ -1001,8 +1006,8 @@ export function MyPage({
             title="スケジュール"
             icon={CalendarIcon}
             iconBgColor="bg-amber-500 hover:bg-amber-600"
-            badgeCount={unreadEvents.length}
-            badgeLabel="未確認"
+            badgeCount={unreadEvents.length + pendingSchedulePolls.length}
+            badgeLabel={pendingSchedulePolls.length > 0 ? (unreadEvents.length > 0 ? '未確認/要回答' : '要回答あり') : '未確認'}
             badgeBgColor="bg-rose-500"
             onNavigate={() => onChangeTab('calendar')}
             actionButton={
@@ -1022,6 +1027,56 @@ export function MyPage({
             onDrop={(e) => handleDrop(e, index)}
           >
             <div className="space-y-3">
+              {/* 未回答の日程調整リクエスト一覧 */}
+              {pendingSchedulePolls.length > 0 && (
+                <div className="space-y-2 mb-3 pb-3 border-b border-amber-200">
+                  <div className="flex items-center justify-between text-xs font-bold text-amber-900">
+                    <span className="flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-amber-600 animate-pulse" />
+                      日程調整の回答依頼（未回答 {pendingSchedulePolls.length}件）
+                    </span>
+                  </div>
+                  {pendingSchedulePolls.map((poll) => (
+                    <div
+                      key={poll.id}
+                      onClick={() => onOpenSchedulePollModal && onOpenSchedulePollModal(poll.id)}
+                      className="p-3 bg-gradient-to-r from-amber-500/10 via-orange-500/5 to-amber-500/10 hover:from-amber-500/20 hover:to-orange-500/15 border border-amber-300 rounded-xl transition-all cursor-pointer flex items-center justify-between gap-3 shadow-2xs group"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="px-1.5 py-0.5 bg-rose-500 text-white text-[9px] font-black rounded-full animate-pulse shadow-2xs">
+                            要回答
+                          </span>
+                          <span className="text-xs font-bold text-slate-800 truncate group-hover:text-amber-900">
+                            {poll.title}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-slate-600 flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                          <span>主催: {poll.organizerName}</span>
+                          <span>所要: {poll.durationMinutes}分</span>
+                          {poll.deadlineAt && (
+                            <span className="text-rose-600 font-semibold">
+                              期限: {new Date(poll.deadlineAt).toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric', weekday: 'short' })}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (onOpenSchedulePollModal) onOpenSchedulePollModal(poll.id);
+                        }}
+                        className="px-2.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-lg shadow-xs flex items-center gap-1 shrink-0 transition-colors cursor-pointer"
+                      >
+                        <span>回答する</span>
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               {myEvents.length > 0 ? (
                 myEvents.map((evt) => {
                   const isUnread = isEventUnread(evt, user, readEventIds);

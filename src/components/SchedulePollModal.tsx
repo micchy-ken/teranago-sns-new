@@ -28,6 +28,8 @@ import { SchedulePoll, SchedulePollAnswer, ScheduleCandidate, FreeSlotSuggestion
 import { User, OfficeMaster, DivisionMaster } from '../types';
 import { API_BASE_URL } from '../config/api';
 import { MemberSelector } from './MemberSelector';
+import { triggerPushNotification } from '../utils/pushNotifications';
+import { dispatchNotificationEmail } from '../utils/emailNotificationDispatcher';
 
 interface SchedulePollModalProps {
   isOpen: boolean;
@@ -38,6 +40,7 @@ interface SchedulePollModalProps {
   divisions?: DivisionMaster[];
   onEventCreated?: () => void; // カレンダー再取得用コールバック
   initialPollId?: string | null;
+  onPollChange?: () => void; // 日程調整一覧の再取得・バッジ同期用コールバック
 }
 
 type ViewMode = 'list' | 'create_step1' | 'create_step2' | 'detail';
@@ -51,6 +54,7 @@ export function SchedulePollModal({
   divisions = [],
   onEventCreated,
   initialPollId = null,
+  onPollChange,
 }: SchedulePollModalProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [polls, setPolls] = useState<SchedulePoll[]>([]);
@@ -326,6 +330,47 @@ export function SchedulePollModal({
         const created = await res.json();
         await fetchPolls();
         fetchPollDetail(created.id);
+        if (onPollChange) onPollChange();
+
+        // 参加対象メンバーへ Web Push 通知 ＆ メール通知を自動配信
+        const targetIds = formTargetUserIds.filter(id => id && id !== currentUser.id);
+        if (targetIds.length > 0) {
+          triggerPushNotification({
+            targetUserIds: targetIds,
+            excludeUserId: currentUser.id,
+            title: `📅 日程調整のお願い: ${formTitle}`,
+            body: `${currentUser.name}さんから「${formTitle}」の日程調整が届きました。候補日への回答をお願いします。`,
+            url: `/?tab=calendar&pollId=${created.id}`,
+            tag: `poll-${created.id}`,
+          });
+
+          const targetUsers = targetIds
+            .map(id => users.find(u => u.id === id))
+            .filter((u): u is User => !!u && u.id !== currentUser.id);
+
+          if (targetUsers.length > 0) {
+            const candidateSummary = formCandidates
+              .map((c, i) => `候補${i + 1}: ${c.text || `${c.startAt}〜${c.endAt}`}`)
+              .join('\n');
+
+            dispatchNotificationEmail(targetUsers, {
+              category: 'schedule',
+              categoryLabel: '日程調整',
+              title: `日程調整のお願い: ${formTitle}`,
+              actorName: currentUser.name,
+              details: [
+                { label: '案件名', value: formTitle },
+                { label: '所要時間', value: `${formDuration}分` },
+                { label: '主催者', value: currentUser.name },
+                { label: '場所', value: formLocation || '未定' },
+                { label: '回答期限', value: formDeadline ? `${formDeadline} 23:59まで` : '期限なし' },
+                { label: '候補日時一覧', value: '\n' + candidateSummary },
+              ],
+              mainContent: formDesc ? `【概要・連絡事項】\n${formDesc}` : undefined,
+              pathParams: `tab=calendar&pollId=${created.id}`,
+            }, currentUser);
+          }
+        }
       } else {
         const err = await res.json();
         alert(err.error || '日程調整の作成に失敗しました');
@@ -366,6 +411,7 @@ export function SchedulePollModal({
       if (res.ok) {
         await fetchPollDetail(selectedPoll.id);
         fetchPolls();
+        if (onPollChange) onPollChange();
       } else {
         alert('回答の送信に失敗しました');
       }
@@ -399,8 +445,46 @@ export function SchedulePollModal({
       if (res.ok) {
         alert('日程を確定し、カレンダーに登録しました！');
         if (onEventCreated) onEventCreated();
+        if (onPollChange) onPollChange();
         await fetchPollDetail(selectedPoll.id);
         fetchPolls();
+
+        // 参加メンバー全員へ日程確定通知（Web Push & メール）を自動配信
+        const candidate = selectedPoll.candidates.find(c => c.id === candidateId);
+        const candText = candidate ? (candidate.text || `${candidate.startAt}〜${candidate.endAt}`) : '確定日程';
+        const targetIds = (selectedPoll.targetUserIds || []).filter(id => id && id !== currentUser.id);
+
+        if (targetIds.length > 0) {
+          triggerPushNotification({
+            targetUserIds: targetIds,
+            excludeUserId: currentUser.id,
+            title: `📅 日程確定: ${selectedPoll.title}`,
+            body: `「${selectedPoll.title}」の日程が【${candText}】に確定し、カレンダーに登録されました。`,
+            url: `/?tab=calendar`,
+            tag: `poll-confirmed-${selectedPoll.id}`,
+          });
+
+          const targetUsers = targetIds
+            .map(id => users.find(u => u.id === id))
+            .filter((u): u is User => !!u && u.id !== currentUser.id);
+
+          if (targetUsers.length > 0) {
+            dispatchNotificationEmail(targetUsers, {
+              category: 'schedule',
+              categoryLabel: '日程確定',
+              title: `日程確定: ${selectedPoll.title}`,
+              actorName: currentUser.name,
+              details: [
+                { label: '案件名', value: selectedPoll.title },
+                { label: '確定日時', value: candText },
+                { label: '場所', value: selectedPoll.location || 'なし' },
+                { label: '主催者', value: selectedPoll.organizerName },
+              ],
+              mainContent: selectedPoll.description ? `【詳細・メモ】\n${selectedPoll.description}` : undefined,
+              pathParams: `tab=calendar`,
+            }, currentUser);
+          }
+        }
       } else {
         const err = await res.json();
         alert(err.error || '日程確定に失敗しました');

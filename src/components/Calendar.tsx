@@ -38,6 +38,7 @@ interface CalendarProps {
   onRefetchEvents?: () => void;
   onNavigateToInspectionScheduler?: () => void;
   onOpenSchedulePollModal?: () => void;
+  pendingPollCount?: number;
   onUpdateUser?: (updatedUser: User) => void;
 }
 
@@ -84,6 +85,7 @@ export function Calendar({
   onRefetchEvents,
   onNavigateToInspectionScheduler,
   onOpenSchedulePollModal,
+  pendingPollCount = 0,
   onUpdateUser,
 }: CalendarProps) {
   // ユーザーが最近操作した楽観的更新（D&D、リサイズ、編集）を保持するRef（親からの古いデータによる巻き戻りを完全遮断）
@@ -2202,10 +2204,15 @@ export function Calendar({
               <button
                 type="button"
                 onClick={onOpenSchedulePollModal}
-                className="p-1.5 bg-gradient-to-r from-amber-50 to-orange-50 text-amber-800 border border-amber-200 rounded-lg transition-all shadow-2xs cursor-pointer"
-                title="日程調整"
+                className="relative p-1.5 bg-gradient-to-r from-amber-50 to-orange-50 hover:from-amber-100 hover:to-orange-100 text-amber-800 border border-amber-200 rounded-lg transition-all shadow-2xs cursor-pointer"
+                title={pendingPollCount > 0 ? `日程調整（未回答の調整依頼: ${pendingPollCount}件）` : '日程調整'}
               >
                 <CalendarDays className="w-4 h-4 text-amber-600" />
+                {pendingPollCount > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 px-1 items-center justify-center rounded-full bg-rose-500 text-[10px] font-bold text-white shadow-xs animate-pulse">
+                    {pendingPollCount}
+                  </span>
+                )}
               </button>
             )}
 
@@ -2481,10 +2488,15 @@ export function Calendar({
                         <button
                           type="button"
                           onClick={() => { setIsFavoritesMobileOpen(false); onOpenSchedulePollModal(); }}
-                          className="w-full flex items-center justify-center gap-1.5 py-1.5 px-2 bg-amber-50 hover:bg-amber-100 rounded-lg text-xs font-semibold text-amber-800 border border-amber-200"
+                          className="w-full flex items-center justify-center gap-1.5 py-1.5 px-2 bg-amber-50 hover:bg-amber-100 rounded-lg text-xs font-semibold text-amber-800 border border-amber-200 cursor-pointer relative"
                         >
                           <CalendarDays className="w-3.5 h-3.5 text-amber-600" />
                           <span>日程調整アンケート</span>
+                          {pendingPollCount > 0 && (
+                            <span className="px-1.5 py-0.2 bg-rose-500 text-white text-[10px] font-bold rounded-full animate-pulse shadow-xs ml-1">
+                              未回答 {pendingPollCount}
+                            </span>
+                          )}
                         </button>
                       )}
                     </div>

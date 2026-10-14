@@ -28,6 +28,7 @@ interface SidebarProps {
   isUtilityOpen?: boolean;
   onToggleUtility?: (open: boolean) => void;
   onOpenSchedulePollModal?: () => void;
+  pendingPollCount?: number;
 }
 
 export function Sidebar({
@@ -44,6 +45,7 @@ export function Sidebar({
   isUtilityOpen: propIsUtilityOpen,
   onToggleUtility,
   onOpenSchedulePollModal,
+  pendingPollCount = 0,
 }: SidebarProps) {
   const [internalUtilityOpen, setInternalUtilityOpen] = useState<boolean>(() => {
     const saved = localStorage.getItem('is_utility_open');
@@ -429,9 +431,15 @@ export function Sidebar({
                       <CalendarDays className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                       <span className="truncate font-semibold">日程調整</span>
                     </div>
-                    <span className="text-[9px] px-1.5 py-0.2 rounded font-bold bg-amber-100 text-amber-800 shrink-0 ml-1">
-                      New
-                    </span>
+                    {pendingPollCount > 0 ? (
+                      <span className="text-[9px] px-1.5 py-0.2 rounded-full font-bold bg-rose-500 text-white shrink-0 ml-1 animate-pulse shadow-2xs">
+                        未回答 {pendingPollCount}
+                      </span>
+                    ) : (
+                      <span className="text-[9px] px-1.5 py-0.2 rounded font-bold bg-amber-100 text-amber-800 shrink-0 ml-1">
+                        New
+                      </span>
+                    )}
                   </button>
                 )}
 

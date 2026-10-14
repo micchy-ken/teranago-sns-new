@@ -101,23 +101,48 @@ router.get(['/schedule-polls', '/schedule/polls', '/polls'], async (req, res) =>
       const result = await pool.request().query`
         SELECT * FROM dbo.SchedulePolls ORDER BY createdAt DESC
       `;
-      const polls = (result.recordset || []).map(row => ({
-        id: String(row.id),
-        title: row.title,
-        description: row.description || '',
-        organizerId: String(row.organizerId),
-        organizerName: row.organizerName,
-        status: row.status || 'open',
-        durationMinutes: Number(row.durationMinutes) || 60,
-        location: row.location || '',
-        targetUserIds: safeParseJSON(row.targetUserIds, []),
-        candidates: safeParseJSON(row.candidates, []),
-        deadlineAt: row.deadlineAt ? row.deadlineAt.toISOString() : null,
-        confirmedCandidateId: row.confirmedCandidateId || null,
-        createdEventId: row.createdEventId ? String(row.createdEventId) : null,
-        createdAt: row.createdAt ? row.createdAt.toISOString() : null,
-        updatedAt: row.updatedAt ? row.updatedAt.toISOString() : null,
-      }));
+
+      // 回答者一覧を取得して各pollに紐付け
+      const answersMap = {};
+      try {
+        const ansResult = await pool.request().query`
+          SELECT pollId, userId FROM dbo.SchedulePollAnswers
+        `;
+        (ansResult.recordset || []).forEach(r => {
+          const pId = String(r.pollId);
+          if (!answersMap[pId]) answersMap[pId] = [];
+          const uId = String(r.userId);
+          if (!answersMap[pId].includes(uId)) {
+            answersMap[pId].push(uId);
+          }
+        });
+      } catch (ansErr) {
+        console.warn('[SchedulePolls] Answers query warning:', ansErr.message);
+      }
+
+      const polls = (result.recordset || []).map(row => {
+        const pollId = String(row.id);
+        const answeredUserIds = answersMap[pollId] || [];
+        return {
+          id: pollId,
+          title: row.title,
+          description: row.description || '',
+          organizerId: String(row.organizerId),
+          organizerName: row.organizerName,
+          status: row.status || 'open',
+          durationMinutes: Number(row.durationMinutes) || 60,
+          location: row.location || '',
+          targetUserIds: safeParseJSON(row.targetUserIds, []),
+          candidates: safeParseJSON(row.candidates, []),
+          deadlineAt: row.deadlineAt ? row.deadlineAt.toISOString() : null,
+          confirmedCandidateId: row.confirmedCandidateId || null,
+          createdEventId: row.createdEventId ? String(row.createdEventId) : null,
+          createdAt: row.createdAt ? row.createdAt.toISOString() : null,
+          updatedAt: row.updatedAt ? row.updatedAt.toISOString() : null,
+          answeredUserIds,
+          hasAnswered: userId ? answeredUserIds.includes(userId) : false,
+        };
+      });
 
       // ユーザー絞り込み（指定があれば主催者または対象者のみ）
       if (userId) {
@@ -130,7 +155,37 @@ router.get(['/schedule-polls', '/schedule/polls', '/polls'], async (req, res) =>
     } else {
       ensureDataFiles();
       const raw = fs.readFileSync(POLLS_FILE, 'utf8');
-      const polls = safeParseJSON(raw, []);
+      const rawPolls = safeParseJSON(raw, []);
+
+      // JSON fallback の回答者一覧マップ
+      const answersMap = {};
+      try {
+        if (fs.existsSync(ANSWERS_FILE)) {
+          const rawA = fs.readFileSync(ANSWERS_FILE, 'utf8');
+          const allAnswers = safeParseJSON(rawA, []);
+          allAnswers.forEach(r => {
+            const pId = String(r.pollId);
+            if (!answersMap[pId]) answersMap[pId] = [];
+            const uId = String(r.userId);
+            if (!answersMap[pId].includes(uId)) {
+              answersMap[pId].push(uId);
+            }
+          });
+        }
+      } catch (ansErr) {
+        console.warn('[SchedulePolls] Answers file warning:', ansErr.message);
+      }
+
+      const polls = rawPolls.map(p => {
+        const pollId = String(p.id);
+        const answeredUserIds = answersMap[pollId] || [];
+        return {
+          ...p,
+          answeredUserIds,
+          hasAnswered: userId ? answeredUserIds.includes(userId) : false,
+        };
+      });
+
       if (userId) {
         const filtered = polls.filter(p => 
           p.organizerId === userId || (Array.isArray(p.targetUserIds) && p.targetUserIds.includes(userId))

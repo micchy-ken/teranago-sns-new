@@ -26,6 +26,8 @@ export interface AppQueryParams {
   safetyToken?: string;
   openEmergencyContact?: boolean;
   openSettings?: boolean;
+  // Schedule Poll (日程調整) specific
+  pollId?: string;
   // User Invitation & Password Reset
   inviteToken?: string;
   resetToken?: string;
@@ -128,6 +130,10 @@ export function parseAppQueryParams(searchString?: string): AppQueryParams {
 
   const rawEventId = params.get('eventId') || params.get('event_id') || (result.tab === 'calendar' ? params.get('id') : undefined);
   if (rawEventId) result.eventId = rawEventId;
+
+  // 2.5. Schedule Poll Specific
+  const rawPollId = params.get('pollId') || params.get('poll_id') || params.get('schedulePollId');
+  if (rawPollId) result.pollId = rawPollId;
 
   // 3. Workflow Specific
   const rawAppId = params.get('applicationId') || params.get('appId') || params.get('app_id') || (result.tab === 'workflow' ? params.get('id') : undefined);

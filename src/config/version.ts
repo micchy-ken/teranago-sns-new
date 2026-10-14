@@ -14,9 +14,9 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.14.7',
+  version: '2026.10.14.8',
   date: '2026-10-14',
-  releaseNumber: 7,
-  display: 'v2026.10.14 #7',
-  description: 'ユーザー設定復元時の applyFontSize / applyColorTheme インポート漏れバグの修正',
+  releaseNumber: 8,
+  display: 'v2026.10.14 #8',
+  description: '日程調整通知（Web Push & メール配信）および未回答バッジ（マイページ・カレンダー・サイドバー）機能の実装',
 };

@@ -31,6 +31,7 @@ const AdminPanel = lazyWithRetry(() => import('./components/AdminPanel').then(m 
 const FileManager = lazyWithRetry(() => import('./components/FileManager'));
 const DocumentManager = lazyWithRetry(() => import('./components/DocumentManager'));
 import { SchedulePollModal } from './components/SchedulePollModal';
+import { SchedulePoll } from './types/schedulePoll';
 import { Post, CalendarEvent, WorkflowApplication, User, OfficeMaster, DivisionMaster, PositionMaster, BoardTopic, ChatRoom, ApprovalFlowRule, ApprovalStepConfig, ItemMaster, ApplicationStatus, DailyReport, Memo, SafetyConfirmationEvent, SafetyConfirmationResponse } from './types';
 import { 
   syncUserReadStatusesFromServer, 
@@ -221,6 +222,7 @@ export default function App() {
   const [targetReportId, setTargetReportId] = useState<string | undefined>(initialUrlParams.reportId);
   const [targetSafetyEventId, setTargetSafetyEventId] = useState<string | undefined>(initialUrlParams.safetyEventId);
   const [targetSafetyUserId, setTargetSafetyUserId] = useState<string | undefined>(initialUrlParams.safetyUserId);
+  const [initialSchedulePollId, setInitialSchedulePollId] = useState<string | null>(initialUrlParams.pollId || null);
   const [dismissGuestSafety, setDismissGuestSafety] = useState<boolean>(false);
 
   // グローバル詳細ポップアップ表示用の状態
@@ -344,6 +346,13 @@ export default function App() {
       return;
     }
 
+    // 日程調整（pollId）
+    if ((target as any).pollId) {
+      setInitialSchedulePollId((target as any).pollId);
+      setShowSchedulePollModal(true);
+      return;
+    }
+
     // チャット、ワークフローなど遷移して表示
     setActiveTab(target.tab);
     if (target.openCreateMemo) {
@@ -417,7 +426,8 @@ export default function App() {
   };
 
   const [activeTab, setActiveTab] = useState<AppTab>(() => initialUrlParams.tab || 'mypage');
-  const [showSchedulePollModal, setShowSchedulePollModal] = useState<boolean>(false);
+  const [showSchedulePollModal, setShowSchedulePollModal] = useState<boolean>(() => !!initialUrlParams.pollId);
+  const [schedulePolls, setSchedulePolls] = useState<SchedulePoll[]>([]);
 
   // 主要タブ閲覧時のアクティビティログ（頻繁なスパムを防ぐため10分以内の同一タブ閲覧は抑制）
   const lastLoggedTabRef = useRef<Record<string, number>>({});
@@ -1292,6 +1302,35 @@ export default function App() {
 
 
 
+  const refetchSchedulePolls = useCallback(async () => {
+    if (!userState?.id) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/schedule-polls?userId=${userState.id}`);
+      if (res.ok) {
+        const data = await res.json();
+        setSchedulePolls(Array.isArray(data) ? data : []);
+      }
+    } catch (err) {
+      console.warn('[App] Failed to load schedule polls:', err);
+    }
+  }, [userState?.id]);
+
+  const pendingSchedulePolls = useMemo(() => {
+    if (!userState?.id || !schedulePolls.length) return [];
+    return schedulePolls.filter(poll => {
+      if (poll.status !== 'open') return false;
+      if (poll.organizerId === userState.id) return false;
+      if (!poll.targetUserIds || !poll.targetUserIds.includes(userState.id)) return false;
+      if (poll.answeredUserIds && poll.answeredUserIds.includes(userState.id)) return false;
+      if (poll.hasAnswered) return false;
+      if (poll.deadlineAt) {
+        const deadline = new Date(poll.deadlineAt);
+        if (deadline.getTime() < Date.now()) return false;
+      }
+      return true;
+    });
+  }, [userState?.id, schedulePolls]);
+
   const refetchAll = async (existingUsers?: User[]) => {
     const latestUsers = (existingUsers && existingUsers.length > 0) ? existingUsers : await refetchUsers();
     await Promise.all([
@@ -1304,6 +1343,7 @@ export default function App() {
       refetchMemos(latestUsers),
       refetchReports(latestUsers),
       refetchSafetyEvents(),
+      refetchSchedulePolls(),
     ]);
   };
 
@@ -1318,6 +1358,12 @@ export default function App() {
       }
     });
   }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (userState?.id && isAuthenticated) {
+      refetchSchedulePolls();
+    }
+  }, [userState?.id, isAuthenticated, refetchSchedulePolls]);
 
   // チャットルームの自動更新（タブに応じた動的インターバル制御）
   useEffect(() => {
@@ -2916,6 +2962,7 @@ export default function App() {
               unreadCounts={sidebarUnreadCounts}
               isUtilityOpen={isUtilityOpen}
               onToggleUtility={handleToggleUtilityOpen}
+              pendingPollCount={pendingSchedulePolls.length}
               onOpenSchedulePollModal={() => {
                 setShowSchedulePollModal(true);
                 setIsMobileMenuOpen(false);
@@ -2970,6 +3017,7 @@ export default function App() {
               unreadCounts={sidebarUnreadCounts}
               isUtilityOpen={isUtilityOpen}
               onToggleUtility={handleToggleUtilityOpen}
+              pendingPollCount={pendingSchedulePolls.length}
               onOpenSchedulePollModal={() => setShowSchedulePollModal(true)}
               onCollapse={() => handleToggleSidebarCollapse(true)}
             />
@@ -3032,7 +3080,11 @@ export default function App() {
               onUpdateMemos={handleUpdateMemos}
               onRefetchEvents={refetchEvents}
               onNavigateToInspectionScheduler={() => setActiveTab('inspection_scheduler')}
-              onOpenSchedulePollModal={() => setShowSchedulePollModal(true)}
+              pendingPollCount={pendingSchedulePolls.length}
+              onOpenSchedulePollModal={(pollId?: string) => {
+                setInitialSchedulePollId(pollId || null);
+                setShowSchedulePollModal(true);
+              }}
               onUpdateUser={handleUpdateUser}
             />
           )}
@@ -3221,6 +3273,11 @@ export default function App() {
               onAddApplication={handleAddApplication}
               approvalFlows={approvalFlows}
               itemMasters={itemMasters}
+              pendingSchedulePolls={pendingSchedulePolls}
+              onOpenSchedulePollModal={(pollId?: string) => {
+                setInitialSchedulePollId(pollId || null);
+                setShowSchedulePollModal(true);
+              }}
             />
           )}
           {activeTab === 'admin' && (
@@ -3434,12 +3491,17 @@ export default function App() {
       {showSchedulePollModal && userState && (
         <SchedulePollModal
           isOpen={showSchedulePollModal}
-          onClose={() => setShowSchedulePollModal(false)}
+          onClose={() => {
+            setShowSchedulePollModal(false);
+            setInitialSchedulePollId(null);
+          }}
           currentUser={userState}
           users={usersList}
           offices={offices}
           divisions={divisions}
           onEventCreated={refetchEvents}
+          initialPollId={initialSchedulePollId}
+          onPollChange={refetchSchedulePolls}
         />
       )}
     </div>
