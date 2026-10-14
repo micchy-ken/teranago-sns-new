@@ -2546,7 +2546,7 @@ export function MyPage({
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
                     {THEME_OPTIONS.map((opt) => {
                       const curTheme = settingsForm.preferences?.colorTheme || getSavedTheme();
                       const isSelected = curTheme === opt.id;
@@ -2566,17 +2566,28 @@ export function MyPage({
                           }}
                           className={`p-2.5 rounded-xl border text-left transition-all flex items-start gap-2 cursor-pointer ${
                             isSelected
-                              ? 'border-indigo-500 bg-white shadow-xs ring-2 ring-indigo-500/20'
+                              ? 'border-indigo-500 bg-indigo-50/60 shadow-xs ring-2 ring-indigo-500/20'
                               : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/80'
                           }`}
                         >
                           <div
-                            className="w-6 h-6 rounded-md border border-slate-300/80 shadow-2xs shrink-0 flex items-center justify-center relative overflow-hidden mt-0.5"
+                            className="w-7 h-7 rounded-md border border-slate-300/80 shadow-2xs shrink-0 flex items-center justify-center relative overflow-hidden mt-0.5 p-0.5"
                             style={{ backgroundColor: opt.bgPreview }}
+                            title={opt.bgLabel}
                           >
-                            <div className="flex items-center -space-x-1 scale-75">
-                              <span className="w-2 h-2 rounded-full inline-block shadow-2xs" style={{ backgroundColor: opt.previewColors[1] }} />
-                              <span className="w-2 h-2 rounded-full inline-block shadow-2xs" style={{ backgroundColor: opt.previewColors[0] }} />
+                            <div
+                              className="w-5 h-3.5 rounded border border-slate-200/90 flex items-center justify-center shadow-2xs"
+                              style={{ backgroundColor: opt.cardPreview }}
+                            >
+                              <div className="flex items-center -space-x-1 scale-65">
+                                {opt.previewColors.map((color, idx) => (
+                                  <span
+                                    key={idx}
+                                    className="w-2 h-2 rounded-full inline-block shadow-2xs ring-1 ring-white/80"
+                                    style={{ backgroundColor: color }}
+                                  />
+                                ))}
+                              </div>
                             </div>
                           </div>
 

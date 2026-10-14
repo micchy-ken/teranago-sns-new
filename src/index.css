@@ -4,10 +4,16 @@
    Color & Background Theme Overrides (Data attribute based)
    ========================================================================== */
 
-/* 1. ソフト（くすみ・マイルド）モード【デフォルト・推奨】 */
+/* ==========================================================================
+   Color & Background Theme Overrides (Data attribute based)
+   ========================================================================== */
+
+/* 1. ソフト（くすみ・マイルド）モード【デフォルト・推奨標準】 */
 :root,
 [data-color-theme="soft"] {
+  color-scheme: light;
   --app-bg: #f5f7fa;
+  --color-white: #ffffff;
   --color-slate-50: #f5f7fa;
 
   /* Schedule / Calendar (Amber / Orange) */
@@ -41,225 +47,378 @@
   --color-violet-600: #5b21b6;
 }
 
-/* 2. セージ・アッシュ（淡緑背景 / 抹茶・オリーブ） */
-[data-color-theme="sage"] {
-  --app-bg: #edf4ee;
-  --color-slate-50: #edf4ee;
+/* 2. 🌙 ダークモード（漆黒ダークスレート / 高コントラスト・夜間・目に優しい） */
+[data-color-theme="dark"] {
+  color-scheme: dark;
+  --app-bg: #0a0e17;
 
-  /* Amber / Orange */
-  --color-amber-400: #a39572;
-  --color-amber-500: #887a58;
-  --color-amber-600: #706344;
-  --color-orange-500: #826c51;
-  --color-orange-600: #6b573e;
+  /* Card & Surface Overrides (bg-white -> sleek dark slate) */
+  --color-white: #141b2a;
 
-  /* Indigo / Blue */
-  --color-indigo-400: #687f75;
-  --color-indigo-500: #4d665b;
-  --color-indigo-600: #3c5248;
-  --color-indigo-700: #2c3e36;
-  --color-blue-500: #4a685f;
-  --color-blue-600: #38534b;
+  /* Slate Scale Overrides */
+  --color-slate-50: #0a0e17;
+  --color-slate-100: #1b2436;
+  --color-slate-200: #26354b;
+  --color-slate-300: #3a4c68;
+  --color-slate-400: #647b9d;
+  --color-slate-500: #8ba2c4;
+  --color-slate-600: #b4c6e0;
+  --color-slate-700: #d6e2f2;
+  --color-slate-800: #eaf1fa;
+  --color-slate-900: #ffffff;
+  --color-slate-950: #ffffff;
 
-  /* Rose / Pink */
-  --color-rose-400: #9e8382;
-  --color-rose-500: #856968;
-  --color-rose-600: #6d5251;
-  --color-pink-500: #856a73;
-  --color-pink-600: #6d535b;
+  /* Schedule / Calendar (Amber / Orange) */
+  --color-amber-50: #241c10;
+  --color-amber-100: #362914;
+  --color-amber-400: #f59e0b;
+  --color-amber-500: #fbbf24;
+  --color-amber-600: #fde68a;
+  --color-orange-50: #261710;
+  --color-orange-500: #fb923c;
+  --color-orange-600: #fdba74;
 
-  /* Emerald / Teal */
-  --color-emerald-500: #3f6e5a;
-  --color-emerald-600: #2e5545;
-  --color-teal-500: #3f6e5a;
-  --color-teal-600: #2e5545;
-  --color-violet-500: #5a646c;
-  --color-violet-600: #475057;
-}
+  /* Board / Core UI (Indigo / Blue) */
+  --color-indigo-50: #181c33;
+  --color-indigo-100: #22294e;
+  --color-indigo-400: #818cf8;
+  --color-indigo-500: #6366f1;
+  --color-indigo-600: #818cf8;
+  --color-indigo-700: #a5b4fc;
+  --color-blue-50: #122036;
+  --color-blue-100: #1a2f52;
+  --color-blue-500: #38bdf8;
+  --color-blue-600: #60a5fa;
 
-/* 3. テラコッタ・サンド（生成り・和紙調ベージュ背景） */
-[data-color-theme="terracotta"] {
-  --app-bg: #f8f4ec;
-  --color-slate-50: #f8f4ec;
-
-  /* Amber / Orange */
-  --color-amber-400: #c97d4b;
-  --color-amber-500: #af6432;
-  --color-amber-600: #8f4c20;
-  --color-orange-500: #a7552b;
-  --color-orange-600: #8b3e1c;
-
-  /* Indigo / Blue */
-  --color-indigo-400: #6e7c93;
-  --color-indigo-500: #4f5d75;
-  --color-indigo-600: #3d4a5f;
-  --color-indigo-700: #2c3645;
-  --color-blue-500: #475870;
-  --color-blue-600: #344358;
-
-  /* Rose / Pink */
-  --color-rose-400: #b56565;
-  --color-rose-500: #9c4e4e;
-  --color-rose-600: #803939;
-  --color-pink-500: #9b535d;
-  --color-pink-600: #823e47;
+  /* Memo / Bulletin (Rose / Pink) */
+  --color-rose-50: #27141a;
+  --color-rose-100: #3a1a24;
+  --color-rose-400: #fb7185;
+  --color-rose-500: #f43f5e;
+  --color-rose-600: #fda4af;
+  --color-pink-500: #f472b6;
+  --color-pink-600: #f9a8d4;
 
   /* Emerald / Teal */
-  --color-emerald-500: #4d7c67;
-  --color-emerald-600: #3a6250;
-  --color-teal-500: #4d7c67;
-  --color-teal-600: #3a6250;
-  --color-violet-500: #6c5a75;
-  --color-violet-600: #55455d;
+  --color-emerald-50: #0e241c;
+  --color-emerald-100: #143529;
+  --color-emerald-500: #34d399;
+  --color-emerald-600: #6ee7b7;
+  --color-teal-500: #2dd4bf;
+  --color-teal-600: #5eead4;
+  --color-violet-500: #a78bfa;
+  --color-violet-600: #c4b5fd;
 }
 
-/* 4. ノルディック・スレート（淡青・北欧風アイスブルーグレー背景） */
-[data-color-theme="nordic"] {
-  --app-bg: #eaf1f7;
-  --color-slate-50: #eaf1f7;
+/* 3. 🌙 大人なミッドナイト（濃紺・シャンパンゴールド・上質ラグジュアリー） */
+[data-color-theme="midnight"] {
+  color-scheme: dark;
+  --app-bg: #080d19;
 
-  /* Amber / Orange */
-  --color-amber-400: #b08d57;
-  --color-amber-500: #94723c;
-  --color-amber-600: #7b5b29;
-  --color-orange-500: #93603c;
-  --color-orange-600: #794a28;
+  /* Card & Surface Overrides (bg-white -> navy black card) */
+  --color-white: #101728;
 
-  /* Indigo / Blue */
-  --color-indigo-400: #6882a1;
-  --color-indigo-500: #466587;
-  --color-indigo-600: #344f6f;
-  --color-indigo-700: #233952;
-  --color-blue-500: #42678f;
-  --color-blue-600: #2f5074;
+  /* Slate Scale Overrides */
+  --color-slate-50: #080d19;
+  --color-slate-100: #182239;
+  --color-slate-200: #233252;
+  --color-slate-300: #354774;
+  --color-slate-400: #627ca6;
+  --color-slate-500: #88a3cf;
+  --color-slate-600: #b0c5e7;
+  --color-slate-700: #d3e1f7;
+  --color-slate-800: #ebf2fd;
+  --color-slate-900: #ffffff;
+  --color-slate-950: #ffffff;
+
+  /* Champagne Gold / Indigo / Blue Accents */
+  --color-indigo-50: #242013;
+  --color-indigo-100: #362e17;
+  --color-indigo-400: #fbbf24;
+  --color-indigo-500: #eab308;
+  --color-indigo-600: #ca8a04;
+  --color-indigo-700: #fde047;
+  --color-blue-500: #60a5fa;
+  --color-blue-600: #3b82f6;
+
+  /* Amber */
+  --color-amber-50: #241c10;
+  --color-amber-100: #362914;
+  --color-amber-400: #fbbf24;
+  --color-amber-500: #f59e0b;
+  --color-amber-600: #d97706;
 
   /* Rose / Pink */
-  --color-rose-400: #ab6d77;
-  --color-rose-500: #8e525d;
-  --color-rose-600: #743c46;
-  --color-pink-500: #8f5367;
-  --color-pink-600: #753d50;
+  --color-rose-50: #27141a;
+  --color-rose-100: #3a1a24;
+  --color-rose-400: #fb7185;
+  --color-rose-500: #f43f5e;
+  --color-rose-600: #e11d48;
 
-  /* Emerald / Teal */
-  --color-emerald-500: #3d757d;
-  --color-emerald-600: #2b5b62;
-  --color-teal-500: #3d757d;
-  --color-teal-600: #2b5b62;
-  --color-violet-500: #55627c;
-  --color-violet-600: #404b62;
+  /* Emerald */
+  --color-emerald-500: #10b981;
+  --color-emerald-600: #059669;
 }
 
-/* 5. ラベンダー・フォグ（淡紫・グレイッシュミスト背景） */
-[data-color-theme="lavender"] {
-  --app-bg: #f4eff8;
-  --color-slate-50: #f4eff8;
+/* 4. 📜 セピア・アンティーク（書斎・羊皮紙調 / 温もりと高コントラスト） */
+[data-color-theme="sepia"] {
+  color-scheme: light;
+  --app-bg: #f3ebe0;
+  --color-white: #fdfaf3;
 
-  /* Amber / Orange */
-  --color-amber-400: #b58a63;
-  --color-amber-500: #996f48;
-  --color-amber-600: #7e5733;
-  --color-orange-500: #955e45;
-  --color-orange-600: #7b4731;
+  /* Slate Scale Overrides (Warm Antique Ink) */
+  --color-slate-50: #f3ebe0;
+  --color-slate-100: #eae0cf;
+  --color-slate-200: #ded1be;
+  --color-slate-300: #c7b59e;
+  --color-slate-400: #99846d;
+  --color-slate-500: #77634e;
+  --color-slate-600: #594735;
+  --color-slate-700: #423324;
+  --color-slate-800: #2d2014;
+  --color-slate-900: #1c120a;
+  --color-slate-950: #120a05;
 
-  /* Indigo / Blue */
-  --color-indigo-400: #7a6e99;
-  --color-indigo-500: #5d507d;
-  --color-indigo-600: #483d65;
-  --color-indigo-700: #362c4e;
-  --color-blue-500: #55577e;
-  --color-blue-600: #414266;
+  /* Vintage Book Accents */
+  --color-amber-400: #c27838;
+  --color-amber-500: #b45309;
+  --color-amber-600: #8e3e07;
+  --color-orange-500: #a5461c;
+  --color-orange-600: #883410;
 
-  /* Rose / Pink */
-  --color-rose-400: #a96884;
-  --color-rose-500: #8c4c68;
-  --color-rose-600: #713650;
-  --color-pink-500: #8c4e72;
-  --color-pink-600: #73395b;
+  --color-indigo-400: #66768e;
+  --color-indigo-500: #4f5f78;
+  --color-indigo-600: #3d4a5e;
+  --color-indigo-700: #2c3644;
+  --color-blue-500: #455a75;
+  --color-blue-600: #34465d;
 
-  /* Emerald / Teal */
-  --color-emerald-500: #4c6e6b;
-  --color-emerald-600: #385552;
-  --color-teal-500: #4c6e6b;
-  --color-teal-600: #385552;
-  --color-violet-500: #654d78;
-  --color-violet-600: #503961;
+  --color-rose-400: #b54545;
+  --color-rose-500: #991b1b;
+  --color-rose-600: #7f1212;
+  --color-pink-500: #8e2b3e;
+  --color-pink-600: #731e2d;
+
+  --color-emerald-500: #2d5a47;
+  --color-emerald-600: #204435;
+  --color-teal-500: #2d5a47;
+  --color-teal-600: #204435;
 }
 
-/* 6. スモーキー・パステル（淡灰背景 / 彩度を大きく落としたくすみカラー） */
-[data-color-theme="muted"] {
-  --app-bg: #eef1f5;
-  --color-slate-50: #eef1f5;
-
-  /* Amber / Orange */
-  --color-amber-400: #b8864e;
-  --color-amber-500: #9d6d39;
-  --color-amber-600: #825628;
-  --color-orange-500: #96522c;
-  --color-orange-600: #7b3e1d;
-
-  /* Indigo / Blue */
-  --color-indigo-400: #7e85a6;
-  --color-indigo-500: #5a6288;
-  --color-indigo-600: #464d70;
-  --color-indigo-700: #363b57;
-  --color-blue-500: #4a6785;
-  --color-blue-600: #37516d;
-
-  /* Rose / Pink */
-  --color-rose-400: #c2697b;
-  --color-rose-500: #a34e60;
-  --color-rose-600: #87394a;
-  --color-pink-500: #9e526d;
-  --color-pink-600: #853f58;
-
-  /* Emerald / Teal */
-  --color-emerald-500: #3f7063;
-  --color-emerald-600: #30594e;
-  --color-teal-500: #3f7063;
-  --color-teal-600: #30594e;
-  --color-violet-500: #685a7d;
-  --color-violet-600: #534666;
-}
-
-/* 7. シック・モノトーン（クールグレー背景 / 灰調） */
+/* 5. 🏢 シック・グレイ（ミニマル・スチールグレー / モダン建築風） */
+[data-color-theme="gray"],
+[data-color-theme="muted"],
 [data-color-theme="monochrome"] {
-  --app-bg: #f1f3f5;
-  --color-slate-50: #f1f3f5;
+  color-scheme: light;
+  --app-bg: #e4e7eb;
+  --color-white: #ffffff;
 
-  /* Amber / Orange */
-  --color-amber-400: #71717a;
-  --color-amber-500: #52525b;
-  --color-amber-600: #3f3f46;
-  --color-orange-500: #52525b;
-  --color-orange-600: #3f3f46;
+  /* Slate Scale Overrides */
+  --color-slate-50: #e4e7eb;
+  --color-slate-100: #d7dce2;
+  --color-slate-200: #bec6d0;
+  --color-slate-300: #9faab8;
+  --color-slate-400: #717e90;
+  --color-slate-500: #515d6e;
+  --color-slate-600: #384352;
+  --color-slate-700: #252e3a;
+  --color-slate-800: #161c24;
+  --color-slate-900: #0a0d12;
+  --color-slate-950: #05070a;
 
-  /* Indigo / Blue */
-  --color-indigo-400: #6b7280;
-  --color-indigo-500: #4b5563;
-  --color-indigo-600: #374151;
-  --color-indigo-700: #1f2937;
-  --color-blue-500: #4b5563;
-  --color-blue-600: #374151;
+  /* Sharp Steel Accents */
+  --color-amber-400: #9e763b;
+  --color-amber-500: #85612f;
+  --color-amber-600: #6b4d24;
+  --color-orange-500: #87542d;
+  --color-orange-600: #6f4222;
 
-  /* Rose / Pink */
-  --color-rose-400: #78716c;
-  --color-rose-500: #57534e;
-  --color-rose-600: #44403c;
-  --color-pink-500: #57534e;
-  --color-pink-600: #44403c;
+  --color-indigo-400: #526782;
+  --color-indigo-500: #3b516b;
+  --color-indigo-600: #2d3e52;
+  --color-indigo-700: #1f2c3a;
+  --color-blue-500: #3b516b;
+  --color-blue-600: #2d3e52;
 
-  /* Emerald / Teal */
-  --color-emerald-500: #4b5563;
-  --color-emerald-600: #374151;
-  --color-teal-500: #4b5563;
-  --color-teal-600: #374151;
-  --color-violet-500: #4b5563;
-  --color-violet-600: #374151;
+  --color-rose-400: #944b58;
+  --color-rose-500: #7c3d49;
+  --color-rose-600: #642e38;
+
+  --color-emerald-500: #385e50;
+  --color-emerald-600: #29473c;
 }
 
-/* 8. 鮮やか（標準ビビッド / 白背景） */
+/* 6. 🌿 アースカラー（自然・フォレスト＆オリーブ） */
+[data-color-theme="earth"],
+[data-color-theme="sage"] {
+  color-scheme: light;
+  --app-bg: #e4eae0;
+  --color-white: #fafcfa;
+
+  /* Slate Scale Overrides (Deep Forest Greens) */
+  --color-slate-50: #e4eae0;
+  --color-slate-100: #d4dfcf;
+  --color-slate-200: #bdd0b6;
+  --color-slate-300: #9cb593;
+  --color-slate-400: #6f8c65;
+  --color-slate-500: #4e6b44;
+  --color-slate-600: #395130;
+  --color-slate-700: #283a21;
+  --color-slate-800: #192614;
+  --color-slate-900: #0e160a;
+  --color-slate-950: #070c05;
+
+  /* Nature Accents */
+  --color-amber-400: #c97d4b;
+  --color-amber-500: #b45309;
+  --color-amber-600: #8f3f05;
+  --color-orange-500: #c2410c;
+  --color-orange-600: #9a3412;
+
+  --color-indigo-400: #22c55e;
+  --color-indigo-500: #15803d;
+  --color-indigo-600: #166534;
+  --color-indigo-700: #14532d;
+  --color-blue-500: #15803d;
+  --color-blue-600: #166534;
+
+  --color-rose-400: #be123c;
+  --color-rose-500: #9f1239;
+  --color-rose-600: #881337;
+
+  --color-emerald-500: #0f766e;
+  --color-emerald-600: #115e59;
+}
+
+/* 7. 🌊 寒色（清涼オーシャンブルー＆アクア） */
+[data-color-theme="ocean"],
+[data-color-theme="nordic"] {
+  color-scheme: light;
+  --app-bg: #dbe9f5;
+  --color-white: #ffffff;
+
+  /* Slate Scale Overrides (Deep Marine Navy) */
+  --color-slate-50: #dbe9f5;
+  --color-slate-100: #ccdeee;
+  --color-slate-200: #b0cde3;
+  --color-slate-300: #87b0d2;
+  --color-slate-400: #5786ad;
+  --color-slate-500: #38668c;
+  --color-slate-600: #244a6b;
+  --color-slate-700: #16344e;
+  --color-slate-800: #0c2134;
+  --color-slate-900: #05131f;
+  --color-slate-950: #020910;
+
+  /* Cool Ocean Accents */
+  --color-amber-400: #eab308;
+  --color-amber-500: #ca8a04;
+  --color-amber-600: #a16207;
+
+  --color-indigo-400: #38bdf8;
+  --color-indigo-500: #0284c7;
+  --color-indigo-600: #0369a1;
+  --color-indigo-700: #075985;
+  --color-blue-500: #2563eb;
+  --color-blue-600: #1d4ed8;
+
+  --color-rose-400: #e11d48;
+  --color-rose-500: #be185d;
+  --color-rose-600: #9d174d;
+
+  --color-emerald-500: #0d9488;
+  --color-emerald-600: #0f766e;
+  --color-teal-500: #0891b2;
+  --color-teal-600: #0e7490;
+}
+
+/* 8. 🌅 暖色（サンセットアンバー＆オレンジ） */
+[data-color-theme="warm"],
+[data-color-theme="terracotta"] {
+  color-scheme: light;
+  --app-bg: #f9eade;
+  --color-white: #fffbf8;
+
+  /* Slate Scale Overrides (Roasted Warm Brown) */
+  --color-slate-50: #f9eade;
+  --color-slate-100: #f2dac8;
+  --color-slate-200: #e4c3a9;
+  --color-slate-300: #cca281;
+  --color-slate-400: #a37450;
+  --color-slate-500: #815330;
+  --color-slate-600: #643c1f;
+  --color-slate-700: #4a2912;
+  --color-slate-800: #321908;
+  --color-slate-900: #1f0c02;
+  --color-slate-950: #120601;
+
+  /* Warm Sunset Accents */
+  --color-amber-400: #f59e0b;
+  --color-amber-500: #d97706;
+  --color-amber-600: #b45309;
+  --color-orange-500: #ea580c;
+  --color-orange-600: #c2410c;
+
+  --color-indigo-400: #f97316;
+  --color-indigo-500: #ea580c;
+  --color-indigo-600: #c2410c;
+  --color-indigo-700: #9a3412;
+  --color-blue-500: #c2410c;
+  --color-blue-600: #9a3412;
+
+  --color-rose-400: #ef4444;
+  --color-rose-500: #dc2626;
+  --color-rose-600: #b91c1c;
+
+  --color-emerald-500: #0f766e;
+  --color-emerald-600: #115e59;
+}
+
+/* 9. 🌸 パステル（マカロン・ライラック） */
+[data-color-theme="pastel"],
+[data-color-theme="lavender"] {
+  color-scheme: light;
+  --app-bg: #f5ecf7;
+  --color-white: #ffffff;
+
+  /* Slate Scale Overrides (Deep Plum Ink for Crystal Readability) */
+  --color-slate-50: #f5ecf7;
+  --color-slate-100: #ebdcf0;
+  --color-slate-200: #ddc6e5;
+  --color-slate-300: #c5a5d1;
+  --color-slate-400: #9b71aa;
+  --color-slate-500: #794f88;
+  --color-slate-600: #593466;
+  --color-slate-700: #42204d;
+  --color-slate-800: #2e1237;
+  --color-slate-900: #1c0723;
+  --color-slate-950: #0f0213;
+
+  /* Macaron & Lilac Accents */
+  --color-amber-400: #fb923c;
+  --color-amber-500: #ea580c;
+  --color-amber-600: #c2410c;
+
+  --color-indigo-400: #a78bfa;
+  --color-indigo-500: #7c3aed;
+  --color-indigo-600: #6d28d9;
+  --color-indigo-700: #5b21b6;
+  --color-blue-500: #7c3aed;
+  --color-blue-600: #6d28d9;
+
+  --color-rose-400: #f472b6;
+  --color-rose-500: #db2777;
+  --color-rose-600: #be185d;
+
+  --color-emerald-500: #0d9488;
+  --color-emerald-600: #0f766e;
+}
+
+/* 10. ⚪ 鮮やか（標準ビビッド / ピュアホワイト背景） */
 [data-color-theme="vivid"] {
-  --app-bg: #f8fafc;
+  color-scheme: light;
+  --app-bg: #ffffff;
+  --color-white: #ffffff;
   --color-slate-50: #f8fafc;
 
   /* Amber / Orange */
@@ -291,6 +450,33 @@
   --color-teal-600: #0d9488;
   --color-violet-500: #8b5cf6;
   --color-violet-600: #7c3aed;
+}
+
+/* ==========================================================================
+   Dark Mode Specific Fixes: High-Contrast Pure White Text on Buttons & Badges
+   ========================================================================== */
+[data-color-theme="dark"] .text-white,
+[data-color-theme="midnight"] .text-white {
+  color: #ffffff !important;
+}
+
+[data-color-theme="dark"] .fill-white,
+[data-color-theme="midnight"] .fill-white {
+  fill: #ffffff !important;
+}
+
+[data-color-theme="dark"] .stroke-white,
+[data-color-theme="midnight"] .stroke-white {
+  stroke: #ffffff !important;
+}
+
+[data-color-theme="dark"] input,
+[data-color-theme="dark"] textarea,
+[data-color-theme="dark"] select,
+[data-color-theme="midnight"] input,
+[data-color-theme="midnight"] textarea,
+[data-color-theme="midnight"] select {
+  color-scheme: dark;
 }
 
 /* ==========================================================================

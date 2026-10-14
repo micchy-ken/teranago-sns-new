@@ -1150,26 +1150,25 @@ export function Header({
             })()}
 
             {isThemePickerOpen && (
-              <div className="absolute right-0 top-full mt-2 w-80 sm:w-96 bg-white rounded-2xl shadow-2xl border border-slate-200/90 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150 ring-1 ring-slate-900/5 max-h-[85vh] flex flex-col">
+              <div className="absolute right-0 top-full mt-2 w-84 sm:w-96 bg-white rounded-2xl shadow-2xl border border-slate-200/90 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150 ring-1 ring-slate-900/5 max-h-[85vh] flex flex-col">
                 <div className="flex items-center justify-between p-3.5 bg-slate-50/80 border-b border-slate-100 shrink-0">
                   <div className="flex items-center gap-2 font-bold text-xs text-slate-800">
                     <Palette className="w-4 h-4 text-indigo-600" />
-                    <span>画面の配色・背景色トーン</span>
+                    <span>画面の配色・テーマ設定</span>
                   </div>
-                  <span className="text-[10px] text-slate-500 font-medium">全8バリエーション</span>
+                  <span className="text-[10px] text-slate-500 font-medium">全10テーマ（高視認性）</span>
                 </div>
 
-                <div className="overflow-y-auto p-3 space-y-3 divide-y divide-slate-100">
-                  {/* Section 1: 背景色付きトーン（目に優しい淡色背景） */}
+                <div className="overflow-y-auto p-3 space-y-3.5 divide-y divide-slate-100">
+                  {/* Category 1: 🌙 ダーク＆大人系 */}
                   <div>
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-[11px] font-bold text-slate-600 flex items-center gap-1">
-                        🌿 淡いカラー背景（目に優しい）
+                      <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
+                        🌙 ダーク＆大人系（夜間・高コントラスト）
                       </span>
-                      <span className="text-[9px] text-slate-400">背景＋くすみアクセント</span>
                     </div>
                     <div className="space-y-1.5">
-                      {THEME_OPTIONS.filter(o => o.category === 'tinted').map((opt) => {
+                      {THEME_OPTIONS.filter((o) => o.category === 'dark').map((opt) => {
                         const isSelected = currentTheme === opt.id;
                         return (
                           <button
@@ -1182,25 +1181,90 @@ export function Header({
                                 : 'border-slate-100 hover:border-slate-200 hover:bg-slate-50'
                             }`}
                           >
-                            {/* 背景プレビュー ＆ アクセントドット */}
                             <div
-                              className="w-8 h-8 rounded-lg border border-slate-200/90 shadow-2xs shrink-0 flex flex-col items-center justify-center gap-0.5 mt-0.5 p-1"
+                              className="w-9 h-9 rounded-lg border border-slate-700/60 shadow-2xs shrink-0 flex flex-col items-center justify-center p-1 relative overflow-hidden"
                               style={{ backgroundColor: opt.bgPreview }}
                               title={opt.bgLabel}
                             >
-                              <div className="flex items-center -space-x-1">
-                                {opt.previewColors.map((color, idx) => (
-                                  <span
-                                    key={idx}
-                                    className="w-2.5 h-2.5 rounded-full shadow-2xs ring-1 ring-white/90 inline-block"
-                                    style={{ backgroundColor: color }}
-                                  />
-                                ))}
+                              <div
+                                className="w-6 h-4 rounded border border-slate-600/50 flex items-center justify-center shadow-xs"
+                                style={{ backgroundColor: opt.cardPreview }}
+                              >
+                                <div className="flex items-center -space-x-1 scale-75">
+                                  {opt.previewColors.map((color, idx) => (
+                                    <span
+                                      key={idx}
+                                      className="w-2 h-2 rounded-full shadow-2xs ring-1 ring-slate-800 inline-block"
+                                      style={{ backgroundColor: color }}
+                                    />
+                                  ))}
+                                </div>
                               </div>
                             </div>
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center justify-between gap-1">
-                                <span className={`text-xs font-bold ${isSelected ? 'text-indigo-950' : 'text-slate-800'}`}>
+                                <span className={`text-xs font-bold ${isSelected ? 'text-indigo-950 font-black' : 'text-slate-800'}`}>
+                                  {opt.name}
+                                </span>
+                                {isSelected && <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />}
+                              </div>
+                              <p className="text-[10px] text-slate-500 mt-0.5 leading-snug">
+                                {opt.description}
+                              </p>
+                              <span className="inline-block mt-1 text-[9px] px-1.5 py-0.5 rounded bg-slate-900 text-slate-200 font-medium">
+                                背景: {opt.bgLabel}
+                              </span>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Category 2: 📜 クラシック＆シック */}
+                  <div className="pt-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
+                        📜 クラシック＆シック（書斎・ミニマル）
+                      </span>
+                    </div>
+                    <div className="space-y-1.5">
+                      {THEME_OPTIONS.filter((o) => o.category === 'classic').map((opt) => {
+                        const isSelected = currentTheme === opt.id;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => handleChangeColorTheme(opt.id)}
+                            className={`w-full text-left p-2.5 rounded-xl border transition-all flex items-start gap-2.5 cursor-pointer ${
+                              isSelected
+                                ? 'border-indigo-500 bg-indigo-50/70 ring-1 ring-indigo-500/30'
+                                : 'border-slate-100 hover:border-slate-200 hover:bg-slate-50'
+                            }`}
+                          >
+                            <div
+                              className="w-9 h-9 rounded-lg border border-slate-300/80 shadow-2xs shrink-0 flex flex-col items-center justify-center p-1 relative overflow-hidden"
+                              style={{ backgroundColor: opt.bgPreview }}
+                              title={opt.bgLabel}
+                            >
+                              <div
+                                className="w-6 h-4 rounded border border-slate-200 flex items-center justify-center shadow-xs"
+                                style={{ backgroundColor: opt.cardPreview }}
+                              >
+                                <div className="flex items-center -space-x-1 scale-75">
+                                  {opt.previewColors.map((color, idx) => (
+                                    <span
+                                      key={idx}
+                                      className="w-2 h-2 rounded-full shadow-2xs ring-1 ring-white/90 inline-block"
+                                      style={{ backgroundColor: color }}
+                                    />
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between gap-1">
+                                <span className={`text-xs font-bold ${isSelected ? 'text-indigo-950 font-black' : 'text-slate-800'}`}>
                                   {opt.name}
                                 </span>
                                 {isSelected && <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />}
@@ -1218,15 +1282,15 @@ export function Header({
                     </div>
                   </div>
 
-                  {/* Section 2: ニュートラル / 標準トーン */}
+                  {/* Category 3: 🎨 カラー＆アース */}
                   <div className="pt-3">
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-[11px] font-bold text-slate-600 flex items-center gap-1">
-                        ⚪ ニュートラル / 標準
+                      <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
+                        🎨 カラー＆アース（自然・寒色・暖色・パステル）
                       </span>
                     </div>
                     <div className="space-y-1.5">
-                      {THEME_OPTIONS.filter(o => o.category === 'neutral').map((opt) => {
+                      {THEME_OPTIONS.filter((o) => o.category === 'color').map((opt) => {
                         const isSelected = currentTheme === opt.id;
                         return (
                           <button
@@ -1240,23 +1304,89 @@ export function Header({
                             }`}
                           >
                             <div
-                              className="w-8 h-8 rounded-lg border border-slate-200/90 shadow-2xs shrink-0 flex flex-col items-center justify-center gap-0.5 mt-0.5 p-1"
+                              className="w-9 h-9 rounded-lg border border-slate-300/80 shadow-2xs shrink-0 flex flex-col items-center justify-center p-1 relative overflow-hidden"
                               style={{ backgroundColor: opt.bgPreview }}
                               title={opt.bgLabel}
                             >
-                              <div className="flex items-center -space-x-1">
-                                {opt.previewColors.map((color, idx) => (
-                                  <span
-                                    key={idx}
-                                    className="w-2.5 h-2.5 rounded-full shadow-2xs ring-1 ring-white/90 inline-block"
-                                    style={{ backgroundColor: color }}
-                                  />
-                                ))}
+                              <div
+                                className="w-6 h-4 rounded border border-slate-200 flex items-center justify-center shadow-xs"
+                                style={{ backgroundColor: opt.cardPreview }}
+                              >
+                                <div className="flex items-center -space-x-1 scale-75">
+                                  {opt.previewColors.map((color, idx) => (
+                                    <span
+                                      key={idx}
+                                      className="w-2 h-2 rounded-full shadow-2xs ring-1 ring-white/90 inline-block"
+                                      style={{ backgroundColor: color }}
+                                    />
+                                  ))}
+                                </div>
                               </div>
                             </div>
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center justify-between gap-1">
-                                <span className={`text-xs font-bold ${isSelected ? 'text-indigo-950' : 'text-slate-800'}`}>
+                                <span className={`text-xs font-bold ${isSelected ? 'text-indigo-950 font-black' : 'text-slate-800'}`}>
+                                  {opt.name}
+                                </span>
+                                {isSelected && <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />}
+                              </div>
+                              <p className="text-[10px] text-slate-500 mt-0.5 leading-snug">
+                                {opt.description}
+                              </p>
+                              <span className="inline-block mt-1 text-[9px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-medium">
+                                背景: {opt.bgLabel}
+                              </span>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Category 4: ⚪ スタンダード */}
+                  <div className="pt-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
+                        ⚪ スタンダード（標準）
+                      </span>
+                    </div>
+                    <div className="space-y-1.5">
+                      {THEME_OPTIONS.filter((o) => o.category === 'standard').map((opt) => {
+                        const isSelected = currentTheme === opt.id;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => handleChangeColorTheme(opt.id)}
+                            className={`w-full text-left p-2.5 rounded-xl border transition-all flex items-start gap-2.5 cursor-pointer ${
+                              isSelected
+                                ? 'border-indigo-500 bg-indigo-50/70 ring-1 ring-indigo-500/30'
+                                : 'border-slate-100 hover:border-slate-200 hover:bg-slate-50'
+                            }`}
+                          >
+                            <div
+                              className="w-9 h-9 rounded-lg border border-slate-300/80 shadow-2xs shrink-0 flex flex-col items-center justify-center p-1 relative overflow-hidden"
+                              style={{ backgroundColor: opt.bgPreview }}
+                              title={opt.bgLabel}
+                            >
+                              <div
+                                className="w-6 h-4 rounded border border-slate-200 flex items-center justify-center shadow-xs"
+                                style={{ backgroundColor: opt.cardPreview }}
+                              >
+                                <div className="flex items-center -space-x-1 scale-75">
+                                  {opt.previewColors.map((color, idx) => (
+                                    <span
+                                      key={idx}
+                                      className="w-2 h-2 rounded-full shadow-2xs ring-1 ring-white/90 inline-block"
+                                      style={{ backgroundColor: color }}
+                                    />
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between gap-1">
+                                <span className={`text-xs font-bold ${isSelected ? 'text-indigo-950 font-black' : 'text-slate-800'}`}>
                                   {opt.name}
                                 </span>
                                 {isSelected && <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />}

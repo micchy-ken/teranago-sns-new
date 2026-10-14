@@ -14,9 +14,9 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.14.10',
+  version: '2026.10.14.11',
   date: '2026-10-14',
-  releaseNumber: 10,
-  display: 'v2026.10.14 #10',
-  description: '日程調整確定スケジュールの更新・編集時における重複増殖不具合の解消（繰り返し展開ID判定の正規表現厳密化および親ID抽出ロジック修正）',
+  releaseNumber: 11,
+  display: 'v2026.10.14 #11',
+  description: 'カラーテーマの大幅刷新：ダークモード、大人なミッドナイト、セピア、シック・グレイ、パステル、アースカラー、寒色オーシャン、暖色サンセット等、高視認性を維持した劇的変化テーマの全面導入',
 };

@@ -1,118 +1,201 @@
 export type ColorTheme =
+  | 'dark'
+  | 'midnight'
+  | 'sepia'
+  | 'gray'
+  | 'pastel'
+  | 'earth'
+  | 'ocean'
+  | 'warm'
   | 'soft'
+  | 'vivid'
+  // 互換キー (旧設定から自動マッピング)
   | 'sage'
   | 'terracotta'
   | 'nordic'
   | 'lavender'
   | 'muted'
-  | 'monochrome'
-  | 'vivid';
+  | 'monochrome';
 
 export interface ThemeOption {
   id: ColorTheme;
   name: string;
-  category: 'tinted' | 'neutral';
+  category: 'dark' | 'classic' | 'color' | 'standard';
   description: string;
   bgPreview: string; // 背景色のプレビュー色 (HEX)
-  bgLabel: string; // 背景色の説明（例: ほんのりセージ緑）
+  cardPreview: string; // カード表面のプレビュー色 (HEX)
+  bgLabel: string; // 背景色の説明（例: 漆黒ダーク、セピア羊皮紙など）
   previewColors: string[]; // スケジュール、掲示板、伝言メモのアクセントカラー
+  isDark?: boolean;
 }
 
 export const THEME_OPTIONS: ThemeOption[] = [
+  // 🌙 1. ダーク＆大人系
+  {
+    id: 'dark',
+    name: 'ダークモード（漆黒・夜間）',
+    category: 'dark',
+    description: '漆黒とスレートの深みある夜間仕様。眩しさを抑え長時間の作業に最適（高コントラスト）',
+    bgPreview: '#0a0e17',
+    cardPreview: '#141b2a',
+    bgLabel: '漆黒スレートダーク',
+    previewColors: ['#fbbf24', '#818cf8', '#fb7185'],
+    isDark: true,
+  },
+  {
+    id: 'midnight',
+    name: '大人なミッドナイト（濃紺・ゴールド）',
+    category: 'dark',
+    description: '深遠な夜空の濃紺とシャンパンゴールドが調和した、上質でラグジュアリーな大人トーン',
+    bgPreview: '#090e1a',
+    cardPreview: '#11182a',
+    bgLabel: '深遠ミッドナイトネイビー',
+    previewColors: ['#eab308', '#60a5fa', '#f43f5e'],
+    isDark: true,
+  },
+
+  // 📜 2. クラシック＆シック
+  {
+    id: 'sepia',
+    name: 'セピア・アンティーク（書斎・羊皮紙）',
+    category: 'classic',
+    description: '羊皮紙や古書のような温かみあるセピア。ブルーライトを低減し書斎のような落ち着き',
+    bgPreview: '#f3ebe0',
+    cardPreview: '#fdfaf3',
+    bgLabel: '温もりセピア羊皮紙',
+    previewColors: ['#b45309', '#4f5f78', '#991b1b'],
+    isDark: false,
+  },
+  {
+    id: 'gray',
+    name: 'シック・グレイ（ミニマル・スチール）',
+    category: 'classic',
+    description: '色味を削ぎ落とし、クールグレーとシャープな境界線で構成したモダン建築風トーン',
+    bgPreview: '#e4e7eb',
+    cardPreview: '#ffffff',
+    bgLabel: 'クールスチールグレー',
+    previewColors: ['#85612f', '#3b516b', '#7c3d49'],
+    isDark: false,
+  },
+
+  // 🎨 3. カラー＆アース
+  {
+    id: 'earth',
+    name: 'アースカラー（フォレスト＆オリーブ）',
+    category: 'color',
+    description: '穏やかな苔や森林、大地（テラコッタ）の安らぎを感じる自然派リフレッシュ配色',
+    bgPreview: '#e4eae0',
+    cardPreview: '#fafcfa',
+    bgLabel: 'オリーブモスグリーン',
+    previewColors: ['#b45309', '#15803d', '#9f1239'],
+    isDark: false,
+  },
+  {
+    id: 'ocean',
+    name: '寒色（清涼オーシャンブルー）',
+    category: 'color',
+    description: '澄んだ青空と海を思わせる爽快感。知的で清潔感があり、集中力を高めるトーン',
+    bgPreview: '#dbe9f5',
+    cardPreview: '#ffffff',
+    bgLabel: '爽快アイススカイブルー',
+    previewColors: ['#ca8a04', '#0284c7', '#be185d'],
+    isDark: false,
+  },
+  {
+    id: 'warm',
+    name: '暖色（サンセットアンバー＆オレンジ）',
+    category: 'color',
+    description: '夕暮れの陽だまりのような温もりと活気。親しみやすくチームの活力を高める配色',
+    bgPreview: '#f9eade',
+    cardPreview: '#fffbf8',
+    bgLabel: '温もりサンセットアプリコット',
+    previewColors: ['#d97706', '#ea580c', '#dc2626'],
+    isDark: false,
+  },
+  {
+    id: 'pastel',
+    name: 'パステル（マカロン・ライラック）',
+    category: 'color',
+    description: '柔らかなライラックミストとマカロンカラー。文字はディーププラムで視認性抜群',
+    bgPreview: '#f5ecf7',
+    cardPreview: '#ffffff',
+    bgLabel: 'ライラックパステルミスト',
+    previewColors: ['#ea580c', '#7c3aed', '#db2777'],
+    isDark: false,
+  },
+
+  // ⚪ 4. スタンダード
   {
     id: 'soft',
-    name: 'ソフト（くすみ・マイルド）',
-    category: 'neutral',
-    description: '彩度を適度に抑えた、上品で目に優しいトーン（推奨標準）',
+    name: 'ソフト（くすみ・マイルド【推奨標準】）',
+    category: 'standard',
+    description: '彩度を適度に抑えた、上品で目に優しいニュートラルトーン（推奨標準）',
     bgPreview: '#f5f7fa',
+    cardPreview: '#ffffff',
     bgLabel: 'ソフトオフホワイト',
     previewColors: ['#d97706', '#5752d1', '#cc2b4e'],
-  },
-  {
-    id: 'sage',
-    name: 'セージ・アッシュ（淡緑背景）',
-    category: 'tinted',
-    description: '淡い抹茶・セージグリーンの背景。目に最も優しくリラックスできる配色',
-    bgPreview: '#edf4ee',
-    bgLabel: '淡いセージグリーン背景',
-    previewColors: ['#887a58', '#4d665b', '#856968'],
-  },
-  {
-    id: 'terracotta',
-    name: 'テラコッタ・サンド（温和・紙風背景）',
-    category: 'tinted',
-    description: '生成り・和紙のような温かみのあるベージュ背景。ブルーライト感を抑えたトーン',
-    bgPreview: '#f8f4ec',
-    bgLabel: '温かみのある生成り・ベージュ背景',
-    previewColors: ['#af6432', '#4f5d75', '#9c4e4e'],
-  },
-  {
-    id: 'nordic',
-    name: 'ノルディック・スレート（淡青背景）',
-    category: 'tinted',
-    description: '澄んだ淡いアイスブルーグレーの背景。北欧風の知的で清潔感のあるトーン',
-    bgPreview: '#eaf1f7',
-    bgLabel: '淡いブルーグレー背景',
-    previewColors: ['#94723c', '#466587', '#8e525d'],
-  },
-  {
-    id: 'lavender',
-    name: 'ラベンダー・フォグ（淡紫背景）',
-    category: 'tinted',
-    description: 'ほんのり紫みを感じるグレイッシュミスト背景。上品で静けさのあるトーン',
-    bgPreview: '#f4eff8',
-    bgLabel: '淡いラベンダーミスト背景',
-    previewColors: ['#996f48', '#5d507d', '#8c4c68'],
-  },
-  {
-    id: 'muted',
-    name: 'スモーキー・パステル（淡灰背景）',
-    category: 'tinted',
-    description: '彩度をグッと落としたくすみニュアンスカラーと微淡グレー背景',
-    bgPreview: '#eef1f5',
-    bgLabel: '微淡スモーキーグレー背景',
-    previewColors: ['#9d6d39', '#5a6288', '#a34e60'],
-  },
-  {
-    id: 'monochrome',
-    name: 'シック・モノトーン',
-    category: 'neutral',
-    description: '色味の主張を極限まで抑えた、灰調の洗練されたトーン',
-    bgPreview: '#f1f3f5',
-    bgLabel: 'クールグレー背景',
-    previewColors: ['#52525b', '#4b5563', '#57534e'],
+    isDark: false,
   },
   {
     id: 'vivid',
-    name: '鮮やか（標準ビビッド）',
-    category: 'neutral',
-    description: 'パキッとした従来通りの標準原色カラーと白背景',
-    bgPreview: '#f8fafc',
-    bgLabel: '標準白背景',
+    name: '鮮やか（標準ビビッド・白背景）',
+    category: 'standard',
+    description: 'パキッとした従来通りの標準原色カラーとピュアホワイト背景',
+    bgPreview: '#ffffff',
+    cardPreview: '#ffffff',
+    bgLabel: '標準ピュアホワイト',
     previewColors: ['#f59e0b', '#6366f1', '#f43f5e'],
+    isDark: false,
   },
 ];
+
+// 旧IDから新IDへの互換マップ
+export const THEME_ALIAS_MAP: Record<string, ColorTheme> = {
+  sage: 'earth',
+  terracotta: 'warm',
+  nordic: 'ocean',
+  lavender: 'pastel',
+  muted: 'gray',
+  monochrome: 'gray',
+};
 
 const STORAGE_KEY = 'app_color_theme';
 
 export function getSavedTheme(): ColorTheme {
   if (typeof window === 'undefined') return 'soft';
   const saved = localStorage.getItem(STORAGE_KEY) as ColorTheme | null;
-  if (saved && THEME_OPTIONS.some((t) => t.id === saved)) {
-    return saved;
+  if (saved) {
+    if (THEME_OPTIONS.some((t) => t.id === saved)) {
+      return saved;
+    }
+    if (THEME_ALIAS_MAP[saved]) {
+      return THEME_ALIAS_MAP[saved];
+    }
   }
   return 'soft';
 }
 
-export function applyColorTheme(theme: ColorTheme) {
+export function applyColorTheme(rawTheme: ColorTheme) {
   if (typeof window === 'undefined') return;
+  
+  // 互換キーの解決
+  const theme = THEME_ALIAS_MAP[rawTheme] || rawTheme;
+  const found = THEME_OPTIONS.find((t) => t.id === theme) || THEME_OPTIONS[0];
+
   localStorage.setItem(STORAGE_KEY, theme);
   document.documentElement.setAttribute('data-color-theme', theme);
   
+  const isDark = Boolean(found.isDark);
+  document.documentElement.classList.toggle('dark', isDark);
+  document.documentElement.style.colorScheme = isDark ? 'dark' : 'light';
+  
   // body要素の背景色も同時に設定して隙間やバウンススクロール時にも違和感が出ないようにする
-  const found = THEME_OPTIONS.find(t => t.id === theme);
-  if (found) {
-    document.body.style.backgroundColor = found.bgPreview;
+  document.body.style.backgroundColor = found.bgPreview;
+
+  // モバイルのブラウザヘッダー色（theme-color）も連動
+  const themeMeta = document.querySelector('meta[name="theme-color"]');
+  if (themeMeta) {
+    themeMeta.setAttribute('content', found.bgPreview);
   }
 
   window.dispatchEvent(new CustomEvent('teranago:color-theme-changed', { detail: theme }));
