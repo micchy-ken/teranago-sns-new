@@ -14,9 +14,9 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.14.3',
+  version: '2026.10.14.4',
   date: '2026-10-14',
-  releaseNumber: 3,
-  display: 'v2026.10.14 #3',
-  description: 'プレビュービューアー群（PDF/Excel/Word/CSV）のコード分割・遅延読み込み（React.lazy）による初期バンドル軽量化＆トップページ表示超高速化',
+  releaseNumber: 4,
+  display: 'v2026.10.14 #4',
+  description: 'プレビューライブラリのバックグラウンド先読み（アイドル時プリフェッチ）＆ベンダーチャンク分割（Vite manualChunks）によるバージョン更新時DL削減＆初期API二重取得解消',
 };

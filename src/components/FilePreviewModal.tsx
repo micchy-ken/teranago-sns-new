@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { AttachmentFile } from '../types';
 import { resolveFileUrl } from '../utils/fileUpload';
+import { schedulePreviewPrefetch } from '../utils/previewPrefetch';
 
 // 各種ビューアーを遅延読み込み（コード分割）してトップページの初期表示バンドルサイズを劇的に削減
 const PdfViewer = lazy(() => import('./preview/PdfViewer').then(m => ({ default: m.PdfViewer })));
@@ -18,6 +19,11 @@ const ExcelViewer = lazy(() => import('./preview/ExcelViewer').then(m => ({ defa
 const DocxViewer = lazy(() => import('./preview/DocxViewer').then(m => ({ default: m.DocxViewer })));
 const TextViewer = lazy(() => import('./preview/TextViewer').then(m => ({ default: m.TextViewer })));
 const ImageViewer = lazy(() => import('./preview/ImageViewer').then(m => ({ default: m.ImageViewer })));
+
+// モジュール評価時にアイドル時プリフェッチを予約
+if (typeof window !== 'undefined') {
+  schedulePreviewPrefetch(2500);
+}
 
 interface FilePreviewModalProps {
   isOpen: boolean;

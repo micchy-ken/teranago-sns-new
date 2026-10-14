@@ -67,6 +67,7 @@ import { RecurrenceActionScope } from './components/RecurrenceActionModal';
 import { parseAppQueryParams, updateBrowserUrl, AppQueryParams } from './utils/urlParams';
 import { initColorTheme } from './utils/theme';
 import { logActivity } from './utils/logger';
+import { schedulePreviewPrefetch } from './utils/previewPrefetch';
 
 // Initialize saved color theme
 initColorTheme();
@@ -1282,8 +1283,8 @@ export default function App() {
 
 
 
-  const refetchAll = async () => {
-    const latestUsers = await refetchUsers();
+  const refetchAll = async (existingUsers?: User[]) => {
+    const latestUsers = (existingUsers && existingUsers.length > 0) ? existingUsers : await refetchUsers();
     await Promise.all([
       refetchMasters(),
       refetchPosts(latestUsers),
@@ -1298,10 +1299,13 @@ export default function App() {
   };
 
   useEffect(() => {
+    // アプリ起動後、アイドル時にファイルプレビュー用ライブラリ（PDF/Excel/Word）を裏で先読み
+    schedulePreviewPrefetch(3000);
+
     // Load latest users from API on mount, then refetch other data if authenticated
     refetchUsers().then((latestUsers) => {
       if (isAuthenticated) {
-        refetchAll();
+        refetchAll(latestUsers);
       }
     });
   }, [isAuthenticated]);
