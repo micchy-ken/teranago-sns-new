@@ -14,9 +14,9 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.14.4',
+  version: '2026.10.14.7',
   date: '2026-10-14',
-  releaseNumber: 4,
-  display: 'v2026.10.14 #4',
-  description: 'プレビューライブラリのバックグラウンド先読み（アイドル時プリフェッチ）＆ベンダーチャンク分割（Vite manualChunks）によるバージョン更新時DL削減＆初期API二重取得解消',
+  releaseNumber: 7,
+  display: 'v2026.10.14 #7',
+  description: 'ユーザー設定復元時の applyFontSize / applyColorTheme インポート漏れバグの修正',
 };

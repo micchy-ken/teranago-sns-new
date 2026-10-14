@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Search, Bell, Menu, Phone, FileText, Monitor, Calendar as CalendarIcon, MessageSquare, CheckCheck, ChevronRight, X, Smartphone, Users, MessageCircle, Palette, Check, Minimize2, Pin, ShieldAlert } from 'lucide-react';
+import { Search, Bell, Menu, Phone, FileText, Monitor, Calendar as CalendarIcon, MessageSquare, CheckCheck, ChevronRight, X, Smartphone, Users, MessageCircle, Palette, Check, Minimize2, Pin, ShieldAlert, Type } from 'lucide-react';
 import { User, Memo, WorkflowApplication, BoardTopic, CalendarEvent, ChatRoom, Post, DailyReport, SafetyConfirmationEvent, SafetyConfirmationResponse } from '../types';
 import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
 import { AppTab } from './Sidebar';
 import { expandRecurringEvents } from '../utils/recurrenceUtils';
-import { ColorTheme, THEME_OPTIONS, getSavedTheme, applyColorTheme } from '../utils/theme';
+import { ColorTheme, THEME_OPTIONS, getSavedTheme, applyColorTheme, AppFontSize, FONT_SIZE_OPTIONS, getSavedFontSize, applyFontSize } from '../utils/theme';
+import { API_BASE_URL } from '../config/api';
 import { MiniNotificationMode } from './MiniNotificationMode';
 import {
   getAllNotifications,
@@ -164,9 +165,72 @@ export function Header({
   const [isThemePickerOpen, setIsThemePickerOpen] = useState(false);
   const themePickerRef = useRef<HTMLDivElement>(null);
 
+  // Font size picker state
+  const [currentFontSize, setCurrentFontSize] = useState<AppFontSize>(() => getSavedFontSize());
+  const [isFontSizePickerOpen, setIsFontSizePickerOpen] = useState(false);
+  const fontSizePickerRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     applyColorTheme(currentTheme);
+    applyFontSize(currentFontSize);
   }, []);
+
+  useEffect(() => {
+    const handleFontSizeChange = (e: any) => {
+      if (e.detail) setCurrentFontSize(e.detail);
+    };
+    const handleColorThemeChange = (e: any) => {
+      if (e.detail) setCurrentTheme(e.detail);
+    };
+    window.addEventListener('teranago:font-size-changed' as any, handleFontSizeChange);
+    window.addEventListener('teranago:color-theme-changed' as any, handleColorThemeChange);
+    return () => {
+      window.removeEventListener('teranago:font-size-changed' as any, handleFontSizeChange);
+      window.removeEventListener('teranago:color-theme-changed' as any, handleColorThemeChange);
+    };
+  }, []);
+
+  const handleChangeFontSize = (size: AppFontSize) => {
+    setCurrentFontSize(size);
+    applyFontSize(size);
+    setIsFontSizePickerOpen(false);
+
+    if (currentUser?.id) {
+      try {
+        const cached = localStorage.getItem(`user_preferences_${currentUser.id}`);
+        const currentPrefs = cached ? JSON.parse(cached) : (currentUser.preferences || {});
+        const updatedPrefs = { ...currentPrefs, fontSize: size };
+        localStorage.setItem(`user_preferences_${currentUser.id}`, JSON.stringify(updatedPrefs));
+
+        fetch(`${API_BASE_URL}/users/${currentUser.id}/preferences`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updatedPrefs),
+        }).catch(() => {});
+      } catch (_) {}
+    }
+  };
+
+  const handleChangeColorTheme = (theme: ColorTheme) => {
+    setCurrentTheme(theme);
+    applyColorTheme(theme);
+    setIsThemePickerOpen(false);
+
+    if (currentUser?.id) {
+      try {
+        const cached = localStorage.getItem(`user_preferences_${currentUser.id}`);
+        const currentPrefs = cached ? JSON.parse(cached) : (currentUser.preferences || {});
+        const updatedPrefs = { ...currentPrefs, colorTheme: theme };
+        localStorage.setItem(`user_preferences_${currentUser.id}`, JSON.stringify(updatedPrefs));
+
+        fetch(`${API_BASE_URL}/users/${currentUser.id}/preferences`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updatedPrefs),
+        }).catch(() => {});
+      } catch (_) {}
+    }
+  };
 
   // Cross-functional search state
   const [isSearchFocused, setIsSearchFocused] = useState(false);
@@ -186,12 +250,16 @@ export function Header({
       if (themePickerRef.current && !themePickerRef.current.contains(target)) {
         setIsThemePickerOpen(false);
       }
+      if (fontSizePickerRef.current && !fontSizePickerRef.current.contains(target)) {
+        setIsFontSizePickerOpen(false);
+      }
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setIsSearchFocused(false);
         setIsOpen(false);
         setIsThemePickerOpen(false);
+        setIsFontSizePickerOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -958,6 +1026,97 @@ export function Header({
 
         {/* Right actions */}
         <div className="flex items-center gap-2 sm:gap-3">
+          {/* Font Size Scale Switcher */}
+          <div className="relative" ref={fontSizePickerRef}>
+            {(() => {
+              const activeSizeOpt = FONT_SIZE_OPTIONS.find(f => f.id === currentFontSize) || FONT_SIZE_OPTIONS[1];
+              return (
+                <button
+                  type="button"
+                  id="header-font-size-picker-button"
+                  onClick={() => setIsFontSizePickerOpen(!isFontSizePickerOpen)}
+                  className={`px-2.5 py-1.5 rounded-xl transition-all flex items-center justify-center cursor-pointer border select-none ${
+                    isFontSizePickerOpen
+                      ? 'bg-slate-100/90 border-slate-300 ring-2 ring-indigo-500/20'
+                      : 'border-slate-200/80 bg-white/80 hover:bg-slate-50 hover:border-slate-300 shadow-2xs'
+                  }`}
+                  title={`文字の大きさ設定（現在: ${activeSizeOpt.name}）`}
+                  aria-label={`文字の大きさ設定（現在: ${activeSizeOpt.name}）`}
+                >
+                  <span className="text-xs font-bold text-slate-800 tracking-tight">
+                    T{activeSizeOpt.label}
+                  </span>
+                </button>
+              );
+            })()}
+
+            {isFontSizePickerOpen && (
+              <div className="absolute right-0 top-full mt-2 w-72 sm:w-80 bg-white rounded-2xl shadow-2xl border border-slate-200/90 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150 ring-1 ring-slate-900/5 max-h-[85vh] flex flex-col">
+                <div className="flex items-center justify-between p-3.5 bg-slate-50/80 border-b border-slate-100 shrink-0">
+                  <div className="flex items-center gap-2 font-bold text-xs text-slate-800">
+                    <Type className="w-4 h-4 text-indigo-600" />
+                    <span>文字の大きさ設定</span>
+                  </div>
+                  <span className="text-[10px] text-slate-500 font-medium">全4段階（全画面連動）</span>
+                </div>
+
+                <div className="p-3 space-y-2 overflow-y-auto">
+                  <p className="text-[11px] text-slate-500 mb-2 leading-relaxed">
+                    画面全体の文字やボタンサイズを見やすく調整します。端末とアカウントに自動保存されます。
+                  </p>
+
+                  <div className="space-y-1.5">
+                    {FONT_SIZE_OPTIONS.map((opt) => {
+                      const isSelected = currentFontSize === opt.id;
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => handleChangeFontSize(opt.id)}
+                          className={`w-full text-left p-2.5 rounded-xl border transition-all flex items-center justify-between gap-3 cursor-pointer ${
+                            isSelected
+                              ? 'border-indigo-500 bg-indigo-50/80 ring-1 ring-indigo-500/30'
+                              : 'border-slate-100 hover:border-slate-200 hover:bg-slate-50'
+                          }`}
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className={`text-xs font-bold ${isSelected ? 'text-indigo-950' : 'text-slate-800'}`}>
+                                {opt.label}（{opt.badgeText}）
+                              </span>
+                              {opt.id === 'standard' && (
+                                <span className="text-[9px] px-1.5 py-0.2 rounded font-medium bg-emerald-100 text-emerald-800">
+                                  推奨標準
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[10px] text-slate-500 mt-0.5 leading-snug">
+                              {opt.description}
+                            </p>
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span
+                              className={`font-bold transition-all px-2 py-1 rounded border ${
+                                isSelected
+                                  ? 'text-indigo-700 border-indigo-300 bg-white shadow-2xs'
+                                  : 'text-slate-600 border-slate-200 bg-slate-100'
+                              }`}
+                              style={{ fontSize: opt.basePx }}
+                            >
+                              あA
+                            </span>
+                            {isSelected && <Check className="w-4 h-4 text-indigo-600 shrink-0" />}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Color Palette Theme Switcher */}
           <div className="relative" ref={themePickerRef}>
             {(() => {
@@ -1016,11 +1175,7 @@ export function Header({
                           <button
                             key={opt.id}
                             type="button"
-                            onClick={() => {
-                              setCurrentTheme(opt.id);
-                              applyColorTheme(opt.id);
-                              setIsThemePickerOpen(false);
-                            }}
+                            onClick={() => handleChangeColorTheme(opt.id)}
                             className={`w-full text-left p-2.5 rounded-xl border transition-all flex items-start gap-2.5 cursor-pointer ${
                               isSelected
                                 ? 'border-indigo-500 bg-indigo-50/70 ring-1 ring-indigo-500/30'
@@ -1077,11 +1232,7 @@ export function Header({
                           <button
                             key={opt.id}
                             type="button"
-                            onClick={() => {
-                              setCurrentTheme(opt.id);
-                              applyColorTheme(opt.id);
-                              setIsThemePickerOpen(false);
-                            }}
+                            onClick={() => handleChangeColorTheme(opt.id)}
                             className={`w-full text-left p-2.5 rounded-xl border transition-all flex items-start gap-2.5 cursor-pointer ${
                               isSelected
                                 ? 'border-indigo-500 bg-indigo-50/70 ring-1 ring-indigo-500/30'

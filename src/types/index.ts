@@ -38,6 +38,8 @@ export interface UserPreferences {
   calendarPresets?: CalendarPreset[]; // カレンダー表示設定のお気に入り一覧
   defaultCalendarPresetId?: string;  // カレンダー起動時の初期表示プリセットID
   favoriteTopicIds?: string[];       // 掲示板のお気に入りトピックID一覧
+  colorTheme?: string;               // 選択カラーテーマ (soft, sage, terracotta等)
+  fontSize?: 'small' | 'standard' | 'medium' | 'large'; // 選択フォントサイズ (小/標準/中/大)
   [key: string]: any;
 }
 

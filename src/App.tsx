@@ -65,12 +65,13 @@ import { planRecurrenceSave, planRecurrenceDelete, safeParseRecurrence, safePars
 import { sortUsersByDivision } from './utils/userSort';
 import { RecurrenceActionScope } from './components/RecurrenceActionModal';
 import { parseAppQueryParams, updateBrowserUrl, AppQueryParams } from './utils/urlParams';
-import { initColorTheme } from './utils/theme';
+import { initColorTheme, initFontSize, applyFontSize, applyColorTheme } from './utils/theme';
 import { logActivity } from './utils/logger';
 import { schedulePreviewPrefetch } from './utils/previewPrefetch';
 
-// Initialize saved color theme
+// Initialize saved color theme & font size scale
 initColorTheme();
+initFontSize();
 
 // Helper to map and sanitize API user objects to match frontend types safely
 const mapUserFromApi = (apiUser: any): User => {
@@ -653,6 +654,14 @@ export default function App() {
           if (found) {
             setUserState(found);
             localStorage.setItem('logged_in_user_data', JSON.stringify(found));
+
+            // ユーザー設定のフォントサイズ・カラーテーマがあれば同期
+            if (found.preferences?.fontSize) {
+              applyFontSize(found.preferences.fontSize as any);
+            }
+            if (found.preferences?.colorTheme) {
+              applyColorTheme(found.preferences.colorTheme as any);
+            }
           }
         }
         return processedUsers;

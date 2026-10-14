@@ -114,6 +114,8 @@ export function applyColorTheme(theme: ColorTheme) {
   if (found) {
     document.body.style.backgroundColor = found.bgPreview;
   }
+
+  window.dispatchEvent(new CustomEvent('teranago:color-theme-changed', { detail: theme }));
 }
 
 export function initColorTheme() {
@@ -121,3 +123,93 @@ export function initColorTheme() {
   applyColorTheme(theme);
   return theme;
 }
+
+// ==========================================================================
+// 文字の大きさ（フォントサイズ）設定: 方式A（ルートスケール連動方式）
+// ==========================================================================
+
+export type AppFontSize = 'small' | 'standard' | 'medium' | 'large';
+
+export interface FontSizeOption {
+  id: AppFontSize;
+  label: string;       // ボタン等用 (例: '小', '標準', '中', '大')
+  name: string;        // 名称 (例: '小（90%）')
+  description: string; // 補足説明
+  percentage: number;  // 90, 100, 110, 120
+  cssScale: string;    // '90%', '100%', '110%', '120%'
+  basePx: string;      // '14.4px', '16px', '17.6px', '19.2px'
+  badgeText: string;   // アイコン横などの表記
+}
+
+export const FONT_SIZE_OPTIONS: FontSizeOption[] = [
+  {
+    id: 'small',
+    label: '小',
+    name: '小（コンパクト・90%）',
+    description: '文字を控えめにし、一覧性を高めて多くの情報を表示します',
+    percentage: 90,
+    cssScale: '90%',
+    basePx: '14.4px',
+    badgeText: '90%',
+  },
+  {
+    id: 'standard',
+    label: '標準',
+    name: '標準（デフォルト・100%）',
+    description: '標準の文字サイズです（推奨・バランス重視）',
+    percentage: 100,
+    cssScale: '100%',
+    basePx: '16px',
+    badgeText: '100%',
+  },
+  {
+    id: 'medium',
+    label: '中',
+    name: '中（やや大きめ・110%）',
+    description: '文字をひと回り大きくし、読みやすさと視認性を高めます',
+    percentage: 110,
+    cssScale: '110%',
+    basePx: '17.6px',
+    badgeText: '110%',
+  },
+  {
+    id: 'large',
+    label: '大',
+    name: '大（特大サイズ・120%）',
+    description: '文字を大幅に拡大し、スマホや細かい文字が苦手な方でも見やすくします',
+    percentage: 120,
+    cssScale: '120%',
+    basePx: '19.2px',
+    badgeText: '120%',
+  },
+];
+
+const FONT_SIZE_STORAGE_KEY = 'app_font_size';
+
+export function getSavedFontSize(): AppFontSize {
+  if (typeof window === 'undefined') return 'standard';
+  const saved = localStorage.getItem(FONT_SIZE_STORAGE_KEY) as AppFontSize | null;
+  if (saved && FONT_SIZE_OPTIONS.some((f) => f.id === saved)) {
+    return saved;
+  }
+  return 'standard';
+}
+
+export function applyFontSize(fontSize: AppFontSize) {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(FONT_SIZE_STORAGE_KEY, fontSize);
+  document.documentElement.setAttribute('data-font-size', fontSize);
+  
+  const found = FONT_SIZE_OPTIONS.find(f => f.id === fontSize) || FONT_SIZE_OPTIONS[1];
+  // ルートの文字サイズを直接変更することでTailwindのrem基準の全体文字・余白が黄金比のままスケール
+  document.documentElement.style.fontSize = found.cssScale;
+
+  window.dispatchEvent(new CustomEvent('teranago:font-size-changed', { detail: fontSize }));
+}
+
+export function initFontSize(): AppFontSize {
+  const size = getSavedFontSize();
+  applyFontSize(size);
+  return size;
+}
+

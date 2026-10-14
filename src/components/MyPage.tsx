@@ -92,7 +92,10 @@ import {
   ChevronUp,
   Pin,
   Coins,
+  Type,
+  Palette,
 } from 'lucide-react';
+import { AppFontSize, FONT_SIZE_OPTIONS, getSavedFontSize, applyFontSize, ColorTheme, THEME_OPTIONS, getSavedTheme, applyColorTheme } from '../utils/theme';
 import { TopicDetailModal } from './TopicDetailModal';
 import { EventModal } from './EventModal';
 import { GlobalEventDetailModal } from './GlobalEventDetailModal';
@@ -2262,6 +2265,139 @@ export function MyPage({
                         </option>
                       ))}
                   </select>
+                </div>
+              </div>
+
+              {/* 🔤 画面表示・文字サイズ設定 */}
+              <div className="pt-4 border-t border-slate-100 space-y-4">
+                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5 pb-1 border-b border-slate-100">
+                  <Type className="w-4 h-4 text-indigo-600" />
+                  画面表示・文字サイズ設定
+                </h3>
+
+                {/* 文字の大きさ（方式A: ルートスケール連動） */}
+                <div className="p-4 bg-slate-50/80 rounded-xl border border-slate-200/80 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="block text-xs font-bold text-slate-700">文字の大きさ（フォントサイズ）</span>
+                      <span className="block text-[11px] text-slate-500 mt-0.5">
+                        アプリ全体の文字やボタンサイズを見やすく調整します（全画面連動・4段階）
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {FONT_SIZE_OPTIONS.map((opt) => {
+                      const curFontSize = settingsForm.preferences?.fontSize || getSavedFontSize();
+                      const isSelected = curFontSize === opt.id;
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => {
+                            applyFontSize(opt.id);
+                            setSettingsForm({
+                              ...settingsForm,
+                              preferences: {
+                                ...(settingsForm.preferences || {}),
+                                fontSize: opt.id,
+                              },
+                            });
+                          }}
+                          className={`p-3 rounded-xl border text-left transition-all flex flex-col justify-between gap-2 cursor-pointer ${
+                            isSelected
+                              ? 'border-indigo-500 bg-white shadow-xs ring-2 ring-indigo-500/20'
+                              : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/80'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className={`text-xs font-bold ${isSelected ? 'text-indigo-600' : 'text-slate-800'}`}>
+                              {opt.label}
+                            </span>
+                            <span className="text-[10px] font-mono text-slate-400 font-semibold">
+                              {opt.badgeText}
+                            </span>
+                          </div>
+                          
+                          <div className="py-1 flex items-center justify-center bg-slate-50 rounded-lg border border-slate-100">
+                            <span
+                              className={`font-bold transition-all ${isSelected ? 'text-indigo-700' : 'text-slate-700'}`}
+                              style={{ fontSize: opt.basePx }}
+                            >
+                              あA
+                            </span>
+                          </div>
+
+                          <div className="flex items-center justify-between text-[10px] text-slate-500 leading-tight">
+                            <span>{opt.description.split('（')[0]}</span>
+                            {isSelected && <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 画面配色（カラーテーマ） */}
+                <div className="p-4 bg-slate-50/80 rounded-xl border border-slate-200/80 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="block text-xs font-bold text-slate-700">画面配色・背景色トーン</span>
+                      <span className="block text-[11px] text-slate-500 mt-0.5">
+                        背景色やくすみアクセントカラーをお好みのトーンに変更できます
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {THEME_OPTIONS.map((opt) => {
+                      const curTheme = settingsForm.preferences?.colorTheme || getSavedTheme();
+                      const isSelected = curTheme === opt.id;
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => {
+                            applyColorTheme(opt.id);
+                            setSettingsForm({
+                              ...settingsForm,
+                              preferences: {
+                                ...(settingsForm.preferences || {}),
+                                colorTheme: opt.id,
+                              },
+                            });
+                          }}
+                          className={`p-2.5 rounded-xl border text-left transition-all flex items-start gap-2 cursor-pointer ${
+                            isSelected
+                              ? 'border-indigo-500 bg-white shadow-xs ring-2 ring-indigo-500/20'
+                              : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/80'
+                          }`}
+                        >
+                          <div
+                            className="w-6 h-6 rounded-md border border-slate-300/80 shadow-2xs shrink-0 flex items-center justify-center relative overflow-hidden mt-0.5"
+                            style={{ backgroundColor: opt.bgPreview }}
+                          >
+                            <div className="flex items-center -space-x-1 scale-75">
+                              <span className="w-2 h-2 rounded-full inline-block shadow-2xs" style={{ backgroundColor: opt.previewColors[1] }} />
+                              <span className="w-2 h-2 rounded-full inline-block shadow-2xs" style={{ backgroundColor: opt.previewColors[0] }} />
+                            </div>
+                          </div>
+
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-1">
+                              <span className={`text-[11px] font-bold truncate ${isSelected ? 'text-indigo-600' : 'text-slate-800'}`}>
+                                {opt.name.split('（')[0]}
+                              </span>
+                              {isSelected && <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />}
+                            </div>
+                            <span className="block text-[9px] text-slate-400 truncate mt-0.5">
+                              {opt.bgLabel}
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
 
