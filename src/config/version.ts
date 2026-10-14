@@ -14,9 +14,9 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.14.2',
+  version: '2026.10.14.3',
   date: '2026-10-14',
-  releaseNumber: 2,
-  display: 'v2026.10.14 #2',
-  description: 'PDFプレビューの上下途切れ解消＆全体表示・幅合わせ切替追加、チャット・掲示板等でのExcel・Word・テキスト・CSVマルチモーダルプレビュー完全対応',
+  releaseNumber: 3,
+  display: 'v2026.10.14 #3',
+  description: 'プレビュービューアー群（PDF/Excel/Word/CSV）のコード分割・遅延読み込み（React.lazy）による初期バンドル軽量化＆トップページ表示超高速化',
 };

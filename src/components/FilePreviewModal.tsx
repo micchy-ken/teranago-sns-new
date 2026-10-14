@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, Suspense, lazy } from 'react';
 import { 
   X, 
   Download, 
@@ -6,16 +6,18 @@ import {
   FileImage, 
   FileCode, 
   FileSpreadsheet,
-  ExternalLink,
-  AlertCircle
+  AlertCircle,
+  Loader2
 } from 'lucide-react';
 import { AttachmentFile } from '../types';
 import { resolveFileUrl } from '../utils/fileUpload';
-import { PdfViewer } from './preview/PdfViewer';
-import { ExcelViewer } from './preview/ExcelViewer';
-import { DocxViewer } from './preview/DocxViewer';
-import { TextViewer } from './preview/TextViewer';
-import { ImageViewer } from './preview/ImageViewer';
+
+// 各種ビューアーを遅延読み込み（コード分割）してトップページの初期表示バンドルサイズを劇的に削減
+const PdfViewer = lazy(() => import('./preview/PdfViewer').then(m => ({ default: m.PdfViewer })));
+const ExcelViewer = lazy(() => import('./preview/ExcelViewer').then(m => ({ default: m.ExcelViewer })));
+const DocxViewer = lazy(() => import('./preview/DocxViewer').then(m => ({ default: m.DocxViewer })));
+const TextViewer = lazy(() => import('./preview/TextViewer').then(m => ({ default: m.TextViewer })));
+const ImageViewer = lazy(() => import('./preview/ImageViewer').then(m => ({ default: m.ImageViewer })));
 
 interface FilePreviewModalProps {
   isOpen: boolean;
@@ -135,71 +137,81 @@ export function FilePreviewModal({ isOpen, onClose, file }: FilePreviewModalProp
 
         {/* Preview Content Body */}
         <div className="flex-1 overflow-hidden flex flex-col bg-slate-100 relative">
-          {isImage ? (
-            <ImageViewer 
-              url={resolvedUrl} 
-              fileName={fileName} 
-              onDownload={handleDownload} 
-            />
-          ) : isPdf ? (
-            <PdfViewer 
-              url={resolvedUrl} 
-              fileName={fileName} 
-              onDownload={handleDownload} 
-            />
-          ) : isExcel ? (
-            <ExcelViewer 
-              url={resolvedUrl} 
-              fileName={fileName} 
-              onDownload={handleDownload} 
-            />
-          ) : isDocx ? (
-            <DocxViewer 
-              url={resolvedUrl} 
-              fileName={fileName} 
-              onDownload={handleDownload} 
-            />
-          ) : isText ? (
-            <TextViewer 
-              url={resolvedUrl} 
-              fileName={fileName} 
-              onDownload={handleDownload} 
-            />
-          ) : isOldDoc ? (
-            <div className="text-center py-16 px-6 max-w-md mx-auto">
-              <div className="w-14 h-14 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto mb-4">
-                <FileText className="w-7 h-7" />
+          <Suspense
+            fallback={
+              <div className="flex flex-col items-center justify-center p-12 text-slate-500 h-full min-h-[350px]">
+                <Loader2 className="w-8 h-8 animate-spin text-indigo-600 mb-3" />
+                <p className="text-xs font-bold text-slate-700">ビューアーを起動中...</p>
+                <p className="text-[11px] text-slate-400 mt-1">必要なモジュールのみを非同期に取得しています</p>
               </div>
-              <h4 className="text-sm font-bold text-slate-800 mb-2">旧形式のWord文書（.doc）です</h4>
-              <p className="text-xs text-slate-500 mb-6 leading-relaxed">
-                .doc 形式はブラウザ上での直接展開に対応しておりません。端末にダウンロードしてWordアプリで開くか、.docx 形式に保存し直してご利用ください。
-              </p>
-              <button
-                onClick={handleDownload}
-                className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 mx-auto shadow-xs transition-colors cursor-pointer"
-              >
-                <Download className="w-4 h-4" />
-                <span>ファイルをダウンロード</span>
-              </button>
-            </div>
-          ) : (
-            <div className="text-center py-16 px-6 max-w-md mx-auto">
-              <div className="w-14 h-14 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto mb-4">
-                <FileText className="w-7 h-7" />
+            }
+          >
+            {isImage ? (
+              <ImageViewer 
+                url={resolvedUrl} 
+                fileName={fileName} 
+                onDownload={handleDownload} 
+              />
+            ) : isPdf ? (
+              <PdfViewer 
+                url={resolvedUrl} 
+                fileName={fileName} 
+                onDownload={handleDownload} 
+              />
+            ) : isExcel ? (
+              <ExcelViewer 
+                url={resolvedUrl} 
+                fileName={fileName} 
+                onDownload={handleDownload} 
+              />
+            ) : isDocx ? (
+              <DocxViewer 
+                url={resolvedUrl} 
+                fileName={fileName} 
+                onDownload={handleDownload} 
+              />
+            ) : isText ? (
+              <TextViewer 
+                url={resolvedUrl} 
+                fileName={fileName} 
+                onDownload={handleDownload} 
+              />
+            ) : isOldDoc ? (
+              <div className="text-center py-16 px-6 max-w-md mx-auto">
+                <div className="w-14 h-14 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto mb-4">
+                  <FileText className="w-7 h-7" />
+                </div>
+                <h4 className="text-sm font-bold text-slate-800 mb-2">旧形式のWord文書（.doc）です</h4>
+                <p className="text-xs text-slate-500 mb-6 leading-relaxed">
+                  .doc 形式はブラウザ上での直接展開に対応しておりません。端末にダウンロードしてWordアプリで開くか、.docx 形式に保存し直してご利用ください。
+                </p>
+                <button
+                  onClick={handleDownload}
+                  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 mx-auto shadow-xs transition-colors cursor-pointer"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>ファイルをダウンロード</span>
+                </button>
               </div>
-              <h4 className="text-sm font-bold text-slate-800 mb-2">オンラインプレビュー非対応のファイル形式です</h4>
-              <p className="text-xs text-slate-500 mb-6 leading-relaxed">
-                ZIPアーカイブや実行可能ファイル等のため、ブラウザ内での直接プレビューはできません。端末にダウンロードしてご確認ください。
-              </p>
-              <button
-                onClick={handleDownload}
-                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 mx-auto shadow-xs transition-colors cursor-pointer"
-              >
-                <Download className="w-4 h-4" />
-                <span>ファイルをダウンロード</span>
-              </button>
-            </div>
-          )}
+            ) : (
+              <div className="text-center py-16 px-6 max-w-md mx-auto">
+                <div className="w-14 h-14 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto mb-4">
+                  <FileText className="w-7 h-7" />
+                </div>
+                <h4 className="text-sm font-bold text-slate-800 mb-2">オンラインプレビュー非対応のファイル形式です</h4>
+                <p className="text-xs text-slate-500 mb-6 leading-relaxed">
+                  ZIPアーカイブや実行可能ファイル等のため、ブラウザ内での直接プレビューはできません。端末にダウンロードしてご確認ください。
+                </p>
+                <button
+                  onClick={handleDownload}
+                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 mx-auto shadow-xs transition-colors cursor-pointer"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>ファイルをダウンロード</span>
+                </button>
+              </div>
+            )}
+          </Suspense>
         </div>
       </div>
     </div>
