@@ -2,21 +2,21 @@
  * TERANAGO SNS アプリケーションバージョン定義
  * 
  * 規約: バージョンアップ時は日付（JST）とその日のいくつめのバージョンか（releaseNumber）を更新する。
- * 例: 2026年10月8日の1回目の更新 -> v2026.10.08 #1 (2026.10.08.1)
+ * 例: 2026年10月14日の1回目の更新 -> v2026.10.14 #1 (2026.10.14.1)
  */
 
 export interface AppVersionInfo {
-  version: string;        // 例: '2026.10.08.4'
-  date: string;           // 例: '2026-10-08'
+  version: string;        // 例: '2026.10.14.1'
+  date: string;           // 例: '2026-10-14'
   releaseNumber: number;  // その日のリリース番号 (1, 2, 3...)
-  display: string;        // 画面表示用 (例: 'v2026.10.08 #4')
+  display: string;        // 画面表示用 (例: 'v2026.10.14 #1')
   description?: string;   // バージョンの主な更新内容
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.08.4',
-  date: '2026-10-08',
-  releaseNumber: 4,
-  display: 'v2026.10.08 #4',
-  description: 'ワークフロー新規申請作成時に入力内容が定期同期でリセットされる不具合の修正',
+  version: '2026.10.14.1',
+  date: '2026-10-14',
+  releaseNumber: 1,
+  display: 'v2026.10.14 #1',
+  description: 'スマホ対応マルチモーダルプレビュー機能（PDF Canvas描画・Excelシート別表示・Word文書HTML表示・CSV表形式・画像）の実装',
 };

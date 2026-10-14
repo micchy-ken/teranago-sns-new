@@ -2,11 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { 
   X, Layers, Calendar, User as UserIcon, Building, MapPin, 
   ExternalLink, MessageSquare, Send, CheckCircle2, Clock, 
-  FileText, Paperclip, Trash2, Edit3, Save, RefreshCw, AlertCircle, FileSpreadsheet, Download
+  FileText, Paperclip, Trash2, Edit3, Save, RefreshCw, AlertCircle, FileSpreadsheet, Download, Eye
 } from 'lucide-react';
 import { Site, SiteMainPart, SiteSubPart, SiteComment, SiteStatus, PartStatus } from '../../types/site';
-import { User } from '../../types';
+import { User, AttachmentFile } from '../../types';
 import { API_BASE_URL } from '../../config/api';
+import { FilePreviewModal } from '../FilePreviewModal';
 
 interface SiteDetailModalProps {
   site: Site | null;
@@ -38,6 +39,10 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
   // コメント入力
   const [commentInput, setCommentInput] = useState('');
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
+
+  // ファイルプレビュー用ステート
+  const [previewFile, setPreviewFile] = useState<AttachmentFile | null>(null);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
   // 付属部品の外部在庫DBリアルタイム取得
   const [subParts, setSubParts] = useState<SiteSubPart[]>(site?.subPartsCache || []);
@@ -648,15 +653,30 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
                   <div className="space-y-1.5">
                     {currentSite.attachments.map(att => (
                       <div key={att.id} className="flex items-center justify-between p-2 bg-slate-50 rounded-lg text-xs border border-slate-200">
-                        <span className="font-medium text-slate-800">{att.name}</span>
-                        <a
-                          href={att.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-indigo-600 hover:underline font-semibold"
-                        >
-                          開く →
-                        </a>
+                        <span className="font-medium text-slate-800 truncate mr-2" title={att.name}>{att.name}</span>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPreviewFile(att);
+                              setIsPreviewOpen(true);
+                            }}
+                            className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-md flex items-center gap-1 text-[11px] transition-colors cursor-pointer"
+                          >
+                            <Eye className="w-3 h-3" />
+                            プレビュー
+                          </button>
+                          <a
+                            href={att.url}
+                            download={att.name}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="p-1 text-slate-400 hover:text-indigo-600 rounded-md transition-colors"
+                            title="ダウンロード"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                          </a>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -732,6 +752,14 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
           </button>
         </div>
       </div>
+
+      {previewFile && (
+        <FilePreviewModal
+          isOpen={isPreviewOpen}
+          onClose={() => setIsPreviewOpen(false)}
+          file={previewFile}
+        />
+      )}
     </div>
   );
 };
