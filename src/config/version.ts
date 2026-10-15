@@ -14,9 +14,9 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.15.4',
+  version: '2026.10.15.5',
   date: '2026-10-15',
-  releaseNumber: 4,
-  display: 'v2026.10.15 #4',
-  description: 'スケジュール登録の日付時間エリア再構成（開始・終了を1行目、日付と時間を2行目にして日付幅拡大、「時・分」表記削除、繰り返しトグルの区分行移動＆時間下展開）',
+  releaseNumber: 5,
+  display: 'v2026.10.15 #5',
+  description: 'PC画面での最前面ミニ通知（縮小表示）ボタンの再表示（スマホ・タブレット画面では非表示維持）',
 };

@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Search, Bell, Menu, Phone, FileText, Monitor, Calendar as CalendarIcon, MessageSquare, CheckCheck, ChevronRight, X, Smartphone, Users, MessageCircle, Palette, Check, Pin, ShieldAlert, Type, Undo2 } from 'lucide-react';
+import { Search, Bell, Menu, Phone, FileText, Monitor, Calendar as CalendarIcon, MessageSquare, CheckCheck, ChevronRight, X, Smartphone, Users, MessageCircle, Palette, Check, Pin, ShieldAlert, Type, Undo2, Minimize2 } from 'lucide-react';
 import { User, Memo, WorkflowApplication, BoardTopic, CalendarEvent, ChatRoom, Post, DailyReport, SafetyConfirmationEvent, SafetyConfirmationResponse } from '../types';
 import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
 import { AppTab } from './Sidebar';
+import { MiniNotificationMode } from './MiniNotificationMode';
 import { expandRecurringEvents } from '../utils/recurrenceUtils';
 import { ColorTheme, THEME_OPTIONS, getSavedTheme, applyColorTheme, AppFontSize, FONT_SIZE_OPTIONS, getSavedFontSize, applyFontSize } from '../utils/theme';
 import { API_BASE_URL } from '../config/api';
@@ -171,6 +172,9 @@ export function Header({
   const [currentFontSize, setCurrentFontSize] = useState<AppFontSize>(() => getSavedFontSize());
   const [isFontSizePickerOpen, setIsFontSizePickerOpen] = useState(false);
   const fontSizePickerRef = useRef<HTMLDivElement>(null);
+
+  // Mini notification mode state (PC専用 縮小表示 / 最前面常駐)
+  const [isMiniNotificationOpen, setIsMiniNotificationOpen] = useState(false);
 
   useEffect(() => {
     applyColorTheme(currentTheme);
@@ -1473,6 +1477,24 @@ export function Header({
             )}
           </div>
 
+          {/* Mini Notification Mode Button (PC画面のみ表示: 縮小表示・最前面ミニ通知常駐) */}
+          <button
+            type="button"
+            onClick={() => {
+              setIsMiniNotificationOpen((prev) => !prev);
+              setIsOpen(false);
+            }}
+            className={`w-9 h-9 rounded-xl transition-all items-center justify-center cursor-pointer border select-none shrink-0 hidden lg:flex ${
+              isMiniNotificationOpen
+                ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
+                : 'border-slate-200/80 bg-white/80 hover:bg-slate-50 hover:border-slate-300 text-slate-600 shadow-2xs'
+            }`}
+            title="最前面ミニ通知モード (縮小表示して通知のみ常駐表示)"
+            aria-label="最前面ミニ通知モード (縮小表示して通知のみ常駐表示)"
+          >
+            <Minimize2 className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
+          </button>
+
           {/* Notifications Bell */}
           <div className="relative shrink-0" ref={popoverRef}>
             <button
@@ -1511,6 +1533,18 @@ export function Header({
                     )}
                   </div>
                   <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsMiniNotificationOpen(true);
+                        setIsOpen(false);
+                      }}
+                      className="hidden lg:inline-flex items-center gap-1 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 hover:text-indigo-900 px-2 py-1 rounded-lg transition-colors border border-indigo-200/80 cursor-pointer"
+                      title="最前面ミニウィンドウで通知のみ常駐表示 (PiP)"
+                    >
+                      <Minimize2 className="w-3.5 h-3.5" />
+                      <span>最前面ミニ表示</span>
+                    </button>
                     {unreadCount > 0 && (
                       <button
                         type="button"
@@ -1843,6 +1877,20 @@ export function Header({
         </div>
       </div>
 
+      {/* 最前面ミニ通知ウィンドウ (Picture-in-Picture / 縮小表示・コンパクトモード) */}
+      <MiniNotificationMode
+        notifications={allNotifications}
+        unreadCount={unreadCount}
+        currentUser={currentUser}
+        onNotificationClick={handleNotificationClick}
+        onMarkAllAsRead={handleMarkAllAsRead}
+        isOpen={isMiniNotificationOpen}
+        onClose={() => setIsMiniNotificationOpen(false)}
+        onRestoreMain={() => {
+          setIsMiniNotificationOpen(false);
+          window.focus();
+        }}
+      />
     </header>
   );
 }
