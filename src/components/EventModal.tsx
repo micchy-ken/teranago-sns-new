@@ -701,11 +701,11 @@ export function EventModal({
     >
       <div
         onClick={e => e.stopPropagation()}
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-lg sm:max-w-xl my-8 max-h-[90vh] overflow-y-auto ring-1 ring-slate-900/5"
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-lg sm:max-w-2xl my-6 max-h-[92vh] overflow-y-auto ring-1 ring-slate-900/5"
       >
-        <div className="flex items-center justify-between p-5 border-b border-slate-100">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
           <div className="flex items-center gap-2">
-            <h2 className="text-lg font-bold text-slate-800">
+            <h2 className="text-base sm:text-lg font-bold text-slate-800">
               {currentEditingEvent ? '予定を編集' : '予定を追加'}
             </h2>
             {isCurrentlyRecurring && (
@@ -715,12 +715,12 @@ export function EventModal({
               </span>
             )}
           </div>
-          <button onClick={handleModalClose} className="p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 rounded-full transition-colors">
+          <button onClick={handleModalClose} className="p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 rounded-full transition-colors cursor-pointer">
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-5">
+        <form onSubmit={handleSubmit} className="p-4 sm:p-5 space-y-3">
           {isAllDay && start && end && start.split('T')[0] !== end.split('T')[0] && (
             <div className="p-3 bg-purple-50 border border-purple-200 text-purple-900 text-xs font-bold rounded-xl flex items-center justify-between gap-2 shadow-2xs">
               <div className="flex items-center gap-2">
@@ -754,84 +754,118 @@ export function EventModal({
           )}
 
           <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-1.5">タイトル <span className="text-red-500">*</span></label>
+            <label className="block text-xs font-bold text-slate-700 mb-1">タイトル <span className="text-red-500">*</span></label>
             <input
               type="text"
               required
               readOnly={isIcal}
               value={title}
               onChange={e => { setTitle(e.target.value); setError(null); }}
-              className={`w-full px-3.5 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors ${
+              className={`w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors shadow-2xs ${
                 isIcal ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-slate-50 focus:bg-white'
               }`}
               placeholder="予定のタイトル"
             />
           </div>
 
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">区分</label>
-            <select
-              value={type}
-              disabled={isIcal}
-              onChange={e => setType(e.target.value as EventType)}
-              className={`w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors ${
-                isIcal ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-slate-50 focus:bg-white'
-              }`}
-            >
-              <option value="personal">個人</option>
-              <option value="construction">工事</option>
-              <option value="inspection">点検</option>
-              <option value="replacement">取替</option>
-              <option value="repair">修理</option>
-              <option value="visitor">来客</option>
-              <option value="business_trip">出張</option>
-            </select>
-          </div>
-
-          <div className="flex items-center gap-6 pt-1 flex-wrap">
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="isAllDay"
+          {/* 区分・終日・隠す・繰り返し を1行にコンパクト配置 */}
+          <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-50/90 px-3 py-2 rounded-xl border border-slate-200/80">
+            {/* 区分 */}
+            <div className="flex items-center gap-1.5 shrink-0">
+              <label htmlFor="eventTypeSelect" className="text-xs font-bold text-slate-700 shrink-0">区分</label>
+              <select
+                id="eventTypeSelect"
+                value={type}
                 disabled={isIcal}
-                checked={isAllDay}
-                onChange={e => handleAllDayToggle(e.target.checked)}
-                className={`w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 ${
-                  isIcal ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
+                onChange={e => setType(e.target.value as EventType)}
+                className={`px-2 py-1 border border-slate-200 rounded-lg text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors shadow-2xs ${
+                  isIcal ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-white hover:border-slate-300 text-slate-800 cursor-pointer'
                 }`}
-              />
-              <label htmlFor="isAllDay" className={`text-sm font-semibold select-none ${
-                isIcal ? 'text-slate-400 cursor-not-allowed' : 'text-slate-700 cursor-pointer'
-              }`}>
-                終日予定として設定
-              </label>
+              >
+                <option value="personal">個人</option>
+                <option value="construction">工事</option>
+                <option value="inspection">点検</option>
+                <option value="replacement">取替</option>
+                <option value="repair">修理</option>
+                <option value="visitor">来客</option>
+                <option value="business_trip">出張</option>
+              </select>
             </div>
 
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="isPrivate"
-                disabled={isIcal}
-                checked={isPrivate}
-                onChange={e => handlePrivateToggle(e.target.checked)}
-                className={`w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 ${
-                  isIcal ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
+            {/* 終日・隠す・繰り返し チェックボックス */}
+            <div className="flex flex-wrap items-center gap-3 shrink-0">
+              <label
+                htmlFor="isAllDay"
+                className={`flex items-center gap-1 text-xs font-bold select-none cursor-pointer ${
+                  isIcal ? 'text-slate-400 cursor-not-allowed' : 'text-slate-700 hover:text-indigo-600'
                 }`}
-              />
-              <label htmlFor="isPrivate" className={`text-sm font-semibold select-none flex items-center gap-1 ${
-                isIcal ? 'text-slate-400 cursor-not-allowed' : 'text-slate-700 cursor-pointer'
-              }`}>
-                <span>他人から隠す</span>
+              >
+                <input
+                  type="checkbox"
+                  id="isAllDay"
+                  disabled={isIcal}
+                  checked={isAllDay}
+                  onChange={e => handleAllDayToggle(e.target.checked)}
+                  className={`w-3.5 h-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 ${
+                    isIcal ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
+                  }`}
+                />
+                <span>終日</span>
+              </label>
+
+              <label
+                htmlFor="isPrivate"
+                className={`flex items-center gap-1 text-xs font-bold select-none cursor-pointer ${
+                  isIcal ? 'text-slate-400 cursor-not-allowed' : 'text-slate-700 hover:text-indigo-600'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  id="isPrivate"
+                  disabled={isIcal}
+                  checked={isPrivate}
+                  onChange={e => handlePrivateToggle(e.target.checked)}
+                  className={`w-3.5 h-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 ${
+                    isIcal ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
+                  }`}
+                />
+                <span>隠す</span>
+              </label>
+
+              <label
+                htmlFor="isRecurring"
+                className={`flex items-center gap-1 text-xs font-bold select-none cursor-pointer ${
+                  isIcal ? 'text-slate-400 cursor-not-allowed' : 'text-slate-700 hover:text-indigo-600'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  id="isRecurring"
+                  disabled={isIcal}
+                  checked={isRecurring}
+                  onChange={e => {
+                    setIsRecurring(e.target.checked);
+                    setError(null);
+                  }}
+                  className={`w-3.5 h-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 ${
+                    isIcal ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
+                  }`}
+                />
+                <span className="flex items-center gap-0.5">
+                  <Repeat className={`w-3 h-3 ${isRecurring ? 'text-indigo-600' : 'text-slate-400'}`} />
+                  繰り返し
+                </span>
               </label>
             </div>
           </div>
 
+          {/* 開始日時・終了日時：1行目を見出し、2行目を日付・時刻にして日付欄を拡大 */}
           {isAllDay ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 bg-slate-50/80 p-3.5 rounded-xl border border-slate-200/80">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                  開始日 <span className="text-red-500">*</span>
-                </label>
+            <div className="bg-slate-50/90 px-3 py-2.5 rounded-xl border border-slate-200/80 space-y-1">
+              <div className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                終日期間 <span className="text-red-500">*</span>
+              </div>
+              <div className="flex items-center gap-2">
                 <input
                   type="date"
                   required
@@ -848,15 +882,11 @@ export function EventModal({
                       }
                     }
                   }}
-                  className={`w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors text-sm font-medium shadow-2xs ${
+                  className={`flex-1 min-w-0 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors text-xs font-bold text-slate-800 shadow-2xs ${
                     isIcal ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'hover:border-slate-300'
                   }`}
                 />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                  終了日
-                </label>
+                <span className="text-slate-400 font-bold shrink-0">～</span>
                 <input
                   type="date"
                   readOnly={isIcal}
@@ -865,374 +895,357 @@ export function EventModal({
                     setEnd(e.target.value ? `${e.target.value}T23:59` : '');
                     setError(null);
                   }}
-                  className={`w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors text-sm font-medium shadow-2xs ${
+                  className={`flex-1 min-w-0 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors text-xs font-bold text-slate-800 shadow-2xs ${
                     isIcal ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'hover:border-slate-300'
                   }`}
                 />
               </div>
             </div>
           ) : (
-            <div className="space-y-3.5 bg-slate-50/80 p-3.5 rounded-xl border border-slate-200/80">
-              {/* 開始日時 */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                  開始日時 <span className="text-red-500">*</span>
-                </label>
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                  <input
-                    type="date"
-                    required
-                    readOnly={isIcal}
-                    value={start.split('T')[0] || ''}
-                    onChange={e => {
-                      const d = e.target.value;
-                      const h = start.split('T')[1]?.split(':')[0] || '09';
-                      const m = roundTo5Minutes(start.split('T')[1]?.split(':')[1] || '00');
-                      handleStartChange(d ? `${d}T${h}:${m}` : '');
-                    }}
-                    className={`flex-1 min-w-0 px-3.5 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors text-sm font-medium shadow-2xs ${
-                      isIcal ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'hover:border-slate-300'
-                    }`}
-                  />
-                  <div className="flex items-center gap-1.5 shrink-0 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 shadow-2xs">
-                    <Clock className="w-4 h-4 text-indigo-500 shrink-0 ml-0.5" />
-                    <select
-                      disabled={isIcal}
-                      value={start.split('T')[1]?.split(':')[0] || '09'}
+            <div className="bg-slate-50/90 px-3 py-2.5 rounded-xl border border-slate-200/80">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {/* 開始日時: 1行目 見出し, 2行目 日付+時間 (時・分の表示なし) */}
+                <div className="space-y-1">
+                  <div className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                    開始 <span className="text-red-500">*</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="date"
+                      required
+                      readOnly={isIcal}
+                      value={start.split('T')[0] || ''}
                       onChange={e => {
-                        const d = start.split('T')[0] || extractLocalDateStr(new Date().toISOString());
-                        const h = e.target.value;
-                        const m = roundTo5Minutes(start.split('T')[1]?.split(':')[1] || '00');
-                        handleStartChange(`${d}T${h}:${m}`);
-                      }}
-                      className={`px-1.5 py-0.5 bg-transparent text-sm font-bold text-slate-800 focus:outline-none cursor-pointer ${
-                        isIcal ? 'text-slate-400 cursor-not-allowed' : ''
-                      }`}
-                    >
-                      {HOURS.map(h => (
-                        <option key={h} value={h}>{h}時</option>
-                      ))}
-                    </select>
-                    <span className="text-slate-400 font-bold">:</span>
-                    <select
-                      disabled={isIcal}
-                      value={roundTo5Minutes(start.split('T')[1]?.split(':')[1] || '00')}
-                      onChange={e => {
-                        const d = start.split('T')[0] || extractLocalDateStr(new Date().toISOString());
+                        const d = e.target.value;
                         const h = start.split('T')[1]?.split(':')[0] || '09';
-                        const m = e.target.value;
-                        handleStartChange(`${d}T${h}:${m}`);
+                        const m = roundTo5Minutes(start.split('T')[1]?.split(':')[1] || '00');
+                        handleStartChange(d ? `${d}T${h}:${m}` : '');
                       }}
-                      className={`px-1.5 py-0.5 bg-transparent text-sm font-bold text-slate-800 focus:outline-none cursor-pointer ${
-                        isIcal ? 'text-slate-400 cursor-not-allowed' : ''
+                      className={`flex-1 min-w-0 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors text-xs font-bold text-slate-800 shadow-2xs ${
+                        isIcal ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'hover:border-slate-300'
                       }`}
-                    >
-                      {MINUTES.map(m => (
-                        <option key={m} value={m}>{m}分</option>
-                      ))}
-                    </select>
+                    />
+                    <div className="flex items-center gap-0.5 shrink-0 bg-white border border-slate-200 rounded-lg px-1.5 py-1 shadow-2xs">
+                      <Clock className="w-3.5 h-3.5 text-indigo-500 shrink-0 ml-0.5" />
+                      <select
+                        disabled={isIcal}
+                        value={start.split('T')[1]?.split(':')[0] || '09'}
+                        onChange={e => {
+                          const d = start.split('T')[0] || extractLocalDateStr(new Date().toISOString());
+                          const h = e.target.value;
+                          const m = roundTo5Minutes(start.split('T')[1]?.split(':')[1] || '00');
+                          handleStartChange(`${d}T${h}:${m}`);
+                        }}
+                        className={`px-0.5 py-0.5 bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer ${
+                          isIcal ? 'text-slate-400 cursor-not-allowed' : ''
+                        }`}
+                      >
+                        {HOURS.map(h => (
+                          <option key={h} value={h}>{h}</option>
+                        ))}
+                      </select>
+                      <span className="text-slate-400 font-bold text-xs">:</span>
+                      <select
+                        disabled={isIcal}
+                        value={roundTo5Minutes(start.split('T')[1]?.split(':')[1] || '00')}
+                        onChange={e => {
+                          const d = start.split('T')[0] || extractLocalDateStr(new Date().toISOString());
+                          const h = start.split('T')[1]?.split(':')[0] || '09';
+                          const m = e.target.value;
+                          handleStartChange(`${d}T${h}:${m}`);
+                        }}
+                        className={`px-0.5 py-0.5 bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer ${
+                          isIcal ? 'text-slate-400 cursor-not-allowed' : ''
+                        }`}
+                      >
+                        {MINUTES.map(m => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {/* 終了日時 */}
-              <div className="pt-3 border-t border-slate-200/70">
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                  終了日時 <span className="text-red-500">*</span>
-                </label>
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                  <input
-                    type="date"
-                    required
-                    readOnly={isIcal}
-                    value={end ? end.split('T')[0] : ''}
-                    onChange={e => {
-                      const d = e.target.value;
-                      if (!d) return;
-                      const h = end ? (end.split('T')[1]?.split(':')[0] || '10') : '10';
-                      const m = end ? roundTo5Minutes(end.split('T')[1]?.split(':')[1] || '00') : '00';
-                      handleEndChange(`${d}T${h}:${m}`);
-                    }}
-                    className={`flex-1 min-w-0 px-3.5 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors text-sm font-medium shadow-2xs ${
-                      isIcal ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'hover:border-slate-300'
-                    }`}
-                  />
-                  <div className="flex items-center gap-1.5 shrink-0 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 shadow-2xs">
-                    <Clock className="w-4 h-4 text-slate-400 shrink-0 ml-0.5" />
-                    <select
-                      disabled={isIcal}
-                      value={end ? (end.split('T')[1]?.split(':')[0] || '10') : '10'}
+                {/* 終了日時: 1行目 見出し, 2行目 日付+時間 (時・分の表示なし) */}
+                <div className="space-y-1">
+                  <div className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                    終了 <span className="text-red-500">*</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="date"
+                      required
+                      readOnly={isIcal}
+                      value={end ? end.split('T')[0] : ''}
                       onChange={e => {
-                        const d = (end && end.split('T')[0]) || start.split('T')[0] || extractLocalDateStr(new Date().toISOString());
-                        const h = e.target.value;
+                        const d = e.target.value;
+                        if (!d) return;
+                        const h = end ? (end.split('T')[1]?.split(':')[0] || '10') : '10';
                         const m = end ? roundTo5Minutes(end.split('T')[1]?.split(':')[1] || '00') : '00';
                         handleEndChange(`${d}T${h}:${m}`);
                       }}
-                      className={`px-1.5 py-0.5 bg-transparent text-sm font-bold text-slate-800 focus:outline-none cursor-pointer ${
-                        isIcal ? 'text-slate-400 cursor-not-allowed' : ''
+                      className={`flex-1 min-w-0 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors text-xs font-bold text-slate-800 shadow-2xs ${
+                        isIcal ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'hover:border-slate-300'
                       }`}
-                    >
-                      {HOURS.map(h => (
-                        <option key={h} value={h}>{h}時</option>
-                      ))}
-                    </select>
-                    <span className="text-slate-400 font-bold">:</span>
-                    <select
-                      disabled={isIcal}
-                      value={end ? roundTo5Minutes(end.split('T')[1]?.split(':')[1] || '00') : '00'}
-                      onChange={e => {
-                        const d = (end && end.split('T')[0]) || start.split('T')[0] || extractLocalDateStr(new Date().toISOString());
-                        const h = end ? (end.split('T')[1]?.split(':')[0] || '10') : '10';
-                        const m = e.target.value;
-                        handleEndChange(`${d}T${h}:${m}`);
-                      }}
-                      className={`px-1.5 py-0.5 bg-transparent text-sm font-bold text-slate-800 focus:outline-none cursor-pointer ${
-                        isIcal ? 'text-slate-400 cursor-not-allowed' : ''
-                      }`}
-                    >
-                      {MINUTES.map(m => (
-                        <option key={m} value={m}>{m}分</option>
-                      ))}
-                    </select>
+                    />
+                    <div className="flex items-center gap-0.5 shrink-0 bg-white border border-slate-200 rounded-lg px-1.5 py-1 shadow-2xs">
+                      <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0 ml-0.5" />
+                      <select
+                        disabled={isIcal}
+                        value={end ? (end.split('T')[1]?.split(':')[0] || '10') : '10'}
+                        onChange={e => {
+                          const d = (end && end.split('T')[0]) || start.split('T')[0] || extractLocalDateStr(new Date().toISOString());
+                          const h = e.target.value;
+                          const m = end ? roundTo5Minutes(end.split('T')[1]?.split(':')[1] || '00') : '00';
+                          handleEndChange(`${d}T${h}:${m}`);
+                        }}
+                        className={`px-0.5 py-0.5 bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer ${
+                          isIcal ? 'text-slate-400 cursor-not-allowed' : ''
+                        }`}
+                      >
+                        {HOURS.map(h => (
+                          <option key={h} value={h}>{h}</option>
+                        ))}
+                      </select>
+                      <span className="text-slate-400 font-bold text-xs">:</span>
+                      <select
+                        disabled={isIcal}
+                        value={end ? roundTo5Minutes(end.split('T')[1]?.split(':')[1] || '00') : '00'}
+                        onChange={e => {
+                          const d = (end && end.split('T')[0]) || start.split('T')[0] || extractLocalDateStr(new Date().toISOString());
+                          const h = end ? (end.split('T')[1]?.split(':')[0] || '10') : '10';
+                          const m = e.target.value;
+                          handleEndChange(`${d}T${h}:${m}`);
+                        }}
+                        className={`px-0.5 py-0.5 bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer ${
+                          isIcal ? 'text-slate-400 cursor-not-allowed' : ''
+                        }`}
+                      >
+                        {MINUTES.map(m => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
           )}
 
-          {/* ========================================== */}
-          {/* 繰り返し（定期予定）設定トグル & オプション */}
-          {/* ========================================== */}
-          <div className="border border-slate-200 rounded-xl p-4 bg-slate-50/50 space-y-3.5 transition-all">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Repeat className={`w-4 h-4 ${isRecurring ? 'text-indigo-600' : 'text-slate-400'}`} />
-                <span className="text-sm font-bold text-slate-800">繰り返し設定</span>
+          {/* 繰り返しがONの場合に時間の下に表示される詳細設定 */}
+          {isRecurring && (
+            <div className="border border-indigo-200 rounded-xl p-3.5 bg-indigo-50/40 space-y-3.5 transition-all animate-in fade-in-50 duration-200">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-indigo-900 border-b border-indigo-100/80 pb-2">
+                <Repeat className="w-4 h-4 text-indigo-600 shrink-0" />
+                <span>繰り返し詳細設定</span>
               </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  disabled={isIcal}
-                  checked={isRecurring}
-                  onChange={e => {
-                    setIsRecurring(e.target.checked);
-                    setError(null);
-                  }}
-                  className="sr-only peer"
-                />
-                <div className="w-10 h-5.5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4.5 after:w-4.5 after:transition-all peer-checked:bg-indigo-600"></div>
-              </label>
-            </div>
 
-            {isRecurring && (
-              <div className="pt-2 space-y-4 border-t border-slate-200/80 animate-in fade-in-50 duration-200">
-                {/* 頻度選択 */}
+              {/* 頻度選択 */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">繰り返す頻度</label>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {[
+                    { id: 'weekly', label: '毎週' },
+                    { id: 'monthly', label: '毎月' },
+                    { id: 'daily', label: '毎日' },
+                    { id: 'yearly', label: '毎年' },
+                  ].map(item => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setRecurrenceFreq(item.id as RecurrenceFrequency)}
+                      className={`py-1.5 text-xs font-bold rounded-lg border transition-all ${
+                        recurrenceFreq === item.id
+                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                          : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* 毎週の場合: 曜日選択（複数選択可） */}
+              {recurrenceFreq === 'weekly' && (
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">繰り返す頻度</label>
-                  <div className="grid grid-cols-4 gap-1.5">
-                    {[
-                      { id: 'weekly', label: '毎週' },
-                      { id: 'monthly', label: '毎月' },
-                      { id: 'daily', label: '毎日' },
-                      { id: 'yearly', label: '毎年' },
-                    ].map(item => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => setRecurrenceFreq(item.id as RecurrenceFrequency)}
-                        className={`py-1.5 text-xs font-bold rounded-lg border transition-all ${
-                          recurrenceFreq === item.id
-                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
-                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
-                        }`}
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                    繰り返す曜日 <span className="text-slate-400 font-normal">(複数選択可)</span>
+                  </label>
+                  <div className="flex gap-1.5">
+                    {WEEKDAY_LABELS.map(({ day, label }) => {
+                      const isSelected = selectedDaysOfWeek.includes(day);
+                      const isWeekend = day === 0 || day === 6;
+                      return (
+                        <button
+                          key={day}
+                          type="button"
+                          onClick={() => toggleWeekday(day)}
+                          className={`flex-1 py-1.5 text-xs font-bold rounded-lg border transition-all ${
+                            isSelected
+                              ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                              : `bg-white border-slate-200 hover:bg-slate-100 ${
+                                  isWeekend ? (day === 0 ? 'text-rose-600' : 'text-sky-600') : 'text-slate-700'
+                                }`
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* 毎月の場合: 同日 or 第N曜日 */}
+              {recurrenceFreq === 'monthly' && (
+                <div className="space-y-2">
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">毎月の指定方法</label>
+                  <div className="space-y-2 bg-white p-2.5 rounded-lg border border-slate-200/90">
+                    {/* 同日 */}
+                    <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="monthly_type"
+                        checked={monthlyType === 'same_day'}
+                        onChange={() => setMonthlyType('same_day')}
+                        className="text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <span className="font-semibold">毎月</span>
+                      <select
+                        value={monthDay}
+                        onChange={e => {
+                          setMonthDay(Number(e.target.value));
+                          setMonthlyType('same_day');
+                        }}
+                        className="px-2 py-1 border border-slate-200 rounded text-xs bg-slate-50 font-medium"
                       >
-                        {item.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* 毎週の場合: 曜日選択（複数選択可） */}
-                {recurrenceFreq === 'weekly' && (
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                      繰り返す曜日 <span className="text-slate-400 font-normal">(複数選択可)</span>
+                        {Array.from({ length: 31 }, (_, i) => i + 1).map(d => (
+                          <option key={d} value={d}>{d}日</option>
+                        ))}
+                      </select>
+                      <span>に繰り返す</span>
                     </label>
-                    <div className="flex gap-1.5">
-                      {WEEKDAY_LABELS.map(({ day, label }) => {
-                        const isSelected = selectedDaysOfWeek.includes(day);
-                        const isWeekend = day === 0 || day === 6;
-                        return (
-                          <button
-                            key={day}
-                            type="button"
-                            onClick={() => toggleWeekday(day)}
-                            className={`flex-1 py-2 text-xs font-bold rounded-lg border transition-all ${
-                              isSelected
-                                ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
-                                : `bg-white border-slate-200 hover:bg-slate-100 ${
-                                    isWeekend ? (day === 0 ? 'text-rose-600' : 'text-sky-600') : 'text-slate-700'
-                                  }`
-                            }`}
-                          >
-                            {label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
 
-                {/* 毎月の場合: 同日 or 第N曜日 */}
-                {recurrenceFreq === 'monthly' && (
-                  <div className="space-y-2">
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">毎月の指定方法</label>
-                    <div className="space-y-2 bg-white p-3 rounded-lg border border-slate-200">
-                      {/* 同日 */}
-                      <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="monthly_type"
-                          checked={monthlyType === 'same_day'}
-                          onChange={() => setMonthlyType('same_day')}
-                          className="text-indigo-600 focus:ring-indigo-500"
-                        />
-                        <span className="font-semibold">毎月</span>
-                        <select
-                          value={monthDay}
-                          onChange={e => {
-                            setMonthDay(Number(e.target.value));
-                            setMonthlyType('same_day');
-                          }}
-                          className="px-2 py-1 border border-slate-200 rounded text-xs bg-slate-50 font-medium"
-                        >
-                          {Array.from({ length: 31 }, (_, i) => i + 1).map(d => (
-                            <option key={d} value={d}>{d}日</option>
-                          ))}
-                        </select>
-                        <span>に繰り返す</span>
-                      </label>
-
-                      {/* 第N曜日 */}
-                      <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="monthly_type"
-                          checked={monthlyType === 'day_of_week'}
-                          onChange={() => setMonthlyType('day_of_week')}
-                          className="text-indigo-600 focus:ring-indigo-500"
-                        />
-                        <span className="font-semibold">毎月</span>
-                        <select
-                          value={weekOfMonth}
-                          onChange={e => {
-                            setWeekOfMonth(Number(e.target.value));
-                            setMonthlyType('day_of_week');
-                          }}
-                          className="px-2 py-1 border border-slate-200 rounded text-xs bg-slate-50 font-medium"
-                        >
-                          <option value={1}>第1</option>
-                          <option value={2}>第2</option>
-                          <option value={3}>第3</option>
-                          <option value={4}>第4</option>
-                          <option value={5}>第5</option>
-                        </select>
-                        <select
-                          value={dayOfWeek}
-                          onChange={e => {
-                            setDayOfWeek(Number(e.target.value));
-                            setMonthlyType('day_of_week');
-                          }}
-                          className="px-2 py-1 border border-slate-200 rounded text-xs bg-slate-50 font-medium"
-                        >
-                          {WEEKDAY_LABELS.map(({ day, label }) => (
-                            <option key={day} value={day}>{label}曜日</option>
-                          ))}
-                        </select>
-                        <span>に繰り返す</span>
-                      </label>
-                    </div>
-                  </div>
-                )}
-
-                {/* 期限の設定 */}
-                <div className="space-y-2 pt-1 border-t border-slate-200/60">
-                  <label className="block text-xs font-semibold text-slate-700">繰り返しの期限（終了条件）</label>
-                  <div className="space-y-2">
-                    {/* 期限なし */}
+                    {/* 第N曜日 */}
                     <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
                       <input
                         type="radio"
-                        name="recurrence_end_type"
-                        checked={recurrenceEndType === 'never'}
-                        onChange={() => setRecurrenceEndType('never')}
+                        name="monthly_type"
+                        checked={monthlyType === 'day_of_week'}
+                        onChange={() => setMonthlyType('day_of_week')}
                         className="text-indigo-600 focus:ring-indigo-500"
                       />
-                      <span>期限なし（継続的に繰り返す）</span>
-                    </label>
-
-                    {/* 終了日指定 */}
-                    <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="recurrence_end_type"
-                        checked={recurrenceEndType === 'until_date'}
-                        onChange={() => setRecurrenceEndType('until_date')}
-                        className="text-indigo-600 focus:ring-indigo-500"
-                      />
-                      <span>終了日を指定:</span>
-                      <input
-                        type="date"
-                        value={recurrenceEndDate}
-                        disabled={recurrenceEndType !== 'until_date'}
+                      <span className="font-semibold">毎月</span>
+                      <select
+                        value={weekOfMonth}
                         onChange={e => {
-                          setRecurrenceEndDate(e.target.value);
-                          setRecurrenceEndType('until_date');
-                          setError(null);
+                          setWeekOfMonth(Number(e.target.value));
+                          setMonthlyType('day_of_week');
                         }}
-                        className="px-2.5 py-1 border border-slate-200 rounded-lg text-xs bg-white focus:ring-2 focus:ring-indigo-500 disabled:bg-slate-100 disabled:text-slate-400"
-                      />
-                      <span>まで</span>
-                    </label>
-
-                    {/* 回数指定 */}
-                    <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="recurrence_end_type"
-                        checked={recurrenceEndType === 'count'}
-                        onChange={() => setRecurrenceEndType('count')}
-                        className="text-indigo-600 focus:ring-indigo-500"
-                      />
-                      <span>回数を指定:</span>
-                      <input
-                        type="number"
-                        min="1"
-                        max="365"
-                        value={recurrenceCount}
-                        disabled={recurrenceEndType !== 'count'}
+                        className="px-2 py-1 border border-slate-200 rounded text-xs bg-slate-50 font-medium"
+                      >
+                        <option value={1}>第1</option>
+                        <option value={2}>第2</option>
+                        <option value={3}>第3</option>
+                        <option value={4}>第4</option>
+                        <option value={5}>第5</option>
+                      </select>
+                      <select
+                        value={dayOfWeek}
                         onChange={e => {
-                          setRecurrenceCount(Number(e.target.value));
-                          setRecurrenceEndType('count');
-                          setError(null);
+                          setDayOfWeek(Number(e.target.value));
+                          setMonthlyType('day_of_week');
                         }}
-                        className="w-16 px-2.5 py-1 border border-slate-200 rounded-lg text-xs bg-white text-center focus:ring-2 focus:ring-indigo-500 disabled:bg-slate-100 disabled:text-slate-400"
-                      />
-                      <span>回繰り返したら終了</span>
+                        className="px-2 py-1 border border-slate-200 rounded text-xs bg-slate-50 font-medium"
+                      >
+                        {WEEKDAY_LABELS.map(({ day, label }) => (
+                          <option key={day} value={day}>{label}曜日</option>
+                        ))}
+                      </select>
+                      <span>に繰り返す</span>
                     </label>
                   </div>
                 </div>
+              )}
 
-                {/* プレビューテキスト */}
-                <div className="p-2.5 bg-indigo-50/80 border border-indigo-100 rounded-lg text-xs text-indigo-900 font-medium flex items-center gap-2">
-                  <Repeat className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                  <span>
-                    設定内容: <strong>{getRecurrenceLabel(buildRecurrenceRule()) || '繰り返しなし'}</strong>
-                  </span>
+              {/* 期限の設定 */}
+              <div className="space-y-2 pt-1 border-t border-slate-200/60">
+                <label className="block text-xs font-semibold text-slate-700">繰り返しの期限（終了条件）</label>
+                <div className="space-y-2">
+                  {/* 期限なし */}
+                  <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="recurrence_end_type"
+                      checked={recurrenceEndType === 'never'}
+                      onChange={() => setRecurrenceEndType('never')}
+                      className="text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <span>期限なし（継続的に繰り返す）</span>
+                  </label>
+
+                  {/* 終了日指定 */}
+                  <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="recurrence_end_type"
+                      checked={recurrenceEndType === 'until_date'}
+                      onChange={() => setRecurrenceEndType('until_date')}
+                      className="text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <span>終了日を指定:</span>
+                    <input
+                      type="date"
+                      value={recurrenceEndDate}
+                      disabled={recurrenceEndType !== 'until_date'}
+                      onChange={e => {
+                        setRecurrenceEndDate(e.target.value);
+                        setRecurrenceEndType('until_date');
+                        setError(null);
+                      }}
+                      className="px-2.5 py-1 border border-slate-200 rounded-lg text-xs bg-white focus:ring-2 focus:ring-indigo-500 disabled:bg-slate-100 disabled:text-slate-400"
+                    />
+                    <span>まで</span>
+                  </label>
+
+                  {/* 回数指定 */}
+                  <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="recurrence_end_type"
+                      checked={recurrenceEndType === 'count'}
+                      onChange={() => setRecurrenceEndType('count')}
+                      className="text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <span>回数を指定:</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max="365"
+                      value={recurrenceCount}
+                      disabled={recurrenceEndType !== 'count'}
+                      onChange={e => {
+                        setRecurrenceCount(Number(e.target.value));
+                        setRecurrenceEndType('count');
+                        setError(null);
+                      }}
+                      className="w-16 px-2.5 py-1 border border-slate-200 rounded-lg text-xs bg-white text-center focus:ring-2 focus:ring-indigo-500 disabled:bg-slate-100 disabled:text-slate-400"
+                    />
+                    <span>回繰り返したら終了</span>
+                  </label>
                 </div>
               </div>
-            )}
-          </div>
+
+              {/* プレビューテキスト */}
+              <div className="p-2.5 bg-indigo-50/80 border border-indigo-100 rounded-lg text-xs text-indigo-900 font-medium flex items-center gap-2">
+                <Repeat className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                <span>
+                  設定内容: <strong>{getRecurrenceLabel(buildRecurrenceRule()) || '繰り返しなし'}</strong>
+                </span>
+              </div>
+            </div>
+          )}
 
           {/* 参加者の選択 */}
           <div>
@@ -1253,20 +1266,21 @@ export function EventModal({
               divisions={divisions}
               disabled={isIcal || isPrivate}
               label="参加メンバー設定"
+              defaultExpanded={false}
             />
           </div>
 
           <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-1.5">場所</label>
+            <label className="block text-xs font-bold text-slate-700 mb-1">場所</label>
             <input
               type="text"
               readOnly={isIcal}
               value={location}
               onChange={e => setLocation(e.target.value)}
-              className={`w-full px-3.5 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors ${
+              className={`w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors shadow-2xs ${
                 isIcal ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-slate-50 focus:bg-white'
               }`}
-              placeholder="会議室など"
+              placeholder="会議室、客先など"
             />
           </div>
 
@@ -1397,15 +1411,15 @@ export function EventModal({
                     !isUploading && !isIcal && (
                       <div
                         onClick={() => !isUploading && fileInputRef.current?.click()}
-                        className="p-3.5 border border-dashed border-slate-200 hover:border-indigo-400 hover:bg-indigo-50/30 rounded-xl text-center cursor-pointer transition-all bg-slate-50/50 flex flex-col items-center justify-center gap-1"
+                        className="py-2 px-3 border border-dashed border-slate-200 hover:border-indigo-400 hover:bg-indigo-50/30 rounded-xl text-center cursor-pointer transition-all bg-slate-50/50 flex items-center justify-center gap-2"
                       >
-                        <UploadCloud className="w-5 h-5 text-indigo-500 mb-0.5" />
-                        <p className="text-xs text-slate-600 font-bold">
-                          ドラッグ＆ドロップでファイルを添付
-                        </p>
-                        <p className="text-[11px] text-slate-400 font-medium">
-                          またはクリックしてファイルを選択（資料・議事録など）
-                        </p>
+                        <UploadCloud className="w-4 h-4 text-indigo-500 shrink-0" />
+                        <span className="text-xs text-slate-600 font-bold">
+                          ファイルを添付
+                        </span>
+                        <span className="text-[11px] text-slate-400 font-medium">
+                          (クリックまたはドラッグ＆ドロップ)
+                        </span>
                       </div>
                     )
                   )}
@@ -1415,7 +1429,7 @@ export function EventModal({
           </div>
 
           <div className="relative">
-            <label className="block text-sm font-semibold text-slate-700 mb-1.5">内容</label>
+            <label className="block text-xs font-bold text-slate-700 mb-1">内容</label>
             <UrlPastePopup
               prompt={memoPasteHandler.pastePrompt}
               onInsertCard={memoPasteHandler.handleInsertCard}
@@ -1428,21 +1442,21 @@ export function EventModal({
               value={memo}
               onChange={e => setMemo(e.target.value)}
               onPaste={memoPasteHandler.handlePaste}
-              className={`w-full px-3.5 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors resize-none h-24 text-sm ${
+              className={`w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors resize-none h-16 sm:h-20 text-xs ${
                 isIcal ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-slate-50 focus:bg-white'
               }`}
               placeholder="詳細な内容... (URLを入力するとカードまたはリンクを選択できます)"
             ></textarea>
           </div>
 
-          <div className="flex items-center justify-between pt-6 border-t border-slate-100">
+          <div className="flex items-center justify-between pt-3.5 border-t border-slate-100">
             <div className="flex items-center gap-2">
               {currentEditingEvent && (
                 <button
                   type="button"
                   disabled={isUploading}
                   onClick={handleCopyAndAdd}
-                  className="flex items-center gap-1.5 px-3.5 py-2.5 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition-colors shadow-2xs disabled:opacity-50"
+                  className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition-colors shadow-2xs disabled:opacity-50 cursor-pointer"
                   title="この予定をコピーして新規登録画面にします"
                 >
                   <Copy className="w-3.5 h-3.5 text-indigo-600" />
@@ -1455,7 +1469,7 @@ export function EventModal({
                   type="button"
                   disabled={isUploading}
                   onClick={handleDeleteClick}
-                  className="flex items-center gap-1.5 px-3 py-2.5 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-lg transition-colors disabled:opacity-50"
+                  className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-lg transition-colors disabled:opacity-50 cursor-pointer"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                   削除
@@ -1463,18 +1477,18 @@ export function EventModal({
               )}
             </div>
 
-            <div className="flex justify-end gap-2.5">
-              <button type="button" disabled={isUploading} onClick={handleModalClose} className="px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors disabled:opacity-50">キャンセル</button>
+            <div className="flex justify-end gap-2">
+              <button type="button" disabled={isUploading} onClick={handleModalClose} className="px-3.5 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors disabled:opacity-50 cursor-pointer">キャンセル</button>
               {isIcal ? (
                 <button
                   type="button"
                   disabled
-                  className="px-5 py-2.5 text-sm font-bold text-slate-400 bg-slate-100 border border-slate-200 rounded-lg cursor-not-allowed flex items-center gap-1.5"
+                  className="px-4 py-2 text-xs font-bold text-slate-400 bg-slate-100 border border-slate-200 rounded-lg cursor-not-allowed flex items-center gap-1.5"
                 >
                   外部予定 (編集不可)
                 </button>
               ) : (
-                <button type="submit" disabled={isUploading} className="px-5 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors shadow-sm disabled:opacity-50 flex items-center gap-1.5">
+                <button type="submit" disabled={isUploading} className="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors shadow-sm disabled:opacity-50 flex items-center gap-1.5 cursor-pointer">
                   {isUploading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                   {isUploading ? '処理中...' : (currentEditingEvent ? '更新する' : '保存する')}
                 </button>

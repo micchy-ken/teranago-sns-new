@@ -1,12 +1,11 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Search, Bell, Menu, Phone, FileText, Monitor, Calendar as CalendarIcon, MessageSquare, CheckCheck, ChevronRight, X, Smartphone, Users, MessageCircle, Palette, Check, Minimize2, Pin, ShieldAlert, Type, Undo2 } from 'lucide-react';
+import { Search, Bell, Menu, Phone, FileText, Monitor, Calendar as CalendarIcon, MessageSquare, CheckCheck, ChevronRight, X, Smartphone, Users, MessageCircle, Palette, Check, Pin, ShieldAlert, Type, Undo2 } from 'lucide-react';
 import { User, Memo, WorkflowApplication, BoardTopic, CalendarEvent, ChatRoom, Post, DailyReport, SafetyConfirmationEvent, SafetyConfirmationResponse } from '../types';
 import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
 import { AppTab } from './Sidebar';
 import { expandRecurringEvents } from '../utils/recurrenceUtils';
 import { ColorTheme, THEME_OPTIONS, getSavedTheme, applyColorTheme, AppFontSize, FONT_SIZE_OPTIONS, getSavedFontSize, applyFontSize } from '../utils/theme';
 import { API_BASE_URL } from '../config/api';
-import { MiniNotificationMode } from './MiniNotificationMode';
 import {
   getAllNotifications,
   getUnreadNotifications,
@@ -153,7 +152,6 @@ export function Header({
   onToggleMobileMenu,
 }: HeaderProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [isMiniNotificationOpen, setIsMiniNotificationOpen] = useState(false);
   const [filterType, setFilterType] = useState<'all' | 'memo' | 'workflow' | 'board' | 'event' | 'chat' | 'report' | 'safety'>('all');
   const [readFilter, setReadFilter] = useState<'all' | 'unread'>('all');
   const [readEventIds, setReadEventIds] = useState<string[]>(() => getReadEventIds(currentUser?.id));
@@ -853,27 +851,27 @@ export function Header({
         </div>
       )}
 
-      <div className="w-full px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
+      <div className="w-full px-3 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2 sm:gap-4">
         {/* Logo area */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           <button
             type="button"
             onClick={onToggleMobileMenu}
-            className="p-2 -ml-2 text-slate-500 hover:bg-slate-100 rounded-full lg:hidden focus:outline-none"
+            className="w-9 h-9 rounded-xl border border-slate-200/80 bg-white/80 hover:bg-slate-50 hover:border-slate-300 text-slate-600 shadow-2xs flex items-center justify-center shrink-0 lg:hidden cursor-pointer transition-all"
             title="メニュー"
           >
             <Menu className="w-5 h-5" />
           </button>
           <div
             onClick={() => onSelectTab && onSelectTab('mypage')}
-            className="flex items-center gap-2 cursor-pointer select-none hover:opacity-90 transition-opacity relative group/teranago-logo"
+            className="flex items-center gap-2 cursor-pointer select-none hover:opacity-90 transition-opacity relative group/teranago-logo shrink-0"
             title={`マイページへ (TERANAGO SNS ${APP_VERSION.display})`}
           >
-            <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center shadow-xs">
+            <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center shadow-xs shrink-0">
               <span className="text-white font-bold text-lg leading-none">T</span>
             </div>
             <div className="relative flex items-center">
-              <span className="text-xl font-bold tracking-tight text-slate-800 hidden sm:block">
+              <span className="text-xl font-bold tracking-tight text-slate-800 hidden lg:block">
                 TERANAGO<span className="text-indigo-600">SNS</span>
               </span>
               {/* バージョン表示ツールチップ（マウスオーバーで表示） */}
@@ -887,15 +885,15 @@ export function Header({
         </div>
 
         {/* Search area */}
-        <div className="flex-1 max-w-xl px-2 sm:px-12 relative" ref={searchContainerRef}>
+        <div className="flex-1 min-w-0 max-w-xl px-1 sm:px-2 md:px-4 lg:px-8 relative" ref={searchContainerRef}>
           <div className="relative group">
             <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none text-slate-400">
               <Search className="h-4 w-4" />
             </div>
             <input
               type="text"
-              className="w-full bg-slate-100 border-transparent focus:bg-white focus:ring-2 focus:ring-indigo-500 rounded-full py-2 pl-10 pr-9 text-sm transition-all"
-              placeholder="キーワードでナレッジ・社内データを横断検索..."
+              className="w-full bg-slate-100 border-transparent focus:bg-white focus:ring-2 focus:ring-indigo-500 rounded-full py-2 pl-9 sm:pl-10 pr-9 text-xs sm:text-sm transition-all truncate"
+              placeholder="社内データを検索..."
               value={searchQuery}
               onFocus={() => setIsSearchFocused(true)}
               onChange={(e) => {
@@ -1092,9 +1090,9 @@ export function Header({
         </div>
 
         {/* Right actions */}
-        <div className="flex items-center gap-2 sm:gap-3">
+        <div className="flex items-center gap-1.5 sm:gap-2 lg:gap-3 shrink-0">
           {/* Font Size Scale Switcher */}
-          <div className="relative" ref={fontSizePickerRef}>
+          <div className="relative shrink-0" ref={fontSizePickerRef}>
             {(() => {
               const activeSizeOpt = FONT_SIZE_OPTIONS.find(f => f.id === currentFontSize) || FONT_SIZE_OPTIONS[1];
               return (
@@ -1102,7 +1100,7 @@ export function Header({
                   type="button"
                   id="header-font-size-picker-button"
                   onClick={() => setIsFontSizePickerOpen(!isFontSizePickerOpen)}
-                  className={`px-2.5 py-1.5 rounded-xl transition-all flex items-center justify-center cursor-pointer border select-none ${
+                  className={`w-9 h-9 rounded-xl transition-all flex items-center justify-center cursor-pointer border select-none shrink-0 ${
                     isFontSizePickerOpen
                       ? 'bg-slate-100/90 border-slate-300 ring-2 ring-indigo-500/20'
                       : 'border-slate-200/80 bg-white/80 hover:bg-slate-50 hover:border-slate-300 shadow-2xs'
@@ -1110,8 +1108,8 @@ export function Header({
                   title={`文字の大きさ設定（現在: ${activeSizeOpt.name}）`}
                   aria-label={`文字の大きさ設定（現在: ${activeSizeOpt.name}）`}
                 >
-                  <span className="text-xs font-bold text-slate-800 tracking-tight">
-                    T{activeSizeOpt.label}
+                  <span className="text-sm font-bold text-slate-800 tracking-tight leading-none font-sans">
+                    T
                   </span>
                 </button>
               );
@@ -1184,8 +1182,8 @@ export function Header({
             )}
           </div>
 
-          {/* Color Palette Theme Switcher */}
-          <div className="relative" ref={themePickerRef}>
+          {/* Color Palette Theme Switcher - PC表示のみ（タブレット・スマホでは表示をシンプル化） */}
+          <div className="relative shrink-0 hidden lg:block" ref={themePickerRef}>
             {(() => {
               const activeOpt = THEME_OPTIONS.find(t => t.id === currentTheme) || THEME_OPTIONS[0];
               return (
@@ -1193,7 +1191,7 @@ export function Header({
                   type="button"
                   id="header-theme-picker-button"
                   onClick={() => setIsThemePickerOpen(!isThemePickerOpen)}
-                  className={`p-2 rounded-xl transition-all flex items-center justify-center cursor-pointer border ${
+                  className={`w-9 h-9 rounded-xl transition-all flex items-center justify-center cursor-pointer border select-none shrink-0 ${
                     isThemePickerOpen
                       ? 'bg-slate-100/90 border-slate-300 ring-2 ring-indigo-500/20'
                       : 'border-slate-200/80 bg-white/80 hover:bg-slate-50 hover:border-slate-300 shadow-2xs'
@@ -1475,38 +1473,21 @@ export function Header({
             )}
           </div>
 
-          {/* Mini Notification Mode Button */}
-          <button
-            type="button"
-            onClick={() => {
-              setIsMiniNotificationOpen((prev) => !prev);
-              setIsOpen(false);
-            }}
-            className={`p-2.5 rounded-full transition-all cursor-pointer ${
-              isMiniNotificationOpen
-                ? 'bg-indigo-600 text-white shadow-xs'
-                : 'text-slate-500 hover:bg-slate-100 hover:text-indigo-600'
-            }`}
-            title="最前面ミニ通知モード (小さくして通知のみ常駐表示)"
-          >
-            <Minimize2 className="w-5 h-5" />
-          </button>
-
           {/* Notifications Bell */}
-          <div className="relative" ref={popoverRef}>
+          <div className="relative shrink-0" ref={popoverRef}>
             <button
               type="button"
               onClick={() => setIsOpen(!isOpen)}
-              className={`relative p-2.5 rounded-full transition-colors ${
+              className={`w-9 h-9 rounded-xl transition-all flex items-center justify-center cursor-pointer border select-none shrink-0 relative ${
                 isOpen
-                  ? 'bg-indigo-50 text-indigo-600 ring-2 ring-indigo-500/20'
-                  : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700'
+                  ? 'bg-slate-100/90 border-slate-300 ring-2 ring-indigo-500/20 text-indigo-600'
+                  : 'border-slate-200/80 bg-white/80 hover:bg-slate-50 hover:border-slate-300 text-slate-600 shadow-2xs'
               }`}
               title="通知一覧"
             >
-              <Bell className="w-5 h-5" />
+              <Bell className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
               {unreadCount > 0 && (
-                <span className="absolute top-1 right-1 flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold text-white bg-red-500 rounded-full ring-2 ring-white shadow-xs">
+                <span className="absolute -top-1 -right-1 flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold text-white bg-red-500 rounded-full ring-2 ring-white shadow-xs">
                   {unreadCount > 99 ? '99+' : unreadCount}
                 </span>
               )}
@@ -1530,18 +1511,6 @@ export function Header({
                     )}
                   </div>
                   <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsMiniNotificationOpen(true);
-                        setIsOpen(false);
-                      }}
-                      className="flex items-center gap-1 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 hover:text-indigo-900 px-2 py-1 rounded-lg transition-colors border border-indigo-200/80 cursor-pointer"
-                      title="最前面ミニウィンドウで通知のみ常駐表示 (PiP)"
-                    >
-                      <Minimize2 className="w-3.5 h-3.5" />
-                      <span>最前面ミニ表示</span>
-                    </button>
                     {unreadCount > 0 && (
                       <button
                         type="button"
@@ -1824,7 +1793,7 @@ export function Header({
             )}
           </div>
 
-          <div className="flex items-center gap-3 pl-3 border-l border-slate-200">
+          <div className="flex items-center gap-2 sm:gap-3 pl-2 sm:pl-3 border-l border-slate-200 shrink-0">
             <button
               type="button"
               onClick={() => {
@@ -1834,10 +1803,10 @@ export function Header({
                   onSelectTab('mypage');
                 }
               }}
-              className="flex items-center gap-2.5 group text-left focus:outline-none rounded-xl p-1 hover:bg-slate-100/80 transition-colors cursor-pointer"
+              className="flex items-center gap-2.5 group text-left focus:outline-none rounded-xl p-0.5 sm:p-1 hover:bg-slate-100/80 transition-colors cursor-pointer shrink-0"
               title="個人設定を開く"
             >
-              <div className="text-right hidden sm:block">
+              <div className="text-right hidden lg:block">
                 <div className="text-sm font-semibold text-slate-800 group-hover:text-indigo-600 transition-colors flex items-center justify-end gap-1">
                   <span>{currentUser.name}</span>
                   {impersonatorAdmin ? (
@@ -1853,11 +1822,11 @@ export function Header({
                 </div>
                 <div className="text-xs text-slate-500">{currentUser.department}</div>
               </div>
-              <div className="relative">
+              <div className="relative shrink-0">
                 <img
                   src={getAvatarUrl(currentUser.avatarUrl)}
                   alt={currentUser.name}
-                  className={`w-9 h-9 rounded-full bg-indigo-100 border object-cover group-hover:ring-2 transition-all ${
+                  className={`w-9 h-9 rounded-full bg-indigo-100 border object-cover group-hover:ring-2 transition-all shrink-0 ${
                     impersonatorAdmin 
                       ? 'border-amber-400 ring-2 ring-amber-400/30' 
                       : 'border-indigo-200 group-hover:border-indigo-500 group-hover:ring-indigo-500/20'
@@ -1874,20 +1843,6 @@ export function Header({
         </div>
       </div>
 
-      {/* 最前面ミニ通知ウィンドウ (Picture-in-Picture / コンパクトモード) */}
-      <MiniNotificationMode
-        notifications={allNotifications}
-        unreadCount={unreadCount}
-        currentUser={currentUser}
-        onNotificationClick={handleNotificationClick}
-        onMarkAllAsRead={handleMarkAllAsRead}
-        isOpen={isMiniNotificationOpen}
-        onClose={() => setIsMiniNotificationOpen(false)}
-        onRestoreMain={() => {
-          setIsMiniNotificationOpen(false);
-          window.focus();
-        }}
-      />
     </header>
   );
 }

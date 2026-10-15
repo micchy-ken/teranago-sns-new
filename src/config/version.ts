@@ -14,9 +14,9 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.14.12',
-  date: '2026-10-14',
-  releaseNumber: 12,
-  display: 'v2026.10.14 #12',
-  description: '管理者代理ログインからのワンクリック管理者復帰機能（全画面固定バナー、サイドバー復帰ボタン、マイページ復帰ボタン、メンバー間直接切替）',
+  version: '2026.10.15.4',
+  date: '2026-10-15',
+  releaseNumber: 4,
+  display: 'v2026.10.15 #4',
+  description: 'スケジュール登録の日付時間エリア再構成（開始・終了を1行目、日付と時間を2行目にして日付幅拡大、「時・分」表記削除、繰り返しトグルの区分行移動＆時間下展開）',
 };

@@ -2131,23 +2131,21 @@ export function MyPage({
 
       {/* メインセクション（D&Dで順序変更可能） */}
       <div className="space-y-3">
-        <div className="flex items-center justify-between px-1 text-xs text-slate-500">
-          <div className="flex items-center gap-1.5 font-bold text-slate-700">
-            <SlidersHorizontal className="w-4 h-4 text-indigo-600" />
-            <span>マイページ画面配置（D&Dで並び替え可能）</span>
-          </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+          {sectionOrder.map((sectionId, index) => renderSectionCard(sectionId, index))}
+        </div>
+
+        {/* 最下部の並び順リセット（アイコンのみ） */}
+        <div className="flex justify-end pt-1 pb-2 px-1">
           <button
             type="button"
             onClick={handleResetOrder}
-            className="flex items-center gap-1 px-2.5 py-1 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer text-xs font-semibold border border-slate-200 bg-white shadow-2xs"
+            className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-white rounded-lg transition-all cursor-pointer border border-transparent hover:border-slate-200 hover:shadow-2xs"
+            title="並び順を初期状態にリセット"
+            aria-label="並び順を初期状態にリセット"
           >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span>並び順リセット</span>
+            <RotateCcw className="w-4 h-4" />
           </button>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-          {sectionOrder.map((sectionId, index) => renderSectionCard(sectionId, index))}
         </div>
       </div>
 
