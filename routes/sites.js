@@ -113,6 +113,22 @@ function mapDbRowToSite(row) {
     }
   }
 
+  let drawings = [];
+  if (row.drawingUrl) {
+    const raw = String(row.drawingUrl).trim();
+    if (raw.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) drawings = parsed.map(sanitizeDrawingRelPath).filter(Boolean);
+      } catch (_) {
+        drawings = [sanitizeDrawingRelPath(raw)].filter(Boolean);
+      }
+    } else {
+      drawings = [sanitizeDrawingRelPath(raw)].filter(Boolean);
+    }
+  }
+  const primaryDrawingUrl = drawings.length > 0 ? drawings[0] : undefined;
+
   return {
     id: String(row.id),
     siteCode: String(row.siteCode || ''),
@@ -133,7 +149,8 @@ function mapDbRowToSite(row) {
     notes: row.notes || '',
     comments,
     attachments,
-    drawingUrl: row.drawingUrl || undefined,
+    drawingUrl: primaryDrawingUrl,
+    drawings: drawings,
     createdById: row.createdById ? String(row.createdById) : undefined,
     createdByName: row.createdByName || undefined,
     createdAt: row.createdAt ? (row.createdAt instanceof Date ? row.createdAt.toISOString() : String(row.createdAt)) : new Date().toISOString(),
@@ -476,6 +493,25 @@ router.post(['/', '/sites'], async (req, res) => {
       processedMainParts = expandMainParts(body.rawParts, egCountNum);
     }
 
+    // 施工図PDF パス一括処理 (body.drawings 配列または body.drawingUrl)
+    let finalDrawings = [];
+    if (Array.isArray(body.drawings)) {
+      finalDrawings = body.drawings.map(sanitizeDrawingRelPath).filter(Boolean);
+    } else if (body.drawingUrl) {
+      const raw = String(body.drawingUrl).trim();
+      if (raw.startsWith('[')) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) finalDrawings = parsed.map(sanitizeDrawingRelPath).filter(Boolean);
+        } catch (_) {
+          finalDrawings = [sanitizeDrawingRelPath(raw)].filter(Boolean);
+        }
+      } else {
+        finalDrawings = [sanitizeDrawingRelPath(raw)].filter(Boolean);
+      }
+    }
+    const drawingUrlToSave = finalDrawings.length === 0 ? null : (finalDrawings.length === 1 ? finalDrawings[0] : JSON.stringify(finalDrawings));
+
     const newSite = {
       id,
       siteCode: String(body.siteCode).trim(),
@@ -496,7 +532,8 @@ router.post(['/', '/sites'], async (req, res) => {
       notes: body.notes || '',
       comments: Array.isArray(body.comments) ? body.comments : [],
       attachments: Array.isArray(body.attachments) ? body.attachments : [],
-      drawingUrl: body.drawingUrl || null,
+      drawingUrl: drawingUrlToSave || undefined,
+      drawings: finalDrawings,
       createdById: body.createdById || null,
       createdByName: body.createdByName || null,
       createdAt: nowIso,
@@ -595,6 +632,29 @@ router.put(['/:id', '/sites/:id'], async (req, res) => {
       }
     }
 
+    // 施工図PDF パス一括処理 (body.drawings または body.drawingUrl)
+    let finalDrawings = currentSite.drawings || [];
+    if (Array.isArray(body.drawings)) {
+      finalDrawings = body.drawings.map(sanitizeDrawingRelPath).filter(Boolean);
+    } else if (body.drawingUrl !== undefined) {
+      if (!body.drawingUrl) {
+        finalDrawings = [];
+      } else {
+        const raw = String(body.drawingUrl).trim();
+        if (raw.startsWith('[')) {
+          try {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) finalDrawings = parsed.map(sanitizeDrawingRelPath).filter(Boolean);
+          } catch (_) {
+            finalDrawings = [sanitizeDrawingRelPath(raw)].filter(Boolean);
+          }
+        } else {
+          finalDrawings = [sanitizeDrawingRelPath(raw)].filter(Boolean);
+        }
+      }
+    }
+    const drawingUrlToSave = finalDrawings.length === 0 ? null : (finalDrawings.length === 1 ? finalDrawings[0] : JSON.stringify(finalDrawings));
+
     const updatedSite = {
       ...currentSite,
       siteCode: body.siteCode !== undefined ? String(body.siteCode).trim() : currentSite.siteCode,
@@ -615,7 +675,8 @@ router.put(['/:id', '/sites/:id'], async (req, res) => {
       notes: body.notes !== undefined ? body.notes : currentSite.notes,
       comments: body.comments !== undefined ? body.comments : currentSite.comments,
       attachments: body.attachments !== undefined ? body.attachments : currentSite.attachments,
-      drawingUrl: body.drawingUrl !== undefined ? body.drawingUrl : currentSite.drawingUrl,
+      drawingUrl: drawingUrlToSave || undefined,
+      drawings: finalDrawings,
       updatedAt: nowIso
     };
 

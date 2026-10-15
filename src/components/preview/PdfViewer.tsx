@@ -6,6 +6,7 @@ import {
   ZoomIn, 
   ZoomOut, 
   RotateCw, 
+  RotateCcw,
   Maximize,
   Minimize2,
   Download, 
@@ -38,7 +39,7 @@ export function PdfViewer({ url, fileName, onDownload }: PdfViewerProps) {
   const [pageNum, setPageNum] = useState<number>(1);
   const [numPages, setNumPages] = useState<number>(0);
   const [scale, setScale] = useState<number>(1.0);
-  const [rotation, setRotation] = useState<number>(0);
+  const [userRotation, setUserRotation] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(true);
   const [rendering, setRendering] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -114,12 +115,16 @@ export function PdfViewer({ url, fileName, onDownload }: PdfViewerProps) {
         } catch (_) {}
       }
 
+      // PDF独自の回転属性（page.rotate: CAD図面等で設定される0/90/180/270度）とユーザーの追加回転を合成
+      const nativeRotate = typeof page.rotate === 'number' ? page.rotate : 0;
+      const totalRotation = (nativeRotate + userRotation) % 360;
+
       // 倍率の計算
       let effectiveScale = scale;
       if (containerRef.current) {
         const containerW = Math.max(containerRef.current.clientWidth - 32, 280);
         const containerH = Math.max(containerRef.current.clientHeight - 32, 280);
-        const unscaledViewport = page.getViewport({ scale: 1.0, rotation });
+        const unscaledViewport = page.getViewport({ scale: 1.0, rotation: totalRotation });
 
         if (unscaledViewport.width > 0 && unscaledViewport.height > 0) {
           if (fitMode === 'fit-page') {
@@ -135,7 +140,7 @@ export function PdfViewer({ url, fileName, onDownload }: PdfViewerProps) {
       // 下限・上限を安全に制限
       effectiveScale = Math.min(Math.max(effectiveScale, 0.2), 4.0);
 
-      const viewport = page.getViewport({ scale: effectiveScale, rotation });
+      const viewport = page.getViewport({ scale: effectiveScale, rotation: totalRotation });
       const outputScale = window.devicePixelRatio || 1;
 
       canvas.width = Math.floor(viewport.width * outputScale);
@@ -163,7 +168,7 @@ export function PdfViewer({ url, fileName, onDownload }: PdfViewerProps) {
     } finally {
       setRendering(false);
     }
-  }, [pdfDoc, pageNum, scale, rotation, fitMode]);
+  }, [pdfDoc, pageNum, scale, userRotation, fitMode]);
 
   useEffect(() => {
     renderPage();
@@ -219,8 +224,12 @@ export function PdfViewer({ url, fileName, onDownload }: PdfViewerProps) {
     setFitMode('fit-width');
   };
 
-  const handleRotate = () => {
-    setRotation(r => (r + 90) % 360);
+  const handleRotateCw = () => {
+    setUserRotation(r => (r + 90) % 360);
+  };
+
+  const handleRotateCcw = () => {
+    setUserRotation(r => (r - 90 + 360) % 360);
   };
 
   if (loading) {
@@ -294,7 +303,7 @@ export function PdfViewer({ url, fileName, onDownload }: PdfViewerProps) {
           </button>
         </div>
 
-        {/* 表示切替 & ズームコントロール */}
+        {/* 表示切替 & ズームコントロール & 左右回転 */}
         <div className="flex items-center gap-1.5 flex-wrap">
           <div className="flex items-center gap-0.5 bg-slate-100 rounded-xl p-0.5 border border-slate-200">
             <button
@@ -336,13 +345,23 @@ export function PdfViewer({ url, fileName, onDownload }: PdfViewerProps) {
             </button>
           </div>
 
-          <button
-            onClick={handleRotate}
-            className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-indigo-600 rounded-xl border border-slate-200 transition-colors cursor-pointer"
-            title="90度回転"
-          >
-            <RotateCw className="w-3.5 h-3.5" />
-          </button>
+          {/* 左右90度回転ボタン */}
+          <div className="flex items-center gap-0.5 bg-slate-100 rounded-xl p-0.5 border border-slate-200">
+            <button
+              onClick={handleRotateCcw}
+              className="p-1.5 text-slate-600 hover:text-indigo-600 hover:bg-white rounded-lg transition-colors cursor-pointer"
+              title="左へ90度回転"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={handleRotateCw}
+              className="p-1.5 text-slate-600 hover:text-indigo-600 hover:bg-white rounded-lg transition-colors cursor-pointer"
+              title="右へ90度回転"
+            >
+              <RotateCw className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
       </div>
 

@@ -39,6 +39,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({
   const [primaryWorkerId, setPrimaryWorkerId] = useState<string>(currentUser.id);
   const [notes, setNotes] = useState('');
   const [drawingUrl, setDrawingUrl] = useState('');
+  const [drawings, setDrawings] = useState<string[]>([]);
   const [isDragOverDrawing, setIsDragOverDrawing] = useState(false);
 
   // 主要部品リスト (1台ずつ展開)
@@ -68,6 +69,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({
       setPrimaryWorkerId(currentUser.id);
       setNotes('');
       setDrawingUrl('');
+      setDrawings([]);
       setMainParts([]);
       setSubPartsPreview([]);
       setSubmitError(null);
@@ -335,7 +337,8 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({
       mainParts,
       subPartsCache: subPartsPreview,
       notes: notes.trim(),
-      drawingUrl: drawingUrl.trim() || null,
+      drawingUrl: drawings.length > 0 ? drawings[0] : (drawingUrl.trim() || null),
+      drawings: drawings,
       createdById: currentUser.id,
       createdByName: currentUser.name
     };
@@ -795,93 +798,143 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({
                   NAS施工図PDF連携 (02-施工図PDF)
                 </label>
                 
-                {/* D&D Area */}
+                {/* 登録済み図面リスト */}
+                {drawings.length > 0 && (
+                  <div className="space-y-1.5 max-h-[160px] overflow-y-auto pr-1">
+                    {drawings.map((dwPath, idx) => {
+                      const norm = normalizeDrawingPath(dwPath);
+                      const dwFileName = norm.split('/').pop() || norm;
+                      return (
+                        <div key={`form-dw-${idx}`} className="p-2 bg-slate-50 border border-slate-200 rounded-lg flex items-center justify-between gap-2 text-xs">
+                          <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                            <span className="w-4 h-4 rounded bg-indigo-100 text-indigo-700 text-[10px] font-bold flex items-center justify-center shrink-0">
+                              {idx + 1}
+                            </span>
+                            <FileText className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                            <span className="font-mono text-[11px] font-bold text-slate-800 truncate" title={norm}>
+                              {dwFileName}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setDrawings(prev => prev.filter((_, i) => i !== idx))}
+                            className="p-1 text-slate-400 hover:text-rose-600 rounded transition-colors cursor-pointer shrink-0"
+                            title="削除"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* 複数一括 D&D Area */}
                 <div
                   onDragOver={(e) => { e.preventDefault(); setIsDragOverDrawing(true); }}
                   onDragLeave={() => setIsDragOverDrawing(false)}
                   onDrop={async (e) => {
                     e.preventDefault();
                     setIsDragOverDrawing(false);
-                    let droppedText = e.dataTransfer.getData('text/plain') || e.dataTransfer.getData('text') || e.dataTransfer.getData('text/uri-list');
 
-                    // 1. もしパス文字列にスラッシュ/バックスラッシュがあり、サブフォルダ階層が含まれている場合
-                    if (droppedText && (droppedText.includes('\\') || droppedText.includes('/'))) {
-                      const normalized = normalizeDrawingPath(droppedText);
-                      if (normalized && normalized.includes('/')) {
-                        setDrawingUrl(normalized);
-                        return;
+                    const newPaths: string[] = [];
+                    const files = e.dataTransfer.files ? Array.from(e.dataTransfer.files) : [];
+                    const droppedText = e.dataTransfer.getData('text/plain') || e.dataTransfer.getData('text') || e.dataTransfer.getData('text/uri-list');
+
+                    if (files.length > 0) {
+                      for (const file of files) {
+                        const fileName = file.name;
+                        if (!fileName) continue;
+                        try {
+                          const res = await fetch(`${API_BASE_URL}/sites/drawings/list?q=${encodeURIComponent(fileName)}`);
+                          if (res.ok) {
+                            const json = await res.json();
+                            if (json.success && Array.isArray(json.files) && json.files.length > 0) {
+                              newPaths.push(json.files[0].path);
+                              continue;
+                            }
+                          }
+                        } catch (err) {
+                          console.warn('Failed to search drawing on server:', err);
+                        }
+                        newPaths.push(normalizeDrawingPath(fileName));
                       }
-                    }
-
-                    // 2. ドロップされたファイル名を取得
-                    let targetFileName = '';
-                    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-                      targetFileName = e.dataTransfer.files[0].name;
                     } else if (droppedText) {
-                      targetFileName = droppedText.trim().replace(/^["']|["']$/g, '').split(/[\/\\]/).pop() || droppedText.trim();
-                    }
-
-                    if (targetFileName) {
-                      try {
-                        const res = await fetch(`${API_BASE_URL}/sites/drawings/list?q=${encodeURIComponent(targetFileName)}`);
-                        if (res.ok) {
-                          const json = await res.json();
-                          if (json.success && Array.isArray(json.files) && json.files.length > 0) {
-                            setDrawingUrl(json.files[0].path);
-                            return;
+                      const lines = droppedText.split(/[\r\n,;]+/).map(s => s.trim()).filter(Boolean);
+                      for (const line of lines) {
+                        if (line.includes('\\') || line.includes('/')) {
+                          const normalized = normalizeDrawingPath(line);
+                          if (normalized && normalized.includes('/')) {
+                            newPaths.push(normalized);
+                            continue;
                           }
                         }
-                      } catch (err) {
-                        console.warn('Failed to search drawing on server:', err);
+                        const targetFileName = line.replace(/^["']|["']$/g, '').split(/[\/\\]/).pop() || line;
+                        if (targetFileName) {
+                          try {
+                            const res = await fetch(`${API_BASE_URL}/sites/drawings/list?q=${encodeURIComponent(targetFileName)}`);
+                            if (res.ok) {
+                              const json = await res.json();
+                              if (json.success && Array.isArray(json.files) && json.files.length > 0) {
+                                newPaths.push(json.files[0].path);
+                                continue;
+                              }
+                            }
+                          } catch (err) {
+                            console.warn('Failed to search drawing on server:', err);
+                          }
+                          newPaths.push(normalizeDrawingPath(targetFileName));
+                        }
                       }
+                    }
 
-                      const fallbackNormalized = normalizeDrawingPath(droppedText || targetFileName);
-                      setDrawingUrl(fallbackNormalized);
+                    if (newPaths.length > 0) {
+                      setDrawings(prev => Array.from(new Set([...prev, ...newPaths])));
                     }
                   }}
                   className={`p-3 rounded-xl border-2 border-dashed text-center transition-all ${
                     isDragOverDrawing
                       ? 'border-indigo-500 bg-indigo-50/80 ring-2 ring-indigo-500/20 shadow-md'
-                      : drawingUrl
-                      ? 'border-emerald-300 bg-emerald-50/40'
                       : 'border-slate-300 bg-slate-50 hover:border-slate-400'
                   }`}
                 >
-                  {drawingUrl ? (
-                    <div className="flex items-center justify-between gap-2 min-w-0">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <FileText className="w-4 h-4 text-indigo-600 shrink-0" />
-                        <span className="font-mono text-xs text-slate-800 truncate font-extrabold">
-                          {normalizeDrawingPath(drawingUrl)}
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setDrawingUrl('')}
-                        className="text-xs text-slate-400 hover:text-rose-600 p-1 shrink-0 cursor-pointer"
-                        title="パスをクリア"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="py-1">
-                      <p className="text-xs text-slate-600 font-bold">
-                        ここに施工図PDF（またはエクスプローラーのパス）をドラッグ＆ドロップ
-                      </p>
-                      <p className="text-[10px] text-slate-400">
-                        `\\volume1\Teraoka-Sekkei\share\02-施工図PDF\` からの相対パスとして自動整形されます
-                      </p>
-                    </div>
-                  )}
+                  <div className="py-1">
+                    <p className="text-xs text-slate-600 font-bold">
+                      施工図PDFをドラッグ＆ドロップ（複数ファイル一括登録対応）
+                    </p>
+                    <p className="text-[10px] text-slate-400">
+                      `\\volume1\Teraoka-Sekkei\share\02-施工図PDF\` からの相対パスとして自動解決・登録します
+                    </p>
+                  </div>
                 </div>
 
                 <input
                   type="text"
-                  value={drawingUrl}
-                  onChange={(e) => setDrawingUrl(normalizeDrawingPath(e.target.value))}
-                  placeholder="例: 現場A/1階平面図.pdf または \\volume1\...\02-施工図PDF\現場A\平面図.pdf"
+                  placeholder="例: N-26-158S_いすゞ自動車.pdf (Enterキーで検索追加)"
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-mono text-slate-800 focus:bg-white"
+                  onKeyDown={async (e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      const val = (e.target as HTMLInputElement).value.trim();
+                      if (!val) return;
+                      let norm = normalizeDrawingPath(val);
+                      if (norm && !norm.includes('/')) {
+                        try {
+                          const res = await fetch(`${API_BASE_URL}/sites/drawings/list?q=${encodeURIComponent(norm)}`);
+                          if (res.ok) {
+                            const json = await res.json();
+                            if (json.success && Array.isArray(json.files) && json.files.length > 0) {
+                              norm = json.files[0].path;
+                            }
+                          }
+                        } catch (_) {}
+                      }
+                      if (norm) {
+                        setDrawings(prev => Array.from(new Set([...prev, norm])));
+                        (e.target as HTMLInputElement).value = '';
+                      }
+                    }
+                  }}
                 />
               </div>
 

@@ -37,6 +37,25 @@ export function normalizeDrawingPath(rawPath?: string, siteName?: string): strin
   return cleaned;
 }
 
+export function getSiteDrawingList(site?: Site | null): string[] {
+  if (!site) return [];
+  if (Array.isArray(site.drawings) && site.drawings.length > 0) {
+    return site.drawings.map(d => normalizeDrawingPath(d)).filter(Boolean);
+  }
+  if (site.drawingUrl) {
+    const raw = site.drawingUrl.trim();
+    if (raw.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed.map((d: string) => normalizeDrawingPath(d)).filter(Boolean);
+      } catch (_) {}
+    }
+    const norm = normalizeDrawingPath(raw);
+    return norm ? [norm] : [];
+  }
+  return [];
+}
+
 export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
   site,
   isOpen,
@@ -598,150 +617,17 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
                     </span>
                   </div>
 
-                  {/* D&D Drop Area */}
-                  <div
-                    onDragOver={(e) => { e.preventDefault(); setIsDragOverDrawing(true); }}
-                    onDragLeave={() => setIsDragOverDrawing(false)}
-                    onDrop={async (e) => {
-                      e.preventDefault();
-                      setIsDragOverDrawing(false);
-                      if (!currentSite) return;
+                  {/* 多機能 複数NAS施工図PDFリスト & 一括D&Dエリア */}
+                  {(() => {
+                    const currentDrawings = getSiteDrawingList(currentSite);
 
-                      let droppedText = e.dataTransfer.getData('text/plain') || e.dataTransfer.getData('text') || e.dataTransfer.getData('text/uri-list');
+                    const handleAddPaths = async (rawInput: string) => {
+                      if (!rawInput.trim() || !currentSite) return;
+                      const lines = rawInput.split(/[\r\n,;]+/).map(s => s.trim()).filter(Boolean);
+                      const resolvedList: string[] = [];
 
-                      // 1. もしパス文字列にスラッシュ/バックスラッシュがあり、サブフォルダ階層が含まれている場合
-                      if (droppedText && (droppedText.includes('\\') || droppedText.includes('/'))) {
-                        const normalized = normalizeDrawingPath(droppedText);
-                        if (normalized && normalized.includes('/')) {
-                          const updated = { ...currentSite, drawingUrl: normalized };
-                          setCurrentSite(updated);
-                          saveSiteChanges(updated);
-                          return;
-                        }
-                      }
-
-                      // 2. ドロップされたファイル名（Fileオブジェクトまたは単一文字列）を取得
-                      let targetFileName = '';
-                      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-                        targetFileName = e.dataTransfer.files[0].name;
-                      } else if (droppedText) {
-                        targetFileName = droppedText.trim().replace(/^["']|["']$/g, '').split(/[\/\\]/).pop() || droppedText.trim();
-                      }
-
-                      if (targetFileName) {
-                        // サーバーの施工図再帰検索APIで 02-施工図PDF 内のサブフォルダを含めた正確な相対パスを自動解決
-                        try {
-                          const res = await fetch(`${API_BASE_URL}/sites/drawings/list?q=${encodeURIComponent(targetFileName)}`);
-                          if (res.ok) {
-                            const json = await res.json();
-                            if (json.success && Array.isArray(json.files) && json.files.length > 0) {
-                              const matchedPath = json.files[0].path;
-                              const updated = { ...currentSite, drawingUrl: matchedPath };
-                              setCurrentSite(updated);
-                              saveSiteChanges(updated);
-                              return;
-                            }
-                          }
-                        } catch (err) {
-                          console.warn('Failed to search drawing on server:', err);
-                        }
-
-                        // 万が一サーバー検索で見つからなかった場合フォールバック
-                        const fallbackNormalized = normalizeDrawingPath(droppedText || targetFileName);
-                        const updated = { ...currentSite, drawingUrl: fallbackNormalized };
-                        setCurrentSite(updated);
-                        saveSiteChanges(updated);
-                      }
-                    }}
-                    className={`p-3.5 rounded-xl border-2 border-dashed transition-all text-center ${
-                      isDragOverDrawing
-                        ? 'border-indigo-500 bg-indigo-50/80 ring-2 ring-indigo-500/20 shadow-md'
-                        : currentSite.drawingUrl
-                        ? 'border-emerald-300 bg-emerald-50/40'
-                        : 'border-slate-300 bg-white hover:border-slate-400'
-                    }`}
-                  >
-                    {currentSite.drawingUrl ? (
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-center gap-2 min-w-0">
-                          <FileText className="w-5 h-5 text-indigo-600 shrink-0" />
-                          <span className="font-extrabold text-xs text-slate-800 truncate max-w-full font-mono bg-white px-2 py-0.5 rounded border border-slate-200 shadow-2xs">
-                            {normalizeDrawingPath(currentSite.drawingUrl)}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-center gap-2 flex-wrap">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (!currentSite?.drawingUrl) return;
-                              const normalized = normalizeDrawingPath(currentSite.drawingUrl);
-                              const fileName = normalized.split('/').pop() || '施工図面.pdf';
-                              setPreviewFile({
-                                id: `drawing-${Date.now()}`,
-                                name: fileName,
-                                url: `${API_BASE_URL}/sites/drawings/serve?path=${encodeURIComponent(normalized)}`,
-                                type: 'pdf',
-                                size: 'NAS施工図PDF',
-                              });
-                              setIsPreviewOpen(true);
-                            }}
-                            className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white rounded-lg font-bold text-xs transition-all flex items-center gap-1.5 shadow-2xs cursor-pointer"
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                            <span>PDFビューアーで閲覧</span>
-                          </button>
-                          <a
-                            href={`${API_BASE_URL}/sites/drawings/serve?path=${encodeURIComponent(normalizeDrawingPath(currentSite.drawingUrl))}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold text-xs transition-colors flex items-center gap-1 cursor-pointer border border-slate-200"
-                            title="別タブでダウンロード / 直接閲覧"
-                          >
-                            <ExternalLink className="w-3.5 h-3.5 text-slate-500" />
-                            <span>ダウンロード</span>
-                          </a>
-                        </div>
-                        <p className="text-[10px] text-slate-400 mt-1">
-                          ※別の施工図PDFをドラッグ＆ドロップするとパスが自動更新されます
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="py-2 space-y-1">
-                        <div className="w-9 h-9 rounded-full bg-indigo-50 text-indigo-600 mx-auto flex items-center justify-center mb-1 shadow-2xs">
-                          <FileText className="w-4 h-4" />
-                        </div>
-                        <p className="text-xs font-bold text-slate-700">
-                          施工図PDF（またはエクスプローラーのパス）をここにドラッグ＆ドロップ
-                        </p>
-                        <p className="text-[10px] text-slate-400">
-                          `\\volume1\Teraoka-Sekkei\share\02-施工図PDF\` からの相対パスが自動登録されます
-                        </p>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* パス手動入力 / 貼り付け */}
-                  <div>
-                    <label className="text-[10px] text-slate-500 font-bold block mb-1">
-                      施工図PDFパス / 共有リンク（手動入力・パス貼り付け）
-                    </label>
-                    <input
-                      type="text"
-                      defaultValue={currentSite.drawingUrl || ''}
-                      key={currentSite.drawingUrl || 'empty-drawing'}
-                      onBlur={async (e) => {
-                        const val = e.target.value.trim();
-                        if (!val) {
-                          if (currentSite.drawingUrl) {
-                            const updated = { ...currentSite, drawingUrl: undefined };
-                            setCurrentSite(updated);
-                            saveSiteChanges(updated);
-                          }
-                          return;
-                        }
-
-                        let normalized = normalizeDrawingPath(val);
-                        // サブフォルダが含まれていないファイル名のみの場合、自動検索で階層を解決
+                      for (const item of lines) {
+                        let normalized = normalizeDrawingPath(item);
                         if (normalized && !normalized.includes('/')) {
                           try {
                             const res = await fetch(`${API_BASE_URL}/sites/drawings/list?q=${encodeURIComponent(normalized)}`);
@@ -753,17 +639,214 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
                             }
                           } catch (_) {}
                         }
+                        if (normalized) resolvedList.push(normalized);
+                      }
 
-                        if (normalized !== currentSite.drawingUrl) {
-                          const updated = { ...currentSite, drawingUrl: normalized || undefined };
-                          setCurrentSite(updated);
-                          saveSiteChanges(updated);
-                        }
-                      }}
-                      placeholder="例: 現場A/1階平面図.pdf または \\volume1\...\02-施工図PDF\現場A\平面図.pdf"
-                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    />
-                  </div>
+                      if (resolvedList.length > 0) {
+                        const updatedList = Array.from(new Set([...currentDrawings, ...resolvedList]));
+                        const primary = updatedList[0];
+                        const updated = { ...currentSite, drawingUrl: primary, drawings: updatedList };
+                        setCurrentSite(updated);
+                        saveSiteChanges(updated);
+                      }
+                    };
+
+                    const handleRemoveDrawing = (indexToRemove: number) => {
+                      if (!currentSite) return;
+                      const updatedList = currentDrawings.filter((_, idx) => idx !== indexToRemove);
+                      const primary = updatedList.length > 0 ? updatedList[0] : undefined;
+                      const updated = { ...currentSite, drawingUrl: primary, drawings: updatedList };
+                      setCurrentSite(updated);
+                      saveSiteChanges(updated);
+                    };
+
+                    return (
+                      <div className="space-y-3">
+                        {/* 登録済み図面一覧リスト */}
+                        {currentDrawings.length > 0 && (
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between text-[11px] font-bold text-slate-600">
+                              <span>登録済み施工図面 ({currentDrawings.length}件)</span>
+                              <span className="text-[10px] text-slate-400">クリックでPDFビューアー閲覧</span>
+                            </div>
+                            <div className="space-y-1.5 max-h-[220px] overflow-y-auto pr-1">
+                              {currentDrawings.map((dwPath, idx) => {
+                                const norm = normalizeDrawingPath(dwPath);
+                                const dwFileName = norm.split('/').pop() || norm;
+                                return (
+                                  <div
+                                    key={`dw-${idx}-${norm}`}
+                                    className="p-2.5 bg-white border border-slate-200 hover:border-indigo-300 rounded-xl flex items-center justify-between gap-2 shadow-2xs transition-all"
+                                  >
+                                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                                      <span className="w-5 h-5 rounded-md bg-indigo-50 text-indigo-700 text-[10px] font-bold flex items-center justify-center shrink-0">
+                                        {idx + 1}
+                                      </span>
+                                      <FileText className="w-4 h-4 text-indigo-600 shrink-0" />
+                                      <span className="font-mono text-xs font-bold text-slate-800 truncate" title={norm}>
+                                        {dwFileName}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 shrink-0">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setPreviewFile({
+                                            id: `drawing-${idx}-${Date.now()}`,
+                                            name: dwFileName,
+                                            url: `${API_BASE_URL}/sites/drawings/serve?path=${encodeURIComponent(norm)}`,
+                                            type: 'pdf',
+                                            size: 'NAS施工図PDF',
+                                          });
+                                          setIsPreviewOpen(true);
+                                        }}
+                                        className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[11px] font-bold flex items-center gap-1 transition-all active:scale-95 cursor-pointer shadow-2xs"
+                                        title="PDFビューアーで閲覧"
+                                      >
+                                        <Eye className="w-3 h-3" />
+                                        <span>閲覧</span>
+                                      </button>
+                                      <a
+                                        href={`${API_BASE_URL}/sites/drawings/serve?path=${encodeURIComponent(norm)}`}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="p-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-[11px] transition-colors border border-slate-200 cursor-pointer"
+                                        title="ダウンロード / 別タブ表示"
+                                      >
+                                        <Download className="w-3.5 h-3.5" />
+                                      </a>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleRemoveDrawing(idx)}
+                                        className="p-1 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg transition-colors cursor-pointer"
+                                        title="この図面を削除"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* 複数一括 D&D エリア */}
+                        <div
+                          onDragOver={(e) => { e.preventDefault(); setIsDragOverDrawing(true); }}
+                          onDragLeave={() => setIsDragOverDrawing(false)}
+                          onDrop={async (e) => {
+                            e.preventDefault();
+                            setIsDragOverDrawing(false);
+                            if (!currentSite) return;
+
+                            const newPaths: string[] = [];
+                            const files = e.dataTransfer.files ? Array.from(e.dataTransfer.files) : [];
+                            const droppedText = e.dataTransfer.getData('text/plain') || e.dataTransfer.getData('text') || e.dataTransfer.getData('text/uri-list');
+
+                            if (files.length > 0) {
+                              for (const file of files) {
+                                const fileName = file.name;
+                                if (!fileName) continue;
+                                try {
+                                  const res = await fetch(`${API_BASE_URL}/sites/drawings/list?q=${encodeURIComponent(fileName)}`);
+                                  if (res.ok) {
+                                    const json = await res.json();
+                                    if (json.success && Array.isArray(json.files) && json.files.length > 0) {
+                                      newPaths.push(json.files[0].path);
+                                      continue;
+                                    }
+                                  }
+                                } catch (err) {
+                                  console.warn('Failed to search drawing on server:', err);
+                                }
+                                newPaths.push(normalizeDrawingPath(fileName));
+                              }
+                            } else if (droppedText) {
+                              const lines = droppedText.split(/[\r\n,;]+/).map(s => s.trim()).filter(Boolean);
+                              for (const line of lines) {
+                                if (line.includes('\\') || line.includes('/')) {
+                                  const normalized = normalizeDrawingPath(line);
+                                  if (normalized && normalized.includes('/')) {
+                                    newPaths.push(normalized);
+                                    continue;
+                                  }
+                                }
+                                const targetFileName = line.replace(/^["']|["']$/g, '').split(/[\/\\]/).pop() || line;
+                                if (targetFileName) {
+                                  try {
+                                    const res = await fetch(`${API_BASE_URL}/sites/drawings/list?q=${encodeURIComponent(targetFileName)}`);
+                                    if (res.ok) {
+                                      const json = await res.json();
+                                      if (json.success && Array.isArray(json.files) && json.files.length > 0) {
+                                        newPaths.push(json.files[0].path);
+                                        continue;
+                                      }
+                                    }
+                                  } catch (err) {
+                                    console.warn('Failed to search drawing on server:', err);
+                                  }
+                                  newPaths.push(normalizeDrawingPath(targetFileName));
+                                }
+                              }
+                            }
+
+                            if (newPaths.length > 0) {
+                              const merged = Array.from(new Set([...currentDrawings, ...newPaths]));
+                              const primary = merged[0];
+                              const updated = { ...currentSite, drawingUrl: primary, drawings: merged };
+                              setCurrentSite(updated);
+                              saveSiteChanges(updated);
+                            }
+                          }}
+                          className={`p-3.5 rounded-xl border-2 border-dashed transition-all text-center ${
+                            isDragOverDrawing
+                              ? 'border-indigo-500 bg-indigo-50/80 ring-2 ring-indigo-500/20 shadow-md'
+                              : 'border-slate-300 bg-white hover:border-slate-400'
+                          }`}
+                        >
+                          <div className="py-1 space-y-1">
+                            <div className="w-8 h-8 rounded-full bg-indigo-50 text-indigo-600 mx-auto flex items-center justify-center mb-1 shadow-2xs">
+                              <FileText className="w-4 h-4" />
+                            </div>
+                            <p className="text-xs font-bold text-slate-700">
+                              施工図PDFをドラッグ＆ドロップ（複数ファイル一括登録対応）
+                            </p>
+                            <p className="text-[10px] text-slate-400">
+                              エクスプローラーから複数のPDFを一括でドラッグすると自動でサブフォルダ階層を解決して登録します
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* パス手動入力 / 複数貼り付け */}
+                        <div>
+                          <label className="text-[10px] text-slate-500 font-bold block mb-1">
+                            施工図パス追加（ファイル名またはパスを貼り付け）
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="例: N-26-158S_いすゞ自動車.pdf (Enterで検索追加)"
+                            className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            onKeyDown={async (e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                const val = (e.target as HTMLInputElement).value;
+                                await handleAddPaths(val);
+                                (e.target as HTMLInputElement).value = '';
+                              }
+                            }}
+                            onBlur={async (e) => {
+                              const val = e.target.value;
+                              if (val.trim()) {
+                                await handleAddPaths(val);
+                                e.target.value = '';
+                              }
+                            }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
 
