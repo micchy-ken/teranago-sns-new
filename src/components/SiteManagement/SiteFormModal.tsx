@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { X, Search, Database, Layers, Calendar, User as UserIcon, Plus, Trash2, CheckCircle2, AlertCircle, RefreshCw, MapPin, Building } from 'lucide-react';
+import { X, Search, Database, Layers, Calendar, User as UserIcon, Plus, Trash2, CheckCircle2, AlertCircle, RefreshCw, MapPin, Building, FileText } from 'lucide-react';
 import { Site, SiteMainPart, SiteSubPart, ExternalSiteLookupResult } from '../../types/site';
 import { User } from '../../types';
 import { API_BASE_URL } from '../../config/api';
+import { normalizeDrawingPath } from './SiteDetailModal';
 
 interface SiteFormModalProps {
   isOpen: boolean;
@@ -38,6 +39,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({
   const [primaryWorkerId, setPrimaryWorkerId] = useState<string>(currentUser.id);
   const [notes, setNotes] = useState('');
   const [drawingUrl, setDrawingUrl] = useState('');
+  const [isDragOverDrawing, setIsDragOverDrawing] = useState(false);
 
   // 主要部品リスト (1台ずつ展開)
   const [mainParts, setMainParts] = useState<SiteMainPart[]>([]);
@@ -788,16 +790,71 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({
               申し送り・NAS図面参照
             </h4>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">
-                  NAS図面参照URL / パス
+              <div className="space-y-2">
+                <label className="block text-xs font-semibold text-slate-600">
+                  NAS施工図PDF連携 (02-施工図PDF)
                 </label>
+                
+                {/* D&D Area */}
+                <div
+                  onDragOver={(e) => { e.preventDefault(); setIsDragOverDrawing(true); }}
+                  onDragLeave={() => setIsDragOverDrawing(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setIsDragOverDrawing(false);
+                    let droppedText = e.dataTransfer.getData('text/plain') || e.dataTransfer.getData('text');
+                    if (!droppedText && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                      const file = e.dataTransfer.files[0];
+                      droppedText = siteName ? `${siteName}/${file.name}` : file.name;
+                    }
+                    if (droppedText) {
+                      const normalized = normalizeDrawingPath(droppedText, siteName);
+                      setDrawingUrl(normalized);
+                    }
+                  }}
+                  className={`p-3 rounded-xl border-2 border-dashed text-center transition-all ${
+                    isDragOverDrawing
+                      ? 'border-indigo-500 bg-indigo-50/80 ring-2 ring-indigo-500/20 shadow-md'
+                      : drawingUrl
+                      ? 'border-emerald-300 bg-emerald-50/40'
+                      : 'border-slate-300 bg-slate-50 hover:border-slate-400'
+                  }`}
+                >
+                  {drawingUrl ? (
+                    <div className="flex items-center justify-between gap-2 min-w-0">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <FileText className="w-4 h-4 text-indigo-600 shrink-0" />
+                        <span className="font-mono text-xs text-slate-800 truncate font-extrabold">
+                          {normalizeDrawingPath(drawingUrl)}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setDrawingUrl('')}
+                        className="text-xs text-slate-400 hover:text-rose-600 p-1 shrink-0 cursor-pointer"
+                        title="パスをクリア"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="py-1">
+                      <p className="text-xs text-slate-600 font-bold">
+                        ここに施工図PDF（またはエクスプローラーのパス）をドラッグ＆ドロップ
+                      </p>
+                      <p className="text-[10px] text-slate-400">
+                        `\\volume1\Teraoka-Sekkei\share\02-施工図PDF\` からの相対パスとして自動整形されます
+                      </p>
+                    </div>
+                  )}
+                </div>
+
                 <input
                   type="text"
                   value={drawingUrl}
-                  onChange={(e) => setDrawingUrl(e.target.value)}
-                  placeholder="例: /drawings/NHQ136A/layout.dwg または NASリンク"
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs text-slate-800 focus:bg-white"
+                  onChange={(e) => setDrawingUrl(normalizeDrawingPath(e.target.value))}
+                  placeholder="例: 現場A/1階平面図.pdf または \\volume1\...\02-施工図PDF\現場A\平面図.pdf"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-mono text-slate-800 focus:bg-white"
                 />
               </div>
 

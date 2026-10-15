@@ -19,6 +19,24 @@ interface SiteDetailModalProps {
   allUsers: User[];
 }
 
+/**
+ * Windows UNCパス (\volume1\Teraoka-Sekkei\share\02-施工図PDF\現場A\平面図.pdf 等) や Z:\share\02-施工図PDF\現場A\平面図.pdf
+ * から 02-施工図PDF 内の相対パス (例: 現場A/平面図.pdf) を自動補正するヘルパー
+ */
+export function normalizeDrawingPath(rawPath?: string, siteName?: string): string {
+  if (!rawPath) return '';
+  let cleaned = rawPath.trim().replace(/^["']|["']$/g, '').replace(/\\/g, '/');
+  
+  cleaned = cleaned.replace(/^(?:\\\\|\/\/)[^\/]+\/(?:Teraoka-Sekkei\/)?(?:share\/)?02-施工図PDF\/?/i, '');
+  cleaned = cleaned.replace(/^(?:\\\\|\/\/)[^\/]+\/[^\/]+\/02-施工図PDF\/?/i, '');
+  cleaned = cleaned.replace(/^(?:\/|\\\\)volume1\/Teraoka-Sekkei\/share\/02-施工図PDF\/?/i, '');
+  cleaned = cleaned.replace(/^[a-zA-Z]:\/(?:02-施工図PDF\/)?/i, '');
+  cleaned = cleaned.replace(/^\/?02-施工図PDF\//i, '');
+  cleaned = cleaned.replace(/^\/+/g, '');
+
+  return cleaned;
+}
+
 export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
   site,
   isOpen,
@@ -43,6 +61,7 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
   // ファイルプレビュー用ステート
   const [previewFile, setPreviewFile] = useState<AttachmentFile | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [isDragOverDrawing, setIsDragOverDrawing] = useState(false);
 
   // 付属部品の外部在庫DBリアルタイム取得
   const [subParts, setSubParts] = useState<SiteSubPart[]>(site?.subPartsCache || []);
@@ -568,47 +587,125 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
                   <div><strong>主担当施工者:</strong> {currentSite.primaryWorkerName || '未定'}</div>
                 </div>
 
-                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
-                  <h5 className="font-bold text-slate-800 border-b border-slate-200 pb-1">
-                    NAS図面連携
-                  </h5>
-                  {currentSite.drawingUrl ? (
-                    <div>
-                      <p className="text-slate-600 mb-2">NAS上の図面URL / パスが設定されています:</p>
-                      <a
-                        href={currentSite.drawingUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-xs transition-colors shadow-2xs"
-                      >
-                        <ExternalLink className="w-3.5 h-3.5" />
-                        NAS図面を開く
-                      </a>
-                    </div>
-                  ) : (
-                    <p className="text-slate-400">図面URLは設定されていません。</p>
-                  )}
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
+                  <div className="flex items-center justify-between border-b border-slate-200 pb-1">
+                    <h5 className="font-bold text-slate-800 flex items-center gap-1.5">
+                      <FileText className="w-4 h-4 text-indigo-600" />
+                      <span>NAS施工図PDF連携 (02-施工図PDF)</span>
+                    </h5>
+                    <span className="text-[10px] bg-indigo-100 text-indigo-800 px-1.5 py-0.5 rounded font-bold">
+                      D&D / パス自動整形
+                    </span>
+                  </div>
 
-                  <div className="pt-2">
-                    <label className="text-[10px] text-slate-500 font-semibold block mb-1">
-                      図面URL・パスの変更
+                  {/* D&D Drop Area */}
+                  <div
+                    onDragOver={(e) => { e.preventDefault(); setIsDragOverDrawing(true); }}
+                    onDragLeave={() => setIsDragOverDrawing(false)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setIsDragOverDrawing(false);
+                      if (!currentSite) return;
+                      let droppedText = e.dataTransfer.getData('text/plain') || e.dataTransfer.getData('text');
+                      if (!droppedText && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                        const file = e.dataTransfer.files[0];
+                        droppedText = currentSite.siteName ? `${currentSite.siteName}/${file.name}` : file.name;
+                      }
+                      if (droppedText) {
+                        const normalized = normalizeDrawingPath(droppedText, currentSite.siteName);
+                        const updated = { ...currentSite, drawingUrl: normalized };
+                        setCurrentSite(updated);
+                        saveSiteChanges(updated);
+                      }
+                    }}
+                    className={`p-3.5 rounded-xl border-2 border-dashed transition-all text-center ${
+                      isDragOverDrawing
+                        ? 'border-indigo-500 bg-indigo-50/80 ring-2 ring-indigo-500/20 shadow-md'
+                        : currentSite.drawingUrl
+                        ? 'border-emerald-300 bg-emerald-50/40'
+                        : 'border-slate-300 bg-white hover:border-slate-400'
+                    }`}
+                  >
+                    {currentSite.drawingUrl ? (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-center gap-2 min-w-0">
+                          <FileText className="w-5 h-5 text-indigo-600 shrink-0" />
+                          <span className="font-extrabold text-xs text-slate-800 truncate max-w-full font-mono bg-white px-2 py-0.5 rounded border border-slate-200 shadow-2xs">
+                            {normalizeDrawingPath(currentSite.drawingUrl)}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-center gap-2 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!currentSite?.drawingUrl) return;
+                              const normalized = normalizeDrawingPath(currentSite.drawingUrl);
+                              const fileName = normalized.split('/').pop() || '施工図面.pdf';
+                              setPreviewFile({
+                                id: `drawing-${Date.now()}`,
+                                name: fileName,
+                                url: `${API_BASE_URL}/api/sites/drawings/serve?path=${encodeURIComponent(normalized)}`,
+                                type: 'pdf',
+                                size: 'NAS施工図PDF',
+                              });
+                              setIsPreviewOpen(true);
+                            }}
+                            className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white rounded-lg font-bold text-xs transition-all flex items-center gap-1.5 shadow-2xs cursor-pointer"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>PDFビューアーで閲覧</span>
+                          </button>
+                          <a
+                            href={`${API_BASE_URL}/api/sites/drawings/serve?path=${encodeURIComponent(normalizeDrawingPath(currentSite.drawingUrl))}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold text-xs transition-colors flex items-center gap-1 cursor-pointer border border-slate-200"
+                            title="別タブでダウンロード / 直接閲覧"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5 text-slate-500" />
+                            <span>ダウンロード</span>
+                          </a>
+                        </div>
+                        <p className="text-[10px] text-slate-400 mt-1">
+                          ※別の施工図PDFをドラッグ＆ドロップするとパスが自動更新されます
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="py-2 space-y-1">
+                        <div className="w-9 h-9 rounded-full bg-indigo-50 text-indigo-600 mx-auto flex items-center justify-center mb-1 shadow-2xs">
+                          <FileText className="w-4 h-4" />
+                        </div>
+                        <p className="text-xs font-bold text-slate-700">
+                          施工図PDF（またはエクスプローラーのパス）をここにドラッグ＆ドロップ
+                        </p>
+                        <p className="text-[10px] text-slate-400">
+                          `\\volume1\Teraoka-Sekkei\share\02-施工図PDF\` からの相対パスが自動登録されます
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* パス手動入力 / 貼り付け */}
+                  <div>
+                    <label className="text-[10px] text-slate-500 font-bold block mb-1">
+                      施工図PDFパス / 共有リンク（手動入力・パス貼り付け）
                     </label>
-                    <div className="flex gap-1.5">
-                      <input
-                        type="text"
-                        defaultValue={currentSite.drawingUrl || ''}
-                        onBlur={(e) => {
-                          if (e.target.value !== currentSite.drawingUrl) {
-                            handleUpdatePart('', {}); // trigger
-                            const updated = { ...currentSite, drawingUrl: e.target.value };
-                            setCurrentSite(updated);
-                            saveSiteChanges(updated);
-                          }
-                        }}
-                        placeholder="例: /drawings/NHQ136A/ 或いは NAS直リンク"
-                        className="flex-1 px-2.5 py-1 bg-white border border-slate-300 rounded text-xs"
-                      />
-                    </div>
+                    <input
+                      type="text"
+                      defaultValue={currentSite.drawingUrl || ''}
+                      key={currentSite.drawingUrl || 'empty-drawing'}
+                      onBlur={(e) => {
+                        const val = e.target.value;
+                        const normalized = normalizeDrawingPath(val);
+                        if (normalized !== currentSite.drawingUrl) {
+                          const updated = { ...currentSite, drawingUrl: normalized || undefined };
+                          setCurrentSite(updated);
+                          saveSiteChanges(updated);
+                        }
+                      }}
+                      placeholder="例: 現場A/1階平面図.pdf または \\volume1\...\02-施工図PDF\現場A\平面図.pdf"
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
                   </div>
                 </div>
               </div>

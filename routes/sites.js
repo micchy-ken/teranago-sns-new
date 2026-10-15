@@ -1,7 +1,7 @@
 /**
  * routes/sites.js
  * 寺岡オートドアSNS 現場管理・施工スケジュール・在庫DB部品連携 APIモジュール
- * 最終更新: 2026年10月14日 (現場管理のEG台数・主要部品号機番号展開・在庫DB連携正規化・複数台現場の1/1表記不具合解消)
+ * 最終更新: 2026年10月15日 (NAS施工図PDF連携機能・02-施工図PDFサーブ/リストAPI追加)
  */
 import { Router } from 'express';
 import sql from 'mssql';
@@ -12,6 +12,30 @@ import { dataDir } from '../config.js';
 
 const router = Router();
 const sitesFilePath = path.join(dataDir, 'sites.json');
+
+// NAS 02-施工図PDF ベースディレクトリの定義 (デフォルト: data/drawings または環境変数 DRAWINGS_DIR)
+const drawingsBaseDir = process.env.DRAWINGS_DIR || path.join(process.cwd(), 'data', 'drawings');
+if (!fs.existsSync(drawingsBaseDir)) {
+  try {
+    fs.mkdirSync(drawingsBaseDir, { recursive: true });
+  } catch (_) {}
+}
+
+// パス正規化ヘルパー: Windows UNCパス (\volume1\Teraoka-Sekkei\share\02-施工図PDF\現場A\平面図.pdf) 等から相対パスを抽出
+function sanitizeDrawingRelPath(rawPath) {
+  if (!rawPath || typeof rawPath !== 'string') return '';
+  let cleaned = rawPath.trim().replace(/^["']|["']$/g, '').replace(/\\/g, '/');
+  
+  // Windows UNCパス、共有名、ボリュームパス、ドライブレターなどの接頭辞をカット
+  cleaned = cleaned.replace(/^(?:\\\\|\/\/)[^\/]+\/(?:Teraoka-Sekkei\/)?(?:share\/)?02-施工図PDF\/?/i, '');
+  cleaned = cleaned.replace(/^(?:\\\\|\/\/)[^\/]+\/[^\/]+\/02-施工図PDF\/?/i, '');
+  cleaned = cleaned.replace(/^(?:\/|\\\\)volume1\/Teraoka-Sekkei\/share\/02-施工図PDF\/?/i, '');
+  cleaned = cleaned.replace(/^[a-zA-Z]:\/(?:02-施工図PDF\/)?/i, '');
+  cleaned = cleaned.replace(/^\/?02-施工図PDF\//i, '');
+  cleaned = cleaned.replace(/^\/+/g, '');
+  
+  return cleaned;
+}
 
 // --- ヘルパー関数 (Local JSON フォールバック) ---
 function loadSitesFile() {
@@ -727,6 +751,90 @@ router.delete(['/:id', '/sites/:id'], async (req, res) => {
     res.json({ success: true, message: 'Site deleted successfully' });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ==========================================
+// 8. NAS 施工図PDF サーブ用エンドポイント (GET /api/sites/drawings/serve?path=...)
+// ==========================================
+router.get(['/drawings/serve', '/sites/drawings/serve', '/api/sites/drawings/serve'], (req, res) => {
+  try {
+    const rawPath = req.query.path;
+    if (!rawPath || typeof rawPath !== 'string') {
+      return res.status(400).json({ error: 'path パラメータが必要です' });
+    }
+
+    const relPath = sanitizeDrawingRelPath(rawPath);
+    if (!relPath) {
+      return res.status(400).json({ error: '有効なファイルパスを指定してください' });
+    }
+
+    // セキュリティ対策: パストラバーサル防止
+    const safePath = path.normalize(relPath).replace(/^(\.\.[\/\\])+/, '');
+    const absolutePath = path.join(drawingsBaseDir, safePath);
+
+    // drawingsBaseDir の外側を参照していないかチェック
+    if (!absolutePath.startsWith(path.resolve(drawingsBaseDir))) {
+      return res.status(403).json({ error: '許可されていないパスへのアクセスです' });
+    }
+
+    if (!fs.existsSync(absolutePath) || fs.statSync(absolutePath).isDirectory()) {
+      return res.status(404).json({
+        error: '指定された施工図PDFが見つかりませんでした',
+        path: relPath,
+        drawingsBaseDir: drawingsBaseDir
+      });
+    }
+
+    const ext = path.extname(absolutePath).toLowerCase();
+    let contentType = 'application/octet-stream';
+    if (ext === '.pdf') contentType = 'application/pdf';
+    else if (ext === '.jpg' || ext === '.jpeg') contentType = 'image/jpeg';
+    else if (ext === '.png') contentType = 'image/png';
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(path.basename(absolutePath))}"`);
+    
+    const stream = fs.createReadStream(absolutePath);
+    stream.pipe(res);
+  } catch (err) {
+    res.status(500).json({ error: '施工図PDFの配信に失敗しました', details: err.message });
+  }
+});
+
+// ==========================================
+// 9. NAS 施工図PDF 一覧・検索エンドポイント (GET /api/sites/drawings/list)
+// ==========================================
+router.get(['/drawings/list', '/sites/drawings/list', '/api/sites/drawings/list'], (req, res) => {
+  try {
+    const subFolder = sanitizeDrawingRelPath(req.query.folder || '');
+    const search = (req.query.q || '').toLowerCase();
+    
+    const targetDir = path.join(drawingsBaseDir, subFolder);
+    if (!targetDir.startsWith(path.resolve(drawingsBaseDir)) || !fs.existsSync(targetDir)) {
+      return res.json({ success: true, files: [], currentFolder: subFolder });
+    }
+
+    const entries = fs.readdirSync(targetDir, { withFileTypes: true });
+    const files = entries
+      .filter(entry => {
+        if (search) return entry.name.toLowerCase().includes(search);
+        return true;
+      })
+      .map(entry => {
+        const entryRelPath = path.join(subFolder, entry.name).replace(/\\/g, '/');
+        return {
+          name: entry.name,
+          isDirectory: entry.isDirectory(),
+          path: entryRelPath,
+          url: `/api/sites/drawings/serve?path=${encodeURIComponent(entryRelPath)}`,
+          ext: path.extname(entry.name).toLowerCase()
+        };
+      });
+
+    res.json({ success: true, files, currentFolder: subFolder });
+  } catch (err) {
+    res.status(500).json({ error: '施工図フォルダ一覧の取得に失敗しました', details: err.message });
   }
 });
 

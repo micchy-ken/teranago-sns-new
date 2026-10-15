@@ -615,6 +615,29 @@ async function startServer() {
     fs.mkdirSync(externalFilesDir, { recursive: true });
   }
 
+  // NAS 02-施工図PDF ベースディレクトリ (デフォルト: data/drawings または環境変数 DRAWINGS_DIR)
+  const drawingsBaseDir = process.env.DRAWINGS_DIR || path.join(process.cwd(), 'data', 'drawings');
+  if (!fs.existsSync(drawingsBaseDir)) {
+    try {
+      fs.mkdirSync(drawingsBaseDir, { recursive: true });
+    } catch (_) {}
+  }
+
+  // パス正規化ヘルパー: Windows UNCパス (\volume1\Teraoka-Sekkei\share\02-施工図PDF\現場A\平面図.pdf) 等から相対パスを抽出
+  function sanitizeDrawingRelPath(rawPath: string): string {
+    if (!rawPath || typeof rawPath !== 'string') return '';
+    let cleaned = rawPath.trim().replace(/^["']|["']$/g, '').replace(/\\/g, '/');
+    
+    cleaned = cleaned.replace(/^(?:\\\\|\/\/)[^\/]+\/(?:Teraoka-Sekkei\/)?(?:share\/)?02-施工図PDF\/?/i, '');
+    cleaned = cleaned.replace(/^(?:\\\\|\/\/)[^\/]+\/[^\/]+\/02-施工図PDF\/?/i, '');
+    cleaned = cleaned.replace(/^(?:\/|\\\\)volume1\/Teraoka-Sekkei\/share\/02-施工図PDF\/?/i, '');
+    cleaned = cleaned.replace(/^[a-zA-Z]:\/(?:02-施工図PDF\/)?/i, '');
+    cleaned = cleaned.replace(/^\/?02-施工図PDF\//i, '');
+    cleaned = cleaned.replace(/^\/+/g, '');
+    
+    return cleaned;
+  }
+
   // 掲示板添付ファイル用ストレージディレクトリ（/app/bulletinsfiles または ./bulletinsfiles）
   const bulletinsFilesDir = process.env.BULLETINS_FILES_DIR ||
     (fs.existsSync('/app/bulletinsfiles') ? '/app/bulletinsfiles' : path.join(process.cwd(), 'bulletinsfiles'));
@@ -1044,6 +1067,50 @@ async function startServer() {
       }
     } catch (err: any) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  // NAS 施工図PDF サーブ用 API
+  app.get(['/api/sites/drawings/serve', '/api/drawings/serve'], (req, res) => {
+    try {
+      const rawPath = req.query.path;
+      if (!rawPath || typeof rawPath !== 'string') {
+        return res.status(400).json({ error: 'path パラメータが必要です' });
+      }
+
+      const relPath = sanitizeDrawingRelPath(rawPath);
+      if (!relPath) {
+        return res.status(400).json({ error: '有効なファイルパスを指定してください' });
+      }
+
+      const safePath = path.normalize(relPath).replace(/^(\.\.[\/\\])+/, '');
+      const absolutePath = path.join(drawingsBaseDir, safePath);
+
+      if (!absolutePath.startsWith(path.resolve(drawingsBaseDir))) {
+        return res.status(403).json({ error: '許可されていないパスへのアクセスです' });
+      }
+
+      if (!fs.existsSync(absolutePath) || fs.statSync(absolutePath).isDirectory()) {
+        return res.status(404).json({
+          error: '指定された施工図PDFが見つかりませんでした',
+          path: relPath,
+          drawingsBaseDir
+        });
+      }
+
+      const ext = path.extname(absolutePath).toLowerCase();
+      let contentType = 'application/octet-stream';
+      if (ext === '.pdf') contentType = 'application/pdf';
+      else if (ext === '.jpg' || ext === '.jpeg') contentType = 'image/jpeg';
+      else if (ext === '.png') contentType = 'image/png';
+
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(path.basename(absolutePath))}"`);
+      
+      const stream = fs.createReadStream(absolutePath);
+      stream.pipe(res);
+    } catch (err: any) {
+      res.status(500).json({ error: '施工図PDFの配信に失敗しました', details: err.message });
     }
   });
 
