@@ -390,6 +390,16 @@ export default function App() {
     return { id: 'u1', name: 'ユーザー', role: 'user', department: '', avatarUrl: '' };
   });
 
+  // 代理ログイン中の元管理者情報（ワンクリック復帰用）
+  const [impersonatorAdmin, setImpersonatorAdmin] = useState<User | null>(() => {
+    try {
+      const saved = localStorage.getItem('impersonator_admin_user');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
   useEffect(() => {
     if (userState?.id && isAuthenticated) {
       syncUserReadStatusesFromServer(userState.id);
@@ -413,6 +423,8 @@ export default function App() {
     localStorage.setItem('is_logged_in', 'true');
     localStorage.setItem('logged_in_user_id', user.id);
     localStorage.setItem('logged_in_user_data', JSON.stringify(user));
+    localStorage.removeItem('impersonator_admin_user');
+    setImpersonatorAdmin(null);
     sessionStorage.setItem(`teranago_session_access_${user.id}`, new Date().toDateString());
     logActivity('login', 'システムにログインしました', user);
   };
@@ -423,6 +435,8 @@ export default function App() {
     localStorage.removeItem('is_logged_in');
     localStorage.removeItem('logged_in_user_id');
     localStorage.removeItem('logged_in_user_data');
+    localStorage.removeItem('impersonator_admin_user');
+    setImpersonatorAdmin(null);
   };
 
   const [activeTab, setActiveTab] = useState<AppTab>(() => initialUrlParams.tab || 'mypage');
@@ -1727,11 +1741,37 @@ export default function App() {
     );
   }
 
-  // Switch active user for testing permissions
-  const handleSwitchUser = (user: User) => {
-    setUserState(user);
-    localStorage.setItem('logged_in_user_id', user.id);
-    localStorage.setItem('logged_in_user_data', JSON.stringify(user));
+  // Switch active user for testing permissions / impersonation
+  const handleSwitchUser = (targetUser: User) => {
+    // もし切り替え先が元管理者自身なら元に戻す
+    if (impersonatorAdmin && targetUser.id === impersonatorAdmin.id) {
+      handleRevertToAdmin();
+      return;
+    }
+
+    // まだ元管理者が記録されていない場合、現在のユーザーが管理者であれば記録
+    if (!impersonatorAdmin) {
+      if (userState?.isAdmin) {
+        setImpersonatorAdmin(userState);
+        localStorage.setItem('impersonator_admin_user', JSON.stringify(userState));
+      }
+    }
+
+    setUserState(targetUser);
+    localStorage.setItem('logged_in_user_id', targetUser.id);
+    localStorage.setItem('logged_in_user_data', JSON.stringify(targetUser));
+    refetchApplications(usersList);
+  };
+
+  // 管理者アカウントへワンクリックで復帰
+  const handleRevertToAdmin = () => {
+    if (!impersonatorAdmin) return;
+    const admin = impersonatorAdmin;
+    setUserState(admin);
+    localStorage.setItem('logged_in_user_id', admin.id);
+    localStorage.setItem('logged_in_user_data', JSON.stringify(admin));
+    localStorage.removeItem('impersonator_admin_user');
+    setImpersonatorAdmin(null);
     refetchApplications(usersList);
   };
 
@@ -2914,6 +2954,8 @@ export default function App() {
         currentUser={userState}
         allUsers={usersList}
         onSwitchUser={handleSwitchUser}
+        impersonatorAdmin={impersonatorAdmin}
+        onRevertToAdmin={handleRevertToAdmin}
         onLogout={handleLogout}
         memos={memos}
         applications={applications}
@@ -2991,6 +3033,8 @@ export default function App() {
                 setIsMobileMenuOpen(false);
               }}
               currentUser={userState}
+              impersonatorAdmin={impersonatorAdmin}
+              onRevertToAdmin={handleRevertToAdmin}
               unreadCounts={sidebarUnreadCounts}
               isUtilityOpen={isUtilityOpen}
               onToggleUtility={handleToggleUtilityOpen}
@@ -3046,6 +3090,8 @@ export default function App() {
               activeTab={activeTab}
               onChangeTab={setActiveTab}
               currentUser={userState}
+              impersonatorAdmin={impersonatorAdmin}
+              onRevertToAdmin={handleRevertToAdmin}
               unreadCounts={sidebarUnreadCounts}
               isUtilityOpen={isUtilityOpen}
               onToggleUtility={handleToggleUtilityOpen}
@@ -3295,6 +3341,8 @@ export default function App() {
                 }
               }}
               onLogout={handleLogout}
+              impersonatorAdmin={impersonatorAdmin}
+              onRevertToAdmin={handleRevertToAdmin}
               autoOpenSettings={autoOpenSettings}
               onCloseSettings={() => setAutoOpenSettings(false)}
               autoOpenEmergencyContact={autoOpenEmergencyContact}
@@ -3339,6 +3387,8 @@ export default function App() {
               onDeleteUser={handleDeleteUser}
               onToggleUserAdmin={handleToggleUserAdmin}
               onSwitchUser={handleSwitchUser}
+              impersonatorAdmin={impersonatorAdmin}
+              onRevertToAdmin={handleRevertToAdmin}
               onAddApprovalFlow={handleAddApprovalFlow}
               onUpdateApprovalFlow={handleUpdateApprovalFlow}
               onDeleteApprovalFlow={handleDeleteApprovalFlow}

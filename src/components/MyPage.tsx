@@ -78,6 +78,7 @@ import {
   Wrench,
   AlertTriangle,
   GripVertical,
+  Undo2,
   ArrowUp,
   ArrowDown,
   RotateCcw,
@@ -140,6 +141,8 @@ interface MyPageProps {
   onAddApplication?: (application: Omit<WorkflowApplication, 'id' | 'createdAt' | 'status'> & { status?: ApplicationStatus }) => Promise<void> | void;
   approvalFlows?: ApprovalFlowRule[];
   itemMasters?: ItemMaster[];
+  impersonatorAdmin?: User | null;
+  onRevertToAdmin?: () => void;
   onLogout?: () => void;
   autoOpenSettings?: boolean;
   onCloseSettings?: () => void;
@@ -175,6 +178,8 @@ export function MyPage({
   onAddApplication,
   approvalFlows = [],
   itemMasters = [],
+  impersonatorAdmin,
+  onRevertToAdmin,
   onLogout,
   autoOpenSettings,
   onCloseSettings,
@@ -1869,7 +1874,41 @@ export function MyPage({
 
   return (
     <div className="flex-1 overflow-y-auto bg-slate-50/50 rounded-xl border border-slate-200 h-[calc(100vh-8rem)] p-3 sm:p-6 space-y-4 sm:space-y-6">
-
+      {/* 代理ログイン中通知カード */}
+      {impersonatorAdmin && (
+        <div className="bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-amber-500/15 border-2 border-amber-400/80 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xs animate-in fade-in duration-200">
+          <div className="flex items-start gap-3.5 min-w-0">
+            <div className="p-2.5 bg-amber-500 text-white rounded-xl shadow-xs shrink-0">
+              <ShieldAlert className="w-6 h-6" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="px-2 py-0.5 bg-amber-500 text-white text-xs font-black rounded-md shadow-2xs tracking-wider">
+                  代理ログイン中
+                </span>
+                <span className="text-sm sm:text-base font-bold text-slate-800">
+                  現在「<strong className="underline decoration-amber-400 underline-offset-2">{user.name}</strong>」さんのアカウントでログインしています
+                </span>
+              </div>
+              <p className="text-xs text-slate-600 mt-1">
+                元の管理者: <strong className="font-bold text-slate-800">{impersonatorAdmin.name}</strong>（{impersonatorAdmin.department || impersonatorAdmin.division || 'システム管理者'}）
+                <span className="hidden sm:inline"> — 確認や設定が完了したら、ワンクリックで元の管理者権限に戻ることができます。</span>
+              </p>
+            </div>
+          </div>
+          {onRevertToAdmin && (
+            <button
+              type="button"
+              onClick={onRevertToAdmin}
+              className="px-4 py-2.5 bg-amber-500 hover:bg-amber-600 active:scale-95 text-white font-black text-xs sm:text-sm rounded-xl shadow-xs hover:shadow transition-all flex items-center gap-2 cursor-pointer shrink-0 border border-amber-600/70"
+              title="ワンクリックで元の管理者アカウントに復帰します"
+            >
+              <Undo2 className="w-4 h-4" />
+              <span>管理者（{impersonatorAdmin.name}）に戻る</span>
+            </button>
+          )}
+        </div>
+      )}
 
       {/* 6つの未読通知サマリーカード（クリックで各機能ページへ直接遷移） */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 sm:gap-3.5">
@@ -3250,19 +3289,36 @@ export function MyPage({
 
               {/* フッターアクション */}
               <div className="flex items-center justify-between gap-3 pt-4 border-t border-slate-100">
-                {onLogout ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      handleCloseSettings();
-                      onLogout();
-                    }}
-                    className="px-3.5 py-2 text-xs font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <LogOut className="w-4 h-4" />
-                    <span>ログアウト</span>
-                  </button>
-                ) : <div />}
+                <div className="flex items-center gap-2">
+                  {onLogout && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleCloseSettings();
+                        onLogout();
+                      }}
+                      className="px-3.5 py-2 text-xs font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <LogOut className="w-4 h-4" />
+                      <span>ログアウト</span>
+                    </button>
+                  )}
+
+                  {impersonatorAdmin && onRevertToAdmin && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleCloseSettings();
+                        onRevertToAdmin();
+                      }}
+                      className="px-3.5 py-2 text-xs font-bold text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
+                      title="元の管理者アカウントにワンクリックで復帰します"
+                    >
+                      <Undo2 className="w-4 h-4 text-amber-700" />
+                      <span>管理者（{impersonatorAdmin.name}）に戻る</span>
+                    </button>
+                  )}
+                </div>
 
                 <div className="flex items-center gap-3">
                   <button

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Search, Bell, Menu, Phone, FileText, Monitor, Calendar as CalendarIcon, MessageSquare, CheckCheck, ChevronRight, X, Smartphone, Users, MessageCircle, Palette, Check, Minimize2, Pin, ShieldAlert, Type } from 'lucide-react';
+import { Search, Bell, Menu, Phone, FileText, Monitor, Calendar as CalendarIcon, MessageSquare, CheckCheck, ChevronRight, X, Smartphone, Users, MessageCircle, Palette, Check, Minimize2, Pin, ShieldAlert, Type, Undo2 } from 'lucide-react';
 import { User, Memo, WorkflowApplication, BoardTopic, CalendarEvent, ChatRoom, Post, DailyReport, SafetyConfirmationEvent, SafetyConfirmationResponse } from '../types';
 import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
 import { AppTab } from './Sidebar';
@@ -49,6 +49,8 @@ interface HeaderProps {
   currentUser: User;
   allUsers?: User[];
   onSwitchUser?: (user: User) => void;
+  impersonatorAdmin?: User | null;
+  onRevertToAdmin?: () => void;
   onLogout?: () => void;
   memos?: Memo[];
   applications?: WorkflowApplication[];
@@ -128,6 +130,8 @@ export function Header({
   currentUser,
   allUsers,
   onSwitchUser,
+  impersonatorAdmin,
+  onRevertToAdmin,
   onLogout,
   memos = [],
   applications = [],
@@ -786,6 +790,69 @@ export function Header({
 
   return (
     <header className="sticky top-0 z-40 bg-white border-b border-slate-200 shrink-0 shadow-xs">
+      {/* 代理ログイン中インフォメーション＆ワンクリック復帰バー */}
+      {impersonatorAdmin && (
+        <div className="bg-gradient-to-r from-amber-600 via-amber-500 to-orange-500 text-white px-3.5 sm:px-6 py-2 flex flex-wrap items-center justify-between gap-2.5 shadow-inner border-b border-amber-600/60 transition-all animate-in slide-in-from-top-2 duration-200">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="flex items-center justify-center w-6 h-6 rounded-full bg-black/25 text-white shrink-0 shadow-2xs">
+              <ShieldAlert className="w-3.5 h-3.5 text-amber-200" />
+            </span>
+            <div className="text-xs sm:text-sm font-medium truncate flex items-center gap-2 flex-wrap">
+              <span className="font-extrabold bg-black/30 px-2 py-0.5 rounded text-[11px] sm:text-xs tracking-wider shadow-2xs border border-white/15">
+                代理ログイン中
+              </span>
+              <span className="text-amber-50">
+                現在 <strong className="font-extrabold text-white underline decoration-amber-200/80 underline-offset-2">{currentUser.name}</strong> さん（{currentUser.department || currentUser.division || 'メンバー'}）のアカウントで操作中
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0 ml-auto">
+            {allUsers && allUsers.length > 0 && onSwitchUser && (
+              <select
+                value={currentUser.id}
+                onChange={(e) => {
+                  const targetId = e.target.value;
+                  if (targetId === impersonatorAdmin.id) {
+                    onRevertToAdmin?.();
+                  } else {
+                    const selected = allUsers.find((u) => u.id === targetId);
+                    if (selected) onSwitchUser(selected);
+                  }
+                }}
+                className="bg-black/25 hover:bg-black/35 text-white text-xs font-bold rounded-lg px-2.5 py-1.5 border border-white/25 focus:outline-none focus:ring-2 focus:ring-white/50 cursor-pointer shadow-xs transition-colors"
+                title="他のメンバーへ代理ログインを切り替え"
+              >
+                <option value={impersonatorAdmin.id} className="text-slate-900 bg-white font-bold">
+                  ↩ 元の管理者（{impersonatorAdmin.name}）に戻る
+                </option>
+                <optgroup label="全社メンバー切り替え" className="text-slate-900 bg-white font-medium">
+                  {allUsers
+                    .filter((u) => u.id !== impersonatorAdmin.id)
+                    .map((u) => (
+                      <option key={u.id} value={u.id} className="text-slate-800">
+                        {u.name} {u.isAdmin ? ' (管理者)' : ''} - {u.department || u.division || '一般'}
+                      </option>
+                    ))}
+                </optgroup>
+              </select>
+            )}
+
+            {onRevertToAdmin && (
+              <button
+                type="button"
+                onClick={onRevertToAdmin}
+                className="px-3.5 py-1.5 bg-white hover:bg-amber-50 active:scale-95 text-amber-950 font-extrabold text-xs rounded-lg shadow-sm hover:shadow transition-all flex items-center gap-1.5 cursor-pointer shrink-0 border border-amber-300"
+                title={`ワンクリックで元の管理者（${impersonatorAdmin.name}）のアカウントに復帰します`}
+              >
+                <Undo2 className="w-3.5 h-3.5 text-amber-700" />
+                <span>管理者（{impersonatorAdmin.name}）に戻る</span>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="w-full px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
         {/* Logo area */}
         <div className="flex items-center gap-2">
@@ -1773,19 +1840,35 @@ export function Header({
               <div className="text-right hidden sm:block">
                 <div className="text-sm font-semibold text-slate-800 group-hover:text-indigo-600 transition-colors flex items-center justify-end gap-1">
                   <span>{currentUser.name}</span>
-                  {currentUser.isAdmin && (
+                  {impersonatorAdmin ? (
+                    <span className="text-[10px] bg-amber-100 text-amber-800 border border-amber-300 px-1.5 py-0.2 rounded font-extrabold flex items-center gap-0.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                      代理中
+                    </span>
+                  ) : currentUser.isAdmin ? (
                     <span className="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.2 rounded font-bold">
                       管理者
                     </span>
-                  )}
+                  ) : null}
                 </div>
                 <div className="text-xs text-slate-500">{currentUser.department}</div>
               </div>
-              <img
-                src={getAvatarUrl(currentUser.avatarUrl)}
-                alt={currentUser.name}
-                className="w-9 h-9 rounded-full bg-indigo-100 border border-indigo-200 object-cover group-hover:border-indigo-500 group-hover:ring-2 group-hover:ring-indigo-500/20 transition-all"
-              />
+              <div className="relative">
+                <img
+                  src={getAvatarUrl(currentUser.avatarUrl)}
+                  alt={currentUser.name}
+                  className={`w-9 h-9 rounded-full bg-indigo-100 border object-cover group-hover:ring-2 transition-all ${
+                    impersonatorAdmin 
+                      ? 'border-amber-400 ring-2 ring-amber-400/30' 
+                      : 'border-indigo-200 group-hover:border-indigo-500 group-hover:ring-indigo-500/20'
+                  }`}
+                />
+                {impersonatorAdmin && (
+                  <span className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-amber-500 text-white flex items-center justify-center text-[9px] font-black border-2 border-white shadow-xs">
+                    代
+                  </span>
+                )}
+              </div>
             </button>
           </div>
         </div>

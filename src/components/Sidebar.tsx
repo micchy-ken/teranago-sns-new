@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Hash, Home, Bookmark, User, Calendar as CalendarIcon, FileText, MessageSquare, Phone, ClipboardList, Monitor, Shield, HardDrive, Users, ShieldAlert, Wrench, ChevronDown, ChevronRight, FileCheck2, FolderArchive, BookOpen, ExternalLink, CalendarDays, HardHat } from 'lucide-react';
+import { Hash, Home, Bookmark, User, Calendar as CalendarIcon, FileText, MessageSquare, Phone, ClipboardList, Monitor, Shield, HardDrive, Users, ShieldAlert, Wrench, ChevronDown, ChevronRight, FileCheck2, FolderArchive, BookOpen, ExternalLink, CalendarDays, HardHat, Undo2 } from 'lucide-react';
 import { Post, BoardTopic, User as UserType } from '../types';
 
 export type AppTab = 'timeline' | 'calendar' | 'inspection_scheduler' | 'inspection_report' | 'site_management' | 'workflow' | 'board' | 'chat' | 'memo' | 'documents' | 'daily_report' | 'files' | 'members' | 'mypage' | 'admin' | 'safety_confirmation';
@@ -22,6 +22,8 @@ interface SidebarProps {
   activeTab: AppTab;
   onChangeTab: (tab: AppTab) => void;
   currentUser?: UserType;
+  impersonatorAdmin?: UserType | null;
+  onRevertToAdmin?: () => void;
   className?: string;
   onCollapse?: () => void;
   unreadCounts?: SidebarUnreadCounts;
@@ -39,6 +41,8 @@ export function Sidebar({
   activeTab,
   onChangeTab,
   currentUser,
+  impersonatorAdmin,
+  onRevertToAdmin,
   className,
   onCollapse,
   unreadCounts,
@@ -457,6 +461,23 @@ export function Sidebar({
                   </div>
                   <ExternalLink className="w-3 h-3 text-slate-400 group-hover:text-indigo-600 shrink-0 opacity-70 group-hover:opacity-100" />
                 </a>
+
+                {impersonatorAdmin && onRevertToAdmin && (
+                  <button
+                    type="button"
+                    onClick={onRevertToAdmin}
+                    className="w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs font-bold whitespace-nowrap bg-amber-50 text-amber-900 hover:bg-amber-100 border border-amber-300 transition-all shadow-xs cursor-pointer group"
+                    title={`元の管理者（${impersonatorAdmin.name}）のアカウントに復帰します`}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Undo2 className="w-3.5 h-3.5 text-amber-700 shrink-0 group-hover:-translate-x-0.5 transition-transform" />
+                      <span className="truncate">管理者（{impersonatorAdmin.name}）に戻る</span>
+                    </div>
+                    <span className="text-[9px] px-1.5 py-0.5 rounded font-black bg-amber-500 text-white shrink-0 ml-1 shadow-2xs">
+                      復帰
+                    </span>
+                  </button>
+                )}
 
                 {currentUser?.isAdmin && (
                   <button

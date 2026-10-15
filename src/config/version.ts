@@ -14,9 +14,9 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.14.11',
+  version: '2026.10.14.12',
   date: '2026-10-14',
-  releaseNumber: 11,
-  display: 'v2026.10.14 #11',
-  description: 'カラーテーマの大幅刷新：ダークモード、大人なミッドナイト、セピア、シック・グレイ、パステル、アースカラー、寒色オーシャン、暖色サンセット等、高視認性を維持した劇的変化テーマの全面導入',
+  releaseNumber: 12,
+  display: 'v2026.10.14 #12',
+  description: '管理者代理ログインからのワンクリック管理者復帰機能（全画面固定バナー、サイドバー復帰ボタン、マイページ復帰ボタン、メンバー間直接切替）',
 };

@@ -81,6 +81,8 @@ interface AdminPanelProps {
   onDeleteUser: (id: string) => void;
   onToggleUserAdmin: (userId: string) => void;
   onSwitchUser?: (user: User) => void;
+  impersonatorAdmin?: User | null;
+  onRevertToAdmin?: () => void;
   onAddApprovalFlow?: (flow: Omit<ApprovalFlowRule, 'id'>) => void;
   onUpdateApprovalFlow?: (flow: ApprovalFlowRule) => void;
   onDeleteApprovalFlow?: (id: string) => void;
@@ -120,6 +122,8 @@ export function AdminPanel({
   onDeleteUser,
   onToggleUserAdmin,
   onSwitchUser,
+  impersonatorAdmin,
+  onRevertToAdmin,
   onAddApprovalFlow,
   onUpdateApprovalFlow,
   onDeleteApprovalFlow,
@@ -1772,19 +1776,39 @@ export function AdminPanel({
             <span className="text-xs font-bold text-slate-700">代理ログイン</span>
             <select
               onChange={(e) => {
-                const selected = allUsers.find((u) => u.id === e.target.value);
-                if (selected) onSwitchUser(selected);
+                const targetId = e.target.value;
+                if (impersonatorAdmin && targetId === impersonatorAdmin.id) {
+                  onRevertToAdmin?.();
+                } else {
+                  const selected = allUsers.find((u) => u.id === targetId);
+                  if (selected) onSwitchUser(selected);
+                }
               }}
               value={currentUser.id}
               className="text-xs bg-white border border-slate-300 rounded-lg px-2.5 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800 font-bold cursor-pointer"
               title="代理ログイン切り替え"
             >
+              {impersonatorAdmin && (
+                <option value={impersonatorAdmin.id}>
+                  ↩ 元の管理者（{impersonatorAdmin.name}）に戻る
+                </option>
+              )}
               {allUsers.map((u) => (
                 <option key={u.id} value={u.id}>
                   {u.name} {u.isAdmin ? ' (管理者)' : ' (一般)'}
                 </option>
               ))}
             </select>
+            {impersonatorAdmin && onRevertToAdmin && (
+              <button
+                type="button"
+                onClick={onRevertToAdmin}
+                className="px-2.5 py-1 text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white rounded-lg shadow-2xs transition-colors cursor-pointer"
+                title="ワンクリックで元の管理者アカウントに復帰します"
+              >
+                復帰
+              </button>
+            )}
           </div>
         )}
       </div>
