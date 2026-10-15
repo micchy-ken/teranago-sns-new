@@ -14,9 +14,9 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.15.6',
+  version: '2026.10.15.7',
   date: '2026-10-15',
-  releaseNumber: 6,
-  display: 'v2026.10.15 #6',
-  description: '現場管理のNAS施工図PDF連携機能（02-施工図PDFパス自動整形・D&Dドロップゾーン・アプリ内PDFビューアー閲覧連携）',
+  releaseNumber: 7,
+  display: 'v2026.10.15 #7',
+  description: '現場管理のNAS施工図PDF連携機能（02-施工図PDF再帰検索・D&D全自動サブフォルダパス解決・PDFビューアー連携）',
 };

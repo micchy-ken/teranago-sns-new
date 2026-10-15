@@ -808,21 +808,48 @@ router.get(['/drawings/serve', '/sites/drawings/serve', '/api/sites/drawings/ser
 router.get(['/drawings/list', '/sites/drawings/list', '/api/sites/drawings/list'], (req, res) => {
   try {
     const subFolder = sanitizeDrawingRelPath(req.query.folder || '');
-    const search = (req.query.q || '').toLowerCase();
+    const search = (req.query.q || '').trim().toLowerCase();
     
     const targetDir = path.join(drawingsBaseDir, subFolder);
     if (!targetDir.startsWith(path.resolve(drawingsBaseDir)) || !fs.existsSync(targetDir)) {
       return res.json({ success: true, files: [], currentFolder: subFolder });
     }
 
+    if (search) {
+      const results = [];
+      function walkDir(currentDir, currentRelPath, depth = 0) {
+        if (depth > 6) return;
+        try {
+          const entries = fs.readdirSync(currentDir, { withFileTypes: true });
+          for (const entry of entries) {
+            const entryRelPath = currentRelPath ? `${currentRelPath}/${entry.name}` : entry.name;
+            const fullPath = path.join(currentDir, entry.name);
+            
+            if (entry.isDirectory()) {
+              walkDir(fullPath, entryRelPath, depth + 1);
+            } else {
+              if (entry.name.toLowerCase().includes(search)) {
+                results.push({
+                  name: entry.name,
+                  isDirectory: false,
+                  path: entryRelPath,
+                  url: `/api/sites/drawings/serve?path=${encodeURIComponent(entryRelPath)}`,
+                  ext: path.extname(entry.name).toLowerCase()
+                });
+              }
+            }
+          }
+        } catch (_) {}
+      }
+
+      walkDir(targetDir, subFolder);
+      return res.json({ success: true, files: results, currentFolder: subFolder });
+    }
+
     const entries = fs.readdirSync(targetDir, { withFileTypes: true });
     const files = entries
-      .filter(entry => {
-        if (search) return entry.name.toLowerCase().includes(search);
-        return true;
-      })
       .map(entry => {
-        const entryRelPath = path.join(subFolder, entry.name).replace(/\\/g, '/');
+        const entryRelPath = subFolder ? `${subFolder}/${entry.name}` : entry.name;
         return {
           name: entry.name,
           isDirectory: entry.isDirectory(),

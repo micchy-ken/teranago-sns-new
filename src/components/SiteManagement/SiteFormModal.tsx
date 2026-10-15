@@ -799,17 +799,44 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({
                 <div
                   onDragOver={(e) => { e.preventDefault(); setIsDragOverDrawing(true); }}
                   onDragLeave={() => setIsDragOverDrawing(false)}
-                  onDrop={(e) => {
+                  onDrop={async (e) => {
                     e.preventDefault();
                     setIsDragOverDrawing(false);
-                    let droppedText = e.dataTransfer.getData('text/plain') || e.dataTransfer.getData('text');
-                    if (!droppedText && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-                      const file = e.dataTransfer.files[0];
-                      droppedText = siteName ? `${siteName}/${file.name}` : file.name;
+                    let droppedText = e.dataTransfer.getData('text/plain') || e.dataTransfer.getData('text') || e.dataTransfer.getData('text/uri-list');
+
+                    // 1. もしパス文字列にスラッシュ/バックスラッシュがあり、サブフォルダ階層が含まれている場合
+                    if (droppedText && (droppedText.includes('\\') || droppedText.includes('/'))) {
+                      const normalized = normalizeDrawingPath(droppedText);
+                      if (normalized && normalized.includes('/')) {
+                        setDrawingUrl(normalized);
+                        return;
+                      }
                     }
-                    if (droppedText) {
-                      const normalized = normalizeDrawingPath(droppedText, siteName);
-                      setDrawingUrl(normalized);
+
+                    // 2. ドロップされたファイル名を取得
+                    let targetFileName = '';
+                    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                      targetFileName = e.dataTransfer.files[0].name;
+                    } else if (droppedText) {
+                      targetFileName = droppedText.trim().replace(/^["']|["']$/g, '').split(/[\/\\]/).pop() || droppedText.trim();
+                    }
+
+                    if (targetFileName) {
+                      try {
+                        const res = await fetch(`${API_BASE_URL}/sites/drawings/list?q=${encodeURIComponent(targetFileName)}`);
+                        if (res.ok) {
+                          const json = await res.json();
+                          if (json.success && Array.isArray(json.files) && json.files.length > 0) {
+                            setDrawingUrl(json.files[0].path);
+                            return;
+                          }
+                        }
+                      } catch (err) {
+                        console.warn('Failed to search drawing on server:', err);
+                      }
+
+                      const fallbackNormalized = normalizeDrawingPath(droppedText || targetFileName);
+                      setDrawingUrl(fallbackNormalized);
                     }
                   }}
                   className={`p-3 rounded-xl border-2 border-dashed text-center transition-all ${

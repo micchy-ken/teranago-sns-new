@@ -602,18 +602,53 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
                   <div
                     onDragOver={(e) => { e.preventDefault(); setIsDragOverDrawing(true); }}
                     onDragLeave={() => setIsDragOverDrawing(false)}
-                    onDrop={(e) => {
+                    onDrop={async (e) => {
                       e.preventDefault();
                       setIsDragOverDrawing(false);
                       if (!currentSite) return;
-                      let droppedText = e.dataTransfer.getData('text/plain') || e.dataTransfer.getData('text');
-                      if (!droppedText && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-                        const file = e.dataTransfer.files[0];
-                        droppedText = currentSite.siteName ? `${currentSite.siteName}/${file.name}` : file.name;
+
+                      let droppedText = e.dataTransfer.getData('text/plain') || e.dataTransfer.getData('text') || e.dataTransfer.getData('text/uri-list');
+
+                      // 1. もしパス文字列にスラッシュ/バックスラッシュがあり、サブフォルダ階層が含まれている場合
+                      if (droppedText && (droppedText.includes('\\') || droppedText.includes('/'))) {
+                        const normalized = normalizeDrawingPath(droppedText);
+                        if (normalized && normalized.includes('/')) {
+                          const updated = { ...currentSite, drawingUrl: normalized };
+                          setCurrentSite(updated);
+                          saveSiteChanges(updated);
+                          return;
+                        }
                       }
-                      if (droppedText) {
-                        const normalized = normalizeDrawingPath(droppedText, currentSite.siteName);
-                        const updated = { ...currentSite, drawingUrl: normalized };
+
+                      // 2. ドロップされたファイル名（Fileオブジェクトまたは単一文字列）を取得
+                      let targetFileName = '';
+                      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                        targetFileName = e.dataTransfer.files[0].name;
+                      } else if (droppedText) {
+                        targetFileName = droppedText.trim().replace(/^["']|["']$/g, '').split(/[\/\\]/).pop() || droppedText.trim();
+                      }
+
+                      if (targetFileName) {
+                        // サーバーの施工図再帰検索APIで 02-施工図PDF 内のサブフォルダを含めた正確な相対パスを自動解決
+                        try {
+                          const res = await fetch(`${API_BASE_URL}/sites/drawings/list?q=${encodeURIComponent(targetFileName)}`);
+                          if (res.ok) {
+                            const json = await res.json();
+                            if (json.success && Array.isArray(json.files) && json.files.length > 0) {
+                              const matchedPath = json.files[0].path;
+                              const updated = { ...currentSite, drawingUrl: matchedPath };
+                              setCurrentSite(updated);
+                              saveSiteChanges(updated);
+                              return;
+                            }
+                          }
+                        } catch (err) {
+                          console.warn('Failed to search drawing on server:', err);
+                        }
+
+                        // 万が一サーバー検索で見つからなかった場合フォールバック
+                        const fallbackNormalized = normalizeDrawingPath(droppedText || targetFileName);
+                        const updated = { ...currentSite, drawingUrl: fallbackNormalized };
                         setCurrentSite(updated);
                         saveSiteChanges(updated);
                       }
@@ -644,7 +679,7 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
                               setPreviewFile({
                                 id: `drawing-${Date.now()}`,
                                 name: fileName,
-                                url: `${API_BASE_URL}/api/sites/drawings/serve?path=${encodeURIComponent(normalized)}`,
+                                url: `${API_BASE_URL}/sites/drawings/serve?path=${encodeURIComponent(normalized)}`,
                                 type: 'pdf',
                                 size: 'NAS施工図PDF',
                               });
@@ -656,7 +691,7 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
                             <span>PDFビューアーで閲覧</span>
                           </button>
                           <a
-                            href={`${API_BASE_URL}/api/sites/drawings/serve?path=${encodeURIComponent(normalizeDrawingPath(currentSite.drawingUrl))}`}
+                            href={`${API_BASE_URL}/sites/drawings/serve?path=${encodeURIComponent(normalizeDrawingPath(currentSite.drawingUrl))}`}
                             target="_blank"
                             rel="noreferrer"
                             className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold text-xs transition-colors flex items-center gap-1 cursor-pointer border border-slate-200"
@@ -694,9 +729,31 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
                       type="text"
                       defaultValue={currentSite.drawingUrl || ''}
                       key={currentSite.drawingUrl || 'empty-drawing'}
-                      onBlur={(e) => {
-                        const val = e.target.value;
-                        const normalized = normalizeDrawingPath(val);
+                      onBlur={async (e) => {
+                        const val = e.target.value.trim();
+                        if (!val) {
+                          if (currentSite.drawingUrl) {
+                            const updated = { ...currentSite, drawingUrl: undefined };
+                            setCurrentSite(updated);
+                            saveSiteChanges(updated);
+                          }
+                          return;
+                        }
+
+                        let normalized = normalizeDrawingPath(val);
+                        // サブフォルダが含まれていないファイル名のみの場合、自動検索で階層を解決
+                        if (normalized && !normalized.includes('/')) {
+                          try {
+                            const res = await fetch(`${API_BASE_URL}/sites/drawings/list?q=${encodeURIComponent(normalized)}`);
+                            if (res.ok) {
+                              const json = await res.json();
+                              if (json.success && Array.isArray(json.files) && json.files.length > 0) {
+                                normalized = json.files[0].path;
+                              }
+                            }
+                          } catch (_) {}
+                        }
+
                         if (normalized !== currentSite.drawingUrl) {
                           const updated = { ...currentSite, drawingUrl: normalized || undefined };
                           setCurrentSite(updated);
