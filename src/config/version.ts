@@ -14,9 +14,9 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.15.8',
+  version: '2026.10.15.9',
   date: '2026-10-15',
-  releaseNumber: 8,
-  display: 'v2026.10.15 #8',
-  description: '現場管理のNAS施工図PDF連携機能（複数図面一括D&D登録対応・PDF固有回転メタデータ自動補正・左右90度回転ボタン追加）',
+  releaseNumber: 9,
+  display: 'v2026.10.15 #9',
+  description: '文字サイズ・画面配色設定の同期・保存保護改修（個人設定更新時・全般同期時の設定逆転防止）',
 };

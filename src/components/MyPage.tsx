@@ -684,11 +684,13 @@ export function MyPage({
     } catch (_) {}
 
     const mergedPrefs = {
-      ...(cachedPrefs || {}),
+      fontSize: getSavedFontSize(),
+      colorTheme: getSavedTheme(),
       ...(u.preferences || {}),
+      ...(cachedPrefs || {}),
       emailNotifications: {
-        ...(cachedPrefs?.emailNotifications || {}),
         ...(u.preferences?.emailNotifications || {}),
+        ...(cachedPrefs?.emailNotifications || {}),
       }
     };
 
@@ -752,24 +754,32 @@ export function MyPage({
     }
 
     // ローカルストレージに個人設定・通知設定を即座にバックアップ
-    if (settingsForm.preferences) {
-      try {
-        localStorage.setItem(`user_preferences_${user.id}`, JSON.stringify(settingsForm.preferences));
-      } catch (_) {}
+    const currentSavedFontSize = getSavedFontSize();
+    const currentSavedTheme = getSavedTheme();
 
-      // preferences 専用エンドポイントへも即座に送信（二重保護）
-      fetch(`${API_BASE_URL}/users/${user.id}/preferences`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settingsForm.preferences),
-      }).catch(() => {});
-    }
+    const finalPreferences = {
+      fontSize: currentSavedFontSize,
+      colorTheme: currentSavedTheme,
+      ...(settingsForm.preferences || {}),
+    };
+
+    try {
+      localStorage.setItem(`user_preferences_${user.id}`, JSON.stringify(finalPreferences));
+    } catch (_) {}
+
+    // preferences 専用エンドポイントへも即座に送信（二重保護）
+    fetch(`${API_BASE_URL}/users/${user.id}/preferences`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(finalPreferences),
+    }).catch(() => {});
 
     if (onUpdateUser) {
       const deptString = [settingsForm.office, settingsForm.division, settingsForm.position].filter(Boolean).join(' ');
       onUpdateUser({
         ...settingsForm,
         department: deptString,
+        preferences: finalPreferences,
       });
     }
     handleCloseSettings();
@@ -2530,12 +2540,16 @@ export function MyPage({
                           type="button"
                           onClick={() => {
                             applyFontSize(opt.id);
+                            const updatedPrefs = {
+                              ...(settingsForm.preferences || {}),
+                              fontSize: opt.id,
+                            };
+                            try {
+                              localStorage.setItem(`user_preferences_${user.id}`, JSON.stringify(updatedPrefs));
+                            } catch (_) {}
                             setSettingsForm({
                               ...settingsForm,
-                              preferences: {
-                                ...(settingsForm.preferences || {}),
-                                fontSize: opt.id,
-                              },
+                              preferences: updatedPrefs,
                             });
                           }}
                           className={`p-3 rounded-xl border text-left transition-all flex flex-col justify-between gap-2 cursor-pointer ${
@@ -2593,12 +2607,16 @@ export function MyPage({
                           type="button"
                           onClick={() => {
                             applyColorTheme(opt.id);
+                            const updatedPrefs = {
+                              ...(settingsForm.preferences || {}),
+                              colorTheme: opt.id,
+                            };
+                            try {
+                              localStorage.setItem(`user_preferences_${user.id}`, JSON.stringify(updatedPrefs));
+                            } catch (_) {}
                             setSettingsForm({
                               ...settingsForm,
-                              preferences: {
-                                ...(settingsForm.preferences || {}),
-                                colorTheme: opt.id,
-                              },
+                              preferences: updatedPrefs,
                             });
                           }}
                           className={`p-2.5 rounded-xl border text-left transition-all flex items-start gap-2 cursor-pointer ${

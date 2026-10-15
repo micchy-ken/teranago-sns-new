@@ -100,11 +100,11 @@ const mapUserFromApi = (apiUser: any): User => {
   } catch (_) {}
 
   const mergedPreferences = {
-    ...(cachedPrefs || {}),
     ...(preferences || {}),
+    ...(cachedPrefs || {}),
     emailNotifications: {
-      ...(cachedPrefs?.emailNotifications || {}),
       ...(preferences?.emailNotifications || {}),
+      ...(cachedPrefs?.emailNotifications || {}),
     }
   };
 
@@ -2975,6 +2975,7 @@ export default function App() {
         onUpdateEvent={handleUpdateEvent}
         onUpdateRooms={handleUpdateChatRooms}
         onToggleMobileMenu={() => setIsMobileMenuOpen(prev => !prev)}
+        onUpdateUser={handleUpdateUser}
       />
 
       {/* Mobile Navigation Drawer */}

@@ -80,6 +80,7 @@ interface HeaderProps {
   onUpdateEvent?: (event: CalendarEvent) => void;
   onUpdateRooms?: (rooms: ChatRoom[]) => void;
   onToggleMobileMenu?: () => void;
+  onUpdateUser?: (user: User) => void;
 }
 
 function formatLocalDateStr(isoStr?: string): string {
@@ -151,6 +152,7 @@ export function Header({
   onUpdateEvent,
   onUpdateRooms,
   onToggleMobileMenu,
+  onUpdateUser,
 }: HeaderProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [filterType, setFilterType] = useState<'all' | 'memo' | 'workflow' | 'board' | 'event' | 'chat' | 'report' | 'safety'>('all');
@@ -208,11 +210,18 @@ export function Header({
         const updatedPrefs = { ...currentPrefs, fontSize: size };
         localStorage.setItem(`user_preferences_${currentUser.id}`, JSON.stringify(updatedPrefs));
 
-        fetch(`${API_BASE_URL}/users/${currentUser.id}/preferences`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(updatedPrefs),
-        }).catch(() => {});
+        if (onUpdateUser) {
+          onUpdateUser({
+            ...currentUser,
+            preferences: updatedPrefs,
+          });
+        } else {
+          fetch(`${API_BASE_URL}/users/${currentUser.id}/preferences`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(updatedPrefs),
+          }).catch(() => {});
+        }
       } catch (_) {}
     }
   };
@@ -229,11 +238,18 @@ export function Header({
         const updatedPrefs = { ...currentPrefs, colorTheme: theme };
         localStorage.setItem(`user_preferences_${currentUser.id}`, JSON.stringify(updatedPrefs));
 
-        fetch(`${API_BASE_URL}/users/${currentUser.id}/preferences`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(updatedPrefs),
-        }).catch(() => {});
+        if (onUpdateUser) {
+          onUpdateUser({
+            ...currentUser,
+            preferences: updatedPrefs,
+          });
+        } else {
+          fetch(`${API_BASE_URL}/users/${currentUser.id}/preferences`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(updatedPrefs),
+          }).catch(() => {});
+        }
       } catch (_) {}
     }
   };
