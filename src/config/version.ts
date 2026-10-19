@@ -14,9 +14,9 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.19.1',
+  version: '2026.10.19.2',
   date: '2026-10-19',
-  releaseNumber: 1,
-  display: 'v2026.10.19 #1',
-  description: 'チャット画像高速化改修（画面内最優先ロード・画面外過去画像のスクロール遅延ロード＆Service WorkerによるCache-Firstローカルキャッシュ対応）',
+  releaseNumber: 2,
+  display: 'v2026.10.19 #2',
+  description: 'マイページの各セクション（スケジュール・掲示板・伝言メモ・ワークフロー・チャット・日報）表示件数設定＆環境設定機能の実装',
 };

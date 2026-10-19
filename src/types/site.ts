@@ -71,6 +71,7 @@ export interface Site {
   comments?: SiteComment[];  // コメント履歴
   attachments?: SiteAttachment[]; // 添付ファイル・図面
   drawingUrl?: string;       // NAS図面参照URL
+  drawings?: string[];       // 複数施工図PDFファイルパス一覧
   createdById?: string;
   createdByName?: string;
   createdAt: string;

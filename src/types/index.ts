@@ -23,8 +23,26 @@ export interface CalendarPreset {
   typeFilter?: string;
 }
 
+export interface MyPageSectionCounts {
+  events?: number;   // スケジュール (0 = 全件, デフォルト: 5)
+  topics?: number;   // 掲示板 (デフォルト: 5)
+  memos?: number;    // 伝言メモ (デフォルト: 5)
+  workflow?: number; // ワークフロー (デフォルト: 5)
+  chats?: number;    // チャットルーム (デフォルト: 8)
+  reports?: number;  // 日報・週報 (デフォルト: 8)
+}
+
+export interface MyPageEnvSettings {
+  displayCounts?: MyPageSectionCounts;
+  density?: 'standard' | 'compact';        // カード内表示密度 (標準 / コンパクト)
+  showActivePolls?: boolean;               // 進行中日程調整の表示（デフォルト: true）
+  [key: string]: any;                      // 将来の環境設定拡張用
+}
+
 export interface UserPreferences {
   mypageSectionOrder?: string[];
+  mypageSectionCounts?: MyPageSectionCounts; // マイページ各セクションの表示件数
+  mypageSettings?: MyPageEnvSettings;       // マイページ環境設定（将来拡張対応）
   isSidebarCollapsed?: boolean;
   isUtilityOpen?: boolean; // ユーティリティメニューの開閉状態（記憶用）
   emailNotifications?: EmailNotificationSettings;

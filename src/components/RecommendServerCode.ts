@@ -651,10 +651,10 @@ async function startServer() {
   // 静的ファイル配信
   const publicDir = path.join(process.cwd(), 'public');
   // 静的ファイル配信オプション（30日間ブラウザキャッシュ & CORS明示）
-  const staticFileOptions: express.ServeStaticOptions = {
+  const staticFileOptions = {
     maxAge: '30d',
     immutable: true,
-    setHeaders: (res) => {
+    setHeaders: (res: any) => {
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
       res.setHeader('Cache-Control', 'public, max-age=2592000, immutable');

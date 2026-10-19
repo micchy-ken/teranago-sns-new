@@ -1,5 +1,5 @@
 import React from 'react';
-import { GripVertical } from 'lucide-react';
+import { GripVertical, Settings } from 'lucide-react';
 
 interface MyPageSectionCardProps {
   id: string;
@@ -11,6 +11,8 @@ interface MyPageSectionCardProps {
   badgeBgColor?: string;
   onNavigate: () => void;
   actionButton?: React.ReactNode;
+  onOpenSettings?: () => void;
+  density?: 'standard' | 'compact';
   children: React.ReactNode;
   isFullWidth?: boolean;
   isDragging?: boolean;
@@ -29,6 +31,8 @@ export const MyPageSectionCard: React.FC<MyPageSectionCardProps> = ({
   badgeBgColor = 'bg-rose-500',
   onNavigate,
   actionButton,
+  onOpenSettings,
+  density = 'standard',
   children,
   isFullWidth = false,
   isDragging = false,
@@ -48,7 +52,7 @@ export const MyPageSectionCard: React.FC<MyPageSectionCardProps> = ({
     >
       <section id={`my-${id}-section`} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-full">
         {/* ヘッダー */}
-        <div className="p-4 border-b border-slate-100 bg-slate-50/80 flex items-center justify-between gap-2 flex-wrap sm:flex-nowrap">
+        <div className={`${density === 'compact' ? 'p-3' : 'p-4'} border-b border-slate-100 bg-slate-50/80 flex items-center justify-between gap-2 flex-wrap sm:flex-nowrap`}>
           <div className="flex items-center gap-2.5 min-w-0 flex-1">
             {/* 六点リーダ (D&Dハンドラ) */}
             <div
@@ -79,16 +83,28 @@ export const MyPageSectionCard: React.FC<MyPageSectionCardProps> = ({
             )}
           </div>
 
-          {/* 右側アクションエリア (例: 「+ 予定追加」等) */}
-          {actionButton && (
-            <div className="flex items-center gap-2 shrink-0">
-              {actionButton}
-            </div>
-          )}
+          {/* 右側アクションエリア (例: 「+ 予定追加」等 ＋ 歯車設定ボタン) */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            {actionButton}
+            {onOpenSettings && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenSettings();
+                }}
+                className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-white rounded-lg transition-all cursor-pointer border border-transparent hover:border-slate-200 hover:shadow-2xs"
+                title={`${title}の表示件数・環境設定`}
+                aria-label={`${title}の表示件数・環境設定`}
+              >
+                <Settings className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
         </div>
 
         {/* コンテンツエリア */}
-        <div className="p-4 flex-1">
+        <div className={`${density === 'compact' ? 'p-3' : 'p-4'} flex-1`}>
           {children}
         </div>
       </section>

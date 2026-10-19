@@ -103,8 +103,9 @@ import { GlobalEventDetailModal } from './GlobalEventDetailModal';
 import { TopicCreateModal } from './TopicCreateModal';
 import { ApplicationModal } from './ApplicationModal';
 import { MyPageSectionCard } from './MyPageSectionCard';
+import { MyPageDisplaySettingsModal, DEFAULT_SECTION_COUNTS, DEFAULT_ENV_SETTINGS } from './MyPageDisplaySettingsModal';
 import { isTopicCurrentlyPinned, formatPinnedUntilBadge } from '../utils/boardHelpers';
-import { ApprovalFlowRule, ItemMaster, ApplicationStatus } from '../types';
+import { ApprovalFlowRule, ItemMaster, ApplicationStatus, MyPageSectionCounts, MyPageEnvSettings } from '../types';
 import { SchedulePoll } from '../types/schedulePoll';
 
 interface MyPageProps {
@@ -287,6 +288,109 @@ export function MyPage({
 
   const handleResetOrder = () => {
     handleSaveOrder(DEFAULT_SECTION_ORDER);
+  };
+
+  // 表示件数・環境設定状態管理
+  const [isDisplaySettingsOpen, setIsDisplaySettingsOpen] = useState(false);
+  const [targetSettingsSectionId, setTargetSettingsSectionId] = useState<string | null>(null);
+
+  const initialCounts = useMemo<Required<MyPageSectionCounts>>(() => {
+    const fromPrefs = user?.preferences?.mypageSectionCounts || user?.preferences?.mypageSettings?.displayCounts;
+    let fromLocal: any = null;
+    try {
+      const saved = localStorage.getItem(`user_preferences_${user?.id}`);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        fromLocal = parsed?.mypageSectionCounts || parsed?.mypageSettings?.displayCounts;
+      }
+    } catch (_) {}
+
+    return {
+      events: fromLocal?.events ?? fromPrefs?.events ?? DEFAULT_SECTION_COUNTS.events,
+      topics: fromLocal?.topics ?? fromPrefs?.topics ?? DEFAULT_SECTION_COUNTS.topics,
+      memos: fromLocal?.memos ?? fromPrefs?.memos ?? DEFAULT_SECTION_COUNTS.memos,
+      workflow: fromLocal?.workflow ?? fromPrefs?.workflow ?? DEFAULT_SECTION_COUNTS.workflow,
+      chats: fromLocal?.chats ?? fromPrefs?.chats ?? DEFAULT_SECTION_COUNTS.chats,
+      reports: fromLocal?.reports ?? fromPrefs?.reports ?? DEFAULT_SECTION_COUNTS.reports,
+    };
+  }, [user?.preferences?.mypageSectionCounts, user?.preferences?.mypageSettings, user?.id]);
+
+  const [sectionCounts, setSectionCounts] = useState<Required<MyPageSectionCounts>>(initialCounts);
+
+  const initialEnvSettings = useMemo<MyPageEnvSettings>(() => {
+    const fromPrefs = user?.preferences?.mypageSettings;
+    let fromLocal: any = null;
+    try {
+      const saved = localStorage.getItem(`user_preferences_${user?.id}`);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        fromLocal = parsed?.mypageSettings;
+      }
+    } catch (_) {}
+
+    return {
+      ...DEFAULT_ENV_SETTINGS,
+      ...(fromPrefs || {}),
+      ...(fromLocal || {}),
+      displayCounts: sectionCounts,
+    };
+  }, [user?.preferences?.mypageSettings, user?.id, sectionCounts]);
+
+  const [envSettings, setEnvSettings] = useState<MyPageEnvSettings>(initialEnvSettings);
+
+  useEffect(() => {
+    setSectionCounts(initialCounts);
+  }, [initialCounts]);
+
+  useEffect(() => {
+    setEnvSettings(initialEnvSettings);
+  }, [initialEnvSettings]);
+
+  const handleOpenDisplaySettings = (sectionId?: string) => {
+    setTargetSettingsSectionId(sectionId || null);
+    setIsDisplaySettingsOpen(true);
+  };
+
+  const handleSaveDisplaySettings = async (
+    newCounts: Required<MyPageSectionCounts>,
+    newEnvSettings: MyPageEnvSettings
+  ) => {
+    setSectionCounts(newCounts);
+    setEnvSettings(newEnvSettings);
+
+    const mergedPrefs = {
+      ...(user?.preferences || {}),
+      mypageSectionCounts: newCounts,
+      mypageSettings: {
+        ...(user?.preferences?.mypageSettings || {}),
+        ...newEnvSettings,
+        displayCounts: newCounts,
+      },
+    };
+
+    // ローカルストレージにバックアップ
+    try {
+      localStorage.setItem(`user_preferences_${user.id}`, JSON.stringify(mergedPrefs));
+    } catch (_) {}
+
+    // 既存のエンドポイント PUT /api/users/:id/preferences へ即時保存
+    try {
+      await fetch(`${API_BASE_URL}/users/${user.id}/preferences`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(mergedPrefs),
+      });
+    } catch (err) {
+      console.warn('Failed to sync display settings to server:', err);
+    }
+
+    // Appコンポーネントのユーザー情報も更新
+    if (onUpdateUser) {
+      onUpdateUser({
+        ...user,
+        preferences: mergedPrefs,
+      });
+    }
   };
 
   const handleDragStart = (e: React.DragEvent, index: number) => {
@@ -1082,6 +1186,8 @@ export function MyPage({
             badgeLabel={actionablePollCount > 0 ? (unreadEvents.length > 0 ? '未確認/要対応' : '要対応あり') : '未確認'}
             badgeBgColor="bg-rose-500"
             onNavigate={() => onChangeTab('calendar')}
+            onOpenSettings={() => handleOpenDisplaySettings('events')}
+            density={envSettings.density}
             actionButton={
               <button
                 type="button"
@@ -1099,8 +1205,8 @@ export function MyPage({
             onDrop={(e) => handleDrop(e, index)}
           >
             <div className="space-y-3">
-              {/* 確定前の日程調整一覧（常にスケジュール上部に表示） */}
-              {allActivePolls.length > 0 && (
+              {/* 確定前の日程調整一覧（設定がONの場合にスケジュール上部に表示） */}
+              {allActivePolls.length > 0 && envSettings.showActivePolls !== false && (
                 <div className="space-y-2.5 mb-3.5 pb-3.5 border-b border-amber-200">
                   <div className="flex items-center justify-between text-xs font-bold text-amber-900">
                     <span className="flex items-center gap-1.5">
@@ -1234,84 +1340,103 @@ export function MyPage({
                 </div>
               )}
 
-              {myEvents.length > 0 ? (
-                myEvents.map((evt) => {
-                  const isUnread = isEventUnread(evt, user, readEventIds);
-                  const eventDate = new Date(evt.start);
+              {(() => {
+                const eventLimit = sectionCounts.events;
+                const displayedEvents = eventLimit > 0 ? myEvents.slice(0, eventLimit) : myEvents;
 
-                  return (
-                    <div
-                      key={evt.id}
-                      onClick={() => {
-                        if (onNavigateToContent) {
-                          onNavigateToContent({ tab: 'calendar', eventId: evt.id });
-                        } else {
-                          setSelectedEvent(evt);
-                        }
-                        markEventAsRead(evt.id);
-                      }}
-                      className={`p-3.5 rounded-xl border transition-all cursor-pointer flex items-start gap-3 relative ${
-                        isUnread
-                          ? 'bg-amber-50/40 border-amber-300 hover:border-amber-400 shadow-xs'
-                          : 'bg-white border-slate-200 hover:border-indigo-300 hover:bg-slate-50/50'
-                      }`}
-                    >
-                      {isUnread && (
-                        <span className="absolute top-3 right-3 px-2 py-0.5 bg-rose-500 text-white text-[9px] font-black rounded-full shadow-2xs">
-                          NEW 未確認
-                        </span>
-                      )}
+                return displayedEvents.length > 0 ? (
+                  <>
+                    {displayedEvents.map((evt) => {
+                      const isUnread = isEventUnread(evt, user, readEventIds);
+                      const eventDate = new Date(evt.start);
 
-                      <div className="bg-slate-100 text-slate-800 p-2.5 rounded-xl text-center min-w-[56px] shrink-0 border border-slate-200">
-                        <div className="text-[10px] font-extrabold text-indigo-600 uppercase">
-                          {eventDate.toLocaleDateString('ja-JP', { weekday: 'short' })}
-                        </div>
-                        <div className="text-base font-black leading-tight">
-                          {eventDate.getDate()}
-                        </div>
-                      </div>
-
-                      <div className="flex-1 min-w-0 pr-12">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className={`px-2 py-0.5 text-[10px] font-bold rounded ${
-                            evt.type === 'personal' ? 'bg-emerald-100 text-emerald-700' :
-                            evt.type === 'construction' ? 'bg-amber-100 text-amber-700' :
-                            evt.type === 'inspection' ? 'bg-indigo-100 text-indigo-700' :
-                            evt.type === 'replacement' ? 'bg-cyan-100 text-cyan-700' :
-                            evt.type === 'repair' ? 'bg-rose-100 text-rose-700' :
-                            evt.type === 'visitor' ? 'bg-orange-100 text-orange-700' : 'bg-sky-100 text-sky-700'
-                          }`}>
-                            {
-                              evt.type === 'personal' ? '個人' :
-                              evt.type === 'construction' ? '工事' :
-                              evt.type === 'inspection' ? '点検' :
-                              evt.type === 'replacement' ? '取替' :
-                              evt.type === 'repair' ? '修理' :
-                              evt.type === 'visitor' ? '来客' : '出張'
+                      return (
+                        <div
+                          key={evt.id}
+                          onClick={() => {
+                            if (onNavigateToContent) {
+                              onNavigateToContent({ tab: 'calendar', eventId: evt.id });
+                            } else {
+                              setSelectedEvent(evt);
                             }
-                          </span>
-                          <span className="text-xs font-mono text-slate-500">
-                            {eventDate.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}
-                          </span>
+                            markEventAsRead(evt.id);
+                          }}
+                          className={`p-3.5 rounded-xl border transition-all cursor-pointer flex items-start gap-3 relative ${
+                            isUnread
+                              ? 'bg-amber-50/40 border-amber-300 hover:border-amber-400 shadow-xs'
+                              : 'bg-white border-slate-200 hover:border-indigo-300 hover:bg-slate-50/50'
+                          }`}
+                        >
+                          {isUnread && (
+                            <span className="absolute top-3 right-3 px-2 py-0.5 bg-rose-500 text-white text-[9px] font-black rounded-full shadow-2xs">
+                              NEW 未確認
+                            </span>
+                          )}
+
+                          <div className="bg-slate-100 text-slate-800 p-2.5 rounded-xl text-center min-w-[56px] shrink-0 border border-slate-200">
+                            <div className="text-[10px] font-extrabold text-indigo-600 uppercase">
+                              {eventDate.toLocaleDateString('ja-JP', { weekday: 'short' })}
+                            </div>
+                            <div className="text-base font-black leading-tight">
+                              {eventDate.getDate()}
+                            </div>
+                          </div>
+
+                          <div className="flex-1 min-w-0 pr-12">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className={`px-2 py-0.5 text-[10px] font-bold rounded ${
+                                evt.type === 'personal' ? 'bg-emerald-100 text-emerald-700' :
+                                evt.type === 'construction' ? 'bg-amber-100 text-amber-700' :
+                                evt.type === 'inspection' ? 'bg-indigo-100 text-indigo-700' :
+                                evt.type === 'replacement' ? 'bg-cyan-100 text-cyan-700' :
+                                evt.type === 'repair' ? 'bg-rose-100 text-rose-700' :
+                                evt.type === 'visitor' ? 'bg-orange-100 text-orange-700' : 'bg-sky-100 text-sky-700'
+                              }`}>
+                                {
+                                  evt.type === 'personal' ? '個人' :
+                                  evt.type === 'construction' ? '工事' :
+                                  evt.type === 'inspection' ? '点検' :
+                                  evt.type === 'replacement' ? '取替' :
+                                  evt.type === 'repair' ? '修理' :
+                                  evt.type === 'visitor' ? '来客' : '出張'
+                                }
+                              </span>
+                              <span className="text-xs font-mono text-slate-500">
+                                {eventDate.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            </div>
+
+                            <h3 className="text-sm font-bold text-slate-900 truncate">{evt.title}</h3>
+
+                            {evt.location && (
+                              <p className="text-xs text-slate-500 flex items-center gap-1 mt-1 truncate">
+                                <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
+                                {evt.location}
+                              </p>
+                            )}
+                          </div>
                         </div>
+                      );
+                    })}
 
-                        <h3 className="text-sm font-bold text-slate-900 truncate">{evt.title}</h3>
-
-                        {evt.location && (
-                          <p className="text-xs text-slate-500 flex items-center gap-1 mt-1 truncate">
-                            <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
-                            {evt.location}
-                          </p>
-                        )}
+                    {myEvents.length > displayedEvents.length && (
+                      <div className="text-center pt-2">
+                        <button
+                          type="button"
+                          onClick={() => onChangeTab('calendar')}
+                          className="text-xs text-amber-600 hover:text-amber-700 font-bold hover:underline cursor-pointer"
+                        >
+                          他 {myEvents.length - displayedEvents.length} 件の予定をカレンダーで確認 →
+                        </button>
                       </div>
-                    </div>
-                  );
-                })
-              ) : (
-                <div className="p-8 text-center text-slate-400 text-xs">
-                  本日以降1週間の参加予定はありません
-                </div>
-              )}
+                    )}
+                  </>
+                ) : (
+                  <div className="p-8 text-center text-slate-400 text-xs">
+                    本日以降1週間の参加予定はありません
+                  </div>
+                );
+              })()}
             </div>
           </MyPageSectionCard>
         );
@@ -1328,6 +1453,8 @@ export function MyPage({
             badgeLabel="未読"
             badgeBgColor="bg-indigo-600"
             onNavigate={() => onChangeTab('board')}
+            onOpenSettings={() => handleOpenDisplaySettings('topics')}
+            density={envSettings.density}
             actionButton={
               <button
                 type="button"
@@ -1345,83 +1472,102 @@ export function MyPage({
             onDrop={(e) => handleDrop(e, index)}
           >
             <div className="space-y-3">
-              {myTopics.length > 0 ? (
-                myTopics.slice(0, 5).map((topic) => {
-                  const unread = isTopicUnread(topic, user, readTopicIds);
-                  const isPinned = isTopicCurrentlyPinned(topic);
+              {(() => {
+                const topicLimit = sectionCounts.topics;
+                const displayedTopics = myTopics.slice(0, topicLimit);
 
-                  return (
-                    <div
-                      key={topic.id}
-                      onClick={() => {
-                        markTopicAsReadUtil(user?.id, topic.id);
-                        if (onNavigateToContent) {
-                          onNavigateToContent({ tab: 'board', topicId: topic.id });
-                        } else {
-                          setSelectedTopic(topic);
-                        }
-                        if (onUpdateTopic && unread) {
-                          const newViewers = [...(topic.viewers || []), { user, viewedAt: new Date().toISOString() }];
-                          onUpdateTopic({ ...topic, viewers: newViewers });
-                        }
-                      }}
-                      className={`p-3.5 rounded-xl border transition-all cursor-pointer flex items-start justify-between gap-3 relative ${
-                        isPinned
-                          ? 'border-amber-300/90 bg-gradient-to-r from-amber-50/40 via-white to-white hover:border-amber-400 shadow-xs'
-                          : unread
-                          ? 'bg-indigo-50/40 border-indigo-300 hover:border-indigo-400 shadow-xs'
-                          : 'bg-white border-slate-200 hover:border-indigo-300 hover:bg-slate-50/50'
-                      }`}
-                    >
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1 flex-wrap">
-                          {isPinned && (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 bg-amber-500 text-white rounded-md shadow-2xs">
-                              <Pin className="w-2.5 h-2.5 fill-white" />
-                              <span>ピン留め</span>
-                              {topic.pinnedUntil && (
-                                <span className="text-[9px] text-amber-100 font-normal">
-                                  {formatPinnedUntilBadge(topic.pinnedUntil)}
+                return displayedTopics.length > 0 ? (
+                  <>
+                    {displayedTopics.map((topic) => {
+                      const unread = isTopicUnread(topic, user, readTopicIds);
+                      const isPinned = isTopicCurrentlyPinned(topic);
+
+                      return (
+                        <div
+                          key={topic.id}
+                          onClick={() => {
+                            markTopicAsReadUtil(user?.id, topic.id);
+                            if (onNavigateToContent) {
+                              onNavigateToContent({ tab: 'board', topicId: topic.id });
+                            } else {
+                              setSelectedTopic(topic);
+                            }
+                            if (onUpdateTopic && unread) {
+                              const newViewers = [...(topic.viewers || []), { user, viewedAt: new Date().toISOString() }];
+                              onUpdateTopic({ ...topic, viewers: newViewers });
+                            }
+                          }}
+                          className={`p-3.5 rounded-xl border transition-all cursor-pointer flex items-start justify-between gap-3 relative ${
+                            isPinned
+                              ? 'border-amber-300/90 bg-gradient-to-r from-amber-50/40 via-white to-white hover:border-amber-400 shadow-xs'
+                              : unread
+                              ? 'bg-indigo-50/40 border-indigo-300 hover:border-indigo-400 shadow-xs'
+                              : 'bg-white border-slate-200 hover:border-indigo-300 hover:bg-slate-50/50'
+                          }`}
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1 flex-wrap">
+                              {isPinned && (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 bg-amber-500 text-white rounded-md shadow-2xs">
+                                  <Pin className="w-2.5 h-2.5 fill-white" />
+                                  <span>ピン留め</span>
+                                  {topic.pinnedUntil && (
+                                    <span className="text-[9px] text-amber-100 font-normal">
+                                      {formatPinnedUntilBadge(topic.pinnedUntil)}
+                                    </span>
+                                  )}
                                 </span>
                               )}
-                            </span>
-                          )}
 
-                          {unread ? (
-                            <span className="px-2 py-0.5 bg-rose-500 text-white font-black text-[9px] rounded-full">
-                              未読
-                            </span>
-                          ) : (
-                            <span className="px-2 py-0.5 bg-slate-100 text-slate-500 font-bold text-[9px] rounded-full">
-                              既読
-                            </span>
-                          )}
+                              {unread ? (
+                                <span className="px-2 py-0.5 bg-rose-500 text-white font-black text-[9px] rounded-full">
+                                  未読
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 bg-slate-100 text-slate-500 font-bold text-[9px] rounded-full">
+                                  既読
+                                </span>
+                              )}
 
-                          <span className="text-[10px] font-bold bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded">
-                            {topic.office || '全社'} / {topic.division || '全部署'}
-                          </span>
+                              <span className="text-[10px] font-bold bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded">
+                                {topic.office || '全社'} / {topic.division || '全部署'}
+                              </span>
 
-                          <span className="text-[10px] text-slate-400">
-                            {new Date(topic.createdAt).toLocaleDateString('ja-JP')}
-                          </span>
+                              <span className="text-[10px] text-slate-400">
+                                {new Date(topic.createdAt).toLocaleDateString('ja-JP')}
+                              </span>
+                            </div>
+
+                            <h3 className="text-sm font-bold text-slate-900 line-clamp-1">{topic.title}</h3>
+                            <p className="text-xs text-slate-500 line-clamp-1 mt-0.5">{topic.content}</p>
+                          </div>
+
+                          <div className="flex items-center gap-1 text-slate-400 text-xs shrink-0 pt-1">
+                            <MessageSquare className="w-3.5 h-3.5" />
+                            <span>{topic.commentsCount || 0}</span>
+                          </div>
                         </div>
+                      );
+                    })}
 
-                        <h3 className="text-sm font-bold text-slate-900 line-clamp-1">{topic.title}</h3>
-                        <p className="text-xs text-slate-500 line-clamp-1 mt-0.5">{topic.content}</p>
+                    {myTopics.length > displayedTopics.length && (
+                      <div className="text-center pt-2">
+                        <button
+                          type="button"
+                          onClick={() => onChangeTab('board')}
+                          className="text-xs text-indigo-600 hover:text-indigo-700 font-bold hover:underline cursor-pointer"
+                        >
+                          他 {myTopics.length - displayedTopics.length} 件の掲示板をすべて表示 →
+                        </button>
                       </div>
-
-                      <div className="flex items-center gap-1 text-slate-400 text-xs shrink-0 pt-1">
-                        <MessageSquare className="w-3.5 h-3.5" />
-                        <span>{topic.commentsCount || 0}</span>
-                      </div>
-                    </div>
-                  );
-                })
-              ) : (
-                <div className="p-8 text-center text-slate-400 text-xs">
-                  対象の掲示板はありません
-                </div>
-              )}
+                    )}
+                  </>
+                ) : (
+                  <div className="p-8 text-center text-slate-400 text-xs">
+                    対象の掲示板はありません
+                  </div>
+                );
+              })()}
             </div>
           </MyPageSectionCard>
         );
@@ -1438,6 +1584,8 @@ export function MyPage({
             badgeLabel="未対応"
             badgeBgColor="bg-rose-500"
             onNavigate={() => onChangeTab('memo')}
+            onOpenSettings={() => handleOpenDisplaySettings('memos')}
+            density={envSettings.density}
             actionButton={
               <button
                 type="button"
@@ -1461,101 +1609,106 @@ export function MyPage({
             onDrop={(e) => handleDrop(e, index)}
           >
             <div className="space-y-3">
-              {myMemos.length > 0 ? (
-                <>
-                  {myMemos.slice(0, 5).map((memo) => {
-                    const isUnhandled = isMemoUnhandled(memo, user);
-                    const isUnread = isMemoUnread(memo, user, readMemoIds);
-                    const rawContent = (memo.content || '').replace(/[\r\n\t]+/g, ' ').trim();
-                    const memoSnippet = rawContent.length > 45 ? `${rawContent.slice(0, 45)}…` : rawContent;
+              {(() => {
+                const memoLimit = sectionCounts.memos;
+                const displayedMemos = myMemos.slice(0, memoLimit);
 
-                    return (
-                      <div
-                        key={memo.id}
-                        onClick={() => {
-                          markMemoAsReadUtil(user?.id, memo.id);
-                          if (onNavigateToContent) {
-                            onNavigateToContent({ tab: 'memo', memoId: memo.id });
-                          }
-                        }}
-                        className={`p-3.5 rounded-xl border transition-all flex flex-col gap-2 cursor-pointer hover:border-rose-400 ${
-                          isUnhandled
-                            ? 'bg-rose-50/40 border-rose-300 shadow-xs'
-                            : 'bg-white border-slate-200 opacity-80'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-2 flex-wrap min-w-0">
-                            {isUnhandled ? (
-                              <span className="px-2 py-0.5 bg-rose-500 text-white font-black text-[10px] rounded-full flex items-center gap-1 shrink-0">
-                                <Clock className="w-3 h-3" /> 未対応
+                return displayedMemos.length > 0 ? (
+                  <>
+                    {displayedMemos.map((memo) => {
+                      const isUnhandled = isMemoUnhandled(memo, user);
+                      const isUnread = isMemoUnread(memo, user, readMemoIds);
+                      const rawContent = (memo.content || '').replace(/[\r\n\t]+/g, ' ').trim();
+                      const memoSnippet = rawContent.length > 45 ? `${rawContent.slice(0, 45)}…` : rawContent;
+
+                      return (
+                        <div
+                          key={memo.id}
+                          onClick={() => {
+                            markMemoAsReadUtil(user?.id, memo.id);
+                            if (onNavigateToContent) {
+                              onNavigateToContent({ tab: 'memo', memoId: memo.id });
+                            }
+                          }}
+                          className={`p-3.5 rounded-xl border transition-all flex flex-col gap-2 cursor-pointer hover:border-rose-400 ${
+                            isUnhandled
+                              ? 'bg-rose-50/40 border-rose-300 shadow-xs'
+                              : 'bg-white border-slate-200 opacity-80'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 flex-wrap min-w-0">
+                              {isUnhandled ? (
+                                <span className="px-2 py-0.5 bg-rose-500 text-white font-black text-[10px] rounded-full flex items-center gap-1 shrink-0">
+                                  <Clock className="w-3 h-3" /> 未対応
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 bg-slate-100 text-slate-600 font-bold text-[10px] rounded-full flex items-center gap-1 shrink-0">
+                                  <Check className="w-3 h-3 text-emerald-600" /> 対応完了
+                                </span>
+                              )}
+                              {isUnread && (
+                                <span className="px-1.5 py-0.5 bg-amber-500 text-white font-black text-[9px] rounded-full shrink-0">
+                                  未読
+                                </span>
+                              )}
+                              {memo.requirementText && (
+                                <span className="px-1.5 py-0.5 bg-rose-50 text-rose-700 border border-rose-200 font-bold text-[9px] rounded shrink-0">
+                                  {memo.requirementText}
+                                </span>
+                              )}
+                              <span className="text-xs font-bold text-slate-900 truncate">
+                                {memo.fromName} 様 {memo.fromCompany && <span className="text-slate-500 font-normal">({memo.fromCompany})</span>}
                               </span>
-                            ) : (
-                              <span className="px-2 py-0.5 bg-slate-100 text-slate-600 font-bold text-[10px] rounded-full flex items-center gap-1 shrink-0">
-                                <Check className="w-3 h-3 text-emerald-600" /> 対応完了
-                              </span>
-                            )}
-                            {isUnread && (
-                              <span className="px-1.5 py-0.5 bg-amber-500 text-white font-black text-[9px] rounded-full shrink-0">
-                                未読
-                              </span>
-                            )}
-                            {memo.requirementText && (
-                              <span className="px-1.5 py-0.5 bg-rose-50 text-rose-700 border border-rose-200 font-bold text-[9px] rounded shrink-0">
-                                {memo.requirementText}
-                              </span>
-                            )}
-                            <span className="text-xs font-bold text-slate-900 truncate">
-                              {memo.fromName} 様 {memo.fromCompany && <span className="text-slate-500 font-normal">({memo.fromCompany})</span>}
-                            </span>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleToggleMemoStatus(memo.id);
+                              }}
+                              className={`relative z-10 cursor-pointer px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all border shrink-0 ${
+                                isUnhandled
+                                  ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700 hover:shadow-xs'
+                                  : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
+                              }`}
+                            >
+                              {isUnhandled ? '対応完了にする' : '未対応に戻す'}
+                            </button>
                           </div>
 
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleToggleMemoStatus(memo.id);
-                            }}
-                            className={`relative z-10 cursor-pointer px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all border shrink-0 ${
-                              isUnhandled
-                                ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700 hover:shadow-xs'
-                                : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
-                            }`}
-                          >
-                            {isUnhandled ? '対応完了にする' : '未対応に戻す'}
-                          </button>
-                        </div>
+                          <div className="min-w-0">
+                            <p className="text-xs text-slate-500 line-clamp-1 truncate" title={memo.content}>
+                              {memoSnippet || '（用件・本文なし）'}
+                            </p>
+                          </div>
 
-                        <div className="min-w-0">
-                          <p className="text-xs text-slate-500 line-clamp-1 truncate" title={memo.content}>
-                            {memoSnippet || '（用件・本文なし）'}
-                          </p>
+                          <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-100">
+                            <span>受付: {memo.createdByUser?.name || '社内'}</span>
+                            <span>{new Date(memo.createdAt).toLocaleDateString('ja-JP')}</span>
+                          </div>
                         </div>
-
-                        <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-100">
-                          <span>受付: {memo.createdByUser?.name || '社内'}</span>
-                          <span>{new Date(memo.createdAt).toLocaleDateString('ja-JP')}</span>
-                        </div>
+                      );
+                    })}
+                    {myMemos.length > displayedMemos.length && (
+                      <div className="text-center pt-1">
+                        <button
+                          type="button"
+                          onClick={() => onChangeTab('memo')}
+                          className="text-xs text-rose-600 hover:text-rose-700 font-bold hover:underline cursor-pointer"
+                        >
+                          他 {myMemos.length - displayedMemos.length} 件の伝言メモをすべて表示
+                        </button>
                       </div>
-                    );
-                  })}
-                  {myMemos.length > 5 && (
-                    <div className="text-center pt-1">
-                      <button
-                        type="button"
-                        onClick={() => onChangeTab('memo')}
-                        className="text-xs text-rose-600 hover:text-rose-700 font-bold hover:underline cursor-pointer"
-                      >
-                        他 {myMemos.length - 5} 件の伝言メモをすべて表示
-                      </button>
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div className="p-8 text-center text-slate-400 text-xs">
-                  自分宛ての伝言メモはありません
-                </div>
-              )}
+                    )}
+                  </>
+                ) : (
+                  <div className="p-8 text-center text-slate-400 text-xs">
+                    自分宛ての伝言メモはありません
+                  </div>
+                );
+              })()}
             </div>
           </MyPageSectionCard>
         );
@@ -1572,6 +1725,8 @@ export function MyPage({
             badgeLabel="要承認"
             badgeBgColor="bg-purple-600"
             onNavigate={() => onChangeTab('workflow')}
+            onOpenSettings={() => handleOpenDisplaySettings('workflow')}
+            density={envSettings.density}
             actionButton={
               <button
                 type="button"
@@ -1592,96 +1747,115 @@ export function MyPage({
             onDrop={(e) => handleDrop(e, index)}
           >
             <div className="space-y-3">
-              {myApplications.length > 0 ? (
-                myApplications.slice(0, 5).map((app) => {
-                  const isMyApproval = isWorkflowPending(app, user, allUsers);
+              {(() => {
+                const workflowLimit = sectionCounts.workflow;
+                const displayedWorkflow = myApplications.slice(0, workflowLimit);
 
-                  // 現在の担当承認者名（多段階ステップの場合は現在進行中のステップ担当者）
-                  let currentApproverName = app.approver?.name || '未指定';
-                  if (app.stepsConfig && app.stepsConfig.length > 0) {
-                    const curIdx = (app.currentStepIndex || 1) - 1;
-                    const curStep = app.stepsConfig[curIdx];
-                    if (curStep) {
-                      const res = resolveApproverForStepDetails(app.applicant, curStep, curIdx, allUsers || []);
-                      if (res?.user?.name) {
-                        currentApproverName = res.user.name;
-                      }
-                    }
-                  }
+                return displayedWorkflow.length > 0 ? (
+                  <>
+                    {displayedWorkflow.map((app) => {
+                      const isMyApproval = isWorkflowPending(app, user, allUsers);
 
-                  return (
-                    <div
-                      key={app.id}
-                      onClick={() => {
-                        markWorkflowAsReadUtil(user?.id, app.id);
-                        if (onNavigateToContent) {
-                          onNavigateToContent({ tab: 'workflow', applicationId: app.id });
-                        } else {
-                          onChangeTab('workflow');
+                      // 現在の担当承認者名（多段階ステップの場合は現在進行中のステップ担当者）
+                      let currentApproverName = app.approver?.name || '未指定';
+                      if (app.stepsConfig && app.stepsConfig.length > 0) {
+                        const curIdx = (app.currentStepIndex || 1) - 1;
+                        const curStep = app.stepsConfig[curIdx];
+                        if (curStep) {
+                          const res = resolveApproverForStepDetails(app.applicant, curStep, curIdx, allUsers || []);
+                          if (res?.user?.name) {
+                            currentApproverName = res.user.name;
+                          }
                         }
-                      }}
-                      className={`p-3.5 rounded-xl border transition-all flex flex-col gap-2 cursor-pointer hover:border-purple-400 ${
-                        isMyApproval
-                          ? 'bg-purple-50/50 border-purple-300 shadow-xs'
-                          : 'bg-white border-slate-200'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          {app.status === 'approved' && (
-                            <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-extrabold rounded">
-                              承認済
-                            </span>
-                          )}
-                          {app.status === 'rejected' && (
-                            <span className="px-2 py-0.5 bg-rose-100 text-rose-800 text-[10px] font-extrabold rounded">
-                              却下
-                            </span>
-                          )}
-                          {app.status === 'pending' && (
-                            <span className="px-2 py-0.5 bg-amber-100 text-amber-800 text-[10px] font-extrabold rounded">
-                              申請中
-                            </span>
-                          )}
+                      }
 
-                          <span className="text-xs font-extrabold text-slate-900">{app.title}</span>
-                        </div>
+                      return (
+                        <div
+                          key={app.id}
+                          onClick={() => {
+                            markWorkflowAsReadUtil(user?.id, app.id);
+                            if (onNavigateToContent) {
+                              onNavigateToContent({ tab: 'workflow', applicationId: app.id });
+                            } else {
+                              onChangeTab('workflow');
+                            }
+                          }}
+                          className={`p-3.5 rounded-xl border transition-all flex flex-col gap-2 cursor-pointer hover:border-purple-400 ${
+                            isMyApproval
+                              ? 'bg-purple-50/50 border-purple-300 shadow-xs'
+                              : 'bg-white border-slate-200'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              {app.status === 'approved' && (
+                                <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-extrabold rounded">
+                                  承認済
+                                </span>
+                              )}
+                              {app.status === 'rejected' && (
+                                <span className="px-2 py-0.5 bg-rose-100 text-rose-800 text-[10px] font-extrabold rounded">
+                                  却下
+                                </span>
+                              )}
+                              {app.status === 'pending' && (
+                                <span className="px-2 py-0.5 bg-amber-100 text-amber-800 text-[10px] font-extrabold rounded">
+                                  申請中
+                                </span>
+                              )}
 
-                        {isMyApproval && (
-                          <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                            <button
-                              type="button"
-                              onClick={() => handleWorkflowAction(app.id, 'approved')}
-                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold rounded shadow-2xs flex items-center gap-0.5 cursor-pointer"
-                            >
-                              <CheckCircle2 className="w-3 h-3" /> 承認
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleWorkflowAction(app.id, 'rejected')}
-                              className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-bold rounded shadow-2xs flex items-center gap-0.5 cursor-pointer"
-                            >
-                              <XCircle className="w-3 h-3" /> 却下
-                            </button>
+                              <span className="text-xs font-extrabold text-slate-900">{app.title}</span>
+                            </div>
+
+                            {isMyApproval && (
+                              <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                                <button
+                                  type="button"
+                                  onClick={() => handleWorkflowAction(app.id, 'approved')}
+                                  className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold rounded shadow-2xs flex items-center gap-0.5 cursor-pointer"
+                                >
+                                  <CheckCircle2 className="w-3 h-3" /> 承認
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleWorkflowAction(app.id, 'rejected')}
+                                  className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-bold rounded shadow-2xs flex items-center gap-0.5 cursor-pointer"
+                                >
+                                  <XCircle className="w-3 h-3" /> 却下
+                                </button>
+                              </div>
+                            )}
                           </div>
-                        )}
-                      </div>
 
-                      <p className="text-xs text-slate-500 line-clamp-1">{app.description}</p>
+                          <p className="text-xs text-slate-500 line-clamp-1">{app.description}</p>
 
-                      <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-100">
-                        <span>申請者: {app.applicant?.name || '不明'}</span>
-                        <span>承認者: {currentApproverName}</span>
-                        <span>{new Date(app.createdAt).toLocaleDateString('ja-JP')}</span>
+                          <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-100">
+                            <span>申請者: {app.applicant?.name || '不明'}</span>
+                            <span>承認者: {currentApproverName}</span>
+                            <span>{new Date(app.createdAt).toLocaleDateString('ja-JP')}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {myApplications.length > displayedWorkflow.length && (
+                      <div className="text-center pt-2">
+                        <button
+                          type="button"
+                          onClick={() => onChangeTab('workflow')}
+                          className="text-xs text-purple-600 hover:text-purple-700 font-bold hover:underline cursor-pointer"
+                        >
+                          他 {myApplications.length - displayedWorkflow.length} 件のワークフローをすべて表示 →
+                        </button>
                       </div>
-                    </div>
-                  );
-                })
-              ) : (
-                <div className="p-8 text-center text-slate-400 text-xs">
-                  関係するワークフローはありません
-                </div>
-              )}
+                    )}
+                  </>
+                ) : (
+                  <div className="p-8 text-center text-slate-400 text-xs">
+                    関係するワークフローはありません
+                  </div>
+                );
+              })()}
             </div>
           </MyPageSectionCard>
         );
@@ -1699,6 +1873,8 @@ export function MyPage({
             badgeLabel="未読"
             badgeBgColor="bg-blue-600"
             onNavigate={() => onChangeTab('chat')}
+            onOpenSettings={() => handleOpenDisplaySettings('chats')}
+            density={envSettings.density}
             isFullWidth={isFullWidth}
             isDragging={isDragging}
             onDragStart={(e) => handleDragStart(e, index)}
@@ -1706,59 +1882,78 @@ export function MyPage({
             onDrop={(e) => handleDrop(e, index)}
           >
             <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 2xl:grid-cols-2">
-              {myChatRooms.length > 0 ? (
-                myChatRooms.slice(0, 8).map((room) => {
-                  const isUnread = isChatUnread(room, user, readChatTimestamps);
-                  const lastMsg = room.messages && room.messages.length > 0 ? room.messages[room.messages.length - 1] : null;
+              {(() => {
+                const chatLimit = sectionCounts.chats;
+                const displayedChats = myChatRooms.slice(0, chatLimit);
 
-                  return (
-                    <div
-                      key={room.id}
-                      onClick={() => {
-                        markChatRoomAsReadUtil(user?.id, room.id);
-                        if (onNavigateToContent) {
-                          onNavigateToContent({ tab: 'chat', chatRoomId: room.id });
-                        } else {
-                          onChangeTab('chat');
-                        }
-                      }}
-                      className={`p-3.5 rounded-xl border transition-all cursor-pointer flex flex-col gap-2 ${
-                        isUnread
-                          ? 'bg-blue-50/50 border-blue-300 shadow-xs hover:border-blue-400'
-                          : 'bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50/50'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs font-extrabold text-slate-900 line-clamp-1">
-                          {room.name || (lastMsg ? lastMsg.sender?.name : 'チャットルーム')}
-                        </span>
-                        {isUnread && (
-                          <span className="px-2 py-0.5 bg-blue-600 text-white text-[9px] font-black rounded-full shrink-0">
-                            NEW 未読
-                          </span>
-                        )}
+                return displayedChats.length > 0 ? (
+                  <>
+                    {displayedChats.map((room) => {
+                      const isUnread = isChatUnread(room, user, readChatTimestamps);
+                      const lastMsg = room.messages && room.messages.length > 0 ? room.messages[room.messages.length - 1] : null;
+
+                      return (
+                        <div
+                          key={room.id}
+                          onClick={() => {
+                            markChatRoomAsReadUtil(user?.id, room.id);
+                            if (onNavigateToContent) {
+                              onNavigateToContent({ tab: 'chat', chatRoomId: room.id });
+                            } else {
+                              onChangeTab('chat');
+                            }
+                          }}
+                          className={`p-3.5 rounded-xl border transition-all cursor-pointer flex flex-col gap-2 ${
+                            isUnread
+                              ? 'bg-blue-50/50 border-blue-300 shadow-xs hover:border-blue-400'
+                              : 'bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50/50'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs font-extrabold text-slate-900 line-clamp-1">
+                              {room.name || (lastMsg ? lastMsg.sender?.name : 'チャットルーム')}
+                            </span>
+                            {isUnread && (
+                              <span className="px-2 py-0.5 bg-blue-600 text-white text-[9px] font-black rounded-full shrink-0">
+                                NEW 未読
+                              </span>
+                            )}
+                          </div>
+
+                          {lastMsg ? (
+                            <p className="text-xs text-slate-600 line-clamp-2 bg-slate-50/80 p-2 rounded-lg border border-slate-100">
+                              <span className="font-semibold text-slate-800">{lastMsg.sender?.name}: </span>
+                              {lastMsg.content}
+                            </p>
+                          ) : (
+                            <p className="text-xs text-slate-400 italic">メッセージはありません</p>
+                          )}
+
+                          <div className="text-[10px] text-slate-400 text-right">
+                            {lastMsg?.createdAt ? new Date(lastMsg.createdAt).toLocaleString('ja-JP') : ''}
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {myChatRooms.length > displayedChats.length && (
+                      <div className="text-center pt-2 col-span-full">
+                        <button
+                          type="button"
+                          onClick={() => onChangeTab('chat')}
+                          className="text-xs text-blue-600 hover:text-blue-700 font-bold hover:underline cursor-pointer"
+                        >
+                          他 {myChatRooms.length - displayedChats.length} 件のチャットルームをすべて表示 →
+                        </button>
                       </div>
-
-                      {lastMsg ? (
-                        <p className="text-xs text-slate-600 line-clamp-2 bg-slate-50/80 p-2 rounded-lg border border-slate-100">
-                          <span className="font-semibold text-slate-800">{lastMsg.sender?.name}: </span>
-                          {lastMsg.content}
-                        </p>
-                      ) : (
-                        <p className="text-xs text-slate-400 italic">メッセージはありません</p>
-                      )}
-
-                      <div className="text-[10px] text-slate-400 text-right">
-                        {lastMsg?.createdAt ? new Date(lastMsg.createdAt).toLocaleString('ja-JP') : ''}
-                      </div>
-                    </div>
-                  );
-                })
-              ) : (
-                <div className="p-8 text-center text-slate-400 text-xs col-span-full">
-                  参加しているチャットルームはありません
-                </div>
-              )}
+                    )}
+                  </>
+                ) : (
+                  <div className="p-8 text-center text-slate-400 text-xs col-span-full">
+                    参加しているチャットルームはありません
+                  </div>
+                );
+              })()}
             </div>
           </MyPageSectionCard>
         );
@@ -1775,6 +1970,8 @@ export function MyPage({
             badgeLabel="未確認"
             badgeBgColor="bg-teal-600"
             onNavigate={() => onChangeTab('daily_report')}
+            onOpenSettings={() => handleOpenDisplaySettings('reports')}
+            density={envSettings.density}
             actionButton={
               <button
                 type="button"
@@ -1792,90 +1989,109 @@ export function MyPage({
             onDrop={(e) => handleDrop(e, index)}
           >
             <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 2xl:grid-cols-2">
-              {myReports.length > 0 ? (
-                myReports.slice(0, 8).map((report) => {
-                  const isUnread = isReportUnread(report, user, readReportIds);
-                  const isAuthor = (report.author?.id || (report as any).authorId) === user?.id;
-                  const isWeekly = report.reportType === 'weekly';
-                  const isMaintenance = report.reportType === 'maintenance_daily';
-                  const isSales = report.reportType === 'sales_daily';
-                  const isConstruction = report.reportType === 'construction_daily';
-                  const typeLabel = isMaintenance 
-                    ? '保守日報' 
-                    : (isSales 
-                      ? '営業日報' 
-                      : (isConstruction 
-                        ? '工務日報' 
-                        : (isWeekly ? '週報' : '日報')));
-                  const title = report.weekLabel || (isWeekly ? `週報 (${report.weekStartDate || ''}~)` : `${typeLabel} (${report.date || ''})`);
-                  const dateStr = report.date || report.weekStartDate || (report.createdAt ? new Date(report.createdAt).toLocaleDateString('ja-JP') : '');
+              {(() => {
+                const reportLimit = sectionCounts.reports;
+                const displayedReports = myReports.slice(0, reportLimit);
 
-                  return (
-                    <div
-                      key={report.id}
-                      onClick={() => {
-                        markReportAsReadUtil(user?.id, report.id);
-                        if (onNavigateToContent) {
-                          onNavigateToContent({ tab: 'daily_report', reportId: report.id });
-                        } else {
-                          onChangeTab('daily_report');
-                        }
-                      }}
-                      className={`p-3.5 rounded-xl border transition-all cursor-pointer flex flex-col gap-2 ${
-                        isUnread
-                          ? 'bg-teal-50/50 border-teal-300 shadow-xs hover:border-teal-400'
-                          : 'bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50/50'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-bold shrink-0 ${
-                            isMaintenance ? 'bg-amber-100 text-amber-800' : (isWeekly ? 'bg-indigo-100 text-indigo-800' : 'bg-emerald-100 text-emerald-800')
-                          }`}>
-                            {typeLabel}
-                          </span>
-                          <span className="text-xs font-extrabold text-slate-900 line-clamp-1">
-                            {title}
-                          </span>
+                return displayedReports.length > 0 ? (
+                  <>
+                    {displayedReports.map((report) => {
+                      const isUnread = isReportUnread(report, user, readReportIds);
+                      const isAuthor = (report.author?.id || (report as any).authorId) === user?.id;
+                      const isWeekly = report.reportType === 'weekly';
+                      const isMaintenance = report.reportType === 'maintenance_daily';
+                      const isSales = report.reportType === 'sales_daily';
+                      const isConstruction = report.reportType === 'construction_daily';
+                      const typeLabel = isMaintenance 
+                        ? '保守日報' 
+                        : (isSales 
+                          ? '営業日報' 
+                          : (isConstruction 
+                            ? '工務日報' 
+                            : (isWeekly ? '週報' : '日報')));
+                      const title = report.weekLabel || (isWeekly ? `週報 (${report.weekStartDate || ''}~)` : `${typeLabel} (${report.date || ''})`);
+                      const dateStr = report.date || report.weekStartDate || (report.createdAt ? new Date(report.createdAt).toLocaleDateString('ja-JP') : '');
+
+                      return (
+                        <div
+                          key={report.id}
+                          onClick={() => {
+                            markReportAsReadUtil(user?.id, report.id);
+                            if (onNavigateToContent) {
+                              onNavigateToContent({ tab: 'daily_report', reportId: report.id });
+                            } else {
+                              onChangeTab('daily_report');
+                            }
+                          }}
+                          className={`p-3.5 rounded-xl border transition-all cursor-pointer flex flex-col gap-2 ${
+                            isUnread
+                              ? 'bg-teal-50/50 border-teal-300 shadow-xs hover:border-teal-400'
+                              : 'bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50/50'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-bold shrink-0 ${
+                                isMaintenance ? 'bg-amber-100 text-amber-800' : (isWeekly ? 'bg-indigo-100 text-indigo-800' : 'bg-emerald-100 text-emerald-800')
+                              }`}>
+                                {typeLabel}
+                              </span>
+                              <span className="text-xs font-extrabold text-slate-900 line-clamp-1">
+                                {title}
+                              </span>
+                            </div>
+                            {isUnread && (
+                              <span className="px-2 py-0.5 bg-teal-600 text-white text-[9px] font-black rounded-full shrink-0 animate-pulse">
+                                NEW {isAuthor ? '要確認' : '未確認'}
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center justify-between text-xs text-slate-600">
+                            <span className="font-medium">{report.author?.name || '作成者未設定'}</span>
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                              report.status === 'reviewed' 
+                                ? 'bg-emerald-100 text-emerald-700' 
+                                : report.status === 'draft'
+                                ? 'bg-slate-100 text-slate-700 border border-slate-200'
+                                : 'bg-amber-100 text-amber-700'
+                            }`}>
+                              {report.status === 'reviewed' ? '確認済' : report.status === 'draft' ? '下書き' : '確認待ち'}
+                            </span>
+                          </div>
+
+                          {report.feedbackComment && (
+                            <p className="text-xs text-slate-600 line-clamp-1 bg-slate-50 p-1.5 rounded border border-slate-100">
+                              <span className="font-bold text-slate-700">上長コメント: </span>
+                              {report.feedbackComment}
+                            </p>
+                          )}
+
+                          <div className="text-[10px] text-slate-400 text-right">
+                            {dateStr}
+                          </div>
                         </div>
-                        {isUnread && (
-                          <span className="px-2 py-0.5 bg-teal-600 text-white text-[9px] font-black rounded-full shrink-0 animate-pulse">
-                            NEW {isAuthor ? '要確認' : '未確認'}
-                          </span>
-                        )}
-                      </div>
+                      );
+                    })}
 
-                      <div className="flex items-center justify-between text-xs text-slate-600">
-                        <span className="font-medium">{report.author?.name || '作成者未設定'}</span>
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                          report.status === 'reviewed' 
-                            ? 'bg-emerald-100 text-emerald-700' 
-                            : report.status === 'draft'
-                            ? 'bg-slate-100 text-slate-700 border border-slate-200'
-                            : 'bg-amber-100 text-amber-700'
-                        }`}>
-                          {report.status === 'reviewed' ? '確認済' : report.status === 'draft' ? '下書き' : '確認待ち'}
-                        </span>
+                    {myReports.length > displayedReports.length && (
+                      <div className="text-center pt-2 col-span-full">
+                        <button
+                          type="button"
+                          onClick={() => onChangeTab('daily_report')}
+                          className="text-xs text-teal-600 hover:text-teal-700 font-bold hover:underline cursor-pointer"
+                        >
+                          他 {myReports.length - displayedReports.length} 件の日報・週報をすべて表示 →
+                        </button>
                       </div>
-
-                      {report.feedbackComment && (
-                        <p className="text-xs text-slate-600 line-clamp-1 bg-slate-50 p-1.5 rounded border border-slate-100">
-                          <span className="font-bold text-slate-700">上長コメント: </span>
-                          {report.feedbackComment}
-                        </p>
-                      )}
-
-                      <div className="text-[10px] text-slate-400 text-right">
-                        {dateStr}
-                      </div>
-                    </div>
-                  );
-                })
-              ) : (
-                <div className="p-8 text-center text-slate-400 text-xs col-span-full">
-                  関連する日報・週報はありません
-                </div>
-              )}
+                    )}
+                  </>
+                ) : (
+                  <div className="p-8 text-center text-slate-400 text-xs col-span-full">
+                    関連する日報・週報はありません
+                  </div>
+                );
+              })()}
             </div>
           </MyPageSectionCard>
         );
@@ -2139,18 +2355,55 @@ export function MyPage({
         </div>
       </div>
 
+      {/* メインセクションツールバー（表示件数・環境設定 / 順序変更案内） */}
+      <div className="flex items-center justify-between gap-3 px-1 pt-1">
+        <div className="flex items-center gap-2 text-xs font-bold text-slate-700">
+          <span>マイページ ウィジェット</span>
+          <span className="text-[11px] text-slate-400 font-normal hidden sm:inline">（各カードのドラッグで並び替え、歯車アイコンで件数設定）</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => handleOpenDisplaySettings()}
+            className="px-2.5 py-1.5 text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 hover:border-indigo-300 rounded-lg shadow-2xs hover:shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+            title="各項目の表示件数や環境設定を変更"
+          >
+            <Settings className="w-3.5 h-3.5 text-indigo-600" />
+            <span>表示件数・環境設定</span>
+          </button>
+          <button
+            type="button"
+            onClick={handleResetOrder}
+            className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-white rounded-lg transition-all cursor-pointer border border-transparent hover:border-slate-200 hover:shadow-2xs"
+            title="並び順を初期状態にリセット"
+            aria-label="並び順を初期状態にリセット"
+          >
+            <RotateCcw className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
       {/* メインセクション（D&Dで順序変更可能） */}
       <div className="space-y-3">
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
           {sectionOrder.map((sectionId, index) => renderSectionCard(sectionId, index))}
         </div>
 
-        {/* 最下部の並び順リセット（アイコンのみ） */}
-        <div className="flex justify-end pt-1 pb-2 px-1">
+        {/* 最下部の並び順リセット＆表示設定 */}
+        <div className="flex justify-end items-center gap-2 pt-1 pb-2 px-1">
+          <button
+            type="button"
+            onClick={() => handleOpenDisplaySettings()}
+            className="px-2 py-1 text-[11px] text-slate-500 hover:text-indigo-600 hover:bg-white rounded-lg transition-all cursor-pointer border border-transparent hover:border-slate-200 hover:shadow-2xs flex items-center gap-1"
+            title="表示件数・環境設定"
+          >
+            <Settings className="w-3.5 h-3.5" />
+            <span>表示設定</span>
+          </button>
           <button
             type="button"
             onClick={handleResetOrder}
-            className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-white rounded-lg transition-all cursor-pointer border border-transparent hover:border-slate-200 hover:shadow-2xs"
+            className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-white rounded-lg transition-all cursor-pointer border border-transparent hover:border-slate-200 hover:shadow-2xs"
             title="並び順を初期状態にリセット"
             aria-label="並び順を初期状態にリセット"
           >
@@ -2661,6 +2914,30 @@ export function MyPage({
                       );
                     })}
                   </div>
+                </div>
+
+                {/* ⚙️ マイページ表示件数・環境設定ショートカット */}
+                <div className="p-4 bg-slate-50/80 rounded-xl border border-slate-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <span className="block text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                      <Settings className="w-3.5 h-3.5 text-indigo-600" />
+                      マイページ表示件数・環境設定
+                    </span>
+                    <span className="block text-[11px] text-slate-500 mt-0.5">
+                      スケジュール、掲示板、伝言メモ、ワークフロー、チャット、日報の表示件数や表示密度をカスタマイズ
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsSettingsOpen(false);
+                      setIsDisplaySettingsOpen(true);
+                    }}
+                    className="px-3 py-1.5 bg-white border border-slate-200 hover:border-indigo-400 text-indigo-700 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs hover:shadow-xs shrink-0 cursor-pointer"
+                  >
+                    <SlidersHorizontal className="w-3.5 h-3.5 text-indigo-600" />
+                    表示件数を設定する
+                  </button>
                 </div>
               </div>
 
@@ -3467,6 +3744,19 @@ export function MyPage({
           </div>
         </div>
       )}
+
+      {/* マイページ表示件数・環境設定モーダル */}
+      <MyPageDisplaySettingsModal
+        isOpen={isDisplaySettingsOpen}
+        onClose={() => {
+          setIsDisplaySettingsOpen(false);
+          setTargetSettingsSectionId(null);
+        }}
+        currentCounts={sectionCounts}
+        currentEnvSettings={envSettings}
+        targetSectionId={targetSettingsSectionId}
+        onSave={handleSaveDisplaySettings}
+      />
 
       <ConfirmModal
         {...confirmModal}
