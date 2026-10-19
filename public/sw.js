@@ -1,11 +1,24 @@
 // Service Worker for Terakoya SNS / Groupware
-// Version: 2026.09.02.1
-const CACHE_NAME = 'teranago-sns-v20260902-1';
+// Version: 2026.10.19.1
+const CACHE_NAME = 'teranago-sns-v20261019-1';
+const IMAGE_CACHE_NAME = 'teranago-image-cache-v20261019-1';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
   './manifest.json'
 ];
+
+// 画像・メディアファイル判定（チャット写真、サムネイル、スタンプ、アバター、添付画像等）
+function isMediaRequest(requestUrl) {
+  const url = requestUrl.toLowerCase();
+  return (
+    url.includes('/bulletinsfiles/') ||
+    url.includes('/uploads/') ||
+    url.includes('/external-files/') ||
+    url.includes('/stamps') ||
+    /\.(png|jpe?g|webp|gif|svg|ico)(\?.*)?$/i.test(url)
+  );
+}
 
 // Install event
 self.addEventListener('install', (event) => {
@@ -29,7 +42,7 @@ self.addEventListener('activate', (event) => {
     caches.keys().then((cacheNames) => {
       return Promise.all(
         cacheNames.map((cache) => {
-          if (cache !== CACHE_NAME) {
+          if (cache !== CACHE_NAME && cache !== IMAGE_CACHE_NAME) {
             return caches.delete(cache);
           }
         })
@@ -38,17 +51,50 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Fetch event (Network First with Cache Fallback)
+// Fetch event
 self.addEventListener('fetch', (event) => {
-  // Skip non-GET requests and API requests
-  if (event.request.method !== 'GET' || event.request.url.includes('/api/')) {
+  if (event.request.method !== 'GET') {
     return;
   }
 
+  const reqUrl = event.request.url;
+
+  // 1. チャット画像・写真・スタンプ・アバター等のメディアリクエスト
+  // -> Cache-First 戦略: キャッシュにあれば0秒で即座に返却、無ければネットワークから取得してキャッシュ保存
+  if (isMediaRequest(reqUrl)) {
+    event.respondWith(
+      caches.open(IMAGE_CACHE_NAME).then(async (imageCache) => {
+        const cachedResponse = await imageCache.match(event.request);
+        if (cachedResponse) {
+          return cachedResponse;
+        }
+
+        try {
+          const networkResponse = await fetch(event.request);
+          // 正常レスポンスまたはクロスオリジンopaqueレスポンスをキャッシュに保存
+          if (networkResponse && (networkResponse.status === 200 || networkResponse.type === 'opaque')) {
+            imageCache.put(event.request, networkResponse.clone()).catch(() => {});
+          }
+          return networkResponse;
+        } catch (fetchErr) {
+          // オフラインかつキャッシュ無しの場合
+          if (cachedResponse) return cachedResponse;
+          throw fetchErr;
+        }
+      })
+    );
+    return;
+  }
+
+  // 2. その他のAPIリクエスト (JSONデータ等) はキャッシュせず常に最新通信
+  if (reqUrl.includes('/api/')) {
+    return;
+  }
+
+  // 3. 一般アセット (HTML, CSS, JS等) -> Network First with Cache Fallback
   event.respondWith(
     fetch(event.request)
       .then((response) => {
-        // Clone and store in cache if valid
         if (response && response.status === 200 && response.type === 'basic') {
           const responseToCache = response.clone();
           caches.open(CACHE_NAME).then((cache) => {
@@ -58,7 +104,6 @@ self.addEventListener('fetch', (event) => {
         return response;
       })
       .catch(() => {
-        // Fallback to cache when offline
         return caches.match(event.request).then((cachedResponse) => {
           if (cachedResponse) {
             return cachedResponse;

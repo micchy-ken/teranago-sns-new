@@ -14,9 +14,9 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.15.10',
-  date: '2026-10-15',
-  releaseNumber: 10,
-  display: 'v2026.10.15 #10',
-  description: '現場管理の施工図PDF登録バリデーション強化（所定フォルダ「02-施工図PDF」外アクセス制限＆非PDFファイル登録拒否・エラー表示）',
+  version: '2026.10.19.1',
+  date: '2026-10-19',
+  releaseNumber: 1,
+  display: 'v2026.10.19 #1',
+  description: 'チャット画像高速化改修（画面内最優先ロード・画面外過去画像のスクロール遅延ロード＆Service WorkerによるCache-Firstローカルキャッシュ対応）',
 };

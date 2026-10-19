@@ -1,7 +1,7 @@
 export const RECOMMEND_SERVER_JS = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年10月15日 (施工図PDF登録バリデーション追加・所定フォルダ外/非PDFエラー判定対応)
+ * 最終更新日時 (最終アップデート): 2026年10月19日 (静的ファイル配信の30日間ブラウザキャッシュ＆CORSヘッダー明示、チャット画像高速化対応)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -650,17 +650,28 @@ async function startServer() {
 
   // 静的ファイル配信
   const publicDir = path.join(process.cwd(), 'public');
+  // 静的ファイル配信オプション（30日間ブラウザキャッシュ & CORS明示）
+  const staticFileOptions: express.ServeStaticOptions = {
+    maxAge: '30d',
+    immutable: true,
+    setHeaders: (res) => {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+      res.setHeader('Cache-Control', 'public, max-age=2592000, immutable');
+    }
+  };
+
   const uploadsDir = path.join(process.cwd(), 'uploads');
   if (!fs.existsSync(uploadsDir)) {
     fs.mkdirSync(uploadsDir, { recursive: true });
   }
   app.use('/public', express.static(publicDir, { maxAge: '7d' }));
-  app.use(['/uploads', '/api/uploads'], express.static(uploadsDir, { maxAge: '30d', immutable: true }));
-  app.use('/stamps', express.static(path.join(publicDir, 'stamps'), { maxAge: '30d', immutable: true }));
-  app.use('/api/stamps-static', express.static(path.join(publicDir, 'stamps'), { maxAge: '30d', immutable: true }));
-  app.use('/external-files', express.static(externalFilesDir, { maxAge: '30d' }));
-  app.use('/bulletinsfiles', express.static(bulletinsFilesDir, { maxAge: '30d', immutable: true }));
-  app.use('/api/bulletinsfiles', express.static(bulletinsFilesDir, { maxAge: '30d', immutable: true }));
+  app.use(['/uploads', '/api/uploads'], express.static(uploadsDir, staticFileOptions));
+  app.use('/stamps', express.static(path.join(publicDir, 'stamps'), staticFileOptions));
+  app.use('/api/stamps-static', express.static(path.join(publicDir, 'stamps'), staticFileOptions));
+  app.use('/external-files', express.static(externalFilesDir, staticFileOptions));
+  app.use('/bulletinsfiles', express.static(bulletinsFilesDir, staticFileOptions));
+  app.use('/api/bulletinsfiles', express.static(bulletinsFilesDir, staticFileOptions));
 
   // スタンプ管理APIルーター
   app.use('/api/stamps', stampsRouter);
@@ -670,7 +681,7 @@ async function startServer() {
   if (!fs.existsSync(documentsFilesDir)) {
     fs.mkdirSync(documentsFilesDir, { recursive: true });
   }
-  app.use(['/uploads/documents', '/api/uploads/documents', '/api/documents/uploads'], express.static(documentsFilesDir, { maxAge: '30d', immutable: true }));
+  app.use(['/uploads/documents', '/api/uploads/documents', '/api/documents/uploads'], express.static(documentsFilesDir, staticFileOptions));
   app.use('/api/documents', documentsRouter);
 
   // 日程調整APIルーター
@@ -682,7 +693,7 @@ async function startServer() {
   if (!fs.existsSync(photoReportsDir)) {
     fs.mkdirSync(photoReportsDir, { recursive: true });
   }
-  app.use(['/uploads/photo-reports', '/api/uploads/photo-reports'], express.static(photoReportsDir, { maxAge: '30d', immutable: true }));
+  app.use(['/uploads/photo-reports', '/api/uploads/photo-reports'], express.static(photoReportsDir, staticFileOptions));
   app.use(['/api/photo-reports', '/api/inspection-photo-reports'], photoReportsRouter);
   app.use('/api', photoReportsRouter);
 

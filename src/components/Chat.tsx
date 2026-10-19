@@ -154,12 +154,117 @@ interface ChatMessageItemProps {
   showAvatar: boolean;
   stampCategories?: ChatStampCategory[];
   isBossMode?: boolean;
+  isRecent?: boolean;
   onDeleteMessage: (id: string) => void;
   onOpenViewers: (msg: ChatMessage) => void;
   onOpenPreview: (att: AttachmentFile) => void;
   onOpenLightbox: (images: string | string[], initialIndex?: number) => void;
   onDownloadAttachment: (att: AttachmentFile) => void;
 }
+
+interface LazyChatMessageImageProps {
+  src?: string;
+  alt: string;
+  className?: string;
+  priority?: 'high' | 'low' | 'auto';
+  containerClassName?: string;
+  onClick?: () => void;
+}
+
+/**
+ * チャット専用 遅延＆優先度制御画像コンポーネント
+ * - 初期表示の最新メッセージ（画面内）は priority="high" で即座にダウンロード
+ * - スクロール外の過去画像は、手前200pxにスクロールして近づくまで src をセットせず、通信リクエストを完全ゼロに抑制
+ * - 読み込み中はパルス付きスケルトンを表示し、ダウンロード完了でスムーズにフェードイン
+ */
+const LazyChatMessageImage = React.memo(function LazyChatMessageImage({
+  src,
+  alt,
+  className = '',
+  priority = 'auto',
+  containerClassName = '',
+  onClick
+}: LazyChatMessageImageProps) {
+  const [isInView, setIsInView] = useState(priority === 'high');
+  const [isLoaded, setIsLoaded] = useState(false);
+  const [hasError, setHasError] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (priority === 'high' || isInView) {
+      return;
+    }
+
+    const elem = containerRef.current;
+    if (!elem || typeof IntersectionObserver === 'undefined') {
+      setIsInView(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            setIsInView(true);
+            observer.unobserve(entry.target);
+          }
+        });
+      },
+      {
+        rootMargin: '200px 0px',
+        threshold: 0.01
+      }
+    );
+
+    observer.observe(elem);
+    return () => {
+      observer.disconnect();
+    };
+  }, [priority, isInView]);
+
+  return (
+    <div
+      ref={containerRef}
+      onClick={onClick}
+      className={`relative w-full h-full overflow-hidden bg-slate-100 ${containerClassName}`}
+    >
+      {/* 読み込み待ち・ローディングスケルトン */}
+      {!isLoaded && !hasError && (
+        <div className="absolute inset-0 bg-slate-200/70 animate-pulse flex flex-col items-center justify-center p-2 text-slate-400 select-none z-1">
+          <ImageIcon className="w-5 h-5 sm:w-6 sm:h-6 mb-1 opacity-40 text-slate-500" />
+          {isInView ? (
+            <span className="text-[10px] font-medium text-slate-500 flex items-center gap-1">
+              <Loader2 className="w-2.5 h-2.5 animate-spin" /> 読み込み中...
+            </span>
+          ) : (
+            <span className="text-[9px] text-slate-400 font-medium">スクロールで表示</span>
+          )}
+        </div>
+      )}
+
+      {/* エラー時フォールバック */}
+      {hasError && (
+        <div className="absolute inset-0 bg-slate-100 flex flex-col items-center justify-center p-2 text-center text-slate-400 select-none z-1">
+          <ImageIcon className="w-5 h-5 text-slate-400 mb-1" />
+          <span className="text-[10px] text-slate-500 font-medium">読み込めませんでした</span>
+        </div>
+      )}
+
+      {/* 画面内に入るまで src を一切セットしない（スクロール前の不要通信を完全抑止） */}
+      {isInView && src && (
+        <img
+          src={src}
+          alt={alt}
+          fetchPriority={priority === 'high' ? 'high' : 'low'}
+          decoding="async"
+          onLoad={() => setIsLoaded(true)}
+          onError={() => setHasError(true)}
+          className={`${className} ${isLoaded ? 'opacity-100' : 'opacity-0'} transition-opacity duration-200`}
+        />
+      )}
+    </div>
+  );
+});
 
 const ChatMessageItem = React.memo(function ChatMessageItem({
   msg,
@@ -174,6 +279,7 @@ const ChatMessageItem = React.memo(function ChatMessageItem({
   showAvatar,
   stampCategories,
   isBossMode,
+  isRecent,
   onDeleteMessage,
   onOpenViewers,
   onOpenPreview,
@@ -271,6 +377,8 @@ const ChatMessageItem = React.memo(function ChatMessageItem({
                         <img
                           src={getStampUrl(stampImg)}
                           alt={msg.stampText || msg.content}
+                          loading="lazy"
+                          decoding="async"
                           className="w-32 h-32 sm:w-36 sm:h-36 object-contain hover:scale-105 transition-transform filter drop-shadow-sm"
                         />
                       ) : (
@@ -324,15 +432,15 @@ const ChatMessageItem = React.memo(function ChatMessageItem({
                               isSpan ? 'row-span-2' : ''
                             }`}
                           >
-                            <img
+                            <LazyChatMessageImage
                               src={photo.thumbnailUrl || photo.url}
                               alt={`写真 ${idx + 1}`}
-                              decoding="async"
+                              priority={isRecent ? 'high' : 'auto'}
                               className="w-full h-full object-cover group-hover/cell:scale-105 transition-transform duration-200"
                             />
                             {/* 4枚目以降の残枚数バッジ (+○枚) */}
                             {isFourthWithMore && (
-                              <div className="absolute inset-0 bg-black/60 backdrop-blur-xs flex flex-col items-center justify-center text-white font-black text-lg sm:text-xl">
+                              <div className="absolute inset-0 bg-black/60 backdrop-blur-xs flex flex-col items-center justify-center text-white font-black text-lg sm:text-xl z-2">
                                 <span>+{remainingCount}</span>
                                 <span className="text-[10px] font-medium tracking-tight">さらに表示</span>
                               </div>
@@ -369,16 +477,16 @@ const ChatMessageItem = React.memo(function ChatMessageItem({
                       }
                     }}
                   >
-                    <img
+                    <LazyChatMessageImage
                       src={msg.thumbnailUrl || msg.imageUrl || undefined}
                       alt="添付写真"
-                      decoding="async"
+                      priority={isRecent ? 'high' : 'auto'}
                       className="w-full h-full object-cover"
                     />
 
                     {/* ホバー時の拡大表示ラベル (通常モード時) */}
                     {!isBossMode && (
-                      <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-bold gap-1 pointer-events-none">
+                      <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-bold gap-1 pointer-events-none z-2">
                         <Maximize2 className="w-4 h-4" /> 拡大表示
                       </div>
                     )}
@@ -2268,6 +2376,8 @@ export function Chat({
                   const isNewSenderGroup = !prevMsg || prevMsg.sender.id !== msg.sender.id || prevMsg.id.startsWith('sys_') || isDifferentDate;
                   const showSenderName = !isMine && isNewSenderGroup;
                   const showAvatar = isNewSenderGroup;
+                  // 最新4件以内のメッセージを初期優先読み込み対象（priority="high"）に設定
+                  const isRecent = index >= displayedMsgs.length - 4;
 
                   return (
                     <ChatMessageItem
@@ -2284,6 +2394,7 @@ export function Chat({
                       showAvatar={showAvatar}
                       stampCategories={stampCategories}
                       isBossMode={isBossMode}
+                      isRecent={isRecent}
                       onDeleteMessage={handleDeleteMessageClick}
                       onOpenViewers={handleOpenViewersModal}
                       onOpenPreview={handleOpenPreviewFile}
