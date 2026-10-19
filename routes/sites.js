@@ -926,4 +926,114 @@ router.get(['/drawings/list', '/sites/drawings/list', '/api/sites/drawings/list'
   }
 });
 
+// ==========================================
+// 10. NAS 施工図PDF パス検証用エンドポイント (GET /api/sites/drawings/validate)
+// ==========================================
+router.get(['/drawings/validate', '/sites/drawings/validate', '/api/sites/drawings/validate'], (req, res) => {
+  try {
+    const rawPath = String(req.query.path || '').trim();
+    if (!rawPath) {
+      return res.status(400).json({ success: false, valid: false, error: 'ファイルパスが指定されていません。' });
+    }
+
+    const normalizedRaw = rawPath.replace(/\\/g, '/');
+    const fileName = normalizedRaw.split('/').pop() || rawPath;
+    const ext = path.extname(fileName).toLowerCase();
+
+    // ① 拡張子チェック (PDF以外は拒否)
+    if (ext !== '.pdf') {
+      return res.status(400).json({
+        success: false,
+        valid: false,
+        error: `【登録エラー】施工図はPDF形式（.pdf）のファイルのみ登録可能です。[対象: ${fileName}]`
+      });
+    }
+
+    // ② 所定のフォルダ (02-施工図PDF) チェック
+    const isWinAbsolutePath = /^(?:\\\\|\/\/|[a-zA-Z]:\/)/i.test(normalizedRaw);
+    if (isWinAbsolutePath && !/02-施工図PDF/i.test(normalizedRaw)) {
+      return res.status(400).json({
+        success: false,
+        valid: false,
+        error: `【登録エラー】所定のフォルダ（02-施工図PDF）以外のファイルは登録できません。[対象: ${fileName}]`
+      });
+    }
+
+    const relPath = sanitizeDrawingRelPath(rawPath);
+    if (!relPath) {
+      return res.status(400).json({
+        success: false,
+        valid: false,
+        error: `【登録エラー】有効な施工図パスを指定してください。[対象: ${rawPath}]`
+      });
+    }
+
+    const safePath = path.normalize(relPath).replace(/^(\.\.[\/\\])+/, '');
+    const absolutePath = path.join(drawingsBaseDir, safePath);
+
+    if (!absolutePath.startsWith(path.resolve(drawingsBaseDir))) {
+      return res.status(403).json({
+        success: false,
+        valid: false,
+        error: `【登録エラー】所定のフォルダ（02-施工図PDF）外のパス指定は許可されていません。`
+      });
+    }
+
+    // 実ファイルの存在チェック
+    if (fs.existsSync(absolutePath) && !fs.statSync(absolutePath).isDirectory()) {
+      return res.json({
+        success: true,
+        valid: true,
+        resolvedPath: relPath,
+        fileName: path.basename(absolutePath)
+      });
+    }
+
+    // パスにサブフォルダが含まれずファイル名単体の場合は、drawingsBaseDir 内を再帰検索して親フォルダ補正
+    if (!relPath.includes('/')) {
+      let foundPath = null;
+      function findFileRecursively(dir, relPrefix = '') {
+        if (foundPath) return;
+        try {
+          const entries = fs.readdirSync(dir, { withFileTypes: true });
+          for (const entry of entries) {
+            const entryRel = relPrefix ? `${relPrefix}/${entry.name}` : entry.name;
+            const fullEntry = path.join(dir, entry.name);
+            if (entry.isDirectory()) {
+              findFileRecursively(fullEntry, entryRel);
+            } else if (entry.isFile() && entry.name.toLowerCase() === fileName.toLowerCase()) {
+              foundPath = entryRel;
+              return;
+            }
+          }
+        } catch (_) {}
+      }
+
+      findFileRecursively(drawingsBaseDir);
+
+      if (foundPath) {
+        return res.json({
+          success: true,
+          valid: true,
+          resolvedPath: foundPath,
+          fileName: path.basename(foundPath)
+        });
+      }
+    }
+
+    return res.status(404).json({
+      success: false,
+      valid: false,
+      error: `【登録エラー】所定のフォルダ（02-施工図PDF）内に指定されたファイルが見つかりません。フォルダ名を含めたパス（例: フォルダ名/ファイル名.pdf）を指定するか、所定フォルダ内に配置してください。[対象: ${fileName}]`
+    });
+
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      valid: false,
+      error: `施工図検証処理エラー: ${err.message}`
+    });
+  }
+});
+
 export default router;

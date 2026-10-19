@@ -14,9 +14,9 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.15.9',
+  version: '2026.10.15.10',
   date: '2026-10-15',
-  releaseNumber: 9,
-  display: 'v2026.10.15 #9',
-  description: '文字サイズ・画面配色設定の同期・保存保護改修（個人設定更新時・全般同期時の設定逆転防止）',
+  releaseNumber: 10,
+  display: 'v2026.10.15 #10',
+  description: '現場管理の施工図PDF登録バリデーション強化（所定フォルダ「02-施工図PDF」外アクセス制限＆非PDFファイル登録拒否・エラー表示）',
 };

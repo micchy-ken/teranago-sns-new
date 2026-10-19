@@ -3,7 +3,7 @@ import { X, Search, Database, Layers, Calendar, User as UserIcon, Plus, Trash2, 
 import { Site, SiteMainPart, SiteSubPart, ExternalSiteLookupResult } from '../../types/site';
 import { User } from '../../types';
 import { API_BASE_URL } from '../../config/api';
-import { normalizeDrawingPath } from './SiteDetailModal';
+import { normalizeDrawingPath, validateAndResolveDrawingPath } from './SiteDetailModal';
 
 interface SiteFormModalProps {
   isOpen: boolean;
@@ -41,6 +41,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({
   const [drawingUrl, setDrawingUrl] = useState('');
   const [drawings, setDrawings] = useState<string[]>([]);
   const [isDragOverDrawing, setIsDragOverDrawing] = useState(false);
+  const [drawingErrorModal, setDrawingErrorModal] = useState<string | null>(null);
 
   // 主要部品リスト (1台ずつ展開)
   const [mainParts, setMainParts] = useState<SiteMainPart[]>([]);
@@ -838,6 +839,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({
                     setIsDragOverDrawing(false);
 
                     const newPaths: string[] = [];
+                    const errors: string[] = [];
                     const files = e.dataTransfer.files ? Array.from(e.dataTransfer.files) : [];
                     const droppedText = e.dataTransfer.getData('text/plain') || e.dataTransfer.getData('text') || e.dataTransfer.getData('text/uri-list');
 
@@ -845,47 +847,27 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({
                       for (const file of files) {
                         const fileName = file.name;
                         if (!fileName) continue;
-                        try {
-                          const res = await fetch(`${API_BASE_URL}/sites/drawings/list?q=${encodeURIComponent(fileName)}`);
-                          if (res.ok) {
-                            const json = await res.json();
-                            if (json.success && Array.isArray(json.files) && json.files.length > 0) {
-                              newPaths.push(json.files[0].path);
-                              continue;
-                            }
-                          }
-                        } catch (err) {
-                          console.warn('Failed to search drawing on server:', err);
+                        const check = await validateAndResolveDrawingPath(fileName);
+                        if (check.valid && check.resolvedPath) {
+                          newPaths.push(check.resolvedPath);
+                        } else if (check.error) {
+                          errors.push(check.error);
                         }
-                        newPaths.push(normalizeDrawingPath(fileName));
                       }
                     } else if (droppedText) {
                       const lines = droppedText.split(/[\r\n,;]+/).map(s => s.trim()).filter(Boolean);
                       for (const line of lines) {
-                        if (line.includes('\\') || line.includes('/')) {
-                          const normalized = normalizeDrawingPath(line);
-                          if (normalized && normalized.includes('/')) {
-                            newPaths.push(normalized);
-                            continue;
-                          }
-                        }
-                        const targetFileName = line.replace(/^["']|["']$/g, '').split(/[\/\\]/).pop() || line;
-                        if (targetFileName) {
-                          try {
-                            const res = await fetch(`${API_BASE_URL}/sites/drawings/list?q=${encodeURIComponent(targetFileName)}`);
-                            if (res.ok) {
-                              const json = await res.json();
-                              if (json.success && Array.isArray(json.files) && json.files.length > 0) {
-                                newPaths.push(json.files[0].path);
-                                continue;
-                              }
-                            }
-                          } catch (err) {
-                            console.warn('Failed to search drawing on server:', err);
-                          }
-                          newPaths.push(normalizeDrawingPath(targetFileName));
+                        const check = await validateAndResolveDrawingPath(line);
+                        if (check.valid && check.resolvedPath) {
+                          newPaths.push(check.resolvedPath);
+                        } else if (check.error) {
+                          errors.push(check.error);
                         }
                       }
+                    }
+
+                    if (errors.length > 0) {
+                      setDrawingErrorModal(errors.join('\n\n'));
                     }
 
                     if (newPaths.length > 0) {
@@ -903,7 +885,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({
                       施工図PDFをドラッグ＆ドロップ（複数ファイル一括登録対応）
                     </p>
                     <p className="text-[10px] text-slate-400">
-                      `\\volume1\Teraoka-Sekkei\share\02-施工図PDF\` からの相対パスとして自動解決・登録します
+                      `\\volume1\Teraoka-Sekkei\share\02-施工図PDF\` 内のPDFファイルのみ登録可能です
                     </p>
                   </div>
                 </div>
@@ -917,21 +899,24 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({
                       e.preventDefault();
                       const val = (e.target as HTMLInputElement).value.trim();
                       if (!val) return;
-                      let norm = normalizeDrawingPath(val);
-                      if (norm && !norm.includes('/')) {
-                        try {
-                          const res = await fetch(`${API_BASE_URL}/sites/drawings/list?q=${encodeURIComponent(norm)}`);
-                          if (res.ok) {
-                            const json = await res.json();
-                            if (json.success && Array.isArray(json.files) && json.files.length > 0) {
-                              norm = json.files[0].path;
-                            }
-                          }
-                        } catch (_) {}
-                      }
-                      if (norm) {
-                        setDrawings(prev => Array.from(new Set([...prev, norm])));
+                      const check = await validateAndResolveDrawingPath(val);
+                      if (check.valid && check.resolvedPath) {
+                        setDrawings(prev => Array.from(new Set([...prev, check.resolvedPath!])));
                         (e.target as HTMLInputElement).value = '';
+                      } else if (check.error) {
+                        setDrawingErrorModal(check.error);
+                      }
+                    }
+                  }}
+                  onBlur={async (e) => {
+                    const val = e.target.value.trim();
+                    if (val) {
+                      const check = await validateAndResolveDrawingPath(val);
+                      if (check.valid && check.resolvedPath) {
+                        setDrawings(prev => Array.from(new Set([...prev, check.resolvedPath!])));
+                        e.target.value = '';
+                      } else if (check.error) {
+                        setDrawingErrorModal(check.error);
                       }
                     }
                   }}
@@ -989,6 +974,34 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({
           </div>
         </form>
       </div>
+
+      {/* 施工図エラーモーダル */}
+      {drawingErrorModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-rose-100 space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="p-3 bg-rose-100 text-rose-600 rounded-xl shrink-0">
+                <AlertCircle className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-800">施工図ファイル登録エラー</h3>
+                <p className="text-xs text-slate-600 mt-1 leading-relaxed whitespace-pre-wrap font-mono">
+                  {drawingErrorModal}
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end pt-2">
+              <button
+                type="button"
+                onClick={() => setDrawingErrorModal(null)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs rounded-xl cursor-pointer transition-all active:scale-95 shadow-md"
+              >
+                OK（確認）
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

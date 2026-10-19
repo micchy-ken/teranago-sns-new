@@ -37,6 +37,70 @@ export function normalizeDrawingPath(rawPath?: string, siteName?: string): strin
   return cleaned;
 }
 
+/**
+ * 施工図PDFファイル登録のフォーマット・所定フォルダバリデーション
+ */
+export async function validateAndResolveDrawingPath(rawInput: string): Promise<{
+  valid: boolean;
+  resolvedPath?: string;
+  error?: string;
+}> {
+  if (!rawInput || !rawInput.trim()) {
+    return { valid: false, error: 'ファイルパスが空です。' };
+  }
+
+  const trimmed = rawInput.trim().replace(/^["']|["']$/g, '');
+  const normalizedSlashes = trimmed.replace(/\\/g, '/');
+  const fileName = normalizedSlashes.split('/').pop() || trimmed;
+
+  // ① 拡張子チェック (PDF以外は即座に拒否)
+  const ext = fileName.split('.').pop()?.toLowerCase();
+  if (ext !== 'pdf') {
+    return {
+      valid: false,
+      error: `【登録エラー】施工図はPDF形式（.pdf）のファイルのみ登録可能です。[対象: ${fileName}]`
+    };
+  }
+
+  // ② 所定のフォルダ (02-施工図PDF) チェック
+  const isWinAbsolutePath = /^(?:\\\\|\/\/|[a-zA-Z]:\/)/i.test(normalizedSlashes);
+  if (isWinAbsolutePath && !/02-施工図PDF/i.test(normalizedSlashes)) {
+    return {
+      valid: false,
+      error: `【登録エラー】所定のフォルダ（02-施工図PDF）以外のファイルは登録できません。[対象: ${fileName}]`
+    };
+  }
+
+  // ③ サーバーでのパス検証 API 呼び出し
+  try {
+    const res = await fetch(`${API_BASE_URL}/sites/drawings/validate?path=${encodeURIComponent(trimmed)}`);
+    const json = await res.json();
+    if (res.ok && json.success && json.valid && json.resolvedPath) {
+      return {
+        valid: true,
+        resolvedPath: json.resolvedPath
+      };
+    } else {
+      return {
+        valid: false,
+        error: json.error || `【登録エラー】所定のフォルダ（02-施工図PDF）内に指定されたファイルが見つかりません。[対象: ${fileName}]`
+      };
+    }
+  } catch (_) {
+    const norm = normalizeDrawingPath(trimmed);
+    if (!norm) {
+      return {
+        valid: false,
+        error: `【登録エラー】有効な施工図パスを指定してください。[対象: ${fileName}]`
+      };
+    }
+    return {
+      valid: true,
+      resolvedPath: norm
+    };
+  }
+}
+
 export function getSiteDrawingList(site?: Site | null): string[] {
   if (!site) return [];
   if (Array.isArray(site.drawings) && site.drawings.length > 0) {
@@ -72,6 +136,7 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
   const [isEditingInfo, setIsEditingInfo] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [drawingErrorModal, setDrawingErrorModal] = useState<string | null>(null);
 
   // コメント入力
   const [commentInput, setCommentInput] = useState('');
@@ -625,21 +690,19 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
                       if (!rawInput.trim() || !currentSite) return;
                       const lines = rawInput.split(/[\r\n,;]+/).map(s => s.trim()).filter(Boolean);
                       const resolvedList: string[] = [];
+                      const errors: string[] = [];
 
                       for (const item of lines) {
-                        let normalized = normalizeDrawingPath(item);
-                        if (normalized && !normalized.includes('/')) {
-                          try {
-                            const res = await fetch(`${API_BASE_URL}/sites/drawings/list?q=${encodeURIComponent(normalized)}`);
-                            if (res.ok) {
-                              const json = await res.json();
-                              if (json.success && Array.isArray(json.files) && json.files.length > 0) {
-                                normalized = json.files[0].path;
-                              }
-                            }
-                          } catch (_) {}
+                        const check = await validateAndResolveDrawingPath(item);
+                        if (check.valid && check.resolvedPath) {
+                          resolvedList.push(check.resolvedPath);
+                        } else if (check.error) {
+                          errors.push(check.error);
                         }
-                        if (normalized) resolvedList.push(normalized);
+                      }
+
+                      if (errors.length > 0) {
+                        setDrawingErrorModal(errors.join('\n\n'));
                       }
 
                       if (resolvedList.length > 0) {
@@ -741,6 +804,7 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
                             if (!currentSite) return;
 
                             const newPaths: string[] = [];
+                            const errors: string[] = [];
                             const files = e.dataTransfer.files ? Array.from(e.dataTransfer.files) : [];
                             const droppedText = e.dataTransfer.getData('text/plain') || e.dataTransfer.getData('text') || e.dataTransfer.getData('text/uri-list');
 
@@ -748,47 +812,27 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
                               for (const file of files) {
                                 const fileName = file.name;
                                 if (!fileName) continue;
-                                try {
-                                  const res = await fetch(`${API_BASE_URL}/sites/drawings/list?q=${encodeURIComponent(fileName)}`);
-                                  if (res.ok) {
-                                    const json = await res.json();
-                                    if (json.success && Array.isArray(json.files) && json.files.length > 0) {
-                                      newPaths.push(json.files[0].path);
-                                      continue;
-                                    }
-                                  }
-                                } catch (err) {
-                                  console.warn('Failed to search drawing on server:', err);
+                                const check = await validateAndResolveDrawingPath(fileName);
+                                if (check.valid && check.resolvedPath) {
+                                  newPaths.push(check.resolvedPath);
+                                } else if (check.error) {
+                                  errors.push(check.error);
                                 }
-                                newPaths.push(normalizeDrawingPath(fileName));
                               }
                             } else if (droppedText) {
                               const lines = droppedText.split(/[\r\n,;]+/).map(s => s.trim()).filter(Boolean);
                               for (const line of lines) {
-                                if (line.includes('\\') || line.includes('/')) {
-                                  const normalized = normalizeDrawingPath(line);
-                                  if (normalized && normalized.includes('/')) {
-                                    newPaths.push(normalized);
-                                    continue;
-                                  }
-                                }
-                                const targetFileName = line.replace(/^["']|["']$/g, '').split(/[\/\\]/).pop() || line;
-                                if (targetFileName) {
-                                  try {
-                                    const res = await fetch(`${API_BASE_URL}/sites/drawings/list?q=${encodeURIComponent(targetFileName)}`);
-                                    if (res.ok) {
-                                      const json = await res.json();
-                                      if (json.success && Array.isArray(json.files) && json.files.length > 0) {
-                                        newPaths.push(json.files[0].path);
-                                        continue;
-                                      }
-                                    }
-                                  } catch (err) {
-                                    console.warn('Failed to search drawing on server:', err);
-                                  }
-                                  newPaths.push(normalizeDrawingPath(targetFileName));
+                                const check = await validateAndResolveDrawingPath(line);
+                                if (check.valid && check.resolvedPath) {
+                                  newPaths.push(check.resolvedPath);
+                                } else if (check.error) {
+                                  errors.push(check.error);
                                 }
                               }
+                            }
+
+                            if (errors.length > 0) {
+                              setDrawingErrorModal(errors.join('\n\n'));
                             }
 
                             if (newPaths.length > 0) {
@@ -1005,6 +1049,34 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
           </button>
         </div>
       </div>
+
+      {/* 施工図エラーモーダル */}
+      {drawingErrorModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-rose-100 space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="p-3 bg-rose-100 text-rose-600 rounded-xl shrink-0">
+                <AlertCircle className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-800">施工図ファイル登録エラー</h3>
+                <p className="text-xs text-slate-600 mt-1 leading-relaxed whitespace-pre-wrap font-mono">
+                  {drawingErrorModal}
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end pt-2">
+              <button
+                type="button"
+                onClick={() => setDrawingErrorModal(null)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs rounded-xl cursor-pointer transition-all active:scale-95 shadow-md"
+              >
+                OK（確認）
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {previewFile && (
         <FilePreviewModal
