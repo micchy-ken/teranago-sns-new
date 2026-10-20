@@ -14,9 +14,9 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.19.4',
-  date: '2026-10-19',
-  releaseNumber: 4,
-  display: 'v2026.10.19 #4',
-  description: 'タブ切り替え時の残留ターゲットID初期化およびカレンダー・掲示板・伝言メモの意図しない再ポップアップ防止',
+  version: '2026.10.20.1',
+  date: '2026-10-20',
+  releaseNumber: 1,
+  display: 'v2026.10.20 #1',
+  description: 'Web Push通知のバックグラウンド自動自己修復機能の実装および現在操作端末（機種・ブラウザ・PWA）情報の表示機能追加',
 };

@@ -3492,8 +3492,8 @@ export function MyPage({
 
                       <div className="p-4 bg-indigo-50/40 rounded-xl border border-indigo-100 space-y-3.5">
                         <div className="flex items-start justify-between gap-3">
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2">
+                          <div className="space-y-1.5 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
                               <h4 className="text-xs font-bold text-slate-900">この端末でのリアルタイム通知</h4>
                               {pushStatus?.isSubscribed ? (
                                 <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded-full flex items-center gap-1">
@@ -3509,28 +3509,75 @@ export function MyPage({
                                   未登録
                                 </span>
                               )}
+                              {pushStatus?.isSubscribed && (
+                                <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 text-[9.5px] font-semibold rounded-full flex items-center gap-1">
+                                  <ShieldCheck className="w-3 h-3 text-indigo-600" />
+                                  自動修復・維持機能 ON
+                                </span>
+                              )}
                             </div>
                             <p className="text-[11px] text-slate-600 leading-relaxed">
                               電話メモ、チャットメッセージ、承認依頼などが届いた際、アプリを開いていなくてもスマートフォンのロック画面やPCに即座に通知されます。
                             </p>
-                            {pushStatus && (pushStatus.subscriptionCount ?? 0) > 0 && (
-                              <p className="text-[10px] text-indigo-700 font-medium">
-                                📲 あなたのアカウントで現在 <strong>{pushStatus.subscriptionCount}台</strong> の端末が通知受信登録されています。
-                              </p>
-                            )}
                           </div>
                         </div>
 
-                        {/* iOS PWA案内 */}
-                        <div className="p-2.5 bg-white rounded-lg border border-indigo-100/80 text-[11px] text-slate-600 space-y-1">
-                          <div className="font-bold text-slate-800 flex items-center gap-1 text-[11px]">
-                            <Info className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                            iPhone / iPad をご利用の場合の注意
+                        {/* 現在アクセス中の端末（この端末）の識別情報 */}
+                        {pushStatus?.currentDevice && (
+                          <div className="p-3 bg-white rounded-xl border border-slate-200 shadow-2xs space-y-2">
+                            <div className="flex items-center justify-between text-xs">
+                              <div className="flex items-center gap-2.5">
+                                {pushStatus.currentDevice.type === 'ios' || pushStatus.currentDevice.type === 'android' ? (
+                                  <div className="w-7 h-7 rounded-lg bg-indigo-50 border border-indigo-200 flex items-center justify-center text-indigo-600 shrink-0">
+                                    <Smartphone className="w-4 h-4" />
+                                  </div>
+                                ) : (
+                                  <div className="w-7 h-7 rounded-lg bg-indigo-50 border border-indigo-200 flex items-center justify-center text-indigo-600 shrink-0">
+                                    <Monitor className="w-4 h-4" />
+                                  </div>
+                                )}
+                                <div>
+                                  <div className="font-bold text-slate-800 flex items-center gap-1.5">
+                                    <span>{pushStatus.currentDevice.deviceLabel}</span>
+                                    <span className="text-[10px] font-normal text-slate-500">({pushStatus.currentDevice.browserLabel})</span>
+                                  </div>
+                                  <div className="text-[10px] text-slate-500 flex items-center gap-1.5">
+                                    <span className={`px-1.5 py-0.2 rounded font-medium ${
+                                      pushStatus.currentDevice.isStandalone
+                                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                        : 'bg-slate-100 text-slate-600'
+                                    }`}>
+                                      {pushStatus.currentDevice.modeLabel}
+                                    </span>
+                                    <span>•</span>
+                                    <span className={pushStatus.isSubscribed ? 'text-emerald-600 font-bold' : 'text-slate-500'}>
+                                      {pushStatus.isSubscribed ? 'この端末: 通知待受中' : 'この端末: 未登録'}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {pushStatus.currentDevice.advice && (
+                              <p className="text-[10.5px] leading-relaxed text-indigo-900 bg-indigo-50/70 p-2 rounded-lg border border-indigo-100 flex items-start gap-1.5">
+                                <Info className="w-3.5 h-3.5 text-indigo-600 shrink-0 mt-0.5" />
+                                <span>{pushStatus.currentDevice.advice}</span>
+                              </p>
+                            )}
                           </div>
-                          <p className="text-[10.5px] leading-relaxed text-slate-600">
-                            iOS 16.4以降のSafariでSafari下部の共有ボタン <span className="inline-block px-1 py-0.5 bg-slate-100 border border-slate-200 rounded font-mono text-[9px]">共有 [↑]</span> → <strong>「ホーム画面に追加」</strong> を行い、ホーム画面のアイコンから起動した状態で下記の「通知を有効にする」を押してください。
-                          </p>
-                        </div>
+                        )}
+
+                        {/* アカウント全体の登録台数情報 */}
+                        {pushStatus && (pushStatus.subscriptionCount ?? 0) > 0 && (
+                          <div className="p-2.5 bg-indigo-50/60 rounded-lg border border-indigo-100 text-[11px] text-indigo-950 space-y-1">
+                            <p className="font-bold flex items-center gap-1 text-[11px]">
+                              <span>📲 あなたのアカウントで現在 <strong>{pushStatus.subscriptionCount}台</strong> の端末が通知受信登録されています</span>
+                            </p>
+                            <p className="text-[10px] text-slate-600 leading-relaxed">
+                              ※オフィスのPCやご自身のスマートフォンなど、過去に通知を有効化した端末の合計です。端末側で通知を許可している限り、自動自己修復機能により「未登録」に戻らず自動で受信状態が維持されます。
+                            </p>
+                          </div>
+                        )}
 
                         {/* アクションボタン群 */}
                         <div className="flex flex-wrap items-center gap-2 pt-1">

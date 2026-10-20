@@ -36,6 +36,16 @@ function withTimeout<T>(promise: Promise<T>, ms: number, errorMessage: string): 
   return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timer));
 }
 
+export interface DeviceInfo {
+  type: 'ios' | 'android' | 'windows' | 'mac' | 'linux' | 'other';
+  deviceLabel: string;
+  browserLabel: string;
+  isStandalone: boolean;
+  modeLabel: string;
+  summary: string;
+  advice?: string;
+}
+
 export interface PushStatus {
   isSupported: boolean;
   permission: NotificationPermission;
@@ -44,6 +54,73 @@ export interface PushStatus {
   isStandalone: boolean;
   isIOS: boolean;
   inIframe: boolean;
+  currentDevice?: DeviceInfo;
+}
+
+export function getCurrentDeviceInfo(): DeviceInfo {
+  if (typeof window === 'undefined') {
+    return {
+      type: 'other',
+      deviceLabel: '不明な端末',
+      browserLabel: 'ブラウザ',
+      isStandalone: false,
+      modeLabel: '通常ブラウザ',
+      summary: '端末 (ブラウザ)',
+    };
+  }
+
+  const ua = navigator.userAgent;
+  const isStandalone = isPWAStandalone();
+  const isIOS = isIOSDevice();
+  const isAndroid = /Android/i.test(ua);
+  const isWindows = /Windows/i.test(ua);
+  const isMac = /Macintosh|Mac OS X/i.test(ua) && !isIOS;
+  const isLinux = /Linux/i.test(ua) && !isAndroid;
+
+  let type: DeviceInfo['type'] = 'other';
+  let deviceLabel = 'PC / 端末';
+  if (isIOS) {
+    type = 'ios';
+    deviceLabel = /iPad/.test(ua) ? 'iPad' : 'iPhone';
+  } else if (isAndroid) {
+    type = 'android';
+    deviceLabel = 'Android スマートフォン';
+  } else if (isWindows) {
+    type = 'windows';
+    deviceLabel = 'Windows PC';
+  } else if (isMac) {
+    type = 'mac';
+    deviceLabel = 'Mac';
+  } else if (isLinux) {
+    type = 'linux';
+    deviceLabel = 'Linux PC';
+  }
+
+  let browserLabel = 'ブラウザ';
+  if (/Edg\//i.test(ua)) browserLabel = 'Edge';
+  else if (/Chrome\//i.test(ua)) browserLabel = 'Chrome';
+  else if (/Firefox\//i.test(ua)) browserLabel = 'Firefox';
+  else if (/Safari\//i.test(ua)) browserLabel = 'Safari';
+
+  const modeLabel = isStandalone ? 'ホーム画面PWAアプリ' : '通常ブラウザ';
+  const summary = `${deviceLabel} (${browserLabel}${isStandalone ? '・PWA' : ''})`;
+
+  let advice: string | undefined;
+  if (isIOS && !isStandalone) {
+    advice = 'iPhone / iPad では、Safari共有メニュー [↑] から「ホーム画面に追加」したアイコンから起動することで、通知が消えにくく安定して受信できます。';
+  } else if (isStandalone) {
+    advice = 'ホーム画面PWAアプリとして起動中（バックグラウンド通知の待受に最適な環境です）。';
+  }
+
+  return {
+    type,
+    deviceLabel,
+    browserLabel,
+    isStandalone,
+    modeLabel,
+    summary,
+    advice,
+  };
 }
 
 export function isPushNotificationSupported(): boolean {
@@ -200,31 +277,63 @@ export async function getPushNotificationStatus(userId?: string): Promise<PushSt
       // ignore
     }
 
-    // ブラウザ側にはPush購読が存在するのにサーバー側に登録がない場合、自動で再同期(自己修復)
-    if (isSubscribed && subscriptionCount === 0) {
+    // 自己修復 & 再同期:
+    // 通知権限がすでに「許可（granted）」されている場合
+    if (permission === 'granted' && userId) {
       try {
         const registration = await getOrRegisterSW();
-        const subscription = registration ? await registration.pushManager.getSubscription().catch(() => null) : null;
-        if (subscription) {
-          fetch(`${API_BASE_URL}/push/subscribe`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              userId: String(userId),
-              subscription: subscription.toJSON(),
-              userAgent: navigator.userAgent,
-            }),
-          }).then((r) => {
-            if (r.ok) {
-              console.log('[Push] Auto-healed & synced browser subscription to server database.');
+        if (registration) {
+          let subscription = await registration.pushManager.getSubscription().catch(() => null);
+
+          // 1. ブラウザのPush購読が失効・消失していた場合、通知許可がgrantedなら自動再購読
+          if (!subscription) {
+            try {
+              const keyRes = await withTimeout(
+                fetch(`${API_BASE_URL}/push/vapid-public-key`),
+                4000,
+                'VAPIDキー取得タイムアウト'
+              );
+              if (keyRes.ok) {
+                const keyData = await parseJsonResponse(keyRes);
+                if (keyData?.publicKey) {
+                  const convertedKey = urlBase64ToUint8Array(keyData.publicKey);
+                  subscription = await registration.pushManager.subscribe({
+                    userVisibleOnly: true,
+                    applicationServerKey: convertedKey
+                  });
+                  console.log('[Push Auto-Heal] Re-subscribed lost push subscription silently.');
+                }
+              }
+            } catch (reSubErr) {
+              console.warn('[Push Auto-Heal] Silent re-subscribe error:', reSubErr);
             }
-          }).catch(() => {});
+          }
+
+          // 2. 購読が存在する場合、サーバーに最新状態を同期（失効していたら再登録、既存なら最終アクティブ更新）
+          if (subscription) {
+            isSubscribed = true;
+            fetch(`${API_BASE_URL}/push/subscribe`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                userId: String(userId),
+                subscription: subscription.toJSON(),
+                userAgent: navigator.userAgent,
+              }),
+            }).then((r) => {
+              if (r.ok) {
+                console.log('[Push Auto-Heal] Successfully synced/kept-alive subscription on server.');
+              }
+            }).catch(() => {});
+          }
         }
       } catch (e) {
-        // ignore
+        console.warn('[Push Auto-Heal] General auto-heal error:', e);
       }
     }
   }
+
+  const currentDevice = getCurrentDeviceInfo();
 
   return {
     isSupported,
@@ -234,6 +343,7 @@ export async function getPushNotificationStatus(userId?: string): Promise<PushSt
     isStandalone,
     isIOS,
     inIframe,
+    currentDevice,
   };
 }
 
