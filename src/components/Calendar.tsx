@@ -53,7 +53,8 @@ const typeStyles: Record<EventType, string> = {
   replacement: 'bg-cyan-50 text-cyan-700 border-cyan-200 hover:bg-cyan-100',
   repair: 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100',
   visitor: 'bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100',
-  business_trip: 'bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100'
+  business_trip: 'bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100',
+  meeting: 'bg-violet-50 text-violet-700 border-violet-200 hover:bg-violet-100'
 };
 
 const typeLabels: Record<EventType, string> = {
@@ -63,7 +64,8 @@ const typeLabels: Record<EventType, string> = {
   replacement: '取替',
   repair: '修理',
   visitor: '来客',
-  business_trip: '出張'
+  business_trip: '出張',
+  meeting: '会議'
 };
 
 export function Calendar({
@@ -301,6 +303,7 @@ export function Calendar({
       case 'repair': return 'bg-rose-500';
       case 'visitor': return 'bg-orange-500';
       case 'business_trip': return 'bg-sky-500';
+      case 'meeting': return 'bg-violet-500';
       default: return 'bg-indigo-500';
     }
   }, []);
@@ -1112,7 +1115,8 @@ export function Calendar({
     replacement: 'bg-cyan-600 text-white border-cyan-700 hover:bg-cyan-700 shadow-2xs',
     repair: 'bg-rose-600 text-white border-rose-700 hover:bg-rose-700 shadow-2xs',
     visitor: 'bg-orange-600 text-white border-orange-700 hover:bg-orange-700 shadow-2xs',
-    business_trip: 'bg-sky-600 text-white border-sky-700 hover:bg-sky-700 shadow-2xs'
+    business_trip: 'bg-sky-600 text-white border-sky-700 hover:bg-sky-700 shadow-2xs',
+    meeting: 'bg-violet-600 text-white border-violet-700 hover:bg-violet-700 shadow-2xs'
   };
 
   const getEventStyle = (e: CalendarEvent, forceSolid = false) => {

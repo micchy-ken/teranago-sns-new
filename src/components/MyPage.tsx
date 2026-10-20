@@ -1390,7 +1390,10 @@ export function MyPage({
                                 evt.type === 'inspection' ? 'bg-indigo-100 text-indigo-700' :
                                 evt.type === 'replacement' ? 'bg-cyan-100 text-cyan-700' :
                                 evt.type === 'repair' ? 'bg-rose-100 text-rose-700' :
-                                evt.type === 'visitor' ? 'bg-orange-100 text-orange-700' : 'bg-sky-100 text-sky-700'
+                                evt.type === 'visitor' ? 'bg-orange-100 text-orange-700' :
+                                evt.type === 'business_trip' ? 'bg-sky-100 text-sky-700' :
+                                (evt.type === 'meeting' || (evt as any).source === 'schedule_poll' || (evt as any).pollId) ? 'bg-violet-100 text-violet-700' :
+                                'bg-slate-100 text-slate-700'
                               }`}>
                                 {
                                   evt.type === 'personal' ? '個人' :
@@ -1398,7 +1401,9 @@ export function MyPage({
                                   evt.type === 'inspection' ? '点検' :
                                   evt.type === 'replacement' ? '取替' :
                                   evt.type === 'repair' ? '修理' :
-                                  evt.type === 'visitor' ? '来客' : '出張'
+                                  evt.type === 'visitor' ? '来客' :
+                                  evt.type === 'business_trip' ? '出張' :
+                                  (evt.type === 'meeting' || (evt as any).source === 'schedule_poll' || (evt as any).pollId) ? '会議' : '予定'
                                 }
                               </span>
                               <span className="text-xs font-mono text-slate-500">

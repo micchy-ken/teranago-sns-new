@@ -46,7 +46,8 @@ const typeStyles: Record<EventType, string> = {
   replacement: 'bg-cyan-50 text-cyan-700 border-cyan-200',
   repair: 'bg-rose-50 text-rose-700 border-rose-200',
   visitor: 'bg-orange-50 text-orange-700 border-orange-200',
-  business_trip: 'bg-sky-50 text-sky-700 border-sky-200'
+  business_trip: 'bg-sky-50 text-sky-700 border-sky-200',
+  meeting: 'bg-violet-50 text-violet-700 border-violet-200'
 };
 
 const typeLabels: Record<EventType, string> = {
@@ -56,7 +57,8 @@ const typeLabels: Record<EventType, string> = {
   replacement: '機器交換',
   repair: '修理・保守',
   visitor: '来客・応対',
-  business_trip: '出張予定'
+  business_trip: '出張予定',
+  meeting: '会議・打合せ'
 };
 
 export function GlobalEventDetailModal({

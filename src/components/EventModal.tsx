@@ -789,6 +789,7 @@ export function EventModal({
                 <option value="repair">修理</option>
                 <option value="visitor">来客</option>
                 <option value="business_trip">出張</option>
+                <option value="meeting">会議</option>
               </select>
             </div>
 

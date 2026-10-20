@@ -14,9 +14,9 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.19.2',
+  version: '2026.10.19.3',
   date: '2026-10-19',
-  releaseNumber: 2,
-  display: 'v2026.10.19 #2',
-  description: 'マイページの各セクション（スケジュール・掲示板・伝言メモ・ワークフロー・チャット・日報）表示件数設定＆環境設定機能の実装',
+  releaseNumber: 3,
+  display: 'v2026.10.19 #3',
+  description: '日程調整確定時および会議スケジュールの区分「会議（meeting）」の正式サポートと出張誤表示バグの修正',
 };

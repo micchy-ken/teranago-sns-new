@@ -146,7 +146,7 @@ export interface Post {
   nasLink?: string;
 }
 
-export type EventType = 'personal' | 'construction' | 'inspection' | 'replacement' | 'repair' | 'visitor' | 'business_trip';
+export type EventType = 'personal' | 'construction' | 'inspection' | 'replacement' | 'repair' | 'visitor' | 'business_trip' | 'meeting';
 
 export type RecurrenceFrequency = 'none' | 'daily' | 'weekly' | 'monthly' | 'yearly';
 export type RecurrenceMonthlyType = 'same_day' | 'day_of_week'; // 同日 (例: 毎月15日) または 第X曜日 (例: 毎月第2火曜日)
