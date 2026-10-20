@@ -27,6 +27,7 @@ import { markEventAsRead } from '../utils/notifications';
 import { triggerOpenUserModal } from '../utils/userModal';
 import { FilePreviewModal } from './FilePreviewModal';
 import { isPreviewable } from '../utils/fileUpload';
+import { formatTimeJST, getLocalDateStr } from '../utils/dateUtils';
 
 export interface GlobalEventDetailModalProps {
   isOpen: boolean;
@@ -90,25 +91,21 @@ export function GlobalEventDetailModal({
     const d = new Date(isoStr);
     if (isNaN(d.getTime())) return isoStr;
     const days = ['日', '月', '火', '水', '木', '金', '土'];
-    const y = d.getFullYear();
-    const m = d.getMonth() + 1;
-    const date = d.getDate();
-    const day = days[d.getDay()];
+    const ymd = getLocalDateStr(d);
+    if (!ymd) return isoStr;
+    const [y, m, date] = ymd.split('-').map(Number);
+    const jstNoon = new Date(`${ymd}T12:00:00+09:00`);
+    const day = days[jstNoon.getDay()];
     if (!includeTime) {
       return `${y}年${m}月${date}日(${day})`;
     }
-    const h = String(d.getHours()).padStart(2, '0');
-    const min = String(d.getMinutes()).padStart(2, '0');
-    return `${y}年${m}月${date}日(${day}) ${h}:${min}`;
+    const timeStr = formatTimeJST(d);
+    return `${y}年${m}月${date}日(${day}) ${timeStr}`;
   };
 
   const formatTimeOnly = (isoStr?: string) => {
     if (!isoStr) return '';
-    const d = new Date(isoStr);
-    if (isNaN(d.getTime())) return '';
-    const h = String(d.getHours()).padStart(2, '0');
-    const min = String(d.getMinutes()).padStart(2, '0');
-    return `${h}:${min}`;
+    return formatTimeJST(isoStr);
   };
 
   const getStyle = () => {
@@ -121,11 +118,7 @@ export function GlobalEventDetailModal({
 
   const isSameDay = (startIso?: string, endIso?: string) => {
     if (!startIso || !endIso) return true;
-    const d1 = new Date(startIso);
-    const d2 = new Date(endIso);
-    return d1.getFullYear() === d2.getFullYear() &&
-      d1.getMonth() === d2.getMonth() &&
-      d1.getDate() === d2.getDate();
+    return getLocalDateStr(startIso) === getLocalDateStr(endIso);
   };
 
   const isIcal = event.isIcal === true;

@@ -44,6 +44,23 @@ router.get('/events', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// 日時文字列を安全にパース（タイムゾーンオフセットがない場合は JST +09:00 として解釈）
+function parseEventDate(val) {
+  if (!val) return new Date();
+  if (val instanceof Date) return isNaN(val.getTime()) ? new Date() : val;
+  const s = String(val).trim();
+  if (!s) return new Date();
+  if (s.endsWith('Z') || s.includes('+') || (s.includes('-') && s.length > 19 && s[19] === '-')) {
+    const d = new Date(s);
+    if (!isNaN(d.getTime())) return d;
+  }
+  const normalized = s.replace(' ', 'T');
+  const dJst = new Date(`${normalized}${normalized.length === 16 ? ':00' : ''}+09:00`);
+  if (!isNaN(dJst.getTime())) return dJst;
+  const fallback = new Date(s);
+  return isNaN(fallback.getTime()) ? new Date() : fallback;
+}
+
 router.post('/events', async (req, res) => {
   try {
     const { title, startAt, endAt, isAllDay, isPrivate, category, description, location, office, division, attachments, recurrence, recurrenceParentId, recurrenceOriginalDate, recurrenceExceptions } = req.body;
@@ -60,8 +77,8 @@ router.post('/events', async (req, res) => {
     await pool.request()
       .input('id', sql.VarChar, String(id))
       .input('title', sql.NVarChar, title || '予定')
-      .input('startAt', sql.DateTime2, new Date(startAt || Date.now()))
-      .input('endAt', sql.DateTime2, new Date(endAt || startAt || Date.now()))
+      .input('startAt', sql.DateTime2, parseEventDate(startAt || Date.now()))
+      .input('endAt', sql.DateTime2, parseEventDate(endAt || startAt || Date.now()))
       .input('isAllDay', sql.Bit, isAllDay ? 1 : 0)
       .input('isPrivate', sql.Bit, isPrivate ? 1 : 0)
       .input('category', sql.NVarChar, category || 'general')
@@ -98,8 +115,8 @@ router.put('/events/:id', async (req, res) => {
     await pool.request()
       .input('id', sql.VarChar, String(id))
       .input('title', sql.NVarChar, title || '予定')
-      .input('startAt', sql.DateTime2, new Date(startAt || Date.now()))
-      .input('endAt', sql.DateTime2, new Date(endAt || startAt || Date.now()))
+      .input('startAt', sql.DateTime2, parseEventDate(startAt || Date.now()))
+      .input('endAt', sql.DateTime2, parseEventDate(endAt || startAt || Date.now()))
       .input('isAllDay', sql.Bit, isAllDay ? 1 : 0)
       .input('isPrivate', sql.Bit, isPrivate ? 1 : 0)
       .input('category', sql.NVarChar, category || 'general')

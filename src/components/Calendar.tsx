@@ -8,7 +8,7 @@ import { renderWithClickableLinks } from '../utils/linkify';
 import { renderContentWithLinks } from '../utils/renderContentWithLinks';
 import { UrlPastePopup, useUrlPasteHandler } from './common/UrlPastePopup';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
-import { getLocalDateStr, addMinutesToLocalDatetime } from '../utils/dateUtils';
+import { getLocalDateStr, addMinutesToLocalDatetime, getJstHourAndMinutes } from '../utils/dateUtils';
 import { triggerPushNotification } from '../utils/pushNotifications';
 import { expandRecurringEvents, planRecurrenceSave, isExpandedRecurrenceId, extractDateFromInstanceId } from '../utils/recurrenceUtils';
 import { RecurrenceActionModal, RecurrenceActionScope } from './RecurrenceActionModal';
@@ -3121,7 +3121,7 @@ export function Calendar({
                               const dayEvs = eventDictionary.get(`date_${dateStr}`) || [];
                               const slotEvents = dayEvs.filter(e => {
                                 if (e.isAllDay) return false;
-                                const eventHour = new Date(e.start).getHours();
+                                const eventHour = getJstHourAndMinutes(e.start).hour;
                                 return eventHour === h;
                               });
 
@@ -3148,18 +3148,18 @@ export function Calendar({
 
                                     if (isBeingResized && resizingEvent) {
                                       eDateMs = resizingEvent.currentEndMs;
-                                      const sDate = new Date(e.start);
-                                      const currEnd = new Date(eDateMs);
-                                      const sH = String(sDate.getHours()).padStart(2, '0');
-                                      const sM = String(sDate.getMinutes()).padStart(2, '0');
-                                      const eH = String(currEnd.getHours()).padStart(2, '0');
-                                      const eM = String(currEnd.getMinutes()).padStart(2, '0');
+                                      const { hour: sHNum, minute: sMNum } = getJstHourAndMinutes(e.start);
+                                      const { hour: eHNum, minute: eMNum } = getJstHourAndMinutes(eDateMs);
+                                      const sH = String(sHNum).padStart(2, '0');
+                                      const sM = String(sMNum).padStart(2, '0');
+                                      const eH = String(eHNum).padStart(2, '0');
+                                      const eM = String(eMNum).padStart(2, '0');
                                       displayTimeString = `${sH}:${sM} ～ ${eH}:${eM}`;
                                     }
 
                                     const durationMinutes = Math.max(15, (eDateMs - sDateMs) / 60000);
                                     const cardHeightPx = Math.max(26, durationMinutes * (50 / 60));
-                                    const startMinutes = new Date(e.start).getMinutes();
+                                    const { minute: startMinutes } = getJstHourAndMinutes(e.start);
                                     const topOffsetPx = (startMinutes / 60) * 50;
                                     const isShortEvent = durationMinutes <= 35 || cardHeightPx < 42;
 
@@ -3414,14 +3414,14 @@ export function Calendar({
 
                     const dayEvents00 = dayEvs.filter(e => {
                       if (e.isAllDay) return false;
-                      const sDate = new Date(e.start);
-                      return sDate.getHours() === h && sDate.getMinutes() < 30;
+                      const { hour: evH, minute: evM } = getJstHourAndMinutes(e.start);
+                      return evH === h && evM < 30;
                     });
 
                     const dayEvents30 = dayEvs.filter(e => {
                       if (e.isAllDay) return false;
-                      const sDate = new Date(e.start);
-                      return sDate.getHours() === h && sDate.getMinutes() >= 30;
+                      const { hour: evH, minute: evM } = getJstHourAndMinutes(e.start);
+                      return evH === h && evM >= 30;
                     });
 
                     const renderDayCard = (e: CalendarEvent, evIdx: number) => {
@@ -3432,12 +3432,12 @@ export function Calendar({
 
                       if (isBeingResized && resizingEvent) {
                         eDateMs = resizingEvent.currentEndMs;
-                        const sDate = new Date(e.start);
-                        const currEnd = new Date(eDateMs);
-                        const sH = String(sDate.getHours()).padStart(2, '0');
-                        const sM = String(sDate.getMinutes()).padStart(2, '0');
-                        const eH = String(currEnd.getHours()).padStart(2, '0');
-                        const eM = String(currEnd.getMinutes()).padStart(2, '0');
+                        const { hour: sHNum, minute: sMNum } = getJstHourAndMinutes(e.start);
+                        const { hour: eHNum, minute: eMNum } = getJstHourAndMinutes(eDateMs);
+                        const sH = String(sHNum).padStart(2, '0');
+                        const sM = String(sMNum).padStart(2, '0');
+                        const eH = String(eHNum).padStart(2, '0');
+                        const eM = String(eMNum).padStart(2, '0');
                         displayTimeString = `${sH}:${sM} ～ ${eH}:${eM}`;
                       }
 
@@ -3445,7 +3445,7 @@ export function Calendar({
                       const durationMinutes = Math.max(15, (eDateMs - sDateMs) / 60000);
                       const cardHeightPx = Math.max(25, durationMinutes * (100 / 60));
                       
-                      const startMins = new Date(e.start).getMinutes();
+                      const startMins = getJstHourAndMinutes(e.start).minute;
                       const is30Slot = startMins >= 30;
                       const slotLocalMins = is30Slot ? startMins - 30 : startMins;
                       const topOffsetPx = slotLocalMins * (100 / 60);

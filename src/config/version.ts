@@ -14,9 +14,10 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.20.1',
+  version: '2026.10.20.2',
   date: '2026-10-20',
-  releaseNumber: 1,
-  display: 'v2026.10.20 #1',
-  description: 'Web Push通知のバックグラウンド自動自己修復機能の実装および現在操作端末（機種・ブラウザ・PWA）情報の表示機能追加',
+  releaseNumber: 2,
+  display: 'v2026.10.20 #2',
+  description: '点検予定管理からのスケジュール確定登録およびカレンダー行事の日本標準時（JST / UTC+9）厳格準拠・9時間ズレ防止改修',
 };
+

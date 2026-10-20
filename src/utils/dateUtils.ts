@@ -154,3 +154,44 @@ export function formatTimePartJST(dateInput: Date | string | number | null | und
   const second = parts.find(p => p.type === 'second')?.value || '00';
   return `${hour}:${minute}:${second}`;
 }
+
+/**
+ * JST で時・分を数値として正確に取得 (0〜23, 0〜59)
+ */
+export function getJstHourAndMinutes(dateInput: Date | string | number | null | undefined): { hour: number; minute: number } {
+  if (!dateInput) return { hour: 9, minute: 0 };
+  const d = typeof dateInput === 'string' || typeof dateInput === 'number' ? new Date(dateInput) : dateInput;
+  if (isNaN(d.getTime())) return { hour: 9, minute: 0 };
+
+  const defaultOptions: Intl.DateTimeFormatOptions = {
+    timeZone: 'Asia/Tokyo',
+    hour: 'numeric',
+    minute: 'numeric',
+    hour12: false,
+  };
+  const parts = new Intl.DateTimeFormat('ja-JP', defaultOptions).formatToParts(d);
+  let hour = Number(parts.find(p => p.type === 'hour')?.value ?? 0);
+  if (hour === 24) hour = 0;
+  const minute = Number(parts.find(p => p.type === 'minute')?.value ?? 0);
+  return { hour, minute };
+}
+
+/**
+ * 日時文字列やDateを確実にJST基準のISO文字列（UTCオフセット付き）に正規化
+ * "YYYY-MM-DDTHH:mm:ss" や "YYYY-MM-DD HH:mm:ss" のようにタイムゾーン無しの場合は JST (+09:00) を補完
+ */
+export function ensureJstIsoString(val: string | Date | null | undefined): string {
+  if (!val) return new Date().toISOString();
+  if (val instanceof Date) return isNaN(val.getTime()) ? new Date().toISOString() : val.toISOString();
+  const s = String(val).trim();
+  if (!s) return new Date().toISOString();
+  // 既に Z や +09:00 等のオフセット指定がある場合
+  if (s.endsWith('Z') || s.includes('+') || (s.includes('-') && s.length > 19 && s[19] === '-')) {
+    const d = new Date(s);
+    return !isNaN(d.getTime()) ? d.toISOString() : s;
+  }
+  const normalized = s.replace(' ', 'T');
+  const dJst = new Date(`${normalized}${normalized.length === 16 ? ':00' : ''}+09:00`);
+  return !isNaN(dJst.getTime()) ? dJst.toISOString() : new Date(s).toISOString();
+}
+

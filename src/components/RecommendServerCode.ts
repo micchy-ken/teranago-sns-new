@@ -1,7 +1,7 @@
 export const RECOMMEND_SERVER_JS = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年10月19日 (静的ファイル配信の30日間ブラウザキャッシュ＆CORSヘッダー明示、チャット画像高速化対応)
+ * 最終更新日時 (最終アップデート): 2026年10月20日 (点検予定登録およびカレンダー行事の日本標準時JST UTC+9厳格準拠・9時間ズレ防止対応)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -4242,6 +4242,20 @@ async function startServer() {
     }
   }
 
+  function parseEventIsoJst(val: any): string {
+    if (!val) return new Date().toISOString();
+    if (val instanceof Date) return isNaN(val.getTime()) ? new Date().toISOString() : val.toISOString();
+    const s = String(val).trim();
+    if (!s) return new Date().toISOString();
+    if (s.endsWith('Z') || s.includes('+') || (s.includes('-') && s.length > 19 && s[19] === '-')) {
+      const d = new Date(s);
+      return !isNaN(d.getTime()) ? d.toISOString() : s;
+    }
+    const normalized = s.replace(' ', 'T');
+    const dJst = new Date(\`\${normalized}\${normalized.length === 16 ? ':00' : ''}+09:00\`);
+    return !isNaN(dJst.getTime()) ? dJst.toISOString() : new Date(s).toISOString();
+  }
+
   // カレンダー予定一覧取得
   app.get(['/api/events', '/api/events/', '/events', '/events/'], (req, res) => {
     try {
@@ -4256,9 +4270,15 @@ async function startServer() {
   app.post(['/api/events', '/api/events/', '/events', '/events/'], (req, res) => {
     try {
       const list = loadEvents();
+      const startIso = parseEventIsoJst(req.body.startAt || req.body.start);
+      const endIso = parseEventIsoJst(req.body.endAt || req.body.end || req.body.startAt || req.body.start);
       const newEvent = {
         id: req.body.id || \`e-\${Date.now()}-\${Math.random().toString(36).substring(2, 6)}\`,
         ...req.body,
+        start: startIso,
+        startAt: startIso,
+        end: endIso,
+        endAt: endIso,
         createdAt: req.body.createdAt || new Date().toISOString()
       };
       list.push(newEvent);
@@ -4274,9 +4294,20 @@ async function startServer() {
     try {
       const eventId = req.params.id;
       const list = loadEvents();
+      const startIso = (req.body.startAt || req.body.start) ? parseEventIsoJst(req.body.startAt || req.body.start) : undefined;
+      const endIso = (req.body.endAt || req.body.end) ? parseEventIsoJst(req.body.endAt || req.body.end) : undefined;
+      const timeUpdates: any = {};
+      if (startIso) {
+        timeUpdates.start = startIso;
+        timeUpdates.startAt = startIso;
+      }
+      if (endIso) {
+        timeUpdates.end = endIso;
+        timeUpdates.endAt = endIso;
+      }
       const idx = list.findIndex((e: any) => String(e.id) === String(eventId));
       if (idx === -1) {
-        const newEv = { id: eventId, ...req.body, updatedAt: new Date().toISOString() };
+        const newEv = { id: eventId, ...req.body, ...timeUpdates, updatedAt: new Date().toISOString() };
         list.push(newEv);
         saveEvents(list);
         return res.json(newEv);
@@ -4284,6 +4315,7 @@ async function startServer() {
       list[idx] = {
         ...list[idx],
         ...req.body,
+        ...timeUpdates,
         updatedAt: new Date().toISOString()
       };
       saveEvents(list);

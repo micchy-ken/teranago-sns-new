@@ -1525,10 +1525,17 @@ export function InspectionScheduler({
     }
 
     const createdEvents: CalendarEvent[] = itemsToRegister.map((item) => {
-      const startTime = item.assignedStartTime || '09:00';
-      const endTime = item.assignedEndTime || '10:00';
-      const startIso = `${item.assignedDate}T${startTime}:00`;
-      const endIso = `${item.assignedDate}T${endTime}:00`;
+      const rawStart = (item.assignedStartTime || '09:00').trim();
+      const startTime = rawStart.length === 4 ? `0${rawStart}` : (rawStart || '09:00');
+      const rawEnd = (item.assignedEndTime || '10:00').trim();
+      const endTime = rawEnd.length === 4 ? `0${rawEnd}` : (rawEnd || '10:00');
+      const datePart = (item.assignedDate || '').trim();
+
+      // 日本標準時（JST +09:00）を明示してパースし、UTC ISO文字列に変換（9時間ズレの完全防止）
+      const startDateObj = new Date(`${datePart}T${startTime}:00+09:00`);
+      const endDateObj = new Date(`${datePart}T${endTime}:00+09:00`);
+      const startIso = !isNaN(startDateObj.getTime()) ? startDateObj.toISOString() : `${datePart}T${startTime}:00+09:00`;
+      const endIso = !isNaN(endDateObj.getTime()) ? endDateObj.toISOString() : `${datePart}T${endTime}:00+09:00`;
 
       // 内容に実エクセルの各項目を整理して格納
       const memoLines = [

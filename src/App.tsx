@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspens
 import { API_BASE_URL } from './config/api';
 import { APP_VERSION } from './config/version';
 import { getAvatarUrl, sanitizeAvatarUrlForSave } from './utils/avatar';
+import { ensureJstIsoString } from './utils/dateUtils';
 import { Header } from './components/Header';
 import { Sidebar, AppTab } from './components/Sidebar';
 import { Timeline } from './components/Timeline';
@@ -849,11 +850,16 @@ export default function App() {
             if (found) mappedCreatedBy = found;
           }
 
+          const rawStart = e.startAt || e.start;
+          const rawEnd = e.endAt || e.end || rawStart;
+          const safeStart = rawStart ? ensureJstIsoString(rawStart) : new Date().toISOString();
+          const safeEnd = rawEnd ? ensureJstIsoString(rawEnd) : safeStart;
+
           return {
             id: String(e.id),
             title: e.title || '予定',
-            start: e.startAt || e.start || new Date().toISOString(),
-            end: e.endAt || e.end || e.startAt || e.start || new Date().toISOString(),
+            start: safeStart,
+            end: safeEnd,
             isAllDay: e.isAllDay === true || e.isAllDay === 1 || e.isAllDay === 'true' || e.isAllDay === '1',
             isPrivate: Boolean(e.isPrivate === true || e.isPrivate === 1 || e.isPrivate === 'true' || e.isPrivate === '1' || detailsObj.isPrivate === true || detailsObj.isPrivate === 1 || detailsObj.isPrivate === 'true' || detailsObj.isPrivate === '1' || e.isSecret === true || e.isSecret === 1),
             type: e.category || 'personal',
@@ -2042,12 +2048,15 @@ export default function App() {
       createdById: createdByData?.id,
     };
 
+    const safeStart = ensureJstIsoString(ev.start);
+    const safeEnd = ensureJstIsoString(ev.end || ev.start);
+
     const payload = {
       title: ev.title,
-      startAt: ev.start,
-      endAt: ev.end,
-      start: ev.start,
-      end: ev.end,
+      startAt: safeStart,
+      endAt: safeEnd,
+      start: safeStart,
+      end: safeEnd,
       isAllDay: ev.isAllDay ? 1 : 0,
       isPrivate: (ev.isPrivate || (ev as any).isSecret) ? 1 : 0,
       category: ev.type,
