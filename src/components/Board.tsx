@@ -20,6 +20,7 @@ interface BoardProps {
   offices?: OfficeMaster[];
   divisions?: DivisionMaster[];
   initialTopicId?: string;
+  onClearInitialTopicId?: () => void;
   onUpdateUser?: (updatedUser: User) => void;
 }
 
@@ -33,6 +34,7 @@ export function Board({
   offices = [],
   divisions = [],
   initialTopicId,
+  onClearInitialTopicId,
   onUpdateUser,
 }: BoardProps) {
   const [selectedTag, setSelectedTag] = useState<string>('ALL');
@@ -110,9 +112,12 @@ export function Board({
       if (target) {
         processedInitialTopicIdRef.current = initialTopicId;
         handleOpenDetail(target);
+        if (onClearInitialTopicId) {
+          onClearInitialTopicId();
+        }
       }
     }
-  }, [initialTopicId, topics]);
+  }, [initialTopicId, topics, onClearInitialTopicId]);
 
   // topicsプロパティ更新時に選択中のトピック(selectedTopic)も最新化
   React.useEffect(() => {
@@ -555,7 +560,10 @@ export function Board({
       <TopicDetailModal
         topic={selectedTopic}
         isOpen={isDetailModalOpen}
-        onClose={() => setIsDetailModalOpen(false)}
+        onClose={() => {
+          setIsDetailModalOpen(false);
+          if (onClearInitialTopicId) onClearInitialTopicId();
+        }}
         currentUser={currentUser}
         users={users}
         onUpdateTopic={handleUpdateTopicInternal}

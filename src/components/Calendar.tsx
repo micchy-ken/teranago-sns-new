@@ -28,6 +28,7 @@ interface CalendarProps {
   offices?: OfficeMaster[];
   divisions?: DivisionMaster[];
   initialEventId?: string;
+  onClearInitialEventId?: () => void;
   initialOffice?: string;
   initialDivision?: string;
   initialMode?: 'personal' | 'team';
@@ -78,6 +79,7 @@ export function Calendar({
   offices = [],
   divisions = [],
   initialEventId,
+  onClearInitialEventId,
   initialOffice,
   initialDivision,
   initialMode,
@@ -870,9 +872,12 @@ export function Calendar({
         if (targetEv.start) {
           setCurrentDate(new Date(targetEv.start));
         }
+        if (onClearInitialEventId) {
+          onClearInitialEventId();
+        }
       }
     }
-  }, [initialEventId, expandedEvents]);
+  }, [initialEventId, expandedEvents, onClearInitialEventId]);
   
   // イベントのフィルタリング処理をメモ化して再計算を防止
   const filteredEvents = React.useMemo(() => {
@@ -3670,15 +3675,20 @@ export function Calendar({
         <GlobalEventDetailModal
           isOpen={!!selectedDetailEvent}
           event={selectedDetailEvent}
-          onClose={() => setSelectedDetailEvent(null)}
+          onClose={() => {
+            setSelectedDetailEvent(null);
+            if (onClearInitialEventId) onClearInitialEventId();
+          }}
           onEdit={(event) => {
             setSelectedDetailEvent(null);
+            if (onClearInitialEventId) onClearInitialEventId();
             setEditingEvent(event);
             setIsCopyMode(false);
             setIsModalOpen(true);
           }}
           onCopyAndAdd={(event) => {
             setSelectedDetailEvent(null);
+            if (onClearInitialEventId) onClearInitialEventId();
             setEditingEvent(event);
             setIsCopyMode(true);
             setIsModalOpen(true);
@@ -3688,6 +3698,7 @@ export function Calendar({
               onDeleteEvent(event.id);
             }
             setSelectedDetailEvent(null);
+            if (onClearInitialEventId) onClearInitialEventId();
           }}
           currentUser={currentUser}
         />

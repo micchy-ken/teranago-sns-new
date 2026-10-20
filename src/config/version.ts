@@ -14,9 +14,9 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.19.3',
+  version: '2026.10.19.4',
   date: '2026-10-19',
-  releaseNumber: 3,
-  display: 'v2026.10.19 #3',
-  description: '日程調整確定時および会議スケジュールの区分「会議（meeting）」の正式サポートと出張誤表示バグの修正',
+  releaseNumber: 4,
+  display: 'v2026.10.19 #4',
+  description: 'タブ切り替え時の残留ターゲットID初期化およびカレンダー・掲示板・伝言メモの意図しない再ポップアップ防止',
 };

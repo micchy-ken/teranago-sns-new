@@ -41,6 +41,7 @@ interface MemoListProps {
   onUpdateMemos?: (memos: Memo[]) => void;
   onDeleteMemo?: (memoId: string) => void;
   initialMemoId?: string;
+  onClearInitialMemoId?: () => void;
   initialOpenCreate?: boolean;
   initialRecipientId?: string;
   onCloseCreateModal?: () => void;
@@ -56,6 +57,7 @@ export function MemoList({
   onUpdateMemos,
   onDeleteMemo,
   initialMemoId,
+  onClearInitialMemoId,
   initialOpenCreate = false,
   initialRecipientId,
   onCloseCreateModal,
@@ -119,9 +121,12 @@ export function MemoList({
       if (target) {
         processedInitialMemoIdRef.current = initialMemoId;
         handleOpenDetail(target);
+        if (onClearInitialMemoId) {
+          onClearInitialMemoId();
+        }
       }
     }
-  }, [initialMemoId, initialMemos, currentUser?.id]);
+  }, [initialMemoId, initialMemos, currentUser?.id, onClearInitialMemoId]);
 
   // 新規伝言フォーム状態
   const [fromName, setFromName] = useState('');
@@ -1077,7 +1082,10 @@ export function MemoList({
       {/* モーダル 2: 伝言詳細 & 複数人の閲覧・対応日時トラッキングログ */}
       {detailMemo && (
         <div
-          onClick={() => setDetailMemo(null)}
+          onClick={() => {
+            setDetailMemo(null);
+            if (onClearInitialMemoId) onClearInitialMemoId();
+          }}
           className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-50 p-4 backdrop-blur-xs overflow-y-auto"
         >
           <div
@@ -1090,7 +1098,10 @@ export function MemoList({
                 <h2 className="text-base font-bold">伝言メモ詳細 & 閲覧・対応ステータス</h2>
               </div>
               <button
-                onClick={() => setDetailMemo(null)}
+                onClick={() => {
+                  setDetailMemo(null);
+                  if (onClearInitialMemoId) onClearInitialMemoId();
+                }}
                 className="p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded-full transition-colors cursor-pointer"
               >
                 <X className="w-5 h-5" />
@@ -1262,7 +1273,10 @@ export function MemoList({
 
                 <button
                   type="button"
-                  onClick={() => setDetailMemo(null)}
+                  onClick={() => {
+                    setDetailMemo(null);
+                    if (onClearInitialMemoId) onClearInitialMemoId();
+                  }}
                   className="px-5 py-2 text-xs font-bold text-white bg-slate-800 hover:bg-slate-900 rounded-xl transition-colors cursor-pointer"
                 >
                   閉じる

@@ -369,6 +369,18 @@ export default function App() {
     updateBrowserUrl();
   };
 
+  // タブ切り替えハンドラー（明示的なタブ移動時に残留ターゲットIDをリセットして誤ポップアップを防止）
+  const handleSelectTab = (tab: AppTab) => {
+    setActiveTab(tab);
+    setTargetEventId(undefined);
+    setTargetTopicId(undefined);
+    setTargetMemoId(undefined);
+    setTargetChatRoomId(undefined);
+    setTargetApplicationId(undefined);
+    setTargetReportId(undefined);
+    setTargetSafetyEventId(undefined);
+  };
+
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
     return localStorage.getItem('is_logged_in') === 'true';
   });
@@ -2967,7 +2979,7 @@ export default function App() {
         safetyEvents={safetyEvents}
         safetyResponses={safetyResponses}
         userRespondedSafetyEventIds={getRespondedSafetyEventIds(userState?.id)}
-        onSelectTab={setActiveTab}
+        onSelectTab={handleSelectTab}
         onOpenSettings={handleOpenPersonalSettings}
         onNavigateToContent={handleNavigateToContent}
         onUpdateMemos={handleUpdateMemos}
@@ -3030,7 +3042,7 @@ export default function App() {
               }}
               activeTab={activeTab}
               onChangeTab={(tab) => {
-                setActiveTab(tab);
+                handleSelectTab(tab);
                 setIsMobileMenuOpen(false);
               }}
               currentUser={userState}
@@ -3089,7 +3101,7 @@ export default function App() {
               selectedTag={selectedTag}
               onSelectTag={setSelectedTag}
               activeTab={activeTab}
-              onChangeTab={setActiveTab}
+              onChangeTab={handleSelectTab}
               currentUser={userState}
               impersonatorAdmin={impersonatorAdmin}
               onRevertToAdmin={handleRevertToAdmin}
@@ -3130,7 +3142,7 @@ export default function App() {
               onPost={handlePost}
               onToggleLike={handleToggleLike}
               onSelectTag={setSelectedTag}
-              onChangeTab={setActiveTab}
+              onChangeTab={handleSelectTab}
               isLoading={isPostsLoading}
               error={postsError}
               onRefetchPosts={refetchAll}
@@ -3149,6 +3161,7 @@ export default function App() {
               offices={offices}
               divisions={divisions}
               initialEventId={targetEventId}
+              onClearInitialEventId={() => setTargetEventId(undefined)}
               initialOffice={calendarParams.office}
               initialDivision={calendarParams.division}
               initialMode={calendarParams.mode}
@@ -3222,6 +3235,7 @@ export default function App() {
               offices={offices}
               divisions={divisions}
               initialTopicId={targetTopicId}
+              onClearInitialTopicId={() => setTargetTopicId(undefined)}
               onUpdateUser={handleUpdateUser}
             />
           )}
@@ -3249,6 +3263,7 @@ export default function App() {
               onUpdateMemos={handleUpdateMemos}
               onDeleteMemo={handleDeleteMemo}
               initialMemoId={targetMemoId}
+              onClearInitialMemoId={() => setTargetMemoId(undefined)}
               initialOpenCreate={autoOpenCreateMemo}
               initialRecipientId={memoInitialRecipientId}
               onCloseCreateModal={() => {
@@ -3329,7 +3344,7 @@ export default function App() {
               divisions={divisions}
               positions={positions}
               allUsers={usersList}
-              onChangeTab={setActiveTab}
+              onChangeTab={handleSelectTab}
               onNavigateToContent={handleNavigateToContent}
               onUpdateUser={handleUpdateUser}
               onUpdateMemo={handleUpdateMemos}
