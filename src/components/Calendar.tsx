@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { CalendarEvent, EventType, User, OfficeMaster, DivisionMaster, Memo, RequirementType, MemoUserRecipientStatus, CalendarPreset } from '../types';
 import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
-import { ChevronLeft, ChevronRight, List as ListIcon, Calendar as CalendarIcon, Plus, MapPin, Video, AlignLeft, RefreshCw, Clock, Link as LinkIcon, Loader2, Building2, Users, Paperclip, MessageSquare, Phone, X, Monitor, Maximize2, Minimize2, FileSpreadsheet, Share2, Check, Star, Trash2, Pin, BookmarkCheck, CalendarDays, SlidersHorizontal, Filter, ChevronDown } from 'lucide-react';
+import { ChevronLeft, ChevronRight, List as ListIcon, Calendar as CalendarIcon, Plus, MapPin, Video, AlignLeft, RefreshCw, Clock, Link as LinkIcon, Loader2, Building2, Users, Paperclip, MessageSquare, Phone, X, Monitor, Maximize2, Minimize2, FileSpreadsheet, Share2, Check, Star, Trash2, Pin, BookmarkCheck, CalendarDays, SlidersHorizontal, Filter, ChevronDown, Navigation } from 'lucide-react';
 import { EventModal } from './EventModal';
 import { GlobalEventDetailModal } from './GlobalEventDetailModal';
 import { renderWithClickableLinks } from '../utils/linkify';
@@ -15,6 +15,7 @@ import { RecurrenceActionModal, RecurrenceActionScope } from './RecurrenceAction
 import { buildAppUrl, AppQueryParams } from '../utils/urlParams';
 import { TeamDayMemberRow } from './TeamDayMemberRow';
 import { TeamWeekMemberRow } from './TeamWeekMemberRow';
+import { TeamLocationMap } from './TeamLocationMap';
 import { isEventVisibleToUser } from '../utils/eventVisibility';
 import { SchedulePoll } from '../types/schedulePoll';
 
@@ -545,6 +546,9 @@ export function Calendar({
   const [customRequirementText, setCustomRequirementText] = useState('');
   const [content, setContent] = useState('');
   const memoContentPasteHandler = useUrlPasteHandler(content, setContent);
+
+  // チーム表示・日の表示切替 (タイムライン / 現在地マップ / 簡易エリア別カード)
+  const [teamDaySubView, setTeamDaySubView] = useState<'timeline' | 'map' | 'cards'>('timeline');
 
   // チームタイムラインの各時間枠（実測X軸座標・幅）の管理
   const [hourLayouts, setHourLayouts] = useState<Record<number, { left: number; width: number }>>({});
@@ -1585,85 +1589,161 @@ export function Calendar({
     };
 
     return (
-      <div className="min-w-full h-full overflow-auto divide-y divide-slate-200 bg-white flex flex-col">
-        {/* Table Header */}
-        <div className="flex bg-slate-50 text-slate-700 text-xs font-bold shrink-0 sticky top-0 z-30 border-b border-slate-200 shadow-2xs">
-          <div
-            style={{ width: memberColWidth, minWidth: memberColWidth }}
-            className="p-2 sm:p-2.5 border-r border-slate-200 flex items-center justify-center sticky left-0 z-40 bg-slate-50 text-[11px] sm:text-xs shrink-0"
-          >
-            メンバー
+      <div className="w-full h-full flex flex-col bg-white overflow-hidden">
+        {/* サブ表示切り替えツールバー (タイムライン / 現在地マップ / 簡易エリア別カード) */}
+        <div className="p-2 bg-slate-100 border-b border-slate-200 flex items-center justify-between shrink-0 z-20 flex-wrap gap-2">
+          <div className="flex items-center gap-1 bg-white p-0.5 rounded-lg border border-slate-200 shadow-2xs text-xs font-bold">
+            <button
+              onClick={() => setTeamDaySubView('timeline')}
+              className={`px-3 py-1 rounded-md transition-all flex items-center gap-1.5 ${
+                teamDaySubView === 'timeline'
+                  ? 'bg-indigo-600 text-white shadow-2xs font-extrabold'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <CalendarIcon className="w-3.5 h-3.5" />
+              <span>📅 タイムライン表示</span>
+            </button>
+            <button
+              onClick={() => setTeamDaySubView('map')}
+              className={`px-3 py-1 rounded-md transition-all flex items-center gap-1.5 ${
+                teamDaySubView === 'map'
+                  ? 'bg-indigo-600 text-white shadow-2xs font-extrabold'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Navigation className="w-3.5 h-3.5" />
+              <span>🗺️ 現在地マップ (東海4県)</span>
+            </button>
+            <button
+              onClick={() => setTeamDaySubView('cards')}
+              className={`px-3 py-1 rounded-md transition-all flex items-center gap-1.5 ${
+                teamDaySubView === 'cards'
+                  ? 'bg-indigo-600 text-white shadow-2xs font-extrabold'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <span>📊 簡易エリア別カード</span>
+            </button>
           </div>
-          <div ref={hoursHeaderRef} style={hoursGridStyle} className="flex-1">
-            {hours.map((hour) => {
-              const isActive = activeHoursSet.has(hour);
-              return (
-                <div
-                  key={hour}
-                  data-hour={hour}
-                  className={`p-2 sm:p-2.5 text-center border-r border-slate-200 last:border-r-0 font-extrabold flex flex-col items-center justify-center transition-colors ${
-                    isActive
-                      ? 'bg-slate-50 text-slate-800 text-[11px] sm:text-xs'
-                      : 'bg-slate-100/60 text-slate-400 text-[10px]'
-                  }`}
-                  title={isActive ? `${hour}:00 (予定あり)` : `${hour}:00 (チーム予定なし)`}
-                >
-                  <span>{String(hour).padStart(2, '0')}:00</span>
-                </div>
-              );
-            })}
+
+          <div className="text-[11px] text-slate-500 hidden md:block font-medium">
+            {teamDaySubView === 'map' && '※ メンバーの予定と「前の所在地＋移動中」を東海4県マップ上に自動判定表示します'}
+            {teamDaySubView === 'cards' && '※ 東海4県の主要エリア別にメンバーの現在地・移動状況を一覧カード表示します'}
+            {teamDaySubView === 'timeline' && '※ チームメンバーの空き枠と時間軸スケジュール一覧'}
           </div>
         </div>
 
-        {/* Table Body */}
-        <div className="flex-1 divide-y divide-slate-200 bg-white">
-          {teamMembers.map((member) => {
-            // 当該メンバーの当日イベント一覧
-            const memberDayEvents = filteredEvents.filter(e => {
-              const eStart = new Date(e.start);
-              if (!isSameDay(eStart, currentDate) && !isEventOccurringOnDate(e, dateStr)) return false;
-              return e.attendees?.some(a => a && (a.id === member.id || String(a.id) === String(member.id) || a.name === member.name));
-            });
+        {teamDaySubView === 'map' ? (
+          <div className="flex-1 overflow-hidden p-2">
+            <TeamLocationMap
+              currentDate={currentDate}
+              teamMembers={teamMembers}
+              events={filteredEvents}
+              displayMode="map"
+              onOpenMemoModal={(m) => {
+                setMemoTargetUser(m);
+                setIsMemoModalOpen(true);
+              }}
+              onOpenEventModal={handleEventClick}
+            />
+          </div>
+        ) : teamDaySubView === 'cards' ? (
+          <div className="flex-1 overflow-hidden p-2">
+            <TeamLocationMap
+              currentDate={currentDate}
+              teamMembers={teamMembers}
+              events={filteredEvents}
+              displayMode="cards"
+              onOpenMemoModal={(m) => {
+                setMemoTargetUser(m);
+                setIsMemoModalOpen(true);
+              }}
+              onOpenEventModal={handleEventClick}
+            />
+          </div>
+        ) : (
+          <div className="min-w-full flex-1 overflow-auto divide-y divide-slate-200 bg-white flex flex-col">
+            {/* Table Header */}
+            <div className="flex bg-slate-50 text-slate-700 text-xs font-bold shrink-0 sticky top-0 z-30 border-b border-slate-200 shadow-2xs">
+              <div
+                style={{ width: memberColWidth, minWidth: memberColWidth }}
+                className="p-2 sm:p-2.5 border-r border-slate-200 flex items-center justify-center sticky left-0 z-40 bg-slate-50 text-[11px] sm:text-xs shrink-0"
+              >
+                メンバー
+              </div>
+              <div ref={hoursHeaderRef} style={hoursGridStyle} className="flex-1">
+                {hours.map((hour) => {
+                  const isActive = activeHoursSet.has(hour);
+                  return (
+                    <div
+                      key={hour}
+                      data-hour={hour}
+                      className={`p-2 sm:p-2.5 text-center border-r border-slate-200 last:border-r-0 font-extrabold flex flex-col items-center justify-center transition-colors ${
+                        isActive
+                          ? 'bg-slate-50 text-slate-800 text-[11px] sm:text-xs'
+                          : 'bg-slate-100/60 text-slate-400 text-[10px]'
+                      }`}
+                      title={isActive ? `${hour}:00 (予定あり)` : `${hour}:00 (チーム予定なし)`}
+                    >
+                      <span>{String(hour).padStart(2, '0')}:00</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
 
-            return (
-              <TeamDayMemberRow
-                key={member.id}
-                member={member}
-                memberEvents={memberDayEvents}
-                hours={hours}
-                activeHoursSet={activeHoursSet}
-                hoursGridStyle={hoursGridStyle}
-                hourLayouts={hourLayouts}
-                timelineTotalWidth={timelineTotalWidth}
-                minHour={minHour}
-                maxHour={maxHour}
-                dateStr={dateStr}
-                memberColWidth={memberColWidth}
-                isSignageMode={isSignageMode}
-                draggedEventId={draggedEventId}
-                resizingEvent={resizingEvent}
-                onEventClick={handleEventClick}
-                onDragStart={handleDragStart}
-                onDragEnd={handleDragEnd}
-                onDrop={handleDrop}
-                onOpenAddModal={(datetimeStr, m) => openAddModalWithDate(datetimeStr, [m])}
-                onOpenMemoModal={(m) => {
-                  setMemoTargetUser(m);
-                  setIsMemoModalOpen(true);
-                }}
-                startResize={startResize}
-                getEventStyle={getEventStyle}
-                formatEventTime={formatEventTime}
-                getXPositionFromDate={getXPositionFromDate}
-                getEventSpan={getEventSpan}
-                lockTimelineForResize={() => {
-                  lockedTimelineHoursRef.current = hours;
-                  lockedActiveHoursSetRef.current = activeHoursSet;
-                }}
-              />
-            );
-          })}
-        </div>
+            {/* Table Body */}
+            <div className="flex-1 divide-y divide-slate-200 bg-white">
+              {teamMembers.map((member) => {
+                // 当該メンバーの当日イベント一覧
+                const memberDayEvents = filteredEvents.filter(e => {
+                  const eStart = new Date(e.start);
+                  if (!isSameDay(eStart, currentDate) && !isEventOccurringOnDate(e, dateStr)) return false;
+                  return e.attendees?.some(a => a && (a.id === member.id || String(a.id) === String(member.id) || a.name === member.name));
+                });
+
+                return (
+                  <TeamDayMemberRow
+                    key={member.id}
+                    member={member}
+                    memberEvents={memberDayEvents}
+                    hours={hours}
+                    activeHoursSet={activeHoursSet}
+                    hoursGridStyle={hoursGridStyle}
+                    hourLayouts={hourLayouts}
+                    timelineTotalWidth={timelineTotalWidth}
+                    minHour={minHour}
+                    maxHour={maxHour}
+                    dateStr={dateStr}
+                    memberColWidth={memberColWidth}
+                    isSignageMode={isSignageMode}
+                    draggedEventId={draggedEventId}
+                    resizingEvent={resizingEvent}
+                    onEventClick={handleEventClick}
+                    onDragStart={handleDragStart}
+                    onDragEnd={handleDragEnd}
+                    onDrop={handleDrop}
+                    onOpenAddModal={(datetimeStr, m) => openAddModalWithDate(datetimeStr, [m])}
+                    onOpenMemoModal={(m) => {
+                      setMemoTargetUser(m);
+                      setIsMemoModalOpen(true);
+                    }}
+                    startResize={startResize}
+                    getEventStyle={getEventStyle}
+                    formatEventTime={formatEventTime}
+                    getXPositionFromDate={getXPositionFromDate}
+                    getEventSpan={getEventSpan}
+                    lockTimelineForResize={() => {
+                      lockedTimelineHoursRef.current = hours;
+                      lockedActiveHoursSetRef.current = activeHoursSet;
+                    }}
+                  />
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     );
   };

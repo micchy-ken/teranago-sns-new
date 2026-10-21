@@ -14,10 +14,10 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.20.7',
+  version: '2026.10.20.11',
   date: '2026-10-20',
-  releaseNumber: 7,
-  display: 'v2026.10.20 #7',
-  description: 'カレンダー位置計算（getXPositionFromDate）での未定義変数参照バグ (ReferenceError: s is not defined) の修正',
+  releaseNumber: 11,
+  display: 'v2026.10.20 #11',
+  description: 'APIキー不要のCSSマップフィルター（減色/標準/ダーク）対応、および「📊 簡易エリア別カード」の独立サブタブ化対応',
 };
 
