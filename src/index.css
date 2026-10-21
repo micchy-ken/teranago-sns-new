@@ -490,3 +490,41 @@ img.avatar-img,
   transform: translateZ(0);
   backface-visibility: hidden;
 }
+
+/* ==========================================================================
+   Leaflet Custom Member Marker Constraints & White Text with Black Outline
+   ========================================================================== */
+.custom-member-marker {
+  background: transparent !important;
+  border: none !important;
+}
+
+.custom-member-marker img {
+  width: 36px !important;
+  height: 36px !important;
+  min-width: 36px !important;
+  min-height: 36px !important;
+  max-width: 36px !important;
+  max-height: 36px !important;
+  object-fit: cover !important;
+  border-radius: 9999px !important;
+  display: block !important;
+}
+
+/* 白抜き黒フチ（鮮明な黒縁取りの白文字）スタイル */
+.member-name-label {
+  color: #ffffff !important;
+  font-weight: 900 !important;
+  -webkit-text-stroke: 1.2px #000000;
+  text-shadow:
+    -1px -1px 0 #000,
+     1px -1px 0 #000,
+    -1px  1px 0 #000,
+     1px  1px 0 #000,
+    -1.5px 0px 0 #000,
+     1.5px 0px 0 #000,
+     0px -1.5px 0 #000,
+     0px  1.5px 0 #000,
+     0 2px 4px rgba(0, 0, 0, 0.85) !important;
+}
+

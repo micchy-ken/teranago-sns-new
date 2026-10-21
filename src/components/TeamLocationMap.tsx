@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import L from 'leaflet';
-import { User, CalendarEvent } from '../types';
+import { User, CalendarEvent, OfficeMaster } from '../types';
 import { MapPin, Navigation, Clock, Building, Send, Search, RefreshCw, UserCheck, Zap, Layers, Moon, Sun, LayoutGrid, Check } from 'lucide-react';
 import { getLocalDateStr, getJstHourAndMinutes, formatTimeJST } from '../utils/dateUtils';
 
@@ -8,6 +8,7 @@ interface TeamLocationMapProps {
   currentDate: Date;
   teamMembers: User[];
   events: CalendarEvent[];
+  offices?: OfficeMaster[];
   onOpenMemoModal?: (user: User) => void;
   onOpenEventModal?: (event: CalendarEvent) => void;
   displayMode?: 'map' | 'cards'; // 'map' (インタラクティブ地図) または 'cards' (簡易エリア別カード)
@@ -19,11 +20,12 @@ interface MemberLocationStatus {
   member: User;
   statusType: 'at_base' | 'on_site' | 'in_transit';
   locationName: string;
+  officeBadge: string;
   prevLocationName?: string;
   nextLocationName?: string;
   currentEvent?: CalendarEvent;
   nextEvent?: CalendarEvent;
-  coords: [number, number]; // [lat, lng]
+  coords: [number, number]; // [lat, lng] (始点拠点・現場座標)
   spiderCoords: [number, number]; // 引き出し線先のオフセット座標
   regionKey: 'nagoya_owari' | 'mikawa' | 'gifu' | 'mie' | 'shizuoka';
   statusDisplay: string;
@@ -33,17 +35,74 @@ interface MemberLocationStatus {
 // デフォルト拠点 (愛知県名古屋市北区清水5-10-2)
 const DEFAULT_HEADQUARTERS = {
   address: '愛知県名古屋市北区清水5-10-2',
-  name: '本社 (名古屋市北区清水)',
+  name: '本社 (名古屋清水)',
+  badge: '🏢 本社 (清水)',
   coords: [35.1932, 136.9110] as [number, number],
 };
 
-// 東海4県および主要地域の座標辞書
+// 所属拠点（member.office または member.department）からデフォルト住所・座標・拠点区分バッジを特定する辞書
+const OFFICE_BASE_LOCATIONS: Record<string, { coords: [number, number]; address: string; name: string; badge: string; regionKey: MemberLocationStatus['regionKey'] }> = {
+  '清水': { coords: [35.1932, 136.9110], address: '愛知県名古屋市北区清水5-10-2', name: '本社 (名古屋清水)', badge: '🏢 本社', regionKey: 'nagoya_owari' },
+  '本社': { coords: [35.1932, 136.9110], address: '愛知県名古屋市北区清水5-10-2', name: '本社 (名古屋清水)', badge: '🏢 本社', regionKey: 'nagoya_owari' },
+  '名古屋': { coords: [35.1691, 136.9025], address: '愛知県名古屋市中区', name: '名古屋支店', badge: '🏢 名古屋支店', regionKey: 'nagoya_owari' },
+  '名古屋支店': { coords: [35.1691, 136.9025], address: '愛知県名古屋市中区', name: '名古屋支店', badge: '🏢 名古屋支店', regionKey: 'nagoya_owari' },
+  '静岡': { coords: [34.9756, 138.3828], address: '静岡県静岡市葵区', name: '静岡営業所', badge: '🏢 静岡営業所', regionKey: 'shizuoka' },
+  '静岡営業所': { coords: [34.9756, 138.3828], address: '静岡県静岡市葵区', name: '静岡営業所', badge: '🏢 静岡営業所', regionKey: 'shizuoka' },
+  '三河': { coords: [34.9548, 137.1723], address: '愛知県岡崎市', name: '三河営業所', badge: '🏢 三河営業所', regionKey: 'mikawa' },
+  '三河営業所': { coords: [34.9548, 137.1723], address: '愛知県岡崎市', name: '三河営業所', badge: '🏢 三河営業所', regionKey: 'mikawa' },
+  '岡崎': { coords: [34.9548, 137.1723], address: '愛知県岡崎市', name: '三河営業所', badge: '🏢 三河営業所', regionKey: 'mikawa' },
+  '三重': { coords: [34.9653, 136.6236], address: '三重県四日市市', name: '三重営業所', badge: '🏢 三重営業所', regionKey: 'mie' },
+  '三重営業所': { coords: [34.9653, 136.6236], address: '三重県四日市市', name: '三重営業所', badge: '🏢 三重営業所', regionKey: 'mie' },
+  '四日市': { coords: [34.9653, 136.6236], address: '三重県四日市市', name: '三重営業所', badge: '🏢 三重営業所', regionKey: 'mie' },
+  '岐阜': { coords: [35.4233, 136.7607], address: '岐阜県岐阜市', name: '岐阜営業所', badge: '🏢 岐阜営業所', regionKey: 'gifu' },
+  '岐阜営業所': { coords: [35.4233, 136.7607], address: '岐阜県岐阜市', name: '岐阜営業所', badge: '🏢 岐阜営業所', regionKey: 'gifu' },
+  '東京': { coords: [35.6812, 139.7671], address: '東京都千代田区', name: '東京支店', badge: '🏢 東京支店', regionKey: 'nagoya_owari' },
+  '東京支店': { coords: [35.6812, 139.7671], address: '東京都千代田区', name: '東京支店', badge: '🏢 東京支店', regionKey: 'nagoya_owari' },
+  '大阪': { coords: [34.7024, 135.4959], address: '大阪府大阪市北区', name: '大阪支店', badge: '🏢 大阪支店', regionKey: 'nagoya_owari' },
+  '大阪支店': { coords: [34.7024, 135.4959], address: '大阪府大阪市北区', name: '大阪支店', badge: '🏢 大阪支店', regionKey: 'nagoya_owari' },
+};
+
+function resolveUserBaseLocation(user: User, offices?: OfficeMaster[]): { coords: [number, number]; address: string; name: string; badge: string; regionKey: MemberLocationStatus['regionKey'] } {
+  const officeName = user.office || user.department || '';
+
+  for (const [key, base] of Object.entries(OFFICE_BASE_LOCATIONS)) {
+    if (officeName.includes(key)) {
+      return base;
+    }
+  }
+
+  if (offices && offices.length > 0) {
+    const matchedOffice = offices.find(o => officeName.includes(o.name) || o.name.includes(officeName));
+    if (matchedOffice) {
+      const matchedKey = matchedOffice.name;
+      for (const [key, base] of Object.entries(OFFICE_BASE_LOCATIONS)) {
+        if (matchedKey.includes(key)) {
+          return base;
+        }
+      }
+      let badge = '🏢 拠点';
+      if (matchedOffice.type === 'branch') badge = `🏢 ${matchedOffice.name} (支店)`;
+      else if (matchedOffice.type === 'sales_office') badge = `🏢 ${matchedOffice.name} (営業所)`;
+      else if (matchedOffice.type === 'headquarter') badge = `🏢 ${matchedOffice.name} (本社)`;
+
+      return {
+        coords: DEFAULT_HEADQUARTERS.coords,
+        address: DEFAULT_HEADQUARTERS.address,
+        name: matchedOffice.name,
+        badge,
+        regionKey: 'nagoya_owari'
+      };
+    }
+  }
+
+  return DEFAULT_HEADQUARTERS;
+}
+
+// 予定場所キーワード解決
 const PRESET_COORDINATES: Record<string, { coords: [number, number]; regionKey: MemberLocationStatus['regionKey'] }> = {
-  // 愛知県 (名古屋・尾張)
   '清水': { coords: [35.1932, 136.9110], regionKey: 'nagoya_owari' },
   '本社': { coords: [35.1932, 136.9110], regionKey: 'nagoya_owari' },
   '名古屋': { coords: [35.1814, 136.9064], regionKey: 'nagoya_owari' },
-  '北区': { coords: [35.1932, 136.9110], regionKey: 'nagoya_owari' },
   '中村区': { coords: [35.1709, 136.8815], regionKey: 'nagoya_owari' },
   '中区': { coords: [35.1691, 136.9025], regionKey: 'nagoya_owari' },
   '千種区': { coords: [35.1711, 136.9422], regionKey: 'nagoya_owari' },
@@ -51,43 +110,26 @@ const PRESET_COORDINATES: Record<string, { coords: [number, number]; regionKey: 
   '一宮': { coords: [35.3038, 136.7956], regionKey: 'nagoya_owari' },
   '小牧': { coords: [35.2908, 136.9106], regionKey: 'nagoya_owari' },
   '半田': { coords: [34.8919, 136.9367], regionKey: 'nagoya_owari' },
-
-  // 愛知県 (三河)
   '豊橋': { coords: [34.7628, 137.3817], regionKey: 'mikawa' },
   '岡崎': { coords: [34.9548, 137.1723], regionKey: 'mikawa' },
   '豊田': { coords: [35.0822, 137.1562], regionKey: 'mikawa' },
   '安城': { coords: [34.9589, 137.0803], regionKey: 'mikawa' },
   '刈谷': { coords: [34.9889, 137.0016], regionKey: 'mikawa' },
-  '西尾': { coords: [34.8647, 137.0542], regionKey: 'mikawa' },
-
-  // 岐阜県
   '岐阜': { coords: [35.4233, 136.7607], regionKey: 'gifu' },
   '大垣': { coords: [35.3589, 136.6128], regionKey: 'gifu' },
   '各務原': { coords: [35.3997, 136.8483], regionKey: 'gifu' },
-  '多治見': { coords: [35.3325, 137.1306], regionKey: 'gifu' },
-  '可児': { coords: [35.4267, 137.0544], regionKey: 'gifu' },
-  '高山': { coords: [36.1428, 137.2514], regionKey: 'gifu' },
-
-  // 三重県
   '津': { coords: [34.7303, 136.5086], regionKey: 'mie' },
   '四日市': { coords: [34.9653, 136.6236], regionKey: 'mie' },
   '鈴鹿': { coords: [34.8822, 136.5847], regionKey: 'mie' },
-  '伊勢': { coords: [34.4858, 136.7089], regionKey: 'mie' },
-  '松阪': { coords: [34.5772, 136.5317], regionKey: 'mie' },
-  '桑名': { coords: [35.0653, 136.6856], regionKey: 'mie' },
-
-  // 静岡県
   '静岡': { coords: [34.9756, 138.3828], regionKey: 'shizuoka' },
   '浜松': { coords: [34.7108, 137.7261], regionKey: 'shizuoka' },
   '沼津': { coords: [35.1003, 138.8597], regionKey: 'shizuoka' },
   '富士': { coords: [35.1614, 138.6764], regionKey: 'shizuoka' },
-  '磐田': { coords: [34.7203, 137.8522], regionKey: 'shizuoka' },
-  '掛川': { coords: [34.7689, 138.0156], regionKey: 'shizuoka' },
 };
 
-function resolveLocationInfo(locationStr?: string): { coords: [number, number]; regionKey: MemberLocationStatus['regionKey'] } {
+function resolveLocationInfo(locationStr?: string, fallbackBase?: ReturnType<typeof resolveUserBaseLocation>): { coords: [number, number]; regionKey: MemberLocationStatus['regionKey'] } {
   if (!locationStr || !locationStr.trim()) {
-    return { coords: DEFAULT_HEADQUARTERS.coords, regionKey: 'nagoya_owari' };
+    return fallbackBase || { coords: DEFAULT_HEADQUARTERS.coords, regionKey: 'nagoya_owari' };
   }
 
   const cleanStr = locationStr.trim();
@@ -97,13 +139,14 @@ function resolveLocationInfo(locationStr?: string): { coords: [number, number]; 
     }
   }
 
-  return { coords: DEFAULT_HEADQUARTERS.coords, regionKey: 'nagoya_owari' };
+  return fallbackBase || { coords: DEFAULT_HEADQUARTERS.coords, regionKey: 'nagoya_owari' };
 }
 
 export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
   currentDate,
   teamMembers,
   events,
+  offices,
   onOpenMemoModal,
   onOpenEventModal,
   displayMode = 'map',
@@ -113,20 +156,40 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
   const tileLayerRef = useRef<L.TileLayer | null>(null);
   const markersLayerRef = useRef<L.LayerGroup | null>(null);
 
-  // 1. デフォルト＝現在時刻（リアルタイム追従モード）
+  // 今日判定
+  const isToday = useMemo(() => {
+    return getLocalDateStr(new Date()) === getLocalDateStr(currentDate);
+  }, [currentDate]);
+
+  // JST 現在時刻（分単位）
   const getCurrentJstMinutes = useCallback(() => {
     const now = new Date();
     const { hour, minute } = getJstHourAndMinutes(now);
     return hour * 60 + minute;
   }, []);
 
-  const [selectedMinutes, setSelectedMinutes] = useState<number>(getCurrentJstMinutes);
-  const [isLiveTracking, setIsLiveTracking] = useState<boolean>(true);
+  // ★ 要望①: 今日以外は 8:00 スタート (8 * 60 = 480分)
+  const [selectedMinutes, setSelectedMinutes] = useState<number>(() => {
+    return isToday ? getCurrentJstMinutes() : 8 * 60;
+  });
 
-  // 2. 地図スタイル選択 (減色ライト / 標準 / ダークモード -> CSSフィルター適用でAPIキー不要・100%安定)
+  const [isLiveTracking, setIsLiveTracking] = useState<boolean>(isToday);
+
+  // 日付変更時に初期時刻を自動切替
+  useEffect(() => {
+    if (isToday) {
+      setSelectedMinutes(getCurrentJstMinutes());
+      setIsLiveTracking(true);
+    } else {
+      setSelectedMinutes(8 * 60); // 朝8時スタート
+      setIsLiveTracking(false);
+    }
+  }, [currentDate, isToday, getCurrentJstMinutes]);
+
+  // 地図スタイル選択 (減色ライト / 標準 / ダーク)
   const [mapStyle, setMapStyle] = useState<MapStyleType>('light');
 
-  // 3. 自動更新コントロール (1分/3分/5分間隔)
+  // 自動更新コントロール
   const [isAutoRefreshEnabled, setIsAutoRefreshEnabled] = useState<boolean>(true);
   const [refreshIntervalMins, setRefreshIntervalMins] = useState<number>(3);
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date>(new Date());
@@ -139,30 +202,30 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
 
   // リアルタイム追従タイマー
   useEffect(() => {
-    if (!isLiveTracking) return;
+    if (!isLiveTracking || !isToday) return;
     const interval = setInterval(() => {
       setSelectedMinutes(getCurrentJstMinutes());
     }, 30000);
     return () => clearInterval(interval);
-  }, [isLiveTracking, getCurrentJstMinutes]);
+  }, [isLiveTracking, isToday, getCurrentJstMinutes]);
 
-  // 手動更新・自動更新処理
+  // 更新処理
   const handleTriggerRefresh = useCallback(() => {
     setIsRefreshing(true);
     const now = new Date();
     setLastRefreshedAt(now);
     setCountdownSeconds(refreshIntervalMins * 60);
 
-    if (isLiveTracking) {
+    if (isLiveTracking && isToday) {
       setSelectedMinutes(getCurrentJstMinutes());
     }
 
     setTimeout(() => {
       setIsRefreshing(false);
     }, 600);
-  }, [refreshIntervalMins, isLiveTracking, getCurrentJstMinutes]);
+  }, [refreshIntervalMins, isLiveTracking, isToday, getCurrentJstMinutes]);
 
-  // カウントダウンタイマー
+  // タイマーカウントダウン
   useEffect(() => {
     if (!isAutoRefreshEnabled) return;
 
@@ -179,18 +242,21 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
     return () => clearInterval(timer);
   }, [isAutoRefreshEnabled, refreshIntervalMins, handleTriggerRefresh]);
 
-  // 時刻文字列 (例: "11:30")
+  // 時刻文字列 (例: "08:00")
   const selectedTimeStr = useMemo(() => {
     const h = Math.floor(selectedMinutes / 60);
     const m = selectedMinutes % 60;
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
   }, [selectedMinutes]);
 
-  // 各メンバーのステータスおよび引き出し線 (Spiderfy) オフセット計算
+  // 各メンバーのステータスおよび引き出し線 (Spiderfy) 計算
   const memberStatuses = useMemo<MemberLocationStatus[]>(() => {
     const dateStr = getLocalDateStr(currentDate);
 
     const rawStatuses = teamMembers.map((member) => {
+      // ユーザー個別の所属拠点デフォルト情報を解決
+      const userBaseLocation = resolveUserBaseLocation(member, offices);
+
       const memberEvents = (events || [])
         .filter((e) => {
           const eDateStr = getLocalDateStr(e.start);
@@ -202,13 +268,14 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
         .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
 
       let statusType: 'at_base' | 'on_site' | 'in_transit' = 'at_base';
-      let locationName = DEFAULT_HEADQUARTERS.name;
+      let locationName = userBaseLocation.name;
+      let officeBadge = userBaseLocation.badge;
       let prevLocationName: string | undefined = undefined;
       let nextLocationName: string | undefined = undefined;
       let currentEvent: CalendarEvent | undefined = undefined;
       let nextEvent: CalendarEvent | undefined = undefined;
-      let coords: [number, number] = DEFAULT_HEADQUARTERS.coords;
-      let regionKey: MemberLocationStatus['regionKey'] = 'nagoya_owari';
+      let coords: [number, number] = userBaseLocation.coords;
+      let regionKey: MemberLocationStatus['regionKey'] = userBaseLocation.regionKey;
 
       let activeEventFound = false;
       let prevEventFound: CalendarEvent | null = null;
@@ -231,7 +298,7 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
           currentEvent = ev;
           statusType = 'on_site';
           locationName = ev.location || ev.title || '現場・予定先';
-          const locInfo = resolveLocationInfo(ev.location || ev.title);
+          const locInfo = resolveLocationInfo(ev.location || ev.title, userBaseLocation);
           coords = locInfo.coords;
           regionKey = locInfo.regionKey;
           break;
@@ -246,7 +313,7 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
         if (prevEventFound) {
           statusType = 'in_transit';
           prevLocationName = prevEventFound.location || prevEventFound.title || '前作業現場';
-          const locInfo = resolveLocationInfo(prevEventFound.location || prevEventFound.title);
+          const locInfo = resolveLocationInfo(prevEventFound.location || prevEventFound.title, userBaseLocation);
           coords = locInfo.coords;
           regionKey = locInfo.regionKey;
           currentEvent = prevEventFound;
@@ -258,9 +325,9 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
           locationName = prevLocationName;
         } else {
           statusType = 'at_base';
-          locationName = DEFAULT_HEADQUARTERS.name;
-          coords = DEFAULT_HEADQUARTERS.coords;
-          regionKey = 'nagoya_owari';
+          locationName = userBaseLocation.name;
+          coords = userBaseLocation.coords;
+          regionKey = userBaseLocation.regionKey;
           if (nextEventFound) {
             nextEvent = nextEventFound;
             nextLocationName = nextEventFound.location || nextEventFound.title;
@@ -274,7 +341,7 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
       } else if (statusType === 'in_transit') {
         statusDisplay = `🚗 「${prevLocationName}」から移動中` + (nextLocationName ? ` → 「${nextLocationName}」へ` : '');
       } else {
-        statusDisplay = `🏢 本社/拠点 （${DEFAULT_HEADQUARTERS.address}）`;
+        statusDisplay = `${officeBadge} （${userBaseLocation.address}）`;
       }
 
       let timeRangeDisplay = '';
@@ -286,6 +353,7 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
         member,
         statusType,
         locationName,
+        officeBadge,
         prevLocationName,
         nextLocationName,
         currentEvent,
@@ -311,7 +379,7 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
       if (N === 1) {
         group[0].spiderCoords = [group[0].coords[0], group[0].coords[1]];
       } else {
-        const baseRadius = 0.016 + 0.003 * Math.min(N, 10);
+        const baseRadius = 0.018 + 0.003 * Math.min(N, 10);
         group.forEach((st, idx) => {
           const angle = (2 * Math.PI * idx) / N - Math.PI / 2;
           const latOffset = baseRadius * Math.sin(angle);
@@ -322,7 +390,7 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
     });
 
     return rawStatuses;
-  }, [teamMembers, events, currentDate, selectedMinutes, lastRefreshedAt]);
+  }, [teamMembers, events, currentDate, selectedMinutes, lastRefreshedAt, offices]);
 
   const filteredMemberStatuses = useMemo(() => {
     return memberStatuses.filter((s) => {
@@ -339,7 +407,7 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
     });
   }, [memberStatuses, selectedMemberFilter, searchQuery]);
 
-  // Leaflet 地図インスタンスおよび標準タイル（＋CSSフィルターでキー不要・高品質スタイル変更）の制御
+  // ★ 対策A+B複合: Leaflet 地図インスタンスおよびハブ（起点ドット）・引き出し線・アニメーション発光ハイライト描画
   useEffect(() => {
     if (displayMode === 'cards') return;
     if (!mapContainerRef.current) return;
@@ -351,7 +419,6 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
         zoomControl: true,
       });
 
-      // 安定性の高い標準OpenStreetMapタイルを使用
       const tile = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19,
         attribution: '&copy; OpenStreetMap contributors',
@@ -362,7 +429,7 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
       mapInstanceRef.current = map;
     }
 
-    // 地図タイルのCSSフィルター切り替え (APIキー要求・403エラーを完全回避)
+    // 地図タイルのCSSフィルター切り替え
     if (tileLayerRef.current) {
       const container = tileLayerRef.current.getContainer();
       if (container) {
@@ -376,50 +443,78 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
       }
     }
 
-    // マーカーおよび引き出し線 (Spiderfy Lines) のクリアと再描画
     if (markersLayerRef.current) {
       markersLayerRef.current.clearLayers();
 
       const drawnHubs = new Set<string>();
+      const highlightedMemberId = selectedMemberStatus?.member.id;
 
       filteredMemberStatuses.forEach((status) => {
-        const { member, statusType, coords, spiderCoords, statusDisplay, locationName } = status;
+        const { member, statusType, coords, spiderCoords, statusDisplay, locationName, officeBadge } = status;
         const hubKey = `${coords[0].toFixed(3)}_${coords[1].toFixed(3)}`;
+        const isSelected = highlightedMemberId === member.id;
+        const isAnySelected = Boolean(highlightedMemberId);
 
-        const isClustered = filteredMemberStatuses.filter((s) => `${s.coords[0].toFixed(3)}_${s.coords[1].toFixed(3)}` === hubKey).length > 1;
+        const clusterGroup = filteredMemberStatuses.filter((s) => `${s.coords[0].toFixed(3)}_${s.coords[1].toFixed(3)}` === hubKey);
+        const isClustered = clusterGroup.length > 1;
 
-        if (isClustered && !drawnHubs.has(hubKey)) {
+        // 【対策A】起点の中心拠点ハブピン（Hub Marker）＆起点ドット（Origin Dot）の配置
+        if (!drawnHubs.has(hubKey)) {
           drawnHubs.add(hubKey);
-          const count = filteredMemberStatuses.filter((s) => `${s.coords[0].toFixed(3)}_${s.coords[1].toFixed(3)}` === hubKey).length;
+          const count = clusterGroup.length;
 
-          const hubIconHtml = `
-            <div className="flex items-center gap-1 bg-indigo-900/90 text-white text-[11px] font-extrabold px-2 py-1 rounded-full shadow-lg border border-indigo-400 backdrop-blur-xs whitespace-nowrap">
-              <span className="w-2 h-2 rounded-full bg-emerald-400" />
-              <span>${locationName.split(' ')[0]} (${count}名)</span>
-            </div>
-          `;
-          const hubIcon = L.divIcon({
-            html: hubIconHtml,
-            className: 'location-hub-marker',
-            iconSize: [80, 24],
-            iconAnchor: [40, 12],
+          // 起点ドット (Origin Dot)
+          const dotColor = mapStyle === 'dark' ? '#a5b4fc' : '#4f46e5';
+          const originDot = L.circleMarker(coords, {
+            radius: isSelected ? 7 : 5,
+            fillColor: dotColor,
+            fillOpacity: 1,
+            color: '#ffffff',
+            weight: 2,
           });
-          L.marker(coords, { icon: hubIcon }).addTo(markersLayerRef.current!);
+          markersLayerRef.current!.addLayer(originDot);
+
+          // 密集拠点ハブタグ
+          if (isClustered) {
+            const hubName = locationName.includes('本社') || locationName.includes('営業所') || locationName.includes('支店')
+              ? locationName.split(' ')[0]
+              : locationName.substring(0, 10);
+
+            const hubIconHtml = `
+              <div className="flex items-center gap-1.5 bg-indigo-950/90 text-white text-[11px] font-extrabold px-2.5 py-1 rounded-full shadow-lg border-2 border-indigo-400 backdrop-blur-xs whitespace-nowrap">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                <span>${hubName} (${count}名)</span>
+              </div>
+            `;
+            const hubIcon = L.divIcon({
+              html: hubIconHtml,
+              className: 'location-hub-marker',
+              iconSize: [100, 26],
+              iconAnchor: [50, 13],
+            });
+            L.marker(coords, { icon: hubIcon }).addTo(markersLayerRef.current!);
+          }
         }
 
+        // 【対策A+B複合】起点ドットからアバターピンへの引き出し線 (Spider Line) 描画＆強調発光ハイライト
         if (isClustered) {
-          const lineColor = mapStyle === 'dark' ? '#818cf8' : '#6366f1';
+          const isLineActive = isSelected || !isAnySelected;
+          const lineColor = isSelected ? '#ec4899' : (mapStyle === 'dark' ? '#818cf8' : '#6366f1');
+          const lineWeight = isSelected ? 4 : 2;
+          const lineOpacity = isSelected ? 1.0 : (isAnySelected ? 0.2 : 0.85);
+
           const line = L.polyline([coords, spiderCoords], {
             color: lineColor,
-            weight: 2,
-            dashArray: '4,4',
-            opacity: 0.85,
+            weight: lineWeight,
+            dashArray: isSelected ? undefined : '4,4',
+            opacity: lineOpacity,
           });
           markersLayerRef.current!.addLayer(line);
         }
 
+        // バッジ
         let badgeBg = 'bg-indigo-600 border-indigo-200 text-white';
-        let badgeLabel = '🏢 本社';
+        let badgeLabel = officeBadge || '🏢 本社';
         let ringEffect = '';
 
         if (statusType === 'on_site') {
@@ -432,17 +527,26 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
           ringEffect = 'ring-2 ring-amber-500/60 animate-pulse';
         }
 
+        if (isSelected) {
+          ringEffect = 'ring-4 ring-pink-500 scale-110 z-50';
+        }
+
+        const avatarOpacity = isAnySelected && !isSelected ? 'opacity-40' : 'opacity-100';
         const avatarUrl = member.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(member.name)}&background=random`;
 
+        // ★ 改善①: アバターアイコンサイズを強制固定 (36px x 36px)
+        // ★ 改善②: 黒線の白抜き文字 (member-name-label) で名前の視認性を極大化
         const customIconHtml = `
-          <div className="relative group cursor-pointer flex flex-col items-center">
+          <div className="relative group cursor-pointer flex flex-col items-center transition-all ${avatarOpacity}">
+            <!-- Avatar Ring -->
             <div className="relative rounded-full shadow-md border-2 border-white overflow-visible bg-white ${ringEffect}">
-              <img src="${avatarUrl}" className="w-9 h-9 rounded-full object-cover" alt="${member.name}" />
-              <span className="absolute -bottom-1 -right-1 text-[9px] font-extrabold px-1 py-0.2 rounded-full border shadow-xs ${badgeBg}">
+              <img src="${avatarUrl}" className="w-9 h-9 rounded-full object-cover shrink-0" style="width:36px !important;height:36px !important;max-width:36px !important;max-height:36px !important;min-width:36px !important;min-height:36px !important;object-fit:cover !important;border-radius:9999px !important;" alt="${member.name}" />
+              <span className="absolute -bottom-1 -right-1 text-[9px] font-extrabold px-1.5 py-0.2 rounded-full border shadow-xs whitespace-nowrap ${badgeBg}">
                 ${badgeLabel}
               </span>
             </div>
-            <div className="mt-0.5 px-1.5 py-0.5 bg-slate-900/90 text-white text-[10px] font-bold rounded shadow-xs whitespace-nowrap backdrop-blur-xs">
+            <!-- Name Label (1行・黒線の白抜き文字) -->
+            <div className="mt-1 px-2 py-0.5 bg-slate-900/90 text-white text-[11px] font-black rounded-md shadow-md border border-slate-700/80 whitespace-nowrap overflow-hidden select-none member-name-label">
               ${member.name}
             </div>
           </div>
@@ -451,19 +555,19 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
         const customIcon = L.divIcon({
           html: customIconHtml,
           className: 'custom-member-marker',
-          iconSize: [40, 50],
-          iconAnchor: [20, 25],
+          iconSize: [80, 65],
+          iconAnchor: [40, 32],
         });
 
         const marker = L.marker(spiderCoords, { icon: customIcon });
 
         const popupContent = document.createElement('div');
-        popupContent.className = 'p-1 text-slate-800 text-xs min-w-[210px] font-sans';
+        popupContent.className = 'p-1 text-slate-800 text-xs min-w-[220px] font-sans';
         popupContent.innerHTML = `
           <div className="flex items-center gap-2 pb-1.5 border-b border-slate-100">
-            <img src="${avatarUrl}" className="w-8 h-8 rounded-full object-cover border border-slate-200" />
+            <img src="${avatarUrl}" className="w-8 h-8 rounded-full object-cover border border-slate-200" style="width:32px !important;height:32px !important;max-width:32px !important;max-height:32px !important;object-fit:cover !important;border-radius:9999px !important;" />
             <div>
-              <div className="font-bold text-sm text-slate-900">${member.name}</div>
+              <div className="font-bold text-sm text-slate-900 whitespace-nowrap">${member.name}</div>
               <div className="text-[10px] text-slate-500">${member.department || '所属未指定'}</div>
             </div>
           </div>
@@ -478,12 +582,15 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
         marker.bindPopup(popupContent);
         marker.on('click', () => {
           setSelectedMemberStatus(status);
+          if (mapInstanceRef.current) {
+            mapInstanceRef.current.flyTo(spiderCoords, Math.max(mapInstanceRef.current.getZoom(), 11), { duration: 0.8 });
+          }
         });
 
         markersLayerRef.current?.addLayer(marker);
       });
     }
-  }, [filteredMemberStatuses, mapStyle, displayMode]);
+  }, [filteredMemberStatuses, mapStyle, displayMode, selectedMemberStatus]);
 
   // 現在時刻に復帰
   const handleResetToCurrentTime = () => {
@@ -528,15 +635,15 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
             </h3>
             <p className="text-[11px] opacity-70">
               {displayMode === 'cards'
-                ? '東海4県のエリア別にメンバーの現在地・移動状況を一覧カード表示します'
-                : '重なり自動解消（引き出し線）/ 現在地および移動中（「前の所在地＋移動中」）をリアルタイム判定'}
+                ? '所属拠点・現在地の東海4県エリア別グループカード一覧'
+                : '起点ドット＆アニメーション発光ハイライト / 所属拠点デフォルト対応'}
             </p>
           </div>
         </div>
 
         {/* Controls */}
         <div className="flex items-center flex-wrap gap-2 text-xs">
-          {/* Map Style Selector (Only in Map mode) */}
+          {/* Map Style Selector */}
           {displayMode === 'map' && (
             <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-slate-700">
               <span className="px-1.5 text-[10px] font-bold text-slate-500">地図色:</span>
@@ -643,7 +750,6 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
 
       {/* 2. Main Area: Map View or Standalone Cards View */}
       {displayMode === 'cards' ? (
-        /* スタンドアロン 簡易エリア別カードダッシュボード */
         <div className="flex-1 p-3 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 z-10 bg-slate-100">
           {REGION_SECTIONS.map((sec) => {
             const membersInRegion = filteredMemberStatuses.filter((s) => s.regionKey === sec.key);
@@ -678,7 +784,7 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
                               alt={st.member.name}
                             />
                             <div>
-                              <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                              <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5 whitespace-nowrap">
                                 <span>{st.member.name}</span>
                                 <span className="text-[10px] text-slate-500 font-normal">
                                   ({st.member.department || '所属未指定'})
@@ -698,7 +804,7 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
                                 )}
                                 {st.statusType === 'at_base' && (
                                   <span className="text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
-                                    🏢 本社/拠点
+                                    {st.officeBadge}
                                   </span>
                                 )}
                               </div>
@@ -732,7 +838,7 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
           {/* Leaflet 地図キャンバス */}
           <div ref={mapContainerRef} className="flex-1 w-full h-full min-h-[380px] z-10" />
 
-          {/* Member Status Sidebar List */}
+          {/* ★ 対策B: リストクリック時も連動ハイライト強調される「メンバー現在地リスト」 */}
           <div className={`w-full md:w-80 border-t md:border-t-0 md:border-l flex flex-col shrink-0 z-20 max-h-[280px] md:max-h-none overflow-hidden ${
             mapStyle === 'dark' ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'
           }`}>
@@ -743,6 +849,14 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
                 <UserCheck className="w-4 h-4 text-indigo-500" />
                 <span>メンバー現在地リスト ({filteredMemberStatuses.length}名)</span>
               </span>
+              {selectedMemberStatus && (
+                <button
+                  onClick={() => setSelectedMemberStatus(null)}
+                  className="text-[10px] text-slate-400 hover:text-indigo-600 underline"
+                >
+                  ハイライト解除
+                </button>
+              )}
             </div>
 
             <div className="flex-1 overflow-y-auto divide-y divide-slate-100 p-1">
@@ -752,7 +866,7 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
                 </div>
               ) : (
                 filteredMemberStatuses.map((status) => {
-                  const { member, statusType, locationName, prevLocationName, nextLocationName } = status;
+                  const { member, statusType, locationName, officeBadge, prevLocationName, nextLocationName } = status;
                   const isSelected = selectedMemberStatus?.member.id === member.id;
 
                   return (
@@ -760,23 +874,27 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
                       key={member.id}
                       onClick={() => {
                         setSelectedMemberStatus(status);
-                        if (mapInstanceRef.current) {
+                        if (mapInstanceRef.current && mapStyle !== 'simplified') {
                           mapInstanceRef.current.flyTo(status.spiderCoords, 12, { duration: 0.8 });
                         }
                       }}
-                      className={`p-2.5 rounded-lg transition-all cursor-pointer hover:bg-indigo-50/60 ${
-                        isSelected ? 'bg-indigo-50/90 border border-indigo-200 shadow-2xs' : ''
+                      className={`p-2.5 rounded-xl transition-all cursor-pointer ${
+                        isSelected
+                          ? 'bg-pink-50/90 border-2 border-pink-400 shadow-md ring-2 ring-pink-300'
+                          : 'hover:bg-indigo-50/60 border border-transparent'
                       }`}
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex items-center gap-2">
                           <img
                             src={member.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(member.name)}&background=random`}
-                            className="w-8 h-8 rounded-full object-cover border border-slate-200 shrink-0"
+                            className={`w-8 h-8 rounded-full object-cover border shrink-0 ${
+                              isSelected ? 'border-pink-500 ring-2 ring-pink-400' : 'border-slate-200'
+                            }`}
                             alt={member.name}
                           />
                           <div>
-                            <div className="text-xs font-bold flex items-center gap-1.5">
+                            <div className="text-xs font-extrabold flex items-center gap-1.5 whitespace-nowrap">
                               <span>{member.name}</span>
                               <span className="text-[10px] opacity-70 font-normal">
                                 ({member.department || '所属未指定'})
@@ -797,7 +915,7 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
                               )}
                               {statusType === 'at_base' && (
                                 <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-extrabold bg-slate-100 text-slate-700 border border-slate-200">
-                                  🏢 本社/拠点
+                                  {officeBadge}
                                 </span>
                               )}
                             </div>
@@ -837,7 +955,7 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
             {selectedTimeStr}
           </span>
 
-          {!isLiveTracking ? (
+          {!isLiveTracking || !isToday ? (
             <button
               onClick={handleResetToCurrentTime}
               className="px-2 py-1 text-[11px] font-bold bg-amber-50 hover:bg-amber-100 text-amber-800 rounded-md transition-colors flex items-center gap-1 border border-amber-200 shrink-0"
@@ -873,7 +991,7 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
 
         {/* Preset Quick Time Buttons */}
         <div className="flex items-center gap-1 shrink-0">
-          {[9, 12, 15, 18].map((h) => (
+          {[8, 10, 12, 15, 18].map((h) => (
             <button
               key={h}
               onClick={() => {
@@ -881,7 +999,7 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
                 setIsLiveTracking(false);
               }}
               className={`px-2 py-0.5 text-[10px] font-bold rounded border transition-colors ${
-                Math.floor(selectedMinutes / 60) === h && !isLiveTracking
+                Math.floor(selectedMinutes / 60) === h && (!isLiveTracking || !isToday)
                   ? 'bg-indigo-600 text-white border-indigo-600'
                   : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
               }`}
