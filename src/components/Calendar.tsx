@@ -1640,6 +1640,7 @@ export function Calendar({
               currentDate={currentDate}
               teamMembers={teamMembers}
               events={filteredEvents}
+              offices={offices}
               displayMode="map"
               onOpenMemoModal={(m) => {
                 setMemoTargetUser(m);
@@ -1654,6 +1655,7 @@ export function Calendar({
               currentDate={currentDate}
               teamMembers={teamMembers}
               events={filteredEvents}
+              offices={offices}
               displayMode="cards"
               onOpenMemoModal={(m) => {
                 setMemoTargetUser(m);

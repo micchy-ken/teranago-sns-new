@@ -35,17 +35,17 @@ interface MemberLocationStatus {
 // デフォルト拠点 (愛知県名古屋市北区清水5-10-2)
 const DEFAULT_HEADQUARTERS = {
   address: '愛知県名古屋市北区清水5-10-2',
-  name: '本社 (名古屋清水)',
-  badge: '🏢 本社 (清水)',
+  name: '名古屋拠点 (清水)',
+  badge: '🏢 名古屋拠点',
   coords: [35.1932, 136.9110] as [number, number],
 };
 
 // 所属拠点（member.office または member.department）からデフォルト住所・座標・拠点区分バッジを特定する辞書
 const OFFICE_BASE_LOCATIONS: Record<string, { coords: [number, number]; address: string; name: string; badge: string; regionKey: MemberLocationStatus['regionKey'] }> = {
-  '清水': { coords: [35.1932, 136.9110], address: '愛知県名古屋市北区清水5-10-2', name: '本社 (名古屋清水)', badge: '🏢 本社', regionKey: 'nagoya_owari' },
-  '本社': { coords: [35.1932, 136.9110], address: '愛知県名古屋市北区清水5-10-2', name: '本社 (名古屋清水)', badge: '🏢 本社', regionKey: 'nagoya_owari' },
-  '名古屋': { coords: [35.1691, 136.9025], address: '愛知県名古屋市中区', name: '名古屋支店', badge: '🏢 名古屋支店', regionKey: 'nagoya_owari' },
-  '名古屋支店': { coords: [35.1691, 136.9025], address: '愛知県名古屋市中区', name: '名古屋支店', badge: '🏢 名古屋支店', regionKey: 'nagoya_owari' },
+  '清水': { coords: [35.1932, 136.9110], address: '愛知県名古屋市北区清水5-10-2', name: '名古屋拠点 (清水)', badge: '🏢 名古屋拠点', regionKey: 'nagoya_owari' },
+  '本社': { coords: [35.1932, 136.9110], address: '愛知県名古屋市北区清水5-10-2', name: '名古屋拠点 (清水)', badge: '🏢 名古屋拠点', regionKey: 'nagoya_owari' },
+  '名古屋': { coords: [35.1932, 136.9110], address: '愛知県名古屋市北区清水5-10-2', name: '名古屋拠点 (清水)', badge: '🏢 名古屋拠点', regionKey: 'nagoya_owari' },
+  '名古屋支店': { coords: [35.1932, 136.9110], address: '愛知県名古屋市北区清水5-10-2', name: '名古屋拠点 (清水)', badge: '🏢 名古屋拠点', regionKey: 'nagoya_owari' },
   '静岡': { coords: [34.9756, 138.3828], address: '静岡県静岡市葵区', name: '静岡営業所', badge: '🏢 静岡営業所', regionKey: 'shizuoka' },
   '静岡営業所': { coords: [34.9756, 138.3828], address: '静岡県静岡市葵区', name: '静岡営業所', badge: '🏢 静岡営業所', regionKey: 'shizuoka' },
   '三河': { coords: [34.9548, 137.1723], address: '愛知県岡崎市', name: '三河営業所', badge: '🏢 三河営業所', regionKey: 'mikawa' },
@@ -87,7 +87,7 @@ function resolveUserBaseLocation(user: User, offices?: OfficeMaster[]): { coords
 
       return {
         coords: DEFAULT_HEADQUARTERS.coords,
-        address: DEFAULT_HEADQUARTERS.address,
+        address: matchedOffice.location || DEFAULT_HEADQUARTERS.address,
         name: matchedOffice.name,
         badge,
         regionKey: 'nagoya_owari'
@@ -98,48 +98,109 @@ function resolveUserBaseLocation(user: User, offices?: OfficeMaster[]): { coords
   return DEFAULT_HEADQUARTERS;
 }
 
-// 予定場所キーワード解決
+// 予定場所（住所表記・市区町村名・現場名キーワード）解決辞書
 const PRESET_COORDINATES: Record<string, { coords: [number, number]; regionKey: MemberLocationStatus['regionKey'] }> = {
-  '清水': { coords: [35.1932, 136.9110], regionKey: 'nagoya_owari' },
-  '本社': { coords: [35.1932, 136.9110], regionKey: 'nagoya_owari' },
-  '名古屋': { coords: [35.1814, 136.9064], regionKey: 'nagoya_owari' },
-  '中村区': { coords: [35.1709, 136.8815], regionKey: 'nagoya_owari' },
-  '中区': { coords: [35.1691, 136.9025], regionKey: 'nagoya_owari' },
+  // 名古屋市内（全16区・主要地名・駅名・現場名）
+  '熱田区五番町': { coords: [35.1278, 136.9038], regionKey: 'nagoya_owari' },
+  '五番町': { coords: [35.1278, 136.9038], regionKey: 'nagoya_owari' },
+  '熱田区': { coords: [35.1278, 136.9038], regionKey: 'nagoya_owari' },
+  '熱田': { coords: [35.1278, 136.9038], regionKey: 'nagoya_owari' },
+  '緑区': { coords: [35.0844, 136.9535], regionKey: 'nagoya_owari' },
+  '鳴海': { coords: [35.0844, 136.9535], regionKey: 'nagoya_owari' },
+  '大高': { coords: [35.0689, 136.9367], regionKey: 'nagoya_owari' },
+  '中川区': { coords: [35.1384, 136.8643], regionKey: 'nagoya_owari' },
+  '港区': { coords: [35.1054, 136.8821], regionKey: 'nagoya_owari' },
+  '南区': { coords: [35.0934, 136.9318], regionKey: 'nagoya_owari' },
+  '昭和区': { coords: [35.1484, 136.9367], regionKey: 'nagoya_owari' },
+  '瑞穂区': { coords: [35.1258, 136.9348], regionKey: 'nagoya_owari' },
   '千種区': { coords: [35.1711, 136.9422], regionKey: 'nagoya_owari' },
-  '春日井': { coords: [35.2475, 136.9719], regionKey: 'nagoya_owari' },
+  '名東区': { coords: [35.1764, 137.0016], regionKey: 'nagoya_owari' },
+  '天白区': { coords: [35.1245, 136.9748], regionKey: 'nagoya_owari' },
+  '守山区': { coords: [35.2045, 136.9772], regionKey: 'nagoya_owari' },
+  '西区': { coords: [35.1964, 136.8856], regionKey: 'nagoya_owari' },
+  '東区': { coords: [35.1804, 136.9245], regionKey: 'nagoya_owari' },
+  '北区清水': { coords: [35.1932, 136.9110], regionKey: 'nagoya_owari' },
+  '北区': { coords: [35.1932, 136.9110], regionKey: 'nagoya_owari' },
+  '清水': { coords: [35.1932, 136.9110], regionKey: 'nagoya_owari' },
+  '中村区': { coords: [35.1709, 136.8815], regionKey: 'nagoya_owari' },
+  '名駅': { coords: [35.1709, 136.8815], regionKey: 'nagoya_owari' },
+  '中区': { coords: [35.1691, 136.9025], regionKey: 'nagoya_owari' },
+  '伏見': { coords: [35.1691, 136.9025], regionKey: 'nagoya_owari' },
+  '栄': { coords: [35.1691, 136.9085], regionKey: 'nagoya_owari' },
+
+  // 愛知県 尾張・知多エリア
   '一宮': { coords: [35.3038, 136.7956], regionKey: 'nagoya_owari' },
+  '春日井': { coords: [35.2475, 136.9719], regionKey: 'nagoya_owari' },
   '小牧': { coords: [35.2908, 136.9106], regionKey: 'nagoya_owari' },
   '半田': { coords: [34.8919, 136.9367], regionKey: 'nagoya_owari' },
-  '豊橋': { coords: [34.7628, 137.3817], regionKey: 'mikawa' },
-  '岡崎': { coords: [34.9548, 137.1723], regionKey: 'mikawa' },
+  '瀬戸': { coords: [35.2244, 137.0853], regionKey: 'nagoya_owari' },
+  '日進': { coords: [35.1311, 137.0444], regionKey: 'nagoya_owari' },
+  '長久手': { coords: [35.1833, 137.0494], regionKey: 'nagoya_owari' },
+  '尾張旭': { coords: [35.2158, 137.0344], regionKey: 'nagoya_owari' },
+  '大府': { coords: [35.0133, 136.9625], regionKey: 'nagoya_owari' },
+  '東海市': { coords: [35.0258, 136.9075], regionKey: 'nagoya_owari' },
+  '清須': { coords: [35.2014, 136.8458], regionKey: 'nagoya_owari' },
+  '北名古屋': { coords: [35.2458, 136.8722], regionKey: 'nagoya_owari' },
+  'あま': { coords: [35.1764, 136.7578], regionKey: 'nagoya_owari' },
+  '津島': { coords: [35.1764, 136.7278], regionKey: 'nagoya_owari' },
+  '犬山': { coords: [35.3844, 136.9444], regionKey: 'nagoya_owari' },
+  '江南': { coords: [35.3344, 136.8744], regionKey: 'nagoya_owari' },
+  '岩倉': { coords: [35.2789, 136.8722], regionKey: 'nagoya_owari' },
+
+  // 愛知県 三河エリア
+  '豊田市上挙母': { coords: [35.0822, 137.1562], regionKey: 'mikawa' },
+  '上挙母': { coords: [35.0822, 137.1562], regionKey: 'mikawa' },
+  '豊田市': { coords: [35.0822, 137.1562], regionKey: 'mikawa' },
   '豊田': { coords: [35.0822, 137.1562], regionKey: 'mikawa' },
+  '岡崎': { coords: [34.9548, 137.1723], regionKey: 'mikawa' },
   '安城': { coords: [34.9589, 137.0803], regionKey: 'mikawa' },
   '刈谷': { coords: [34.9889, 137.0016], regionKey: 'mikawa' },
+  '知立': { coords: [35.0075, 137.0425], regionKey: 'mikawa' },
+  '豊橋': { coords: [34.7628, 137.3817], regionKey: 'mikawa' },
+  '豊川': { coords: [34.8258, 137.3912], regionKey: 'mikawa' },
+  '西尾': { coords: [34.8644, 137.0543], regionKey: 'mikawa' },
+
+  // 岐阜エリア
+  '可茂環境衛生': { coords: [35.4378, 137.0543], regionKey: 'gifu' },
+  '可茂': { coords: [35.4378, 137.0543], regionKey: 'gifu' },
+  '美濃加茂': { coords: [35.4378, 137.0543], regionKey: 'gifu' },
+  '可児': { coords: [35.4278, 137.0583], regionKey: 'gifu' },
   '岐阜': { coords: [35.4233, 136.7607], regionKey: 'gifu' },
   '大垣': { coords: [35.3589, 136.6128], regionKey: 'gifu' },
   '各務原': { coords: [35.3997, 136.8483], regionKey: 'gifu' },
-  '津': { coords: [34.7303, 136.5086], regionKey: 'mie' },
+  '多治見': { coords: [35.3322, 137.1278], regionKey: 'gifu' },
+
+  // 三重エリア
   '四日市': { coords: [34.9653, 136.6236], regionKey: 'mie' },
+  '津': { coords: [34.7303, 136.5086], regionKey: 'mie' },
   '鈴鹿': { coords: [34.8822, 136.5847], regionKey: 'mie' },
+  '桑名': { coords: [35.0658, 136.6822], regionKey: 'mie' },
+
+  // 静岡エリア
   '静岡': { coords: [34.9756, 138.3828], regionKey: 'shizuoka' },
   '浜松': { coords: [34.7108, 137.7261], regionKey: 'shizuoka' },
   '沼津': { coords: [35.1003, 138.8597], regionKey: 'shizuoka' },
   '富士': { coords: [35.1614, 138.6764], regionKey: 'shizuoka' },
 };
 
-function resolveLocationInfo(locationStr?: string, fallbackBase?: ReturnType<typeof resolveUserBaseLocation>): { coords: [number, number]; regionKey: MemberLocationStatus['regionKey'] } {
+function resolveLocationInfo(
+  locationStr?: string,
+  fallbackBase?: ReturnType<typeof resolveUserBaseLocation>
+): { coords: [number, number]; regionKey: MemberLocationStatus['regionKey'] } | null {
   if (!locationStr || !locationStr.trim()) {
-    return fallbackBase || { coords: DEFAULT_HEADQUARTERS.coords, regionKey: 'nagoya_owari' };
+    return fallbackBase || null;
   }
 
   const cleanStr = locationStr.trim();
-  for (const [key, info] of Object.entries(PRESET_COORDINATES)) {
+  // 最長一致優先で地名・市区町村名を照合（例: 「熱田区五番町」を「熱田区」より優先）
+  const sortedKeys = Object.keys(PRESET_COORDINATES).sort((a, b) => b.length - a.length);
+  for (const key of sortedKeys) {
     if (cleanStr.includes(key)) {
-      return info;
+      return PRESET_COORDINATES[key];
     }
   }
 
-  return fallbackBase || { coords: DEFAULT_HEADQUARTERS.coords, regionKey: 'nagoya_owari' };
+  return fallbackBase || null;
 }
 
 export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
@@ -299,9 +360,10 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
           currentEvent = ev;
           statusType = 'on_site';
           locationName = ev.location || ev.title || '現場・予定先';
+          // 住所があるか、または現場名から推測される場所にマッピング。その他は拠点住所
           const locInfo = resolveLocationInfo(ev.location || ev.title, userBaseLocation);
-          coords = locInfo.coords;
-          regionKey = locInfo.regionKey;
+          coords = locInfo ? locInfo.coords : userBaseLocation.coords;
+          regionKey = locInfo ? locInfo.regionKey : userBaseLocation.regionKey;
           break;
         } else if (selectedMinutes > evEndMins) {
           prevEventFound = ev;
@@ -314,16 +376,30 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
         if (prevEventFound) {
           statusType = 'in_transit';
           prevLocationName = prevEventFound.location || prevEventFound.title || '前作業現場';
-          const locInfo = resolveLocationInfo(prevEventFound.location || prevEventFound.title, userBaseLocation);
-          coords = locInfo.coords;
-          regionKey = locInfo.regionKey;
-          currentEvent = prevEventFound;
-
           if (nextEventFound) {
             nextLocationName = nextEventFound.location || nextEventFound.title || '次現場';
             nextEvent = nextEventFound;
           }
+          currentEvent = prevEventFound;
           locationName = prevLocationName;
+
+          // ★ 移動中の座標特定:
+          // 1. 次現場（目的地）に明示的な住所または推測可能な地名がある場合は目的地へマッピング（例: 越野さんの熱田区五番町）
+          // 2. 前現場（出発地）に住所または推測可能な地名がある場合は前現場へマッピング
+          // 3. どちらも不明な場合は所属拠点住所へマッピング（その他は拠点住所で問題ない）
+          const nextLocInfo = nextEventFound ? resolveLocationInfo(nextEventFound.location || nextEventFound.title) : null;
+          const prevLocInfo = prevEventFound ? resolveLocationInfo(prevEventFound.location || prevEventFound.title) : null;
+
+          if (nextLocInfo) {
+            coords = nextLocInfo.coords;
+            regionKey = nextLocInfo.regionKey;
+          } else if (prevLocInfo) {
+            coords = prevLocInfo.coords;
+            regionKey = prevLocInfo.regionKey;
+          } else {
+            coords = userBaseLocation.coords;
+            regionKey = userBaseLocation.regionKey;
+          }
         } else {
           statusType = 'at_base';
           locationName = userBaseLocation.name;
@@ -383,8 +459,8 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
       } else {
         const centerLat = group[0].coords[0];
         const centerLng = group[0].coords[1];
-        // 画面ピクセル基準の展開半径（重なりを防ぎつつ、ズームイン時は極力地図上の位置に接近）
-        const pixelRadius = Math.max(46, 32 + N * 3);
+        // 画面ピクセル基準の展開半径（ネームカード幅約75pxを考慮し、隣接マーカー間隔が重ならないよう弦長計算で最適化）
+        const pixelRadius = N <= 1 ? 0 : Math.max(54, Math.min(130, Math.round(40 / Math.sin(Math.PI / Math.min(N, 12)))));
         const map = mapInstanceRef.current;
 
         group.forEach((st, idx) => {
@@ -511,9 +587,32 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
 
           // 密集拠点ハブタグ
           if (isClustered) {
-            const hubName = locationName.includes('本社') || locationName.includes('営業所') || locationName.includes('支店')
-              ? locationName.split(' ')[0]
-              : locationName.substring(0, 10);
+            let hubName = '';
+            // 1. 名古屋拠点（清水）または各営業所拠点と合致しているか判定
+            const isAtNagoyaBase =
+              Math.abs(coords[0] - DEFAULT_HEADQUARTERS.coords[0]) < 0.005 &&
+              Math.abs(coords[1] - DEFAULT_HEADQUARTERS.coords[1]) < 0.005;
+
+            if (isAtNagoyaBase) {
+              hubName = '名古屋拠点 (清水)';
+            } else {
+              const matchedOffice = Object.values(OFFICE_BASE_LOCATIONS).find(
+                (b) => Math.abs(b.coords[0] - coords[0]) < 0.005 && Math.abs(b.coords[1] - coords[1]) < 0.005
+              );
+              if (matchedOffice) {
+                hubName = matchedOffice.name;
+              } else {
+                // 2. 現場・エリア座標での集約（例: 鳴海, 熱田区, 豊田市など）
+                const matchedPreset = Object.entries(PRESET_COORDINATES).find(
+                  ([_, info]) => Math.abs(info.coords[0] - coords[0]) < 0.005 && Math.abs(info.coords[1] - coords[1]) < 0.005
+                );
+                if (matchedPreset) {
+                  hubName = matchedPreset[0];
+                } else {
+                  hubName = locationName.length > 10 ? locationName.substring(0, 9) + '…' : locationName;
+                }
+              }
+            }
 
             const hubIconHtml = `
               <div style="display: flex; align-items: center; gap: 5px; background: rgba(15, 23, 42, 0.92); color: #ffffff; font-size: 11px; font-weight: 800; padding: 3px 9px; border-radius: 9999px; box-shadow: 0 4px 12px rgba(0,0,0,0.4); border: 2px solid ${isThisHubSelected ? '#3b82f6' : '#6366f1'}; white-space: nowrap;">
@@ -547,39 +646,31 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
           markersLayerRef.current!.addLayer(line);
         }
 
-        // 状態バッジスタイル
-        let badgeBgStyle = 'background: #4f46e5; color: #ffffff; border: 1px solid #c7d2fe;';
-        let badgeLabel = officeBadge || '🏢 本社';
-
+        // アバター外枠カラーによるステータス識別（文字バッジを排除して密集・重なりを解消）
+        let statusBorderColor = '#6366f1'; // 本社・拠点
         if (statusType === 'on_site') {
-          badgeBgStyle = 'background: #059669; color: #ffffff; border: 1px solid #a7f3d0;';
-          badgeLabel = '📍 作業中';
+          statusBorderColor = '#10b981'; // 現場・作業中 (エメラルドグリーン)
         } else if (statusType === 'in_transit') {
-          badgeBgStyle = 'background: #d97706; color: #ffffff; border: 1px solid #fde68a;';
-          badgeLabel = '🚗 移動中';
+          statusBorderColor = '#f59e0b'; // 移動中 (アンバー)
         }
 
-        // 【要請③: 枠の強調色を青に】
+        // 枠スタイル: 選択時は青色強調リング、非選択時はステータスカラー外枠
         const ringEffectStyle = isSelected
-          ? 'border: 3px solid #2563eb !important; box-shadow: 0 0 0 4px rgba(37,99,235,0.5), 0 4px 14px rgba(0,0,0,0.35) !important; transform: scale(1.12); z-index: 50;'
-          : 'border: 2px solid #ffffff !important; box-shadow: 0 2px 6px rgba(0,0,0,0.25) !important;';
+          ? 'border: 3.5px solid #2563eb !important; box-shadow: 0 0 0 4px rgba(37,99,235,0.45), 0 4px 14px rgba(0,0,0,0.35) !important; transform: scale(1.15); z-index: 50;'
+          : `border: 2.5px solid ${statusBorderColor} !important; box-shadow: 0 2px 6px rgba(0,0,0,0.3) !important;`;
 
         const avatarOpacity = isAnySelected && !isSelected ? '0.4' : '1';
         const avatarUrl = member.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(member.name)}&background=random`;
 
-        // ★ 要請①: 名前がはっきり見える高コントラストカード（背景不透明・白文字・外枠）
-        // ★ 要請③: 強調枠を青色に
+        // ★ 要望: 密集しすぎの解消 ＆「移動中」アイコン（文字バッジ）の削除
         const customIconHtml = `
           <div style="display: flex; flex-direction: column; align-items: center; cursor: pointer; user-select: none; opacity: ${avatarOpacity}; transition: opacity 0.2s;">
-            <!-- Avatar Ring -->
+            <!-- Avatar Ring: 外枠色で移動中(黄)/作業中(緑)/拠点(藍)/選択(青)をすっきり表現 -->
             <div style="position: relative; width: 38px; height: 38px; border-radius: 9999px; background: #ffffff; transition: transform 0.2s; ${ringEffectStyle}">
               <img src="${avatarUrl}" style="width: 100% !important; height: 100% !important; max-width: 100% !important; max-height: 100% !important; object-fit: cover !important; border-radius: 9999px !important; display: block;" alt="${member.name}" />
-              <span style="position: absolute; bottom: -3px; right: -8px; font-size: 9px; font-weight: 800; padding: 1px 5px; border-radius: 9999px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); white-space: nowrap; ${badgeBgStyle}">
-                ${badgeLabel}
-              </span>
             </div>
             <!-- Name Label Card: 100%不透明な背景プレートで地図上の文字と重ならず鮮明に視認可能 -->
-            <div style="margin-top: 5px; padding: 2px 8px; background: ${isSelected ? '#1d4ed8' : '#0f172a'}; color: #ffffff !important; font-weight: 800; font-size: 11px; line-height: 1.25; border-radius: 6px; border: ${isSelected ? '2px solid #93c5fd' : '1.5px solid #334155'}; box-shadow: 0 3px 8px rgba(0,0,0,0.5); white-space: nowrap; text-align: center; letter-spacing: 0.02em; pointer-events: none; text-shadow: 0 1px 2px rgba(0,0,0,0.9);">
+            <div style="margin-top: 4px; padding: 2px 8px; background: ${isSelected ? '#1d4ed8' : '#0f172a'}; color: #ffffff !important; font-weight: 800; font-size: 11px; line-height: 1.25; border-radius: 6px; border: ${isSelected ? '2px solid #93c5fd' : '1.5px solid #334155'}; box-shadow: 0 3px 8px rgba(0,0,0,0.5); white-space: nowrap; text-align: center; letter-spacing: 0.02em; pointer-events: none; text-shadow: 0 1px 2px rgba(0,0,0,0.9);">
               ${member.name}
             </div>
           </div>
@@ -588,8 +679,8 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
         const customIcon = L.divIcon({
           html: customIconHtml,
           className: 'custom-member-marker',
-          iconSize: [80, 65],
-          iconAnchor: [40, 32],
+          iconSize: [84, 58],
+          iconAnchor: [42, 19],
         });
 
         const marker = L.marker(spiderCoords, { icon: customIcon });
