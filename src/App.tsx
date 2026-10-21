@@ -12,6 +12,7 @@ import { useMasterManagement } from './hooks/useMasterManagement';
 import { usePostManagement } from './hooks/usePostManagement';
 import { useMemoManagement } from './hooks/useMemoManagement';
 import { useReportManagement } from './hooks/useReportManagement';
+import { fetchWithRetry } from './utils/fetchWithRetry';
 
 import { lazyWithRetry } from './utils/lazyWithRetry';
 
@@ -668,7 +669,7 @@ export default function App() {
 
   const refetchUsers = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/users`, {
+      const response = await fetchWithRetry(`${API_BASE_URL}/users`, {
         headers: {
           'Accept': 'application/json'
         }
@@ -804,7 +805,7 @@ export default function App() {
       return;
     }
     try {
-      const response = await fetch(`${API_BASE_URL}/events`, {
+      const response = await fetchWithRetry(`${API_BASE_URL}/events`, {
         headers: { 'Accept': 'application/json' }
       });
       if (!response.ok) {
@@ -895,7 +896,7 @@ export default function App() {
 
   const refetchApplications = async (currentUsers = usersList) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/workflows`, {
+      const response = await fetchWithRetry(`${API_BASE_URL}/workflows`, {
         headers: { 'Accept': 'application/json' }
       });
       if (!response.ok) {
@@ -1052,7 +1053,7 @@ export default function App() {
 
   const refetchTopics = async (currentUsers = usersList) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/bulletins`, {
+      const response = await fetchWithRetry(`${API_BASE_URL}/bulletins`, {
         headers: { 'Accept': 'application/json' }
       });
       if (!response.ok) {
@@ -1168,7 +1169,7 @@ export default function App() {
     isChatRefetchingRef.current = true;
 
     try {
-      const response = await fetch(`${API_BASE_URL}/chats`, {
+      const response = await fetchWithRetry(`${API_BASE_URL}/chats`, {
         headers: { 'Accept': 'application/json' }
       });
       if (!response.ok) {

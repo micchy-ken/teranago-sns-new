@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { API_BASE_URL } from '../config/api';
+import { fetchWithRetry } from '../utils/fetchWithRetry';
 import { Memo, User } from '../types';
 
 export interface UseMemoManagementOptions {
@@ -19,7 +20,7 @@ export function useMemoManagement({
 
   const refetchMemos = useCallback(async (currentUsers = usersList) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/memos`, {
+      const response = await fetchWithRetry(`${API_BASE_URL}/memos`, {
         headers: { 'Accept': 'application/json' }
       });
 

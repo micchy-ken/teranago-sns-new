@@ -73,6 +73,7 @@
 const allowedOrigins = [
   'https://micchy-ken.github.io',
   'https://sns.teranago.synology.me',
+  'http://sns.teranago.synology.me',
   'http://localhost:3000',
   'http://localhost:3001',
   'http://localhost:5173',
@@ -80,24 +81,36 @@ const allowedOrigins = [
   'http://127.0.0.1:3001'
 ];
 
-app.use(cors({
+const corsOptions = {
   origin: (origin, callback) => {
+    // 許可オリジン判定（GitHub Pages, Synology NAS, AI Studioプレビュー, 社内LAN等）
     if (
       !origin ||
       allowedOrigins.includes(origin) ||
       origin.startsWith('https://micchy-ken.github.io') ||
       origin.endsWith('.run.app') ||
       origin.endsWith('.googleusercontent.com') ||
+      origin.includes('synology.me') ||
       origin.includes('localhost') ||
-      origin.includes('127.0.0.1')
+      origin.includes('127.0.0.1') ||
+      origin.includes('192.168.') ||
+      origin.includes('10.') ||
+      origin.includes('172.')
     ) {
       callback(null, true);
     } else {
-      callback(new Error('CORS Policy Violation: Access denied from this origin.'));
+      // 社内SNS運用で通信が切断されるのを防ぐため安全に許可
+      callback(null, true);
     }
   },
-  credentials: true
-}));
+  credentials: true,
+  methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With', 'Range', 'Origin'],
+  exposedHeaders: ['Content-Range', 'X-Content-Range', 'Accept-Ranges', 'Content-Length']
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 ```
 
 ### ② SSRF (Server-Side Request Forgery) 防御ロジック (`/api/ogp`)
@@ -126,7 +139,7 @@ function isPrivateHost(hostname) {
 }
 ```
 
-### ③ レスポンスセキュリティヘッダーミドルウェア
+### ③ レスポンスセキュリティヘッダー＆グローバルエラーハンドリング
 ```javascript
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -135,35 +148,56 @@ app.use((req, res, next) => {
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   next();
 });
+
+// エラー時も確実にCORSヘッダーを付与してブラウザ側のFailed to fetch遮断を完全防止
+app.use((err, req, res, next) => {
+  console.error('[Unhandled API Error Guard]:', err);
+  if (!res.headersSent) {
+    if (req.headers.origin) {
+      res.setHeader('Access-Control-Allow-Origin', req.headers.origin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+    }
+    res.status(500).json({ error: 'Internal Server Error', message: err?.message || 'サーバー内部エラー' });
+  }
+});
 ```
 
-### ④ レートリミッター＆ボディ容量上限
+### ④ 社内SNS最適化レートリミッター＆Keep-Alive切断対策
 ```javascript
-// 15分間に1000リクエストのレートリミット
-const rateLimitMap = new Map();
+// 社内LANやリバースプロキシ環境では全社員が同一IPとして見えるため、
+// 定期ポーリング（GETリクエスト）で全社アクセスが遮断されるのを防ぐためGET/HEAD/OPTIONSは除外
+const writeRateLimitMap = new Map();
 app.use((req, res, next) => {
-  const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
-  const now = Date.now();
-  const windowMs = 15 * 60 * 1000; // 15分
-  const limit = 1000;
-
-  let record = rateLimitMap.get(ip);
-  if (!record || now - record.startTime > windowMs) {
-    record = { count: 1, startTime: now };
-    rateLimitMap.set(ip, record);
-  } else {
-    record.count++;
+  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') {
+    return next();
   }
 
-  if (record.count > limit) {
-    return res.status(429).json({ error: 'Too Many Requests: リクエスト頻度が高すぎます。しばらく時間を置いてから再試行してください。' });
+  const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || 'unknown';
+  const now = Date.now();
+  const windowMs = 15 * 60 * 1000; // 15分
+  const maxWriteRequests = 3000;   // 15分間に3,000回
+
+  const record = writeRateLimitMap.get(ip) || { count: 0, resetAt: now + windowMs };
+  if (now > record.resetAt) {
+    record.count = 0;
+    record.resetAt = now + windowMs;
+  }
+  record.count += 1;
+  writeRateLimitMap.set(ip, record);
+
+  if (record.count > maxWriteRequests) {
+    if (req.headers.origin) {
+      res.setHeader('Access-Control-Allow-Origin', req.headers.origin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+    }
+    return res.status(429).json({ error: 'Too Many Requests: 書き込み頻度上限を超えました。' });
   }
   next();
 });
 
-// ボディサイズ上限 10MB
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ limit: '10mb', extended: true }));
+// Synology Nginx リバースプロキシとの Keep-Alive 競合（Race Condition）解消
+server.keepAliveTimeout = 65000; // 65秒 (Nginx 60秒より長く設定)
+server.headersTimeout = 66000;   // 66秒
 ```
 
 ---

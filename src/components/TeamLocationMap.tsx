@@ -38,6 +38,7 @@ const DEFAULT_HEADQUARTERS = {
   name: '名古屋拠点 (清水)',
   badge: '🏢 名古屋拠点',
   coords: [35.1932, 136.9110] as [number, number],
+  regionKey: 'nagoya_owari' as const,
 };
 
 // 所属拠点（member.office または member.department）からデフォルト住所・座標・拠点区分バッジを特定する辞書
@@ -203,6 +204,47 @@ function resolveLocationInfo(
   return fallbackBase || null;
 }
 
+/**
+ * 密集拠点・現場におけるメンバー展開座標 (Spider Coordinates) の計算
+ * ズームレベルに応じた展開半径・角度を算出し、拡大移動時にも同一関数で未来座標を事前計算可能
+ */
+export function calculateSpiderCoordsForMember(
+  centerLat: number,
+  centerLng: number,
+  totalInGroup: number,
+  indexInGroup: number,
+  zoom: number,
+  map?: L.Map | null
+): [number, number] {
+  if (totalInGroup <= 1) {
+    return [centerLat, centerLng];
+  }
+  // 画面ピクセル基準の展開半径（ネームカード幅約75pxを考慮し、隣接マーカー間隔が重ならないよう弦長計算で最適化）
+  const pixelRadius = Math.max(54, Math.min(130, Math.round(40 / Math.sin(Math.PI / Math.min(totalInGroup, 12)))));
+  const angle = (2 * Math.PI * indexInGroup) / totalInGroup - Math.PI / 2;
+
+  if (map) {
+    try {
+      const centerPoint = map.project(L.latLng(centerLat, centerLng), zoom);
+      const spiderPoint = L.point(
+        centerPoint.x + pixelRadius * Math.cos(angle),
+        centerPoint.y + pixelRadius * Math.sin(angle)
+      );
+      const unprojected = map.unproject(spiderPoint, zoom);
+      return [unprojected.lat, unprojected.lng];
+    } catch {
+      // プロジェクト計算エラー時のフォールバック
+    }
+  }
+
+  const degPerPixelLat = 1.152 / Math.pow(2, zoom);
+  const degPerPixelLng = 1.406 / Math.pow(2, zoom);
+  return [
+    centerLat + pixelRadius * Math.sin(angle) * degPerPixelLat,
+    centerLng + pixelRadius * Math.cos(angle) * degPerPixelLng,
+  ];
+}
+
 export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
   currentDate,
   teamMembers,
@@ -216,6 +258,18 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
   const mapInstanceRef = useRef<L.Map | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
   const markersLayerRef = useRef<L.LayerGroup | null>(null);
+  const markersByMemberIdRef = useRef<Map<string | number, L.Marker>>(new Map());
+  const linesByMemberIdRef = useRef<Map<string | number, L.Polyline>>(new Map());
+  const animFrameRef = useRef<number | null>(null);
+
+  // アンマウント時のアニメーションクリーンアップ
+  useEffect(() => {
+    return () => {
+      if (animFrameRef.current) {
+        cancelAnimationFrame(animFrameRef.current);
+      }
+    };
+  }, []);
 
   // 今日判定
   const isToday = useMemo(() => {
@@ -459,38 +513,17 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
       } else {
         const centerLat = group[0].coords[0];
         const centerLng = group[0].coords[1];
-        // 画面ピクセル基準の展開半径（ネームカード幅約75pxを考慮し、隣接マーカー間隔が重ならないよう弦長計算で最適化）
-        const pixelRadius = N <= 1 ? 0 : Math.max(54, Math.min(130, Math.round(40 / Math.sin(Math.PI / Math.min(N, 12)))));
         const map = mapInstanceRef.current;
 
         group.forEach((st, idx) => {
-          const angle = (2 * Math.PI * idx) / N - Math.PI / 2;
-          if (map) {
-            try {
-              const centerPoint = map.project(L.latLng(centerLat, centerLng), currentZoom);
-              const spiderPoint = L.point(
-                centerPoint.x + pixelRadius * Math.cos(angle),
-                centerPoint.y + pixelRadius * Math.sin(angle)
-              );
-              const unprojected = map.unproject(spiderPoint, currentZoom);
-              st.spiderCoords = [unprojected.lat, unprojected.lng];
-            } catch {
-              const degPerPixelLat = 1.152 / Math.pow(2, currentZoom);
-              const degPerPixelLng = 1.406 / Math.pow(2, currentZoom);
-              st.spiderCoords = [
-                centerLat + pixelRadius * Math.sin(angle) * degPerPixelLat,
-                centerLng + pixelRadius * Math.cos(angle) * degPerPixelLng,
-              ];
-            }
-          } else {
-            // マップ初期化前フォールバック (ズームレベルに応じた角度計算)
-            const degPerPixelLat = 1.152 / Math.pow(2, currentZoom);
-            const degPerPixelLng = 1.406 / Math.pow(2, currentZoom);
-            st.spiderCoords = [
-              centerLat + pixelRadius * Math.sin(angle) * degPerPixelLat,
-              centerLng + pixelRadius * Math.cos(angle) * degPerPixelLng,
-            ];
-          }
+          st.spiderCoords = calculateSpiderCoordsForMember(
+            centerLat,
+            centerLng,
+            N,
+            idx,
+            currentZoom,
+            map
+          );
         });
       }
     });
@@ -512,6 +545,129 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
       return true;
     });
   }, [memberStatuses, selectedMemberFilter, searchQuery]);
+
+  // ★ 要望: メンバー選択時の移動先を前もって計算し、アイコンとズームアップを自然に同期移動させるハンドラー
+  const handleSelectMember = useCallback((status: MemberLocationStatus) => {
+    setSelectedMemberStatus(status);
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    // 既存のアニメーションループがあれば即座にキャンセル
+    if (animFrameRef.current) {
+      cancelAnimationFrame(animFrameRef.current);
+      animFrameRef.current = null;
+    }
+
+    const currentMapZoom = map.getZoom();
+    // 拡大先の目標ズームレベル（現在より詳細な12以上へ設定）
+    const targetZoom = Math.max(currentMapZoom, 12);
+
+    // 1. 移動先の展開座標 (targetSpiderCoords) を前もって計算！
+    const hubKey = `${status.coords[0].toFixed(3)}_${status.coords[1].toFixed(3)}`;
+    const clusterGroup = filteredMemberStatuses.filter(
+      (s) => `${s.coords[0].toFixed(3)}_${s.coords[1].toFixed(3)}` === hubKey
+    );
+    const totalInGroup = clusterGroup.length;
+    const memberIdx = clusterGroup.findIndex((s) => s.member.id === status.member.id);
+
+    const targetSpiderCoords = calculateSpiderCoordsForMember(
+      status.coords[0],
+      status.coords[1],
+      totalInGroup,
+      memberIdx >= 0 ? memberIdx : 0,
+      targetZoom,
+      map
+    );
+
+    // 2. 同一拠点・現場にいる全メンバーの目標ズーム座標も事前計算（クラスタ全体が目標ズームの半径へ自然に同時収束）
+    const clusterTargets: {
+      memberId: string | number;
+      marker: L.Marker;
+      line?: L.Polyline;
+      startLat: number;
+      startLng: number;
+      destLat: number;
+      destLng: number;
+      hubCoords: [number, number];
+      isSelected: boolean;
+    }[] = [];
+
+    clusterGroup.forEach((s, idx) => {
+      const marker = markersByMemberIdRef.current.get(s.member.id);
+      if (!marker) return;
+      const line = linesByMemberIdRef.current.get(s.member.id);
+      const startLatLng = marker.getLatLng();
+      const dest = calculateSpiderCoordsForMember(
+        s.coords[0],
+        s.coords[1],
+        totalInGroup,
+        idx,
+        targetZoom,
+        map
+      );
+      clusterTargets.push({
+        memberId: s.member.id,
+        marker,
+        line,
+        startLat: startLatLng.lat,
+        startLng: startLatLng.lng,
+        destLat: dest[0],
+        destLng: dest[1],
+        hubCoords: s.coords,
+        isSelected: s.member.id === status.member.id,
+      });
+    });
+
+    const duration = 900; // 0.9秒（フライアニメーションと完全一致）
+    const startTime = performance.now();
+
+    // 加速と減速が自然な3次イージング関数 (Cubic Easing)
+    const easeInOutCubic = (t: number) => {
+      return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+    };
+
+    map.closePopup();
+
+    // 3. マップカメラを「前もって計算した移動先の目標座標」へ向けてズーム＆パン！
+    map.flyTo(targetSpiderCoords, targetZoom, {
+      duration: duration / 1000,
+      easeLinearity: 0.25,
+    });
+
+    // 4. アイコンと引き出し線を目標位置へ向けて滑らかに完全同期移動
+    const step = (now: number) => {
+      const elapsed = now - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      const ease = easeInOutCubic(progress);
+
+      clusterTargets.forEach((item) => {
+        const curLat = item.startLat + (item.destLat - item.startLat) * ease;
+        const curLng = item.startLng + (item.destLng - item.startLng) * ease;
+        item.marker.setLatLng([curLat, curLng]);
+        if (item.line) {
+          item.line.setLatLngs([item.hubCoords, [curLat, curLng]]);
+        }
+      });
+
+      if (progress < 1) {
+        animFrameRef.current = requestAnimationFrame(step);
+      } else {
+        animFrameRef.current = null;
+        // 最終位置を確定し、選択されたメンバーの吹き出しを開く
+        clusterTargets.forEach((item) => {
+          item.marker.setLatLng([item.destLat, item.destLng]);
+          if (item.line) {
+            item.line.setLatLngs([item.hubCoords, [item.destLat, item.destLng]]);
+          }
+          if (item.isSelected) {
+            item.marker.openPopup();
+          }
+        });
+      }
+    };
+
+    animFrameRef.current = requestAnimationFrame(step);
+  }, [filteredMemberStatuses]);
 
   // ★ 対策A+B複合: Leaflet 地図インスタンスおよびハブ（起点ドット）・引き出し線・アニメーション発光ハイライト描画
   useEffect(() => {
@@ -555,6 +711,8 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
 
     if (markersLayerRef.current) {
       markersLayerRef.current.clearLayers();
+      markersByMemberIdRef.current.clear();
+      linesByMemberIdRef.current.clear();
 
       const drawnHubs = new Set<string>();
       const highlightedMemberId = selectedMemberStatus?.member.id;
@@ -643,6 +801,7 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
             dashArray: isSelected ? undefined : '4,4',
             opacity: lineOpacity,
           });
+          linesByMemberIdRef.current.set(member.id, line);
           markersLayerRef.current!.addLayer(line);
         }
 
@@ -705,16 +864,14 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
 
         marker.bindPopup(popupContent);
         marker.on('click', () => {
-          setSelectedMemberStatus(status);
-          if (mapInstanceRef.current) {
-            mapInstanceRef.current.flyTo(spiderCoords, Math.max(mapInstanceRef.current.getZoom(), 11), { duration: 0.8 });
-          }
+          handleSelectMember(status);
         });
 
+        markersByMemberIdRef.current.set(member.id, marker);
         markersLayerRef.current?.addLayer(marker);
       });
     }
-  }, [filteredMemberStatuses, mapStyle, displayMode, selectedMemberStatus]);
+  }, [filteredMemberStatuses, mapStyle, displayMode, selectedMemberStatus, handleSelectMember]);
 
   // 現在時刻に復帰
   const handleResetToCurrentTime = () => {
@@ -997,10 +1154,7 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
                     <div
                       key={member.id}
                       onClick={() => {
-                        setSelectedMemberStatus(status);
-                        if (mapInstanceRef.current && mapStyle !== 'simplified') {
-                          mapInstanceRef.current.flyTo(status.spiderCoords, 12, { duration: 0.8 });
-                        }
+                        handleSelectMember(status);
                       }}
                       className={`p-2.5 rounded-xl transition-all cursor-pointer ${
                         isSelected

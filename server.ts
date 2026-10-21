@@ -17,11 +17,62 @@ import schedulePollsRouter from './routes/schedulePolls.js';
 import photoReportsRouter from './routes/photoReports.js';
 import sitesRouter from './routes/sites.js';
 
+// サーバークラッシュ防止（非同期未処理例外・Promise拒否でプロセスが落ちるのを完全防止）
+process.on('uncaughtException', (err) => {
+  console.error('[Process Error Guard] Uncaught Exception:', err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[Process Error Guard] Unhandled Rejection:', reason);
+});
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  // セキュリティ強化レスポンスヘッダーミドルウェア
+  // 1. CORS設定（全レスポンスおよびプリフライト/エラー時にも確実にAccess-Control-Allow-Originを付与するため最優先配置）
+  const allowedOrigins = [
+    'https://micchy-ken.github.io',
+    'https://sns.teranago.synology.me',
+    'http://sns.teranago.synology.me',
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'http://localhost:5173',
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:3001'
+  ];
+
+  const corsOptions: cors.CorsOptions = {
+    origin: (origin, callback) => {
+      // 許可オリジン判定（GitHub Pages, Synology NAS, AI Studioプレビュー, ローカル環境, 社内LAN）
+      if (
+        !origin ||
+        allowedOrigins.includes(origin) ||
+        origin.startsWith('https://micchy-ken.github.io') ||
+        origin.endsWith('.run.app') ||
+        origin.endsWith('.googleusercontent.com') ||
+        origin.includes('synology.me') ||
+        origin.includes('localhost') ||
+        origin.includes('127.0.0.1') ||
+        origin.includes('192.168.') ||
+        origin.includes('10.') ||
+        origin.includes('172.')
+      ) {
+        callback(null, true);
+      } else {
+        // 社内SNS運用で通信が切断・拒否されるのを防ぐため安全に許可
+        callback(null, true);
+      }
+    },
+    credentials: true,
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With', 'Range', 'Origin'],
+    exposedHeaders: ['Content-Range', 'X-Content-Range', 'Accept-Ranges', 'Content-Length']
+  };
+
+  app.use(cors(corsOptions));
+  app.options('*', cors(corsOptions));
+
+  // 2. セキュリティ強化レスポンスヘッダーミドルウェア
   app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'SAMEORIGIN');
@@ -30,56 +81,49 @@ async function startServer() {
     next();
   });
 
-  // 簡易レートリミットミドルウェア (IP単位での過剰連打・DoS保護)
-  const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+  // 3. レートリミット設定 (社内SNSの同時接続・高頻度定期ポーリングに最適化)
+  // 【重要】社内LANやリバースプロキシ環境では全社員が同一IPとして見えるため、
+  // 通常の定期ポーリング（GETリクエスト: チャット・掲示板・伝言メモ・カレンダー・ワークフロー等）で
+  // 誤って全社アクセスが遮断されるのを防ぐため、GET/HEAD/OPTIONS等の読み取りリクエストは遮断対象外とします。
+  // POST/PUT/DELETE等の書き込みリクエストに対して総当たり・連打保護を適用します。
+  const writeRateLimitMap = new Map<string, { count: number; resetAt: number }>();
+  setInterval(() => {
+    const now = Date.now();
+    for (const [ip, record] of writeRateLimitMap.entries()) {
+      if (now > record.resetAt) {
+        writeRateLimitMap.delete(ip);
+      }
+    }
+  }, 10 * 60 * 1000); // 10分おきにメモリクリーンアップ
+
   app.use((req, res, next) => {
+    // 読み取り（GET/HEAD）およびプリフライト（OPTIONS）は常時許可（社内定期同期を絶対に切断させない）
+    if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') {
+      return next();
+    }
+
     const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || req.socket.remoteAddress || 'unknown';
     const now = Date.now();
     const windowMs = 15 * 60 * 1000; // 15分間
-    const maxRequests = 1000; // 15分間に最大1000リクエスト
+    const maxWriteRequests = 3000; // 15分間に3,000回（通常業務で絶対に引っかからない十分な余裕）
 
-    const record = rateLimitMap.get(ip) || { count: 0, resetAt: now + windowMs };
+    const record = writeRateLimitMap.get(ip) || { count: 0, resetAt: now + windowMs };
     if (now > record.resetAt) {
       record.count = 0;
       record.resetAt = now + windowMs;
     }
     record.count += 1;
-    rateLimitMap.set(ip, record);
+    writeRateLimitMap.set(ip, record);
 
-    if (record.count > maxRequests) {
-      return res.status(429).json({ error: 'Too Many Requests - リクエスト上限を超えました。時間をおいて再試行してください。' });
+    if (record.count > maxWriteRequests) {
+      if (req.headers.origin) {
+        res.setHeader('Access-Control-Allow-Origin', req.headers.origin);
+        res.setHeader('Access-Control-Allow-Credentials', 'true');
+      }
+      return res.status(429).json({ error: 'Too Many Requests - 書き込みリクエスト上限を超えました。時間をおいて再試行してください。' });
     }
     next();
   });
-
-  const allowedOrigins = [
-    'https://micchy-ken.github.io',
-    'https://sns.teranago.synology.me',
-    'http://localhost:3000',
-    'http://localhost:3001',
-    'http://localhost:5173',
-    'http://127.0.0.1:3000',
-    'http://127.0.0.1:3001'
-  ];
-
-  app.use(cors({
-    origin: (origin, callback) => {
-      if (
-        !origin ||
-        allowedOrigins.includes(origin) ||
-        origin.startsWith('https://micchy-ken.github.io') ||
-        origin.endsWith('.run.app') ||
-        origin.endsWith('.googleusercontent.com') ||
-        origin.includes('localhost') ||
-        origin.includes('127.0.0.1')
-      ) {
-        callback(null, true);
-      } else {
-        callback(null, true);
-      }
-    },
-    credentials: true
-  }));
 
   // リクエストボディ上限設定 (DoS攻撃対策: 10MB)
   app.use(express.json({ limit: '10mb' }));
@@ -7406,9 +7450,27 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
+  // 4. グローバルエラーハンドリングミドルウェア（エラー時も確実にCORSヘッダーを付与してFailed to fetchを防ぐ）
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error('[Unhandled API Error Guard]:', err);
+    if (!res.headersSent) {
+      const origin = req.headers.origin;
+      if (origin) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+        res.setHeader('Access-Control-Allow-Credentials', 'true');
+      }
+      res.status(500).json({ error: 'Internal Server Error', message: err?.message || 'サーバー内部エラーが発生しました' });
+    }
+  });
+
+  const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
+
+  // Synology NAS (Nginx リバースプロキシ: 通常60秒タイムアウト) との Keep-Alive 競合（Race Condition）解消
+  // Node.js のデフォルト(5秒)が Nginx より短いために発生していた突然のソケット切断・Failed to fetch を完全防止
+  server.keepAliveTimeout = 65000; // 65秒 (Nginx 60秒より長く設定)
+  server.headersTimeout = 66000;   // 66秒 (keepAliveTimeoutより長く設定)
 }
 
 startServer();

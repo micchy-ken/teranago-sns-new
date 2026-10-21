@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { API_BASE_URL } from '../config/api';
+import { fetchWithRetry } from '../utils/fetchWithRetry';
 import { DailyReport, User } from '../types';
 import { triggerPushNotification } from '../utils/pushNotifications';
 import { dispatchNotificationEmail } from '../utils/emailNotificationDispatcher';
@@ -22,16 +23,16 @@ export function useReportManagement({
 
   const refetchReports = useCallback(async (currentUsers = usersList) => {
     try {
-      let response = await fetch(`${API_BASE_URL}/work-reports`, {
+      let response = await fetchWithRetry(`${API_BASE_URL}/work-reports`, {
         headers: { 'Accept': 'application/json' }
       });
       if (!response.ok) {
-        response = await fetch(`${API_BASE_URL}/daily-reports`, {
+        response = await fetchWithRetry(`${API_BASE_URL}/daily-reports`, {
           headers: { 'Accept': 'application/json' }
         });
       }
       if (!response.ok) {
-        response = await fetch(`${API_BASE_URL}/reports`, {
+        response = await fetchWithRetry(`${API_BASE_URL}/reports`, {
           headers: { 'Accept': 'application/json' }
         });
       }

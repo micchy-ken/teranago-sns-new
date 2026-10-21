@@ -14,10 +14,10 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.20.15',
-  date: '2026-10-20',
-  releaseNumber: 15,
-  display: 'v2026.10.20 #15',
-  description: '名古屋拠点デフォルト座標の清水本社統一（伏見仮座標の撤廃）、住所優先・現場名推測マッピング、および拠点ハブ名誤表記の修正',
+  version: '2026.10.21.2',
+  date: '2026-10-21',
+  releaseNumber: 2,
+  display: 'v2026.10.21 #2',
+  description: 'マップ表示メンバー選択時の移動先事前計算＆ズームアップ・アイコン位置同期スムーズアニメーション',
 };
 

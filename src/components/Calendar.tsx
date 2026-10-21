@@ -1646,7 +1646,7 @@ export function Calendar({
                 setMemoTargetUser(m);
                 setIsMemoModalOpen(true);
               }}
-              onOpenEventModal={handleEventClick}
+              onOpenEventModal={(event) => handleEventClick({} as any, event)}
             />
           </div>
         ) : teamDaySubView === 'cards' ? (
@@ -1661,7 +1661,7 @@ export function Calendar({
                 setMemoTargetUser(m);
                 setIsMemoModalOpen(true);
               }}
-              onOpenEventModal={handleEventClick}
+              onOpenEventModal={(event) => handleEventClick({} as any, event)}
             />
           </div>
         ) : (
