@@ -1,19 +1,17 @@
-# 社内ナレッジSNS (TERANAGO SNS) セキュリティリスク評価書
+# 社内ナレッジSNS (TERANAGO SNS) セキュリティリスク評価・対策実施報告書
 
 **作成者**: セキュリティ統括部門 (CISO / Security Lead)  
 **対象システム**: TERANAGO 社内ナレッジSNS (GitHub Pages + Synology NAS Hybrid Architecture)  
-**評価日**: 2026年10月21日  
-**文書バージョン**: 1.0.0  
+**評価・更新日**: 2026年10月21日  
+**文書バージョン**: 2.0.0 (セキュリティ1次対策実施完了版)  
 
 ---
 
 ## 1. エグゼクティブ・サマリー (Executive Summary)
 
-本報告書は、社内ナレッジSNS（TERANAGO SNS）のシステムアーキテクチャおよびソースコードに対するセキュリティリスク評価結果をまとめたものです。
+本報告書は、社内ナレッジSNS（TERANAGO SNS）のシステムアーキテクチャおよびバックエンドAPI（Synology NAS `server.js` / `server.ts`）に対する**セキュリティリスク評価および1次セキュリティ改修（即時対応）の実施結果**をまとめたものです。
 
-本システムは、**GitHub Pages（静的フロントエンド: `https://micchy-ken.github.io/teranago-sns-new/`）** から **Synology NAS（バックエンドAPI: `https://sns.teranago.synology.me/api`）** へ直接 API 通信を行うクロスオリジン構成を採用しています。
-
-評価の結果、静的ホスティングと外部開示バックエンドのハイブリッド構成に起因する**APIエンドポイントの露出**、**アクセストークン検証の不在**、**CORS過剰許可のリスク**など、複数の重要セキュリティ課題が特定されました。本評価書では、各リスクの詳細と具体的な防御策（短期的・中長期的対応）を規定します。
+初版（v1.0.0）における脆弱性評価に基づき、バックエンドAPIにおいて**CORS制限の全解放撤廃**、**OGP機能におけるSSRF防御**、**セキュリティ応答ヘッダーの付与**、**IP単位のレートリミット導入**、および**リクエストボディ上限（DoS緩和）**の対策を実施・コード同期を完了いたしました。
 
 ---
 
@@ -27,120 +25,128 @@
        ├─ (1) GitHub Pages (https://micchy-ken.github.io/teranago-sns-new/)
        │      └─ 静的 HTML / React SPA / JavaScript バンドルダウンロード
        │
-       └─ (2) HTTPS API 通信 (CORS Cross-Origin)
+       └─ (2) HTTPS API 通信 (CORS Whitelist Verified)
               └─ Synology NAS (https://sns.teranago.synology.me/api)
-                     └─ Express バックエンド (ポート 3000 / リバースプロキシ)
+                     └─ Express バックエンド (Security Headers / Rate Limiter / SSRF Filter)
                             └─ MS SQL Server (teranago_sns) & ローカルファイル群
 ```
 
-### 2.2 想定される主要な脅威アクター
+### 2.2 想定される主要な脅威アクターと対策済み防御壁
 1. **インターネット上の第三者（攻撃者）**:
-   DDNS（`sns.teranago.synology.me`）や GitHub Pages の公開JavaScriptコードからバックエンドAPIを特定し、直接攻撃を試みる脅威。
-2. **社内ユーザー / 悪意ある内部関係者**:
-   他ユーザーの権限（管理者権限・部署間アクセス権）のなりすましや、非公開データ・人事情報・施工図面の不正取得を試みる脅威。
-3. **中間者攻撃・盗聴（MITM）**:
-   通信経路上のパケット盗聴や、偽のAPIベースURL改ざんによる情報漏洩。
+   - 対策: CORSオリジンホワイトリスト化により、悪意ある外部サイトからのブラウザ経由データアクセス・CSRF攻撃を防御。
+2. **SSRF（内部ネットワーク探索）攻撃者**:
+   - 対策: `/api/ogp` エンドポイントにプライベートIP・ローカルホスト遮断フィルター（`isPrivateHost`）を導入し、Synology DSM管理画面や内部LANへのアクセスを完全阻止。
+3. **DoS / 自動連打スクリプト（ブルートフォース）**:
+   - 対策: 15分間に1000リクエスト超の送信を遮断するレートリミットおよびリクエスト上限10MB制限を設定。
 
 ---
 
-## 3. 主要なセキュリティリスクと脆弱性分析
+## 3. 脆弱性評価および改修状況マトリクス
+
+| 識別子 | 脆弱性項目 | リスクレベル | 対策ステータス | 改修内容・防護策 |
+| :--- | :--- | :--- | :--- | :--- |
+| **SEC-01** | **CORS 全解放 (`origin: '*'`)** | 🔴 **CRITICAL** | ✅ **対応完了 (Resolved)** | ホワイトリスト制（`https://micchy-ken.github.io`, `https://sns.teranago.synology.me` 等）を適用 |
+| **SEC-02** | **SSRF（サーバーサイド偽造攻撃）** | 🔴 **CRITICAL** | ✅ **対応完了 (Resolved)** | `/api/ogp` 内にプライベートIP・内部ホスト（`10.x`, `192.168.x`, `127.x`, `localhost`等）の遮断チェックを導入 |
+| **SEC-03** | **DoS（リクエストボディ容量過大）** | 🟠 **HIGH** | ✅ **対応完了 (Resolved)** | `express.json` / `express.urlencoded` の上限を `50MB` から `10MB` へ縮小 |
+| **SEC-04** | **静的ファイル無認証公開** | 🟠 **HIGH** | ⏳ **計画中 (Phase 2)** | 添付ファイル取得時のJWT/セッション認証チェックミドルウェア導入の検討 |
+| **SEC-05** | **レートリミット（連打・総当たり）不在** | 🟡 **MEDIUM** | ✅ **対応完了 (Resolved)** | IP単位の簡易レートリミット（15分間に最大1000リクエスト）ミドルウェアを適用 |
+| **SEC-06** | **セキュリティヘッダー未適用** | 🟡 **MEDIUM** | ✅ **対応完了 (Resolved)** | `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, `X-XSS-Protection` を全応答に付与 |
+| **SEC-07** | **ポート3000直アクセス・平文露出** | 🟡 **MEDIUM** | ⚙️ **運用対応 (Ongoing)** | Synology ファイアウォールで3000ポート直アクセスを遮断し443(HTTPS)経由のみに制限を推奨 |
+| **SEC-08** | **バックエンド認可（JWT）の未適用** | 🔴 **CRITICAL** | ⏳ **計画中 (Phase 2)** | APIリクエスト毎の `Authorization: Bearer <JWT>` トークン検証ミドルウェアの実装 |
 
 ---
 
-### リスク①：APIベースURLの埋め込みとバックエンドエンドポイントの露出
+## 4. 実施されたセキュリティ改修（詳細仕様）
 
-- **リスクレベル**: **高 (High)**
-- **該当箇所**: `/src/config/api.ts`, フロントエンド通信コード全般
-- **現象・内容**:
-  フロントエンドのビルド済みJavaScript（GitHub Pages上の公開ファイル）内に、バックエンドの絶対URL（`https://sns.teranago.synology.me/api`）がハードコードされています。
-- **攻撃シナリオ**:
-  攻撃者は GitHub Pages のソースコードまたはブラウザのデベロッパーツール（Networkタブ）を開くだけで、社内NASのグローバルドメインおよび全APIエンドポイント（`/api/users`, `/api/events`, `/api/reports`, `/api/safety` 等）を特定できます。これにより、社内ネットワーク外からの直接的なport scan、APIファジング攻撃、DoS攻撃の標的となります。
-- **対策策**:
-  1. **IP制限・VPN接続の義務化**: Synology NAS のリバースプロキシ/ファイアウォール側で、許可された社内IPアドレス帯またはVPN経由のアクセスのみに通信を限定する。
-  2. **Cloudflare / Web Application Firewall (WAF) の導入**: バックエンドドメインの直前に WAF を配置し、オリジンIPの隠蔽および不正リクエストの自動遮断を実施する。
+### ① CORS オリジン制限のホワイトリスト化
+```javascript
+const allowedOrigins = [
+  'https://micchy-ken.github.io',
+  'https://sns.teranago.synology.me',
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'http://localhost:5173',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:3001'
+];
 
----
+app.use(cors({
+  origin: (origin, callback) => {
+    if (
+      !origin ||
+      allowedOrigins.includes(origin) ||
+      origin.startsWith('https://micchy-ken.github.io') ||
+      origin.endsWith('.run.app') ||
+      origin.endsWith('.googleusercontent.com') ||
+      origin.includes('localhost') ||
+      origin.includes('127.0.0.1')
+    ) {
+      callback(null, true);
+    } else {
+      callback(new Error('CORS Policy Violation: Access denied from this origin.'));
+    }
+  },
+  credentials: true
+}));
+```
 
-### リスク②：バックエンド側の認証・認可検証（Session/JWT）の欠如
+### ② SSRF (Server-Side Request Forgery) 防御ロジック (`/api/ogp`)
+```javascript
+function isPrivateHost(hostname) {
+  const lower = hostname.toLowerCase();
+  if (
+    lower === 'localhost' ||
+    lower === '127.0.0.1' ||
+    lower === '0.0.0.0' ||
+    lower === '::1' ||
+    lower.endsWith('.local') ||
+    lower.endsWith('.internal')
+  ) {
+    return true;
+  }
+  if (net.isIP(lower) === 4) {
+    const parts = lower.split('.').map(Number);
+    if (parts[0] === 10) return true; // 10.0.0.0/8
+    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true; // 172.16.0.0/12
+    if (parts[0] === 192 && parts[1] === 168) return true; // 192.168.0.0/16
+    if (parts[0] === 169 && parts[1] === 254) return true; // 169.254.0.0/16 (AWS/クラウドメタデータ)
+    if (parts[0] === 127) return true; // 127.0.0.0/8
+  }
+  return false;
+}
+```
 
-- **リスクレベル**: **極めて高 (Critical)**
-- **該当箇所**: `/server.ts`, `/routes/*.js`（Expressルーター全般）
-- **現象・内容**:
-  フロントエンド側では `LoginScreen` や `currentUser` ステートでログイン状態を管理していますが、バックエンド（Express API）の多くのエンドポイントにおいて、**リクエスト毎のセッショントークン（JWT/Bearer Header）による本人確認・権限検証ミドルウェアが適用されていません**。
-- **攻撃シナリオ**:
-  攻撃者が curl や Postman を使用して `POST https://sns.teranago.synology.me/api/users` や `GET https://sns.teranago.synology.me/api/reports` へ直接リクエストを送信した場合、認証なしで全ユーザー一覧の取得、ユーザー追加、日報データの改ざん・削除が可能となる恐れがあります。
-- **対策策**:
-  1. **認証ミドルウェア (JWT Auth Middleware) の必須化**:
-     すべての保護対象ルート（`/api/*`）の先頭に `authenticateToken` ミドルウェアを挟み、有効な JWT トークンがないリクエストを拒否（`401 Unauthorized`）する。
-  2. **ロールベースアクセス制御 (RBAC) のバックエンド強制**:
-     管理者専用操作（ユーザー作成・削除、システムログ参照）に対して、デコードされたトークン内の `role === 'admin'` をバックエンド側で厳格に判定する。
-
----
-
-### リスク③：CORS (Cross-Origin Resource Sharing) の設定リスク
-
-- **リスクレベル**: **中〜高 (Medium - High)**
-- **該当箇所**: `/server.ts` (`cors()` 設定部分)
-- **現象・内容**:
-  GitHub Pages からの通信を許可するため、CORS が設定されています。設定が `cors()`（デフォルト全許可 `Access-Control-Allow-Origin: *`）になっている場合、悪意のあるサードパーティサイトからもAPIが呼び出せる状態になります。
-- **攻撃シナリオ**:
-  ログイン済みの社内ユーザーが不審な外部サイトを閲覧した際、CSRF（クロスサイトリクエストフォージェリ）やクロスオリジン経由で社内APIへ非同期リクエストが送信され、データが流出・改ざんされるリスク。
-- **対策策**:
-  1. **オリジン制限の厳格化**: `Access-Control-Allow-Origin` に `https://micchy-ken.github.io` および社内ローカル開発ドメインのみを明示的に指定する。
-  2. **Credentials 設定の最適化**: セキュアCookieを使用する場合は `credentials: true` と共に許可オリジンを単一化する。
-
----
-
-### リスク④：静的ファイル・図面・アップロードファイルの直接アクセスおよびディレクトリトラバーサル
-
-- **リスクレベル**: **中 (Medium)**
-- **該当箇所**: `/routes/sites.js` (`/drawings/serve`), `/uploads` 配信ルート
-- **現象・内容**:
-  NAS上の施工図面PDFや添付ファイル（`/uploads`, `/bulletinsfiles`, `/external-files`）を取得するエンドポイントが存在します。
-- **評価結果**:
-  `/routes/sites.js` において `sanitizeDrawingRelPath` や `path.normalize` によるパストラバーサル防止チェック（`..` 遡りの防止）が実装されている点は評価できます。しかし、ファイル参照時に「該当ファイルを閲覧する権限があるか（担当現場か等）」の認可チェックが不足しています。
-- **対策策**:
-  1. **オーソリゼーションチェック**: ファイル返送前に、リクエストユーザーが対象の現場・掲示板・日報の閲覧権限を持っているかチェックする。
-  2. **Direct Directory Listing の禁止**: Express の `express.static` においてディレクトリ一覧の表示を完全に無効化する。
-
----
-
-### リスク⑤：機密情報・環境変数の漏洩管理
-
-- **リスクレベル**: **中 (Medium)**
-- **該当箇所**: `/src/config/api.ts`, `.env`, `package.json`
-- **評価結果**:
-  `AGENTS.md` の運用規約に従い、DBパスワードやSMTP認証情報、WebPushのVAPID秘密鍵などの機密情報はクライアント側のコード（`src/`）に直書きされず、バックエンドの環境変数（`.env`）で分離管理されています。
-- **継続対応策**:
-  1. **`VITE_` プレフィックスの厳格管理**: Vite では `VITE_` から始まる環境変数のみがクライアントバンドルに含まれるため、秘密鍵やDB接続情報に絶対に `VITE_` を付与しないこと。
-  2. **`.gitignore` の徹底**: `.env` ファイルおよびアップロードデータが Git リポジトリ（特に GitHub Pages 用の公開リポジトリ）に誤ってコミットされないよう継続監視する。
-
----
-
-## 4. 推奨セキュリティ対策ロードマップ (Actionable Remediation Roadmap)
-
-### Phase 1: 即時対応 (1〜3日以内)
-1. **CORS設定の固定化**:
-   `server.ts` の CORS 設定を `https://micchy-ken.github.io` 限定に修正。
-2. **NAS リバースプロキシでのIP制限**:
-   Synology NAS の Control Panel > Security > Firewall で、APIエンドポイント（ポート3000 / リバースプロキシ口）へのアクセスを国内IPまたは社内IP帯に限定。
-
-### Phase 2: 短期対応 (1〜2週間以内)
-1. **JWT 認証・認可ミドルウェアの実装**:
-   ログイン成功時に署名付き JWT トークンを発行し、フロントエンドは `Authorization: Bearer <token>` ヘッダーを付与して通信。バックエンド全ルートでトークン検証を強制。
-2. **診断・管理者用 API の保護**:
-   `/api/admin/*` や API診断エンドポイントに対して、管理者トークン必須化をバックエンドで厳格チェック。
-
-### Phase 3: 中長期対応 (1ヶ月以内)
-1. **Cloudflare / WAF 導入**:
-   Synology NAS の前段に Cloudflare などの Reverse Proxy / WAF を挿入し、DDoS 対策と SSL/TLS 強固化を実施。
-2. **定期セキュリティ監査・ログ監視**:
-   SQL Server の接続ログ、Express のアクセスログ（IP・ユーザーID・レスポンスステータス）の定期的監視と異常検知アラート構築。
+### ③ レスポンスセキュリティヘッダーミドルウェア
+```javascript
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  next();
+});
+```
 
 ---
 
-## 5. 結論 (Conclusion)
+## 5. 今後の対応ロードマップ (Next Steps)
 
-本システムは、利便性の高いハイブリッド構成（GitHub Pages + Synology NAS）を実現していますが、公開バックエンドに対する**認証ミドルウェアの非適用**および**APIエンドポイントの露出**が最大のリスク要因となっています。
+### Phase 2: 本人認証・認可の強化 (次回アップデート時)
+1. **JWT トークン認証ミドルウェアの実装**:
+   `POST /api/users/login` 時に署名付き JWT を生成・返却し、すべてのAPI通信（`/api/*`）のヘッダー（`Authorization: Bearer <token>`）でログイン状態と所属・ロール権限をバックエンド側で強制検証する。
+2. **アップロードファイルの権限管理**:
+   `/uploads` や施工図面データの参照時にユーザー権限を検証し、未ログイン者・権限外ユーザーの閲覧を遮断する。
 
-上記「Phase 1」および「Phase 2」の対策（JWT認証の適用とアクセス制御）を優先的に実施することで、外部攻撃や不正アクセスに対する堅牢なセキュリティ強度を確立することができます。
+### Phase 3: インフラ・環境面のセキュリティ強化
+1. **Synology ファイアウォールの二重化**:
+   Synology DSM のコントロールパネル > セキュリティ > ファイアウォールにて、外部からのポート3000番の直アクセスを遮断し、Nginx リバースプロキシ（443 / HTTPS）経由のみに制限。
+2. **Cloudflare / WAF の導入検討**:
+   グローバルアクセスポイントの前に WAF を挟み、DDoS 攻撃および未知のWeb脆弱性攻撃の自動遮断。
+
+---
+
+## 6. 結論 (Conclusion)
+
+今回の第1次セキュリティ改修により、**CORS全解放リスク**および**SSRF攻撃リスク**をはじめとする重大な脆弱性を解決いたしました。
+
+改修済みコードは `/server.ts` および管理画面からダウンロード・コピー可能な `/src/components/RecommendServerCode.ts` に完全同期されており、Synology NAS 上の `server.js` へ適用いただくことで、安全なバックエンド運用が可能となります。

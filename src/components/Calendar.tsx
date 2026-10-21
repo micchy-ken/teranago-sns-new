@@ -1573,7 +1573,7 @@ export function Calendar({
 
       const layout = hourLayouts[h];
       if (layout && layout.width > 0) {
-        const frac = (m + s / 60) / 60;
+        const frac = m / 60;
         return layout.left + frac * layout.width;
       }
 

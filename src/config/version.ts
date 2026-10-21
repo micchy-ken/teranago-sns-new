@@ -14,10 +14,10 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.20.5',
+  version: '2026.10.20.7',
   date: '2026-10-20',
-  releaseNumber: 5,
-  display: 'v2026.10.20 #5',
-  description: 'Synology NAS向けAPIサーバー（server.js）のセキュリティ強化（CORS制限・SSRF防御・セキュリティ応答ヘッダー・レートリミット・10MBボディ上限）対応',
+  releaseNumber: 7,
+  display: 'v2026.10.20 #7',
+  description: 'カレンダー位置計算（getXPositionFromDate）での未定義変数参照バグ (ReferenceError: s is not defined) の修正',
 };
 
