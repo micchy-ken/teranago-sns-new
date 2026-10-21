@@ -14,10 +14,10 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.20.12',
+  version: '2026.10.20.13',
   date: '2026-10-20',
-  releaseNumber: 12,
-  display: 'v2026.10.20 #12',
-  description: 'カスタムアバターアイコンの巨大化防止（36px固定）、マップアイコンクリック時のスムースセンタリング、および黒線の白抜き名前ラベル対応',
+  releaseNumber: 13,
+  display: 'v2026.10.20 #13',
+  description: 'ズームスケール連動の非重複・近接配置（拡大時に地点へ接近）、名前カード高コントラスト化、および強調色（線・枠・起点）の青色統一対応',
 };
 

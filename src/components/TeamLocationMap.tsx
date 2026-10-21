@@ -188,6 +188,7 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
 
   // 地図スタイル選択 (減色ライト / 標準 / ダーク)
   const [mapStyle, setMapStyle] = useState<MapStyleType>('light');
+  const [currentZoom, setCurrentZoom] = useState<number>(9);
 
   // 自動更新コントロール
   const [isAutoRefreshEnabled, setIsAutoRefreshEnabled] = useState<boolean>(true);
@@ -367,6 +368,7 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
     });
 
     // 拠点座標ごとにグループ化して引き出し線 (Spiderfy) 放射配置を計算
+    // ★ 要望②: 拡大（ズームイン）時に重ならない距離を画面ピクセル単位で保ちつつ極力地図上の位置に近づく処理
     const coordGroups: Record<string, typeof rawStatuses> = {};
     rawStatuses.forEach((st) => {
       const key = `${st.coords[0].toFixed(3)}_${st.coords[1].toFixed(3)}`;
@@ -379,18 +381,46 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
       if (N === 1) {
         group[0].spiderCoords = [group[0].coords[0], group[0].coords[1]];
       } else {
-        const baseRadius = 0.018 + 0.003 * Math.min(N, 10);
+        const centerLat = group[0].coords[0];
+        const centerLng = group[0].coords[1];
+        // 画面ピクセル基準の展開半径（重なりを防ぎつつ、ズームイン時は極力地図上の位置に接近）
+        const pixelRadius = Math.max(46, 32 + N * 3);
+        const map = mapInstanceRef.current;
+
         group.forEach((st, idx) => {
           const angle = (2 * Math.PI * idx) / N - Math.PI / 2;
-          const latOffset = baseRadius * Math.sin(angle);
-          const lngOffset = baseRadius * Math.cos(angle) * 1.25;
-          st.spiderCoords = [st.coords[0] + latOffset, st.coords[1] + lngOffset];
+          if (map) {
+            try {
+              const centerPoint = map.project(L.latLng(centerLat, centerLng), currentZoom);
+              const spiderPoint = L.point(
+                centerPoint.x + pixelRadius * Math.cos(angle),
+                centerPoint.y + pixelRadius * Math.sin(angle)
+              );
+              const unprojected = map.unproject(spiderPoint, currentZoom);
+              st.spiderCoords = [unprojected.lat, unprojected.lng];
+            } catch {
+              const degPerPixelLat = 1.152 / Math.pow(2, currentZoom);
+              const degPerPixelLng = 1.406 / Math.pow(2, currentZoom);
+              st.spiderCoords = [
+                centerLat + pixelRadius * Math.sin(angle) * degPerPixelLat,
+                centerLng + pixelRadius * Math.cos(angle) * degPerPixelLng,
+              ];
+            }
+          } else {
+            // マップ初期化前フォールバック (ズームレベルに応じた角度計算)
+            const degPerPixelLat = 1.152 / Math.pow(2, currentZoom);
+            const degPerPixelLng = 1.406 / Math.pow(2, currentZoom);
+            st.spiderCoords = [
+              centerLat + pixelRadius * Math.sin(angle) * degPerPixelLat,
+              centerLng + pixelRadius * Math.cos(angle) * degPerPixelLng,
+            ];
+          }
         });
       }
     });
 
     return rawStatuses;
-  }, [teamMembers, events, currentDate, selectedMinutes, lastRefreshedAt, offices]);
+  }, [teamMembers, events, currentDate, selectedMinutes, lastRefreshedAt, offices, currentZoom]);
 
   const filteredMemberStatuses = useMemo(() => {
     return memberStatuses.filter((s) => {
@@ -417,6 +447,10 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
         center: [35.1814, 136.9064],
         zoom: 9,
         zoomControl: true,
+      });
+
+      map.on('zoomend', () => {
+        setCurrentZoom(map.getZoom());
       });
 
       const tile = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -463,14 +497,15 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
           drawnHubs.add(hubKey);
           const count = clusterGroup.length;
 
-          // 起点ドット (Origin Dot)
-          const dotColor = mapStyle === 'dark' ? '#a5b4fc' : '#4f46e5';
+          // 起点ドット (Origin Dot) - 選択時は青色強調
+          const isThisHubSelected = clusterGroup.some((s) => s.member.id === highlightedMemberId);
+          const dotColor = isThisHubSelected ? '#2563eb' : (mapStyle === 'dark' ? '#60a5fa' : '#3b82f6');
           const originDot = L.circleMarker(coords, {
-            radius: isSelected ? 7 : 5,
+            radius: isThisHubSelected ? 7 : 5,
             fillColor: dotColor,
             fillOpacity: 1,
             color: '#ffffff',
-            weight: 2,
+            weight: isThisHubSelected ? 2.5 : 2,
           });
           markersLayerRef.current!.addLayer(originDot);
 
@@ -481,25 +516,25 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
               : locationName.substring(0, 10);
 
             const hubIconHtml = `
-              <div className="flex items-center gap-1.5 bg-indigo-950/90 text-white text-[11px] font-extrabold px-2.5 py-1 rounded-full shadow-lg border-2 border-indigo-400 backdrop-blur-xs whitespace-nowrap">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+              <div style="display: flex; align-items: center; gap: 5px; background: rgba(15, 23, 42, 0.92); color: #ffffff; font-size: 11px; font-weight: 800; padding: 3px 9px; border-radius: 9999px; box-shadow: 0 4px 12px rgba(0,0,0,0.4); border: 2px solid ${isThisHubSelected ? '#3b82f6' : '#6366f1'}; white-space: nowrap;">
+                <span style="display: inline-block; width: 7px; height: 7px; border-radius: 9999px; background: #38bdf8;"></span>
                 <span>${hubName} (${count}名)</span>
               </div>
             `;
             const hubIcon = L.divIcon({
               html: hubIconHtml,
               className: 'location-hub-marker',
-              iconSize: [100, 26],
-              iconAnchor: [50, 13],
+              iconSize: [110, 26],
+              iconAnchor: [55, 13],
             });
             L.marker(coords, { icon: hubIcon }).addTo(markersLayerRef.current!);
           }
         }
 
-        // 【対策A+B複合】起点ドットからアバターピンへの引き出し線 (Spider Line) 描画＆強調発光ハイライト
+        // 【要請③: 線と枠の強調の色を青に】起点ドットからアバターピンへの引き出し線 (Spider Line)
         if (isClustered) {
           const isLineActive = isSelected || !isAnySelected;
-          const lineColor = isSelected ? '#ec4899' : (mapStyle === 'dark' ? '#818cf8' : '#6366f1');
+          const lineColor = isSelected ? '#2563eb' : (mapStyle === 'dark' ? '#60a5fa' : '#3b82f6');
           const lineWeight = isSelected ? 4 : 2;
           const lineOpacity = isSelected ? 1.0 : (isAnySelected ? 0.2 : 0.85);
 
@@ -512,41 +547,39 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
           markersLayerRef.current!.addLayer(line);
         }
 
-        // バッジ
-        let badgeBg = 'bg-indigo-600 border-indigo-200 text-white';
+        // 状態バッジスタイル
+        let badgeBgStyle = 'background: #4f46e5; color: #ffffff; border: 1px solid #c7d2fe;';
         let badgeLabel = officeBadge || '🏢 本社';
-        let ringEffect = '';
 
         if (statusType === 'on_site') {
-          badgeBg = 'bg-emerald-600 border-emerald-200 text-white';
+          badgeBgStyle = 'background: #059669; color: #ffffff; border: 1px solid #a7f3d0;';
           badgeLabel = '📍 作業中';
-          ringEffect = 'ring-2 ring-emerald-500/50';
         } else if (statusType === 'in_transit') {
-          badgeBg = 'bg-amber-500 border-amber-200 text-white';
+          badgeBgStyle = 'background: #d97706; color: #ffffff; border: 1px solid #fde68a;';
           badgeLabel = '🚗 移動中';
-          ringEffect = 'ring-2 ring-amber-500/60 animate-pulse';
         }
 
-        if (isSelected) {
-          ringEffect = 'ring-4 ring-pink-500 scale-110 z-50';
-        }
+        // 【要請③: 枠の強調色を青に】
+        const ringEffectStyle = isSelected
+          ? 'border: 3px solid #2563eb !important; box-shadow: 0 0 0 4px rgba(37,99,235,0.5), 0 4px 14px rgba(0,0,0,0.35) !important; transform: scale(1.12); z-index: 50;'
+          : 'border: 2px solid #ffffff !important; box-shadow: 0 2px 6px rgba(0,0,0,0.25) !important;';
 
-        const avatarOpacity = isAnySelected && !isSelected ? 'opacity-40' : 'opacity-100';
+        const avatarOpacity = isAnySelected && !isSelected ? '0.4' : '1';
         const avatarUrl = member.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(member.name)}&background=random`;
 
-        // ★ 改善①: アバターアイコンサイズを強制固定 (36px x 36px)
-        // ★ 改善②: 黒線の白抜き文字 (member-name-label) で名前の視認性を極大化
+        // ★ 要請①: 名前がはっきり見える高コントラストカード（背景不透明・白文字・外枠）
+        // ★ 要請③: 強調枠を青色に
         const customIconHtml = `
-          <div className="relative group cursor-pointer flex flex-col items-center transition-all ${avatarOpacity}">
+          <div style="display: flex; flex-direction: column; align-items: center; cursor: pointer; user-select: none; opacity: ${avatarOpacity}; transition: opacity 0.2s;">
             <!-- Avatar Ring -->
-            <div className="relative rounded-full shadow-md border-2 border-white overflow-visible bg-white ${ringEffect}">
-              <img src="${avatarUrl}" className="w-9 h-9 rounded-full object-cover shrink-0" style="width:36px !important;height:36px !important;max-width:36px !important;max-height:36px !important;min-width:36px !important;min-height:36px !important;object-fit:cover !important;border-radius:9999px !important;" alt="${member.name}" />
-              <span className="absolute -bottom-1 -right-1 text-[9px] font-extrabold px-1.5 py-0.2 rounded-full border shadow-xs whitespace-nowrap ${badgeBg}">
+            <div style="position: relative; width: 38px; height: 38px; border-radius: 9999px; background: #ffffff; transition: transform 0.2s; ${ringEffectStyle}">
+              <img src="${avatarUrl}" style="width: 100% !important; height: 100% !important; max-width: 100% !important; max-height: 100% !important; object-fit: cover !important; border-radius: 9999px !important; display: block;" alt="${member.name}" />
+              <span style="position: absolute; bottom: -3px; right: -8px; font-size: 9px; font-weight: 800; padding: 1px 5px; border-radius: 9999px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); white-space: nowrap; ${badgeBgStyle}">
                 ${badgeLabel}
               </span>
             </div>
-            <!-- Name Label (1行・黒線の白抜き文字) -->
-            <div className="mt-1 px-2 py-0.5 bg-slate-900/90 text-white text-[11px] font-black rounded-md shadow-md border border-slate-700/80 whitespace-nowrap overflow-hidden select-none member-name-label">
+            <!-- Name Label Card: 100%不透明な背景プレートで地図上の文字と重ならず鮮明に視認可能 -->
+            <div style="margin-top: 5px; padding: 2px 8px; background: ${isSelected ? '#1d4ed8' : '#0f172a'}; color: #ffffff !important; font-weight: 800; font-size: 11px; line-height: 1.25; border-radius: 6px; border: ${isSelected ? '2px solid #93c5fd' : '1.5px solid #334155'}; box-shadow: 0 3px 8px rgba(0,0,0,0.5); white-space: nowrap; text-align: center; letter-spacing: 0.02em; pointer-events: none; text-shadow: 0 1px 2px rgba(0,0,0,0.9);">
               ${member.name}
             </div>
           </div>
@@ -880,7 +913,7 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
                       }}
                       className={`p-2.5 rounded-xl transition-all cursor-pointer ${
                         isSelected
-                          ? 'bg-pink-50/90 border-2 border-pink-400 shadow-md ring-2 ring-pink-300'
+                          ? 'bg-blue-50/95 border-2 border-blue-500 shadow-md ring-2 ring-blue-300'
                           : 'hover:bg-indigo-50/60 border border-transparent'
                       }`}
                     >
@@ -889,7 +922,7 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
                           <img
                             src={member.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(member.name)}&background=random`}
                             className={`w-8 h-8 rounded-full object-cover border shrink-0 ${
-                              isSelected ? 'border-pink-500 ring-2 ring-pink-400' : 'border-slate-200'
+                              isSelected ? 'border-blue-600 ring-2 ring-blue-400' : 'border-slate-200'
                             }`}
                             alt={member.name}
                           />
