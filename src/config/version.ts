@@ -14,10 +14,10 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.20.2',
+  version: '2026.10.20.5',
   date: '2026-10-20',
-  releaseNumber: 2,
-  display: 'v2026.10.20 #2',
-  description: '点検予定管理からのスケジュール確定登録およびカレンダー行事の日本標準時（JST / UTC+9）厳格準拠・9時間ズレ防止改修',
+  releaseNumber: 5,
+  display: 'v2026.10.20 #5',
+  description: 'Synology NAS向けAPIサーバー（server.js）のセキュリティ強化（CORS制限・SSRF防御・セキュリティ応答ヘッダー・レートリミット・10MBボディ上限）対応',
 };
 

@@ -33,6 +33,7 @@ import {
 import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
 import { MaintenanceDailyReportView } from './MaintenanceDailyReport';
 import { markReportAsRead } from '../utils/notifications';
+import { getLocalDateStr } from '../utils/dateUtils';
 
 interface DailyReportProps {
   reports: DailyReport[];
@@ -53,41 +54,37 @@ interface DailyReportProps {
   itemMasters?: any[];
 }
 
-// ヘルパー: 指定日の週の月曜日（YYYY-MM-DD）を取得
-function getMonday(d: Date): string {
-  const date = new Date(d);
-  const day = date.getDay();
-  const diff = date.getDate() - day + (day === 0 ? -6 : 1);
-  const monday = new Date(date.setDate(diff));
-  return monday.toISOString().split('T')[0];
+// ヘルパー: 指定日の週の月曜日（YYYY-MM-DD）を取得 (JST準拠)
+function getMonday(d: Date | string): string {
+  const ymd = getLocalDateStr(d);
+  if (!ymd) return '';
+  const jstDate = new Date(`${ymd}T12:00:00+09:00`);
+  const day = jstDate.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  const mondayDate = new Date(jstDate.getTime() + diff * 86400000);
+  return getLocalDateStr(mondayDate);
 }
 
-// ヘルパー: 月曜日から「YYYY年M月D日週 (M/D〜M/D)」表記を生成
+// ヘルパー: 月曜日から「YYYY年M月D日週 (M/D〜M/D)」表記を生成 (JST準拠)
 function formatWeekLabel(mondayStr: string): string {
   if (!mondayStr) return '';
-  const monday = new Date(mondayStr);
-  const friday = new Date(monday);
-  friday.setDate(monday.getDate() + 4);
-
-  const y = monday.getFullYear();
-  const m = monday.getMonth() + 1;
-  const d = monday.getDate();
-  const fm = friday.getMonth() + 1;
-  const fd = friday.getDate();
+  const [y, m, d] = mondayStr.split('-').map(Number);
+  const monDate = new Date(`${mondayStr}T12:00:00+09:00`);
+  const friDate = new Date(monDate.getTime() + 4 * 86400000);
+  const [fy, fm, fd] = getLocalDateStr(friDate).split('-').map(Number);
 
   return `${y}年${m}月${d}日週 (${m}/${d}〜${fm}/${fd})`;
 }
 
-// 基準となる週のリスト（現在および過去・未来数週間）
+// 基準となる週のリスト（現在および過去・未来数週間）(JST準拠)
 function generateRecentWeeks(baseDateStr: string = '2026-08-17'): { start: string; label: string }[] {
-  const base = new Date(baseDateStr);
-  const baseMonday = new Date(getMonday(base));
+  const baseMonday = getMonday(baseDateStr);
+  const baseMondayDate = new Date(`${baseMonday}T12:00:00+09:00`);
   const weeks = [];
 
   for (let i = -4; i <= 4; i++) {
-    const w = new Date(baseMonday);
-    w.setDate(baseMonday.getDate() + (i * 7));
-    const mondayStr = w.toISOString().split('T')[0];
+    const w = new Date(baseMondayDate.getTime() + (i * 7 * 86400000));
+    const mondayStr = getLocalDateStr(w);
     weeks.push({
       start: mondayStr,
       label: formatWeekLabel(mondayStr)

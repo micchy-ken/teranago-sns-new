@@ -8,7 +8,7 @@ import { renderWithClickableLinks } from '../utils/linkify';
 import { renderContentWithLinks } from '../utils/renderContentWithLinks';
 import { UrlPastePopup, useUrlPasteHandler } from './common/UrlPastePopup';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
-import { getLocalDateStr, addMinutesToLocalDatetime, getJstHourAndMinutes } from '../utils/dateUtils';
+import { getLocalDateStr, addMinutesToLocalDatetime, getJstHourAndMinutes, formatDateJST, formatTimeJST, getJstDateParts } from '../utils/dateUtils';
 import { triggerPushNotification } from '../utils/pushNotifications';
 import { expandRecurringEvents, planRecurrenceSave, isExpandedRecurrenceId, extractDateFromInstanceId } from '../utils/recurrenceUtils';
 import { RecurrenceActionModal, RecurrenceActionScope } from './RecurrenceActionModal';
@@ -1512,14 +1512,14 @@ export function Calendar({
       dayRelevantEvents.forEach(e => {
         if (e.isAllDay) return;
         const { sDate, eDate } = getEventSpan(e);
-        if (!isNaN(sDate.getTime()) && sDate.getHours() < minH) {
-          minH = Math.max(0, sDate.getHours());
+        const { hour: sHour } = getJstHourAndMinutes(sDate);
+        if (sHour < minH) {
+          minH = Math.max(0, sHour);
         }
-        if (!isNaN(eDate.getTime())) {
-          let endH = eDate.getHours();
-          if (eDate.getMinutes() > 0) endH = Math.min(23, endH);
-          if (endH > maxH) maxH = Math.min(23, endH);
-        }
+        const { hour: eHour, minute: eMin } = getJstHourAndMinutes(eDate);
+        let endH = eHour;
+        if (eMin > 0) endH = Math.min(23, endH);
+        if (endH > maxH) maxH = Math.min(23, endH);
       });
 
       hours = Array.from({ length: maxH - minH + 1 }, (_, i) => i + minH);
@@ -1529,9 +1529,9 @@ export function Calendar({
       dayRelevantEvents.forEach(e => {
         if (e.isAllDay) return;
         const { sDate, eDate } = getEventSpan(e);
-        const sH = sDate.getHours();
-        let eH = eDate.getHours();
-        const eMin = eDate.getMinutes();
+        const { hour: sH } = getJstHourAndMinutes(sDate);
+        const { hour: eHour, minute: eMin } = getJstHourAndMinutes(eDate);
+        let eH = eHour;
         if (eMin === 0 && eH > sH) {
           eH = eH - 1;
         }
@@ -1561,11 +1561,9 @@ export function Calendar({
         .join(' '),
     };
 
-    // 4. 実測された各時間列のX軸座標（px）から正確なピクセル位置を取得
+    // 4. 実測された各時間列のX軸座標（px）から正確なピクセル位置を取得（JST準拠）
     const getXPositionFromDate = (date: Date): number => {
-      const h = date.getHours();
-      const m = date.getMinutes();
-      const s = date.getSeconds();
+      const { hour: h, minute: m } = getJstHourAndMinutes(date);
 
       if (h < minHour) return 0;
       if (h > maxHour) {
@@ -1784,13 +1782,14 @@ export function Calendar({
           newEndIso = new Date(newStart.getTime() + 60 * 60 * 1000).toISOString();
         }
       } else {
-        const oldStart = new Date(ev.start);
-        const hours = String(oldStart.getHours()).padStart(2, '0');
-        const minutes = String(oldStart.getMinutes()).padStart(2, '0');
+        const { hour: hNum, minute: mNum } = getJstHourAndMinutes(ev.start);
+        const hours = String(hNum).padStart(2, '0');
+        const minutes = String(mNum).padStart(2, '0');
         const newStart = new Date(`${targetDateStr}T${hours}:${minutes}:00+09:00`);
         newStartIso = newStart.toISOString();
         if (ev.end) {
-          const duration = new Date(ev.end).getTime() - oldStart.getTime();
+          const oldStartMs = new Date(ev.start).getTime();
+          const duration = new Date(ev.end).getTime() - oldStartMs;
           newEndIso = new Date(newStart.getTime() + duration).toISOString();
         } else {
           newEndIso = new Date(newStart.getTime() + 60 * 60 * 1000).toISOString();
@@ -1948,16 +1947,15 @@ export function Calendar({
     let maxH = 20;
     filteredEvents.forEach(e => {
       if (e.isAllDay) return;
-      const s = new Date(e.start);
-      if (!isNaN(s.getTime()) && s.getHours() < minH) {
-        minH = Math.max(0, s.getHours());
+      const { hour: sH } = getJstHourAndMinutes(e.start);
+      if (sH < minH) {
+        minH = Math.max(0, sH);
       }
-      const endD = e.end ? new Date(e.end) : new Date(s.getTime() + 60 * 60 * 1000);
-      if (!isNaN(endD.getTime())) {
-        let endH = endD.getHours();
-        if (endD.getMinutes() > 0) endH = Math.min(23, endH);
-        if (endH > maxH) maxH = Math.min(23, endH);
-      }
+      const endVal = e.end || e.start;
+      const { hour: eH, minute: eMin } = getJstHourAndMinutes(endVal);
+      let endHourVal = eH;
+      if (eMin > 0) endHourVal = Math.min(23, endHourVal);
+      if (endHourVal > maxH) maxH = Math.min(23, endHourVal);
     });
     return Array.from({ length: maxH - minH + 1 }, (_, i) => i + minH);
   }, [filteredEvents]);
@@ -3617,7 +3615,7 @@ export function Calendar({
                     >
                       <div className="sm:w-24 shrink-0 flex sm:flex-col items-center sm:items-center sm:justify-center justify-between pb-2 sm:pb-0 border-b sm:border-b-0 border-slate-100">
                         <div className="text-xs font-bold text-slate-600 uppercase tracking-wider bg-slate-100 px-2 py-0.5 rounded sm:bg-transparent sm:p-0">
-                          {new Date(e.start).toLocaleDateString('ja-JP', {month:'short', day:'numeric'})}
+                          {new Date(e.start).toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo', month: 'short', day: 'numeric' })}
                         </div>
                         <div className="text-xs sm:text-sm font-extrabold text-indigo-700 sm:text-slate-800 sm:mt-1">
                           {formatEventTime(e)}

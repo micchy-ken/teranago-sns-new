@@ -4,7 +4,7 @@ import { AppTab } from './Sidebar';
 import { getAvatarUrl, SILHOUETTE_SVG, optimizeAvatarFile } from '../utils/avatar';
 import { API_BASE_URL } from '../config/api';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
-import { getLocalDateStr } from '../utils/dateUtils';
+import { getLocalDateStr, formatTimeJST, getJstDateParts } from '../utils/dateUtils';
 import { expandRecurringEvents } from '../utils/recurrenceUtils';
 import {
   getPushNotificationStatus,
@@ -1373,14 +1373,19 @@ export function MyPage({
                             </span>
                           )}
 
-                          <div className="bg-slate-100 text-slate-800 p-2.5 rounded-xl text-center min-w-[56px] shrink-0 border border-slate-200">
-                            <div className="text-[10px] font-extrabold text-indigo-600 uppercase">
-                              {eventDate.toLocaleDateString('ja-JP', { weekday: 'short' })}
-                            </div>
-                            <div className="text-base font-black leading-tight">
-                              {eventDate.getDate()}
-                            </div>
-                          </div>
+                          {(() => {
+                            const evtParts = getJstDateParts(evt.start);
+                            return (
+                              <div className="bg-slate-100 text-slate-800 p-2.5 rounded-xl text-center min-w-[56px] shrink-0 border border-slate-200">
+                                <div className="text-[10px] font-extrabold text-indigo-600 uppercase">
+                                  {evtParts.weekdayShort}
+                                </div>
+                                <div className="text-base font-black leading-tight">
+                                  {evtParts.day}
+                                </div>
+                              </div>
+                            );
+                          })()}
 
                           <div className="flex-1 min-w-0 pr-12">
                             <div className="flex items-center gap-2 mb-1">
@@ -1407,7 +1412,7 @@ export function MyPage({
                                 }
                               </span>
                               <span className="text-xs font-mono text-slate-500">
-                                {eventDate.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}
+                                {formatTimeJST(evt.start)}
                               </span>
                             </div>
 

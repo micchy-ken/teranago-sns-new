@@ -3,6 +3,7 @@ import { API_BASE_URL } from '../config/api';
 import { DailyReport, User } from '../types';
 import { triggerPushNotification } from '../utils/pushNotifications';
 import { dispatchNotificationEmail } from '../utils/emailNotificationDispatcher';
+import { getLocalDateStr } from '../utils/dateUtils';
 
 export interface UseReportManagementOptions {
   currentUser: User | null;
@@ -149,7 +150,7 @@ export function useReportManagement({
       id: tempId,
       author: currentUser,
       reportType: reportData.reportType || 'weekly',
-      date: reportData.date || new Date().toISOString().split('T')[0],
+      date: reportData.date || getLocalDateStr(new Date()),
       weekStartDate: reportData.weekStartDate,
       weekLabel: reportData.weekLabel,
       department: reportData.department || currentUser.department || '総務',

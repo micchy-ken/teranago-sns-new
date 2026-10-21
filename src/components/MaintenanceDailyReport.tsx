@@ -300,11 +300,10 @@ export function MaintenanceDailyReportView({
     return raw as MaintenanceDailyReportData;
   }, [report]);
 
-  // 日付
+  // 日付 (JST準拠)
   const [reportDate, setReportDate] = useState<string>(() => {
     if (report?.date) return report.date.split('T')[0];
-    const today = new Date();
-    return today.toISOString().split('T')[0];
+    return getLocalDateStr(new Date());
   });
 
   // 報告先上長

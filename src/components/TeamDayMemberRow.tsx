@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { CalendarEvent, User } from '../types';
 import { Phone } from 'lucide-react';
 import { getAvatarUrl } from '../utils/avatar';
+import { getJstHourAndMinutes } from '../utils/dateUtils';
 
 export interface TeamDayMemberRowProps {
   member: User;
@@ -93,8 +94,10 @@ export const TeamDayMemberRow: React.FC<TeamDayMemberRowProps> = React.memo(({
 
     sorted.forEach((e) => {
       const { sDate, eDate } = getEventSpan(e);
-      const isStartBeforeMin = (sDate.getHours() + sDate.getMinutes() / 60) < minHour;
-      const endHourFloat = eDate.getHours() + eDate.getMinutes() / 60;
+      const { hour: sH, minute: sM } = getJstHourAndMinutes(sDate);
+      const { hour: eH, minute: eM } = getJstHourAndMinutes(eDate);
+      const isStartBeforeMin = (sH + sM / 60) < minHour;
+      const endHourFloat = eH + eM / 60;
       const isEndAfterMax = endHourFloat >= (maxHour + 1);
 
       const leftPx = isStartBeforeMin ? 0 : getXPositionFromDate(sDate);
@@ -292,18 +295,19 @@ export const TeamDayMemberRow: React.FC<TeamDayMemberRowProps> = React.memo(({
             let displayTimeString = formatEventTime(e);
 
             if (isBeingResized && resizingEvent) {
-              const sDate = new Date(e.start);
+              const { hour: sHNum, minute: sMNum } = getJstHourAndMinutes(e.start);
+              const { hour: eHNum, minute: eMNum } = getJstHourAndMinutes(resizingEvent.currentEndMs);
               const currEnd = new Date(resizingEvent.currentEndMs);
               const endX = getXPositionFromDate(currEnd);
               displayWidthPx = Math.max(28, endX - leftPx);
-              const sH = String(sDate.getHours()).padStart(2, '0');
-              const sM = String(sDate.getMinutes()).padStart(2, '0');
-              const eH = String(currEnd.getHours()).padStart(2, '0');
-              const eM = String(currEnd.getMinutes()).padStart(2, '0');
+              const sH = String(sHNum).padStart(2, '0');
+              const sM = String(sMNum).padStart(2, '0');
+              const eH = String(eHNum).padStart(2, '0');
+              const eM = String(eMNum).padStart(2, '0');
               displayTimeString = `${sH}:${sM} ～ ${eH}:${eM}`;
             }
 
-            const currentStartH = new Date(e.start).getHours();
+            const currentStartH = getJstHourAndMinutes(e.start).hour;
             const activeSlotLayout = hourLayouts[currentStartH] || hourLayouts[minHour];
             const slotW = activeSlotLayout?.width || 100;
 

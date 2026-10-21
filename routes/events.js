@@ -55,6 +55,10 @@ function parseEventDate(val) {
     if (!isNaN(d.getTime())) return d;
   }
   const normalized = s.replace(' ', 'T');
+  if (normalized.length === 10) {
+    const dDateOnly = new Date(`${normalized}T00:00:00+09:00`);
+    if (!isNaN(dDateOnly.getTime())) return dDateOnly;
+  }
   const dJst = new Date(`${normalized}${normalized.length === 16 ? ':00' : ''}+09:00`);
   if (!isNaN(dJst.getTime())) return dJst;
   const fallback = new Date(s);

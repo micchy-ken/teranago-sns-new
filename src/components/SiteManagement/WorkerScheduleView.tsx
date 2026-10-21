@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { User as UserIcon, Calendar, MapPin, Building, Wrench, CheckCircle2, Clock, ChevronLeft, ChevronRight, Layers, Phone } from 'lucide-react';
 import { Site, SiteMainPart } from '../../types/site';
 import { User } from '../../types';
+import { getLocalDateStr } from '../../utils/dateUtils';
 
 interface WorkerScheduleViewProps {
   sites: Site[];
@@ -336,7 +337,7 @@ export const WorkerScheduleView: React.FC<WorkerScheduleViewProps> = ({
 
             {monthGrid.map((cell, idx) => {
               const dayAssignments = myAssignments.filter(a => a.date === cell.dateStr);
-              const isToday = new Date().toISOString().slice(0, 10) === cell.dateStr;
+              const isToday = getLocalDateStr(new Date()) === cell.dateStr;
 
               return (
                 <div

@@ -177,8 +177,49 @@ export function getJstHourAndMinutes(dateInput: Date | string | number | null | 
 }
 
 /**
+ * JST で年月日・時分秒・曜日をパーツオブジェクトとして正確に取得
+ */
+export function getJstDateParts(dateInput: Date | string | number | null | undefined): {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+  weekdayShort: string;
+} {
+  const fallback = { year: 2026, month: 1, day: 1, hour: 9, minute: 0, second: 0, weekdayShort: '月' };
+  if (!dateInput) return fallback;
+  const d = typeof dateInput === 'string' || typeof dateInput === 'number' ? new Date(dateInput) : dateInput;
+  if (isNaN(d.getTime())) return fallback;
+
+  const formatter = new Intl.DateTimeFormat('ja-JP', {
+    timeZone: 'Asia/Tokyo',
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: 'numeric',
+    second: 'numeric',
+    weekday: 'short',
+    hour12: false,
+  });
+  const parts = formatter.formatToParts(d);
+  const year = Number(parts.find(p => p.type === 'year')?.value ?? 2026);
+  const month = Number(parts.find(p => p.type === 'month')?.value ?? 1);
+  const day = Number(parts.find(p => p.type === 'day')?.value ?? 1);
+  let hour = Number(parts.find(p => p.type === 'hour')?.value ?? 0);
+  if (hour === 24) hour = 0;
+  const minute = Number(parts.find(p => p.type === 'minute')?.value ?? 0);
+  const second = Number(parts.find(p => p.type === 'second')?.value ?? 0);
+  const weekdayShort = parts.find(p => p.type === 'weekday')?.value ?? '月';
+
+  return { year, month, day, hour, minute, second, weekdayShort };
+}
+
+/**
  * 日時文字列やDateを確実にJST基準のISO文字列（UTCオフセット付き）に正規化
- * "YYYY-MM-DDTHH:mm:ss" や "YYYY-MM-DD HH:mm:ss" のようにタイムゾーン無しの場合は JST (+09:00) を補完
+ * "YYYY-MM-DD", "YYYY-MM-DDTHH:mm", "YYYY-MM-DDTHH:mm:ss" のようにタイムゾーン無しの場合は JST (+09:00) を補完
  */
 export function ensureJstIsoString(val: string | Date | null | undefined): string {
   if (!val) return new Date().toISOString();
@@ -191,7 +232,12 @@ export function ensureJstIsoString(val: string | Date | null | undefined): strin
     return !isNaN(d.getTime()) ? d.toISOString() : s;
   }
   const normalized = s.replace(' ', 'T');
+  if (normalized.length === 10) {
+    const dDateOnly = new Date(`${normalized}T00:00:00+09:00`);
+    return !isNaN(dDateOnly.getTime()) ? dDateOnly.toISOString() : new Date(s).toISOString();
+  }
   const dJst = new Date(`${normalized}${normalized.length === 16 ? ':00' : ''}+09:00`);
   return !isNaN(dJst.getTime()) ? dJst.toISOString() : new Date(s).toISOString();
 }
+
 

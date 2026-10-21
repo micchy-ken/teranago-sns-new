@@ -4,7 +4,7 @@ import { EventType, CalendarEvent, OfficeMaster, DivisionMaster, User, Attachmen
 import { getAvatarUrl } from '../utils/avatar';
 import { uploadMultipleFiles, isPreviewable } from '../utils/fileUpload';
 import { FilePreviewModal } from './FilePreviewModal';
-import { getLocalDateStr } from '../utils/dateUtils';
+import { getLocalDateStr, getJstHourAndMinutes } from '../utils/dateUtils';
 import { calculateWeekOfMonth, isRecurringEvent, getRecurrenceLabel, safeParseRecurrence } from '../utils/recurrenceUtils';
 import { RecurrenceActionModal, RecurrenceActionScope } from './RecurrenceActionModal';
 import { UrlPastePopup, useUrlPasteHandler } from './common/UrlPastePopup';
@@ -69,17 +69,20 @@ const extractLocalDateStr = (isoOrDateStr?: string) => {
 const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
 const MINUTES = Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, '0'));
 
-// 現在の時刻を30分刻みで丸めた (例: 14:00〜14:14 -> 14:00, 14:15〜14:44 -> 14:30, 14:45〜14:59 -> 15:00)
-const getRounded30MinTime = (date: Date = new Date()): { hours: string; minutes: string } => {
-  const d = new Date(date);
-  const minutes = d.getMinutes();
-  const roundedMin = Math.round(minutes / 30) * 30;
-  d.setMinutes(roundedMin, 0, 0);
-
+// 現在の時刻を30分刻みで丸めた (例: 14:00〜14:14 -> 14:00, 14:15〜14:44 -> 14:30, 14:45〜14:59 -> 15:00) JST準拠
+const getRounded30MinTime = (dateInput: Date | string = new Date()): { hours: string; minutes: string } => {
+  const { hour, minute } = getJstHourAndMinutes(dateInput);
+  const roundedMin = Math.round(minute / 30) * 30;
+  let finalH = hour;
+  let finalM = roundedMin;
+  if (finalM >= 60) {
+    finalH = (finalH + 1) % 24;
+    finalM = 0;
+  }
   const pad = (n: number) => String(n).padStart(2, '0');
   return {
-    hours: pad(d.getHours()),
-    minutes: pad(d.getMinutes()),
+    hours: pad(finalH),
+    minutes: pad(finalM),
   };
 };
 

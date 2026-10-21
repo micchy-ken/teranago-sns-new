@@ -1,3 +1,5 @@
+import { getJstDateParts, formatTimeJST, getLocalDateStr } from './utils/dateUtils';
+
 export function formatRelativeTime(dateString: string): string {
   if (!dateString) return '';
   const date = new Date(dateString);
@@ -8,16 +10,17 @@ export function formatRelativeTime(dateString: string): string {
 
   // 未来の日時の場合（誤って未来の日時が渡された場合の安全処理）
   if (diffInSeconds < 0) {
-    const isSameYear = date.getFullYear() === now.getFullYear();
-    const m = date.getMonth() + 1;
-    const d = date.getDate();
-    const h = String(date.getHours()).padStart(2, '0');
-    const min = String(date.getMinutes()).padStart(2, '0');
+    const dParts = getJstDateParts(date);
+    const nowParts = getJstDateParts(now);
+    const isSameYear = dParts.year === nowParts.year;
+    const h = String(dParts.hour).padStart(2, '0');
+    const min = String(dParts.minute).padStart(2, '0');
     if (isSameYear) {
-      return `${m}/${d} ${h}:${min}`;
+      return `${dParts.month}/${dParts.day} ${h}:${min}`;
     }
-    return `${date.getFullYear()}/${m}/${d}`;
+    return `${dParts.year}/${dParts.month}/${dParts.day}`;
   }
+
 
   if (diffInSeconds < 60) return 'たった今';
   
@@ -45,46 +48,35 @@ export function formatRelativeTime(dateString: string): string {
 }
 
 /**
- * 予定（スケジュール）の実施日時を分かりやすくバッジ形式でフォーマット
+ * 予定（スケジュール）の実施日時を分かりやすくバッジ形式でフォーマット（日本標準時 JST 厳格準拠）
  * 例: "8/25(火) 09:00〜10:00", "8/25(火) 終日"
  */
 export function formatEventScheduleBadge(startIso: string, endIso?: string, isAllDay?: boolean): string {
   if (!startIso) return '';
-  const start = new Date(startIso);
-  if (isNaN(start.getTime())) return startIso;
-
-  const days = ['日', '月', '火', '水', '木', '金', '土'];
-  const m = start.getMonth() + 1;
-  const d = start.getDate();
-  const dow = days[start.getDay()];
+  const sParts = getJstDateParts(startIso);
 
   if (isAllDay) {
-    return `${m}/${d}(${dow}) 終日`;
+    return `${sParts.month}/${sParts.day}(${sParts.weekdayShort}) 終日`;
   }
 
-  const startH = String(start.getHours()).padStart(2, '0');
-  const startM = String(start.getMinutes()).padStart(2, '0');
+  const startH = String(sParts.hour).padStart(2, '0');
+  const startM = String(sParts.minute).padStart(2, '0');
 
   if (!endIso) {
-    return `${m}/${d}(${dow}) ${startH}:${startM}`;
+    return `${sParts.month}/${sParts.day}(${sParts.weekdayShort}) ${startH}:${startM}`;
   }
 
-  const end = new Date(endIso);
-  if (isNaN(end.getTime())) {
-    return `${m}/${d}(${dow}) ${startH}:${startM}`;
-  }
-
-  const endH = String(end.getHours()).padStart(2, '0');
-  const endM = String(end.getMinutes()).padStart(2, '0');
+  const eParts = getJstDateParts(endIso);
+  const endH = String(eParts.hour).padStart(2, '0');
+  const endM = String(eParts.minute).padStart(2, '0');
 
   // 同日の場合は時間のみ範囲表示
-  if (start.toDateString() === end.toDateString()) {
-    return `${m}/${d}(${dow}) ${startH}:${startM}〜${endH}:${endM}`;
+  const isSameDay = getLocalDateStr(startIso) === getLocalDateStr(endIso);
+  if (isSameDay) {
+    return `${sParts.month}/${sParts.day}(${sParts.weekdayShort}) ${startH}:${startM}〜${endH}:${endM}`;
   }
 
   // 日を跨ぐ場合
-  const endMth = end.getMonth() + 1;
-  const endD = end.getDate();
-  const endDow = days[end.getDay()];
-  return `${m}/${d}(${dow}) ${startH}:${startM} 〜 ${endMth}/${endD}(${endDow}) ${endH}:${endM}`;
+  return `${sParts.month}/${sParts.day}(${sParts.weekdayShort}) ${startH}:${startM} 〜 ${eParts.month}/${eParts.day}(${eParts.weekdayShort}) ${endH}:${endM}`;
 }
+

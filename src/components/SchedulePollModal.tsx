@@ -30,6 +30,7 @@ import { API_BASE_URL } from '../config/api';
 import { MemberSelector } from './MemberSelector';
 import { triggerPushNotification } from '../utils/pushNotifications';
 import { dispatchNotificationEmail } from '../utils/emailNotificationDispatcher';
+import { getLocalDateStr, formatTimeJST, formatDateJST, getJstDateParts } from '../utils/dateUtils';
 
 interface SchedulePollModalProps {
   isOpen: boolean;
@@ -75,16 +76,18 @@ export function SchedulePollModal({
   // 候補設定モード: 'manual' | 'auto_free_slots'
   const [candidateMode, setCandidateMode] = useState<'auto_free_slots' | 'manual'>('auto_free_slots');
 
-  // 空き枠自動抽出用State
+  // 空き枠自動抽出用State (JST準拠)
   const [autoStartDate, setAutoStartDate] = useState<string>(() => {
-    const d = new Date();
+    const todayJst = getLocalDateStr(new Date());
+    const d = new Date(`${todayJst}T12:00:00+09:00`);
     d.setDate(d.getDate() + 1); // 明日
-    return d.toISOString().split('T')[0];
+    return getLocalDateStr(d);
   });
   const [autoEndDate, setAutoEndDate] = useState<string>(() => {
-    const d = new Date();
+    const todayJst = getLocalDateStr(new Date());
+    const d = new Date(`${todayJst}T12:00:00+09:00`);
     d.setDate(d.getDate() + 8); // 1週間後
-    return d.toISOString().split('T')[0];
+    return getLocalDateStr(d);
   });
   const [autoTimeStart, setAutoTimeStart] = useState<string>('09:00');
   const [autoTimeEnd, setAutoTimeEnd] = useState<string>('18:00');
@@ -93,11 +96,12 @@ export function SchedulePollModal({
   const [searchingSlots, setSearchingSlots] = useState<boolean>(false);
   const [suggestedSlots, setSuggestedSlots] = useState<FreeSlotSuggestion[]>([]);
 
-  // 手動追加用一時State
+  // 手動追加用一時State (JST準拠)
   const [manualDate, setManualDate] = useState<string>(() => {
-    const d = new Date();
+    const todayJst = getLocalDateStr(new Date());
+    const d = new Date(`${todayJst}T12:00:00+09:00`);
     d.setDate(d.getDate() + 1);
-    return d.toISOString().split('T')[0];
+    return getLocalDateStr(d);
   });
   const [manualStartTime, setManualStartTime] = useState<string>('10:00');
 
@@ -278,12 +282,15 @@ export function SchedulePollModal({
   const handleAddManualCandidate = () => {
     if (!manualDate || !manualStartTime) return;
     const [h, m] = manualStartTime.split(':').map(Number);
-    const start = new Date(manualDate);
-    start.setHours(h, m, 0, 0);
+    const cleanDate = manualDate.includes('T') ? manualDate.split('T')[0] : manualDate;
+    const hStr = String(h || 0).padStart(2, '0');
+    const mStr = String(m || 0).padStart(2, '0');
+    const start = new Date(`${cleanDate}T${hStr}:${mStr}:00+09:00`);
 
     const end = new Date(start.getTime() + formDuration * 60 * 1000);
-    const dateStr = start.toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric', weekday: 'short' });
-    const timeStr = `${start.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}〜${end.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`;
+    const dateParts = getJstDateParts(start);
+    const dateStr = `${dateParts.month}/${dateParts.day}(${dateParts.weekdayShort})`;
+    const timeStr = `${formatTimeJST(start)}〜${formatTimeJST(end)}`;
 
     const newCand: ScheduleCandidate = {
       id: `c_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,

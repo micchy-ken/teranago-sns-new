@@ -1,4 +1,5 @@
 import express from 'express';
+import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
 import net from 'net';
@@ -20,8 +21,69 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  app.use(express.json({ limit: '50mb' }));
-  app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+  // セキュリティ強化レスポンスヘッダーミドルウェア
+  app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    res.setHeader('X-XSS-Protection', '1; mode=block');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    next();
+  });
+
+  // 簡易レートリミットミドルウェア (IP単位での過剰連打・DoS保護)
+  const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+  app.use((req, res, next) => {
+    const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || req.socket.remoteAddress || 'unknown';
+    const now = Date.now();
+    const windowMs = 15 * 60 * 1000; // 15分間
+    const maxRequests = 1000; // 15分間に最大1000リクエスト
+
+    const record = rateLimitMap.get(ip) || { count: 0, resetAt: now + windowMs };
+    if (now > record.resetAt) {
+      record.count = 0;
+      record.resetAt = now + windowMs;
+    }
+    record.count += 1;
+    rateLimitMap.set(ip, record);
+
+    if (record.count > maxRequests) {
+      return res.status(429).json({ error: 'Too Many Requests - リクエスト上限を超えました。時間をおいて再試行してください。' });
+    }
+    next();
+  });
+
+  const allowedOrigins = [
+    'https://micchy-ken.github.io',
+    'https://sns.teranago.synology.me',
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'http://localhost:5173',
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:3001'
+  ];
+
+  app.use(cors({
+    origin: (origin, callback) => {
+      if (
+        !origin ||
+        allowedOrigins.includes(origin) ||
+        origin.startsWith('https://micchy-ken.github.io') ||
+        origin.endsWith('.run.app') ||
+        origin.endsWith('.googleusercontent.com') ||
+        origin.includes('localhost') ||
+        origin.includes('127.0.0.1')
+      ) {
+        callback(null, true);
+      } else {
+        callback(null, true);
+      }
+    },
+    credentials: true
+  }));
+
+  // リクエストボディ上限設定 (DoS攻撃対策: 10MB)
+  app.use(express.json({ limit: '10mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
   const dataDir = path.join(process.cwd(), 'data');
   if (!fs.existsSync(dataDir)) {
@@ -1259,6 +1321,29 @@ async function startServer() {
       .trim();
   }
 
+  function isPrivateHost(hostname: string): boolean {
+    const lower = hostname.toLowerCase();
+    if (
+      lower === 'localhost' ||
+      lower === '127.0.0.1' ||
+      lower === '0.0.0.0' ||
+      lower === '::1' ||
+      lower.endsWith('.local') ||
+      lower.endsWith('.internal')
+    ) {
+      return true;
+    }
+    if (net.isIP(lower) === 4) {
+      const parts = lower.split('.').map(Number);
+      if (parts[0] === 10) return true;
+      if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+      if (parts[0] === 192 && parts[1] === 168) return true;
+      if (parts[0] === 169 && parts[1] === 254) return true;
+      if (parts[0] === 127) return true;
+    }
+    return false;
+  }
+
   app.get('/api/ogp', async (req, res) => {
     const rawUrl = req.query.url as string;
     if (!rawUrl || typeof rawUrl !== 'string') {
@@ -1279,6 +1364,10 @@ async function startServer() {
     try {
       const parsedUrl = new URL(targetUrl);
       const hostname = parsedUrl.hostname;
+
+      if (isPrivateHost(hostname)) {
+        return res.status(400).json({ error: 'プライベートIP・内部ネットワークへのURLアクセスはセキュリティ保護のため禁止されています (SSRF防御)' });
+      }
 
       // Fetch with timeout
       const controller = new AbortController();
@@ -4404,6 +4493,10 @@ async function startServer() {
       return !isNaN(d.getTime()) ? d.toISOString() : s;
     }
     const normalized = s.replace(' ', 'T');
+    if (normalized.length === 10) {
+      const dDateOnly = new Date(`${normalized}T00:00:00+09:00`);
+      return !isNaN(dDateOnly.getTime()) ? dDateOnly.toISOString() : new Date(s).toISOString();
+    }
     const dJst = new Date(`${normalized}${normalized.length === 16 ? ':00' : ''}+09:00`);
     return !isNaN(dJst.getTime()) ? dJst.toISOString() : new Date(s).toISOString();
   }

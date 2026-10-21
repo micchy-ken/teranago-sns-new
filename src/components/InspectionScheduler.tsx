@@ -1525,11 +1525,16 @@ export function InspectionScheduler({
     }
 
     const createdEvents: CalendarEvent[] = itemsToRegister.map((item) => {
+      const rawDate = (item.assignedDate || '').trim();
+      const datePart = rawDate.includes('T') ? rawDate.split('T')[0] : rawDate;
+
       const rawStart = (item.assignedStartTime || '09:00').trim();
-      const startTime = rawStart.length === 4 ? `0${rawStart}` : (rawStart || '09:00');
+      const [sh, sm] = rawStart.includes(':') ? rawStart.split(':') : ['09', '00'];
+      const startTime = `${String(Number(sh) || 9).padStart(2, '0')}:${String(Number(sm) || 0).padStart(2, '0')}`;
+
       const rawEnd = (item.assignedEndTime || '10:00').trim();
-      const endTime = rawEnd.length === 4 ? `0${rawEnd}` : (rawEnd || '10:00');
-      const datePart = (item.assignedDate || '').trim();
+      const [eh, em] = rawEnd.includes(':') ? rawEnd.split(':') : ['10', '00'];
+      const endTime = `${String(Number(eh) || 10).padStart(2, '0')}:${String(Number(em) || 0).padStart(2, '0')}`;
 
       // 日本標準時（JST +09:00）を明示してパースし、UTC ISO文字列に変換（9時間ズレの完全防止）
       const startDateObj = new Date(`${datePart}T${startTime}:00+09:00`);
