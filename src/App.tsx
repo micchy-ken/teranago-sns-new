@@ -645,6 +645,8 @@ export default function App() {
     refetchMemos,
     handleDeleteMemo,
     handleUpdateMemos,
+    handleAddMemoComment,
+    handleDeleteMemoComment,
   } = useMemoManagement({
     currentUser: userState,
     usersList,
@@ -3272,6 +3274,8 @@ export default function App() {
               currentUser={userState}
               onUpdateMemos={handleUpdateMemos}
               onDeleteMemo={handleDeleteMemo}
+              onAddComment={handleAddMemoComment}
+              onDeleteComment={handleDeleteMemoComment}
               initialMemoId={targetMemoId}
               onClearInitialMemoId={() => setTargetMemoId(undefined)}
               initialOpenCreate={autoOpenCreateMemo}

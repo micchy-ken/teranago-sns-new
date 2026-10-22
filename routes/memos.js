@@ -1,8 +1,8 @@
 /**
- * routes/memos.js (本番環境・MS SQL Server & 伝言メモ & 受領者別対応ステータス管理 完全連携版)
+ * routes/memos.js (本番環境・MS SQL Server & 伝言メモ & 受領者別対応ステータス管理 & コメント機能[公開・非公開] 完全連携版)
  * 寺岡オートドアSNS / 寺子屋SNS 伝言メモ管理モジュール
  * 
- * 最終更新: 2026年9月16日 (伝言メモ「対応完了」PUT更新エンドポイント追加・受領者別閲覧&対応状況・スキーマ自動補正・ルーティング耐障害性配列対応 完全版)
+ * 最終更新: 2026年10月22日 (伝言メモコメント機能[公開・非公開/宛先担当者本人のみ閲覧可能]・commentsJson自動スキーマ補正・コメント投稿/削除API完全対応版)
  */
 import { Router } from 'express';
 import sql from 'mssql';
@@ -39,6 +39,7 @@ async function ensureMemosSchema(pool) {
         IF COL_LENGTH('dbo.Memos', 'fromCompany') IS NULL ALTER TABLE dbo.Memos ADD fromCompany NVARCHAR(100) NULL;
         IF COL_LENGTH('dbo.Memos', 'fromPhone') IS NULL ALTER TABLE dbo.Memos ADD fromPhone NVARCHAR(50) NULL;
         IF COL_LENGTH('dbo.Memos', 'isRead') IS NULL ALTER TABLE dbo.Memos ADD isRead BIT DEFAULT 0;
+        IF COL_LENGTH('dbo.Memos', 'commentsJson') IS NULL ALTER TABLE dbo.Memos ADD commentsJson NVARCHAR(MAX) NULL;
       END
     `);
     schemaChecked = true;
@@ -49,9 +50,9 @@ async function ensureMemosSchema(pool) {
 
 // ==========================================
 // 1. 伝言メモ一覧取得 API
-// 対応URL: /api/memos, /api/memos/, /memos, /
+// 対応URL: /api/memos, /memos
 // ==========================================
-router.get(['/memos', '/memos/', '/'], async (req, res) => {
+router.get(['/memos', '/memos/'], async (req, res) => {
   try {
     const pool = await getPool();
     if (pool) {
@@ -122,6 +123,13 @@ router.get(['/memos', '/memos/', '/'], async (req, res) => {
 
         const recipientStatusesJsonStr = JSON.stringify(parsedRecipientStatuses);
 
+        // コメント一覧の抽出・正規化
+        let parsedComments = safeParseJSON(row.commentsJson || detailsObj.comments || detailsObj.commentsJson, []);
+        if (!Array.isArray(parsedComments)) {
+          parsedComments = [];
+        }
+        const commentsJsonStr = JSON.stringify(parsedComments);
+
         return {
           id: String(row.id),
           senderId: row.senderId,
@@ -146,6 +154,8 @@ router.get(['/memos', '/memos/', '/'], async (req, res) => {
           recipientStatuses: parsedRecipientStatuses,
           recipientStatusesJson: recipientStatusesJsonStr,
           recipient_statuses_json: recipientStatusesJsonStr,
+          comments: parsedComments,
+          commentsJson: commentsJsonStr,
           details: {
             ...detailsObj,
             requirementType: row.requirementType || detailsObj.requirementType || 'phone_called',
@@ -153,7 +163,8 @@ router.get(['/memos', '/memos/', '/'], async (req, res) => {
             targetOffices: detailsObj.targetOffices || [],
             targetDivisions: detailsObj.targetDivisions || [],
             recipientStatuses: parsedRecipientStatuses,
-            status: effectiveStatus
+            status: effectiveStatus,
+            comments: parsedComments
           },
           targetOffices: detailsObj.targetOffices || [],
           targetDivisions: detailsObj.targetDivisions || [],
@@ -173,9 +184,9 @@ router.get(['/memos', '/memos/', '/'], async (req, res) => {
 
 // ==========================================
 // 2. 伝言メモ単一取得 API
-// 対応URL: /api/memos/:id, /memos/:id, /:id
+// 対応URL: /api/memos/:id, /memos/:id
 // ==========================================
-router.get(['/memos/:id', '/memos/:id/', '/:id', '/:id/'], async (req, res) => {
+router.get(['/memos/:id', '/memos/:id/'], async (req, res) => {
   try {
     const { id } = req.params;
     const pool = await getPool();
@@ -199,6 +210,9 @@ router.get(['/memos/:id', '/memos/:id/', '/:id', '/:id/'], async (req, res) => {
         const detailsObj = safeParseJSON(row.details, {});
         const repSource = row.recipientStatusesJson || detailsObj.recipientStatuses || detailsObj.recipientStatusesJson;
         const parsedRecipientStatuses = safeParseJSON(repSource, []);
+        let parsedComments = safeParseJSON(row.commentsJson || detailsObj.comments || detailsObj.commentsJson, []);
+        if (!Array.isArray(parsedComments)) parsedComments = [];
+
         return res.json({
           id: String(row.id),
           senderId: row.senderId,
@@ -222,7 +236,12 @@ router.get(['/memos/:id', '/memos/:id/', '/:id', '/:id/'], async (req, res) => {
           status: row.status || detailsObj.status || (row.isRead ? 'read' : 'unread'),
           recipientStatuses: parsedRecipientStatuses,
           recipientStatusesJson: JSON.stringify(parsedRecipientStatuses),
-          details: detailsObj
+          comments: parsedComments,
+          commentsJson: JSON.stringify(parsedComments),
+          details: {
+            ...detailsObj,
+            comments: parsedComments
+          }
         });
       }
       return res.status(404).json({ error: '伝言メモが見つかりません' });
@@ -235,9 +254,9 @@ router.get(['/memos/:id', '/memos/:id/', '/:id', '/:id/'], async (req, res) => {
 
 // ==========================================
 // 3. 伝言メモ新規作成 API
-// 対応URL: /api/memos, /api/memos/, /memos, /
+// 対応URL: /api/memos, /memos
 // ==========================================
-router.post(['/memos', '/memos/', '/'], async (req, res) => {
+router.post(['/memos', '/memos/'], async (req, res) => {
   try {
     const {
       senderId,
@@ -258,7 +277,9 @@ router.post(['/memos', '/memos/', '/'], async (req, res) => {
       toUsers,
       toUsersJson,
       targetOffices,
-      targetDivisions
+      targetDivisions,
+      comments,
+      commentsJson
     } = req.body;
 
     const pool = await getPool();
@@ -308,6 +329,19 @@ router.post(['/memos', '/memos/', '/'], async (req, res) => {
     const statusesJsonStr = JSON.stringify(finalStatuses);
     const toUsersJsonStr = toUsersJson ? (typeof toUsersJson === 'string' ? toUsersJson : JSON.stringify(toUsersJson)) : (toUsers ? JSON.stringify(toUsers) : null);
 
+    let finalComments = comments;
+    if (typeof finalComments === 'string') {
+      finalComments = safeParseJSON(finalComments, []);
+    }
+    if (!finalComments && commentsJson) {
+      finalComments = safeParseJSON(commentsJson, []);
+    }
+    if (!finalComments && details && details.comments) {
+      finalComments = details.comments;
+    }
+    if (!Array.isArray(finalComments)) finalComments = [];
+    const finalCommentsJsonStr = JSON.stringify(finalComments);
+
     const mergedDetails = {
       ...(details || {}),
       requirementType,
@@ -316,7 +350,8 @@ router.post(['/memos', '/memos/', '/'], async (req, res) => {
       targetDivisions: targetDivisions || details?.targetDivisions || [],
       recipientStatuses: finalStatuses,
       toUsers: toUsers || details?.toUsers || [],
-      status: status || 'unread'
+      status: status || 'unread',
+      comments: finalComments
     };
 
     const detailsJsonStr = JSON.stringify(mergedDetails);
@@ -337,16 +372,17 @@ router.post(['/memos', '/memos/', '/'], async (req, res) => {
       .input('recipientStatusesJson', sql.NVarChar(sql.MAX), statusesJsonStr)
       .input('status', sql.NVarChar(50), status || 'unread')
       .input('isRead', sql.Bit, effectiveIsRead)
+      .input('commentsJson', sql.NVarChar(sql.MAX), finalCommentsJsonStr)
       .query(`
         INSERT INTO dbo.Memos (
           id, senderId, receiverId, content, isRead, createdAt,
           fromName, fromCompany, fromPhone, requirementType, requirementText,
-          details, toUsersJson, recipientStatusesJson, status
+          details, toUsersJson, recipientStatusesJson, status, commentsJson
         )
         VALUES (
           @id, @senderId, @receiverId, @content, @isRead, GETDATE(),
           @fromName, @fromCompany, @fromPhone, @requirementType, @requirementText,
-          @details, @toUsersJson, @recipientStatusesJson, @status
+          @details, @toUsersJson, @recipientStatusesJson, @status, @commentsJson
         )
       `);
 
@@ -368,6 +404,8 @@ router.post(['/memos', '/memos/', '/'], async (req, res) => {
         isRead: effectiveIsRead === 1,
         recipientStatuses: finalStatuses,
         recipientStatusesJson: statusesJsonStr,
+        comments: finalComments,
+        commentsJson: finalCommentsJsonStr,
         details: mergedDetails
       }
     });
@@ -378,14 +416,12 @@ router.post(['/memos', '/memos/', '/'], async (req, res) => {
 });
 
 // ==========================================
-// 4. 伝言メモ更新 API (★「対応完了」・ステータス更新の最重要エンドポイント★)
-// 対応URL: PUT/PATCH /api/memos/:id, /memos/:id, /:id
+// 4. 伝言メモ更新 API (「対応完了」・ステータス更新)
+// 対応URL: PUT/PATCH /api/memos/:id, /memos/:id
 // ==========================================
 router.all([
   '/memos/:id',
-  '/memos/:id/',
-  '/:id',
-  '/:id/'
+  '/memos/:id/'
 ], async (req, res, next) => {
   if (req.method !== 'PUT' && req.method !== 'PATCH') {
     return next();
@@ -422,7 +458,9 @@ router.all([
       content,
       fromName,
       fromCompany,
-      fromPhone
+      fromPhone,
+      comments,
+      commentsJson
     } = req.body || {};
 
     // 受領者ステータスの抽出・正規化
@@ -437,17 +475,33 @@ router.all([
       updatedRecipientStatuses = details.recipientStatuses;
     }
     if (!updatedRecipientStatuses) {
-      // 既存のステータスを使用
       const existingRep = current.recipientStatusesJson || currentDetails.recipientStatuses;
       updatedRecipientStatuses = safeParseJSON(existingRep, []);
     }
+
+    // コメントの抽出・更新
+    let updatedComments = comments;
+    if (typeof updatedComments === 'string') {
+      updatedComments = safeParseJSON(updatedComments, null);
+    }
+    if (!updatedComments && commentsJson) {
+      updatedComments = safeParseJSON(commentsJson, null);
+    }
+    if (!updatedComments && details && details.comments) {
+      updatedComments = details.comments;
+    }
+    if (!updatedComments) {
+      const existingComments = current.commentsJson || currentDetails.comments;
+      updatedComments = safeParseJSON(existingComments, []);
+    }
+    if (!Array.isArray(updatedComments)) updatedComments = [];
+    const updatedCommentsJsonStr = JSON.stringify(updatedComments);
 
     // 全員が対応完了しているかチェック
     const allHandled = Array.isArray(updatedRecipientStatuses) &&
       updatedRecipientStatuses.length > 0 &&
       updatedRecipientStatuses.every(s => s.isHandled);
 
-    // ステータスの決定 ('handled' | 'read' | 'unread')
     let nextStatus = status;
     if (!nextStatus) {
       if (allHandled) {
@@ -468,7 +522,8 @@ router.all([
       status: nextStatus,
       recipientStatuses: updatedRecipientStatuses,
       requirementType: requirementType || details?.requirementType || current.requirementType || currentDetails.requirementType || 'phone_called',
-      requirementText: requirementText || details?.requirementText || current.requirementText || currentDetails.requirementText || ''
+      requirementText: requirementText || details?.requirementText || current.requirementText || currentDetails.requirementText || '',
+      comments: updatedComments
     };
     const nextDetailsJson = JSON.stringify(mergedDetails);
 
@@ -483,6 +538,7 @@ router.all([
       .input('fromCompany', sql.NVarChar(100), fromCompany !== undefined ? fromCompany : current.fromCompany)
       .input('fromPhone', sql.NVarChar(50), fromPhone !== undefined ? fromPhone : current.fromPhone)
       .input('content', sql.NVarChar(sql.MAX), content !== undefined ? content : current.content)
+      .input('commentsJson', sql.NVarChar(sql.MAX), updatedCommentsJsonStr)
       .query(`
         UPDATE dbo.Memos
         SET isRead = @isRead,
@@ -492,7 +548,8 @@ router.all([
             fromName = @fromName,
             fromCompany = @fromCompany,
             fromPhone = @fromPhone,
-            content = @content
+            content = @content,
+            commentsJson = @commentsJson
         WHERE id = @id
       `);
 
@@ -504,6 +561,8 @@ router.all([
       isRead: nextIsRead === 1,
       recipientStatuses: updatedRecipientStatuses,
       recipientStatusesJson: nextStatusesJson,
+      comments: updatedComments,
+      commentsJson: updatedCommentsJsonStr,
       details: mergedDetails
     });
   } catch (err) {
@@ -514,13 +573,11 @@ router.all([
 
 // ==========================================
 // 5. 伝言メモ既読・簡易対応完了 API
-// 対応URL: PUT/POST /api/memos/:id/read, /memos/:id/read, /:id/read
+// 対応URL: PUT/POST /api/memos/:id/read, /memos/:id/read
 // ==========================================
 router.all([
   '/memos/:id/read',
-  '/memos/:id/read/',
-  '/:id/read',
-  '/:id/read/'
+  '/memos/:id/read/'
 ], async (req, res) => {
   try {
     const { id } = req.params;
@@ -532,7 +589,6 @@ router.all([
 
     const nowIso = new Date().toISOString();
 
-    // 既存レコードを取得して受領者ステータスも更新
     const currentRes = await pool.request()
       .input('id', sql.VarChar(100), String(id).trim())
       .query('SELECT * FROM dbo.Memos WHERE id = @id');
@@ -594,18 +650,163 @@ router.all([
 });
 
 // ==========================================
-// 6. 伝言メモ削除 API
-// 対応URL: DELETE/POST /api/memos/:id, /memos/:id, /:id
+// 6. 伝言メモコメント追加 API (★新機能: 公開・非公開対応★)
+// 対応URL: POST /api/memos/:id/comments, /memos/:id/comments
+// ==========================================
+router.post([
+  '/memos/:id/comments',
+  '/memos/:id/comments/'
+], async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { content, isPrivate = false, author } = req.body || {};
+
+    if (!content || !String(content).trim()) {
+      return res.status(400).json({ error: 'コメント本文を入力してください' });
+    }
+
+    const pool = await getPool();
+    if (!pool) return res.status(500).json({ error: 'DB接続が利用できません' });
+
+    await ensureMemosSchema(pool);
+
+    const currentRes = await pool.request()
+      .input('id', sql.VarChar(100), String(id).trim())
+      .query('SELECT * FROM dbo.Memos WHERE id = @id');
+
+    if (!currentRes.recordset || currentRes.recordset.length === 0) {
+      return res.status(404).json({ error: '対象の伝言メモが見つかりません' });
+    }
+
+    const current = currentRes.recordset[0];
+    const currentDetails = safeParseJSON(current.details, {});
+    let comments = safeParseJSON(current.commentsJson || currentDetails.comments || currentDetails.commentsJson, []);
+    if (!Array.isArray(comments)) comments = [];
+
+    const newComment = {
+      id: `mcomm-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      memoId: String(id).trim(),
+      author: author || { id: 'unknown', name: '担当者' },
+      content: String(content).trim(),
+      isPrivate: Boolean(isPrivate), // true = 宛先担当者（自分）のみ閲覧可能
+      createdAt: new Date().toISOString()
+    };
+
+    comments.push(newComment);
+    const commentsJsonStr = JSON.stringify(comments);
+    const nextDetailsJson = JSON.stringify({
+      ...currentDetails,
+      comments
+    });
+
+    await pool.request()
+      .input('id', sql.VarChar(100), String(id).trim())
+      .input('commentsJson', sql.NVarChar(sql.MAX), commentsJsonStr)
+      .input('details', sql.NVarChar(sql.MAX), nextDetailsJson)
+      .query(`
+        UPDATE dbo.Memos
+        SET commentsJson = @commentsJson,
+            details = @details
+        WHERE id = @id
+      `);
+
+    res.status(201).json({
+      success: true,
+      message: 'コメントを追加しました',
+      comment: newComment,
+      comments
+    });
+  } catch (err) {
+    console.error('Add memo comment error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==========================================
+// 7. 伝言メモコメント削除 API
+// 対応URL: DELETE/POST /api/memos/:id/comments/:commentId
+// ==========================================
+router.all([
+  '/memos/:id/comments/:commentId',
+  '/memos/:id/comments/:commentId/',
+  '/memos/:id/comments/:commentId/delete',
+  '/memos/:id/comments/:commentId/delete/'
+], async (req, res, next) => {
+  if (req.method !== 'DELETE' && !req.path.endsWith('/delete') && req.method !== 'POST') {
+    return next();
+  }
+
+  try {
+    const { id, commentId } = req.params;
+    const { userId, role } = req.body || {};
+
+    const pool = await getPool();
+    if (!pool) return res.status(500).json({ error: 'DB接続が利用できません' });
+
+    await ensureMemosSchema(pool);
+
+    const currentRes = await pool.request()
+      .input('id', sql.VarChar(100), String(id).trim())
+      .query('SELECT * FROM dbo.Memos WHERE id = @id');
+
+    if (!currentRes.recordset || currentRes.recordset.length === 0) {
+      return res.status(404).json({ error: '対象の伝言メモが見つかりません' });
+    }
+
+    const current = currentRes.recordset[0];
+    const currentDetails = safeParseJSON(current.details, {});
+    let comments = safeParseJSON(current.commentsJson || currentDetails.comments, []);
+    if (!Array.isArray(comments)) comments = [];
+
+    const targetIndex = comments.findIndex(c => String(c.id) === String(commentId));
+    if (targetIndex === -1) {
+      return res.status(404).json({ error: '対象のコメントが見つかりません' });
+    }
+
+    const targetComment = comments[targetIndex];
+    // 権限チェック: 投稿者本人または管理者
+    if (userId && targetComment.author?.id !== String(userId) && role !== 'admin') {
+      return res.status(403).json({ error: 'コメントを削除する権限がありません' });
+    }
+
+    comments.splice(targetIndex, 1);
+    const commentsJsonStr = JSON.stringify(comments);
+    const nextDetailsJson = JSON.stringify({
+      ...currentDetails,
+      comments
+    });
+
+    await pool.request()
+      .input('id', sql.VarChar(100), String(id).trim())
+      .input('commentsJson', sql.NVarChar(sql.MAX), commentsJsonStr)
+      .input('details', sql.NVarChar(sql.MAX), nextDetailsJson)
+      .query(`
+        UPDATE dbo.Memos
+        SET commentsJson = @commentsJson,
+            details = @details
+        WHERE id = @id
+      `);
+
+    res.json({
+      success: true,
+      message: 'コメントを削除しました',
+      comments
+    });
+  } catch (err) {
+    console.error('Delete memo comment error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==========================================
+// 8. 伝言メモ削除 API
+// 対応URL: DELETE/POST /api/memos/:id, /memos/:id
 // ==========================================
 router.all([
   '/memos/:id',
   '/memos/:id/',
-  '/:id',
-  '/:id/',
   '/memos/:id/delete',
-  '/memos/:id/delete/',
-  '/:id/delete',
-  '/:id/delete/'
+  '/memos/:id/delete/'
 ], async (req, res, next) => {
   if (req.method !== 'DELETE' && !req.path.endsWith('/delete')) {
     return next();
@@ -628,31 +829,25 @@ router.all([
 });
 
 // ==========================================
-// 7. 既読・未読ステータス管理 API (UserReadStatuses)
+// 9. 既読・未読ステータス管理 API (UserReadStatuses)
 // ==========================================
 router.get(['/read-statuses/:userId', '/read-statuses/:userId/'], async (req, res) => {
   try {
     const { userId } = req.params;
     const pool = await getPool();
-    if (!pool) return res.json({ event: [], topic: [], memo: [], workflow: [], chat: [], report: [], chatTimestamps: {} });
+    if (!pool) return res.json({ event: [], topic: [], memo: [], workflow: [], chat: [], report: [] });
 
     const result = await pool.request()
       .input('userId', sql.VarChar(100), String(userId).trim())
-      .query('SELECT targetType, targetId, readAt FROM dbo.UserReadStatuses WHERE userId = @userId');
+      .query('SELECT targetType, targetId FROM dbo.UserReadStatuses WHERE userId = @userId');
 
     const readMap = { event: [], topic: [], memo: [], workflow: [], chat: [], report: [] };
-    const chatTimestamps = {};
     (result.recordset || []).forEach(row => {
       if (readMap[row.targetType]) {
         readMap[row.targetType].push(String(row.targetId));
       }
-      if (row.targetType === 'chat' && row.readAt) {
-        try {
-          chatTimestamps[String(row.targetId)] = new Date(row.readAt).toISOString();
-        } catch (_) {}
-      }
     });
-    res.json({ ...readMap, chatTimestamps });
+    res.json(readMap);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
