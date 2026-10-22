@@ -1,7 +1,7 @@
 /**
  * routes/inspections.js
- * 寺岡オートドアSNS 点検報告書・電子署名・事務確認・CRM点検データ APIモジュール
- * 最終更新: 2026年9月18日 (MS SQL Server dbo.InspectionReports 完全連携・電子署名DB永続化)
+ * 寺岡オートドアSNS 点検報告書・電子署名・事務確認・CRM点検データ・点検予定下書き(Drafts & Carry-overs) APIモジュール
+ * 最終更新: 2026年10月22日 (InspectionDrafts カラム名[targetYearMonth / targetYearMonthKey / draftKey] 自動吸収対応版)
  */
 import { Router } from 'express';
 import sql from 'mssql';
@@ -14,6 +14,7 @@ const router = Router();
 
 const reportsFilePath = path.join(dataDir, 'inspection_reports.json');
 const crmDataFilePath = path.join(dataDir, 'crm_inspections.json');
+const draftsFilePath = path.join(dataDir, 'inspection_drafts.json');
 
 // --- ヘルパー関数 (Local JSON フォールバック) ---
 function loadJsonFile(filePath, defaultVal = []) {
@@ -21,7 +22,7 @@ function loadJsonFile(filePath, defaultVal = []) {
   try {
     const raw = fs.readFileSync(filePath, 'utf8');
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : defaultVal;
+    return parsed !== null && parsed !== undefined ? parsed : defaultVal;
   } catch (e) {
     return defaultVal;
   }
@@ -33,6 +34,15 @@ function saveJsonFile(filePath, data) {
   } catch (e) {
     console.error(`[Inspections] Failed to save JSON file (${filePath}):`, e);
   }
+}
+
+function loadDraftsMap() {
+  const data = loadJsonFile(draftsFilePath, {});
+  return (typeof data === 'object' && data !== null && !Array.isArray(data)) ? data : {};
+}
+
+function saveDraftsMap(mapObj) {
+  saveJsonFile(draftsFilePath, mapObj);
 }
 
 // DBレコード -> フロントエンド用モデル変換
@@ -137,6 +147,7 @@ router.get(['/reports', '/inspection-reports', '/inspections/reports', '/inspect
 
   // Fallback: Local JSON
   let reports = loadJsonFile(reportsFilePath, []);
+  if (!Array.isArray(reports)) reports = [];
   if (date) reports = reports.filter(r => r.inspectionDate === date);
   if (status) reports = reports.filter(r => r.status === status);
   if (jobNo) reports = reports.filter(r => r.jobNo === jobNo);
@@ -166,7 +177,7 @@ router.get(['/reports/:id', '/inspection-reports/:id', '/inspections/reports/:id
   }
 
   const reports = loadJsonFile(reportsFilePath, []);
-  const report = reports.find(r => r.id === id);
+  const report = Array.isArray(reports) ? reports.find(r => r.id === id) : null;
   if (!report) return res.status(404).json({ success: false, error: 'Report not found' });
   res.json({ success: true, report, source: 'json' });
 });
@@ -281,7 +292,8 @@ router.post(['/reports', '/inspection-reports', '/inspections/reports', '/inspec
     updatedAt: now,
     createdAt: report.createdAt || now
   };
-  const reports = loadJsonFile(reportsFilePath, []);
+  let reports = loadJsonFile(reportsFilePath, []);
+  if (!Array.isArray(reports)) reports = [];
   const idx = reports.findIndex(r => r.id === report.id);
   if (idx >= 0) {
     reports[idx] = { ...reports[idx], ...normalizedReport };
@@ -298,9 +310,10 @@ router.post(['/reports', '/inspection-reports', '/inspections/reports', '/inspec
 // ====================================================================
 router.put(['/reports/:id/confirm', '/inspection-reports/:id/confirm', '/inspections/reports/:id/confirm'], async (req, res) => {
   const { id } = req.params;
-  const { user } = req.body; // 事務担当者ユーザー { id, name }
+  const { user } = req.body;
 
-  const reports = loadJsonFile(reportsFilePath, []);
+  let reports = loadJsonFile(reportsFilePath, []);
+  if (!Array.isArray(reports)) reports = [];
   const target = reports.find(r => r.id === id);
   const newConfirmed = target ? !target.officeConfirmed : true;
   const now = new Date().toISOString();
@@ -368,7 +381,8 @@ router.get(['/previous/:jobNo', '/inspection-reports/previous/:jobNo', '/inspect
     console.warn('[Inspections] MSSQL previous fetch failed:', err.message);
   }
 
-  const reports = loadJsonFile(reportsFilePath, []);
+  let reports = loadJsonFile(reportsFilePath, []);
+  if (!Array.isArray(reports)) reports = [];
   const matched = reports
     .filter(r => r.jobNo === jobNo && r.status === 'signed')
     .sort((a, b) => new Date(b.inspectionDate || 0).getTime() - new Date(a.inspectionDate || 0).getTime());
@@ -424,7 +438,8 @@ router.post(['/crm-data/bulk', '/inspections/crm-data/bulk', '/crm/bulk'], async
   }
 
   // Local JSON同期
-  const existingCrm = loadJsonFile(crmDataFilePath, []);
+  let existingCrm = loadJsonFile(crmDataFilePath, []);
+  if (!Array.isArray(existingCrm)) existingCrm = [];
   const crmMap = new Map(existingCrm.map(i => [i.jobNo, i]));
   for (const it of items) {
     if (it.jobNo) crmMap.set(it.jobNo, it);
@@ -437,7 +452,7 @@ router.post(['/crm-data/bulk', '/inspections/crm-data/bulk', '/crm/bulk'], async
 // ====================================================================
 // 7. CRM点検データ 取得 API
 // ====================================================================
-router.get(['/crm-data', '/inspections/crm-data'], async (req, res) => {
+router.get(['/crm-data', '/inspections/crm-data', '/crm'], async (req, res) => {
   const { yearMonth } = req.query;
   try {
     const pool = await getPool();
@@ -467,8 +482,317 @@ router.get(['/crm-data', '/inspections/crm-data'], async (req, res) => {
   }
 
   let items = loadJsonFile(crmDataFilePath, []);
+  if (!Array.isArray(items)) items = [];
   if (yearMonth) items = items.filter(i => i.yearMonth === yearMonth);
   res.json({ success: true, items, source: 'json' });
 });
 
+// ====================================================================
+// 8. 点検予定下書き (Drafts) 取得 API (カラム名 targetYearMonth / targetYearMonthKey / draftKey 自動対応)
+// ====================================================================
+router.get(['/drafts', '/inspection/drafts', '/inspections/drafts'], async (req, res) => {
+  const rawKey = req.query.targetYearMonth || req.headers['x-target-year-month'] || '';
+  const draftKey = rawKey ? decodeURIComponent(String(rawKey)) : '';
+
+  if (!draftKey) {
+    return res.status(400).json({ success: false, error: 'targetYearMonth is required' });
+  }
+
+  // 1. MSSQL から取得
+  try {
+    const pool = await getPool();
+    if (pool) {
+      const result = await pool.request()
+        .input('draftKey', sql.NVarChar(100), draftKey)
+        .query(`
+          IF EXISTS (SELECT 1 FROM sys.tables WHERE name = 'InspectionDrafts')
+          BEGIN
+            IF COL_LENGTH('dbo.InspectionDrafts', 'targetYearMonth') IS NOT NULL
+            BEGIN
+              SELECT TOP 1 *, targetYearMonth AS draftKey FROM dbo.InspectionDrafts WHERE targetYearMonth = @draftKey;
+            END
+            ELSE IF COL_LENGTH('dbo.InspectionDrafts', 'targetYearMonthKey') IS NOT NULL
+            BEGIN
+              SELECT TOP 1 *, targetYearMonthKey AS draftKey FROM dbo.InspectionDrafts WHERE targetYearMonthKey = @draftKey;
+            END
+            ELSE
+            BEGIN
+              SELECT TOP 1 * FROM dbo.InspectionDrafts WHERE draftKey = @draftKey;
+            END
+          END
+        `);
+
+      if (result && result.recordset && result.recordset.length > 0) {
+        const row = result.recordset[0];
+        let items = [];
+        try { items = JSON.parse(row.itemsJson || '[]'); } catch (_) {}
+        const keyVal = row.draftKey || row.targetYearMonth || row.targetYearMonthKey || draftKey;
+        return res.json({
+          success: true,
+          draftKey: keyVal,
+          targetYearMonth: keyVal,
+          items,
+          currentStep: row.currentStep || 'assign_date',
+          lastSavedAt: row.lastSavedAt || row.updatedAt ? new Date(row.lastSavedAt || row.updatedAt).toISOString() : new Date().toISOString(),
+          savedByUserId: row.savedByUserId,
+          savedByUserName: row.savedByUserName,
+          storage: 'sql'
+        });
+      }
+    }
+  } catch (err) {
+    console.warn('[Inspections] MSSQL draft fetch failed, falling back to JSON:', err.message);
+  }
+
+  // 2. Local JSON フォールバック
+  const draftsMap = loadDraftsMap();
+  const draft = draftsMap[draftKey] || draftsMap[rawKey] || null;
+
+  if (draft) {
+    return res.json({
+      success: true,
+      draftKey,
+      targetYearMonth: draftKey,
+      items: draft.items || [],
+      currentStep: draft.currentStep || 'assign_date',
+      lastSavedAt: draft.lastSavedAt || draft.updatedAt || new Date().toISOString(),
+      savedByUserId: draft.savedByUserId,
+      savedByUserName: draft.savedByUserName,
+      storage: 'file'
+    });
+  }
+
+  res.json({ success: true, draftKey, items: [], storage: 'none' });
+});
+
+// ====================================================================
+// 9. 点検予定下書き (Drafts) 保存 API (カラム名 targetYearMonth / targetYearMonthKey / draftKey 自動対応)
+// ====================================================================
+router.post(['/drafts', '/inspection/drafts', '/inspections/drafts'], async (req, res) => {
+  const rawKey = req.query.targetYearMonth || req.headers['x-target-year-month'] || req.body?.targetYearMonth || '';
+  const draftKey = rawKey ? decodeURIComponent(String(rawKey)) : '';
+  const { items = [], currentStep = 'assign_date', savedByUserId, savedByUserName } = req.body || {};
+
+  if (!draftKey) {
+    return res.status(400).json({ success: false, error: 'targetYearMonth is required' });
+  }
+
+  const nowIso = new Date().toISOString();
+  const itemsJson = JSON.stringify(items);
+
+  // 1. MSSQL 永続化
+  try {
+    const pool = await getPool();
+    if (pool) {
+      await pool.request()
+        .input('draftKey', sql.NVarChar(100), draftKey)
+        .input('itemsJson', sql.NVarChar(sql.MAX), itemsJson)
+        .input('currentStep', sql.NVarChar(50), String(currentStep))
+        .input('savedByUserId', sql.NVarChar(50), savedByUserId ? String(savedByUserId) : null)
+        .input('savedByUserName', sql.NVarChar(100), savedByUserName ? String(savedByUserName) : null)
+        .query(`
+          IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'InspectionDrafts')
+          BEGIN
+            CREATE TABLE dbo.InspectionDrafts (
+              targetYearMonth NVARCHAR(100) PRIMARY KEY,
+              itemsJson NVARCHAR(MAX),
+              currentStep NVARCHAR(50),
+              savedByUserId NVARCHAR(50),
+              savedByUserName NVARCHAR(100),
+              createdAt DATETIME2 DEFAULT SYSDATETIME(),
+              updatedAt DATETIME2 DEFAULT SYSDATETIME()
+            );
+          END
+
+          IF COL_LENGTH('dbo.InspectionDrafts', 'targetYearMonth') IS NOT NULL
+          BEGIN
+            MERGE INTO dbo.InspectionDrafts AS Target
+            USING (SELECT @draftKey AS targetYearMonth) AS Source
+            ON Target.targetYearMonth = Source.targetYearMonth
+            WHEN MATCHED THEN
+              UPDATE SET
+                itemsJson = @itemsJson,
+                currentStep = @currentStep,
+                savedByUserId = @savedByUserId,
+                savedByUserName = @savedByUserName,
+                updatedAt = SYSDATETIME()
+            WHEN NOT MATCHED THEN
+              INSERT (targetYearMonth, itemsJson, currentStep, savedByUserId, savedByUserName, createdAt, updatedAt)
+              VALUES (@draftKey, @itemsJson, @currentStep, @savedByUserId, @savedByUserName, SYSDATETIME(), SYSDATETIME());
+          END
+          ELSE IF COL_LENGTH('dbo.InspectionDrafts', 'targetYearMonthKey') IS NOT NULL
+          BEGIN
+            MERGE INTO dbo.InspectionDrafts AS Target
+            USING (SELECT @draftKey AS targetYearMonthKey) AS Source
+            ON Target.targetYearMonthKey = Source.targetYearMonthKey
+            WHEN MATCHED THEN
+              UPDATE SET
+                itemsJson = @itemsJson,
+                currentStep = @currentStep,
+                savedByUserId = @savedByUserId,
+                savedByUserName = @savedByUserName,
+                updatedAt = SYSDATETIME()
+            WHEN NOT MATCHED THEN
+              INSERT (targetYearMonthKey, itemsJson, currentStep, savedByUserId, savedByUserName, createdAt, updatedAt)
+              VALUES (@draftKey, @itemsJson, @currentStep, @savedByUserId, @savedByUserName, SYSDATETIME(), SYSDATETIME());
+          END
+          ELSE
+          BEGIN
+            MERGE INTO dbo.InspectionDrafts AS Target
+            USING (SELECT @draftKey AS draftKey) AS Source
+            ON Target.draftKey = Source.draftKey
+            WHEN MATCHED THEN
+              UPDATE SET
+                itemsJson = @itemsJson,
+                currentStep = @currentStep,
+                savedByUserId = @savedByUserId,
+                savedByUserName = @savedByUserName,
+                updatedAt = SYSDATETIME()
+            WHEN NOT MATCHED THEN
+              INSERT (draftKey, itemsJson, currentStep, savedByUserId, savedByUserName, createdAt, updatedAt)
+              VALUES (@draftKey, @itemsJson, @currentStep, @savedByUserId, @savedByUserName, SYSDATETIME(), SYSDATETIME());
+          END
+        `);
+    }
+  } catch (err) {
+    console.warn('[Inspections] MSSQL draft save error, persisting to JSON:', err.message);
+  }
+
+  // 2. Local JSON 永続化
+  const draftsMap = loadDraftsMap();
+  draftsMap[draftKey] = {
+    draftKey,
+    targetYearMonth: draftKey,
+    items,
+    currentStep,
+    savedByUserId,
+    savedByUserName,
+    lastSavedAt: nowIso,
+    updatedAt: nowIso
+  };
+  saveDraftsMap(draftsMap);
+
+  res.json({
+    success: true,
+    draftKey,
+    lastSavedAt: nowIso,
+    itemsCount: items.length
+  });
+});
+
+// ====================================================================
+// 10. 点検予定下書き (Drafts) 削除 API
+// ====================================================================
+router.delete(['/drafts', '/inspection/drafts', '/inspections/drafts'], async (req, res) => {
+  const rawKey = req.query.targetYearMonth || req.headers['x-target-year-month'] || req.body?.targetYearMonth || '';
+  const draftKey = rawKey ? decodeURIComponent(String(rawKey)) : '';
+
+  if (!draftKey) {
+    return res.status(400).json({ success: false, error: 'targetYearMonth is required' });
+  }
+
+  try {
+    const pool = await getPool();
+    if (pool) {
+      await pool.request()
+        .input('draftKey', sql.NVarChar(100), draftKey)
+        .query(`
+          IF EXISTS (SELECT 1 FROM sys.tables WHERE name = 'InspectionDrafts')
+          BEGIN
+            IF COL_LENGTH('dbo.InspectionDrafts', 'targetYearMonth') IS NOT NULL
+              DELETE FROM dbo.InspectionDrafts WHERE targetYearMonth = @draftKey;
+            ELSE IF COL_LENGTH('dbo.InspectionDrafts', 'targetYearMonthKey') IS NOT NULL
+              DELETE FROM dbo.InspectionDrafts WHERE targetYearMonthKey = @draftKey;
+            ELSE
+              DELETE FROM dbo.InspectionDrafts WHERE draftKey = @draftKey;
+          END
+        `);
+    }
+  } catch (err) {
+    console.warn('[Inspections] MSSQL draft delete error:', err.message);
+  }
+
+  const draftsMap = loadDraftsMap();
+  delete draftsMap[draftKey];
+  if (rawKey !== draftKey) delete draftsMap[rawKey];
+  saveDraftsMap(draftsMap);
+
+  res.json({ success: true, draftKey, message: 'Draft cleared' });
+});
+
+// ====================================================================
+// 11. 前月繰越案件 (Carry-overs) 自動抽出 API
+// ====================================================================
+router.get(['/carry-overs', '/inspection/carry-overs', '/inspections/carry-overs'], async (req, res) => {
+  const rawKey = req.query.targetYearMonth || req.headers['x-target-year-month'] || '';
+  const draftKey = rawKey ? decodeURIComponent(String(rawKey)) : '';
+
+  if (!draftKey) {
+    return res.json({ success: true, carriedOverCount: 0, carriedOverItems: [] });
+  }
+
+  const parts = draftKey.split('_');
+  const ym = parts[0]; // 例: "2026-10"
+  const office = parts.slice(1).join('_'); // 例: "名古屋"
+
+  const ymParts = ym.split('-').map(Number);
+  if (ymParts.length < 2 || isNaN(ymParts[0]) || isNaN(ymParts[1])) {
+    return res.json({ success: true, carriedOverCount: 0, carriedOverItems: [] });
+  }
+
+  // 前月の年月計算
+  const prevDate = new Date(ymParts[0], ymParts[1] - 2, 1);
+  const prevYm = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
+  const prevDraftKey = office ? `${prevYm}_${office}` : prevYm;
+
+  let prevItems = [];
+
+  // MSSQL 検索
+  try {
+    const pool = await getPool();
+    if (pool) {
+      const result = await pool.request()
+        .input('draftKey', sql.NVarChar(100), prevDraftKey)
+        .query(`
+          IF EXISTS (SELECT 1 FROM sys.tables WHERE name = 'InspectionDrafts')
+          BEGIN
+            IF COL_LENGTH('dbo.InspectionDrafts', 'targetYearMonth') IS NOT NULL
+              SELECT TOP 1 *, targetYearMonth AS draftKey FROM dbo.InspectionDrafts WHERE targetYearMonth = @draftKey;
+            ELSE IF COL_LENGTH('dbo.InspectionDrafts', 'targetYearMonthKey') IS NOT NULL
+              SELECT TOP 1 *, targetYearMonthKey AS draftKey FROM dbo.InspectionDrafts WHERE targetYearMonthKey = @draftKey;
+            ELSE
+              SELECT TOP 1 * FROM dbo.InspectionDrafts WHERE draftKey = @draftKey;
+          END
+        `);
+      if (result && result.recordset && result.recordset.length > 0) {
+        try { prevItems = JSON.parse(result.recordset[0].itemsJson || '[]'); } catch (_) {}
+      }
+    }
+  } catch (_) {}
+
+  if (prevItems.length === 0) {
+    const draftsMap = loadDraftsMap();
+    const prevDraft = draftsMap[prevDraftKey] || draftsMap[prevYm] || null;
+    if (prevDraft && Array.isArray(prevDraft.items)) {
+      prevItems = prevDraft.items;
+    }
+  }
+
+  // 繰越対象アイテム抽出
+  const carriedOverItems = prevItems.filter(item =>
+    item.status === 'carried_over' || item.carriedOver === true || item.status === 'unassigned' || item.status === 'pending'
+  );
+
+  res.json({
+    success: true,
+    targetYearMonth: draftKey,
+    prevMonth: prevYm,
+    carriedOverCount: carriedOverItems.length,
+    carriedOverItems
+  });
+});
+
 export default router;
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = router;
+}

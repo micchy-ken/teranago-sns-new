@@ -16,6 +16,7 @@ import documentsRouter from './routes/documents.js';
 import schedulePollsRouter from './routes/schedulePolls.js';
 import photoReportsRouter from './routes/photoReports.js';
 import sitesRouter from './routes/sites.js';
+import inspectionsRouter from './routes/inspections.js';
 
 // サーバークラッシュ防止（非同期未処理例外・Promise拒否でプロセスが落ちるのを完全防止）
 process.on('uncaughtException', (err) => {
@@ -811,6 +812,9 @@ async function startServer() {
 
   // 現場管理・施工スケジュール・在庫DB部品連携APIルーター
   app.use(['/api/sites', '/api/genba-sites'], sitesRouter);
+
+  // 点検報告書・CRM点検データ・点検予定下書きAPIルーター
+  app.use(['/api/inspections', '/api/inspection', '/api'], inspectionsRouter);
 
   // PWA・静的アイコン・マニフェスト等の明示的エンドポイント（開発/本番問わずバイナリとして確実に返却）
   const publicStaticFiles = ['pwa-192x192.png', 'pwa-512x512.png', 'icon.svg', 'manifest.json'];
@@ -4480,6 +4484,81 @@ async function startServer() {
       };
       saveMemos(memosList);
       res.json({ message: '既読・対応状態更新完了', memo: memosList[idx] });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 伝言メモコメント追加（公開・非公開[宛先担当者本人のみ閲覧可能]対応）
+  app.post(['/api/memos/:id/comments', '/api/memos/:id/comments/'], (req, res) => {
+    try {
+      const memoId = req.params.id;
+      const { content, isPrivate = false, author } = req.body || {};
+      if (!content || !String(content).trim()) {
+        return res.status(400).json({ error: 'コメント本文を入力してください' });
+      }
+      const memosList = loadMemos();
+      const idx = memosList.findIndex((m: any) => String(m.id) === String(memoId));
+      if (idx === -1) {
+        return res.status(404).json({ error: '伝言メモが見つかりません' });
+      }
+
+      const newComment = {
+        id: `mcomm-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        memoId: String(memoId),
+        author: author || { id: 'unknown', name: '担当者' },
+        content: String(content).trim(),
+        isPrivate: Boolean(isPrivate), // true = 宛先担当者（自分）のみ閲覧可能
+        createdAt: new Date().toISOString()
+      };
+
+      const existingComments = Array.isArray(memosList[idx].comments) ? memosList[idx].comments : [];
+      existingComments.push(newComment);
+      memosList[idx].comments = existingComments;
+      memosList[idx].commentsJson = JSON.stringify(existingComments);
+      if (memosList[idx].details) {
+        memosList[idx].details.comments = existingComments;
+      }
+      saveMemos(memosList);
+      res.status(201).json({ success: true, comment: newComment, comments: existingComments });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 伝言メモコメント削除
+  app.all(['/api/memos/:id/comments/:commentId', '/api/memos/:id/comments/:commentId/delete'], (req, res, next) => {
+    if (req.method !== 'DELETE' && !req.path.endsWith('/delete') && req.method !== 'POST') {
+      return next();
+    }
+    try {
+      const { id: memoId, commentId } = req.params;
+      const { userId, role } = req.body || {};
+      const memosList = loadMemos();
+      const idx = memosList.findIndex((m: any) => String(m.id) === String(memoId));
+      if (idx === -1) {
+        return res.status(404).json({ error: '伝言メモが見つかりません' });
+      }
+
+      let comments = Array.isArray(memosList[idx].comments) ? memosList[idx].comments : [];
+      const targetIndex = comments.findIndex((c: any) => String(c.id) === String(commentId));
+      if (targetIndex === -1) {
+        return res.status(404).json({ error: '対象のコメントが見つかりません' });
+      }
+
+      const targetComment = comments[targetIndex];
+      if (userId && targetComment.author?.id !== String(userId) && role !== 'admin') {
+        return res.status(403).json({ error: 'コメントを削除する権限がありません' });
+      }
+
+      comments.splice(targetIndex, 1);
+      memosList[idx].comments = comments;
+      memosList[idx].commentsJson = JSON.stringify(comments);
+      if (memosList[idx].details) {
+        memosList[idx].details.comments = comments;
+      }
+      saveMemos(memosList);
+      res.json({ success: true, message: 'コメント削除完了', comments });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

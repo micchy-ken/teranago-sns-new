@@ -645,6 +645,8 @@ export default function App() {
     refetchMemos,
     handleDeleteMemo,
     handleUpdateMemos,
+    handleAddMemoComment,
+    handleDeleteMemoComment,
   } = useMemoManagement({
     currentUser: userState,
     usersList,
@@ -3272,6 +3274,8 @@ export default function App() {
               currentUser={userState}
               onUpdateMemos={handleUpdateMemos}
               onDeleteMemo={handleDeleteMemo}
+              onAddComment={handleAddMemoComment}
+              onDeleteComment={handleDeleteMemoComment}
               initialMemoId={targetMemoId}
               onClearInitialMemoId={() => setTargetMemoId(undefined)}
               initialOpenCreate={autoOpenCreateMemo}
@@ -3464,9 +3468,11 @@ export default function App() {
       {globalSelectedMemo && (
         <GlobalMemoDetailModal
           isOpen={!!globalSelectedMemo}
-          memo={globalSelectedMemo}
+          memo={memos.find(m => m.id === globalSelectedMemo.id) || globalSelectedMemo}
           currentUser={userState}
           onClose={() => setGlobalSelectedMemo(null)}
+          onAddComment={handleAddMemoComment}
+          onDeleteComment={handleDeleteMemoComment}
           onToggleStatus={(memoId) => {
             // メモの未読/対応トグル処理
             const updated = memos.map((m) => {
