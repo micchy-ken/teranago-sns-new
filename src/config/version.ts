@@ -14,10 +14,10 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.21.3',
+  version: '2026.10.21.4',
   date: '2026-10-21',
-  releaseNumber: 3,
-  display: 'v2026.10.21 #3',
-  description: '伝言メモへのコメント投稿機能（公開・非公開[宛先担当者本人のみ閲覧可能]対応）・commentsJson自動スキーマ対応',
+  releaseNumber: 4,
+  display: 'v2026.10.21 #4',
+  description: 'マイページの伝言詳細モーダルからの公開・非公開コメント投稿機能対応',
 };
 
