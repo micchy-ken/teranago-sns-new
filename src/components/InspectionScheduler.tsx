@@ -317,7 +317,6 @@ export function InspectionScheduler({
         const resDraft = await fetch(`${API_BASE_URL}/inspection/drafts?targetYearMonth=${encodeURIComponent(draftKey)}`, {
           headers: {
             'Accept': 'application/json',
-            'X-Target-Year-Month': encodeURIComponent(draftKey)
           }
         });
         if (resDraft.ok) {
@@ -360,7 +359,6 @@ export function InspectionScheduler({
           const resOld = await fetch(`${API_BASE_URL}/inspection/drafts?targetYearMonth=${encodeURIComponent(ym)}`, {
             headers: {
               'Accept': 'application/json',
-              'X-Target-Year-Month': encodeURIComponent(ym)
             }
           });
           if (resOld.ok) {
@@ -407,7 +405,6 @@ export function InspectionScheduler({
         const resCarry = await fetch(`${API_BASE_URL}/inspection/carry-overs?targetYearMonth=${encodeURIComponent(draftKey)}`, {
           headers: {
             'Accept': 'application/json',
-            'X-Target-Year-Month': encodeURIComponent(draftKey)
           }
         });
         if (resCarry.ok) {
@@ -477,7 +474,6 @@ export function InspectionScheduler({
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
-          'X-Target-Year-Month': encodeURIComponent(draftKey)
         },
         body: JSON.stringify({
           targetYearMonth: draftKey,
@@ -560,7 +556,6 @@ export function InspectionScheduler({
           headers: {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
-            'X-Target-Year-Month': encodeURIComponent(draftKey)
           },
           body: JSON.stringify({
             targetYearMonth: draftKey,
@@ -624,7 +619,6 @@ export function InspectionScheduler({
           method: 'DELETE',
           headers: {
             'Content-Type': 'application/json',
-            'X-Target-Year-Month': encodeURIComponent(draftKey)
           },
           body: JSON.stringify({ targetYearMonth: draftKey })
         });

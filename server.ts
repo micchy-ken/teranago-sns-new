@@ -66,7 +66,7 @@ async function startServer() {
     },
     credentials: true,
     methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With', 'Range', 'Origin'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With', 'Range', 'Origin', 'X-Target-Year-Month', 'x-target-year-month'],
     exposedHeaders: ['Content-Range', 'X-Content-Range', 'Accept-Ranges', 'Content-Length']
   };
 

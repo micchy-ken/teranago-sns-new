@@ -14,10 +14,10 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.21.5',
-  date: '2026-10-21',
-  releaseNumber: 5,
-  display: 'v2026.10.21 #5',
-  description: '点検予定一括登録の下書き・前月繰越データの保存・取得・マイグレーションAPI修復・完全同期対応',
+  version: '2026.10.22.1',
+  date: '2026-10-22',
+  releaseNumber: 1,
+  display: 'v2026.10.22 #1',
+  description: '点検予定一括登録通信時のカスタムヘッダー除外によるCORSエラー解消・サーバー連携安定化',
 };
 
