@@ -14,10 +14,10 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.21.4',
+  version: '2026.10.21.2',
   date: '2026-10-21',
-  releaseNumber: 4,
-  display: 'v2026.10.21 #4',
-  description: 'マイページの伝言詳細モーダルからの公開・非公開コメント投稿機能対応',
+  releaseNumber: 2,
+  display: 'v2026.10.21 #2',
+  description: 'マップ表示メンバー選択時の移動先事前計算＆ズームアップ・アイコン位置同期スムーズアニメーション',
 };
 

@@ -442,19 +442,6 @@ export interface Memo {
 
   // 各対象者の閲覧・対応状況
   recipientStatuses: MemoUserRecipientStatus[];
-
-  // 伝言メモ対応コメント（公開・非公開[自分のみ閲覧]対応）
-  comments?: MemoComment[];
-  commentsJson?: string;
-}
-
-export interface MemoComment {
-  id: string;
-  memoId: string;
-  author: User;
-  content: string;
-  isPrivate: boolean; // true = 宛先担当者（自分）のみ閲覧可能, false = 全員に公開
-  createdAt: string; // ISO string
 }
 
 export interface AppNotification {

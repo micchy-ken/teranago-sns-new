@@ -26,10 +26,7 @@ import {
   ArrowUpRight,
   Trash2,
   Inbox,
-  Send,
-  Lock,
-  Globe,
-  MessageSquare
+  Send
 } from 'lucide-react';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { renderContentWithLinks } from '../utils/renderContentWithLinks';
@@ -43,8 +40,6 @@ interface MemoListProps {
   currentUser?: User;
   onUpdateMemos?: (memos: Memo[]) => void;
   onDeleteMemo?: (memoId: string) => void;
-  onAddComment?: (memoId: string, content: string, isPrivate: boolean) => Promise<void> | void;
-  onDeleteComment?: (memoId: string, commentId: string) => Promise<void> | void;
   initialMemoId?: string;
   onClearInitialMemoId?: () => void;
   initialOpenCreate?: boolean;
@@ -61,8 +56,6 @@ export function MemoList({
   currentUser,
   onUpdateMemos,
   onDeleteMemo,
-  onAddComment,
-  onDeleteComment,
   initialMemoId,
   onClearInitialMemoId,
   initialOpenCreate = false,
@@ -103,41 +96,6 @@ export function MemoList({
   // モーダル制御
   const [isCreateOpen, setIsCreateOpen] = useState(initialOpenCreate || !!initialRecipientId);
   const [detailMemo, setDetailMemo] = useState<Memo | null>(null);
-
-  // コメント入力・送信制御（公開・非公開[宛先担当者本人のみ閲覧可能]対応）
-  const [newCommentText, setNewCommentText] = useState('');
-  const [newCommentIsPrivate, setNewCommentIsPrivate] = useState(false);
-  const [isSubmittingComment, setIsSubmittingComment] = useState(false);
-
-  const handleAddCommentSubmit = async (e: React.FormEvent, memoId: string) => {
-    e.preventDefault();
-    if (!newCommentText.trim() || isSubmittingComment) return;
-    setIsSubmittingComment(true);
-    try {
-      if (onAddComment) {
-        await onAddComment(memoId, newCommentText.trim(), newCommentIsPrivate);
-      }
-      setNewCommentText('');
-    } finally {
-      setIsSubmittingComment(false);
-    }
-  };
-
-  const handleDeleteCommentClick = (memoId: string, commentId: string) => {
-    setConfirmModal({
-      isOpen: true,
-      title: 'コメントの削除',
-      message: 'このコメントを削除してもよろしいですか？この操作は取り消せません。',
-      type: 'danger',
-      confirmText: '削除する',
-      cancelText: 'キャンセル',
-      onConfirm: async () => {
-        if (onDeleteComment) {
-          await onDeleteComment(memoId, commentId);
-        }
-      }
-    });
-  };
 
   React.useEffect(() => {
     if (initialOpenCreate || initialRecipientId) {
@@ -877,19 +835,7 @@ export function MemoList({
                     <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1 border-t border-slate-100">
                       <span>受付作成: {memo.createdByUser?.name || 'システム'}</span>
 
-                      <div className="flex items-center gap-3 font-bold flex-wrap">
-                        {(() => {
-                          const visibleCommentsCount = (memo.comments || []).filter(c => !c.isPrivate || c.author?.id === currentUser?.id || currentUser?.role === 'admin').length;
-                          if (visibleCommentsCount > 0) {
-                            return (
-                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-200">
-                                <MessageSquare className="w-3 h-3 text-indigo-600" />
-                                {visibleCommentsCount}件のメモ
-                              </span>
-                            );
-                          }
-                          return null;
-                        })()}
+                      <div className="flex items-center gap-3 font-bold">
                         <span className="text-slate-600">
                           👁️ 閲覧: {viewedCount}/{totalRecipients}名
                         </span>
@@ -1309,180 +1255,6 @@ export function MemoList({
                   ))}
                 </div>
               </div>
-
-              {/* 4. 対応コメント・社内メモ履歴（公開・非公開[宛先担当者本人のみ閲覧可能]対応） */}
-              {(() => {
-                const activeMemo = memos.find(m => m.id === detailMemo.id) || detailMemo;
-                const visibleComments = (activeMemo.comments || []).filter(c => {
-                  if (!c.isPrivate) return true;
-                  // 非公開は宛先担当者（自分）のみ閲覧可能（および管理者）
-                  return c.author?.id === currentUser?.id || currentUser?.role === 'admin';
-                });
-
-                return (
-                  <div className="space-y-3 pt-3 border-t border-slate-100">
-                    <div className="flex items-center justify-between flex-wrap gap-1">
-                      <div className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                        <MessageSquare className="w-4 h-4 text-indigo-600" />
-                        <span>対応コメント・社内メモ ({visibleComments.length}件)</span>
-                      </div>
-                      <span className="text-[10px] text-slate-400">
-                        折り返し結果や自分専用の非公開メモを記録できます
-                      </span>
-                    </div>
-
-                    {/* コメント一覧 */}
-                    <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                      {visibleComments.length === 0 ? (
-                        <div className="text-center py-4 text-xs text-slate-400 bg-slate-50/70 rounded-xl border border-dashed border-slate-200">
-                          コメント・対応メモはまだありません
-                        </div>
-                      ) : (
-                        visibleComments.map((comment) => {
-                          const isAuthor = comment.author?.id === currentUser?.id;
-                          const canDelete = isAuthor || currentUser?.role === 'admin';
-
-                          return (
-                            <div
-                              key={comment.id}
-                              className={`p-2.5 rounded-xl border transition-all text-xs ${
-                                comment.isPrivate
-                                  ? 'bg-amber-50/70 border-amber-200/90 text-amber-950'
-                                  : 'bg-slate-50/80 border-slate-200/80 text-slate-800'
-                              }`}
-                            >
-                              <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
-                                <div className="flex items-center gap-1.5">
-                                  <img
-                                    src={getAvatarUrl(comment.author?.avatarUrl)}
-                                    onError={handleAvatarError}
-                                    className="w-5 h-5 rounded-full object-cover border border-slate-200"
-                                    alt={comment.author?.name || '担当者'}
-                                  />
-                                  <span className="font-bold text-[11px] text-slate-900">
-                                    {comment.author?.name || '担当者'}
-                                  </span>
-                                  {comment.author?.department && (
-                                    <span className="text-[10px] text-slate-500">
-                                      ({comment.author.department})
-                                    </span>
-                                  )}
-                                  <span className="text-[10px] text-slate-400">
-                                    {new Date(comment.createdAt).toLocaleString('ja-JP', {
-                                      month: 'numeric',
-                                      day: 'numeric',
-                                      hour: '2-digit',
-                                      minute: '2-digit'
-                                    })}
-                                  </span>
-                                </div>
-
-                                <div className="flex items-center gap-1.5">
-                                  {comment.isPrivate ? (
-                                    <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-0.5 rounded-md bg-amber-100 text-amber-800 border border-amber-300">
-                                      <Lock className="w-2.5 h-2.5 text-amber-700" />
-                                      非公開（自分のみ）
-                                    </span>
-                                  ) : (
-                                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200">
-                                      <Globe className="w-2.5 h-2.5 text-blue-600" />
-                                      公開
-                                    </span>
-                                  )}
-
-                                  {canDelete && (
-                                    <button
-                                      type="button"
-                                      onClick={() => handleDeleteCommentClick(activeMemo.id, comment.id)}
-                                      className="p-1 text-slate-400 hover:text-rose-600 hover:bg-white rounded transition-colors cursor-pointer"
-                                      title="コメントを削除"
-                                    >
-                                      <Trash2 className="w-3 h-3" />
-                                    </button>
-                                  )}
-                                </div>
-                              </div>
-
-                              <div className="whitespace-pre-wrap break-words pl-6 text-[12px] leading-relaxed">
-                                {renderContentWithLinks(comment.content)}
-                              </div>
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-
-                    {/* 新規コメント投稿フォーム */}
-                    <form
-                      onSubmit={(e) => handleAddCommentSubmit(e, activeMemo.id)}
-                      className="pt-2 border-t border-slate-100 space-y-2"
-                    >
-                      <div className="relative">
-                        <textarea
-                          value={newCommentText}
-                          onChange={(e) => setNewCommentText(e.target.value)}
-                          placeholder="対応結果や折り返し状況、自分専用の備忘録メモを入力..."
-                          rows={2}
-                          className="w-full text-xs p-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none bg-white font-medium"
-                        />
-                      </div>
-
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        {/* 公開 / 非公開 切り替え */}
-                        <div className="flex items-center gap-2 text-xs">
-                          <label className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold cursor-pointer transition-all ${
-                            !newCommentIsPrivate
-                              ? 'bg-blue-50 border-blue-300 text-blue-700 ring-1 ring-blue-300'
-                              : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                          }`}>
-                            <input
-                              type="radio"
-                              name="memoCommentPrivacy"
-                              checked={!newCommentIsPrivate}
-                              onChange={() => setNewCommentIsPrivate(false)}
-                              className="sr-only"
-                            />
-                            <Globe className="w-3.5 h-3.5 text-blue-600" />
-                            <span>公開（全員に共有）</span>
-                          </label>
-
-                          <label className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold cursor-pointer transition-all ${
-                            newCommentIsPrivate
-                              ? 'bg-amber-50 border-amber-300 text-amber-800 ring-1 ring-amber-300'
-                              : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                          }`}>
-                            <input
-                              type="radio"
-                              name="memoCommentPrivacy"
-                              checked={newCommentIsPrivate}
-                              onChange={() => setNewCommentIsPrivate(true)}
-                              className="sr-only"
-                            />
-                            <Lock className="w-3.5 h-3.5 text-amber-700" />
-                            <span>非公開（自分のみ閲覧可能）</span>
-                          </label>
-                        </div>
-
-                        <button
-                          type="submit"
-                          disabled={!newCommentText.trim() || isSubmittingComment}
-                          className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white rounded-lg text-xs font-bold transition-colors flex items-center gap-1 cursor-pointer disabled:cursor-not-allowed shadow-2xs"
-                        >
-                          <Send className="w-3.5 h-3.5" />
-                          <span>コメントを投稿</span>
-                        </button>
-                      </div>
-
-                      {newCommentIsPrivate && (
-                        <p className="text-[10px] text-amber-700 flex items-center gap-1 pt-0.5">
-                          <Lock className="w-3 h-3 shrink-0" />
-                          非公開コメントは宛先担当者（あなた）のみに表示され、受付作成者や他メンバーには表示されません。
-                        </p>
-                      )}
-                    </form>
-                  </div>
-                );
-              })()}
 
               {/* フッター */}
               <div className="flex items-center justify-between pt-4 border-t border-slate-100">

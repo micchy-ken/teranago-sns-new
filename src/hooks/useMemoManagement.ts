@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import { API_BASE_URL } from '../config/api';
 import { fetchWithRetry } from '../utils/fetchWithRetry';
-import { Memo, User, MemoComment } from '../types';
+import { Memo, User } from '../types';
 
 export interface UseMemoManagementOptions {
   currentUser: User | null;
@@ -121,16 +121,6 @@ export function useMemoManagement({
 
             const mergedToUsers = parsedToUsers || (Array.isArray(m.toUsers) ? m.toUsers : (detailsObj && Array.isArray(detailsObj.toUsers) ? detailsObj.toUsers : (targetUser ? [targetUser] : [])));
 
-            let parsedComments: MemoComment[] = [];
-            const commSource = m.comments || m.commentsJson || (detailsObj && (detailsObj.comments || detailsObj.commentsJson));
-            if (commSource) {
-              if (Array.isArray(commSource)) {
-                parsedComments = commSource;
-              } else if (typeof commSource === 'string') {
-                try { parsedComments = JSON.parse(commSource); } catch (_) {}
-              }
-            }
-
             return {
               id: String(m.id),
               fromName: m.fromName || (detailsObj && detailsObj.fromName) || '不詳',
@@ -147,7 +137,6 @@ export function useMemoManagement({
               toUser: targetUser,
               createdByUser: activeUsers.find(u => u.id === (m.senderId || (detailsObj && detailsObj.senderId))),
               status: m.status ? m.status : ((detailsObj && detailsObj.status) ? detailsObj.status : (isHandledStatus ? 'handled' : (isReadStatus ? 'read' : 'unread'))),
-              comments: parsedComments,
             };
           });
 
@@ -285,83 +274,11 @@ export function useMemoManagement({
     }
   }, [currentUser?.id, memos, refetchMemos]);
 
-  // 伝言メモコメント追加（公開・非公開[宛先担当者本人のみ閲覧]対応）
-  const handleAddMemoComment = useCallback(async (memoId: string, content: string, isPrivate: boolean) => {
-    if (!currentUser || !content.trim()) return;
-    const newComment: MemoComment = {
-      id: `mcomm-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      memoId,
-      author: currentUser,
-      content: content.trim(),
-      isPrivate,
-      createdAt: new Date().toISOString()
-    };
-
-    // 楽観的UI更新
-    setMemos(prev => prev.map(m => {
-      if (m.id === memoId) {
-        const comments = Array.isArray(m.comments) ? [...m.comments, newComment] : [newComment];
-        return { ...m, comments };
-      }
-      return m;
-    }));
-
-    try {
-      const res = await fetchWithRetry(`${API_BASE_URL}/memos/${memoId}/comments`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          content: content.trim(),
-          isPrivate,
-          author: currentUser
-        })
-      });
-      if (!res.ok) {
-        throw new Error(`HTTP status ${res.status}`);
-      }
-    } catch (err) {
-      console.warn('Failed to add memo comment:', err);
-      refetchMemos();
-    }
-  }, [currentUser, refetchMemos]);
-
-  // 伝言メモコメント削除
-  const handleDeleteMemoComment = useCallback(async (memoId: string, commentId: string) => {
-    if (!currentUser) return;
-
-    // 楽観的UI更新
-    setMemos(prev => prev.map(m => {
-      if (m.id === memoId && Array.isArray(m.comments)) {
-        return { ...m, comments: m.comments.filter(c => c.id !== commentId) };
-      }
-      return m;
-    }));
-
-    try {
-      const res = await fetchWithRetry(`${API_BASE_URL}/memos/${memoId}/comments/${commentId}`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: currentUser.id,
-          role: currentUser.role
-        })
-      });
-      if (!res.ok) {
-        throw new Error(`HTTP status ${res.status}`);
-      }
-    } catch (err) {
-      console.warn('Failed to delete memo comment:', err);
-      refetchMemos();
-    }
-  }, [currentUser, refetchMemos]);
-
   return {
     memos,
     setMemos,
     refetchMemos,
     handleDeleteMemo,
     handleUpdateMemos,
-    handleAddMemoComment,
-    handleDeleteMemoComment,
   };
 }
