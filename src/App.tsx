@@ -885,6 +885,10 @@ export default function App() {
             createdAt: e.createdAt || detailsObj.createdAt || e.created_at || undefined,
             updatedAt: e.updatedAt || detailsObj.updatedAt || e.updated_at || undefined,
             draftSavedAt: e.draftSavedAt || detailsObj.draftSavedAt || undefined,
+            siteId: e.siteId || detailsObj.siteId || undefined,
+            siteCode: e.siteCode || detailsObj.siteCode || undefined,
+            siteName: e.siteName || detailsObj.siteName || undefined,
+            constructionPhase: e.constructionPhase || detailsObj.constructionPhase || undefined,
           };
         });
         setEvents(mapped);
@@ -2049,6 +2053,10 @@ export default function App() {
       recurrenceExceptions: ev.recurrenceExceptions || [],
       createdBy: createdByData,
       createdById: createdByData?.id,
+      siteId: ev.siteId || null,
+      siteCode: ev.siteCode || null,
+      siteName: ev.siteName || null,
+      constructionPhase: ev.constructionPhase || null,
     };
 
     const safeStart = ensureJstIsoString(ev.start);
@@ -2079,6 +2087,10 @@ export default function App() {
       createdBy: createdByData,
       createdById: createdByData?.id,
       userId: createdByData?.id,
+      siteId: ev.siteId || null,
+      siteCode: ev.siteCode || null,
+      siteName: ev.siteName || null,
+      constructionPhase: ev.constructionPhase || null,
       description: JSON.stringify(descObj),
       details: JSON.stringify(descObj)
     };

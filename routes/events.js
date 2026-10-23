@@ -300,10 +300,10 @@ router.put(['/events/:id', '/api/events/:id'], async (req, res) => {
           .input('recurrenceParentId', sql.VarChar, recurrenceParentId || null)
           .input('recurrenceOriginalDate', sql.VarChar, recurrenceOriginalDate || null)
           .input('recurrenceExceptions', sql.NVarChar, recurrenceExceptions ? JSON.stringify(recurrenceExceptions) : null)
-          .input('siteId', sql.VarChar, siteId || null)
-          .input('siteCode', sql.VarChar, siteCode || null)
-          .input('siteName', sql.NVarChar, siteName || null)
-          .input('constructionPhase', sql.VarChar, constructionPhase || null)
+          .input('siteId', sql.VarChar, updatedFileEvent.siteId || null)
+          .input('siteCode', sql.VarChar, updatedFileEvent.siteCode || null)
+          .input('siteName', sql.NVarChar, updatedFileEvent.siteName || null)
+          .input('constructionPhase', sql.VarChar, updatedFileEvent.constructionPhase || null)
           .query(`
             UPDATE dbo.Events 
             SET title = @title, startAt = @startAt, endAt = @endAt, isAllDay = @isAllDay, isPrivate = @isPrivate,

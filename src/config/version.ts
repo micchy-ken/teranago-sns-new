@@ -14,11 +14,11 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.23.1',
+  version: '2026.10.23.2',
   date: '2026-10-23',
-  releaseNumber: 1,
-  display: 'v2026.10.23 #1',
-  description: '現場管理とカレンダースケジュール連携（工事予定の現場選択・未着手/進行中絞り込み・新規/残/出庫有3択・カレンダーバッジ・現場施工履歴）',
+  releaseNumber: 2,
+  display: 'v2026.10.23 #2',
+  description: 'カレンダースケジュールの現場情報（現場ID・現場コード・現場名・乗り込み種別バッジ）の永続化およびデータ消失バグの修正',
 };
 
 
