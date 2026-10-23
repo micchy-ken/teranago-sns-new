@@ -260,6 +260,13 @@ export const WorkerScheduleView: React.FC<WorkerScheduleViewProps> = ({
                           <Wrench className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                           <span>施工対象: <strong>{part.partCode}</strong> ({part.partName})</span>
                           {(() => {
+                            if (part.fittingNo) {
+                              return (
+                                <span className="bg-indigo-100 text-indigo-800 text-[10px] px-1.5 py-0.5 rounded font-bold">
+                                  建具: {part.fittingNo}
+                                </span>
+                              );
+                            }
                             const total = part.originalQuantity && part.originalQuantity > 1 ? part.originalQuantity : (site.egCount > 1 ? site.egCount : (site.mainParts.length > 1 ? site.mainParts.length : 1));
                             const uIdx = part.unitIndex || 1;
                             if (total <= 1) return null;

@@ -215,6 +215,11 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({
         const outDate = p.outboundDate || p.outStockDate || p.syukkoDate || p.outDate || '';
 
         if (isMain) {
+          const pFittingNo = String(p.fittingNo || p.建具番号 || p.tateguNo || p.tategu_no || p.tategu || p.建具符号 || p.fitting_no || p.fitting || '').trim();
+          const pPartSpec = String(p.partSpec || p.部品規格 || '').trim();
+          const pCode = String(p.partCode || p.modelNumber || p.code || p.model || pPartSpec || p.部品手配コード || '').trim();
+          const pName = String(p.partName || p.name || p.品名 || '主要部品').trim();
+
           // 品名から号機番号を抽出 (例: "(1号機)" -> 1)
           const noteStr = p.note || p.bikou || p.stockStatus || '';
           const machineMatch = (pName + ' ' + noteStr).match(/[(（]?(\d+)\s*(?:号機|台目|号)[)）]?/);
@@ -230,6 +235,8 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({
               id: p.id ? `${p.id}-${i}` : `part-${Date.now()}-${idx}-${i}`,
               partCode: pCode,
               partName: pName,
+              fittingNo: pFittingNo || undefined,
+              partSpec: pPartSpec || pCode || undefined,
               originalQuantity,
               unitIndex,
               quantity: 1,
@@ -240,7 +247,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({
               workerId: primaryWorkerId,
               workerName: allUsers.find(u => u.id === primaryWorkerId)?.name || currentUser.name,
               status: outDate ? 'stock_out' : (inDate ? 'stock_in' : 'waiting_stock'),
-              note: p.note || (originalQuantity > 1 ? `(${originalQuantity}台中 ${unitIndex}台目)` : '')
+              note: p.note || (pFittingNo ? `建具: ${pFittingNo}` : '')
             });
           }
         } else {
@@ -670,13 +677,19 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({
                   >
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2 flex-1">
-                        <span className="text-xs font-bold text-indigo-700 bg-white border border-indigo-200 px-2 py-0.5 rounded shadow-2xs">
-                          {(() => {
-                            const total = part.originalQuantity && part.originalQuantity > 1 ? part.originalQuantity : (egCount > 1 ? egCount : (mainParts.length > 1 ? mainParts.length : 1));
-                            const uIdx = part.unitIndex || (index + 1);
-                            return total > 1 ? `${uIdx}/${total}台目` : `${uIdx}台目`;
-                          })()}
-                        </span>
+                        <div className="relative shrink-0">
+                          <input
+                            type="text"
+                            value={part.fittingNo || ''}
+                            onChange={(e) => handleUpdatePart(index, { fittingNo: e.target.value })}
+                            placeholder={part.fittingNo || `AD1`}
+                            title="建具番号 (例: AD1, W-1)"
+                            className="w-20 px-2 py-1 bg-white border border-indigo-300 rounded text-xs font-bold text-indigo-700 text-center shadow-2xs focus:border-indigo-600 outline-none"
+                          />
+                          <span className="text-[8px] font-bold text-indigo-500 absolute -top-2 left-1.5 px-0.5 bg-white scale-90 origin-left pointer-events-none">
+                            建具
+                          </span>
+                        </div>
                         <input
                           type="text"
                           value={part.partCode}

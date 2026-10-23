@@ -4,8 +4,10 @@ export type PartStatus = 'waiting_stock' | 'stock_in' | 'stock_out' | 'construct
 
 export interface SiteMainPart {
   id: string;
-  partCode: string;          // 型番 / 部品コード
-  partName: string;          // 品名
+  partCode: string;          // 型番 / 部品コード / 部品規格 (例: L=1826)
+  partName: string;          // 品名 (例: セット台板)
+  fittingNo?: string;        // 建具番号 (例: 1号機, W-1)
+  partSpec?: string;         // 部品規格 (例: L=1826)
   originalQuantity?: number; // 元の台数 (分割前)
   unitIndex?: number;        // 分割後の何台目か (1台目, 2台目...)
   quantity: number;          // 常に1

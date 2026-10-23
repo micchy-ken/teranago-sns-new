@@ -323,6 +323,13 @@ export const SiteGanttView: React.FC<SiteGanttViewProps> = ({ sites, onSelectSit
                               {part.partCode}
                             </span>
                             {(() => {
+                              if (part.fittingNo) {
+                                return (
+                                  <span className="text-[10px] px-1.5 py-0.2 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded font-bold shrink-0">
+                                    {part.fittingNo}
+                                  </span>
+                                );
+                              }
                               const total = part.originalQuantity && part.originalQuantity > 1 ? part.originalQuantity : (site.egCount > 1 ? site.egCount : (site.mainParts.length > 1 ? site.mainParts.length : 1));
                               const uIdx = part.unitIndex || (idx + 1);
                               if (total <= 1) return null;

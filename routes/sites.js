@@ -1,7 +1,7 @@
 /**
  * routes/sites.js
  * 寺岡オートドアSNS 現場管理・施工スケジュール・在庫DB部品連携 APIモジュール
- * 最終更新: 2026年10月15日 (NAS施工図PDF連携機能・02-施工図PDFサーブ/リストAPI追加)
+ * 最終更新: 2026年10月23日 (tateguNo建具番号バインド強化・自動同期・既存データ自動補正)
  */
 import { Router } from 'express';
 import sql from 'mssql';
@@ -93,24 +93,30 @@ function mapDbRowToSite(row) {
 
   const rowEgCount = typeof row.egCount === 'number' ? row.egCount : parseInt(row.egCount || '1', 10);
   const totalEg = Math.max(rowEgCount, mainParts.length);
-  // 既存データで 1/1 になってしまっている場合の自動修復
-  if (totalEg > 1 && Array.isArray(mainParts) && mainParts.length > 0) {
-    const isAllOne = mainParts.every(p => !p.originalQuantity || p.originalQuantity === 1);
-    if (isAllOne) {
-      let gIdx = 0;
-      mainParts = mainParts.map((p, idx) => {
-        gIdx++;
-        const pName = p.partName || '';
-        const match = (pName + ' ' + (p.note || '')).match(/[(（]?(\d+)\s*(?:号機|台目|号)[)）]?/);
-        const uIdx = match ? parseInt(match[1], 10) : gIdx;
-        return {
-          ...p,
-          unitIndex: uIdx,
-          originalQuantity: totalEg,
-          note: p.note || `（${totalEg}台中 ${uIdx}台目）`
-        };
-      });
-    }
+  // 既存データで 1/1 になってしまっている場合の自動修復および fittingNo 自動復元
+  if (Array.isArray(mainParts) && mainParts.length > 0) {
+    const isAllOne = totalEg > 1 && mainParts.every(p => !p.originalQuantity || p.originalQuantity === 1);
+    let gIdx = 0;
+    mainParts = mainParts.map((p, idx) => {
+      gIdx++;
+      const pName = p.partName || '';
+      const match = (pName + ' ' + (p.note || '')).match(/[(（]?(\d+)\s*(?:号機|台目|号)[)）]?/);
+      const uIdx = match ? parseInt(match[1], 10) : gIdx;
+
+      let fNo = p.fittingNo || p.tateguNo || p.建具番号 || p.tategu_no || p.建具符号;
+      if (!fNo && p.note) {
+        const m = String(p.note).match(/建具(?:番号|符号)?\s*[:：]\s*([A-Za-z0-9_-]+)/);
+        if (m && m[1]) fNo = m[1].trim();
+      }
+
+      return {
+        ...p,
+        fittingNo: fNo || undefined,
+        unitIndex: isAllOne ? uIdx : (p.unitIndex || uIdx),
+        originalQuantity: isAllOne ? totalEg : (p.originalQuantity || totalEg),
+        note: isAllOne ? (p.note || `（${totalEg}台中 ${uIdx}台目）`) : p.note
+      };
+    });
   }
 
   let drawings = [];
@@ -190,10 +196,15 @@ export function expandMainParts(rawParts = [], fallbackTotalEgCount = 0) {
       // 総台数: 現場全体の総台数（totalSiteEgCount > 1 ならその値、または qty）
       const originalQuantity = totalSiteEgCount > 1 ? totalSiteEgCount : Math.max(qty, 1);
 
+      const pFittingNo = part.fittingNo || part.建具番号 || part.tateguNo || part.tategu_no || part.tategu || part.建具符号 || part.fitting_no || part.fitting || '';
+      const pPartSpec = part.partSpec || part.部品規格 || '';
+
       expanded.push({
         id: part.id ? `${part.id}-${i}` : `part-${Date.now()}-${partIdx}-${i}`,
-        partCode: part.partCode || part.modelNumber || part.code || '',
+        fittingNo: pFittingNo || undefined,
+        partCode: part.partCode || part.modelNumber || part.code || pPartSpec || part.部品手配コード || '',
         partName: pName,
+        partSpec: pPartSpec || undefined,
         originalQuantity,
         unitIndex,
         quantity: 1,
@@ -205,7 +216,7 @@ export function expandMainParts(rawParts = [], fallbackTotalEgCount = 0) {
         workerId: part.workerId || undefined,
         workerName: part.workerName || undefined,
         status: part.status || (part.outStockDate ? 'stock_out' : (part.inStockDate ? 'stock_in' : 'waiting_stock')),
-        note: part.note || (originalQuantity > 1 ? `（${originalQuantity}台中 ${unitIndex}台目）` : '')
+        note: part.note || (pFittingNo ? `建具: ${pFittingNo}` : '')
       });
     }
   });
@@ -319,12 +330,14 @@ function normalizeExternalItem(item) {
       type: isMajor ? 'main' : 'sub',
       isMain: isMajor,
       id: p.id || '',
-      partCode: String(p.modelNumber || p.partCode || p.code || p.model || '').trim(),
-      partName: String(p.name || p.partName || '').trim(),
-      quantity: typeof p.quantity === 'number' ? p.quantity : (parseInt(p.count || p.qty || p.quantity || 1, 10) || 1),
+      fittingNo: String(p.fittingNo || p.建具番号 || p.tateguNo || p.fitting_no || p.fitting || '').trim(),
+      partCode: String(p.partCode || p.modelNumber || p.code || p.model || p.部品規格 || p.部品手配コード || '').trim(),
+      partName: String(p.partName || p.name || p.品名 || '').trim(),
+      partSpec: String(p.partSpec || p.部品規格 || '').trim(),
+      quantity: typeof p.quantity === 'number' ? p.quantity : (parseInt(p.count || p.qty || p.quantity || p.注文数量 || 1, 10) || 1),
       unit: p.unit || (isMajor ? '台' : '個'),
-      inStockDate: p.inboundDate || p.inStockDate || p.nyukoDate || p.inDate || '',
-      outStockDate: p.outboundDate || p.outStockDate || p.syukkoDate || p.outDate || '',
+      inStockDate: p.inboundDate || p.inStockDate || p.nyukoDate || p.inDate || p.入庫日 || '',
+      outStockDate: p.outboundDate || p.outStockDate || p.syukkoDate || p.outDate || p.出庫日 || '',
       note: p.note || p.bikou || p.stockStatus || ''
     };
   }) : [];

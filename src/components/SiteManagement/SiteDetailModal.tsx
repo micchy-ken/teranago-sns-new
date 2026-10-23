@@ -9,6 +9,7 @@ import { User, AttachmentFile, CalendarEvent } from '../../types';
 import { getAvatarUrl, handleAvatarError } from '../../utils/avatar';
 import { API_BASE_URL } from '../../config/api';
 import { FilePreviewModal } from '../FilePreviewModal';
+import { getFittingLabel, cleanPartName } from '../../utils/siteUtils';
 
 interface SiteDetailModalProps {
   site: Site | null;
@@ -198,14 +199,47 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
   const [newAttachmentUrl, setNewAttachmentUrl] = useState('');
   const [showAddAttachment, setShowAddAttachment] = useState(false);
 
+  const [infoForm, setInfoForm] = useState<Partial<Site>>({});
+
   useEffect(() => {
     if (site) {
       setCurrentSite(site);
+      setInfoForm(site);
+      setIsEditingInfo(false);
+      setActiveTab('info');
       fetchLiveSubParts(site.siteCode);
     }
   }, [site]);
 
-  // 在庫DBから付属部品を最新取得
+  const handleStartEditInfo = () => {
+    if (currentSite) {
+      setInfoForm({ ...currentSite });
+      setIsEditingInfo(true);
+    }
+  };
+
+  const handleSaveInfo = async () => {
+    if (!currentSite) return;
+    const updated: Site = {
+      ...currentSite,
+      ...infoForm,
+      siteCode: (infoForm.siteCode || currentSite.siteCode || '').trim(),
+      siteName: (infoForm.siteName || currentSite.siteName || '').trim(),
+      egCount: typeof infoForm.egCount === 'number' ? infoForm.egCount : currentSite.egCount,
+    };
+    setCurrentSite(updated);
+    await saveSiteChanges(updated);
+    setIsEditingInfo(false);
+  };
+
+  const handleCancelEditInfo = () => {
+    if (currentSite) {
+      setInfoForm({ ...currentSite });
+    }
+    setIsEditingInfo(false);
+  };
+
+  // 在庫DBから付属部品および最新の建具番号(tateguNo)・規格を取得して同期
   const fetchLiveSubParts = async (code: string) => {
     if (!code) return;
     setIsLoadingSubParts(true);
@@ -215,22 +249,52 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
         const json = await res.json();
         const rawParts = json.data?.parts || (Array.isArray(json.data) ? json.data[0]?.parts : []) || [];
         const subs: SiteSubPart[] = rawParts
-          .filter((p: any) => p.type === 'sub' || p.isMain === false)
+          .filter((p: any) => p.type === 'sub' || p.isMain === false || p.category === 'sub')
           .map((p: any, idx: number) => ({
             id: `sub-live-${idx}`,
-            partCode: String(p.partCode || p.code || '').trim(),
+            partCode: String(p.partCode || p.code || p.modelNumber || '').trim(),
             partName: String(p.partName || p.name || '付属部品').trim(),
             quantity: typeof p.quantity === 'number' ? p.quantity : (parseInt(p.count || p.qty || p.quantity || 1, 10) || 1),
             unit: p.unit || '個',
-            inStockDate: p.inStockDate || p.nyukoDate || p.inDate || '',
-            outStockDate: p.outStockDate || p.syukkoDate || p.outDate || '',
+            inStockDate: p.inStockDate || p.nyukoDate || p.inDate || p.inboundDate || '',
+            outStockDate: p.outStockDate || p.syukkoDate || p.outDate || p.outboundDate || '',
             note: p.note || p.bikou || ''
           }));
         setSubParts(subs);
+
+        // ★主要部品の建具番号 (tateguNo) と部品規格 (modelNumber / partSpec) の自動同期
+        const liveMajors = rawParts.filter((p: any) => p.type === 'main' || p.category === 'major' || p.isMain === true || (!p.type && p.category !== 'sub'));
+        if (liveMajors.length > 0 && currentSite && currentSite.mainParts && currentSite.mainParts.length > 0) {
+          let updatedMains = false;
+          const newMainParts = currentSite.mainParts.map((mp, idx) => {
+            const matchedLive = liveMajors.find((lp: any) => lp.id === mp.id) || liveMajors[idx] || liveMajors[0];
+            const liveTategu = matchedLive?.tateguNo || matchedLive?.tategu_no || matchedLive?.tategu || matchedLive?.fittingNo || matchedLive?.建具番号;
+            const liveSpec = matchedLive?.partSpec || matchedLive?.modelNumber || matchedLive?.部品規格;
+
+            let changes: Partial<SiteMainPart> = {};
+            if (liveTategu && (!mp.fittingNo || mp.fittingNo !== liveTategu)) {
+              changes.fittingNo = String(liveTategu).trim();
+            }
+            if (liveSpec && (!mp.partSpec || mp.partSpec !== liveSpec)) {
+              changes.partSpec = String(liveSpec).trim();
+            }
+            if (Object.keys(changes).length > 0) {
+              updatedMains = true;
+              return { ...mp, ...changes };
+            }
+            return mp;
+          });
+
+          if (updatedMains) {
+            const updatedSite = { ...currentSite, mainParts: newMainParts };
+            setCurrentSite(updatedSite);
+            saveSiteChanges(updatedSite);
+          }
+        }
       }
 
     } catch (e) {
-      console.warn('Failed to fetch live sub parts:', e);
+      console.warn('Failed to fetch live sub parts / tateguNo:', e);
     } finally {
       setIsLoadingSubParts(false);
     }
@@ -448,32 +512,50 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
         </div>
 
         {/* サブナビゲーションタブ */}
-        <div className="flex border-b border-slate-200 bg-white px-5 text-xs font-bold text-slate-600 gap-6">
+        <div className="flex border-b border-slate-200 bg-white px-5 text-xs font-bold text-slate-600 gap-6 overflow-x-auto">
+          {/* 1番目: 現場詳細情報・竣工予定 */}
+          <button
+            onClick={() => setActiveTab('info')}
+            className={`py-3 border-b-2 flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 ${
+              activeTab === 'info'
+                ? 'border-indigo-600 text-indigo-700'
+                : 'border-transparent hover:text-slate-900'
+            }`}
+          >
+            <Building className="w-4 h-4 text-indigo-600" />
+            <span>現場詳細情報・竣工予定</span>
+          </button>
+
+          {/* 2番目: 主要部品・施工進捗 */}
           <button
             onClick={() => setActiveTab('parts')}
-            className={`py-3 border-b-2 flex items-center gap-1.5 transition-colors cursor-pointer ${
+            className={`py-3 border-b-2 flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 ${
               activeTab === 'parts'
                 ? 'border-indigo-600 text-indigo-700'
                 : 'border-transparent hover:text-slate-900'
             }`}
           >
-            <Layers className="w-4 h-4" />
+            <Layers className="w-4 h-4 text-indigo-600" />
             <span>主要部品・施工進捗 ({currentSite.mainParts.length}台)</span>
           </button>
+
+          {/* 3番目: 施工図面・申し送り・添付ファイル */}
           <button
             onClick={() => setActiveTab('timeline')}
-            className={`py-3 border-b-2 flex items-center gap-1.5 transition-colors cursor-pointer ${
+            className={`py-3 border-b-2 flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 ${
               activeTab === 'timeline'
                 ? 'border-indigo-600 text-indigo-700'
                 : 'border-transparent hover:text-slate-900'
             }`}
           >
-            <MessageSquare className="w-4 h-4" />
-            <span>申し送り・コメント ({currentSite.comments?.length || 0})</span>
+            <MessageSquare className="w-4 h-4 text-indigo-600" />
+            <span>施工図面・申し送り・添付 ({currentSite.comments?.length || 0})</span>
           </button>
+
+          {/* 4番目: 施工予定・実績 */}
           <button
             onClick={() => setActiveTab('schedule')}
-            className={`py-3 border-b-2 flex items-center gap-1.5 transition-colors cursor-pointer ${
+            className={`py-3 border-b-2 flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 ${
               activeTab === 'schedule'
                 ? 'border-indigo-600 text-indigo-700'
                 : 'border-transparent hover:text-slate-900'
@@ -489,20 +571,11 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
               </span>
             </span>
           </button>
-          <button
-            onClick={() => setActiveTab('info')}
-            className={`py-3 border-b-2 flex items-center gap-1.5 transition-colors cursor-pointer ${
-              activeTab === 'info'
-                ? 'border-indigo-600 text-indigo-700'
-                : 'border-transparent hover:text-slate-900'
-            }`}
-          >
-            <FileText className="w-4 h-4" />
-            <span>現場情報・図面・添付</span>
-          </button>
+
+          {/* 5番目: 帳票・Excel・自主検査 */}
           <button
             onClick={() => setActiveTab('export')}
-            className={`py-3 border-b-2 flex items-center gap-1.5 transition-colors cursor-pointer ${
+            className={`py-3 border-b-2 flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 ${
               activeTab === 'export'
                 ? 'border-indigo-600 text-indigo-700'
                 : 'border-transparent hover:text-slate-900'
@@ -544,20 +617,32 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
                     <div key={part.id || idx} className="p-3 bg-white hover:bg-slate-50/50 transition-colors">
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <div className="flex items-center gap-3">
-                          <span className="font-bold text-xs text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded shadow-2xs">
-                            {(() => {
-                              const total = part.originalQuantity && part.originalQuantity > 1 ? part.originalQuantity : (currentSite.egCount > 1 ? currentSite.egCount : (currentSite.mainParts.length > 1 ? currentSite.mainParts.length : 1));
-                              const uIdx = part.unitIndex || (idx + 1);
-                              return total > 1 ? `${uIdx}/${total}台目` : `${uIdx}台目`;
-                            })()}
-                          </span>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <strong className="text-sm text-slate-900">{part.partCode}</strong>
-                              <span className="text-xs text-slate-600">{part.partName}</span>
-                            </div>
+                          {/* 建具番号 (tateguNo) バッジ & インライン編集 */}
+                          <div className="relative group shrink-0">
+                            <input
+                              type="text"
+                              value={part.fittingNo || ''}
+                              placeholder={getFittingLabel(part, idx, currentSite.egCount)}
+                              title="建具番号 (例: AD1, W-1) をクリックして変更・編集可能"
+                              onChange={(e) => handleUpdatePart(part.id, { fittingNo: e.target.value })}
+                              className="w-20 px-2 py-1 text-center font-bold text-xs text-indigo-700 bg-indigo-50/90 hover:bg-white focus:bg-white border border-indigo-200 focus:border-indigo-500 rounded-md shadow-2xs transition-all focus:ring-1 focus:ring-indigo-400 outline-none cursor-pointer"
+                            />
+                            <span className="text-[9px] font-bold text-indigo-500 absolute -top-2 left-1.5 px-0.5 bg-white scale-90 origin-left pointer-events-none">
+                              建具
+                            </span>
+                          </div>
+
+                          <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+                            <span className="text-sm font-bold text-slate-900">
+                              {cleanPartName(part.partName)}
+                            </span>
+                            {(part.partSpec || part.partCode) && (
+                              <span className="text-xs font-mono text-slate-600 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-md w-fit font-medium">
+                                {part.partSpec || part.partCode}
+                              </span>
+                            )}
                             {part.serialNo && (
-                              <div className="text-[10px] text-slate-400">機番: {part.serialNo}</div>
+                              <span className="text-[10px] text-slate-400 font-mono">機番: {part.serialNo}</span>
                             )}
                           </div>
                         </div>
@@ -670,70 +755,15 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
             </div>
           )}
 
-          {/* TAB 2: 申し送り・コメント */}
+          {/* TAB 3: 施工図面・申し送り・添付ファイル */}
           {activeTab === 'timeline' && (
-            <div className="space-y-4">
-              <div className="space-y-3 max-h-[350px] overflow-y-auto pr-2">
-                {(!currentSite.comments || currentSite.comments.length === 0) ? (
-                  <div className="p-8 text-center text-xs text-slate-400">
-                    申し送り・コメントはまだありません。現場に関する連絡や特記事項を投稿してください。
-                  </div>
-                ) : (
-                  currentSite.comments.map(c => (
-                    <div key={c.id} className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="font-bold text-slate-800">{c.userName}</span>
-                        <span className="text-[10px] text-slate-400">
-                          {new Date(c.createdAt).toLocaleString('ja-JP')}
-                        </span>
-                      </div>
-                      <p className="text-xs text-slate-700 whitespace-pre-wrap">{c.content}</p>
-                    </div>
-                  ))
-                )}
-              </div>
-
-              {/* コメント投稿フォーム */}
-              <form onSubmit={handleAddComment} className="flex gap-2">
-                <input
-                  type="text"
-                  value={commentInput}
-                  onChange={(e) => setCommentInput(e.target.value)}
-                  placeholder="現場への申し送り・連絡を入力..."
-                  className="flex-1 px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 focus:bg-white focus:ring-1 focus:ring-indigo-500"
-                />
-                <button
-                  type="submit"
-                  disabled={isSubmittingComment || !commentInput.trim()}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
-                >
-                  <Send className="w-3.5 h-3.5" />
-                  投稿
-                </button>
-              </form>
-            </div>
-          )}
-
-          {/* TAB 3: 現場情報・図面・添付ファイル */}
-          {activeTab === 'info' && (
-            <div className="space-y-5">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
-                  <h5 className="font-bold text-slate-800 border-b border-slate-200 pb-1">
-                    現場詳細情報
-                  </h5>
-                  <div><strong>現場コード:</strong> {currentSite.siteCode}</div>
-                  <div><strong>現場名:</strong> {currentSite.siteName}</div>
-                  <div><strong>元請 / 取引先:</strong> {currentSite.customerName || '未設定'}</div>
-                  <div><strong>施工場所:</strong> {currentSite.address || '未設定'}</div>
-                  <div><strong>発注No:</strong> {currentSite.orderNo || '未設定'}</div>
-                  <div><strong>着工〜完工:</strong> {currentSite.startDate || '未定'} 〜 {currentSite.endDate || '未定'}</div>
-                  <div><strong>主担当施工者:</strong> {currentSite.primaryWorkerName || '未定'}</div>
-                </div>
-
-                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
-                  <div className="flex items-center justify-between border-b border-slate-200 pb-1">
-                    <h5 className="font-bold text-slate-800 flex items-center gap-1.5">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
+              {/* 左列: 図面 (NAS 02-施工図PDF) + 添付ファイル・現場写真・指示書 */}
+              <div className="space-y-5">
+                {/* NAS施工図PDF連携 (02-施工図PDF) */}
+                <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
+                  <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+                    <h5 className="font-bold text-sm text-slate-800 flex items-center gap-1.5">
                       <FileText className="w-4 h-4 text-indigo-600" />
                       <span>NAS施工図PDF連携 (02-施工図PDF)</span>
                     </h5>
@@ -792,7 +822,7 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
                               <span>登録済み施工図面 ({currentDrawings.length}件)</span>
                               <span className="text-[10px] text-slate-400">クリックでPDFビューアー閲覧</span>
                             </div>
-                            <div className="space-y-1.5 max-h-[220px] overflow-y-auto pr-1">
+                            <div className="space-y-1.5 max-h-[200px] overflow-y-auto pr-1">
                               {currentDrawings.map((dwPath, idx) => {
                                 const norm = normalizeDrawingPath(dwPath);
                                 const dwFileName = norm.split('/').pop() || norm;
@@ -903,28 +933,28 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
                               saveSiteChanges(updated);
                             }
                           }}
-                          className={`p-3.5 rounded-xl border-2 border-dashed transition-all text-center ${
+                          className={`p-3 rounded-xl border-2 border-dashed transition-all text-center ${
                             isDragOverDrawing
                               ? 'border-indigo-500 bg-indigo-50/80 ring-2 ring-indigo-500/20 shadow-md'
                               : 'border-slate-300 bg-white hover:border-slate-400'
                           }`}
                         >
-                          <div className="py-1 space-y-1">
-                            <div className="w-8 h-8 rounded-full bg-indigo-50 text-indigo-600 mx-auto flex items-center justify-center mb-1 shadow-2xs">
-                              <FileText className="w-4 h-4" />
+                          <div className="py-0.5 space-y-0.5">
+                            <div className="w-7 h-7 rounded-full bg-indigo-50 text-indigo-600 mx-auto flex items-center justify-center mb-0.5 shadow-2xs">
+                              <FileText className="w-3.5 h-3.5" />
                             </div>
                             <p className="text-xs font-bold text-slate-700">
-                              施工図PDFをドラッグ＆ドロップ（複数ファイル一括登録対応）
+                              施工図PDFをドラッグ＆ドロップ（複数一括対応）
                             </p>
                             <p className="text-[10px] text-slate-400">
-                              エクスプローラーから複数のPDFを一括でドラッグすると自動でサブフォルダ階層を解決して登録します
+                              PDFファイルをドロップして登録
                             </p>
                           </div>
                         </div>
 
                         {/* パス手動入力 / 複数貼り付け */}
                         <div>
-                          <label className="text-[10px] text-slate-500 font-bold block mb-1">
+                          <label className="text-[10px] text-slate-500 font-bold block mb-0.5">
                             施工図パス追加（ファイル名またはパスを貼り付け）
                           </label>
                           <input
@@ -952,90 +982,526 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
                     );
                   })()}
                 </div>
-              </div>
 
-              {/* 添付ファイル管理 */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
-                  <h5 className="font-bold text-xs text-slate-800 flex items-center gap-1.5">
-                    <Paperclip className="w-3.5 h-3.5 text-indigo-600" />
-                    添付ファイル・現場写真・指示書
-                  </h5>
-                  <button
-                    type="button"
-                    onClick={() => setShowAddAttachment(!showAddAttachment)}
-                    className="text-xs font-semibold text-indigo-600 hover:underline cursor-pointer"
-                  >
-                    + ファイル・リンクを追加
-                  </button>
-                </div>
-
-                {showAddAttachment && (
-                  <div className="p-3 bg-indigo-50/60 rounded-xl border border-indigo-100 flex flex-wrap gap-2 items-center text-xs">
-                    <input
-                      type="text"
-                      value={newAttachmentName}
-                      onChange={(e) => setNewAttachmentName(e.target.value)}
-                      placeholder="ファイル名 (例: 施工要領書.pdf)"
-                      className="px-2 py-1 bg-white border border-indigo-200 rounded text-xs flex-1 min-w-[150px]"
-                    />
-                    <input
-                      type="text"
-                      value={newAttachmentUrl}
-                      onChange={(e) => setNewAttachmentUrl(e.target.value)}
-                      placeholder="URLまたはパス"
-                      className="px-2 py-1 bg-white border border-indigo-200 rounded text-xs flex-1 min-w-[200px]"
-                    />
+                {/* 添付ファイル管理 */}
+                <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
+                  <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+                    <h5 className="font-bold text-sm text-slate-800 flex items-center gap-1.5">
+                      <Paperclip className="w-4 h-4 text-indigo-600" />
+                      <span>添付ファイル・現場写真・指示書</span>
+                    </h5>
                     <button
                       type="button"
-                      onClick={handleAddAttachment}
-                      className="px-3 py-1 bg-indigo-600 text-white rounded font-bold cursor-pointer"
+                      onClick={() => setShowAddAttachment(!showAddAttachment)}
+                      className="text-xs font-semibold text-indigo-600 hover:underline cursor-pointer"
                     >
-                      追加
+                      + 追加
                     </button>
                   </div>
-                )}
 
-                {(!currentSite.attachments || currentSite.attachments.length === 0) ? (
-                  <div className="text-xs text-slate-400 italic">
-                    添付ファイルはありません。
+                  {showAddAttachment && (
+                    <div className="p-3 bg-indigo-50/60 rounded-xl border border-indigo-100 flex flex-wrap gap-2 items-center text-xs">
+                      <input
+                        type="text"
+                        value={newAttachmentName}
+                        onChange={(e) => setNewAttachmentName(e.target.value)}
+                        placeholder="ファイル名"
+                        className="px-2 py-1 bg-white border border-indigo-200 rounded text-xs flex-1 min-w-[120px]"
+                      />
+                      <input
+                        type="text"
+                        value={newAttachmentUrl}
+                        onChange={(e) => setNewAttachmentUrl(e.target.value)}
+                        placeholder="URLまたはパス"
+                        className="px-2 py-1 bg-white border border-indigo-200 rounded text-xs flex-1 min-w-[150px]"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleAddAttachment}
+                        className="px-3 py-1 bg-indigo-600 text-white rounded font-bold cursor-pointer"
+                      >
+                        追加
+                      </button>
+                    </div>
+                  )}
+
+                  {(!currentSite.attachments || currentSite.attachments.length === 0) ? (
+                    <div className="text-xs text-slate-400 italic">
+                      添付ファイルはありません。
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {currentSite.attachments.map(att => (
+                        <div key={att.id} className="flex items-center justify-between p-2.5 bg-white rounded-lg text-xs border border-slate-200 shadow-2xs">
+                          <span className="font-medium text-slate-800 truncate mr-2" title={att.name}>{att.name}</span>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPreviewFile({
+                                  id: att.id,
+                                  name: att.name,
+                                  url: att.url,
+                                  size: typeof att.size === 'number' ? `${(att.size / 1024 / 1024).toFixed(2)} MB` : String(att.size || ''),
+                                  type: (att as any).type || '',
+                                });
+                                setIsPreviewOpen(true);
+                              }}
+                              className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-md flex items-center gap-1 text-[11px] transition-colors cursor-pointer"
+                            >
+                              <Eye className="w-3 h-3" />
+                              閲覧
+                            </button>
+                            <a
+                              href={att.url}
+                              download={att.name}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="p-1 text-slate-400 hover:text-indigo-600 rounded-md transition-colors"
+                              title="ダウンロード"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                            </a>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* 右列: 申し送り・現場コメント */}
+              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3 flex flex-col h-full min-h-[420px]">
+                <h5 className="font-bold text-sm text-slate-800 flex items-center gap-1.5 border-b border-slate-200 pb-2">
+                  <MessageSquare className="w-4 h-4 text-indigo-600" />
+                  <span>申し送り・現場コメント</span>
+                </h5>
+
+                <div className="space-y-3 flex-1 max-h-[400px] overflow-y-auto pr-1">
+                  {(!currentSite.comments || currentSite.comments.length === 0) ? (
+                    <div className="p-8 text-center text-xs text-slate-400 italic">
+                      申し送り・コメントはまだありません。現場に関する連絡や特記事項を投稿してください。
+                    </div>
+                  ) : (
+                    currentSite.comments.map(c => (
+                      <div key={c.id} className="p-3 bg-white rounded-xl border border-slate-200 space-y-1 shadow-2xs">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-bold text-slate-800">{c.userName}</span>
+                          <span className="text-[10px] text-slate-400">
+                            {new Date(c.createdAt).toLocaleString('ja-JP')}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-700 whitespace-pre-wrap">{c.content}</p>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {/* コメント投稿フォーム */}
+                <form onSubmit={handleAddComment} className="flex gap-2 pt-2 border-t border-slate-200 mt-auto">
+                  <input
+                    type="text"
+                    value={commentInput}
+                    onChange={(e) => setCommentInput(e.target.value)}
+                    placeholder="現場への申し送り・連絡を入力..."
+                    className="flex-1 px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs text-slate-800 focus:ring-1 focus:ring-indigo-500"
+                  />
+                  <button
+                    type="submit"
+                    disabled={isSubmittingComment || !commentInput.trim()}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs shrink-0"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    投稿
+                  </button>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 1: 現場詳細情報 & 施工担当者 */}
+          {activeTab === 'info' && (
+            <div className="space-y-5">
+              {/* 現場詳細情報カード */}
+              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3 text-xs">
+                <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+                  <h5 className="font-bold text-sm text-slate-800 flex items-center gap-2">
+                    <Building className="w-4 h-4 text-indigo-600" />
+                    <span>現場詳細情報</span>
+                  </h5>
+                  {!isEditingInfo ? (
+                    <button
+                      type="button"
+                      onClick={handleStartEditInfo}
+                      className="px-2.5 py-1 bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                      <span>編集</span>
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleSaveInfo}
+                        disabled={isSaving}
+                        className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer shadow-2xs disabled:opacity-50"
+                      >
+                        <Save className="w-3.5 h-3.5" />
+                        <span>保存</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleCancelEditInfo}
+                        disabled={isSaving}
+                        className="px-2.5 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                      >
+                        キャンセル
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {!isEditingInfo ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                    <div><strong>現場コード:</strong> <span className="font-mono bg-indigo-50 text-indigo-800 px-1.5 py-0.5 rounded border border-indigo-200 font-bold ml-1">{currentSite.siteCode}</span></div>
+                    <div><strong>現場名:</strong> <span className="font-bold text-slate-900 ml-1">{currentSite.siteName}</span></div>
+                    <div><strong>元請 / 取引先:</strong> <span className="ml-1 text-slate-800">{currentSite.customerName || '未設定'}</span></div>
+                    <div><strong>発注No:</strong> <span className="ml-1 text-slate-800">{currentSite.orderNo || '未設定'}</span></div>
+                    <div className="sm:col-span-2"><strong>施工場所:</strong> <span className="ml-1 text-slate-800">{currentSite.address || '未設定'}</span></div>
+                    <div><strong>EG台数:</strong> <span className="ml-1 font-bold text-indigo-700">{currentSite.egCount} 台</span></div>
+                    <div><strong>主担当施工者:</strong> <span className="ml-1 text-slate-800">{currentSite.primaryWorkerName || '未定'}</span></div>
+                    <div><strong>工期（着工〜完工）:</strong> <span className="ml-1 text-slate-800">{currentSite.startDate || '未定'} 〜 {currentSite.endDate || '未定'}</span></div>
+                    <div><strong>主な施工日:</strong> <span className="ml-1 text-slate-800">{currentSite.constructionDate || '未定'}</span></div>
+                    <div className="sm:col-span-2"><strong>進捗状況:</strong> <span className="ml-1 font-bold">{
+                      currentSite.status === 'completed' ? '全施工完了' :
+                      currentSite.status === 'in_progress' ? '施工進行中' :
+                      currentSite.status === 'on_hold' ? '保留' : '未着手'
+                    }</span></div>
+                    {currentSite.notes && (
+                      <div className="sm:col-span-2 pt-2 mt-2 border-t border-slate-200">
+                        <strong>備考 / 特記事項:</strong>
+                        <p className="mt-0.5 text-slate-600 whitespace-pre-wrap">{currentSite.notes}</p>
+                      </div>
+                    )}
                   </div>
                 ) : (
-                  <div className="space-y-1.5">
-                    {currentSite.attachments.map(att => (
-                      <div key={att.id} className="flex items-center justify-between p-2 bg-slate-50 rounded-lg text-xs border border-slate-200">
-                        <span className="font-medium text-slate-800 truncate mr-2" title={att.name}>{att.name}</span>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setPreviewFile({
-                                id: att.id,
-                                name: att.name,
-                                url: att.url,
-                                size: typeof att.size === 'number' ? `${(att.size / 1024 / 1024).toFixed(2)} MB` : String(att.size || ''),
-                                type: (att as any).type || '',
-                              });
-                              setIsPreviewOpen(true);
-                            }}
-                            className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-md flex items-center gap-1 text-[11px] transition-colors cursor-pointer"
-                          >
-                            <Eye className="w-3 h-3" />
-                            プレビュー
-                          </button>
-                          <a
-                            href={att.url}
-                            download={att.name}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="p-1 text-slate-400 hover:text-indigo-600 rounded-md transition-colors"
-                            title="ダウンロード"
-                          >
-                            <Download className="w-3.5 h-3.5" />
-                          </a>
+                  <div className="space-y-3 text-xs">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-700 mb-0.5">現場コード</label>
+                        <input
+                          type="text"
+                          value={infoForm.siteCode || ''}
+                          onChange={(e) => setInfoForm(prev => ({ ...prev, siteCode: e.target.value }))}
+                          className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-mono font-bold text-indigo-900 focus:ring-1 focus:ring-indigo-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-700 mb-0.5">現場名</label>
+                        <input
+                          type="text"
+                          value={infoForm.siteName || ''}
+                          onChange={(e) => setInfoForm(prev => ({ ...prev, siteName: e.target.value }))}
+                          className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-900 focus:ring-1 focus:ring-indigo-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-700 mb-0.5">元請 / 取引先</label>
+                        <input
+                          type="text"
+                          value={infoForm.customerName || ''}
+                          onChange={(e) => setInfoForm(prev => ({ ...prev, customerName: e.target.value }))}
+                          placeholder="例: 株式会社〇〇建設"
+                          className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:ring-1 focus:ring-indigo-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-700 mb-0.5">発注No / 受注No</label>
+                        <input
+                          type="text"
+                          value={infoForm.orderNo || ''}
+                          onChange={(e) => setInfoForm(prev => ({ ...prev, orderNo: e.target.value }))}
+                          placeholder="例: PO-2026-001"
+                          className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:ring-1 focus:ring-indigo-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 mb-0.5">施工場所 / 住所</label>
+                      <input
+                        type="text"
+                        value={infoForm.address || ''}
+                        onChange={(e) => setInfoForm(prev => ({ ...prev, address: e.target.value }))}
+                        placeholder="例: 東京都千代田区〇〇 1-2-3"
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:ring-1 focus:ring-indigo-500"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-700 mb-0.5">EG台数</label>
+                        <input
+                          type="number"
+                          min={1}
+                          value={infoForm.egCount ?? 1}
+                          onChange={(e) => setInfoForm(prev => ({ ...prev, egCount: Math.max(1, parseInt(e.target.value, 10) || 1) }))}
+                          className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-800 focus:ring-1 focus:ring-indigo-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-700 mb-0.5">着工日</label>
+                        <input
+                          type="date"
+                          value={infoForm.startDate || ''}
+                          onChange={(e) => setInfoForm(prev => ({ ...prev, startDate: e.target.value }))}
+                          className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:ring-1 focus:ring-indigo-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-700 mb-0.5">完工日</label>
+                        <input
+                          type="date"
+                          value={infoForm.endDate || ''}
+                          onChange={(e) => setInfoForm(prev => ({ ...prev, endDate: e.target.value }))}
+                          className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:ring-1 focus:ring-indigo-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-700 mb-0.5">主な施工日</label>
+                        <input
+                          type="date"
+                          value={infoForm.constructionDate || ''}
+                          onChange={(e) => setInfoForm(prev => ({ ...prev, constructionDate: e.target.value }))}
+                          className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:ring-1 focus:ring-indigo-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-700 mb-0.5">主担当施工者</label>
+                        <select
+                          value={infoForm.primaryWorkerId || ''}
+                          onChange={(e) => {
+                            const u = allUsers.find(x => x.id === e.target.value);
+                            setInfoForm(prev => ({
+                              ...prev,
+                              primaryWorkerId: e.target.value,
+                              primaryWorkerName: u?.name || ''
+                            }));
+                          }}
+                          className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:ring-1 focus:ring-indigo-500"
+                        >
+                          <option value="">未割り当て</option>
+                          {allUsers.map(u => (
+                            <option key={u.id} value={u.id}>{u.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-700 mb-0.5">全体進捗</label>
+                        <select
+                          value={infoForm.status || 'not_started'}
+                          onChange={(e) => setInfoForm(prev => ({ ...prev, status: e.target.value as SiteStatus }))}
+                          className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-800 focus:ring-1 focus:ring-indigo-500"
+                        >
+                          <option value="not_started">未着手</option>
+                          <option value="in_progress">施工進行中</option>
+                          <option value="completed">全施工完了</option>
+                          <option value="on_hold">保留</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 mb-0.5">備考 / 特記事項</label>
+                      <textarea
+                        rows={2}
+                        value={infoForm.notes || ''}
+                        onChange={(e) => setInfoForm(prev => ({ ...prev, notes: e.target.value }))}
+                        placeholder="特記事項や現場注意点を記入..."
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:ring-1 focus:ring-indigo-500"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 施工担当者 & 施工スケジュール */}
+              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3 text-xs">
+                <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+                  <h5 className="font-bold text-sm text-slate-800 flex items-center gap-2">
+                    <HardHat className="w-4 h-4 text-amber-600" />
+                    <span>施工担当者 & 施工スケジュール</span>
+                  </h5>
+                  <span className="text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-bold">
+                    {siteEvents.length} 件の予定・実績
+                  </span>
+                </div>
+
+                {siteEvents.length === 0 ? (
+                  <div className="p-4 bg-white rounded-xl border border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-2xs">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">
+                        <UserIcon className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="font-bold text-slate-800">
+                          主担当施工者: {currentSite.primaryWorkerName || '未割当'}
+                        </div>
+                        <div className="text-[11px] text-slate-400 mt-0.5">
+                          カレンダー画面で本現場を選択して施工予定を追加できます
                         </div>
                       </div>
-                    ))}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (onNavigateToCalendar) {
+                          onClose();
+                          onNavigateToCalendar('', currentSite.constructionDate || currentSite.startDate);
+                        }
+                      }}
+                      className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-lg border border-indigo-200 flex items-center gap-1.5 transition-colors cursor-pointer text-xs shrink-0"
+                    >
+                      <Calendar className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>カレンダーで開く</span>
+                      <ExternalLink className="w-3 h-3 text-indigo-600" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {siteEvents.map((evt, idx) => {
+                      const startDate = new Date(evt.start);
+                      const endDate = evt.end ? new Date(evt.end) : null;
+                      const isPast = startDate.getTime() < Date.now();
+                      const phase = evt.constructionPhase || (
+                        evt.title.includes('新規') ? 'new' :
+                        evt.title.includes('出庫') ? 'shukko' :
+                        evt.title.includes('残') ? 'remaining' : undefined
+                      );
+
+                      const attendees = (evt.attendees && evt.attendees.length > 0)
+                        ? evt.attendees
+                        : (evt.createdBy ? [evt.createdBy] : []);
+
+                      const dateDisplay = startDate.toLocaleDateString('ja-JP', {
+                        timeZone: 'Asia/Tokyo',
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric',
+                        weekday: 'short'
+                      });
+
+                      const timeDisplay = evt.isAllDay
+                        ? '終日'
+                        : `${startDate.toLocaleTimeString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit' })}${
+                            endDate ? ` 〜 ${endDate.toLocaleTimeString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit' })}` : ''
+                          }`;
+
+                      return (
+                        <div
+                          key={evt.id || idx}
+                          className="p-3.5 bg-white border border-slate-200 hover:border-indigo-300 rounded-xl shadow-2xs hover:shadow-xs transition-all space-y-2.5"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              {/* 乗り込み種別バッジ */}
+                              {phase === 'new' && (
+                                <span className="px-2.5 py-0.5 rounded-md text-xs font-black bg-emerald-600 text-white shadow-2xs">
+                                  【新規乗り込み】
+                                </span>
+                              )}
+                              {phase === 'remaining' && (
+                                <span className="px-2.5 py-0.5 rounded-md text-xs font-black bg-amber-500 text-white shadow-2xs">
+                                  【残工事】
+                                </span>
+                              )}
+                              {phase === 'shukko' && (
+                                <span className="px-2.5 py-0.5 rounded-md text-xs font-black bg-indigo-600 text-white shadow-2xs">
+                                  【出庫有】
+                                </span>
+                              )}
+                              {!phase && (
+                                <span className="px-2 py-0.5 rounded-md text-xs font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                                  工事
+                                </span>
+                              )}
+
+                              {/* 状態バッジ */}
+                              {isPast ? (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
+                                  施工済（実績）
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                                  施工予定
+                                </span>
+                              )}
+
+                              <span className="font-extrabold text-sm text-slate-900">
+                                {evt.title}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-1.5 text-xs font-mono font-bold text-slate-700 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-200">
+                              <Clock className="w-3.5 h-3.5 text-indigo-500" />
+                              <span>{dateDisplay} {timeDisplay}</span>
+                            </div>
+                          </div>
+
+                          {/* 施工担当者 */}
+                          <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-slate-400 font-semibold flex items-center gap-1">
+                                <UserIcon className="w-3.5 h-3.5" />
+                                <span>施工担当者:</span>
+                              </span>
+                              {attendees.length > 0 ? (
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  {attendees.map(u => (
+                                    <div key={u.id} className="flex items-center gap-1.5 bg-slate-50 px-2.5 py-0.5 rounded-full border border-slate-200">
+                                      <img
+                                        src={getAvatarUrl(u.avatarUrl)}
+                                        onError={handleAvatarError}
+                                        alt={u.name}
+                                        className="w-4 h-4 rounded-full object-cover"
+                                      />
+                                      <span className="font-bold text-slate-800">{u.name}</span>
+                                      {u.department && (
+                                        <span className="text-[10px] text-slate-400">({u.department})</span>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span className="text-slate-400">未指定</span>
+                              )}
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (onNavigateToCalendar) {
+                                  onClose();
+                                  onNavigateToCalendar(evt.id, evt.start);
+                                }
+                              }}
+                              className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg border border-indigo-200 shadow-2xs transition-all cursor-pointer"
+                              title="カレンダー画面に移動してこの予定の詳細を表示"
+                            >
+                              <Calendar className="w-3.5 h-3.5 text-indigo-600" />
+                              <span>カレンダーで開く</span>
+                              <ExternalLink className="w-3 h-3 text-indigo-600" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -1100,6 +1566,84 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
           {/* TAB 5: 施工スケジュール・実績タイムライン */}
           {activeTab === 'schedule' && (
             <div className="space-y-4">
+              {/* 竣工予定・カウントダウンサマリー */}
+              <div className="p-4 bg-gradient-to-r from-indigo-50/80 via-purple-50/80 to-blue-50/80 rounded-2xl border border-indigo-200/80 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-xs">
+                      <Calendar className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h5 className="font-extrabold text-sm text-slate-900">竣工予定 & 工期管理</h5>
+                      <p className="text-[11px] text-slate-500">現場の着工日・施工日・完工予定日とカウントダウン状況</p>
+                    </div>
+                  </div>
+
+                  {/* カウントダウンバッジ */}
+                  {(() => {
+                    if (currentSite.status === 'completed') {
+                      return (
+                        <span className="px-3 py-1 bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-full text-xs font-black flex items-center gap-1 shadow-2xs">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          全施工完了
+                        </span>
+                      );
+                    }
+                    const targetDateStr = currentSite.endDate || currentSite.constructionDate;
+                    if (!targetDateStr) {
+                      return (
+                        <span className="px-3 py-1 bg-slate-100 text-slate-600 border border-slate-200 rounded-full text-xs font-bold">
+                          完工予定日未設定
+                        </span>
+                      );
+                    }
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    const target = new Date(`${targetDateStr}T00:00:00+09:00`);
+                    const diffTime = target.getTime() - today.getTime();
+                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+                    if (diffDays > 0) {
+                      return (
+                        <span className="px-3.5 py-1 bg-indigo-600 text-white rounded-full text-xs font-black shadow-xs flex items-center gap-1">
+                          <Clock className="w-3.5 h-3.5" />
+                          完工予定まであと <span className="text-sm font-mono">{diffDays}</span> 日
+                        </span>
+                      );
+                    } else if (diffDays === 0) {
+                      return (
+                        <span className="px-3.5 py-1 bg-amber-500 text-white rounded-full text-xs font-black shadow-xs animate-pulse flex items-center gap-1">
+                          <AlertCircle className="w-3.5 h-3.5" />
+                          本日完工予定日
+                        </span>
+                      );
+                    } else {
+                      return (
+                        <span className="px-3 py-1 bg-rose-100 text-rose-800 border border-rose-300 rounded-full text-xs font-black flex items-center gap-1">
+                          <AlertCircle className="w-3.5 h-3.5" />
+                          完工予定から <span className="font-mono">{Math.abs(diffDays)}</span> 日経過
+                        </span>
+                      );
+                    }
+                  })()}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+                  <div className="p-3 bg-white/90 backdrop-blur-xs rounded-xl border border-slate-200 text-xs shadow-2xs">
+                    <div className="text-[10px] text-slate-400 font-bold mb-0.5">着工日</div>
+                    <div className="font-bold font-mono text-slate-800">{currentSite.startDate || '未設定'}</div>
+                  </div>
+                  <div className="p-3 bg-white/90 backdrop-blur-xs rounded-xl border border-indigo-200 text-xs shadow-2xs">
+                    <div className="text-[10px] text-indigo-600 font-bold mb-0.5">主な施工日</div>
+                    <div className="font-extrabold font-mono text-indigo-900">{currentSite.constructionDate || '未設定'}</div>
+                  </div>
+                  <div className="p-3 bg-white/90 backdrop-blur-xs rounded-xl border border-slate-200 text-xs shadow-2xs">
+                    <div className="text-[10px] text-slate-400 font-bold mb-0.5">完工予定日</div>
+                    <div className="font-bold font-mono text-slate-800">{currentSite.endDate || '未設定'}</div>
+                  </div>
+                </div>
+              </div>
+
               <div className="flex flex-wrap items-center justify-between gap-3 p-4 bg-slate-50 border border-slate-200/80 rounded-xl">
                 <div>
                   <h4 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">

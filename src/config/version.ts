@@ -14,11 +14,11 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.23.3',
+  version: '2026.10.23.8',
   date: '2026-10-23',
-  releaseNumber: 3,
-  display: 'v2026.10.23 #3',
-  description: 'スケジュール（カレンダー）と現場管理間の双方向スムーズ画面遷移・相互参照機能（現場詳細からカレンダー開く / 予定詳細から現場管理開く）の実装',
+  releaseNumber: 8,
+  display: 'v2026.10.23 #8',
+  description: '建具番号(tateguNo)表示の改修：機種名(CN-15T等)の誤抽出を防止し、tateguNo/建具番号(AD1等)の正確なバインド・自動同期・インライン編集に対応',
 };
 
 

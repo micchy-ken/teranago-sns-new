@@ -1,7 +1,7 @@
 export const RECOMMEND_SERVER_JS = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年10月23日 (現場コード・現場名・バッジ不保持バグ修正版：EventModalおよびroutes/events.jsでのsiteCode/siteName/constructionPhase永続化とdbo.Events自動マイグレーション完全対応)
+ * 最終更新日時 (最終アップデート): 2026年10月23日 (建具番号tateguNo表示不具合改修：機種名CN-15T等の誤認防止・tateguNo自動同期・インライン編集対応版)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
