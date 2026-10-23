@@ -95,6 +95,7 @@ import {
   Coins,
   Type,
   Palette,
+  BarChart2,
 } from 'lucide-react';
 import { AppFontSize, FONT_SIZE_OPTIONS, getSavedFontSize, applyFontSize, ColorTheme, THEME_OPTIONS, getSavedTheme, applyColorTheme } from '../utils/theme';
 import { TopicDetailModal } from './TopicDetailModal';
@@ -104,7 +105,7 @@ import { TopicCreateModal } from './TopicCreateModal';
 import { ApplicationModal } from './ApplicationModal';
 import { MyPageSectionCard } from './MyPageSectionCard';
 import { MyPageDisplaySettingsModal, DEFAULT_SECTION_COUNTS, DEFAULT_ENV_SETTINGS } from './MyPageDisplaySettingsModal';
-import { isTopicCurrentlyPinned, formatPinnedUntilBadge } from '../utils/boardHelpers';
+import { isTopicCurrentlyPinned, formatPinnedUntilBadge, getPollDeadlineMs } from '../utils/boardHelpers';
 import { ApprovalFlowRule, ItemMaster, ApplicationStatus, MyPageSectionCounts, MyPageEnvSettings } from '../types';
 import { SchedulePoll } from '../types/schedulePoll';
 
@@ -1076,6 +1077,17 @@ export function MyPage({
 
   const unreadTopics = myTopics.filter((t) => isTopicUnread(t, user, readTopicIds));
 
+  // 未回答のアンケート付きトピック（期限内かつ自分が未回答）
+  const unansweredPollTopics = useMemo(() => {
+    return (myTopics || []).filter((t) => {
+      if (!t.poll) return false;
+      const deadlineMs = t.poll.deadline ? getPollDeadlineMs(t.poll.deadline) : NaN;
+      if (!isNaN(deadlineMs) && Date.now() > deadlineMs) return false;
+      const myVote = (t.poll.votes || []).find((v) => String(v.userId) === String(user?.id));
+      return !myVote;
+    });
+  }, [myTopics, user?.id]);
+
   // 3. 自分宛ての伝言メモ (未対応を一番上に表示、同ステータス内は新しい順)
   const myMemos = useMemo(() => {
     return (memos || [])
@@ -1482,6 +1494,50 @@ export function MyPage({
             onDrop={(e) => handleDrop(e, index)}
           >
             <div className="space-y-3">
+              {/* 未回答のアンケート強調バナー */}
+              {unansweredPollTopics.length > 0 && (
+                <div className="p-3 bg-gradient-to-r from-sky-500/15 via-indigo-500/10 to-sky-500/10 border-2 border-sky-300 rounded-xl space-y-2 mb-2 shadow-2xs">
+                  <div className="flex items-center justify-between text-xs font-bold text-sky-950">
+                    <span className="flex items-center gap-1.5">
+                      <BarChart2 className="w-4 h-4 text-sky-600 animate-pulse" />
+                      【要回答】未回答のアンケートがあります（{unansweredPollTopics.length}件）
+                    </span>
+                    <span className="text-[10px] text-sky-700 font-semibold">タップして直接回答</span>
+                  </div>
+                  <div className="space-y-1.5">
+                    {unansweredPollTopics.map(topic => (
+                      <div
+                        key={`unanswered-poll-${topic.id}`}
+                        onClick={() => {
+                          markTopicAsReadUtil(user?.id, topic.id);
+                          if (onNavigateToContent) {
+                            onNavigateToContent({ tab: 'board', topicId: topic.id });
+                          } else {
+                            setSelectedTopic(topic);
+                          }
+                        }}
+                        className="p-2.5 bg-white hover:bg-sky-50/80 rounded-lg border border-sky-200 transition-all flex items-center justify-between gap-2 cursor-pointer shadow-2xs group"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs font-bold text-slate-800 truncate group-hover:text-sky-700">
+                            {topic.title}
+                          </div>
+                          {topic.poll?.deadline && (
+                            <div className="text-[10px] text-sky-700 flex items-center gap-1 mt-0.5 font-medium">
+                              <Clock className="w-3 h-3 text-sky-600" />
+                              回答期限: 〜{topic.poll.deadline}
+                            </div>
+                          )}
+                        </div>
+                        <span className="px-2.5 py-1 bg-sky-600 hover:bg-sky-700 text-white text-[10px] font-bold rounded-md shrink-0 shadow-2xs">
+                          回答する →
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {(() => {
                 const topicLimit = sectionCounts.topics;
                 const displayedTopics = myTopics.slice(0, topicLimit);
@@ -1521,12 +1577,31 @@ export function MyPage({
                                 <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 bg-amber-500 text-white rounded-md shadow-2xs">
                                   <Pin className="w-2.5 h-2.5 fill-white" />
                                   <span>ピン留め</span>
-                                  {topic.pinnedUntil && (
-                                    <span className="text-[9px] text-amber-100 font-normal">
-                                      {formatPinnedUntilBadge(topic.pinnedUntil)}
-                                    </span>
-                                  )}
+                                  <span className="text-[9px] text-amber-100 font-normal">
+                                    {formatPinnedUntilBadge(topic.pinnedUntil, topic.poll)}
+                                  </span>
                                 </span>
+                              )}
+
+                              {/* アンケートバッジ */}
+                              {topic.poll && (
+                                (() => {
+                                  const myVote = (topic.poll.votes || []).find(v => String(v.userId) === String(user?.id));
+                                  const deadlineMs = topic.poll.deadline ? new Date(topic.poll.deadline).getTime() : NaN;
+                                  const isExpired = !isNaN(deadlineMs) && Date.now() > deadlineMs;
+                                  return (
+                                    <span className={`inline-flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full ${
+                                      myVote
+                                        ? 'bg-emerald-100 text-emerald-800'
+                                        : isExpired
+                                        ? 'bg-slate-200 text-slate-700'
+                                        : 'bg-rose-500 text-white font-black animate-pulse shadow-2xs'
+                                    }`}>
+                                      <BarChart2 className="w-2.5 h-2.5" />
+                                      <span>{myVote ? 'アンケート回答済' : isExpired ? 'アンケート終了' : '要回答'}</span>
+                                    </span>
+                                  );
+                                })()
                               )}
 
                               {unread ? (

@@ -3,7 +3,7 @@ import { BoardTopic, User, OfficeMaster, DivisionMaster } from '../types';
 import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
 import { markTopicAsRead } from '../utils/notifications';
 import { deleteAttachmentFiles } from '../utils/fileUpload';
-import { MessageSquare, Eye, Plus, Search, Pin, Paperclip, Calendar as CalendarIcon, Building2, Users, Flame, Tag, Trash2, Share2, Check, Star } from 'lucide-react';
+import { MessageSquare, Eye, Plus, Search, Pin, Paperclip, Calendar as CalendarIcon, Building2, Users, Flame, Tag, Trash2, Share2, Check, Star, BarChart2 } from 'lucide-react';
 import { TopicCreateModal } from './TopicCreateModal';
 import { TopicDetailModal } from './TopicDetailModal';
 import { ConfirmModal } from './ConfirmModal';
@@ -48,6 +48,7 @@ export function Board({
   }, [currentUser?.preferences?.favoriteTopicIds]);
   const favoriteSet = useMemo(() => new Set(favoriteTopicIds), [favoriteTopicIds]);
   const [onlyFavorites, setOnlyFavorites] = useState(false);
+  const [onlyPolls, setOnlyPolls] = useState(false);
   const [favoriteFeedback, setFavoriteFeedback] = useState<string | null>(null);
 
   const handleToggleFavorite = (topicId: string, e?: React.MouseEvent) => {
@@ -181,6 +182,11 @@ export function Board({
           return false;
         }
 
+        // アンケート絞り込み
+        if (onlyPolls && !t.poll) {
+          return false;
+        }
+
         // 検索クエリ
         if (searchQuery && searchQuery.trim()) {
           const query = searchQuery.toLowerCase();
@@ -202,7 +208,7 @@ export function Board({
         // 日付降順
         return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
       });
-  }, [topics, selectedTag, selectedOffice, selectedDivision, searchQuery, onlyFavorites, favoriteSet]);
+  }, [topics, selectedTag, selectedOffice, selectedDivision, searchQuery, onlyFavorites, favoriteSet, onlyPolls]);
 
   const handleCreateSubmit = (topicData: Omit<BoardTopic, 'id' | 'createdAt' | 'views' | 'commentsCount'>) => {
     if (onAddTopic) {
@@ -321,6 +327,23 @@ export function Board({
             )}
           </button>
 
+          {/* アンケートフィルターボタン */}
+          <button
+            onClick={() => {
+              setOnlyPolls(prev => !prev);
+              if (!onlyPolls) setOnlyFavorites(false);
+            }}
+            className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-all whitespace-nowrap flex items-center gap-1 cursor-pointer shrink-0 ${
+              onlyPolls
+                ? 'bg-sky-600 text-white shadow-2xs font-bold'
+                : 'bg-white text-slate-600 hover:bg-sky-50 hover:text-sky-700 border border-slate-200'
+            }`}
+            title="アンケート付きトピックのみ表示"
+          >
+            <BarChart2 className="w-3.5 h-3.5" />
+            <span>アンケート</span>
+          </button>
+
           {popularTags.map(({ tag, count }) => (
             <button
               key={tag}
@@ -380,9 +403,35 @@ export function Board({
                               <Pin className="w-3 h-3 fill-white" />
                               <span>ピン留め</span>
                               <span className="text-[9px] sm:text-[10px] text-amber-100 font-normal">
-                                {formatPinnedUntilBadge(topic.pinnedUntil)}
+                                {formatPinnedUntilBadge(topic.pinnedUntil, topic.poll)}
                               </span>
                             </span>
+                          )}
+
+                          {/* アンケートバッジ */}
+                          {topic.poll && (
+                            (() => {
+                              const myVote = (topic.poll.votes || []).find(v => String(v.userId) === String(currentUser?.id));
+                              const deadlineMs = topic.poll.deadline ? new Date(topic.poll.deadline).getTime() : NaN;
+                              const isExpired = !isNaN(deadlineMs) && Date.now() > deadlineMs;
+                              return (
+                                <span className={`inline-flex items-center gap-1 text-[10px] sm:text-[11px] font-bold px-1.5 sm:px-2 py-0.5 rounded-md shrink-0 border ${
+                                  myVote
+                                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                    : isExpired
+                                    ? 'bg-slate-100 text-slate-600 border-slate-200'
+                                    : 'bg-sky-50 text-sky-800 border-sky-300 ring-1 ring-sky-200'
+                                }`}>
+                                  <BarChart2 className="w-3 h-3 text-sky-600" />
+                                  <span>{myVote ? 'アンケート回答済' : isExpired ? 'アンケート終了' : 'アンケート要回答'}</span>
+                                  {topic.poll.deadline && !isExpired && (
+                                    <span className="text-[9px] text-sky-700 font-normal">
+                                      〜{topic.poll.deadline.slice(5)}
+                                    </span>
+                                  )}
+                                </span>
+                              );
+                            })()
                           )}
 
                           <span className="text-[10px] sm:text-[11px] font-semibold px-1.5 sm:px-2 py-0.5 bg-slate-100 text-slate-700 rounded-md shrink-0">

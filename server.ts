@@ -4801,12 +4801,25 @@ async function startServer() {
       const merged = allBulletins.map((topic: any) => {
         const topicComments = allComments.filter((c: any) => String(c.topicId || c.topic_id) === String(topic.id));
         const topicViewers = allViewers.filter((v: any) => String(v.topicId || v.topic_id) === String(topic.id));
-        const isCurrentlyPinned = !!topic.isPinned && (!topic.pinnedUntil || new Date(topic.pinnedUntil).getTime() > nowMs);
+        
+        let isPollAutoPinned = false;
+        if (topic.poll && topic.poll.autoPinUntilDeadline && topic.poll.deadline) {
+          const trimmed = String(topic.poll.deadline).trim();
+          const deadlineMs = /^\d{4}-\d{2}-\d{2}$/.test(trimmed)
+            ? new Date(`${trimmed}T23:59:59.999+09:00`).getTime()
+            : new Date(trimmed).getTime();
+          if (!isNaN(deadlineMs) && deadlineMs > nowMs) {
+            isPollAutoPinned = true;
+          }
+        }
+
+        const isCurrentlyPinned = isPollAutoPinned || (!!topic.isPinned && (!topic.pinnedUntil || new Date(topic.pinnedUntil).getTime() > nowMs));
         return {
           ...topic,
           isPinned: isCurrentlyPinned,
           pinnedUntil: topic.pinnedUntil || null,
           pinnedDuration: topic.pinnedDuration || null,
+          poll: topic.poll || null,
           comments: topicComments,
           commentsCount: topicComments.length,
           viewers: topicViewers
@@ -4842,6 +4855,7 @@ async function startServer() {
         isPinned: !!req.body.isPinned,
         pinnedUntil: req.body.isPinned ? (req.body.pinnedUntil || null) : null,
         pinnedDuration: req.body.isPinned ? (req.body.pinnedDuration || null) : null,
+        poll: req.body.poll || null,
         views: 0,
         createdAt: req.body.createdAt || nowIso,
         updatedAt: nowIso
@@ -4859,7 +4873,7 @@ async function startServer() {
             createNotification({
               user_id: String(u.id),
               type: 'bulletin',
-              title: `【掲示板】${authorName}さんが新しいトピックを投稿しました`,
+              title: newTopic.poll ? `【アンケート】${authorName}さんがアンケート付きトピックを投稿しました` : `【掲示板】${authorName}さんが新しいトピックを投稿しました`,
               contents: `${newTopic.title}`,
               sender_id: newTopic.author?.id,
               sender_name: authorName,
@@ -4875,7 +4889,7 @@ async function startServer() {
       try {
         await sendPushNotificationToUser({
           excludeUserId: newTopic.author?.id,
-          title: `【掲示板】${newTopic.author?.name || '社員'}さんの新規投稿`,
+          title: newTopic.poll ? `【アンケート】${newTopic.author?.name || '社員'}さんからアンケートのお願い` : `【掲示板】${newTopic.author?.name || '社員'}さんの新規投稿`,
           body: `${newTopic.title}`,
           url: `/?tab=board&topicId=${newTopic.id}`,
           data: { topicId: newTopic.id, tab: 'board' }
@@ -4903,6 +4917,7 @@ async function startServer() {
         isPinned: !!req.body.isPinned,
         pinnedUntil: req.body.isPinned ? (req.body.pinnedUntil || null) : null,
         pinnedDuration: req.body.isPinned ? (req.body.pinnedDuration || null) : null,
+        poll: req.body.poll !== undefined ? req.body.poll : bulletinsList[idx].poll,
         updatedAt: new Date().toISOString()
       };
       saveBulletins(bulletinsList);
@@ -4933,6 +4948,66 @@ async function startServer() {
       }
 
       res.json(bulletinsList[idx]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // アンケート投票 API (POST /api/bulletins/:id/poll/vote & /api/board/:id/poll/vote)
+  app.post(['/api/bulletins/:id/poll/vote', '/api/board/:id/poll/vote'], (req, res) => {
+    try {
+      const topicId = req.params.id;
+      const { userId, userName, userAvatarUrl, selectedOptionIds, comment } = req.body;
+      if (!userId || !Array.isArray(selectedOptionIds) || selectedOptionIds.length === 0) {
+        return res.status(400).json({ error: '投票者情報および選択肢が必要です' });
+      }
+
+      const bulletinsList = loadBulletins();
+      const idx = bulletinsList.findIndex((t: any) => String(t.id) === String(topicId));
+      if (idx === -1) {
+        return res.status(404).json({ error: 'トピックが見つかりません' });
+      }
+
+      const topic = bulletinsList[idx];
+      if (!topic.poll) {
+        return res.status(400).json({ error: 'このトピックにはアンケートが設定されていません' });
+      }
+
+      // 締め切りチェック
+      if (topic.poll.deadline) {
+        const trimmed = String(topic.poll.deadline).trim();
+        const deadlineMs = /^\d{4}-\d{2}-\d{2}$/.test(trimmed)
+          ? new Date(`${trimmed}T23:59:59.999+09:00`).getTime()
+          : new Date(trimmed).getTime();
+        if (!isNaN(deadlineMs) && Date.now() > deadlineMs) {
+          return res.status(400).json({ error: '回答期限を過ぎているため投票できません' });
+        }
+      }
+
+      const votes = Array.isArray(topic.poll.votes) ? [...topic.poll.votes] : [];
+      const nowIso = new Date().toISOString();
+      const existingVoteIdx = votes.findIndex((v: any) => String(v.userId) === String(userId));
+      const voteRecord = {
+        id: existingVoteIdx >= 0 ? votes[existingVoteIdx].id : `vote-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+        userId: String(userId),
+        userName: userName || '匿名',
+        userAvatarUrl: userAvatarUrl || '',
+        selectedOptionIds: selectedOptionIds.map(String),
+        comment: (comment || '').trim() || undefined,
+        votedAt: nowIso
+      };
+
+      if (existingVoteIdx >= 0) {
+        votes[existingVoteIdx] = voteRecord;
+      } else {
+        votes.push(voteRecord);
+      }
+
+      topic.poll.votes = votes;
+      topic.updatedAt = nowIso;
+      saveBulletins(bulletinsList);
+
+      res.json({ success: true, poll: topic.poll, topic });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

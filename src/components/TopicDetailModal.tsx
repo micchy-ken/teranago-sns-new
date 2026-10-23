@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { X, MessageSquare, Eye, Pin, Paperclip, Calendar as CalendarIcon, Send, Trash2, Building2, Users, Tag, CheckCircle2, Edit3, Save, Plus, Loader2, Eye as EyeIcon, Download, UploadCloud, Share2, Check, Star } from 'lucide-react';
-import { BoardTopic, User, OfficeMaster, DivisionMaster, AttachmentFile, BoardViewer } from '../types';
+import { X, MessageSquare, Eye, Pin, Paperclip, Calendar as CalendarIcon, Send, Trash2, Building2, Users, Tag, CheckCircle2, Edit3, Save, Plus, Loader2, Eye as EyeIcon, Download, UploadCloud, Share2, Check, Star, BarChart2, AlertCircle, Clock, CheckSquare } from 'lucide-react';
+import { BoardTopic, User, OfficeMaster, DivisionMaster, AttachmentFile, BoardViewer, BoardPollVote } from '../types';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
 import { uploadMultipleFiles, deleteAttachmentFile, deleteAttachmentFiles, resolveFileUrl, isPreviewable } from '../utils/fileUpload';
@@ -11,7 +11,7 @@ import { markTopicAsRead } from '../utils/notifications';
 import { triggerOpenUserModal } from '../utils/userModal';
 import { buildAppUrl, copyTextToClipboard } from '../utils/urlParams';
 import { API_BASE_URL } from '../config/api';
-import { isTopicCurrentlyPinned, formatPinnedUntilBadge } from '../utils/boardHelpers';
+import { isTopicCurrentlyPinned, formatPinnedUntilBadge, getPollDeadlineMs } from '../utils/boardHelpers';
 
 interface TopicDetailModalProps {
   topic: BoardTopic | null;
@@ -73,6 +73,18 @@ export function TopicDetailModal({
   const [isEditingDraggingOver, setIsEditingDraggingOver] = useState(false);
   const [isCommentDraggingOver, setIsCommentDraggingOver] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+
+  // アンケート投票用 State
+  const [selectedPollOptionIds, setSelectedPollOptionIds] = useState<string[]>([]);
+  const [pollComment, setPollComment] = useState('');
+  const [isChangingVote, setIsChangingVote] = useState(false);
+  const [isVoting, setIsVoting] = useState(false);
+  const [pollFeedback, setPollFeedback] = useState<string | null>(null);
+  const [pollError, setPollError] = useState<string | null>(null);
+
+  // 編集モード時のアンケート設定用 State
+  const [editPollDeadline, setEditPollDeadline] = useState('');
+  const [editPollAutoPin, setEditPollAutoPin] = useState(true);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -202,7 +214,35 @@ export function TopicDetailModal({
             ...a,
             id: a.id || `att-${i}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`
           })));
+
+          if (topic.poll) {
+            setEditPollDeadline(topic.poll.deadline || '');
+            setEditPollAutoPin(topic.poll.autoPinUntilDeadline !== false);
+          }
         }
+
+        // アンケート投票状態初期化
+        if (topic.poll) {
+          const myVote = (topic.poll.votes || []).find(v => String(v.userId) === String(currentUser?.id));
+          if (myVote) {
+            setSelectedPollOptionIds(myVote.selectedOptionIds || []);
+            setPollComment(myVote.comment || '');
+            setIsChangingVote(false);
+          } else {
+            setSelectedPollOptionIds([]);
+            setPollComment('');
+            setIsChangingVote(false);
+          }
+          setPollFeedback(null);
+          setPollError(null);
+        } else {
+          setSelectedPollOptionIds([]);
+          setPollComment('');
+          setIsChangingVote(false);
+          setPollFeedback(null);
+          setPollError(null);
+        }
+
         setCommentAttachments([]);
         setIsCommentUploading(false);
         setIsEditingUploading(false);
@@ -263,13 +303,118 @@ export function TopicDetailModal({
   const isAdmin = !!(currentUser && (currentUser.isAdmin || currentUser.role === 'admin'));
   const canDeleteTopic = isAuthor || isAdmin;
 
+  // アンケート投票処理
+  const handleVote = async () => {
+    if (!topic || !topic.poll || !currentUser) return;
+    if (selectedPollOptionIds.length === 0) {
+      setPollError('選択肢を1つ以上選んでください。');
+      return;
+    }
+
+    // 必須コメントチェック
+    const isCommentRequired = selectedPollOptionIds.some(id => 
+      topic.poll?.options.find(o => o.id === id)?.requireComment
+    );
+    if (isCommentRequired && !pollComment.trim()) {
+      setPollError('選択された項目は理由コメントの記入が必須です。');
+      return;
+    }
+
+    setIsVoting(true);
+    setPollError(null);
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/bulletins/${topic.id}/poll/vote`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: currentUser.id,
+          userName: currentUser.name,
+          userAvatarUrl: currentUser.avatarUrl,
+          selectedOptionIds: selectedPollOptionIds,
+          comment: pollComment.trim() || undefined,
+        }),
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || '投票に失敗しました');
+      }
+
+      const resData = await res.json();
+      const updatedPoll = resData.poll || {
+        ...topic.poll,
+        votes: [
+          ...(topic.poll.votes || []).filter(v => String(v.userId) !== String(currentUser.id)),
+          resData.vote,
+        ],
+      };
+
+      const updatedTopic: BoardTopic = {
+        ...topic,
+        poll: updatedPoll,
+      };
+
+      onUpdateTopic(updatedTopic);
+      setIsChangingVote(false);
+      setPollFeedback('投票を受け付けました！');
+      setTimeout(() => setPollFeedback(null), 3000);
+    } catch (err: any) {
+      console.error('Poll vote fallback:', err);
+      // フォールバック: クライアント側で即時反映
+      const nowIso = new Date().toISOString();
+      const newVote: BoardPollVote = {
+        id: `vote-${Date.now()}`,
+        userId: currentUser.id,
+        userName: currentUser.name,
+        userAvatarUrl: currentUser.avatarUrl,
+        selectedOptionIds: selectedPollOptionIds,
+        comment: pollComment.trim() || undefined,
+        votedAt: nowIso,
+      };
+      const votes = [
+        ...(topic.poll.votes || []).filter(v => String(v.userId) !== String(currentUser.id)),
+        newVote,
+      ];
+      const updatedTopic: BoardTopic = {
+        ...topic,
+        poll: {
+          ...topic.poll,
+          votes,
+        },
+      };
+      onUpdateTopic(updatedTopic);
+      setIsChangingVote(false);
+      setPollFeedback('投票を保存しました');
+      setTimeout(() => setPollFeedback(null), 3000);
+    } finally {
+      setIsVoting(false);
+    }
+  };
+
   // 保存処理 (本人編集)
   const handleSaveEdit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editTitle || !editTitle.trim() || !editContent || !editContent.trim()) return;
 
+    let finalIsPinned = editIsPinned;
     let finalPinnedUntil: string | null = null;
-    if (editIsPinned) {
+
+    let updatedPoll = topic.poll;
+    if (topic.poll) {
+      updatedPoll = {
+        ...topic.poll,
+        deadline: editPollDeadline || topic.poll.deadline,
+        autoPinUntilDeadline: editPollAutoPin,
+      };
+
+      if (editPollAutoPin && editPollDeadline) {
+        finalIsPinned = true;
+        finalPinnedUntil = new Date(`${editPollDeadline}T23:59:59.999+09:00`).toISOString();
+      }
+    }
+
+    if (!finalPinnedUntil && editIsPinned) {
       if (editPinnedPeriod === '1week') {
         const d = new Date();
         d.setDate(d.getDate() + 7);
@@ -289,7 +434,7 @@ export function TopicDetailModal({
       content: (editContent || '').trim(),
       office: editOffice,
       division: editDivision,
-      isPinned: editIsPinned,
+      isPinned: finalIsPinned,
       pinnedUntil: finalPinnedUntil,
       pinnedDuration: editIsPinned ? editPinnedPeriod : undefined,
       hasPeriod: editHasPeriod,
@@ -297,6 +442,7 @@ export function TopicDetailModal({
       endDate: editHasPeriod ? editEndDate : undefined,
       tags: editTags,
       attachments: editAttachments,
+      poll: updatedPoll,
     };
 
     onUpdateTopic(updatedTopic);
@@ -861,6 +1007,40 @@ export function TopicDetailModal({
                     </div>
                   )}
                 </div>
+
+                {/* アンケート設定編集（アンケートがある場合） */}
+                {topic.poll && (
+                  <div className="pt-2 border-t border-slate-200 space-y-2">
+                    <div className="text-xs font-bold text-sky-900 flex items-center gap-1.5">
+                      <BarChart2 className="w-3.5 h-3.5 text-sky-600" />
+                      アンケート設定（期限・固定表示）
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                          回答期限日（JST）
+                        </label>
+                        <input
+                          type="date"
+                          value={editPollDeadline}
+                          onChange={e => setEditPollDeadline(e.target.value)}
+                          className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-sky-500"
+                        />
+                      </div>
+                      <div className="flex items-center">
+                        <label className="flex items-center gap-2 cursor-pointer select-none text-xs font-semibold text-slate-700 mt-4 sm:mt-0">
+                          <input
+                            type="checkbox"
+                            checked={editPollAutoPin}
+                            onChange={e => setEditPollAutoPin(e.target.checked)}
+                            className="w-4 h-4 rounded text-sky-600 focus:ring-sky-500 border-slate-300 cursor-pointer"
+                          />
+                          <span>📌 回答期限まで自動ピン留め</span>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* 添付ファイル */}
@@ -1073,6 +1253,371 @@ export function TopicDetailModal({
                         ))}
                       </div>
                     </div>
+                  )}
+
+                  {/* Poll / Survey Section */}
+                  {topic.poll && (
+                    (() => {
+                      const poll = topic.poll;
+                      const votes = poll.votes || [];
+                      const totalVotes = votes.length;
+                      const myVote = votes.find(v => String(v.userId) === String(currentUser?.id));
+                      const hasVoted = !!myVote;
+
+                      // 期限判定
+                      const deadlineMs = poll.deadline ? getPollDeadlineMs(poll.deadline) : NaN;
+                      const isExpired = !isNaN(deadlineMs) && Date.now() > deadlineMs;
+                      const remainingDays = !isNaN(deadlineMs) && !isExpired
+                        ? Math.max(1, Math.ceil((deadlineMs - Date.now()) / (1000 * 60 * 60 * 24)))
+                        : 0;
+
+                      // 選択中の選択肢の中に理由コメント必須のものがあるか
+                      const selectedOptions = (poll.options || []).filter(o => selectedPollOptionIds.includes(o.id));
+                      const isCommentRequired = selectedOptions.some(o => o.requireComment);
+                      const requiredCommentOption = selectedOptions.find(o => o.requireComment);
+
+                      // 投票モードか結果表示モードか
+                      const showVotingForm = (!hasVoted || isChangingVote) && !isExpired;
+
+                      // 選択肢ごとの得票集計
+                      const optionStats = (poll.options || []).map(opt => {
+                        const optVotes = votes.filter(v => (v.selectedOptionIds || []).includes(opt.id));
+                        const count = optVotes.length;
+                        const percent = totalVotes > 0 ? Math.round((count / totalVotes) * 100) : 0;
+                        const isMySelection = myVote ? (myVote.selectedOptionIds || []).includes(opt.id) : false;
+                        return {
+                          ...opt,
+                          count,
+                          percent,
+                          isMySelection,
+                          voters: optVotes,
+                        };
+                      });
+
+                      // 理由コメントがある投票一覧
+                      const votesWithComments = votes.filter(v => v.comment && v.comment.trim().length > 0);
+
+                      const handleOptionSelect = (optionId: string) => {
+                        if (poll.allowMultiple) {
+                          if (selectedPollOptionIds.includes(optionId)) {
+                            setSelectedPollOptionIds(selectedPollOptionIds.filter(id => id !== optionId));
+                          } else {
+                            setSelectedPollOptionIds([...selectedPollOptionIds, optionId]);
+                          }
+                        } else {
+                          setSelectedPollOptionIds([optionId]);
+                        }
+                      };
+
+                      return (
+                        <div className="p-4 sm:p-5 bg-gradient-to-br from-sky-50/70 via-indigo-50/40 to-white rounded-2xl border-2 border-sky-200/90 shadow-xs space-y-4">
+                          {/* アンケートヘッダー */}
+                          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-sky-100 pb-3">
+                            <div className="flex items-center gap-2">
+                              <div className="p-2 bg-sky-500 text-white rounded-xl shadow-xs">
+                                <BarChart2 className="w-5 h-5" />
+                              </div>
+                              <div>
+                                <h4 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                                  <span>{poll.title || 'アンケート / 意思決定投票'}</span>
+                                  {poll.allowMultiple && (
+                                    <span className="text-[10px] bg-slate-100 text-slate-600 font-bold px-1.5 py-0.5 rounded">
+                                      複数選択可
+                                    </span>
+                                  )}
+                                  {poll.isAnonymous && (
+                                    <span className="text-[10px] bg-slate-100 text-slate-600 font-bold px-1.5 py-0.5 rounded">
+                                      匿名投票
+                                    </span>
+                                  )}
+                                </h4>
+                                <div className="text-[11px] text-slate-500 flex items-center gap-2 mt-0.5">
+                                  <span>回答総数: <strong className="text-slate-800">{totalVotes}名</strong></span>
+                                  {poll.deadline && (
+                                    <span className={`flex items-center gap-1 font-semibold ${isExpired ? 'text-slate-500' : 'text-sky-700'}`}>
+                                      <Clock className="w-3.5 h-3.5" />
+                                      {isExpired
+                                        ? `期限終了 (${poll.deadline})`
+                                        : `期限: 〜${poll.deadline}（あと${remainingDays}日）`}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* 自動ピン留め・ステータスバッジ */}
+                            <div className="flex items-center gap-1.5">
+                              {poll.autoPinUntilDeadline && !isExpired && (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-100/80 text-amber-900 text-[11px] font-bold rounded-lg border border-amber-200 shadow-2xs">
+                                  <Pin className="w-3.5 h-3.5 text-amber-700" />
+                                  回答期限まで自動固定
+                                </span>
+                              )}
+                              {hasVoted && !showVotingForm && (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-100 text-emerald-800 text-[11px] font-bold rounded-lg border border-emerald-200">
+                                  <Check className="w-3.5 h-3.5" />
+                                  回答済み
+                                </span>
+                              )}
+                              {isExpired && (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-200 text-slate-700 text-[11px] font-bold rounded-lg">
+                                  受付終了
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* フィードバック / エラー表示 */}
+                          {pollFeedback && (
+                            <div className="p-2.5 bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs rounded-xl font-bold flex items-center gap-1.5">
+                              <CheckCircle2 className="w-4 h-4" />
+                              {pollFeedback}
+                            </div>
+                          )}
+                          {pollError && (
+                            <div className="p-2.5 bg-red-50 border border-red-200 text-red-600 text-xs rounded-xl font-bold flex items-center gap-1.5">
+                              <AlertCircle className="w-4 h-4" />
+                              {pollError}
+                            </div>
+                          )}
+
+                          {/* 投票受付フォーム */}
+                          {showVotingForm ? (
+                            <div className="space-y-3.5">
+                              <div className="text-xs font-bold text-slate-700">
+                                {hasVoted ? '回答を変更する選択肢を選んでください：' : 'あなたの意見を選択してください：'}
+                              </div>
+
+                              <div className="space-y-2">
+                                {(poll.options || []).map((opt) => {
+                                  const isSelected = selectedPollOptionIds.includes(opt.id);
+                                  return (
+                                    <label
+                                      key={opt.id}
+                                      onClick={() => handleOptionSelect(opt.id)}
+                                      className={`flex items-start gap-3 p-3 rounded-xl border transition-all cursor-pointer select-none ${
+                                        isSelected
+                                          ? 'bg-sky-500/10 border-sky-500 text-sky-950 ring-2 ring-sky-300 shadow-xs'
+                                          : 'bg-white border-slate-200 hover:border-sky-300 text-slate-800'
+                                      }`}
+                                    >
+                                      <input
+                                        type={poll.allowMultiple ? 'checkbox' : 'radio'}
+                                        name="poll-option"
+                                        checked={isSelected}
+                                        onChange={() => {}}
+                                        className="w-4 h-4 text-sky-600 focus:ring-sky-500 border-slate-300 cursor-pointer mt-0.5 shrink-0"
+                                      />
+                                      <div className="flex-1">
+                                        <div className="text-xs font-bold flex items-center gap-1.5">
+                                          <span>{opt.text}</span>
+                                          {opt.requireComment && (
+                                            <span className="text-[10px] px-1.5 py-0.5 bg-amber-100 text-amber-800 font-bold rounded">
+                                              理由コメント必須
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+
+                              {/* 理由コメント入力欄（理由必須選択肢または任意コメント） */}
+                              <div className={`p-3 rounded-xl border transition-all space-y-1.5 ${
+                                isCommentRequired
+                                  ? 'bg-amber-50/70 border-amber-300 text-amber-900'
+                                  : 'bg-white border-slate-200'
+                              }`}>
+                                <div className="flex items-center justify-between">
+                                  <label className="text-xs font-bold flex items-center gap-1.5">
+                                    {isCommentRequired ? (
+                                      <>
+                                        <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
+                                        <span className="text-amber-900">
+                                          「{requiredCommentOption?.text}」の理由・背景をご記入ください <span className="text-red-500">*</span>
+                                        </span>
+                                      </>
+                                    ) : (
+                                      <span className="text-slate-700">理由・コメント（任意）</span>
+                                    )}
+                                  </label>
+                                  {isCommentRequired && (
+                                    <span className="text-[10px] font-bold text-amber-700">記入必須</span>
+                                  )}
+                                </div>
+                                <textarea
+                                  rows={2}
+                                  value={pollComment}
+                                  onChange={e => setPollComment(e.target.value)}
+                                  placeholder={isCommentRequired ? "理由や懸念点、対案を具体的に記入してください..." : "投票に添えるコメントや補足があれば記入してください（任意）"}
+                                  className={`w-full px-3 py-2 bg-white rounded-lg text-xs focus:outline-none focus:ring-2 resize-none ${
+                                    isCommentRequired
+                                      ? 'border border-amber-300 focus:ring-amber-500 text-slate-800'
+                                      : 'border border-slate-200 focus:ring-sky-500 text-slate-800'
+                                  }`}
+                                />
+                              </div>
+
+                              {/* アクションボタン */}
+                              <div className="flex items-center justify-end gap-2 pt-1">
+                                {isChangingVote && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setIsChangingVote(false);
+                                      if (myVote) {
+                                        setSelectedPollOptionIds(myVote.selectedOptionIds || []);
+                                        setPollComment(myVote.comment || '');
+                                      }
+                                    }}
+                                    className="px-3.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+                                  >
+                                    変更をキャンセル
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  disabled={isVoting || selectedPollOptionIds.length === 0 || (isCommentRequired && !pollComment.trim())}
+                                  onClick={handleVote}
+                                  className="px-5 py-2 bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-md transition-all active:scale-[0.98] flex items-center gap-1.5 cursor-pointer"
+                                >
+                                  {isVoting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                                  {isVoting ? '送信中...' : (hasVoted ? '投票内容を更新する' : '投票を送信する')}
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            /* 集計結果表示モード */
+                            <div className="space-y-4">
+                              <div className="space-y-2.5">
+                                {optionStats.map((opt) => (
+                                  <div
+                                    key={opt.id}
+                                    className={`p-3 rounded-xl border transition-all ${
+                                      opt.isMySelection
+                                        ? 'bg-sky-50/80 border-sky-400 shadow-2xs ring-1 ring-sky-300'
+                                        : 'bg-white border-slate-200'
+                                    }`}
+                                  >
+                                    <div className="flex items-center justify-between text-xs mb-1.5">
+                                      <div className="flex items-center gap-1.5 font-bold text-slate-800">
+                                        <span>{opt.text}</span>
+                                        {opt.isMySelection && (
+                                          <span className="px-1.5 py-0.5 bg-sky-500 text-white text-[10px] rounded font-bold">
+                                            あなたの回答
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="font-bold text-slate-700 flex items-center gap-1">
+                                        <span className="text-sky-700 text-sm font-extrabold">{opt.percent}%</span>
+                                        <span className="text-slate-400 text-[11px]">({opt.count}票)</span>
+                                      </div>
+                                    </div>
+
+                                    {/* プログレスバー */}
+                                    <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden border border-slate-200/60">
+                                      <div
+                                        style={{ width: `${opt.percent}%` }}
+                                        className={`h-full transition-all duration-500 rounded-full ${
+                                          opt.isMySelection ? 'bg-sky-500' : 'bg-slate-400'
+                                        }`}
+                                      />
+                                    </div>
+
+                                    {/* 投票者アバター一覧（実名投票の場合） */}
+                                    {!poll.isAnonymous && opt.voters.length > 0 && (
+                                      <div className="flex flex-wrap items-center gap-1.5 mt-2 pt-2 border-t border-slate-100">
+                                        <span className="text-[10px] text-slate-400 font-semibold mr-1">投票者:</span>
+                                        {opt.voters.map((v, vIdx) => (
+                                          <div
+                                            key={v.id || `voter-${vIdx}`}
+                                            className="flex items-center gap-1 bg-slate-100 hover:bg-slate-200 px-1.5 py-0.5 rounded-full text-[10px] text-slate-700 font-medium transition-colors"
+                                            title={`${v.userName}${v.comment ? ` : 「${v.comment}」` : ''}`}
+                                          >
+                                            <img
+                                              src={getAvatarUrl(v.userAvatarUrl)}
+                                              alt={v.userName}
+                                              onError={handleAvatarError}
+                                              className="w-4 h-4 rounded-full object-cover"
+                                            />
+                                            <span>{v.userName}</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+
+                              {/* 投票された理由コメント一覧 */}
+                              {votesWithComments.length > 0 && (
+                                <div className="p-3.5 bg-white rounded-xl border border-sky-100 shadow-2xs space-y-2">
+                                  <div className="text-xs font-bold text-slate-700 flex items-center justify-between">
+                                    <span className="flex items-center gap-1.5">
+                                      <MessageSquare className="w-3.5 h-3.5 text-sky-600" />
+                                      投票者の理由・意見コメント ({votesWithComments.length}件)
+                                    </span>
+                                  </div>
+                                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                                    {votesWithComments.map((v) => {
+                                      const chosenTexts = (v.selectedOptionIds || [])
+                                        .map(id => poll.options.find(o => o.id === id)?.text)
+                                        .filter(Boolean)
+                                        .join(', ');
+                                      return (
+                                        <div key={v.id} className="p-2.5 bg-slate-50 border border-slate-200/70 rounded-lg text-xs space-y-1">
+                                          <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-1.5 font-bold text-slate-800">
+                                              {!poll.isAnonymous ? (
+                                                <>
+                                                  <img
+                                                    src={getAvatarUrl(v.userAvatarUrl)}
+                                                    alt={v.userName}
+                                                    onError={handleAvatarError}
+                                                    className="w-4 h-4 rounded-full object-cover"
+                                                  />
+                                                  <span>{v.userName}</span>
+                                                </>
+                                              ) : (
+                                                <span className="text-slate-500 font-semibold">匿名メンバー</span>
+                                              )}
+                                              <span className="text-[10px] font-bold text-sky-700 bg-sky-100 px-1.5 py-0.2 rounded">
+                                                {chosenTexts || '選択'}
+                                              </span>
+                                            </div>
+                                            <span className="text-[10px] text-slate-400">
+                                              {v.votedAt ? new Date(v.votedAt).toLocaleDateString('ja-JP') : ''}
+                                            </span>
+                                          </div>
+                                          <p className="text-slate-700 pl-5 whitespace-pre-wrap leading-relaxed">
+                                            {v.comment}
+                                          </p>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* 回答変更ボタン（期限内かつ投票済みの場合） */}
+                              {!isExpired && hasVoted && (
+                                <div className="flex justify-end pt-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => setIsChangingVote(true)}
+                                    className="px-4 py-1.5 bg-white hover:bg-sky-50 border border-sky-300 text-sky-700 text-xs font-bold rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                                  >
+                                    <Edit3 className="w-3.5 h-3.5" />
+                                    回答を変更・再投票する
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()
                   )}
 
                   {/* Comments Section */}

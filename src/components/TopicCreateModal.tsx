@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { X, Paperclip, Pin, Calendar as CalendarIcon, Building2, Users, Tag, Plus, Trash2, Loader2, UploadCloud } from 'lucide-react';
-import { BoardTopic, User, OfficeMaster, DivisionMaster, AttachmentFile } from '../types';
+import { X, Paperclip, Pin, Calendar as CalendarIcon, Building2, Users, Tag, Plus, Trash2, Loader2, UploadCloud, BarChart2, AlertCircle, CheckSquare } from 'lucide-react';
+import { BoardTopic, User, OfficeMaster, DivisionMaster, AttachmentFile, BoardPoll } from '../types';
 import { uploadMultipleFiles } from '../utils/fileUpload';
 import { UrlPastePopup, useUrlPasteHandler } from './common/UrlPastePopup';
 
@@ -13,6 +13,15 @@ interface TopicCreateModalProps {
   divisions?: DivisionMaster[];
   existingTags: string[];
 }
+
+const getDefaultDeadlineDate = () => {
+  const d = new Date();
+  d.setDate(d.getDate() + 7);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 
 export function TopicCreateModal({
   isOpen,
@@ -46,6 +55,18 @@ export function TopicCreateModal({
   const [isPinned, setIsPinned] = useState(false);
   const [pinnedPeriod, setPinnedPeriod] = useState<'1week' | '1month' | 'forever'>('1week');
 
+  // アンケート設定
+  const [hasPoll, setHasPoll] = useState(false);
+  const [pollOptions, setPollOptions] = useState<Array<{ id: string; text: string; requireComment: boolean }>>([
+    { id: 'opt-1', text: '賛成', requireComment: false },
+    { id: 'opt-2', text: '条件付き賛成', requireComment: false },
+    { id: 'opt-3', text: 'どれも反対', requireComment: true },
+  ]);
+  const [pollDeadline, setPollDeadline] = useState(getDefaultDeadlineDate());
+  const [pollAutoPin, setPollAutoPin] = useState(true);
+  const [pollAllowMultiple, setPollAllowMultiple] = useState(false);
+  const [pollIsAnonymous, setPollIsAnonymous] = useState(false);
+
   const [isUploading, setIsUploading] = useState(false);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -65,6 +86,16 @@ export function TopicCreateModal({
       setEndDate('');
       setIsPinned(false);
       setPinnedPeriod('1week');
+      setHasPoll(false);
+      setPollOptions([
+        { id: 'opt-1', text: '賛成', requireComment: false },
+        { id: 'opt-2', text: '条件付き賛成', requireComment: false },
+        { id: 'opt-3', text: 'どれも反対', requireComment: true },
+      ]);
+      setPollDeadline(getDefaultDeadlineDate());
+      setPollAutoPin(true);
+      setPollAllowMultiple(false);
+      setPollIsAnonymous(false);
       setIsUploading(false);
       setIsDraggingOver(false);
       setError(null);
@@ -151,14 +182,35 @@ export function TopicCreateModal({
     setAttachments(attachments.filter(a => a.id !== id));
   };
 
+  const handleAddOption = () => {
+    if (pollOptions.length >= 10) return;
+    setPollOptions([
+      ...pollOptions,
+      { id: `opt-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`, text: '', requireComment: false },
+    ]);
+  };
+
+  const handleUpdateOptionText = (id: string, text: string) => {
+    setPollOptions(pollOptions.map(o => o.id === id ? { ...o, text } : o));
+  };
+
+  const handleToggleOptionRequireComment = (id: string) => {
+    setPollOptions(pollOptions.map(o => o.id === id ? { ...o, requireComment: !o.requireComment } : o));
+  };
+
+  const handleRemoveOption = (id: string) => {
+    if (pollOptions.length <= 2) return;
+    setPollOptions(pollOptions.filter(o => o.id !== id));
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title || !title.trim()) {
+    if (!title.trim()) {
       setError('タイトルを入力してください。');
       return;
     }
-    if (!content || !content.trim()) {
-      setError('本文を入力してください。');
+    if (!content.trim()) {
+      setError('本文内容を入力してください。');
       return;
     }
 
@@ -173,8 +225,40 @@ export function TopicCreateModal({
       }
     }
 
+    let pollData: BoardPoll | undefined = undefined;
+    if (hasPoll) {
+      const validOptions = pollOptions
+        .map(o => ({ ...o, text: (o.text || '').trim() }))
+        .filter(o => o.text.length > 0);
+      if (validOptions.length < 2) {
+        setError('アンケートの選択肢は最低2つ以上入力してください。');
+        return;
+      }
+      if (!pollDeadline) {
+        setError('アンケートの回答期限日を指定してください。');
+        return;
+      }
+      pollData = {
+        id: `poll-${Date.now()}`,
+        options: validOptions.map(o => ({
+          id: o.id,
+          text: o.text,
+          requireComment: !!o.requireComment,
+        })),
+        allowMultiple: pollAllowMultiple,
+        isAnonymous: pollIsAnonymous,
+        deadline: pollDeadline,
+        autoPinUntilDeadline: pollAutoPin,
+        votes: [],
+      };
+    }
+
+    let finalIsPinned = isPinned;
     let pinnedUntil: string | null = null;
-    if (isPinned) {
+    if (hasPoll && pollAutoPin && pollDeadline) {
+      finalIsPinned = true;
+      pinnedUntil = new Date(`${pollDeadline}T23:59:59.999+09:00`).toISOString();
+    } else if (isPinned) {
       if (pinnedPeriod === '1week') {
         const d = new Date();
         d.setDate(d.getDate() + 7);
@@ -199,9 +283,10 @@ export function TopicCreateModal({
       hasPeriod,
       startDate: hasPeriod ? startDate : undefined,
       endDate: hasPeriod ? endDate : undefined,
-      isPinned,
+      isPinned: finalIsPinned,
       pinnedUntil,
       pinnedDuration: isPinned ? pinnedPeriod : undefined,
+      poll: pollData,
       comments: [],
       viewers: [{ user: currentUser, viewedAt: new Date().toISOString() }],
     });
@@ -518,6 +603,165 @@ export function TopicCreateModal({
                     onChange={e => setEndDate(e.target.value)}
                     className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* アンケート・意思決定投票設定 */}
+          <div className="p-4 bg-sky-50/70 border border-sky-200 rounded-xl space-y-3.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 bg-sky-100 text-sky-700 rounded-lg">
+                  <BarChart2 className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-sky-950 flex items-center gap-1.5">
+                    アンケート / 意思決定投票を追加する
+                  </div>
+                  <div className="text-[11px] text-sky-700">
+                    意見集約、賛否投票、選択肢ごとの理由コメント必須化が可能です
+                  </div>
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={hasPoll}
+                onChange={e => setHasPoll(e.target.checked)}
+                className="w-4 h-4 rounded text-sky-600 focus:ring-sky-500 border-sky-300 cursor-pointer"
+              />
+            </div>
+
+            {hasPoll && (
+              <div className="pt-3 border-t border-sky-200/80 space-y-3.5">
+                {/* 選択肢リスト */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs font-bold text-sky-900">
+                      選択肢（最低2つ）<span className="text-red-500">*</span>
+                    </label>
+                    <span className="text-[11px] text-sky-600 font-medium">
+                      選択肢ごとに「理由コメント必須」を設定可能
+                    </span>
+                  </div>
+
+                  <div className="space-y-2">
+                    {pollOptions.map((opt, idx) => (
+                      <div
+                        key={opt.id}
+                        className="p-2.5 bg-white rounded-xl border border-sky-200/70 shadow-xs space-y-2"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="w-5 h-5 rounded-full bg-sky-100 text-sky-700 text-[11px] font-bold flex items-center justify-center shrink-0">
+                            {idx + 1}
+                          </span>
+                          <input
+                            type="text"
+                            value={opt.text}
+                            onChange={e => handleUpdateOptionText(opt.id, e.target.value)}
+                            placeholder={`例: ${idx === 0 ? '賛成（クラウド型PBX導入）' : idx === 1 ? '条件付き賛成（費用を要再考）' : 'どれも反対'}`}
+                            className="flex-1 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:bg-white"
+                          />
+                          {pollOptions.length > 2 && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveOption(opt.id)}
+                              className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                              title="選択肢を削除"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+
+                        {/* 理由コメント必須チェック */}
+                        <div className="flex items-center justify-between pl-7 pr-1">
+                          <label className="flex items-center gap-2 cursor-pointer select-none text-[11px] font-semibold text-slate-600 hover:text-slate-900">
+                            <input
+                              type="checkbox"
+                              checked={!!opt.requireComment}
+                              onChange={() => handleToggleOptionRequireComment(opt.id)}
+                              className="w-3.5 h-3.5 rounded text-amber-600 focus:ring-amber-500 border-slate-300 cursor-pointer"
+                            />
+                            <span>⚠️ この選択肢を選んだ場合は理由コメントを必須にする</span>
+                          </label>
+                          {opt.requireComment && (
+                            <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-1.5 py-0.5 rounded">
+                              理由必須
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {pollOptions.length < 10 && (
+                    <button
+                      type="button"
+                      onClick={handleAddOption}
+                      className="mt-2.5 w-full py-2 bg-white hover:bg-sky-100/60 border border-dashed border-sky-300 text-sky-700 text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      選択肢を追加する（最大10件）
+                    </button>
+                  )}
+                </div>
+
+                {/* 回答期限 & 自動ピン留め設定 */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-sky-200/70">
+                  <div>
+                    <label className="block text-[11px] font-bold text-sky-950 mb-1">
+                      回答期限日（JST）<span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="date"
+                      value={pollDeadline}
+                      onChange={e => setPollDeadline(e.target.value)}
+                      className="w-full px-3 py-1.5 bg-white border border-sky-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                    />
+                    <p className="text-[10px] text-sky-700 mt-0.5">※ その日の23:59まで回答を受け付けます</p>
+                  </div>
+
+                  <div className="flex flex-col justify-center">
+                    <label className="flex items-start gap-2 cursor-pointer select-none p-2 bg-white rounded-lg border border-sky-200 shadow-2xs">
+                      <input
+                        type="checkbox"
+                        checked={pollAutoPin}
+                        onChange={e => setPollAutoPin(e.target.checked)}
+                        className="w-4 h-4 rounded text-sky-600 focus:ring-sky-500 border-sky-300 cursor-pointer mt-0.5 shrink-0"
+                      />
+                      <div>
+                        <div className="text-xs font-bold text-sky-950 flex items-center gap-1">
+                          📌 回答期限まで自動ピン留め
+                        </div>
+                        <div className="text-[10px] text-sky-700">
+                          期限到来までは一覧の最上部に固定され、終了後に自動解除
+                        </div>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                {/* 詳細オプション（複数選択、匿名） */}
+                <div className="pt-2 border-t border-sky-200/70 flex flex-wrap gap-4 text-xs font-medium text-sky-950">
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={pollAllowMultiple}
+                      onChange={e => setPollAllowMultiple(e.target.checked)}
+                      className="w-3.5 h-3.5 rounded text-sky-600 focus:ring-sky-500 border-sky-300 cursor-pointer"
+                    />
+                    <span>複数選択を許可する</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={pollIsAnonymous}
+                      onChange={e => setPollIsAnonymous(e.target.checked)}
+                      className="w-3.5 h-3.5 rounded text-sky-600 focus:ring-sky-500 border-sky-300 cursor-pointer"
+                    />
+                    <span>匿名投票にする（誰が投票したかを非公開）</span>
+                  </label>
                 </div>
               </div>
             )}

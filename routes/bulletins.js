@@ -96,7 +96,8 @@ async function ensureBulletinTables(pool) {
           hasPeriod BIT NULL DEFAULT 0,
           startDate VARCHAR(20) NULL,
           endDate VARCHAR(20) NULL,
-          attachments NVARCHAR(MAX) NULL
+          attachments NVARCHAR(MAX) NULL,
+          poll NVARCHAR(MAX) NULL
         );
       END;
 
@@ -135,6 +136,7 @@ async function ensureBulletinTables(pool) {
       IF COL_LENGTH('dbo.Bulletins', 'tags') IS NULL ALTER TABLE dbo.Bulletins ADD tags NVARCHAR(500) NULL;
       IF COL_LENGTH('dbo.Bulletins', 'attachments') IS NULL ALTER TABLE dbo.Bulletins ADD attachments NVARCHAR(MAX) NULL;
       IF COL_LENGTH('dbo.Bulletins', 'pinnedUntil') IS NULL ALTER TABLE dbo.Bulletins ADD pinnedUntil VARCHAR(40) NULL;
+      IF COL_LENGTH('dbo.Bulletins', 'poll') IS NULL ALTER TABLE dbo.Bulletins ADD poll NVARCHAR(MAX) NULL;
 
       IF COL_LENGTH('dbo.BoardComments', 'bulletinId') IS NULL ALTER TABLE dbo.BoardComments ADD bulletinId VARCHAR(50) NULL;
       IF COL_LENGTH('dbo.BoardComments', 'topicId') IS NULL ALTER TABLE dbo.BoardComments ADD topicId VARCHAR(50) NULL;
@@ -244,8 +246,20 @@ router.get(['/bulletins', '/bulletins/', '/board', '/board/'], async (req, res) 
           }
         }));
 
-      // ピン留め期限判定（期限切れの場合は即座に isPinned = false）
-      const isCurrentlyPinned = !!row.isPinned && (!row.pinnedUntil || new Date(row.pinnedUntil).getTime() > nowMs);
+      const pollObj = safeParseJSON(row.poll, null);
+      let isPollAutoPinned = false;
+      if (pollObj && pollObj.autoPinUntilDeadline && pollObj.deadline) {
+        const trimmed = String(pollObj.deadline).trim();
+        const deadlineMs = /^\d{4}-\d{2}-\d{2}$/.test(trimmed)
+          ? new Date(`${trimmed}T23:59:59.999+09:00`).getTime()
+          : new Date(trimmed).getTime();
+        if (!isNaN(deadlineMs) && deadlineMs > nowMs) {
+          isPollAutoPinned = true;
+        }
+      }
+
+      // ピン留め期限判定（期限切れの場合は即座に isPinned = false。アンケート自動固定中はピン留め有効）
+      const isCurrentlyPinned = isPollAutoPinned || (!!row.isPinned && (!row.pinnedUntil || new Date(row.pinnedUntil).getTime() > nowMs));
 
       return {
         id: String(row.id),
@@ -273,6 +287,7 @@ router.get(['/bulletins', '/bulletins/', '/board', '/board/'], async (req, res) 
         startDate: row.startDate || '',
         endDate: row.endDate || '',
         attachments: safeParseJSON(row.attachments, []),
+        poll: pollObj,
         comments: topicComments,
         viewers: topicViewers,
         commentsCount: topicComments.length
@@ -288,7 +303,7 @@ router.get(['/bulletins', '/bulletins/', '/board', '/board/'], async (req, res) 
 // ==========================================
 router.post(['/bulletins', '/bulletins/', '/board', '/board/'], async (req, res) => {
   try {
-    const { title, content, category, authorId, isPinned, office, division, scope, tags, attachments, hasPeriod, startDate, endDate, pinnedUntil } = req.body;
+    const { title, content, category, authorId, isPinned, office, division, scope, tags, attachments, hasPeriod, startDate, endDate, pinnedUntil, poll } = req.body;
     const pool = await getPool();
     const id = req.body.id || `b-${Date.now()}`;
 
@@ -298,6 +313,7 @@ router.post(['/bulletins', '/bulletins/', '/board', '/board/'], async (req, res)
 
     const finalPinned = isPinned ? 1 : 0;
     const finalPinnedUntil = isPinned ? (pinnedUntil || null) : null;
+    const pollStr = poll ? (typeof poll === 'object' ? JSON.stringify(poll) : String(poll)) : null;
 
     await pool.request()
       .input('id', sql.VarChar, String(id))
@@ -315,9 +331,10 @@ router.post(['/bulletins', '/bulletins/', '/board', '/board/'], async (req, res)
       .input('startDate', sql.VarChar, startDate || null)
       .input('endDate', sql.VarChar, endDate || null)
       .input('attachments', sql.NVarChar, attachments ? JSON.stringify(attachments) : null)
+      .input('poll', sql.NVarChar, pollStr)
       .query(`
-        INSERT INTO dbo.Bulletins (id, title, content, category, authorId, isPinned, pinnedUntil, office, division, scope, tags, attachments, hasPeriod, startDate, endDate, createdAt, views, likes)
-        VALUES (@id, @title, @content, @category, @authorId, @isPinned, @pinnedUntil, @office, @division, @scope, @tags, @attachments, @hasPeriod, @startDate, @endDate, GETDATE(), 0, 0)
+        INSERT INTO dbo.Bulletins (id, title, content, category, authorId, isPinned, pinnedUntil, office, division, scope, tags, attachments, hasPeriod, startDate, endDate, poll, createdAt, views, likes)
+        VALUES (@id, @title, @content, @category, @authorId, @isPinned, @pinnedUntil, @office, @division, @scope, @tags, @attachments, @hasPeriod, @startDate, @endDate, @poll, GETDATE(), 0, 0)
       `);
     res.status(201).json({ id, message: '掲示板トピック作成完了' });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -329,7 +346,7 @@ router.post(['/bulletins', '/bulletins/', '/board', '/board/'], async (req, res)
 router.put(['/bulletins/:id', '/board/:id'], async (req, res) => {
   try {
     const id = req.params.id;
-    const { title, content, category, isPinned, office, division, scope, tags, attachments, hasPeriod, startDate, endDate, pinnedUntil } = req.body;
+    const { title, content, category, isPinned, office, division, scope, tags, attachments, hasPeriod, startDate, endDate, pinnedUntil, poll } = req.body;
     const pool = await getPool();
 
     if (pool) {
@@ -338,8 +355,9 @@ router.put(['/bulletins/:id', '/board/:id'], async (req, res) => {
 
     const finalPinned = isPinned ? 1 : 0;
     const finalPinnedUntil = isPinned ? (pinnedUntil || null) : null;
+    const pollStr = poll !== undefined ? (poll ? JSON.stringify(poll) : null) : undefined;
 
-    await pool.request()
+    const request = pool.request()
       .input('id', sql.VarChar, String(id))
       .input('title', sql.NVarChar, title || '')
       .input('content', sql.NVarChar, content || '')
@@ -353,25 +371,31 @@ router.put(['/bulletins/:id', '/board/:id'], async (req, res) => {
       .input('hasPeriod', sql.Bit, hasPeriod ? 1 : 0)
       .input('startDate', sql.VarChar, startDate || null)
       .input('endDate', sql.VarChar, endDate || null)
-      .input('attachments', sql.NVarChar, attachments ? JSON.stringify(attachments) : null)
-      .query(`
-        UPDATE dbo.Bulletins
-        SET 
-          title = @title,
-          content = @content,
-          category = @category,
-          isPinned = @isPinned,
-          pinnedUntil = @pinnedUntil,
-          office = @office,
-          division = @division,
-          scope = @scope,
-          tags = @tags,
-          attachments = @attachments,
-          hasPeriod = @hasPeriod,
-          startDate = @startDate,
-          endDate = @endDate
-        WHERE id = @id
-      `);
+      .input('attachments', sql.NVarChar, attachments ? JSON.stringify(attachments) : null);
+
+    if (pollStr !== undefined) {
+      request.input('poll', sql.NVarChar, pollStr);
+    }
+
+    await request.query(`
+      UPDATE dbo.Bulletins
+      SET 
+        title = @title,
+        content = @content,
+        category = @category,
+        isPinned = @isPinned,
+        pinnedUntil = @pinnedUntil,
+        office = @office,
+        division = @division,
+        scope = @scope,
+        tags = @tags,
+        attachments = @attachments,
+        hasPeriod = @hasPeriod,
+        startDate = @startDate,
+        endDate = @endDate
+        ${pollStr !== undefined ? ', poll = @poll' : ''}
+      WHERE id = @id
+    `);
 
     // 閲覧者の更新
     if (Array.isArray(req.body.viewers) && req.body.viewers.length > 0) {
@@ -436,6 +460,82 @@ router.put(['/bulletins/:id', '/board/:id'], async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ==========================================
+// アンケート投票 API (POST /api/bulletins/:id/poll/vote & /api/board/:id/poll/vote)
+// ==========================================
+router.post(['/bulletins/:id/poll/vote', '/board/:id/poll/vote', '/:id/poll/vote'], async (req, res) => {
+  try {
+    const topicId = req.params.id;
+    const { userId, userName, userAvatarUrl, selectedOptionIds, comment } = req.body;
+    if (!userId || !Array.isArray(selectedOptionIds) || selectedOptionIds.length === 0) {
+      return res.status(400).json({ error: '投票者情報および選択肢が必要です' });
+    }
+
+    const pool = await getPool();
+    if (pool) {
+      await ensureBulletinTables(pool);
+      const result = await pool.request()
+        .input('id', sql.VarChar, String(topicId))
+        .query('SELECT poll FROM dbo.Bulletins WHERE id = @id');
+
+      if (!result.recordset || result.recordset.length === 0) {
+        return res.status(404).json({ error: 'トピックが見つかりません' });
+      }
+
+      const currentPoll = safeParseJSON(result.recordset[0].poll, null);
+      if (!currentPoll) {
+        return res.status(400).json({ error: 'このトピックにはアンケートが設定されていません' });
+      }
+
+      // 締め切りチェック
+      if (currentPoll.deadline) {
+        const trimmed = String(currentPoll.deadline).trim();
+        const deadlineMs = /^\d{4}-\d{2}-\d{2}$/.test(trimmed)
+          ? new Date(`${trimmed}T23:59:59.999+09:00`).getTime()
+          : new Date(trimmed).getTime();
+        if (!isNaN(deadlineMs) && Date.now() > deadlineMs) {
+          return res.status(400).json({ error: '回答期限を過ぎているため投票できません' });
+        }
+      }
+
+      // 投票リストの更新
+      const votes = Array.isArray(currentPoll.votes) ? [...currentPoll.votes] : [];
+      const nowIso = new Date().toISOString();
+      const existingVoteIdx = votes.findIndex(v => String(v.userId) === String(userId));
+      const voteRecord = {
+        id: existingVoteIdx >= 0 ? votes[existingVoteIdx].id : `vote-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+        userId: String(userId),
+        userName: userName || '匿名',
+        userAvatarUrl: userAvatarUrl || '',
+        selectedOptionIds: selectedOptionIds.map(String),
+        comment: (comment || '').trim() || undefined,
+        votedAt: nowIso
+      };
+
+      if (existingVoteIdx >= 0) {
+        votes[existingVoteIdx] = voteRecord;
+      } else {
+        votes.push(voteRecord);
+      }
+
+      currentPoll.votes = votes;
+      const updatedPollStr = JSON.stringify(currentPoll);
+
+      await pool.request()
+        .input('id', sql.VarChar, String(topicId))
+        .input('poll', sql.NVarChar, updatedPollStr)
+        .query('UPDATE dbo.Bulletins SET poll = @poll WHERE id = @id');
+
+      return res.json({ success: true, poll: currentPoll, vote: voteRecord });
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 
 // ==========================================
 // コメント個別追加 API (POST /api/bulletins/:id/comments)

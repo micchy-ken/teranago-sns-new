@@ -1,5 +1,79 @@
 [
   {
+    "id": "topic-business-phone-poll-2026",
+    "title": "【意向調査】社内ビジネスフォン・PBX設備更新に関するアンケート",
+    "content": "社内の固定電話・ビジネスフォン設備（主装置）のリース満了に伴い、次期システムの更新計画を検討しております。\n\n各拠点の運用効率化およびテレワーク・外出先対応を見据え、以下の2案および現状維持等について全社的な意向を集約いたします。\n\n添付の比較検討資料および各社見積もり一覧をご確認の上、下部のアンケートよりご意見・ご投票をお願いいたします。\n※「どれも反対」を選択される場合は、今後の検討のため具体的な懸念点や対案理由を必ずご記入ください。\n\n【回答期限】2026年10月30日（金）18:00まで",
+    "category": "general",
+    "tags": [
+      "全社告知",
+      "設備更新",
+      "アンケート",
+      "総務"
+    ],
+    "office": "全社",
+    "division": "全部署",
+    "scope": "全社",
+    "authorId": "u1",
+    "author_id": "u1",
+    "author": {
+      "id": "u1",
+      "name": "山道 健介",
+      "department": "名古屋支店 総務部 課長補佐",
+      "office": "名古屋支店",
+      "avatarUrl": "",
+      "position": "課長補佐"
+    },
+    "attachments": [
+      {
+        "id": "att-phone-doc-1",
+        "name": "ビジネスフォン更新_クラウドPBX比較資料.pdf",
+        "size": "2.4 MB",
+        "url": "/bulletinsfiles/phone_system_comparison.pdf",
+        "type": "application/pdf"
+      }
+    ],
+    "hasPeriod": true,
+    "startDate": "2026-10-23",
+    "endDate": "2026-10-30",
+    "isPinned": true,
+    "pinnedUntil": "2026-10-30T14:59:59.999Z",
+    "poll": {
+      "id": "poll-phone-2026",
+      "title": "次期ビジネスフォン導入方針についての投票",
+      "options": [
+        {
+          "id": "opt-phone-a",
+          "text": "A案: クラウド型PBX導入（スマホ内線化・外出先対応重視）",
+          "requireComment": false
+        },
+        {
+          "id": "opt-phone-b",
+          "text": "B案: 従来型オンプレミス機器更新（既存操作性を維持・コスト重視）",
+          "requireComment": false
+        },
+        {
+          "id": "opt-phone-c",
+          "text": "どれも反対（※必ず理由・対案を明記してください）",
+          "requireComment": true
+        }
+      ],
+      "allowMultiple": false,
+      "isAnonymous": false,
+      "deadline": "2026-10-30",
+      "autoPinUntilDeadline": true,
+      "votes": []
+    },
+    "views": 1,
+    "likes": 0,
+    "comments": [],
+    "commentsCount": 0,
+    "viewers": [],
+    "createdAt": "2026-10-23T07:00:00.000Z",
+    "created_at": "2026-10-23T07:00:00.000Z",
+    "updatedAt": "2026-10-23T07:00:00.000Z",
+    "updated_at": "2026-10-23T07:00:00.000Z"
+  },
+  {
     "id": "topic_mail_1787718961113_xgap9x",
     "title": "【連絡】社内掲示板メール投稿テスト（自動同期確認）",
     "content": "メールサーバーからの自動投稿テスト本文です。\n正常に反映されているか確認してください。\n\n───────────────\n📧 メール受信情報\n差出人: \"テスト送信者\" <yamamichi@teraoka-ads.co.jp>\n宛先: 名古屋支店 / 工務\n送信日時: 2026/8/26 13:36:01\n添付ファイル: 0 件",

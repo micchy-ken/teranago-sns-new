@@ -14,11 +14,11 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.23.8',
+  version: '2026.10.23.9',
   date: '2026-10-23',
-  releaseNumber: 8,
-  display: 'v2026.10.23 #8',
-  description: '建具番号(tateguNo)表示の改修：機種名(CN-15T等)の誤抽出を防止し、tateguNo/建具番号(AD1等)の正確なバインド・自動同期・インライン編集に対応',
+  releaseNumber: 9,
+  display: 'v2026.10.23 #9',
+  description: '回覧板アンケート・意思決定投票機能の実装：選択肢ごとの理由コメント必須化、回答期限までの自動ピン留め、マイページ（初期・スマホ画面）での未回答バナー導線に対応',
 };
 
 

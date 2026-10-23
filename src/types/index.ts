@@ -344,6 +344,33 @@ export interface AttachmentFile {
   type?: string;
 }
 
+export interface BoardPollOption {
+  id: string;
+  text: string;
+  requireComment?: boolean; // この選択肢を選んだ場合は理由コメント必須
+}
+
+export interface BoardPollVote {
+  id: string;
+  userId: string;
+  userName: string;
+  userAvatarUrl?: string;
+  selectedOptionIds: string[]; // 選択された選択肢ID
+  comment?: string; // 理由コメント
+  votedAt: string; // ISO string (JST)
+}
+
+export interface BoardPoll {
+  id: string;
+  title?: string;
+  options: BoardPollOption[];
+  allowMultiple?: boolean; // 複数選択可否 (デフォルト false)
+  isAnonymous?: boolean;   // 匿名投票か (デフォルト false)
+  deadline?: string | null; // 回答期限 (YYYY-MM-DD または ISO string)
+  autoPinUntilDeadline?: boolean; // 回答期限までは自動ピン留め (デフォルト true)
+  votes: BoardPollVote[];
+}
+
 export interface BoardTopic {
   id: string;
   category?: BoardCategory;
@@ -366,6 +393,7 @@ export interface BoardTopic {
   isPinned?: boolean;   // ピン留め設定
   pinnedUntil?: string | null; // ピン留め有効期限（ISO文字列、nullまたは空文字は無期限）
   pinnedDuration?: '1week' | '1month' | 'forever'; // 選択されたピン留め期間種別
+  poll?: BoardPoll;     // アンケート・投票データ
   comments?: BoardComment[];
   viewers?: BoardViewer[];
 }
