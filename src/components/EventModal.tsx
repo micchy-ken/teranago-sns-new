@@ -1,6 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { X, RefreshCw, Trash2, AlertCircle, Link as LinkIcon, Building2, Users, Paperclip, Plus, Check, UserCheck, Copy, Loader2, Repeat, Clock, UploadCloud } from 'lucide-react';
-import { EventType, CalendarEvent, OfficeMaster, DivisionMaster, User, AttachmentFile, RecurrenceRule, RecurrenceFrequency, RecurrenceMonthlyType } from '../types';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { X, RefreshCw, Trash2, AlertCircle, Link as LinkIcon, Building2, Users, Paperclip, Plus, Check, UserCheck, Copy, Loader2, Repeat, Clock, UploadCloud, Search, HardHat, CheckCircle2, ChevronRight, Layers } from 'lucide-react';
+import { EventType, CalendarEvent, OfficeMaster, DivisionMaster, User, AttachmentFile, RecurrenceRule, RecurrenceFrequency, RecurrenceMonthlyType, ConstructionPhase } from '../types';
+import { Site, SiteStatus } from '../types/site';
+import { API_BASE_URL } from '../config/api';
 import { getAvatarUrl } from '../utils/avatar';
 import { uploadMultipleFiles, isPreviewable } from '../utils/fileUpload';
 import { FilePreviewModal } from './FilePreviewModal';
@@ -33,7 +35,10 @@ export interface EventModalProps {
   allUsers?: User[];
   defaultAttendees?: User[];
   currentUser?: User;
+  sites?: Site[];
+  allEvents?: CalendarEvent[];
 }
+
 
 const toLocalDatetimeInput = (isoStr?: string) => {
   if (!isoStr) return '';
@@ -150,6 +155,8 @@ export function EventModal({
   allUsers = [],
   defaultAttendees = [],
   currentUser,
+  sites = [],
+  allEvents = [],
 }: EventModalProps) {
   const [title, setTitle] = useState('');
   const [type, setType] = useState<EventType>('personal');
@@ -166,6 +173,35 @@ export function EventModal({
   const [selectedAttendees, setSelectedAttendees] = useState<User[]>([]);
   const [attachments, setAttachments] = useState<AttachmentFile[]>([]);
   const [error, setError] = useState<string | null>(null);
+
+  // 現場連携ステート
+  const [selectedSiteId, setSelectedSiteId] = useState<string | null>(null);
+  const [selectedSiteCode, setSelectedSiteCode] = useState<string | null>(null);
+  const [selectedSiteName, setSelectedSiteName] = useState<string | null>(null);
+  const [constructionPhase, setConstructionPhase] = useState<ConstructionPhase>('new');
+  const [internalSites, setInternalSites] = useState<Site[]>(sites || []);
+  const [isSiteSelectorOpen, setIsSiteSelectorOpen] = useState(false);
+  const [siteFilterStatus, setSiteFilterStatus] = useState<'not_started' | 'in_progress' | 'all' | 'other'>('not_started');
+  const [siteSearchQuery, setSiteSearchQuery] = useState('');
+
+  // 現場一覧のフェッチ (sites prop が空の場合の自動補完)
+  useEffect(() => {
+    if (sites && sites.length > 0) {
+      setInternalSites(sites);
+    } else {
+      let isMounted = true;
+      fetch(`${API_BASE_URL}/sites`)
+        .then(res => res.json())
+        .then(data => {
+          if (isMounted && data && Array.isArray(data.sites)) {
+            setInternalSites(data.sites);
+          }
+        })
+        .catch(err => console.warn('[EventModal] Failed to fetch sites:', err));
+      return () => { isMounted = false; };
+    }
+  }, [sites]);
+
 
   // 予定の所要時間（分単位）を保持するステート（初期値60分）
   const [durationMinutes, setDurationMinutes] = useState<number | null>(60);
@@ -293,6 +329,19 @@ export function EventModal({
         setSelectedAttendees(editingEvent.attendees || []);
         setAttachments(editingEvent.attachments || []);
 
+        // 現場連携情報の復元
+        setSelectedSiteId(editingEvent.siteId || null);
+        setSelectedSiteCode(editingEvent.siteCode || null);
+        setSelectedSiteName(editingEvent.siteName || null);
+        let phase: ConstructionPhase = editingEvent.constructionPhase || 'new';
+        if (!editingEvent.constructionPhase && editingEvent.title) {
+          if (editingEvent.title.includes('【新規】')) phase = 'new';
+          else if (editingEvent.title.includes('【残】')) phase = 'remaining';
+          else if (editingEvent.title.includes('【出庫有】')) phase = 'shukko';
+        }
+        setConstructionPhase(phase);
+        setIsSiteSelectorOpen(false);
+
         // 繰り返し設定の復元
         const parsedRec = safeParseRecurrence(editingEvent.recurrence);
         if (parsedRec && parsedRec.frequency !== 'none') {
@@ -325,6 +374,15 @@ export function EventModal({
         setType('personal');
         setOffice('全社');
         setDivision('全部署');
+        
+        // 現場情報の初期化
+        setSelectedSiteId(null);
+        setSelectedSiteCode(null);
+        setSelectedSiteName(null);
+        setConstructionPhase('new');
+        setIsSiteSelectorOpen(false);
+        setSiteSearchQuery('');
+
         
         const initStartStr = defaultInitialDate ? extractLocalDateStr(defaultInitialDate) : extractLocalDateStr(new Date().toISOString());
         const initEndStr = defaultEndDate ? extractLocalDateStr(defaultEndDate) : initStartStr;
@@ -557,6 +615,82 @@ export function EventModal({
     };
   };
 
+  // 現場選択ハンドラー
+  const handleSelectSite = (site: Site) => {
+    setSelectedSiteId(site.id);
+    setSelectedSiteCode(site.siteCode);
+    setSelectedSiteName(site.siteName);
+
+    // タイトルに現場名を自動セット
+    setTitle(site.siteName);
+
+    // 乗り込み区分（新規・残・出庫有）の自動判定
+    const hasExistingEvents = (allEvents || []).some(
+      ev => (ev.siteId === site.id || ev.siteCode === site.siteCode) && ev.id !== editingEvent?.id
+    );
+
+    let initialPhase: ConstructionPhase = 'new';
+    if (site.status === 'in_progress' || hasExistingEvents) {
+      initialPhase = 'remaining';
+    } else {
+      initialPhase = 'new';
+    }
+    setConstructionPhase(initialPhase);
+
+    // 現場住所があれば場所（location）に自動補完
+    if (site.address && !location) {
+      setLocation(site.address);
+    }
+
+    // 現場の担当者がいれば参加者（attendees）に自動補完
+    if (allUsers.length > 0 && selectedAttendees.length <= 1) {
+      const candidateUserIds = new Set<string>();
+      if (site.primaryWorkerId) candidateUserIds.add(site.primaryWorkerId);
+      if (site.coWorkers) {
+        site.coWorkers.forEach(c => candidateUserIds.add(c.id));
+      }
+      const matchedUsers = allUsers.filter(u => candidateUserIds.has(u.id));
+      if (matchedUsers.length > 0) {
+        setSelectedAttendees(matchedUsers);
+      }
+    }
+
+    setIsSiteSelectorOpen(false);
+  };
+
+  const handleClearSite = () => {
+    setSelectedSiteId(null);
+    setSelectedSiteCode(null);
+    setSelectedSiteName(null);
+    setConstructionPhase('new');
+  };
+
+  // 現場選択モーダル用フィルター済みリスト
+  const filteredSites = useMemo(() => {
+    return internalSites.filter(site => {
+      // 1. ステータスフィルター
+      if (siteFilterStatus === 'not_started' && site.status !== 'not_started') return false;
+      if (siteFilterStatus === 'in_progress' && site.status !== 'in_progress') return false;
+      if (siteFilterStatus === 'other' && site.status !== 'completed' && site.status !== 'on_hold') return false;
+
+      // 2. 検索キーワードフィルター
+      if (siteSearchQuery.trim()) {
+        const q = siteSearchQuery.toLowerCase();
+        const code = (site.siteCode || '').toLowerCase();
+        const name = (site.siteName || '').toLowerCase();
+        const customer = (site.customerName || '').toLowerCase();
+        const addr = (site.address || '').toLowerCase();
+        return code.includes(q) || name.includes(q) || customer.includes(q) || addr.includes(q);
+      }
+      return true;
+    });
+  }, [internalSites, siteFilterStatus, siteSearchQuery]);
+
+  const selectedSite = useMemo(() => {
+    if (!selectedSiteId) return null;
+    return internalSites.find(s => s.id === selectedSiteId) || null;
+  }, [internalSites, selectedSiteId]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -629,7 +763,12 @@ export function EventModal({
       createdBy: editingEvent?.createdBy || currentUser,
       attachments,
       recurrence: recurrenceObj,
+      siteId: type === 'construction' ? (selectedSiteId || undefined) : undefined,
+      siteCode: type === 'construction' ? (selectedSiteCode || undefined) : undefined,
+      siteName: type === 'construction' ? (selectedSiteName || undefined) : undefined,
+      constructionPhase: type === 'construction' && selectedSiteId ? constructionPhase : undefined,
     };
+
 
     // 既存の繰り返し予定を編集する場合、適用範囲選択モーダルを表示
     if (editingEvent && isCurrentlyRecurring) {
@@ -862,6 +1001,119 @@ export function EventModal({
               </label>
             </div>
           </div>
+
+          {/* 現場管理連携: 区分が「工事」のときの現場選択および3択トグルスイッチ */}
+          {type === 'construction' && (
+            <div className="p-3 bg-amber-50/70 border border-amber-200/90 rounded-xl space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-amber-900 flex items-center gap-1.5">
+                  <HardHat className="w-4 h-4 text-amber-600" />
+                  対象現場 <span className="text-[10px] text-amber-600 font-normal">（現場登録連携）</span>
+                </span>
+                {selectedSite && (
+                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
+                    selectedSite.status === 'not_started' 
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                      : selectedSite.status === 'in_progress'
+                      ? 'bg-blue-50 text-blue-700 border-blue-300'
+                      : 'bg-slate-50 text-slate-700 border-slate-300'
+                  }`}>
+                    {selectedSite.status === 'not_started' ? '現場: 未着手' : selectedSite.status === 'in_progress' ? '現場: 進行中' : '現場: 完了・保留'}
+                  </span>
+                )}
+              </div>
+
+              {selectedSite ? (
+                <div className="bg-white border border-amber-200 rounded-lg p-2.5 flex items-center justify-between gap-2 shadow-2xs">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-black bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded border border-slate-200">
+                        {selectedSite.siteCode}
+                      </span>
+                      <strong className="text-xs font-bold text-slate-900 truncate">
+                        {selectedSite.siteName}
+                      </strong>
+                    </div>
+                    {selectedSite.address && (
+                      <div className="text-[11px] text-slate-500 truncate mt-0.5 flex items-center gap-1">
+                        <span className="text-slate-400">📍</span>
+                        {selectedSite.address}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setIsSiteSelectorOpen(true)}
+                      className="px-2 py-1 bg-amber-100 hover:bg-amber-200 text-amber-800 text-[11px] font-bold rounded transition cursor-pointer"
+                    >
+                      変更
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleClearSite}
+                      className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition cursor-pointer"
+                      title="現場紐付けを解除"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setIsSiteSelectorOpen(true)}
+                  className="w-full py-2.5 px-3 border border-dashed border-amber-300 hover:border-amber-400 bg-white hover:bg-amber-50/50 rounded-lg text-xs font-bold text-amber-800 flex items-center justify-center gap-2 transition cursor-pointer shadow-2xs group"
+                >
+                  <Search className="w-3.5 h-3.5 text-amber-600 group-hover:scale-110 transition-transform" />
+                  <span>現場を選択してください（未着手・進行中・現場コード検索）</span>
+                </button>
+              )}
+
+              {/* 乗り込み区分 3択トグルスイッチ (新規 / 残 / 出庫有) */}
+              <div className="pt-2 border-t border-amber-200/60 flex items-center justify-between gap-2">
+                <span className="text-[11px] font-bold text-amber-950 shrink-0">乗り込み種別:</span>
+                <div className="grid grid-cols-3 gap-1.5 flex-1 max-w-xs">
+                  <button
+                    type="button"
+                    onClick={() => setConstructionPhase('new')}
+                    className={`py-1 px-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 cursor-pointer shadow-2xs ${
+                      constructionPhase === 'new'
+                        ? 'bg-emerald-600 text-white shadow-xs ring-2 ring-emerald-300'
+                        : 'bg-white hover:bg-emerald-50 text-emerald-800 border border-emerald-200'
+                    }`}
+                  >
+                    <span>【新規】</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setConstructionPhase('remaining')}
+                    className={`py-1 px-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 cursor-pointer shadow-2xs ${
+                      constructionPhase === 'remaining'
+                        ? 'bg-slate-700 text-white shadow-xs ring-2 ring-slate-400'
+                        : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-300'
+                    }`}
+                  >
+                    <span>【残】</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setConstructionPhase('shukko')}
+                    className={`py-1 px-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 cursor-pointer shadow-2xs ${
+                      constructionPhase === 'shukko'
+                        ? 'bg-blue-600 text-white shadow-xs ring-2 ring-blue-300'
+                        : 'bg-white hover:bg-blue-50 text-blue-800 border border-blue-200'
+                    }`}
+                  >
+                    <span>【出庫有】</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
 
           {/* 開始日時・終了日時：1行目を見出し、2行目を日付・時刻にして日付欄を拡大 */}
           {isAllDay ? (
@@ -1516,6 +1768,194 @@ export function EventModal({
         onClose={() => setActionModalState({ isOpen: false, mode: 'edit' })}
         onConfirm={handleConfirmRecurrenceAction}
       />
+
+      {/* 現場選択モーダルポップアップ */}
+      {isSiteSelectorOpen && (
+        <div 
+          onClick={() => setIsSiteSelectorOpen(false)}
+          className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-70 p-3 sm:p-4 backdrop-blur-xs"
+        >
+          <div 
+            onClick={e => e.stopPropagation()}
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-lg border border-slate-200 overflow-hidden flex flex-col max-h-[85vh] animate-in fade-in zoom-in-95 duration-150"
+          >
+            {/* ヘッダー */}
+            <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <div className="flex items-center gap-2">
+                <HardHat className="w-4 h-4 text-amber-600" />
+                <h3 className="text-sm font-bold text-slate-800">現場を選択</h3>
+                <span className="text-xs text-slate-500">（全{internalSites.length}件）</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsSiteSelectorOpen(false)}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* 検索入力 & 状態フィルター */}
+            <div className="p-3 border-b border-slate-100 space-y-2 bg-white">
+              <div className="relative">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={siteSearchQuery}
+                  onChange={e => setSiteSearchQuery(e.target.value)}
+                  placeholder="現場コード・現場名・住所・元請で検索..."
+                  className="w-full pl-9 pr-8 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  autoFocus
+                />
+                {siteSearchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSiteSearchQuery('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {/* 状態フィルタータブ */}
+              <div className="flex items-center gap-1.5 text-[11px] font-bold overflow-x-auto pb-0.5">
+                <button
+                  type="button"
+                  onClick={() => setSiteFilterStatus('not_started')}
+                  className={`px-2.5 py-1 rounded-md transition cursor-pointer shrink-0 flex items-center gap-1 ${
+                    siteFilterStatus === 'not_started'
+                      ? 'bg-emerald-600 text-white shadow-2xs'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                  未着手 ({internalSites.filter(s => s.status === 'not_started').length})
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSiteFilterStatus('in_progress')}
+                  className={`px-2.5 py-1 rounded-md transition cursor-pointer shrink-0 flex items-center gap-1 ${
+                    siteFilterStatus === 'in_progress'
+                      ? 'bg-blue-600 text-white shadow-2xs'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
+                  進行中 ({internalSites.filter(s => s.status === 'in_progress').length})
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSiteFilterStatus('all')}
+                  className={`px-2.5 py-1 rounded-md transition cursor-pointer shrink-0 ${
+                    siteFilterStatus === 'all'
+                      ? 'bg-slate-800 text-white shadow-2xs'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  すべて ({internalSites.length})
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSiteFilterStatus('other')}
+                  className={`px-2.5 py-1 rounded-md transition cursor-pointer shrink-0 ${
+                    siteFilterStatus === 'other'
+                      ? 'bg-slate-700 text-white shadow-2xs'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  完了・他 ({internalSites.filter(s => s.status === 'completed' || s.status === 'on_hold').length})
+                </button>
+              </div>
+            </div>
+
+            {/* 現場リスト */}
+            <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
+              {filteredSites.length === 0 ? (
+                <div className="py-10 text-center text-xs text-slate-400">
+                  該当する現場が見つかりません。
+                </div>
+              ) : (
+                filteredSites.map(site => {
+                  const isSelected = selectedSiteId === site.id;
+                  return (
+                    <div
+                      key={site.id}
+                      onClick={() => handleSelectSite(site)}
+                      className={`p-2.5 rounded-xl cursor-pointer transition border flex items-center justify-between gap-3 ${
+                        isSelected
+                          ? 'bg-amber-50 border-amber-300 shadow-2xs'
+                          : 'bg-white hover:bg-slate-50 border-slate-200/80 hover:border-slate-300'
+                      }`}
+                    >
+                      <div className="min-w-0 space-y-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[10px] font-black bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded border border-slate-200">
+                            {site.siteCode}
+                          </span>
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
+                            site.status === 'not_started'
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                              : site.status === 'in_progress'
+                              ? 'bg-blue-50 text-blue-700 border-blue-300'
+                              : 'bg-slate-50 text-slate-700 border-slate-300'
+                          }`}>
+                            {site.status === 'not_started' ? '未着手' : site.status === 'in_progress' ? '進行中' : '完了・保留'}
+                          </span>
+                          <strong className="text-xs font-bold text-slate-900 truncate">
+                            {site.siteName}
+                          </strong>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-slate-500">
+                          {site.customerName && (
+                            <span>元請: {site.customerName}</span>
+                          )}
+                          {site.egCount !== undefined && site.egCount > 0 && (
+                            <span>EG台数: {site.egCount}台</span>
+                          )}
+                          {site.address && (
+                            <span className="truncate max-w-[240px]">📍 {site.address}</span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="shrink-0 flex items-center gap-1">
+                        {isSelected ? (
+                          <span className="flex items-center gap-1 text-emerald-700 bg-emerald-50 font-bold px-2 py-1 rounded-md text-[11px] border border-emerald-200">
+                            <Check className="w-3.5 h-3.5" />
+                            選択中
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 hover:text-amber-600 text-xs">
+                            <ChevronRight className="w-4 h-4" />
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* フッター */}
+            <div className="p-2.5 border-t border-slate-100 bg-slate-50 flex items-center justify-between text-[11px] text-slate-500 px-4">
+              <span>現場を選択するとタイトルと乗り込み種別が自動連動します</span>
+              <button
+                type="button"
+                onClick={() => setIsSiteSelectorOpen(false)}
+                className="px-3 py-1 bg-white border border-slate-200 text-slate-700 rounded-md font-bold hover:bg-slate-100 cursor-pointer text-xs"
+              >
+                閉じる
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+

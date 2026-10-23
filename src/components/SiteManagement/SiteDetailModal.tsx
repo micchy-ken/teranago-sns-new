@@ -1,11 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   X, Layers, Calendar, User as UserIcon, Building, MapPin, 
   ExternalLink, MessageSquare, Send, CheckCircle2, Clock, 
-  FileText, Paperclip, Trash2, Edit3, Save, RefreshCw, AlertCircle, FileSpreadsheet, Download, Eye
+  FileText, Paperclip, Trash2, Edit3, Save, RefreshCw, AlertCircle, FileSpreadsheet, Download, Eye, HardHat
 } from 'lucide-react';
 import { Site, SiteMainPart, SiteSubPart, SiteComment, SiteStatus, PartStatus } from '../../types/site';
-import { User, AttachmentFile } from '../../types';
+import { User, AttachmentFile, CalendarEvent } from '../../types';
+import { getAvatarUrl, handleAvatarError } from '../../utils/avatar';
 import { API_BASE_URL } from '../../config/api';
 import { FilePreviewModal } from '../FilePreviewModal';
 
@@ -17,6 +18,7 @@ interface SiteDetailModalProps {
   onDeleteSite: (siteId: string) => void;
   currentUser: User;
   allUsers: User[];
+  events?: CalendarEvent[];
 }
 
 /**
@@ -127,12 +129,50 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
   onUpdateSite,
   onDeleteSite,
   currentUser,
-  allUsers
+  allUsers,
+  events,
 }) => {
-  const [activeTab, setActiveTab] = useState<'parts' | 'timeline' | 'info' | 'export'>('parts');
+  const [activeTab, setActiveTab] = useState<'parts' | 'timeline' | 'schedule' | 'info' | 'export'>('parts');
+  const [fetchedEvents, setFetchedEvents] = useState<CalendarEvent[]>([]);
+
+  // 親から events が渡されていない場合は自動取得
+  useEffect(() => {
+    if (events && events.length > 0) return;
+    let isMounted = true;
+    fetch(`${API_BASE_URL}/events`)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (isMounted && data && Array.isArray(data.events)) {
+          setFetchedEvents(data.events);
+        }
+      })
+      .catch(() => {});
+    return () => { isMounted = false; };
+  }, [events]);
 
   // 編集用ローカルステート
   const [currentSite, setCurrentSite] = useState<Site | null>(site);
+
+  // 該当現場に紐づく施工スケジュール・実績を抽出
+  const siteEvents = useMemo(() => {
+    const allEvts = (events && events.length > 0) ? events : fetchedEvents;
+    if (!currentSite) return [];
+    const siteCodeNorm = (currentSite.siteCode || '').trim().toLowerCase();
+    const siteNameNorm = (currentSite.siteName || '').trim();
+
+    return allEvts.filter(e => {
+      // 1. siteId で完全一致
+      if (e.siteId && e.siteId === currentSite.id) return true;
+      // 2. siteCode で完全一致
+      if (e.siteCode && siteCodeNorm && e.siteCode.trim().toLowerCase() === siteCodeNorm) return true;
+      // 3. 工事タイプでタイトル内に現場コードや現場名が含まれる場合
+      if (e.type === 'construction') {
+        if (siteCodeNorm && e.title.toLowerCase().includes(siteCodeNorm)) return true;
+        if (siteNameNorm && e.title.includes(siteNameNorm)) return true;
+      }
+      return false;
+    }).sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
+  }, [events, fetchedEvents, currentSite]);
   const [isEditingInfo, setIsEditingInfo] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -428,6 +468,24 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
           >
             <MessageSquare className="w-4 h-4" />
             <span>申し送り・コメント ({currentSite.comments?.length || 0})</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('schedule')}
+            className={`py-3 border-b-2 flex items-center gap-1.5 transition-colors cursor-pointer ${
+              activeTab === 'schedule'
+                ? 'border-indigo-600 text-indigo-700'
+                : 'border-transparent hover:text-slate-900'
+            }`}
+          >
+            <Calendar className="w-4 h-4 text-amber-600" />
+            <span className="flex items-center gap-1">
+              <span>施工予定・実績</span>
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                siteEvents.length > 0 ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-500'
+              }`}>
+                {siteEvents.length}
+              </span>
+            </span>
           </button>
           <button
             onClick={() => setActiveTab('info')}
@@ -1034,6 +1092,165 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
                   </button>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* TAB 5: 施工スケジュール・実績タイムライン */}
+          {activeTab === 'schedule' && (
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3 p-4 bg-slate-50 border border-slate-200/80 rounded-xl">
+                <div>
+                  <h4 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
+                    <HardHat className="w-4 h-4 text-amber-600" />
+                    <span>現場施工スケジュール・施工実績</span>
+                    <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                      計 {siteEvents.length} 件
+                    </span>
+                  </h4>
+                  <p className="text-xs text-slate-500 mt-1">
+                    カレンダーの工事予定で本現場が紐付けられたスケジュールです。いつ・誰が・どの乗り込み種別で施工したか（施工予定か）を確認できます。
+                  </p>
+                </div>
+              </div>
+
+              {siteEvents.length === 0 ? (
+                <div className="p-8 text-center bg-slate-50 border border-dashed border-slate-200 rounded-2xl">
+                  <div className="w-12 h-12 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-3">
+                    <Calendar className="w-6 h-6" />
+                  </div>
+                  <h5 className="font-bold text-sm text-slate-800">施工スケジュールはまだ登録されていません</h5>
+                  <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto leading-relaxed">
+                    カレンダー画面の「予定を追加」から「工事」を選択し、現場名として「{currentSite.siteName}」を選択・登録すると、本画面に施工履歴・予定が自動集約されます。
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {siteEvents.map((evt, idx) => {
+                    const startDate = new Date(evt.start);
+                    const endDate = evt.end ? new Date(evt.end) : null;
+                    const isPast = startDate.getTime() < Date.now();
+                    const phase = evt.constructionPhase || (
+                      evt.title.includes('新規') ? 'new' :
+                      evt.title.includes('出庫') ? 'shukko' :
+                      evt.title.includes('残') ? 'remaining' : undefined
+                    );
+
+                    const attendees = (evt.attendees && evt.attendees.length > 0)
+                      ? evt.attendees
+                      : (evt.createdBy ? [evt.createdBy] : []);
+
+                    const dateDisplay = startDate.toLocaleDateString('ja-JP', {
+                      timeZone: 'Asia/Tokyo',
+                      year: 'numeric',
+                      month: 'long',
+                      day: 'numeric',
+                      weekday: 'short'
+                    });
+
+                    const timeDisplay = evt.isAllDay
+                      ? '終日'
+                      : `${startDate.toLocaleTimeString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit' })}${
+                          endDate ? ` 〜 ${endDate.toLocaleTimeString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit' })}` : ''
+                        }`;
+
+                    return (
+                      <div
+                        key={evt.id || idx}
+                        className="p-4 bg-white border border-slate-200 hover:border-indigo-300 rounded-xl shadow-2xs hover:shadow-xs transition-all space-y-3"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {/* 乗り込み種別バッジ */}
+                            {phase === 'new' && (
+                              <span className="px-2.5 py-0.5 rounded-md text-xs font-black bg-emerald-600 text-white shadow-2xs">
+                                【新規乗り込み】
+                              </span>
+                            )}
+                            {phase === 'remaining' && (
+                              <span className="px-2.5 py-0.5 rounded-md text-xs font-black bg-amber-500 text-white shadow-2xs">
+                                【残工事】
+                              </span>
+                            )}
+                            {phase === 'shukko' && (
+                              <span className="px-2.5 py-0.5 rounded-md text-xs font-black bg-indigo-600 text-white shadow-2xs">
+                                【出庫有】
+                              </span>
+                            )}
+                            {!phase && (
+                              <span className="px-2 py-0.5 rounded-md text-xs font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                                工事
+                              </span>
+                            )}
+
+                            {/* 状態バッジ */}
+                            {isPast ? (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
+                                施工済（実績）
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                                施工予定
+                              </span>
+                            )}
+
+                            <span className="font-extrabold text-sm text-slate-900">
+                              {evt.title}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 text-xs font-mono font-bold text-slate-700 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-200">
+                            <Clock className="w-3.5 h-3.5 text-indigo-500" />
+                            <span>{dateDisplay} {timeDisplay}</span>
+                          </div>
+                        </div>
+
+                        {/* 施工担当者 */}
+                        <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-slate-400 font-semibold flex items-center gap-1">
+                              <UserIcon className="w-3.5 h-3.5" />
+                              <span>施工担当者:</span>
+                            </span>
+                            {attendees.length > 0 ? (
+                              <div className="flex items-center gap-2 flex-wrap">
+                                {attendees.map(u => (
+                                  <div key={u.id} className="flex items-center gap-1.5 bg-slate-50 px-2 py-0.5 rounded-full border border-slate-200">
+                                    <img
+                                      src={getAvatarUrl(u.avatarUrl)}
+                                      onError={handleAvatarError}
+                                      alt={u.name}
+                                      className="w-4 h-4 rounded-full object-cover"
+                                    />
+                                    <span className="font-bold text-slate-800">{u.name}</span>
+                                    {u.department && (
+                                      <span className="text-[10px] text-slate-400">({u.department})</span>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-slate-400">未指定</span>
+                            )}
+                          </div>
+
+                          {evt.location && (
+                            <div className="flex items-center gap-1 text-slate-600 bg-slate-50 px-2 py-0.5 rounded border border-slate-200">
+                              <MapPin className="w-3 h-3 text-rose-500" />
+                              <span>{evt.location}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {evt.memo && (
+                          <div className="text-xs text-slate-700 bg-slate-50 p-2.5 rounded-lg border border-slate-200 whitespace-pre-wrap">
+                            {evt.memo}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
         </div>

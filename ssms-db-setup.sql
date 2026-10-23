@@ -252,6 +252,11 @@ BEGIN
     IF COL_LENGTH('dbo.Events', 'targetYearMonth') IS NULL ALTER TABLE dbo.Events ADD targetYearMonth VARCHAR(7) NULL;
     IF COL_LENGTH('dbo.Events', 'draftSavedAt') IS NULL ALTER TABLE dbo.Events ADD draftSavedAt DATETIME2 NULL;
 
+    -- 現場管理連携カラム (現場ID・現場コード・乗り込み種別)
+    IF COL_LENGTH('dbo.Events', 'siteId') IS NULL ALTER TABLE dbo.Events ADD siteId VARCHAR(50) NULL;
+    IF COL_LENGTH('dbo.Events', 'siteCode') IS NULL ALTER TABLE dbo.Events ADD siteCode VARCHAR(50) NULL;
+    IF COL_LENGTH('dbo.Events', 'constructionPhase') IS NULL ALTER TABLE dbo.Events ADD constructionPhase VARCHAR(20) NULL;
+
     -- isGoogleSynced / isIcal を NULL許容に変更（NOT NULL制約によるINSERTエラー防止）
     IF COL_LENGTH('dbo.Events', 'isGoogleSynced') IS NOT NULL
     BEGIN

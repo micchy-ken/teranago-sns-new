@@ -17,7 +17,8 @@ import {
   UserCheck, 
   Link2,
   Lock,
-  Eye
+  Eye,
+  HardHat
 } from 'lucide-react';
 import { CalendarEvent, EventType, User, AttachmentFile } from '../types';
 import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
@@ -162,6 +163,21 @@ export function GlobalEventDetailModal({
                 iCal連携
               </span>
             )}
+            {event.constructionPhase === 'new' && (
+              <span className="px-2.5 py-0.5 rounded-md text-[11px] font-black bg-emerald-600 text-white shadow-2xs">
+                【新規乗り込み】
+              </span>
+            )}
+            {event.constructionPhase === 'remaining' && (
+              <span className="px-2.5 py-0.5 rounded-md text-[11px] font-black bg-amber-500 text-white shadow-2xs">
+                【残工事】
+              </span>
+            )}
+            {event.constructionPhase === 'shukko' && (
+              <span className="px-2.5 py-0.5 rounded-md text-[11px] font-black bg-indigo-600 text-white shadow-2xs">
+                【出庫有】
+              </span>
+            )}
           </div>
           <button
             onClick={onClose}
@@ -257,6 +273,34 @@ export function GlobalEventDetailModal({
                   {event.url}
                   <ExternalLink className="w-3 h-3" />
                 </a>
+              </div>
+            )}
+
+            {/* 現場連携情報 */}
+            {(event.siteId || event.siteCode || event.siteName) && (
+              <div className="flex items-start gap-2.5 text-xs text-slate-700 border-t border-slate-200/60 pt-2.5 bg-amber-50/60 -mx-4 -mb-4 p-3 rounded-b-xl border-amber-200/50">
+                <HardHat className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 bg-amber-200/70 text-amber-900 rounded font-mono">
+                      {event.siteCode || '現場未定'}
+                    </span>
+                    <span className="font-extrabold text-slate-900 truncate">
+                      {event.siteName || '現場名未設定'}
+                    </span>
+                    {event.constructionPhase && (
+                      <span className={`text-[10px] font-black px-1.5 py-0.2 rounded text-white ${
+                        event.constructionPhase === 'new' ? 'bg-emerald-600' :
+                        event.constructionPhase === 'remaining' ? 'bg-amber-500' : 'bg-indigo-600'
+                      }`}>
+                        {event.constructionPhase === 'new' ? '新規' : event.constructionPhase === 'remaining' ? '残' : '出庫有'}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    この予定は現場管理システムと連携しています。
+                  </p>
+                </div>
               </div>
             )}
 

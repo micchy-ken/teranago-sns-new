@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { CalendarEvent, EventType, User, OfficeMaster, DivisionMaster, Memo, RequirementType, MemoUserRecipientStatus, CalendarPreset } from '../types';
+import { Site } from '../types/site';
+import { API_BASE_URL } from '../config/api';
 import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
-import { ChevronLeft, ChevronRight, List as ListIcon, Calendar as CalendarIcon, Plus, MapPin, Video, AlignLeft, RefreshCw, Clock, Link as LinkIcon, Loader2, Building2, Users, Paperclip, MessageSquare, Phone, X, Monitor, Maximize2, Minimize2, FileSpreadsheet, Share2, Check, Star, Trash2, Pin, BookmarkCheck, CalendarDays, SlidersHorizontal, Filter, ChevronDown, Navigation } from 'lucide-react';
+import { ChevronLeft, ChevronRight, List as ListIcon, Calendar as CalendarIcon, Plus, MapPin, Video, AlignLeft, RefreshCw, Clock, Link as LinkIcon, Loader2, Building2, Users, Paperclip, MessageSquare, Phone, X, Monitor, Maximize2, Minimize2, FileSpreadsheet, Share2, Check, Star, Trash2, Pin, BookmarkCheck, CalendarDays, SlidersHorizontal, Filter, ChevronDown, Navigation, HardHat } from 'lucide-react';
 import { EventModal } from './EventModal';
 import { GlobalEventDetailModal } from './GlobalEventDetailModal';
 import { renderWithClickableLinks } from '../utils/linkify';
@@ -21,6 +23,7 @@ import { SchedulePoll } from '../types/schedulePoll';
 
 interface CalendarProps {
   events: CalendarEvent[];
+  sites?: Site[];
   onAddEvent: (event: Omit<CalendarEvent, 'id'>) => void;
   onUpdateEvent?: (event: CalendarEvent, scope?: RecurrenceActionScope, originalInstanceDate?: string) => void;
   onDeleteEvent?: (eventId: string, scope?: RecurrenceActionScope, instanceDate?: string) => void;
@@ -72,6 +75,7 @@ const typeLabels: Record<EventType, string> = {
 
 export function Calendar({
   events,
+  sites,
   onAddEvent,
   onUpdateEvent,
   onDeleteEvent,
@@ -96,6 +100,91 @@ export function Calendar({
   openSchedulePolls = [],
   onUpdateUser,
 }: CalendarProps) {
+  // 親から渡された sites または内部でフェッチした sites を管理
+  const [internalSites, setInternalSites] = useState<Site[]>(sites || []);
+
+  useEffect(() => {
+    if (sites && sites.length > 0) {
+      setInternalSites(sites);
+      return;
+    }
+    // 親から sites が渡されていない場合は自動取得
+    let isMounted = true;
+    fetch(`${API_BASE_URL}/sites`)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (isMounted && data && Array.isArray(data.sites)) {
+          setInternalSites(data.sites);
+        }
+      })
+      .catch(() => {});
+    return () => { isMounted = false; };
+  }, [sites]);
+
+  // 工事予定の種別バッジ描画（【新規】【残】【出庫有】）
+  const renderConstructionBadge = useCallback((e: CalendarEvent, compact: boolean = false) => {
+    // constructionPhase または type === 'construction' またはタイトルに含まれるキーワードを判定
+    let phase = e.constructionPhase;
+    if (!phase && e.type === 'construction') {
+      if (e.title.includes('新規') || e.title.includes('【新規】') || e.title.includes('[新規]')) {
+        phase = 'new';
+      } else if (e.title.includes('出庫')) {
+        phase = 'shukko';
+      } else if (e.title.includes('残') || e.title.includes('【残】') || e.title.includes('[残]')) {
+        phase = 'remaining';
+      }
+    }
+
+    if (!phase) return null;
+
+    if (phase === 'new') {
+      return (
+        <span
+          className={`font-black rounded shrink-0 shadow-2xs tracking-tighter ${
+            compact
+              ? 'px-1 py-0.2 bg-emerald-600 text-white text-[8px] sm:text-[9px] leading-tight'
+              : 'px-1.5 py-0.5 bg-emerald-600 text-white text-[10px] sm:text-[11px] leading-tight'
+          }`}
+          title="新規乗り込み工事"
+        >
+          {compact ? '新規' : '【新規】'}
+        </span>
+      );
+    }
+
+    if (phase === 'remaining') {
+      return (
+        <span
+          className={`font-black rounded shrink-0 shadow-2xs tracking-tighter ${
+            compact
+              ? 'px-1 py-0.2 bg-amber-500 text-white text-[8px] sm:text-[9px] leading-tight'
+              : 'px-1.5 py-0.5 bg-amber-500 text-white text-[10px] sm:text-[11px] leading-tight'
+          }`}
+          title="残工事（2度目以降）"
+        >
+          {compact ? '残' : '【残】'}
+        </span>
+      );
+    }
+
+    if (phase === 'shukko') {
+      return (
+        <span
+          className={`font-black rounded shrink-0 shadow-2xs tracking-tighter ${
+            compact
+              ? 'px-1 py-0.2 bg-indigo-600 text-white text-[8px] sm:text-[9px] leading-tight'
+              : 'px-1.5 py-0.5 bg-indigo-600 text-white text-[10px] sm:text-[11px] leading-tight'
+          }`}
+          title="出庫有工事"
+        >
+          {compact ? '出庫' : '【出庫有】'}
+        </span>
+      );
+    }
+
+    return null;
+  }, []);
+
   // ユーザーが最近操作した楽観的更新（D&D、リサイズ、編集）を保持するRef（親からの古いデータによる巻き戻りを完全遮断）
   const recentOptimisticEventsRef = useRef<Map<string, { event: CalendarEvent; timestamp: number }>>(new Map());
 
@@ -2865,8 +2954,9 @@ export function Calendar({
                                       }`}
                                       title={`${e.isIcal ? '[iCal連携] ' : ''}${e.title} (${formatEventTime(e)})`}
                                     >
-                                      <span className="truncate font-bold tracking-tight">
-                                        {multiProps.showTitle ? (e.isIcal ? `[iCal] ${e.title}` : e.title) : '\u00A0'}
+                                      <span className="truncate font-bold tracking-tight flex items-center gap-1">
+                                        {renderConstructionBadge(e, true)}
+                                        <span className="truncate">{multiProps.showTitle ? (e.isIcal ? `[iCal] ${e.title}` : e.title) : '\u00A0'}</span>
                                       </span>
                                     </div>
                                   );
@@ -3016,8 +3106,9 @@ export function Calendar({
                                           </span>
                                         )}
                                       </div>
-                                      <div className="text-xs font-bold text-slate-900 group-hover:text-indigo-600 leading-snug break-words">
-                                        {e.title}
+                                      <div className="text-xs font-bold text-slate-900 group-hover:text-indigo-600 leading-snug break-words flex items-center gap-1.5 flex-wrap">
+                                        {renderConstructionBadge(e)}
+                                        <span>{e.title}</span>
                                       </div>
                                       {e.location && (
                                         <div className="text-[11px] text-slate-500 flex items-center gap-1 mt-1 truncate">
@@ -3164,8 +3255,9 @@ export function Calendar({
                                   }`}
                                   title={e.title}
                                 >
-                                  <span className="truncate font-bold tracking-tight">
-                                    {multiProps.showTitle ? (e.isIcal ? `[iCal] ${e.title}` : e.title) : '\u00A0'}
+                                  <span className="truncate font-bold tracking-tight flex items-center gap-1">
+                                    {renderConstructionBadge(e, true)}
+                                    <span className="truncate">{multiProps.showTitle ? (e.isIcal ? `[iCal] ${e.title}` : e.title) : '\u00A0'}</span>
                                   </span>
                                 </div>
                               );
@@ -3287,13 +3379,15 @@ export function Calendar({
                                         title={`${e.isIcal ? '[iCal] ' : ''}${e.title} (${displayTimeString})`}
                                       >
                                         {isShortEvent ? (
-                                          <div className="font-bold w-full truncate leading-tight pointer-events-none text-[9px] sm:text-[10px]">
-                                            {e.isIcal ? `[iCal] ${e.title}` : e.title}
+                                          <div className="font-bold w-full truncate leading-tight pointer-events-none text-[9px] sm:text-[10px] flex items-center gap-1">
+                                            {renderConstructionBadge(e, true)}
+                                            <span className="truncate">{e.isIcal ? `[iCal] ${e.title}` : e.title}</span>
                                           </div>
                                         ) : (
                                           <>
-                                            <div className="font-bold w-full break-words leading-tight pointer-events-none line-clamp-2">
-                                              {e.isIcal ? `[iCal] ${e.title}` : e.title}
+                                            <div className="font-bold w-full break-words leading-tight pointer-events-none line-clamp-2 flex items-center gap-1 flex-wrap">
+                                              {renderConstructionBadge(e, true)}
+                                              <span>{e.isIcal ? `[iCal] ${e.title}` : e.title}</span>
                                             </div>
                                             <div className="text-[8px] sm:text-[9px] opacity-85 pointer-events-none mt-0.5">
                                               {displayTimeString}
@@ -3562,7 +3656,10 @@ export function Calendar({
                           title="クリックで詳細"
                         >
                           <div className="w-full flex justify-between items-start pointer-events-none gap-2">
-                            <div className="font-extrabold text-xs sm:text-sm text-slate-900 leading-snug break-words">{e.title}</div>
+                            <div className="font-extrabold text-xs sm:text-sm text-slate-900 leading-snug break-words flex items-center gap-1.5 flex-wrap">
+                              {renderConstructionBadge(e)}
+                              <span>{e.title}</span>
+                            </div>
                             <span className="text-[9px] sm:text-[10px] px-2 py-0.5 rounded-md font-bold border bg-white/80 shrink-0">
                               {e.isSchedulePoll ? '日程調整' : typeLabels[e.type]}
                             </span>
@@ -3709,6 +3806,7 @@ export function Calendar({
                           <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold tracking-wider border ${getEventStyle(e)}`}>
                             {e.isSchedulePoll ? '日程調整' : typeLabels[e.type]}
                           </span>
+                          {renderConstructionBadge(e)}
                           <h3 className="font-bold text-slate-900 truncate text-sm sm:text-base flex-1 min-w-0">{e.title}</h3>
                         </div>
                         {e.memo && (
@@ -3799,6 +3897,8 @@ export function Calendar({
         allUsers={allUsers}
         defaultAttendees={preselectedAttendees}
         currentUser={currentUser}
+        sites={internalSites}
+        allEvents={localEvents}
       />
 
       {/* 伝言メモ新規作成モーダル */}

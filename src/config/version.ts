@@ -14,11 +14,11 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.22.4',
-  date: '2026-10-22',
-  releaseNumber: 4,
-  display: 'v2026.10.22 #4',
-  description: '拠点・現場グルーピングクリックによる所属メンバー一括明るくハイライト表示＆移動中ステータスの移動前保持・時間到来マッピング',
+  version: '2026.10.23.1',
+  date: '2026-10-23',
+  releaseNumber: 1,
+  display: 'v2026.10.23 #1',
+  description: '現場管理とカレンダースケジュール連携（工事予定の現場選択・未着手/進行中絞り込み・新規/残/出庫有3択・カレンダーバッジ・現場施工履歴）',
 };
 
 

@@ -3220,6 +3220,7 @@ export default function App() {
             <SiteManagement
               currentUser={userState}
               allUsers={usersList}
+              events={events}
             />
           )}
           {activeTab === 'workflow' && (

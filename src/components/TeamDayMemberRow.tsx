@@ -338,8 +338,17 @@ export const TeamDayMemberRow: React.FC<TeamDayMemberRowProps> = React.memo(({
                 }`}
                 title={`${e.isIcal ? '[iCal] ' : ''}${e.title} (${displayTimeString})${e.location ? `\n場所: ${e.location}` : ''}${e.memo ? `\nメモ: ${e.memo}` : ''}`}
               >
-                <div className={`font-medium text-[11px] sm:text-xs truncate leading-tight select-none pointer-events-none ${e.isAllDay ? 'text-white font-bold' : 'text-slate-800'}`}>
-                  {e.isIcal ? `[iCal] ${e.title}` : e.title}
+                <div className={`font-medium text-[11px] sm:text-xs truncate leading-tight select-none pointer-events-none flex items-center gap-1 ${e.isAllDay ? 'text-white font-bold' : 'text-slate-800'}`}>
+                  {e.constructionPhase === 'new' && (
+                    <span className="px-1 py-0.2 bg-emerald-600 text-white rounded font-black text-[8px] sm:text-[9px] shrink-0 leading-tight">新規</span>
+                  )}
+                  {e.constructionPhase === 'remaining' && (
+                    <span className="px-1 py-0.2 bg-amber-500 text-white rounded font-black text-[8px] sm:text-[9px] shrink-0 leading-tight">残</span>
+                  )}
+                  {e.constructionPhase === 'shukko' && (
+                    <span className="px-1 py-0.2 bg-indigo-600 text-white rounded font-black text-[8px] sm:text-[9px] shrink-0 leading-tight">出庫</span>
+                  )}
+                  <span className="truncate">{e.isIcal ? `[iCal] ${e.title}` : e.title}</span>
                 </div>
                 {displayWidthPx > 50 && (
                   <div className={`text-[9px] sm:text-[10px] font-medium truncate leading-tight mt-0.5 opacity-90 pointer-events-none ${e.isAllDay ? 'text-white/90' : 'text-slate-500'}`}>

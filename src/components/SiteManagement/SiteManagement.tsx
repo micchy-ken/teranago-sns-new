@@ -5,7 +5,7 @@ import {
   Clock, AlertCircle, MapPin, ChevronRight, HardHat, FileSpreadsheet, ExternalLink
 } from 'lucide-react';
 import { Site, SiteStatus } from '../../types/site';
-import { User } from '../../types';
+import { User, CalendarEvent } from '../../types';
 import { API_BASE_URL } from '../../config/api';
 import { SiteGanttView } from './SiteGanttView';
 import { WorkerScheduleView } from './WorkerScheduleView';
@@ -15,9 +15,10 @@ import { SiteDetailModal } from './SiteDetailModal';
 interface SiteManagementProps {
   currentUser: User;
   allUsers: User[];
+  events?: CalendarEvent[];
 }
 
-export const SiteManagement: React.FC<SiteManagementProps> = ({ currentUser, allUsers }) => {
+export const SiteManagement: React.FC<SiteManagementProps> = ({ currentUser, allUsers, events }) => {
   const [sites, setSites] = useState<Site[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -394,6 +395,7 @@ export const SiteManagement: React.FC<SiteManagementProps> = ({ currentUser, all
           onDeleteSite={handleSiteDeleted}
           currentUser={currentUser}
           allUsers={allUsers}
+          events={events}
         />
       )}
     </div>

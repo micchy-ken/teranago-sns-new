@@ -203,6 +203,12 @@ export interface CalendarEvent {
   recurrenceExceptions?: string[]; // 除外されたインスタンスの日付一覧 (YYYY-MM-DD[])
   instanceDate?: string;           // 展開されたインスタンスの日付 (YYYY-MM-DD)
 
+  // 現場管理連携プロパティ
+  siteId?: string;           // 紐づく現場ID
+  siteCode?: string;         // 現場コード (例: NHQ136A)
+  siteName?: string;         // 現場名
+  constructionPhase?: 'new' | 'remaining' | 'shukko'; // 工事乗り込み種別: 'new' (新規), 'remaining' (残), 'shukko' (出庫有)
+
   // 日程調整連携
   isSchedulePoll?: boolean;
   pollId?: string;
@@ -212,6 +218,9 @@ export interface CalendarEvent {
   pollAnsweredCount?: number;
   pollTotalTargetCount?: number;
 }
+
+export type ConstructionPhase = 'new' | 'remaining' | 'shukko';
+
 
 export type ApplicationType = 'purchase_order' | 'purchase_request' | 'inventory_issue' | 'business_trip' | 'gold_silver_daily_report' | 'other';
 export type ApplicationStatus = 'pending' | 'approved' | 'rejected' | 'draft';

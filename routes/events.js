@@ -8,41 +8,51 @@ import { safeParseJSON, dataDir } from '../config.js';
 const router = Router();
 
 // ==========================================
-// カレンダー行事・予定 (dbo.Events)
+// カレンダー行事・予定 (dbo.Events & events.json ハイブリッド)
 // ==========================================
-router.get('/events', async (req, res) => {
+const eventsFilePath = path.join(dataDir, 'events.json');
+
+function loadEventsFromFile() {
+  if (!fs.existsSync(eventsFilePath)) return [];
   try {
-    const pool = await getPool();
-    try {
-      await pool.request().query(`
-        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Events') AND name = 'isPrivate')
-        BEGIN
-          ALTER TABLE dbo.Events ADD isPrivate BIT NULL DEFAULT 0;
-        END
-      `);
-    } catch (_) {}
-    const result = await pool.request().query`SELECT * FROM dbo.Events ORDER BY startAt ASC`;
-    const events = (result.recordset || []).map(row => ({
-      id: String(row.id),
-      title: row.title,
-      startAt: row.startAt,
-      endAt: row.endAt,
-      isAllDay: !!row.isAllDay,
-      isPrivate: !!(row.isPrivate || row.isSecret),
-      category: row.category || 'general',
-      description: row.description || '',
-      location: row.location || '',
-      office: row.office || '',
-      division: row.division || '',
-      attachments: safeParseJSON(row.attachments, []),
-      recurrence: safeParseJSON(row.recurrence, null),
-      recurrenceParentId: row.recurrenceParentId || null,
-      recurrenceOriginalDate: row.recurrenceOriginalDate || null,
-      recurrenceExceptions: safeParseJSON(row.recurrenceExceptions, [])
-    }));
-    res.json(events);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
+    const raw = JSON.parse(fs.readFileSync(eventsFilePath, 'utf8'));
+    return Array.isArray(raw) ? raw : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function saveEventsToFile(events) {
+  try {
+    fs.writeFileSync(eventsFilePath, JSON.stringify(events, null, 2), 'utf8');
+  } catch (e) {
+    console.error('Failed to save events to file:', e);
+  }
+}
+
+async function ensureEventsColumns(pool) {
+  if (!pool) return;
+  try {
+    await pool.request().query(`
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Events') AND name = 'isPrivate')
+      BEGIN
+        ALTER TABLE dbo.Events ADD isPrivate BIT NULL DEFAULT 0;
+      END
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Events') AND name = 'siteId')
+      BEGIN
+        ALTER TABLE dbo.Events ADD siteId VARCHAR(50) NULL;
+      END
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Events') AND name = 'siteCode')
+      BEGIN
+        ALTER TABLE dbo.Events ADD siteCode VARCHAR(50) NULL;
+      END
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Events') AND name = 'constructionPhase')
+      BEGIN
+        ALTER TABLE dbo.Events ADD constructionPhase VARCHAR(20) NULL;
+      END
+    `);
+  } catch (_) {}
+}
 
 // 日時文字列を安全にパース（タイムゾーンオフセットがない場合は JST +09:00 として解釈）
 function parseEventDate(val) {
@@ -65,92 +75,269 @@ function parseEventDate(val) {
   return isNaN(fallback.getTime()) ? new Date() : fallback;
 }
 
-router.post('/events', async (req, res) => {
+router.get(['/events', '/api/events'], async (req, res) => {
   try {
-    const { title, startAt, endAt, isAllDay, isPrivate, category, description, location, office, division, attachments, recurrence, recurrenceParentId, recurrenceOriginalDate, recurrenceExceptions } = req.body;
-    const pool = await getPool();
+    let events = [];
+    let fromSql = false;
+    try {
+      const pool = await getPool();
+      if (pool) {
+        await ensureEventsColumns(pool);
+        const result = await pool.request().query`SELECT * FROM dbo.Events ORDER BY startAt ASC`;
+        if (result && result.recordset) {
+          events = result.recordset.map(row => {
+            let detailsObj = {};
+            if (row.description && typeof row.description === 'string' && row.description.startsWith('{')) {
+              try { detailsObj = JSON.parse(row.description); } catch (_) {}
+            }
+            return {
+              id: String(row.id),
+              title: row.title,
+              startAt: row.startAt,
+              endAt: row.endAt,
+              start: row.startAt,
+              end: row.endAt,
+              isAllDay: !!row.isAllDay,
+              isPrivate: !!(row.isPrivate || row.isSecret),
+              category: row.category || 'general',
+              type: row.category || 'general',
+              description: row.description || '',
+              location: row.location || '',
+              office: row.office || '',
+              division: row.division || '',
+              attachments: safeParseJSON(row.attachments, []),
+              recurrence: safeParseJSON(row.recurrence, null),
+              recurrenceParentId: row.recurrenceParentId || null,
+              recurrenceOriginalDate: row.recurrenceOriginalDate || null,
+              recurrenceExceptions: safeParseJSON(row.recurrenceExceptions, []),
+              siteId: row.siteId || detailsObj.siteId || null,
+              siteCode: row.siteCode || detailsObj.siteCode || null,
+              siteName: detailsObj.siteName || null,
+              constructionPhase: row.constructionPhase || detailsObj.constructionPhase || null
+            };
+          });
+          fromSql = true;
+        }
+      }
+    } catch (sqlErr) {
+      console.warn('[routes/events] SQL Server query failed, falling back to file:', sqlErr.message);
+    }
+
+    if (!fromSql || events.length === 0) {
+      const fileEvents = loadEventsFromFile();
+      if (fileEvents.length > 0) {
+        events = fileEvents;
+      }
+    }
+
+    res.json(events);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.post(['/events', '/api/events'], async (req, res) => {
+  try {
+    const { 
+      title, startAt, endAt, start, end, isAllDay, isPrivate, category, type, 
+      description, location, office, division, attachments, 
+      recurrence, recurrenceParentId, recurrenceOriginalDate, recurrenceExceptions,
+      siteId, siteCode, siteName, constructionPhase
+    } = req.body;
+
     const id = req.body.id || `e-${Date.now()}`;
+    const effectiveCategory = category || type || 'general';
+    const effectiveStart = startAt || start || new Date().toISOString();
+    const effectiveEnd = endAt || end || effectiveStart;
+
+    // ファイル保存（冗長バックアップ）
+    const fileEvents = loadEventsFromFile();
+    const newFileEvent = {
+      id: String(id),
+      title: title || '予定',
+      start: effectiveStart,
+      end: effectiveEnd,
+      startAt: effectiveStart,
+      endAt: effectiveEnd,
+      isAllDay: !!isAllDay,
+      isPrivate: !!isPrivate,
+      type: effectiveCategory,
+      category: effectiveCategory,
+      description: typeof description === 'object' ? JSON.stringify(description) : (description || ''),
+      location: location || '',
+      office: office || '',
+      division: division || '',
+      attachments: attachments || [],
+      recurrence: recurrence || null,
+      recurrenceParentId: recurrenceParentId || null,
+      recurrenceOriginalDate: recurrenceOriginalDate || null,
+      recurrenceExceptions: recurrenceExceptions || [],
+      siteId: siteId || null,
+      siteCode: siteCode || null,
+      siteName: siteName || null,
+      constructionPhase: constructionPhase || null,
+      updatedAt: new Date().toISOString()
+    };
+    const fIdx = fileEvents.findIndex(e => String(e.id) === String(id));
+    if (fIdx >= 0) {
+      fileEvents[fIdx] = newFileEvent;
+    } else {
+      fileEvents.push(newFileEvent);
+    }
+    saveEventsToFile(fileEvents);
+
+    // SQL Server 保存
     try {
-      await pool.request().query(`
-        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Events') AND name = 'isPrivate')
-        BEGIN
-          ALTER TABLE dbo.Events ADD isPrivate BIT NULL DEFAULT 0;
-        END
-      `);
-    } catch (_) {}
-    await pool.request()
-      .input('id', sql.VarChar, String(id))
-      .input('title', sql.NVarChar, title || '予定')
-      .input('startAt', sql.DateTime2, parseEventDate(startAt || Date.now()))
-      .input('endAt', sql.DateTime2, parseEventDate(endAt || startAt || Date.now()))
-      .input('isAllDay', sql.Bit, isAllDay ? 1 : 0)
-      .input('isPrivate', sql.Bit, isPrivate ? 1 : 0)
-      .input('category', sql.NVarChar, category || 'general')
-      .input('description', sql.NVarChar, typeof description === 'object' ? JSON.stringify(description) : (description || ''))
-      .input('location', sql.NVarChar, location || '')
-      .input('office', sql.NVarChar, office || '')
-      .input('division', sql.NVarChar, division || '')
-      .input('attachments', sql.NVarChar, attachments ? JSON.stringify(attachments) : null)
-      .input('recurrence', sql.NVarChar, recurrence ? JSON.stringify(recurrence) : null)
-      .input('recurrenceParentId', sql.VarChar, recurrenceParentId || null)
-      .input('recurrenceOriginalDate', sql.VarChar, recurrenceOriginalDate || null)
-      .input('recurrenceExceptions', sql.NVarChar, recurrenceExceptions ? JSON.stringify(recurrenceExceptions) : null)
-      .query(`
-        INSERT INTO dbo.Events (id, title, startAt, endAt, isAllDay, isPrivate, category, description, location, office, division, attachments, recurrence, recurrenceParentId, recurrenceOriginalDate, recurrenceExceptions) 
-        VALUES (@id, @title, @startAt, @endAt, @isAllDay, @isPrivate, @category, @description, @location, @office, @division, @attachments, @recurrence, @recurrenceParentId, @recurrenceOriginalDate, @recurrenceExceptions)
-      `);
-    res.status(201).json({ id, message: '予定登録完了' });
+      const pool = await getPool();
+      if (pool) {
+        await ensureEventsColumns(pool);
+        await pool.request()
+          .input('id', sql.VarChar, String(id))
+          .input('title', sql.NVarChar, title || '予定')
+          .input('startAt', sql.DateTime2, parseEventDate(effectiveStart))
+          .input('endAt', sql.DateTime2, parseEventDate(effectiveEnd))
+          .input('isAllDay', sql.Bit, isAllDay ? 1 : 0)
+          .input('isPrivate', sql.Bit, isPrivate ? 1 : 0)
+          .input('category', sql.NVarChar, effectiveCategory)
+          .input('description', sql.NVarChar, typeof description === 'object' ? JSON.stringify(description) : (description || ''))
+          .input('location', sql.NVarChar, location || '')
+          .input('office', sql.NVarChar, office || '')
+          .input('division', sql.NVarChar, division || '')
+          .input('attachments', sql.NVarChar, attachments ? JSON.stringify(attachments) : null)
+          .input('recurrence', sql.NVarChar, recurrence ? JSON.stringify(recurrence) : null)
+          .input('recurrenceParentId', sql.VarChar, recurrenceParentId || null)
+          .input('recurrenceOriginalDate', sql.VarChar, recurrenceOriginalDate || null)
+          .input('recurrenceExceptions', sql.NVarChar, recurrenceExceptions ? JSON.stringify(recurrenceExceptions) : null)
+          .input('siteId', sql.VarChar, siteId || null)
+          .input('siteCode', sql.VarChar, siteCode || null)
+          .input('constructionPhase', sql.VarChar, constructionPhase || null)
+          .query(`
+            INSERT INTO dbo.Events (id, title, startAt, endAt, isAllDay, isPrivate, category, description, location, office, division, attachments, recurrence, recurrenceParentId, recurrenceOriginalDate, recurrenceExceptions, siteId, siteCode, constructionPhase) 
+            VALUES (@id, @title, @startAt, @endAt, @isAllDay, @isPrivate, @category, @description, @location, @office, @division, @attachments, @recurrence, @recurrenceParentId, @recurrenceOriginalDate, @recurrenceExceptions, @siteId, @siteCode, @constructionPhase)
+          `);
+      }
+    } catch (sqlErr) {
+      console.warn('[routes/events] SQL Server insert failed, used file fallback:', sqlErr.message);
+    }
+
+    res.status(201).json({ id, message: '予定登録完了', event: newFileEvent });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-router.put('/events/:id', async (req, res) => {
+router.put(['/events/:id', '/api/events/:id'], async (req, res) => {
   try {
-    const { title, startAt, endAt, isAllDay, isPrivate, category, description, location, office, division, attachments, recurrence, recurrenceParentId, recurrenceOriginalDate, recurrenceExceptions } = req.body;
-    const pool = await getPool();
+    const { 
+      title, startAt, endAt, start, end, isAllDay, isPrivate, category, type, 
+      description, location, office, division, attachments, 
+      recurrence, recurrenceParentId, recurrenceOriginalDate, recurrenceExceptions,
+      siteId, siteCode, siteName, constructionPhase
+    } = req.body;
+
     const id = req.params.id;
+    const effectiveCategory = category || type || 'general';
+    const effectiveStart = startAt || start || new Date().toISOString();
+    const effectiveEnd = endAt || end || effectiveStart;
+
+    // ファイル更新
+    const fileEvents = loadEventsFromFile();
+    const fIdx = fileEvents.findIndex(e => String(e.id) === String(id));
+    const updatedFileEvent = {
+      ...(fIdx >= 0 ? fileEvents[fIdx] : {}),
+      id: String(id),
+      title: title || '予定',
+      start: effectiveStart,
+      end: effectiveEnd,
+      startAt: effectiveStart,
+      endAt: effectiveEnd,
+      isAllDay: !!isAllDay,
+      isPrivate: !!isPrivate,
+      type: effectiveCategory,
+      category: effectiveCategory,
+      description: typeof description === 'object' ? JSON.stringify(description) : (description || ''),
+      location: location || '',
+      office: office || '',
+      division: division || '',
+      attachments: attachments !== undefined ? attachments : (fIdx >= 0 ? fileEvents[fIdx].attachments : []),
+      recurrence: recurrence !== undefined ? recurrence : (fIdx >= 0 ? fileEvents[fIdx].recurrence : null),
+      recurrenceParentId: recurrenceParentId || null,
+      recurrenceOriginalDate: recurrenceOriginalDate || null,
+      recurrenceExceptions: recurrenceExceptions !== undefined ? recurrenceExceptions : (fIdx >= 0 ? fileEvents[fIdx].recurrenceExceptions : []),
+      siteId: siteId !== undefined ? siteId : (fIdx >= 0 ? fileEvents[fIdx].siteId : null),
+      siteCode: siteCode !== undefined ? siteCode : (fIdx >= 0 ? fileEvents[fIdx].siteCode : null),
+      siteName: siteName !== undefined ? siteName : (fIdx >= 0 ? fileEvents[fIdx].siteName : null),
+      constructionPhase: constructionPhase !== undefined ? constructionPhase : (fIdx >= 0 ? fileEvents[fIdx].constructionPhase : null),
+      updatedAt: new Date().toISOString()
+    };
+    if (fIdx >= 0) {
+      fileEvents[fIdx] = updatedFileEvent;
+    } else {
+      fileEvents.push(updatedFileEvent);
+    }
+    saveEventsToFile(fileEvents);
+
+    // SQL Server 更新
     try {
-      await pool.request().query(`
-        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Events') AND name = 'isPrivate')
-        BEGIN
-          ALTER TABLE dbo.Events ADD isPrivate BIT NULL DEFAULT 0;
-        END
-      `);
-    } catch (_) {}
-    await pool.request()
-      .input('id', sql.VarChar, String(id))
-      .input('title', sql.NVarChar, title || '予定')
-      .input('startAt', sql.DateTime2, parseEventDate(startAt || Date.now()))
-      .input('endAt', sql.DateTime2, parseEventDate(endAt || startAt || Date.now()))
-      .input('isAllDay', sql.Bit, isAllDay ? 1 : 0)
-      .input('isPrivate', sql.Bit, isPrivate ? 1 : 0)
-      .input('category', sql.NVarChar, category || 'general')
-      .input('description', sql.NVarChar, typeof description === 'object' ? JSON.stringify(description) : (description || ''))
-      .input('location', sql.NVarChar, location || '')
-      .input('office', sql.NVarChar, office || '')
-      .input('division', sql.NVarChar, division || '')
-      .input('attachments', sql.NVarChar, attachments ? JSON.stringify(attachments) : null)
-      .input('recurrence', sql.NVarChar, recurrence ? JSON.stringify(recurrence) : null)
-      .input('recurrenceParentId', sql.VarChar, recurrenceParentId || null)
-      .input('recurrenceOriginalDate', sql.VarChar, recurrenceOriginalDate || null)
-      .input('recurrenceExceptions', sql.NVarChar, recurrenceExceptions ? JSON.stringify(recurrenceExceptions) : null)
-      .query(`
-        UPDATE dbo.Events 
-        SET title = @title, startAt = @startAt, endAt = @endAt, isAllDay = @isAllDay, isPrivate = @isPrivate,
-            category = @category, description = @description, location = @location, 
-            office = @office, division = @division, attachments = @attachments,
-            recurrence = @recurrence, recurrenceParentId = @recurrenceParentId,
-            recurrenceOriginalDate = @recurrenceOriginalDate, recurrenceExceptions = @recurrenceExceptions
-        WHERE id = @id
-      `);
-    res.json({ message: '予定更新完了' });
+      const pool = await getPool();
+      if (pool) {
+        await ensureEventsColumns(pool);
+        await pool.request()
+          .input('id', sql.VarChar, String(id))
+          .input('title', sql.NVarChar, title || '予定')
+          .input('startAt', sql.DateTime2, parseEventDate(effectiveStart))
+          .input('endAt', sql.DateTime2, parseEventDate(effectiveEnd))
+          .input('isAllDay', sql.Bit, isAllDay ? 1 : 0)
+          .input('isPrivate', sql.Bit, isPrivate ? 1 : 0)
+          .input('category', sql.NVarChar, effectiveCategory)
+          .input('description', sql.NVarChar, typeof description === 'object' ? JSON.stringify(description) : (description || ''))
+          .input('location', sql.NVarChar, location || '')
+          .input('office', sql.NVarChar, office || '')
+          .input('division', sql.NVarChar, division || '')
+          .input('attachments', sql.NVarChar, attachments ? JSON.stringify(attachments) : null)
+          .input('recurrence', sql.NVarChar, recurrence ? JSON.stringify(recurrence) : null)
+          .input('recurrenceParentId', sql.VarChar, recurrenceParentId || null)
+          .input('recurrenceOriginalDate', sql.VarChar, recurrenceOriginalDate || null)
+          .input('recurrenceExceptions', sql.NVarChar, recurrenceExceptions ? JSON.stringify(recurrenceExceptions) : null)
+          .input('siteId', sql.VarChar, siteId || null)
+          .input('siteCode', sql.VarChar, siteCode || null)
+          .input('constructionPhase', sql.VarChar, constructionPhase || null)
+          .query(`
+            UPDATE dbo.Events 
+            SET title = @title, startAt = @startAt, endAt = @endAt, isAllDay = @isAllDay, isPrivate = @isPrivate,
+                category = @category, description = @description, location = @location, office = @office, division = @division, 
+                attachments = @attachments, recurrence = @recurrence, recurrenceParentId = @recurrenceParentId, 
+                recurrenceOriginalDate = @recurrenceOriginalDate, recurrenceExceptions = @recurrenceExceptions,
+                siteId = @siteId, siteCode = @siteCode, constructionPhase = @constructionPhase
+            WHERE id = @id
+          `);
+      }
+    } catch (sqlErr) {
+      console.warn('[routes/events] SQL Server update failed, used file fallback:', sqlErr.message);
+    }
+
+    res.json({ message: '予定更新完了', event: updatedFileEvent });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-router.delete('/events/:id', async (req, res) => {
+router.delete(['/events/:id', '/api/events/:id'], async (req, res) => {
   try {
-    const pool = await getPool();
-    await pool.request().input('id', sql.VarChar, String(req.params.id)).query('DELETE FROM dbo.Events WHERE id = @id');
-    res.json({ message: '削除完了' });
+    const id = req.params.id;
+
+    // ファイルから削除
+    const fileEvents = loadEventsFromFile();
+    const filtered = fileEvents.filter(e => String(e.id) !== String(id));
+    saveEventsToFile(filtered);
+
+    // SQL Server から削除
+    try {
+      const pool = await getPool();
+      if (pool) {
+        await pool.request()
+          .input('id', sql.VarChar, String(id))
+          .query`DELETE FROM dbo.Events WHERE id = @id`;
+      }
+    } catch (sqlErr) {
+      console.warn('[routes/events] SQL Server delete failed, used file fallback:', sqlErr.message);
+    }
+
+    res.json({ message: '予定削除完了', id });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -239,7 +426,7 @@ const ensureInspectionDraftsTable = async (pool) => {
 };
 
 // 指定年月の下書き保存状態取得
-router.get(['/inspection/drafts', '/inspection/drafts/:targetYearMonth'], async (req, res) => {
+router.get(['/inspection/drafts', '/inspection/drafts/:targetYearMonth', '/api/inspection/drafts', '/api/inspection/drafts/:targetYearMonth'], async (req, res) => {
   try {
     const targetYearMonth = normalizeYmParam(req.params.targetYearMonth || req.query.targetYearMonth || req.headers['x-target-year-month'] || (req.body && req.body.targetYearMonth));
 
@@ -304,7 +491,7 @@ router.get(['/inspection/drafts', '/inspection/drafts/:targetYearMonth'], async 
 });
 
 // 下書き自動保存・一時保存
-router.post(['/inspection/drafts', '/inspection/drafts/:targetYearMonth'], async (req, res) => {
+router.post(['/inspection/drafts', '/inspection/drafts/:targetYearMonth', '/api/inspection/drafts', '/api/inspection/drafts/:targetYearMonth'], async (req, res) => {
   try {
     const targetYearMonth = normalizeYmParam(req.body?.targetYearMonth || req.params?.targetYearMonth || req.query?.targetYearMonth || req.headers['x-target-year-month']);
     const items = Array.isArray(req.body?.items) ? req.body.items : [];
@@ -382,7 +569,7 @@ router.post(['/inspection/drafts', '/inspection/drafts/:targetYearMonth'], async
 });
 
 // 下書きクリア
-router.delete(['/inspection/drafts', '/inspection/drafts/:targetYearMonth'], async (req, res) => {
+router.delete(['/inspection/drafts', '/inspection/drafts/:targetYearMonth', '/api/inspection/drafts', '/api/inspection/drafts/:targetYearMonth'], async (req, res) => {
   try {
     const targetYearMonth = normalizeYmParam(req.params.targetYearMonth || req.query.targetYearMonth || req.headers['x-target-year-month'] || req.body?.targetYearMonth);
     if (!targetYearMonth) {
@@ -412,7 +599,7 @@ router.delete(['/inspection/drafts', '/inspection/drafts/:targetYearMonth'], asy
 });
 
 // 翌月繰越 (carried_over) 自動取得 API
-router.get(['/inspection/carry-overs', '/inspection/carry-overs/:targetYearMonth'], async (req, res) => {
+router.get(['/inspection/carry-overs', '/inspection/carry-overs/:targetYearMonth', '/api/inspection/carry-overs', '/api/inspection/carry-overs/:targetYearMonth'], async (req, res) => {
   try {
     const targetYearMonth = normalizeYmParam(req.params.targetYearMonth || req.query.targetYearMonth || req.headers['x-target-year-month'] || (req.body && req.body.targetYearMonth));
     const prevMonth = getPreviousYearMonth(targetYearMonth);

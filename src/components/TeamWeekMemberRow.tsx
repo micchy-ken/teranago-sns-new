@@ -168,17 +168,26 @@ export const TeamWeekMemberRow: React.FC<TeamWeekMemberRowProps> = React.memo(({
                     title={`${e.isIcal ? '[iCal] ' : ''}${e.title} (${formatEventTime(e)})`}
                   >
                     {multiProps.isMultiDay ? (
-                      <span className="truncate font-bold tracking-tight text-white">
-                        {multiProps.showTitle ? (e.isIcal ? `[iCal] ${e.title}` : e.title) : '\u00A0'}
+                      <span className="truncate font-bold tracking-tight text-white flex items-center gap-1">
+                        {e.constructionPhase === 'new' && <span className="px-1 py-0.2 bg-emerald-600 text-white rounded font-black text-[8px] shrink-0">新規</span>}
+                        {e.constructionPhase === 'remaining' && <span className="px-1 py-0.2 bg-amber-500 text-white rounded font-black text-[8px] shrink-0">残</span>}
+                        {e.constructionPhase === 'shukko' && <span className="px-1 py-0.2 bg-indigo-600 text-white rounded font-black text-[8px] shrink-0">出庫</span>}
+                        <span className="truncate">{multiProps.showTitle ? (e.isIcal ? `[iCal] ${e.title}` : e.title) : '\u00A0'}</span>
                       </span>
                     ) : e.isAllDay ? (
-                      <span className="truncate font-bold tracking-tight text-white">
-                        {e.isIcal ? `[iCal] ${e.title}` : e.title}
+                      <span className="truncate font-bold tracking-tight text-white flex items-center gap-1">
+                        {e.constructionPhase === 'new' && <span className="px-1 py-0.2 bg-emerald-600 text-white rounded font-black text-[8px] shrink-0">新規</span>}
+                        {e.constructionPhase === 'remaining' && <span className="px-1 py-0.2 bg-amber-500 text-white rounded font-black text-[8px] shrink-0">残</span>}
+                        {e.constructionPhase === 'shukko' && <span className="px-1 py-0.2 bg-indigo-600 text-white rounded font-black text-[8px] shrink-0">出庫</span>}
+                        <span className="truncate">{e.isIcal ? `[iCal] ${e.title}` : e.title}</span>
                       </span>
                     ) : (
                       <>
-                        <div className="truncate font-extrabold text-[9px] sm:text-[10px] leading-tight text-slate-800">
-                          {e.isIcal ? `[iCal] ${e.title}` : e.title}
+                        <div className="truncate font-extrabold text-[9px] sm:text-[10px] leading-tight text-slate-800 flex items-center gap-1">
+                          {e.constructionPhase === 'new' && <span className="px-1 py-0.2 bg-emerald-600 text-white rounded font-black text-[8px] shrink-0">新規</span>}
+                          {e.constructionPhase === 'remaining' && <span className="px-1 py-0.2 bg-amber-500 text-white rounded font-black text-[8px] shrink-0">残</span>}
+                          {e.constructionPhase === 'shukko' && <span className="px-1 py-0.2 bg-indigo-600 text-white rounded font-black text-[8px] shrink-0">出庫</span>}
+                          <span className="truncate">{e.isIcal ? `[iCal] ${e.title}` : e.title}</span>
                         </div>
                         <div className="flex items-center gap-1 truncate text-[8px] sm:text-[9px] text-slate-500 opacity-90 mt-0.5">
                           <Clock className="w-2 h-2 sm:w-2.5 sm:h-2.5 shrink-0" />
