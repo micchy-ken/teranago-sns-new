@@ -43,6 +43,7 @@ interface CalendarProps {
   onUpdateMemos?: (updatedMemos: Memo[]) => void;
   onRefetchEvents?: () => void;
   onNavigateToInspectionScheduler?: () => void;
+  onNavigateToSite?: (siteIdOrCode: string) => void;
   onOpenSchedulePollModal?: (pollId?: string) => void;
   pendingPollCount?: number;
   openSchedulePolls?: SchedulePoll[];
@@ -95,6 +96,7 @@ export function Calendar({
   onUpdateMemos,
   onRefetchEvents,
   onNavigateToInspectionScheduler,
+  onNavigateToSite,
   onOpenSchedulePollModal,
   pendingPollCount = 0,
   openSchedulePolls = [],
@@ -3853,6 +3855,7 @@ export function Calendar({
         <GlobalEventDetailModal
           isOpen={!!selectedDetailEvent}
           event={selectedDetailEvent}
+          onNavigateToSite={onNavigateToSite}
           onClose={() => {
             setSelectedDetailEvent(null);
             if (onClearInitialEventId) onClearInitialEventId();

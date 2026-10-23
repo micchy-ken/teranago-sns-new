@@ -38,6 +38,7 @@ export interface GlobalEventDetailModalProps {
   onCopyAndAdd?: (event: CalendarEvent) => void;
   onDelete?: (event: CalendarEvent) => void;
   onEditInCalendar?: (eventId: string) => void;
+  onNavigateToSite?: (siteIdOrCode: string) => void;
   currentUser?: User;
 }
 
@@ -71,6 +72,7 @@ export function GlobalEventDetailModal({
   onCopyAndAdd,
   onDelete,
   onEditInCalendar,
+  onNavigateToSite,
   currentUser,
 }: GlobalEventDetailModalProps) {
   const [previewFile, setPreviewFile] = useState<AttachmentFile | null>(null);
@@ -281,24 +283,42 @@ export function GlobalEventDetailModal({
               <div className="flex items-start gap-2.5 text-xs text-slate-700 border-t border-slate-200/60 pt-2.5 bg-amber-50/60 -mx-4 -mb-4 p-3 rounded-b-xl border-amber-200/50">
                 <HardHat className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-[10px] font-bold px-1.5 py-0.5 bg-amber-200/70 text-amber-900 rounded font-mono">
-                      {event.siteCode || '現場未定'}
-                    </span>
-                    <span className="font-extrabold text-slate-900 truncate">
-                      {event.siteName || '現場名未設定'}
-                    </span>
-                    {event.constructionPhase && (
-                      <span className={`text-[10px] font-black px-1.5 py-0.2 rounded text-white ${
-                        event.constructionPhase === 'new' ? 'bg-emerald-600' :
-                        event.constructionPhase === 'remaining' ? 'bg-amber-500' : 'bg-indigo-600'
-                      }`}>
-                        {event.constructionPhase === 'new' ? '新規' : event.constructionPhase === 'remaining' ? '残' : '出庫有'}
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 bg-amber-200/70 text-amber-900 rounded font-mono">
+                        {event.siteCode || '現場未定'}
                       </span>
+                      <span className="font-extrabold text-slate-900 truncate">
+                        {event.siteName || '現場名未設定'}
+                      </span>
+                      {event.constructionPhase && (
+                        <span className={`text-[10px] font-black px-1.5 py-0.2 rounded text-white ${
+                          event.constructionPhase === 'new' ? 'bg-emerald-600' :
+                          event.constructionPhase === 'remaining' ? 'bg-amber-500' : 'bg-indigo-600'
+                        }`}>
+                          {event.constructionPhase === 'new' ? '新規' : event.constructionPhase === 'remaining' ? '残' : '出庫有'}
+                        </span>
+                      )}
+                    </div>
+
+                    {onNavigateToSite && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onClose();
+                          onNavigateToSite(event.siteId || event.siteCode || event.siteName || '');
+                        }}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold text-amber-900 bg-amber-200/80 hover:bg-amber-300 rounded-lg shadow-2xs hover:shadow-xs transition-all cursor-pointer shrink-0"
+                        title="現場管理画面を開いてこの現場の詳細を確認"
+                      >
+                        <Building2 className="w-3.5 h-3.5 text-amber-800" />
+                        <span>現場管理を開く</span>
+                        <ExternalLink className="w-3 h-3 text-amber-800" />
+                      </button>
                     )}
                   </div>
                   <p className="text-[11px] text-slate-500 mt-1">
-                    この予定は現場管理システムと連携しています。
+                    この予定は現場管理システムと連携しています。ボタンを押すと該当現場の進捗・主要部品情報を確認できます。
                   </p>
                 </div>
               </div>

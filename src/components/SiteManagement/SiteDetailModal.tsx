@@ -19,6 +19,7 @@ interface SiteDetailModalProps {
   currentUser: User;
   allUsers: User[];
   events?: CalendarEvent[];
+  onNavigateToCalendar?: (eventId: string, date?: string) => void;
 }
 
 /**
@@ -131,6 +132,7 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
   currentUser,
   allUsers,
   events,
+  onNavigateToCalendar,
 }) => {
   const [activeTab, setActiveTab] = useState<'parts' | 'timeline' | 'schedule' | 'info' | 'export'>('parts');
   const [fetchedEvents, setFetchedEvents] = useState<CalendarEvent[]>([]);
@@ -1246,6 +1248,25 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
                             {evt.memo}
                           </div>
                         )}
+
+                        {/* カレンダー遷移アクション */}
+                        <div className="flex items-center justify-end pt-1 border-t border-slate-100">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (onNavigateToCalendar) {
+                                onClose();
+                                onNavigateToCalendar(evt.id, evt.start);
+                              }
+                            }}
+                            className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg border border-indigo-200 shadow-2xs hover:shadow-xs transition-all cursor-pointer"
+                            title="カレンダー画面に移動してこの予定の詳細を表示"
+                          >
+                            <Calendar className="w-3.5 h-3.5 text-indigo-600" />
+                            <span>カレンダーで開く</span>
+                            <ExternalLink className="w-3 h-3 text-indigo-600" />
+                          </button>
+                        </div>
                       </div>
                     );
                   })}

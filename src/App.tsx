@@ -221,6 +221,7 @@ export default function App() {
   const [targetMemoId, setTargetMemoId] = useState<string | undefined>(initialUrlParams.memoId);
   const [targetApplicationId, setTargetApplicationId] = useState<string | undefined>(initialUrlParams.applicationId);
   const [targetEventId, setTargetEventId] = useState<string | undefined>(initialUrlParams.eventId);
+  const [targetSiteId, setTargetSiteId] = useState<string | undefined>(undefined);
   const [targetReportId, setTargetReportId] = useState<string | undefined>(initialUrlParams.reportId);
   const [targetSafetyEventId, setTargetSafetyEventId] = useState<string | undefined>(initialUrlParams.safetyEventId);
   const [targetSafetyUserId, setTargetSafetyUserId] = useState<string | undefined>(initialUrlParams.safetyUserId);
@@ -375,12 +376,28 @@ export default function App() {
   const handleSelectTab = (tab: AppTab) => {
     setActiveTab(tab);
     setTargetEventId(undefined);
+    setTargetSiteId(undefined);
     setTargetTopicId(undefined);
     setTargetMemoId(undefined);
     setTargetChatRoomId(undefined);
     setTargetApplicationId(undefined);
     setTargetReportId(undefined);
     setTargetSafetyEventId(undefined);
+  };
+
+  // 予定/現場の相互クロスナビゲーションハンドラー
+  const handleNavigateToSite = (siteIdOrCode: string) => {
+    setTargetSiteId(siteIdOrCode);
+    setActiveTab('site_management');
+  };
+
+  const handleNavigateToCalendar = (eventId: string, date?: string) => {
+    setTargetEventId(eventId);
+    if (date) {
+      const datePart = date.includes('T') ? date.split('T')[0] : date;
+      setCalendarParams(prev => ({ ...prev, date: datePart }));
+    }
+    setActiveTab('calendar');
   };
 
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
@@ -3196,6 +3213,7 @@ export default function App() {
               onUpdateMemos={handleUpdateMemos}
               onRefetchEvents={refetchEvents}
               onNavigateToInspectionScheduler={() => setActiveTab('inspection_scheduler')}
+              onNavigateToSite={handleNavigateToSite}
               pendingPollCount={pendingSchedulePolls.length}
               openSchedulePolls={openSchedulePolls}
               onOpenSchedulePollModal={(pollId?: string) => {
@@ -3233,6 +3251,9 @@ export default function App() {
               currentUser={userState}
               allUsers={usersList}
               events={events}
+              initialSiteId={targetSiteId}
+              onClearInitialSiteId={() => setTargetSiteId(undefined)}
+              onNavigateToCalendar={handleNavigateToCalendar}
             />
           )}
           {activeTab === 'workflow' && (
@@ -3453,6 +3474,7 @@ export default function App() {
         <GlobalEventDetailModal
           isOpen={!!globalSelectedEvent}
           event={globalSelectedEvent}
+          onNavigateToSite={handleNavigateToSite}
           onClose={() => setGlobalSelectedEvent(null)}
           onEditInCalendar={(eventId) => {
             // カレンダータブへ遷移して指定イベントを展開

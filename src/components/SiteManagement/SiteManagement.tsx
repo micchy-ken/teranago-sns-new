@@ -16,9 +16,19 @@ interface SiteManagementProps {
   currentUser: User;
   allUsers: User[];
   events?: CalendarEvent[];
+  initialSiteId?: string;
+  onClearInitialSiteId?: () => void;
+  onNavigateToCalendar?: (eventId: string, date?: string) => void;
 }
 
-export const SiteManagement: React.FC<SiteManagementProps> = ({ currentUser, allUsers, events }) => {
+export const SiteManagement: React.FC<SiteManagementProps> = ({ 
+  currentUser, 
+  allUsers, 
+  events,
+  initialSiteId,
+  onClearInitialSiteId,
+  onNavigateToCalendar
+}) => {
   const [sites, setSites] = useState<Site[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -58,6 +68,26 @@ export const SiteManagement: React.FC<SiteManagementProps> = ({ currentUser, all
   useEffect(() => {
     fetchSites();
   }, [fetchSites]);
+
+  // 指定された initialSiteId に基づき自動的に現場詳細モーダルをオープン
+  useEffect(() => {
+    if (initialSiteId && sites.length > 0) {
+      const siteIdNorm = String(initialSiteId).trim().toLowerCase();
+      const match = sites.find(
+        s => String(s.id) === String(initialSiteId) ||
+             s.siteCode.trim().toLowerCase() === siteIdNorm ||
+             s.siteName.trim().toLowerCase().includes(siteIdNorm) ||
+             siteIdNorm.includes(s.siteName.trim().toLowerCase())
+      );
+      if (match) {
+        setSelectedSite(match);
+        setIsDetailOpen(true);
+      }
+      if (onClearInitialSiteId) {
+        onClearInitialSiteId();
+      }
+    }
+  }, [initialSiteId, sites, onClearInitialSiteId]);
 
   // 新規登録成功ハンドラ
   const handleSiteCreated = (newSite: Site) => {
@@ -396,6 +426,7 @@ export const SiteManagement: React.FC<SiteManagementProps> = ({ currentUser, all
           currentUser={currentUser}
           allUsers={allUsers}
           events={events}
+          onNavigateToCalendar={onNavigateToCalendar}
         />
       )}
     </div>
