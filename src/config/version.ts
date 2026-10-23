@@ -14,11 +14,11 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.23.9',
+  version: '2026.10.23.10',
   date: '2026-10-23',
-  releaseNumber: 9,
-  display: 'v2026.10.23 #9',
-  description: '回覧板アンケート・意思決定投票機能の実装：選択肢ごとの理由コメント必須化、回答期限までの自動ピン留め、マイページ（初期・スマホ画面）での未回答バナー導線に対応',
+  releaseNumber: 10,
+  display: 'v2026.10.23 #10',
+  description: 'アンケート作成・保存の確実化（API送信ペイロード同期・再取得時マッピング修正）および既存トピック詳細編集でのアンケート追加・設定対応',
 };
 
 

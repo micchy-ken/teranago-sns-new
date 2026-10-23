@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { X, MessageSquare, Eye, Pin, Paperclip, Calendar as CalendarIcon, Send, Trash2, Building2, Users, Tag, CheckCircle2, Edit3, Save, Plus, Loader2, Eye as EyeIcon, Download, UploadCloud, Share2, Check, Star, BarChart2, AlertCircle, Clock, CheckSquare } from 'lucide-react';
-import { BoardTopic, User, OfficeMaster, DivisionMaster, AttachmentFile, BoardViewer, BoardPollVote } from '../types';
+import { BoardTopic, User, OfficeMaster, DivisionMaster, AttachmentFile, BoardViewer, BoardPollVote, BoardPoll } from '../types';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
 import { uploadMultipleFiles, deleteAttachmentFile, deleteAttachmentFiles, resolveFileUrl, isPreviewable } from '../utils/fileUpload';
@@ -26,6 +26,15 @@ interface TopicDetailModalProps {
   onToggleFavorite?: (topicId: string) => void;
   users?: User[];
 }
+
+const getDefaultDeadlineDate = () => {
+  const d = new Date();
+  d.setDate(d.getDate() + 7);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 
 export function TopicDetailModal({
   topic,
@@ -83,8 +92,33 @@ export function TopicDetailModal({
   const [pollError, setPollError] = useState<string | null>(null);
 
   // 編集モード時のアンケート設定用 State
+  const [editHasPoll, setEditHasPoll] = useState(false);
+  const [editPollOptions, setEditPollOptions] = useState<Array<{ id: string; text: string; requireComment: boolean }>>([]);
   const [editPollDeadline, setEditPollDeadline] = useState('');
   const [editPollAutoPin, setEditPollAutoPin] = useState(true);
+  const [editPollAllowMultiple, setEditPollAllowMultiple] = useState(false);
+  const [editPollIsAnonymous, setEditPollIsAnonymous] = useState(false);
+
+  const handleAddEditOption = () => {
+    if (editPollOptions.length >= 10) return;
+    setEditPollOptions([
+      ...editPollOptions,
+      { id: `opt-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`, text: '', requireComment: false },
+    ]);
+  };
+
+  const handleUpdateEditOptionText = (id: string, text: string) => {
+    setEditPollOptions(editPollOptions.map(o => o.id === id ? { ...o, text } : o));
+  };
+
+  const handleToggleEditOptionRequireComment = (id: string) => {
+    setEditPollOptions(editPollOptions.map(o => o.id === id ? { ...o, requireComment: !o.requireComment } : o));
+  };
+
+  const handleRemoveEditOption = (id: string) => {
+    if (editPollOptions.length <= 2) return;
+    setEditPollOptions(editPollOptions.filter(o => o.id !== id));
+  };
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -216,8 +250,29 @@ export function TopicDetailModal({
           })));
 
           if (topic.poll) {
-            setEditPollDeadline(topic.poll.deadline || '');
+            setEditHasPoll(true);
+            setEditPollOptions(
+              (topic.poll.options || []).map(o => ({
+                id: o.id,
+                text: o.text,
+                requireComment: !!o.requireComment,
+              }))
+            );
+            setEditPollDeadline(topic.poll.deadline || getDefaultDeadlineDate());
             setEditPollAutoPin(topic.poll.autoPinUntilDeadline !== false);
+            setEditPollAllowMultiple(!!topic.poll.allowMultiple);
+            setEditPollIsAnonymous(!!topic.poll.isAnonymous);
+          } else {
+            setEditHasPoll(false);
+            setEditPollOptions([
+              { id: 'opt-1', text: '賛成', requireComment: false },
+              { id: 'opt-2', text: '条件付き賛成', requireComment: false },
+              { id: 'opt-3', text: 'どれも反対', requireComment: true },
+            ]);
+            setEditPollDeadline(getDefaultDeadlineDate());
+            setEditPollAutoPin(true);
+            setEditPollAllowMultiple(false);
+            setEditPollIsAnonymous(false);
           }
         }
 
@@ -400,17 +455,30 @@ export function TopicDetailModal({
     let finalIsPinned = editIsPinned;
     let finalPinnedUntil: string | null = null;
 
-    let updatedPoll = topic.poll;
-    if (topic.poll) {
-      updatedPoll = {
-        ...topic.poll,
-        deadline: editPollDeadline || topic.poll.deadline,
-        autoPinUntilDeadline: editPollAutoPin,
-      };
+    let updatedPoll: BoardPoll | undefined = undefined;
+    if (editHasPoll) {
+      const validOptions = editPollOptions
+        .map(o => ({ ...o, text: (o.text || '').trim() }))
+        .filter(o => o.text.length > 0);
+      if (validOptions.length >= 2 && editPollDeadline) {
+        updatedPoll = {
+          id: topic.poll?.id || `poll-${Date.now()}`,
+          options: validOptions.map(o => ({
+            id: o.id,
+            text: o.text,
+            requireComment: !!o.requireComment,
+          })),
+          deadline: editPollDeadline,
+          autoPinUntilDeadline: editPollAutoPin,
+          allowMultiple: editPollAllowMultiple,
+          isAnonymous: editPollIsAnonymous,
+          votes: topic.poll?.votes || [],
+        };
 
-      if (editPollAutoPin && editPollDeadline) {
-        finalIsPinned = true;
-        finalPinnedUntil = new Date(`${editPollDeadline}T23:59:59.999+09:00`).toISOString();
+        if (editPollAutoPin && editPollDeadline) {
+          finalIsPinned = true;
+          finalPinnedUntil = new Date(`${editPollDeadline}T23:59:59.999+09:00`).toISOString();
+        }
       }
     }
 
@@ -1008,39 +1076,139 @@ export function TopicDetailModal({
                   )}
                 </div>
 
-                {/* アンケート設定編集（アンケートがある場合） */}
-                {topic.poll && (
-                  <div className="pt-2 border-t border-slate-200 space-y-2">
-                    <div className="text-xs font-bold text-sky-900 flex items-center gap-1.5">
-                      <BarChart2 className="w-3.5 h-3.5 text-sky-600" />
-                      アンケート設定（期限・固定表示）
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {/* アンケート設定編集（新規追加・既存編集対応） */}
+                <div className="pt-2 border-t border-slate-200">
+                  <div className="flex items-center justify-between mb-2">
+                    <label htmlFor="editPollToggle" className="text-xs font-bold text-sky-900 flex items-center gap-1.5 cursor-pointer">
+                      <BarChart2 className="w-4 h-4 text-sky-600" />
+                      アンケート / 意思決定投票を設定する
+                    </label>
+                    <input
+                      type="checkbox"
+                      id="editPollToggle"
+                      checked={editHasPoll}
+                      onChange={e => setEditHasPoll(e.target.checked)}
+                      className="w-4 h-4 rounded border-sky-300 text-sky-600 focus:ring-sky-500 cursor-pointer"
+                    />
+                  </div>
+
+                  {editHasPoll && (
+                    <div className="p-3 bg-sky-50/70 border border-sky-200 rounded-xl space-y-3 mt-2">
+                      {/* 選択肢リスト */}
                       <div>
-                        <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                          回答期限日（JST）
-                        </label>
-                        <input
-                          type="date"
-                          value={editPollDeadline}
-                          onChange={e => setEditPollDeadline(e.target.value)}
-                          className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-sky-500"
-                        />
+                        <div className="flex items-center justify-between mb-1.5">
+                          <label className="text-xs font-bold text-sky-900">
+                            選択肢（最低2つ）<span className="text-red-500">*</span>
+                          </label>
+                          <span className="text-[10px] text-sky-600">
+                            理由コメント必須化設定可能
+                          </span>
+                        </div>
+                        <div className="space-y-1.5">
+                          {editPollOptions.map((opt, idx) => (
+                            <div key={opt.id} className="p-2 bg-white rounded-lg border border-sky-200/80 shadow-2xs space-y-1.5">
+                              <div className="flex items-center gap-1.5">
+                                <span className="w-4 h-4 rounded-full bg-sky-100 text-sky-700 text-[10px] font-bold flex items-center justify-center shrink-0">
+                                  {idx + 1}
+                                </span>
+                                <input
+                                  type="text"
+                                  value={opt.text}
+                                  onChange={e => handleUpdateEditOptionText(opt.id, e.target.value)}
+                                  placeholder="選択肢を入力..."
+                                  className="flex-1 px-2.5 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-sky-500"
+                                />
+                                {editPollOptions.length > 2 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveEditOption(opt.id)}
+                                    className="p-1 text-slate-400 hover:text-red-500 rounded cursor-pointer"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </div>
+                              <div className="flex items-center justify-between pl-6 pr-1">
+                                <label className="flex items-center gap-1.5 cursor-pointer select-none text-[10px] text-slate-600 hover:text-slate-900">
+                                  <input
+                                    type="checkbox"
+                                    checked={opt.requireComment}
+                                    onChange={() => handleToggleEditOptionRequireComment(opt.id)}
+                                    className="w-3 h-3 rounded text-amber-600 focus:ring-amber-500 border-slate-300 cursor-pointer"
+                                  />
+                                  <span>⚠️ 選択時に理由コメントを必須にする</span>
+                                </label>
+                                {opt.requireComment && (
+                                  <span className="text-[9px] bg-amber-100 text-amber-800 font-bold px-1 rounded">
+                                    理由必須
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        {editPollOptions.length < 10 && (
+                          <button
+                            type="button"
+                            onClick={handleAddEditOption}
+                            className="mt-1.5 w-full py-1.5 bg-white hover:bg-sky-100/60 border border-dashed border-sky-300 text-sky-700 text-[11px] font-bold rounded-lg transition-colors flex items-center justify-center gap-1 cursor-pointer"
+                          >
+                            <Plus className="w-3 h-3" />
+                            選択肢を追加
+                          </button>
+                        )}
                       </div>
-                      <div className="flex items-center">
-                        <label className="flex items-center gap-2 cursor-pointer select-none text-xs font-semibold text-slate-700 mt-4 sm:mt-0">
+
+                      {/* 期限 & 自動ピン留め */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 border-t border-sky-200/70">
+                        <div>
+                          <label className="block text-[11px] font-bold text-sky-950 mb-1">
+                            回答期限日（JST）<span className="text-red-500">*</span>
+                          </label>
+                          <input
+                            type="date"
+                            value={editPollDeadline}
+                            onChange={e => setEditPollDeadline(e.target.value)}
+                            className="w-full px-2.5 py-1.5 bg-white border border-sky-200 rounded-lg text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-sky-500"
+                          />
+                        </div>
+                        <div className="flex items-center pt-2 sm:pt-4">
+                          <label className="flex items-center gap-1.5 cursor-pointer select-none text-xs font-semibold text-sky-950">
+                            <input
+                              type="checkbox"
+                              checked={editPollAutoPin}
+                              onChange={e => setEditPollAutoPin(e.target.checked)}
+                              className="w-4 h-4 rounded text-sky-600 focus:ring-sky-500 border-sky-300 cursor-pointer"
+                            />
+                            <span>📌 回答期限まで自動ピン留め</span>
+                          </label>
+                        </div>
+                      </div>
+
+                      {/* 複数選択 & 匿名設定 */}
+                      <div className="pt-2 border-t border-sky-200/70 flex flex-wrap gap-4 text-xs font-medium text-sky-950">
+                        <label className="flex items-center gap-1.5 cursor-pointer select-none">
                           <input
                             type="checkbox"
-                            checked={editPollAutoPin}
-                            onChange={e => setEditPollAutoPin(e.target.checked)}
-                            className="w-4 h-4 rounded text-sky-600 focus:ring-sky-500 border-slate-300 cursor-pointer"
+                            checked={editPollAllowMultiple}
+                            onChange={e => setEditPollAllowMultiple(e.target.checked)}
+                            className="w-3.5 h-3.5 rounded text-sky-600 focus:ring-sky-500 border-sky-300 cursor-pointer"
                           />
-                          <span>📌 回答期限まで自動ピン留め</span>
+                          <span>複数選択許可</span>
+                        </label>
+                        <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={editPollIsAnonymous}
+                            onChange={e => setEditPollIsAnonymous(e.target.checked)}
+                            className="w-3.5 h-3.5 rounded text-sky-600 focus:ring-sky-500 border-sky-300 cursor-pointer"
+                          />
+                          <span>匿名投票</span>
                         </label>
                       </div>
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
 
               {/* 添付ファイル */}

@@ -1174,6 +1174,9 @@ export default function App() {
             comments: commentsList,
             viewers: parsedViewers,
             commentsCount: commentsList.length || t.commentsCount || 0,
+            poll: (typeof t.poll === 'string' && t.poll.startsWith('{'))
+              ? (() => { try { return JSON.parse(t.poll); } catch (_) { return null; } })()
+              : (t.poll || detailsObj.poll || null),
             ...detailsObj,
             attachments: parsedAtts
           };
@@ -1661,6 +1664,7 @@ export default function App() {
           title: topicData.title,
           content: topicData.content,
           authorId: topicData.author.id,
+          author: topicData.author,
           office: topicData.office || '全社',
           division: topicData.division || '全部署',
           scope: topicData.scope || '全社',
@@ -1672,6 +1676,7 @@ export default function App() {
           startDate: topicData.startDate || null,
           endDate: topicData.endDate || null,
           attachments: topicData.attachments || [],
+          poll: topicData.poll || null,
           comments: topicData.comments || [],
           viewers: topicData.viewers || [],
         })
@@ -1701,6 +1706,7 @@ export default function App() {
           title: updatedTopic.title,
           content: updatedTopic.content,
           authorId: updatedTopic.author.id,
+          author: updatedTopic.author,
           office: updatedTopic.office || '全社',
           division: updatedTopic.division || '全部署',
           scope: updatedTopic.scope || '全社',
@@ -1712,6 +1718,7 @@ export default function App() {
           startDate: updatedTopic.startDate || null,
           endDate: updatedTopic.endDate || null,
           attachments: updatedTopic.attachments || [],
+          poll: updatedTopic.poll !== undefined ? updatedTopic.poll : null,
           comments: updatedTopic.comments || [],
           viewers: updatedTopic.viewers || [],
           views: updatedTopic.views,

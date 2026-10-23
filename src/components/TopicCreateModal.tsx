@@ -610,7 +610,7 @@ export function TopicCreateModal({
 
           {/* アンケート・意思決定投票設定 */}
           <div className="p-4 bg-sky-50/70 border border-sky-200 rounded-xl space-y-3.5">
-            <div className="flex items-center justify-between">
+            <label className="flex items-center justify-between cursor-pointer select-none">
               <div className="flex items-center gap-2">
                 <div className="p-1.5 bg-sky-100 text-sky-700 rounded-lg">
                   <BarChart2 className="w-4 h-4" />
@@ -630,7 +630,7 @@ export function TopicCreateModal({
                 onChange={e => setHasPoll(e.target.checked)}
                 className="w-4 h-4 rounded text-sky-600 focus:ring-sky-500 border-sky-300 cursor-pointer"
               />
-            </div>
+            </label>
 
             {hasPoll && (
               <div className="pt-3 border-t border-sky-200/80 space-y-3.5">
