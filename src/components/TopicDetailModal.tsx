@@ -407,7 +407,7 @@ export function TopicDetailModal({
   };
 
   // コメント追加
-  const handleAddComment = (e: React.FormEvent) => {
+  const handleAddComment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!commentText || !commentText.trim()) return;
 
@@ -416,9 +416,28 @@ export function TopicDetailModal({
       author: currentUser,
       content: (commentText || '').trim(),
       createdAt: new Date().toISOString(),
-      attachments: commentAttachments, // 添付ファイルを追加
+      attachments: commentAttachments,
     };
 
+    // ① 先にコメント作成専用 API を直接呼び出して DB 保存を確実に完了させる
+    try {
+      await fetch(`${API_BASE_URL}/bulletins/${topic.id}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: newComment.id,
+          author: currentUser,
+          authorId: currentUser?.id,
+          content: newComment.content,
+          createdAt: newComment.createdAt,
+          attachments: newComment.attachments,
+        })
+      });
+    } catch (err) {
+      console.warn('Failed to post comment via direct API:', err);
+    }
+
+    // ② ローカル状態の更新および onUpdateTopic 呼び出し
     const updatedComments = [...(topic.comments || []), newComment];
     const updatedTopic: BoardTopic = {
       ...topic,
@@ -428,7 +447,7 @@ export function TopicDetailModal({
 
     onUpdateTopic(updatedTopic);
     setCommentText('');
-    setCommentAttachments([]); // リセット
+    setCommentAttachments([]);
   };
 
   // コメント削除

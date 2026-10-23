@@ -46,6 +46,10 @@ async function ensureEventsColumns(pool) {
       BEGIN
         ALTER TABLE dbo.Events ADD siteCode VARCHAR(50) NULL;
       END
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Events') AND name = 'siteName')
+      BEGIN
+        ALTER TABLE dbo.Events ADD siteName NVARCHAR(200) NULL;
+      END
       IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Events') AND name = 'constructionPhase')
       BEGIN
         ALTER TABLE dbo.Events ADD constructionPhase VARCHAR(20) NULL;
@@ -112,7 +116,7 @@ router.get(['/events', '/api/events'], async (req, res) => {
               recurrenceExceptions: safeParseJSON(row.recurrenceExceptions, []),
               siteId: row.siteId || detailsObj.siteId || null,
               siteCode: row.siteCode || detailsObj.siteCode || null,
-              siteName: detailsObj.siteName || null,
+              siteName: row.siteName || detailsObj.siteName || null,
               constructionPhase: row.constructionPhase || detailsObj.constructionPhase || null
             };
           });
@@ -208,10 +212,11 @@ router.post(['/events', '/api/events'], async (req, res) => {
           .input('recurrenceExceptions', sql.NVarChar, recurrenceExceptions ? JSON.stringify(recurrenceExceptions) : null)
           .input('siteId', sql.VarChar, siteId || null)
           .input('siteCode', sql.VarChar, siteCode || null)
+          .input('siteName', sql.NVarChar, siteName || null)
           .input('constructionPhase', sql.VarChar, constructionPhase || null)
           .query(`
-            INSERT INTO dbo.Events (id, title, startAt, endAt, isAllDay, isPrivate, category, description, location, office, division, attachments, recurrence, recurrenceParentId, recurrenceOriginalDate, recurrenceExceptions, siteId, siteCode, constructionPhase) 
-            VALUES (@id, @title, @startAt, @endAt, @isAllDay, @isPrivate, @category, @description, @location, @office, @division, @attachments, @recurrence, @recurrenceParentId, @recurrenceOriginalDate, @recurrenceExceptions, @siteId, @siteCode, @constructionPhase)
+            INSERT INTO dbo.Events (id, title, startAt, endAt, isAllDay, isPrivate, category, description, location, office, division, attachments, recurrence, recurrenceParentId, recurrenceOriginalDate, recurrenceExceptions, siteId, siteCode, siteName, constructionPhase) 
+            VALUES (@id, @title, @startAt, @endAt, @isAllDay, @isPrivate, @category, @description, @location, @office, @division, @attachments, @recurrence, @recurrenceParentId, @recurrenceOriginalDate, @recurrenceExceptions, @siteId, @siteCode, @siteName, @constructionPhase)
           `);
       }
     } catch (sqlErr) {
@@ -297,6 +302,7 @@ router.put(['/events/:id', '/api/events/:id'], async (req, res) => {
           .input('recurrenceExceptions', sql.NVarChar, recurrenceExceptions ? JSON.stringify(recurrenceExceptions) : null)
           .input('siteId', sql.VarChar, siteId || null)
           .input('siteCode', sql.VarChar, siteCode || null)
+          .input('siteName', sql.NVarChar, siteName || null)
           .input('constructionPhase', sql.VarChar, constructionPhase || null)
           .query(`
             UPDATE dbo.Events 
@@ -304,7 +310,7 @@ router.put(['/events/:id', '/api/events/:id'], async (req, res) => {
                 category = @category, description = @description, location = @location, office = @office, division = @division, 
                 attachments = @attachments, recurrence = @recurrence, recurrenceParentId = @recurrenceParentId, 
                 recurrenceOriginalDate = @recurrenceOriginalDate, recurrenceExceptions = @recurrenceExceptions,
-                siteId = @siteId, siteCode = @siteCode, constructionPhase = @constructionPhase
+                siteId = @siteId, siteCode = @siteCode, siteName = @siteName, constructionPhase = @constructionPhase
             WHERE id = @id
           `);
       }

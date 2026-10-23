@@ -333,6 +333,9 @@ export function EventModal({
         setSelectedSiteId(editingEvent.siteId || null);
         setSelectedSiteCode(editingEvent.siteCode || null);
         setSelectedSiteName(editingEvent.siteName || null);
+        if (editingEvent.siteId || editingEvent.siteCode || editingEvent.siteName) {
+          setType('construction');
+        }
         let phase: ConstructionPhase = editingEvent.constructionPhase || 'new';
         if (!editingEvent.constructionPhase && editingEvent.title) {
           if (editingEvent.title.includes('【新規】')) phase = 'new';
@@ -646,6 +649,7 @@ export function EventModal({
     setSelectedSiteId(site.id);
     setSelectedSiteCode(site.siteCode);
     setSelectedSiteName(site.siteName);
+    setType('construction');
 
     // タイトルに現場名を自動セット
     setTitle(site.siteName);
@@ -765,10 +769,10 @@ export function EventModal({
       createdBy: editingEvent?.createdBy || currentUser,
       attachments,
       recurrence: recurrenceObj,
-      siteId: type === 'construction' ? (selectedSiteId || undefined) : undefined,
-      siteCode: type === 'construction' ? (selectedSiteCode || undefined) : undefined,
-      siteName: type === 'construction' ? (selectedSiteName || undefined) : undefined,
-      constructionPhase: type === 'construction' && selectedSiteId ? constructionPhase : undefined,
+      siteId: selectedSiteId || undefined,
+      siteCode: selectedSiteCode || undefined,
+      siteName: selectedSiteName || undefined,
+      constructionPhase: selectedSiteId ? constructionPhase : undefined,
     };
 
 
