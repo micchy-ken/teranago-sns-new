@@ -527,6 +527,32 @@ export function EventModal({
     }
   };
 
+  // 現場選択モーダル用フィルター済みリスト
+  const filteredSites = useMemo(() => {
+    return internalSites.filter(site => {
+      // 1. ステータスフィルター
+      if (siteFilterStatus === 'not_started' && site.status !== 'not_started') return false;
+      if (siteFilterStatus === 'in_progress' && site.status !== 'in_progress') return false;
+      if (siteFilterStatus === 'other' && site.status !== 'completed' && site.status !== 'on_hold') return false;
+
+      // 2. 検索キーワードフィルター
+      if (siteSearchQuery.trim()) {
+        const q = siteSearchQuery.toLowerCase();
+        const code = (site.siteCode || '').toLowerCase();
+        const name = (site.siteName || '').toLowerCase();
+        const customer = (site.customerName || '').toLowerCase();
+        const addr = (site.address || '').toLowerCase();
+        return code.includes(q) || name.includes(q) || customer.includes(q) || addr.includes(q);
+      }
+      return true;
+    });
+  }, [internalSites, siteFilterStatus, siteSearchQuery]);
+
+  const selectedSite = useMemo(() => {
+    if (!selectedSiteId) return null;
+    return internalSites.find(s => s.id === selectedSiteId) || null;
+  }, [internalSites, selectedSiteId]);
+
   if (!isOpen) return null;
 
   const toggleAttendee = (user: User) => {
@@ -665,31 +691,7 @@ export function EventModal({
     setConstructionPhase('new');
   };
 
-  // 現場選択モーダル用フィルター済みリスト
-  const filteredSites = useMemo(() => {
-    return internalSites.filter(site => {
-      // 1. ステータスフィルター
-      if (siteFilterStatus === 'not_started' && site.status !== 'not_started') return false;
-      if (siteFilterStatus === 'in_progress' && site.status !== 'in_progress') return false;
-      if (siteFilterStatus === 'other' && site.status !== 'completed' && site.status !== 'on_hold') return false;
 
-      // 2. 検索キーワードフィルター
-      if (siteSearchQuery.trim()) {
-        const q = siteSearchQuery.toLowerCase();
-        const code = (site.siteCode || '').toLowerCase();
-        const name = (site.siteName || '').toLowerCase();
-        const customer = (site.customerName || '').toLowerCase();
-        const addr = (site.address || '').toLowerCase();
-        return code.includes(q) || name.includes(q) || customer.includes(q) || addr.includes(q);
-      }
-      return true;
-    });
-  }, [internalSites, siteFilterStatus, siteSearchQuery]);
-
-  const selectedSite = useMemo(() => {
-    if (!selectedSiteId) return null;
-    return internalSites.find(s => s.id === selectedSiteId) || null;
-  }, [internalSites, selectedSiteId]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
