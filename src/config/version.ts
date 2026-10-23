@@ -14,10 +14,11 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.22.1',
+  version: '2026.10.22.4',
   date: '2026-10-22',
-  releaseNumber: 1,
-  display: 'v2026.10.22 #1',
-  description: '点検予定一括登録通信時のカスタムヘッダー除外によるCORSエラー解消・サーバー連携安定化',
+  releaseNumber: 4,
+  display: 'v2026.10.22 #4',
+  description: '拠点・現場グルーピングクリックによる所属メンバー一括明るくハイライト表示＆移動中ステータスの移動前保持・時間到来マッピング',
 };
+
 
