@@ -14,11 +14,11 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.26.11',
+  version: '2026.10.26.15',
   date: '2026-10-26',
-  releaseNumber: 11,
-  display: 'v2026.10.26 #11',
-  description: 'GETリクエスト内の排他ロックUPDATE・ALTER TABLE完全撤去（ロック競合ゼロ化）およびマイページ初期起動時（refetchAll）サマリー同期対応',
+  releaseNumber: 15,
+  display: 'v2026.10.26 #15',
+  description: 'カレンダーチーム日表示のメンバー毎全件探索（75,000回ループ）撤去および O(1) 辞書引き化（日付移動処理の爆速化・3秒➔数ミリ秒化）',
 };
 
 

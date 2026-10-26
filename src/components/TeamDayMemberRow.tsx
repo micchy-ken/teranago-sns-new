@@ -329,7 +329,7 @@ export const TeamDayMemberRow: React.FC<TeamDayMemberRowProps> = React.memo(({
                   height: `${heightPx}px`,
                   zIndex: isBeingResized ? 50 : (isDraggedThis ? 40 : 10),
                 }}
-                className={`absolute group/card border rounded-lg shadow-xs hover:shadow-md transition-all select-none cursor-pointer px-2 py-1 flex flex-col justify-center overflow-visible hover:brightness-95 ${getEventStyle(e)} ${
+                className={`absolute group/card border rounded-lg shadow-xs hover:shadow-md transition-[box-shadow,filter,opacity] duration-150 select-none cursor-pointer px-2 py-1 flex flex-col justify-center overflow-visible hover:brightness-95 ${getEventStyle(e)} ${
                   isDraggedThis
                     ? 'opacity-40 select-none pointer-events-auto ring-2 ring-indigo-400 shadow-md'
                     : (draggedEventId ? 'pointer-events-none' : 'pointer-events-auto')

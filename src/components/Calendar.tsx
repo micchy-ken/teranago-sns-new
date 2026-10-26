@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
 import { CalendarEvent, EventType, User, OfficeMaster, DivisionMaster, Memo, RequirementType, MemoUserRecipientStatus, CalendarPreset, CalendarViewSettings, CalendarMemberGroup } from '../types';
 import { Site } from '../types/site';
 import { API_BASE_URL } from '../config/api';
@@ -801,7 +801,8 @@ export function Calendar({
     }
   }, []);
 
-  useEffect(() => {
+  // ブラウザ描画（Paint）前に同期的にDOM実測を完了し、2段階描画・チラつきを完全排除
+  useLayoutEffect(() => {
     measureHourLayouts();
     if (!hoursHeaderRef.current) return;
 
@@ -816,14 +817,6 @@ export function Calendar({
       window.removeEventListener('resize', measureHourLayouts);
     };
   }, [measureHourLayouts, currentDate, localEvents, calendarMode, view, isSignageMode]);
-
-  // レンダリング直後の追従測定
-  useEffect(() => {
-    const rafId = requestAnimationFrame(() => {
-      measureHourLayouts();
-    });
-    return () => cancelAnimationFrame(rafId);
-  }, [measureHourLayouts, currentDate, calendarMode, view, isSignageMode]);
 
   // Drag and drop state
   const [draggedEventId, setDraggedEventId] = useState<string | null>(null);
@@ -1287,13 +1280,18 @@ export function Calendar({
         if (!map.has(generalKey)) map.set(generalKey, []);
         map.get(generalKey)!.push(e);
 
-        // 参加者ごと（チーム表示用）
+        // 参加者ごと（チーム表示用） O(1) ハッシュ検索キー
         if (e.attendees && e.attendees.length > 0) {
           e.attendees.forEach(a => {
             if (a) {
-              const userKey = `date_${dateStr}_user_${a.id}`;
-              if (!map.has(userKey)) map.set(userKey, []);
-              map.get(userKey)!.push(e);
+              const key1 = `date_${dateStr}_user_${a.id}`;
+              const key2 = `date_${dateStr}_user_${String(a.id)}`;
+              if (!map.has(key1)) map.set(key1, []);
+              map.get(key1)!.push(e);
+              if (key1 !== key2) {
+                if (!map.has(key2)) map.set(key2, []);
+                map.get(key2)!.push(e);
+              }
             }
           });
         }
@@ -1792,17 +1790,46 @@ export function Calendar({
         .join(' '),
     };
 
-    // 4. 実測された各時間列のX軸座標（px）から正確なピクセル位置を取得（JST準拠）
+    // 4. 描画前の数学的一括事前計算（DOM実測前のFrame 1から完璧な位置と幅を決定・レイアウトシフト完全排除）
+    const measuredHeaderWidth = hoursHeaderRef.current?.clientWidth || hoursHeaderRef.current?.offsetWidth;
+    const estimatedWidth = typeof window !== 'undefined' ? Math.max(800, window.innerWidth - 260) : 1200;
+    const totalW = timelineTotalWidth > 0 ? timelineTotalWidth : (measuredHeaderWidth || estimatedWidth);
+    const computedHourLayouts: Record<number, { left: number; width: number }> = {};
+    let sumMin = 0;
+    let sumFr = 0;
+    hours.forEach(h => {
+      const isActive = activeHoursSet.has(h);
+      sumMin += isActive ? 110 : 46;
+      sumFr += isActive ? 1.8 : 0.45;
+    });
+
+    const remainingSpace = Math.max(0, totalW - sumMin);
+    let currentLeft = 0;
+
+    hours.forEach(h => {
+      const isActive = activeHoursSet.has(h);
+      const minW = isActive ? 110 : 46;
+      const frW = isActive ? 1.8 : 0.45;
+      const extraW = sumFr > 0 ? (frW / sumFr) * remainingSpace : 0;
+      const finalW = Math.round((minW + extraW) * 10) / 10;
+      computedHourLayouts[h] = { left: Math.round(currentLeft * 10) / 10, width: finalW };
+      currentLeft += finalW;
+    });
+
+    // 実測値があれば優先、初期描画時（未測定時）は事前計算値を100%活用
+    const effectiveHourLayouts = Object.keys(hourLayouts).length > 0 ? hourLayouts : computedHourLayouts;
+
+    // 5. 各時間列のX軸座標（px）から正確なピクセル位置を取得（JST準拠）
     const getXPositionFromDate = (date: Date): number => {
       const { hour: h, minute: m } = getJstHourAndMinutes(date);
 
       if (h < minHour) return 0;
       if (h > maxHour) {
-        const lastLayout = hourLayouts[maxHour];
-        return lastLayout ? lastLayout.left + lastLayout.width : (timelineTotalWidth || 1000);
+        const lastLayout = effectiveHourLayouts[maxHour];
+        return lastLayout ? lastLayout.left + lastLayout.width : (totalW || 1000);
       }
 
-      const layout = hourLayouts[h];
+      const layout = effectiveHourLayouts[h];
       if (layout && layout.width > 0) {
         const frac = m / 60;
         return layout.left + frac * layout.width;
@@ -1810,8 +1837,7 @@ export function Calendar({
 
       // フォールバック計算
       const totalSlots = hours.length;
-      const fallbackTotal = timelineTotalWidth > 0 ? timelineTotalWidth : 1000;
-      const slotWidth = fallbackTotal / totalSlots;
+      const slotWidth = totalW / totalSlots;
       return (h - minHour + m / 60) * slotWidth;
     };
 
@@ -1952,12 +1978,9 @@ export function Calendar({
             {/* Table Body */}
             <div className="flex-1 divide-y divide-slate-200 bg-white">
               {teamMembers.map((member) => {
-                // 当該メンバーの当日イベント一覧
-                const memberDayEvents = filteredEvents.filter(e => {
-                  const eStart = new Date(e.start);
-                  if (!isSameDay(eStart, currentDate) && !isEventOccurringOnDate(e, dateStr)) return false;
-                  return e.attendees?.some(a => a && (a.id === member.id || String(a.id) === String(member.id) || a.name === member.name));
-                });
+                // 当該メンバーの当日イベント一覧（O(1) 辞書引きで爆速取得）
+                const userKey = `date_${dateStr}_user_${member.id}`;
+                const memberDayEvents = eventDictionary.get(userKey) || [];
 
                 return (
                   <TeamDayMemberRow
@@ -1967,7 +1990,7 @@ export function Calendar({
                     hours={hours}
                     activeHoursSet={activeHoursSet}
                     hoursGridStyle={hoursGridStyle}
-                    hourLayouts={hourLayouts}
+                    hourLayouts={effectiveHourLayouts}
                     timelineTotalWidth={timelineTotalWidth}
                     minHour={minHour}
                     maxHour={maxHour}
@@ -3796,7 +3819,7 @@ export function Calendar({
                                           right: '2px',
                                           zIndex: 10 + evIdx
                                         }}
-                                        className={`absolute group/wkcard ${isCompact ? 'text-[8.5px] sm:text-[9.5px]' : 'text-[9px] sm:text-[11px]'} ${isShortEvent ? 'px-1 py-0.5 justify-center' : 'p-1 flex-col items-start'} rounded border font-medium shadow-2xs flex cursor-pointer transition-all overflow-hidden ${getEventStyle(e)} ${
+                                        className={`absolute group/wkcard ${isCompact ? 'text-[8.5px] sm:text-[9.5px]' : 'text-[9px] sm:text-[11px]'} ${isShortEvent ? 'px-1 py-0.5 justify-center' : 'p-1 flex-col items-start'} rounded border font-medium shadow-2xs flex cursor-pointer transition-[box-shadow,filter,opacity] duration-150 overflow-hidden ${getEventStyle(e)} ${
                                           draggedEventId === e.id ? 'opacity-40 select-none' : (draggedEventId ? 'pointer-events-none' : '')
                                         } ${
                                           isBeingResized ? 'ring-2 ring-indigo-500 shadow-md brightness-95' : ''
@@ -4073,7 +4096,7 @@ export function Calendar({
                             right: '2px',
                             zIndex: 10 + evIdx
                           }}
-                          className={`absolute group/daycard p-2 sm:p-2.5 rounded-lg border flex flex-col items-start gap-1 shadow-xs cursor-pointer transition-all overflow-hidden ${getEventStyle(e)} ${
+                          className={`absolute group/daycard p-2 sm:p-2.5 rounded-lg border flex flex-col items-start gap-1 shadow-xs cursor-pointer transition-[box-shadow,filter,opacity] duration-150 overflow-hidden ${getEventStyle(e)} ${
                             draggedEventId === e.id ? 'opacity-40 select-none' : (draggedEventId ? 'pointer-events-none' : '')
                           } ${
                             isBeingResized ? 'ring-2 ring-indigo-500 shadow-md brightness-95' : ''
