@@ -1,7 +1,7 @@
 export const RECOMMEND_SERVER_JS = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年10月26日 (マイページ・速報表示用エンドポイント GET /api/bulletins/summary 追加・routes/bulletins.js 完全同期)
+ * 最終更新日時 (最終アップデート): 2026年10月26日 (routes/bulletins.js GETハンドラ内の排他ロックUPDATE・ALTER TABLE完全排除・初期起動時サマリー同期による高速化版)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、

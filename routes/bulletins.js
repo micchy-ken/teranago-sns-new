@@ -162,9 +162,20 @@ async function ensureBulletinTables(pool) {
   }
 }
 
+let isTablesEnsured = false;
+async function ensureBulletinTablesOnce(pool) {
+  if (isTablesEnsured || !pool) return;
+  try {
+    await ensureBulletinTables(pool);
+    isTablesEnsured = true;
+  } catch (e) {
+    console.warn('[routes/bulletins] ensureBulletinTables warning:', e.message);
+  }
+}
+
 // ==========================================
 // 掲示板サマリー取得 (GET /api/bulletins/summary & /api/board/summary)
-// マイページ・速報表示用（最新N件・単一クエリ高速取得）
+// マイページ・速報表示用（最新N件・単一クエリ高速取得・DBロック完全排除）
 // ==========================================
 router.get([
   '/bulletins/summary',
@@ -179,20 +190,6 @@ router.get([
     if (!pool) {
       return res.status(500).json({ error: 'Database connection failed' });
     }
-
-    await ensureBulletinTables(pool);
-
-    // 期限が切れたピン留めの自動解除（DB側同期）
-    try {
-      await pool.request().query(`
-        UPDATE dbo.Bulletins
-        SET isPinned = 0
-        WHERE isPinned = 1 
-          AND pinnedUntil IS NOT NULL 
-          AND pinnedUntil != '' 
-          AND TRY_CAST(pinnedUntil AS DATETIMEOFFSET) <= GETDATE();
-      `);
-    } catch (_) {}
 
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100);
 
@@ -280,20 +277,8 @@ router.get([
 router.get(['/bulletins', '/bulletins/', '/board', '/board/'], async (req, res) => {
   try {
     const pool = await getPool();
-    if (pool) {
-      await ensureBulletinTables(pool);
-
-      // 期限が切れたピン留めの自動解除（DB側同期）
-      try {
-        await pool.request().query(`
-          UPDATE dbo.Bulletins
-          SET isPinned = 0
-          WHERE isPinned = 1 
-            AND pinnedUntil IS NOT NULL 
-            AND pinnedUntil != '' 
-            AND TRY_CAST(pinnedUntil AS DATETIMEOFFSET) <= GETDATE();
-        `);
-      } catch (_) {}
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection failed' });
     }
 
     // ① トピック本体（有効なピン留め優先、作成日時降順）
@@ -420,7 +405,7 @@ router.post(['/bulletins', '/bulletins/', '/board', '/board/'], async (req, res)
     const id = req.body.id || `b-${Date.now()}`;
 
     if (pool) {
-      await ensureBulletinTables(pool);
+      await ensureBulletinTablesOnce(pool);
     }
 
     const finalPinned = isPinned ? 1 : 0;
@@ -462,7 +447,7 @@ router.put(['/bulletins/:id', '/board/:id'], async (req, res) => {
     const pool = await getPool();
 
     if (pool) {
-      await ensureBulletinTables(pool);
+      await ensureBulletinTablesOnce(pool);
     }
 
     const finalPinned = isPinned ? 1 : 0;
@@ -586,7 +571,7 @@ router.post(['/bulletins/:id/poll/vote', '/board/:id/poll/vote', '/:id/poll/vote
 
     const pool = await getPool();
     if (pool) {
-      await ensureBulletinTables(pool);
+      await ensureBulletinTablesOnce(pool);
       const result = await pool.request()
         .input('id', sql.VarChar, String(topicId))
         .query('SELECT poll FROM dbo.Bulletins WHERE id = @id');
@@ -657,7 +642,7 @@ router.post(['/bulletins/:id/comments', '/board/:id/comments'], async (req, res)
     const topicId = req.params.id;
     const pool = await getPool();
     if (pool) {
-      await ensureBulletinTables(pool);
+      await ensureBulletinTablesOnce(pool);
       const cid = commentId || `cm-${Date.now()}`;
       const aid = authorId || author?.id || 'u1';
       const dateVal = createdAt ? new Date(createdAt) : new Date();

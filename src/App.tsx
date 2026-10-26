@@ -1458,18 +1458,24 @@ export default function App() {
 
   const refetchAll = async (existingUsers?: User[]) => {
     const latestUsers = (existingUsers && existingUsers.length > 0) ? existingUsers : await refetchUsers();
+    const isMyPage = activeTab === 'mypage';
     await Promise.all([
       refetchMasters(),
       refetchPosts(latestUsers),
       refetchEvents(latestUsers),
       refetchApplications(latestUsers),
-      refetchTopics(latestUsers),
+      refetchTopics(latestUsers, { summary: isMyPage }),
       refetchChatRooms(latestUsers, false),
       refetchMemos(latestUsers),
       refetchReports(latestUsers),
       refetchSafetyEvents(),
       refetchSchedulePolls(),
     ]);
+    if (isMyPage) {
+      setTimeout(() => {
+        refetchTopics(latestUsers);
+      }, 1500);
+    }
   };
 
   useEffect(() => {
