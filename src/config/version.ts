@@ -14,11 +14,11 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.23.10',
-  date: '2026-10-23',
-  releaseNumber: 10,
-  display: 'v2026.10.23 #10',
-  description: 'アンケート作成・保存の確実化（API送信ペイロード同期・再取得時マッピング修正）および既存トピック詳細編集でのアンケート追加・設定対応',
+  version: '2026.10.26.4',
+  date: '2026-10-26',
+  releaseNumber: 4,
+  display: 'v2026.10.26 #4',
+  description: 'カレンダーのマイグループ管理機能の実装（グループ登録・編集・メンバー検索選択・チーム表示切り替え・プリセット連携）',
 };
 
 

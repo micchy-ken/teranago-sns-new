@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { CalendarEvent, EventType, User, OfficeMaster, DivisionMaster, Memo, RequirementType, MemoUserRecipientStatus, CalendarPreset } from '../types';
+import { CalendarEvent, EventType, User, OfficeMaster, DivisionMaster, Memo, RequirementType, MemoUserRecipientStatus, CalendarPreset, CalendarViewSettings, CalendarMemberGroup } from '../types';
 import { Site } from '../types/site';
 import { API_BASE_URL } from '../config/api';
 import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
-import { ChevronLeft, ChevronRight, List as ListIcon, Calendar as CalendarIcon, Plus, MapPin, Video, AlignLeft, RefreshCw, Clock, Link as LinkIcon, Loader2, Building2, Users, Paperclip, MessageSquare, Phone, X, Monitor, Maximize2, Minimize2, FileSpreadsheet, Share2, Check, Star, Trash2, Pin, BookmarkCheck, CalendarDays, SlidersHorizontal, Filter, ChevronDown, Navigation, HardHat } from 'lucide-react';
+import { ChevronLeft, ChevronRight, List as ListIcon, Calendar as CalendarIcon, Plus, MapPin, Video, AlignLeft, RefreshCw, Clock, Link as LinkIcon, Loader2, Building2, Users, Paperclip, MessageSquare, Phone, X, Monitor, Maximize2, Minimize2, FileSpreadsheet, Share2, Check, Star, Trash2, Pin, BookmarkCheck, CalendarDays, SlidersHorizontal, Filter, ChevronDown, Navigation, HardHat, Settings } from 'lucide-react';
 import { EventModal } from './EventModal';
 import { GlobalEventDetailModal } from './GlobalEventDetailModal';
+import { CalendarSettingsModal } from './CalendarSettingsModal';
 import { renderWithClickableLinks } from '../utils/linkify';
 import { renderContentWithLinks } from '../utils/renderContentWithLinks';
 import { UrlPastePopup, useUrlPasteHandler } from './common/UrlPastePopup';
@@ -299,6 +300,96 @@ export function Calendar({
     }
   }, [initialDate]);
 
+  // --- カレンダー表示設定 (平日のみ / 時間帯 / 密度) & マイグループ ---
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [settingsModalTab, setSettingsModalTab] = useState<'display' | 'groups'>('display');
+
+  const [calendarSettings, setCalendarSettings] = useState<CalendarViewSettings>(() => {
+    const fromUser = currentUser?.preferences?.calendarViewSettings;
+    if (fromUser) return fromUser;
+    try {
+      const cached = localStorage.getItem('teranago_calendar_view_settings');
+      if (cached) return JSON.parse(cached);
+    } catch (_) {}
+    return {
+      hideWeekends: false,
+      isTimeFilterActive: false,
+      workStartHour: 8,
+      workEndHour: 19,
+      density: 'standard',
+    };
+  });
+
+  // マイグループ一覧
+  const [memberGroups, setMemberGroups] = useState<CalendarMemberGroup[]>(() => {
+    const fromUser = currentUser?.preferences?.calendarMemberGroups;
+    if (fromUser && Array.isArray(fromUser)) return fromUser;
+    try {
+      const cached = localStorage.getItem('teranago_calendar_member_groups');
+      if (cached) return JSON.parse(cached);
+    } catch (_) {}
+    return [];
+  });
+
+  // 選択中マイグループ ('org' = 組織/拠点・部署、または group.id)
+  const [selectedGroupId, setSelectedGroupId] = useState<string>('org');
+
+  // currentUserの更新に追従
+  useEffect(() => {
+    if (currentUser?.preferences?.calendarViewSettings) {
+      setCalendarSettings(currentUser.preferences.calendarViewSettings);
+    }
+  }, [currentUser?.preferences?.calendarViewSettings]);
+
+  useEffect(() => {
+    if (currentUser?.preferences?.calendarMemberGroups) {
+      setMemberGroups(currentUser.preferences.calendarMemberGroups);
+    }
+  }, [currentUser?.preferences?.calendarMemberGroups]);
+
+  // 設定の保存ハンドラー
+  const handleSaveCalendarSettings = async (newSettings: CalendarViewSettings) => {
+    setCalendarSettings(newSettings);
+    try {
+      localStorage.setItem('teranago_calendar_view_settings', JSON.stringify(newSettings));
+    } catch (_) {}
+
+    if (currentUser && onUpdateUser) {
+      const updatedUser: User = {
+        ...currentUser,
+        preferences: {
+          ...(currentUser.preferences || {}),
+          calendarViewSettings: newSettings,
+        },
+      };
+      onUpdateUser(updatedUser);
+    }
+  };
+
+  // マイグループの保存ハンドラー
+  const handleSaveMemberGroups = async (newGroups: CalendarMemberGroup[]) => {
+    setMemberGroups(newGroups);
+    try {
+      localStorage.setItem('teranago_calendar_member_groups', JSON.stringify(newGroups));
+    } catch (_) {}
+
+    // もし選択中のグループが削除されていたら 'org' に戻す
+    if (selectedGroupId !== 'org' && !newGroups.some(g => g.id === selectedGroupId)) {
+      setSelectedGroupId('org');
+    }
+
+    if (currentUser && onUpdateUser) {
+      const updatedUser: User = {
+        ...currentUser,
+        preferences: {
+          ...(currentUser.preferences || {}),
+          calendarMemberGroups: newGroups,
+        },
+      };
+      onUpdateUser(updatedUser);
+    }
+  };
+
   // --- カレンダー表示設定のお気に入り機能 ---
   const [isFavoritesOpen, setIsFavoritesOpen] = useState(false);
   const [customPresetName, setCustomPresetName] = useState('');
@@ -332,8 +423,13 @@ export function Calendar({
         setCalendarMode(defaultPreset.mode);
         setView(defaultPreset.view);
         if (defaultPreset.mode === 'team') {
-          if (defaultPreset.office) setSelectedOffice(defaultPreset.office);
-          if (defaultPreset.division) setSelectedDivision(defaultPreset.division);
+          if (defaultPreset.groupId && (currentUser.preferences.calendarMemberGroups || []).some(g => g.id === defaultPreset.groupId)) {
+            setSelectedGroupId(defaultPreset.groupId);
+          } else {
+            setSelectedGroupId('org');
+            if (defaultPreset.office) setSelectedOffice(defaultPreset.office);
+            if (defaultPreset.division) setSelectedDivision(defaultPreset.division);
+          }
         }
         if (defaultPreset.typeFilter) setSelectedTypeFilter(defaultPreset.typeFilter);
         hasAppliedDefaultPresetRef.current = true;
@@ -402,10 +498,19 @@ export function Calendar({
     }
   }, []);
 
+  // 選択中マイグループのオブジェクト
+  const activeSelectedGroup = useMemo(() => {
+    if (selectedGroupId === 'org') return null;
+    return memberGroups.find(g => g.id === selectedGroupId) || null;
+  }, [memberGroups, selectedGroupId]);
+
   // 現在の設定に合わせたデフォルト名称の生成
   const getDefaultPresetName = useCallback(() => {
     const viewLabel = view === 'month' ? '月' : view === 'week' ? '週' : view === 'day' ? '日' : 'リスト';
     if (calendarMode === 'team') {
+      if (activeSelectedGroup) {
+        return `👥${activeSelectedGroup.name} (${viewLabel})`;
+      }
       const parts: string[] = [];
       if (selectedOffice && selectedOffice !== '全社' && selectedOffice !== '全拠点') {
         parts.push(selectedOffice);
@@ -418,7 +523,7 @@ export function Calendar({
     } else {
       return `個人 (${viewLabel})`;
     }
-  }, [calendarMode, view, selectedOffice, selectedDivision]);
+  }, [calendarMode, view, selectedOffice, selectedDivision, activeSelectedGroup]);
 
   // プリセットの要約テキスト生成
   const getPresetSummary = (p: CalendarPreset) => {
@@ -427,8 +532,13 @@ export function Calendar({
     const viewMap: Record<string, string> = { month: '月', week: '週', day: '日', list: 'リスト' };
     parts.push(viewMap[p.view] || p.view);
     if (p.mode === 'team') {
-      if (p.office && p.office !== '全社' && p.office !== '全拠点') parts.push(p.office);
-      if (p.division && p.division !== '全部署') parts.push(p.division);
+      if (p.groupId) {
+        const grp = memberGroups.find(g => g.id === p.groupId);
+        if (grp) parts.push(`👥${grp.name}`);
+      } else {
+        if (p.office && p.office !== '全社' && p.office !== '全拠点') parts.push(p.office);
+        if (p.division && p.division !== '全部署') parts.push(p.division);
+      }
     }
     if (p.typeFilter && p.typeFilter !== 'all' && typeLabels[p.typeFilter as EventType]) {
       parts.push(typeLabels[p.typeFilter as EventType]);
@@ -443,8 +553,12 @@ export function Calendar({
     const viewMap: Record<string, string> = { month: '月', week: '週', day: '日', list: 'リスト' };
     parts.push(viewMap[view] || view);
     if (calendarMode === 'team') {
-      if (selectedOffice && selectedOffice !== '全社' && selectedOffice !== '全拠点') parts.push(selectedOffice);
-      if (selectedDivision && selectedDivision !== '全部署') parts.push(selectedDivision);
+      if (activeSelectedGroup) {
+        parts.push(`👥${activeSelectedGroup.name}`);
+      } else {
+        if (selectedOffice && selectedOffice !== '全社' && selectedOffice !== '全拠点') parts.push(selectedOffice);
+        if (selectedDivision && selectedDivision !== '全部署') parts.push(selectedDivision);
+      }
     }
     if (selectedTypeFilter && selectedTypeFilter !== 'all' && typeLabels[selectedTypeFilter as EventType]) {
       parts.push(typeLabels[selectedTypeFilter as EventType]);
@@ -457,8 +571,13 @@ export function Calendar({
     setCalendarMode(preset.mode);
     setView(preset.view);
     if (preset.mode === 'team') {
-      if (preset.office) setSelectedOffice(preset.office);
-      if (preset.division) setSelectedDivision(preset.division);
+      if (preset.groupId && memberGroups.some(g => g.id === preset.groupId)) {
+        setSelectedGroupId(preset.groupId);
+      } else {
+        setSelectedGroupId('org');
+        if (preset.office) setSelectedOffice(preset.office);
+        if (preset.division) setSelectedDivision(preset.division);
+      }
     }
     setSelectedTypeFilter(preset.typeFilter || 'all');
     setIsFavoritesOpen(false);
@@ -478,8 +597,9 @@ export function Calendar({
       createdAt: new Date().toISOString(),
       mode: calendarMode,
       view: view,
-      office: calendarMode === 'team' ? (selectedOffice !== '全社' && selectedOffice !== '全拠点' ? selectedOffice : undefined) : undefined,
-      division: calendarMode === 'team' ? (selectedDivision !== '全部署' ? selectedDivision : undefined) : undefined,
+      groupId: calendarMode === 'team' && selectedGroupId !== 'org' ? selectedGroupId : undefined,
+      office: calendarMode === 'team' && selectedGroupId === 'org' ? (selectedOffice !== '全社' && selectedOffice !== '全拠点' ? selectedOffice : undefined) : undefined,
+      division: calendarMode === 'team' && selectedGroupId === 'org' ? (selectedDivision !== '全部署' ? selectedDivision : undefined) : undefined,
       typeFilter: selectedTypeFilter !== 'all' ? selectedTypeFilter : undefined,
     };
 
@@ -1051,15 +1171,21 @@ export function Calendar({
     return list;
   }, [expandedEvents, selectedTypeFilter, currentUser, calendarMode, openSchedulePolls, allUsers]);
 
-  // チーム表示用の所属メンバー抽出をメモ化
+  // チーム表示用の所属メンバー抽出をメモ化 (マイグループ選択時はそのメンバー、未選択時は拠点・部署)
   const teamMembers = React.useMemo(() => {
+    if (activeSelectedGroup) {
+      const userMap = new Map((allUsers || []).map(u => [String(u.id), u]));
+      return activeSelectedGroup.memberIds
+        .map(id => userMap.get(String(id)))
+        .filter((u): u is User => Boolean(u));
+    }
     return (allUsers || []).filter(u => {
       if (selectedOffice === '全社' || selectedOffice === '全拠点' || selectedDivision === '全部署') {
         return false;
       }
       return u.office === selectedOffice && u.division === selectedDivision;
     });
-  }, [allUsers, selectedOffice, selectedDivision]);
+  }, [allUsers, selectedOffice, selectedDivision, activeSelectedGroup]);
 
   const handleToggleMode = (mode: 'personal' | 'team') => {
     setCalendarMode(mode);
@@ -1471,8 +1597,12 @@ export function Calendar({
 
   // チーム週表示のレンダリング
   const renderTeamWeekView = () => {
-    const dates = getWeekDates(currentDate);
+    const rawDates = getWeekDates(currentDate);
+    const dates = calendarSettings.hideWeekends
+      ? rawDates.filter(d => d.getDay() !== 0 && d.getDay() !== 6)
+      : rawDates;
     const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
+    const isCompact = calendarSettings.density === 'compact';
 
     // 各曜日にチームメンバーの予定があるか確認
     const dayHasEvents = dates.map(date => {
@@ -1485,10 +1615,10 @@ export function Calendar({
     });
 
     // 縦軸を全行で完全一致させるグリッドスタイル
-    // - メンバー列: 140px〜180px
+    // - メンバー列: 140px〜180px (コンパクト時は 130px〜160px)
     // - 平日 (月〜金) または 予定のある土日: minmax(110px, 1fr) (均等幅を維持)
     // - 予定のない土日のみ: minmax(46px, 0.45fr) (縮める)
-    const memberCol = isSignageMode ? '160px' : 'minmax(140px, 180px)';
+    const memberCol = isSignageMode ? '160px' : isCompact ? 'minmax(125px, 155px)' : 'minmax(140px, 180px)';
     const teamWeekGridStyle = {
       display: 'grid',
       gridTemplateColumns: `${memberCol} ${dates.map((date, idx) => {
@@ -1604,20 +1734,25 @@ export function Calendar({
       let minH = 8;
       let maxH = 20;
 
-      dayRelevantEvents.forEach(e => {
-        if (e.isAllDay) return;
-        const { sDate, eDate } = getEventSpan(e);
-        const { hour: sHour } = getJstHourAndMinutes(sDate);
-        if (sHour < minH) {
-          minH = Math.max(0, sHour);
-        }
-        const { hour: eHour, minute: eMin } = getJstHourAndMinutes(eDate);
-        let endH = eHour;
-        if (eMin > 0) endH = Math.min(23, endH);
-        if (endH > maxH) maxH = Math.min(23, endH);
-      });
+      if (calendarSettings.isTimeFilterActive) {
+        minH = calendarSettings.workStartHour ?? 8;
+        maxH = calendarSettings.workEndHour ?? 19;
+      } else {
+        dayRelevantEvents.forEach(e => {
+          if (e.isAllDay) return;
+          const { sDate, eDate } = getEventSpan(e);
+          const { hour: sHour } = getJstHourAndMinutes(sDate);
+          if (sHour < minH) {
+            minH = Math.max(0, sHour);
+          }
+          const { hour: eHour, minute: eMin } = getJstHourAndMinutes(eDate);
+          let endH = eHour;
+          if (eMin > 0) endH = Math.min(23, endH);
+          if (endH > maxH) maxH = Math.min(23, endH);
+        });
+      }
 
-      hours = Array.from({ length: maxH - minH + 1 }, (_, i) => i + minH);
+      hours = Array.from({ length: Math.max(1, maxH - minH + 1) }, (_, i) => i + minH);
 
       // 2. チームの誰かが予定を持っている時間帯（Active Hours）を特定
       activeHoursSet = new Set<number>();
@@ -1847,11 +1982,30 @@ export function Calendar({
         <div className="flex flex-col items-center justify-center py-20 px-4 text-center bg-white h-full">
           <Users className="w-12 h-12 text-slate-300 mb-4" />
           <h3 className="text-sm font-bold text-slate-700">表示対象のメンバーが見つかりません</h3>
-          <p className="text-xs text-slate-500 mt-1 max-w-sm">
-            上部のフィルターから、対象となる拠点と部署を選択してください。
-            <br />
-            （チームモードでは、全社/全部署を除く特定の拠点と部署に所属するメンバーを一覧表示します）
-          </p>
+          <div className="text-xs text-slate-500 mt-1 max-w-sm">
+            {activeSelectedGroup ? (
+              <>
+                <p>マイグループ「{activeSelectedGroup.name}」にメンバーが登録されていません。</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSettingsModalTab('groups');
+                    setIsSettingsModalOpen(true);
+                  }}
+                  className="mt-3 px-3 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-lg text-xs font-bold inline-flex items-center gap-1 transition-colors cursor-pointer"
+                >
+                  <Users className="w-3.5 h-3.5" />
+                  <span>グループのメンバーを設定する</span>
+                </button>
+              </>
+            ) : (
+              <p>
+                上部のフィルターから、対象となる拠点と部署、またはマイグループを選択してください。
+                <br />
+                （チームモードでは、特定の拠点と部署に所属するメンバー、または登録したマイグループのメンバーを一覧表示します）
+              </p>
+            )}
+          </div>
         </div>
       );
     }
@@ -2045,28 +2199,62 @@ export function Calendar({
   const daysInMonth = getDaysInMonth(year, month);
   const firstDay = getFirstDayOfMonth(year, month);
   const totalWeeks = Math.ceil((firstDay + daysInMonth) / 7);
-  const totalSlots = Math.max(35, totalWeeks * 7);
 
-  const days = Array.from({ length: totalSlots }, (_, i) => {
-    const day = i - firstDay + 1;
-    if (day > 0 && day <= daysInMonth) return day;
-    return null;
-  });
+  // 月表示用スロット（7日表示または平日5日表示）
+  const days = useMemo(() => {
+    if (!calendarSettings.hideWeekends) {
+      const slots = Math.max(35, totalWeeks * 7);
+      return Array.from({ length: slots }, (_, i) => {
+        const day = i - firstDay + 1;
+        if (day > 0 && day <= daysInMonth) return day;
+        return null;
+      });
+    }
 
-  // Week view dates (Sunday to Saturday)
+    // 平日のみ (月〜金) の5列グリッド
+    // 1日の曜日を月曜起算インデックス (月=0, 火=1, 水=2, 木=3, 金=4, 土=5, 日=6)
+    const firstWeekdayOffset = (firstDay + 6) % 7;
+    const startPadding = firstWeekdayOffset < 5 ? firstWeekdayOffset : 0;
+
+    const weekdaySlots: (number | null)[] = [];
+    for (let p = 0; p < startPadding; p++) {
+      weekdaySlots.push(null);
+    }
+
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dObj = new Date(year, month, d);
+      const dayOfWeek = dObj.getDay(); // 0=日, 6=土
+      if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+        weekdaySlots.push(d);
+      }
+    }
+
+    while (weekdaySlots.length % 5 !== 0 || weekdaySlots.length < 25) {
+      weekdaySlots.push(null);
+    }
+
+    return weekdaySlots;
+  }, [calendarSettings.hideWeekends, totalWeeks, firstDay, daysInMonth, year, month]);
+
+  // Week view dates (Sunday to Saturday or Monday to Friday)
   const getWeekDays = (date: Date) => {
     const startOfWeek = new Date(date);
     const dayOfWeek = startOfWeek.getDay(); // 0 = Sun
     startOfWeek.setDate(date.getDate() - dayOfWeek);
 
-    return Array.from({ length: 7 }, (_, i) => {
+    const fullWeek = Array.from({ length: 7 }, (_, i) => {
       const d = new Date(startOfWeek);
       d.setDate(startOfWeek.getDate() + i);
       return d;
     });
+
+    if (calendarSettings.hideWeekends) {
+      return fullWeek.filter(d => d.getDay() !== 0 && d.getDay() !== 6);
+    }
+    return fullWeek;
   };
 
-  const weekDays = getWeekDays(currentDate);
+  const weekDays = useMemo(() => getWeekDays(currentDate), [currentDate, calendarSettings.hideWeekends]);
 
   // Formatting date range for header
   const getHeaderTitle = (isCompact = false) => {
@@ -2074,8 +2262,8 @@ export function Calendar({
       return `${year}年${month + 1}月`;
     }
     if (view === 'week') {
-      const startD = weekDays[0];
-      const endD = weekDays[6];
+      const startD = weekDays[0] || currentDate;
+      const endD = weekDays[weekDays.length - 1] || currentDate;
       const startM = startD.getMonth() + 1;
       const endM = endD.getMonth() + 1;
       if (isCompact) {
@@ -2118,6 +2306,13 @@ export function Calendar({
   const hoursList = useMemo(() => {
     let minH = 8;
     let maxH = 20;
+
+    if (calendarSettings.isTimeFilterActive) {
+      minH = calendarSettings.workStartHour ?? 8;
+      maxH = calendarSettings.workEndHour ?? 19;
+      return Array.from({ length: Math.max(1, maxH - minH + 1) }, (_, i) => i + minH);
+    }
+
     filteredEvents.forEach(e => {
       if (e.isAllDay) return;
       const { hour: sH } = getJstHourAndMinutes(e.start);
@@ -2131,7 +2326,7 @@ export function Calendar({
       if (endHourVal > maxH) maxH = Math.min(23, endHourVal);
     });
     return Array.from({ length: maxH - minH + 1 }, (_, i) => i + minH);
-  }, [filteredEvents]);
+  }, [filteredEvents, calendarSettings.isTimeFilterActive, calendarSettings.workStartHour, calendarSettings.workEndHour]);
 
   const dayTimelineRef = useRef<HTMLDivElement | null>(null);
 
@@ -2245,26 +2440,73 @@ export function Calendar({
           {/* Zone 3: Filters, Presets, Actions & Primary CTA */}
           <div className="flex items-center gap-2 shrink-0">
             {calendarMode === 'team' && (
-              <>
+              <div className="flex items-center gap-1.5">
+                {/* チーム表示対象セレクター (所属 or マイグループ) */}
                 <select
-                  value={selectedOffice}
-                  onChange={e => setSelectedOffice(e.target.value)}
-                  className="bg-white border border-slate-200 rounded px-2 py-1 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-2xs"
+                  value={selectedGroupId}
+                  onChange={e => {
+                    const val = e.target.value;
+                    if (val === '__manage__') {
+                      setSettingsModalTab('groups');
+                      setIsSettingsModalOpen(true);
+                    } else {
+                      setSelectedGroupId(val);
+                    }
+                  }}
+                  className={`border rounded px-2 py-1 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-2xs transition-colors ${
+                    selectedGroupId !== 'org'
+                      ? 'bg-indigo-50/80 border-indigo-300 text-indigo-900 ring-1 ring-indigo-200'
+                      : 'bg-white border-slate-200 text-slate-800'
+                  }`}
+                  title="チーム表示対象の切り替え"
                 >
-                  {officeNames.filter(o => o !== '全社' && o !== '全拠点').map(o => (
-                    <option key={o} value={o}>{o}</option>
-                  ))}
+                  <option value="org">🏢 所属（拠点・部署）で表示</option>
+                  {memberGroups.length > 0 && (
+                    <optgroup label="⭐ マイグループ">
+                      {memberGroups.map(g => (
+                        <option key={g.id} value={g.id}>👥 {g.name} ({g.memberIds.length}名)</option>
+                      ))}
+                    </optgroup>
+                  )}
+                  <option value="__manage__">⚙️ マイグループを管理・作成...</option>
                 </select>
-                <select
-                  value={selectedDivision}
-                  onChange={e => setSelectedDivision(e.target.value)}
-                  className="bg-white border border-slate-200 rounded px-2 py-1 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-2xs"
-                >
-                  {divisionNames.filter(d => d !== '全部署').map(d => (
-                    <option key={d} value={d}>{d}</option>
-                  ))}
-                </select>
-              </>
+
+                {selectedGroupId === 'org' ? (
+                  <>
+                    <select
+                      value={selectedOffice}
+                      onChange={e => setSelectedOffice(e.target.value)}
+                      className="bg-white border border-slate-200 rounded px-2 py-1 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-2xs"
+                    >
+                      {officeNames.filter(o => o !== '全社' && o !== '全拠点').map(o => (
+                        <option key={o} value={o}>{o}</option>
+                      ))}
+                    </select>
+                    <select
+                      value={selectedDivision}
+                      onChange={e => setSelectedDivision(e.target.value)}
+                      className="bg-white border border-slate-200 rounded px-2 py-1 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-2xs"
+                    >
+                      {divisionNames.filter(d => d !== '全部署').map(d => (
+                        <option key={d} value={d}>{d}</option>
+                      ))}
+                    </select>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSettingsModalTab('groups');
+                      setIsSettingsModalOpen(true);
+                    }}
+                    className="flex items-center gap-1 px-2 py-1 rounded bg-indigo-100 hover:bg-indigo-200 text-indigo-800 text-[11px] font-bold transition-colors cursor-pointer"
+                    title="マイグループの管理・編集"
+                  >
+                    <Users className="w-3.5 h-3.5" />
+                    <span>グループ編集</span>
+                  </button>
+                )}
+              </div>
             )}
 
             {/* 区分フィルター */}
@@ -2317,6 +2559,27 @@ export function Calendar({
               title="URL共有リンクをコピー"
             >
               {copiedLink ? <Check className="w-4 h-4 text-emerald-600" /> : <Share2 className="w-4 h-4 text-slate-500" />}
+            </button>
+
+            {/* カレンダー表示設定 (平日のみ / 時間帯 / 表示密度) */}
+            <button
+              type="button"
+              onClick={() => {
+                setSettingsModalTab('display');
+                setIsSettingsModalOpen(true);
+              }}
+              className={`flex items-center gap-1 px-2 py-1 rounded-lg border text-xs font-semibold transition-all shadow-2xs cursor-pointer ${
+                calendarSettings.hideWeekends || calendarSettings.isTimeFilterActive || calendarSettings.density === 'compact'
+                  ? 'bg-indigo-50 text-indigo-700 border-indigo-300 ring-2 ring-indigo-200'
+                  : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+              }`}
+              title="カレンダー表示設定 (平日のみ / 時間帯 / 表示密度)"
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5 text-slate-600" />
+              <span className="hidden xl:inline text-[11px]">表示設定</span>
+              {(calendarSettings.hideWeekends || calendarSettings.isTimeFilterActive || calendarSettings.density === 'compact') && (
+                <span className="w-1.5 h-1.5 rounded-full bg-indigo-600"></span>
+              )}
             </button>
 
             {/* お気に入り表示設定 */}
@@ -2519,7 +2782,24 @@ export function Calendar({
                 <Plus className="w-4 h-4 stroke-[2.5]" />
               </button>
 
-              {/* Favorites Button on Mobile (Only button retained, settings button removed) */}
+              {/* Calendar View Settings Button on Mobile */}
+              <button
+                type="button"
+                onClick={() => {
+                  setSettingsModalTab('display');
+                  setIsSettingsModalOpen(true);
+                }}
+                className={`w-7 h-7 rounded-lg border flex items-center justify-center transition-all shadow-2xs cursor-pointer shrink-0 ${
+                  calendarSettings.hideWeekends || calendarSettings.isTimeFilterActive || calendarSettings.density === 'compact'
+                    ? 'bg-indigo-50 text-indigo-700 border-indigo-300 ring-2 ring-indigo-200'
+                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                }`}
+                title="カレンダー表示設定 (平日のみ / 時間帯 / 表示密度)"
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+              </button>
+
+              {/* Favorites Button on Mobile */}
               <div className="relative" ref={favoritesMobileRef}>
                 <button
                   type="button"
@@ -2666,29 +2946,79 @@ export function Calendar({
                     {calendarMode === 'team' && (
                       <div className="space-y-2 pt-1 border-t border-slate-100">
                         <div>
-                          <label className="text-[11px] font-bold text-slate-600 mb-1 block">拠点</label>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="text-[11px] font-bold text-slate-600">表示対象</label>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSettingsModalTab('groups');
+                                setIsSettingsModalOpen(true);
+                                setIsFavoritesMobileOpen(false);
+                              }}
+                              className="text-[10px] text-indigo-600 font-bold hover:underline flex items-center gap-0.5 cursor-pointer"
+                            >
+                              <Users className="w-3 h-3" />
+                              <span>グループ管理</span>
+                            </button>
+                          </div>
                           <select
-                            value={selectedOffice}
-                            onChange={e => setSelectedOffice(e.target.value)}
-                            className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs font-semibold text-slate-800"
+                            value={selectedGroupId}
+                            onChange={e => {
+                              const val = e.target.value;
+                              if (val === '__manage__') {
+                                setSettingsModalTab('groups');
+                                setIsSettingsModalOpen(true);
+                                setIsFavoritesMobileOpen(false);
+                              } else {
+                                setSelectedGroupId(val);
+                              }
+                            }}
+                            className={`w-full border rounded px-2 py-1 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
+                              selectedGroupId !== 'org'
+                                ? 'bg-indigo-50/80 border-indigo-300 text-indigo-900'
+                                : 'bg-slate-50 border-slate-200 text-slate-800'
+                            }`}
                           >
-                            {officeNames.filter(o => o !== '全社' && o !== '全拠点').map(o => (
-                              <option key={o} value={o}>{o}</option>
-                            ))}
+                            <option value="org">🏢 所属（拠点・部署）で表示</option>
+                            {memberGroups.length > 0 && (
+                              <optgroup label="⭐ マイグループ">
+                                {memberGroups.map(g => (
+                                  <option key={g.id} value={g.id}>👥 {g.name} ({g.memberIds.length}名)</option>
+                                ))}
+                              </optgroup>
+                            )}
+                            <option value="__manage__">⚙️ マイグループを管理・作成...</option>
                           </select>
                         </div>
-                        <div>
-                          <label className="text-[11px] font-bold text-slate-600 mb-1 block">部署</label>
-                          <select
-                            value={selectedDivision}
-                            onChange={e => setSelectedDivision(e.target.value)}
-                            className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs font-semibold text-slate-800"
-                          >
-                            {divisionNames.filter(d => d !== '全部署').map(d => (
-                              <option key={d} value={d}>{d}</option>
-                            ))}
-                          </select>
-                        </div>
+
+                        {selectedGroupId === 'org' && (
+                          <>
+                            <div>
+                              <label className="text-[11px] font-bold text-slate-600 mb-1 block">拠点</label>
+                              <select
+                                value={selectedOffice}
+                                onChange={e => setSelectedOffice(e.target.value)}
+                                className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs font-semibold text-slate-800"
+                              >
+                                {officeNames.filter(o => o !== '全社' && o !== '全拠点').map(o => (
+                                  <option key={o} value={o}>{o}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div>
+                              <label className="text-[11px] font-bold text-slate-600 mb-1 block">部署</label>
+                              <select
+                                value={selectedDivision}
+                                onChange={e => setSelectedDivision(e.target.value)}
+                                className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs font-semibold text-slate-800"
+                              >
+                                {divisionNames.filter(d => d !== '全部署').map(d => (
+                                  <option key={d} value={d}>{d}</option>
+                                ))}
+                              </select>
+                            </div>
+                          </>
+                        )}
                       </div>
                     )}
 
@@ -2894,16 +3224,39 @@ export function Calendar({
         ) : (
           <>
             {/* 1. MONTH VIEW */}
-            {view === 'month' && (
+            {view === 'month' && (() => {
+              const isCompact = calendarSettings.density === 'compact';
+              const monthHeaders = calendarSettings.hideWeekends
+                ? [
+                    { name: '月', color: 'text-slate-500' },
+                    { name: '火', color: 'text-slate-500' },
+                    { name: '水', color: 'text-slate-500' },
+                    { name: '木', color: 'text-slate-500' },
+                    { name: '金', color: 'text-slate-500' },
+                  ]
+                : [
+                    { name: '日', color: 'text-red-500' },
+                    { name: '月', color: 'text-slate-500' },
+                    { name: '火', color: 'text-slate-500' },
+                    { name: '水', color: 'text-slate-500' },
+                    { name: '木', color: 'text-slate-500' },
+                    { name: '金', color: 'text-slate-500' },
+                    { name: '土', color: 'text-blue-500' },
+                  ];
+              const monthGridColsClass = calendarSettings.hideWeekends ? 'grid-cols-5' : 'grid-cols-7';
+              const numCols = calendarSettings.hideWeekends ? 5 : 7;
+              const totalMonthRows = Math.ceil(days.length / numCols);
+
+              return (
               <div className="w-full h-full flex flex-col">
                 {/* --- DESKTOP MONTH VIEW (hidden on mobile, sm:flex) --- */}
                 <div className="hidden sm:flex min-w-full h-full flex-col">
-                  <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50 shrink-0 sticky top-0 z-10">
-                    {['日', '月', '火', '水', '木', '金', '土'].map((d, idx) => (
-                      <div key={d} className={`py-2 text-center text-xs font-bold tracking-wider ${idx === 0 ? 'text-red-500' : idx === 6 ? 'text-blue-500' : 'text-slate-500'}`}>{d}</div>
+                  <div className={`grid ${monthGridColsClass} border-b border-slate-200 bg-slate-50 shrink-0 sticky top-0 z-10`}>
+                    {monthHeaders.map((d, idx) => (
+                      <div key={d.name} className={`py-2 text-center text-xs font-bold tracking-wider ${d.color}`}>{d.name}</div>
                     ))}
                   </div>
-                  <div className={`flex-1 grid grid-cols-7 ${totalWeeks >= 6 ? 'grid-rows-6' : 'grid-rows-5'}`}>
+                  <div className={`flex-1 grid ${monthGridColsClass} ${totalMonthRows >= 6 ? 'grid-rows-6' : 'grid-rows-5'}`}>
                     {days.map((day, i) => {
                       const isToday = day === new Date().getDate() && month === new Date().getMonth() && year === new Date().getFullYear();
                       const cellDateStr = day ? `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}` : null;
@@ -2920,7 +3273,7 @@ export function Calendar({
                           onDragOver={(e) => cellDateStr && handleDragOver(e, cellKey)}
                           onDragLeave={handleDragLeave}
                           onDrop={(e) => cellDateStr && handleDrop(e, cellDateStr)}
-                          className={`border-b border-r border-slate-100 py-1 sm:py-1.5 px-0 min-h-[90px] sm:min-h-[100px] group relative transition-colors select-none ${
+                          className={`border-b border-r border-slate-100 ${isCompact ? 'py-0.5 min-h-[72px]' : 'py-1 sm:py-1.5 min-h-[90px] sm:min-h-[100px]'} px-0 group relative transition-colors select-none ${
                             !day ? 'bg-slate-50/50' : isSelectedRange ? 'bg-indigo-100/90 ring-2 ring-indigo-500/70 z-10' : isDragOver ? 'bg-indigo-100/70 ring-2 ring-indigo-400' : 'hover:bg-indigo-50/20 cursor-pointer'
                           }`}
                         >
@@ -2951,7 +3304,7 @@ export function Calendar({
                                       onDragEnd={handleDragEnd}
                                       onMouseDown={(eClick) => eClick.stopPropagation()}
                                       onClick={(eClick) => handleEventClick(eClick, e)}
-                                      className={`text-[9px] sm:text-[10px] py-0.5 px-1 sm:px-1.5 border font-bold cursor-pointer transition-all flex items-center h-5 sm:h-5.5 select-none truncate ${getEventStyle(e)} ${multiProps.containerClass} ${
+                                      className={`${isCompact ? 'text-[8px] sm:text-[9px] py-0 px-1 h-4 sm:h-4.5' : 'text-[9px] sm:text-[10px] py-0.5 px-1 sm:px-1.5 h-5 sm:h-5.5'} border font-bold cursor-pointer transition-all flex items-center select-none truncate ${getEventStyle(e)} ${multiProps.containerClass} ${
                                         draggedEventId === e.id ? 'opacity-40 select-none' : (draggedEventId ? 'pointer-events-none' : '')
                                       }`}
                                       title={`${e.isIcal ? '[iCal連携] ' : ''}${e.title} (${formatEventTime(e)})`}
@@ -2972,17 +3325,17 @@ export function Calendar({
                   </div>
                 </div>
 
-                {/* --- MOBILE MONTH VIEW (Google Calendar Style: 7-day dot grid + selected day agenda list) --- */}
+                {/* --- MOBILE MONTH VIEW (Google Calendar Style: dot grid + selected day agenda list) --- */}
                 <div className="flex sm:hidden flex-col h-full overflow-hidden bg-white">
                   {/* Day of Week Header */}
-                  <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50/90 shrink-0">
-                    {['日', '月', '火', '水', '木', '金', '土'].map((d, idx) => (
-                      <div key={d} className={`py-1.5 text-center text-[11px] font-bold ${idx === 0 ? 'text-red-500' : idx === 6 ? 'text-blue-500' : 'text-slate-500'}`}>{d}</div>
+                  <div className={`grid ${monthGridColsClass} border-b border-slate-200 bg-slate-50/90 shrink-0`}>
+                    {monthHeaders.map((d, idx) => (
+                      <div key={d.name} className={`py-1.5 text-center text-[11px] font-bold ${d.color}`}>{d.name}</div>
                     ))}
                   </div>
 
-                  {/* 7-Day Month Grid (Fit to full mobile width, no horizontal scroll) */}
-                  <div className="grid grid-cols-7 border-b border-slate-200 bg-white shrink-0">
+                  {/* Month Grid */}
+                  <div className={`grid ${monthGridColsClass} border-b border-slate-200 bg-white shrink-0`}>
                     {days.map((day, i) => {
                       const isToday = day === new Date().getDate() && month === new Date().getMonth() && year === new Date().getFullYear();
                       const cellDateStr = day ? `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}` : null;
@@ -3130,7 +3483,8 @@ export function Calendar({
                   </div>
                 </div>
               </div>
-            )}
+              );
+            })()}
 
             {/* 2. WEEK VIEW */}
             {view === 'week' && (() => {
@@ -3273,13 +3627,16 @@ export function Calendar({
                     <div className="flex-1">
                       {hoursList.map(h => {
                         const hourFormatted = `${String(h).padStart(2, '0')}:00`;
+                        const isCompact = calendarSettings.density === 'compact';
+                        const slotHeight = isCompact ? 36 : 50;
+
                         return (
                           <div
                             key={h}
                             style={gridStyle}
-                            className="border-b border-slate-100 h-[50px]"
+                            className={`border-b border-slate-100 ${isCompact ? 'h-[36px]' : 'h-[50px]'}`}
                           >
-                            <div className={`py-1 px-0.5 text-center font-medium text-slate-400 border-r border-slate-200 bg-slate-50/95 sticky left-0 z-10 flex items-center justify-center ${isMobile3Day ? 'text-[9px]' : 'text-[10px] sm:text-xs'}`}>
+                            <div className={`py-1 px-0.5 text-center font-medium text-slate-400 border-r border-slate-200 bg-slate-50/95 sticky left-0 z-10 flex items-center justify-center ${isMobile3Day || isCompact ? 'text-[9px]' : 'text-[10px] sm:text-xs'}`}>
                               {hourFormatted}
                             </div>
                             {daysToRender.map((d, idx) => {
@@ -3332,10 +3689,10 @@ export function Calendar({
                                     }
 
                                     const durationMinutes = Math.max(15, (eDateMs - sDateMs) / 60000);
-                                    const cardHeightPx = Math.max(26, durationMinutes * (50 / 60));
+                                    const cardHeightPx = Math.max(isCompact ? 18 : 26, durationMinutes * (slotHeight / 60));
                                     const { minute: startMinutes } = getJstHourAndMinutes(e.start);
-                                    const topOffsetPx = (startMinutes / 60) * 50;
-                                    const isShortEvent = durationMinutes <= 35 || cardHeightPx < 42;
+                                    const topOffsetPx = (startMinutes / 60) * slotHeight;
+                                    const isShortEvent = durationMinutes <= 35 || cardHeightPx < (isCompact ? 32 : 42);
 
                                     return (
                                       <div
@@ -3350,7 +3707,7 @@ export function Calendar({
                                           if (!parent) return;
                                           const parentRect = parent.getBoundingClientRect();
                                           const offsetY = Math.max(0, eDragOver.clientY - parentRect.top);
-                                          const hourDiff = Math.floor(offsetY / 50);
+                                          const hourDiff = Math.floor(offsetY / slotHeight);
                                           const targetH = Math.max(hoursList[0], Math.min(hoursList[hoursList.length - 1], h + hourDiff));
                                           handleDragOver(eDragOver, `week-slot-${idx}-${targetH}-${isMobile3Day ? 'm' : 'd'}`);
                                         }}
@@ -3360,7 +3717,7 @@ export function Calendar({
                                           if (!parent) return;
                                           const parentRect = parent.getBoundingClientRect();
                                           const offsetY = Math.max(0, eDrop.clientY - parentRect.top);
-                                          const hourDiff = Math.floor(offsetY / 50);
+                                          const hourDiff = Math.floor(offsetY / slotHeight);
                                           const targetH = Math.max(hoursList[0], Math.min(hoursList[hoursList.length - 1], h + hourDiff));
                                           handleDrop(eDrop, dateStr, targetH);
                                         }}
@@ -3373,7 +3730,7 @@ export function Calendar({
                                           right: '2px',
                                           zIndex: 10 + evIdx
                                         }}
-                                        className={`absolute group/wkcard text-[9px] sm:text-[11px] ${isShortEvent ? 'px-1 py-0.5 justify-center' : 'p-1 flex-col items-start'} rounded border font-medium shadow-2xs flex cursor-pointer transition-all overflow-hidden ${getEventStyle(e)} ${
+                                        className={`absolute group/wkcard ${isCompact ? 'text-[8.5px] sm:text-[9.5px]' : 'text-[9px] sm:text-[11px]'} ${isShortEvent ? 'px-1 py-0.5 justify-center' : 'p-1 flex-col items-start'} rounded border font-medium shadow-2xs flex cursor-pointer transition-all overflow-hidden ${getEventStyle(e)} ${
                                           draggedEventId === e.id ? 'opacity-40 select-none' : (draggedEventId ? 'pointer-events-none' : '')
                                         } ${
                                           isBeingResized ? 'ring-2 ring-indigo-500 shadow-md brightness-95' : ''
@@ -3381,7 +3738,7 @@ export function Calendar({
                                         title={`${e.isIcal ? '[iCal] ' : ''}${e.title} (${displayTimeString})`}
                                       >
                                         {isShortEvent ? (
-                                          <div className="font-bold w-full truncate leading-tight pointer-events-none text-[9px] sm:text-[10px] flex items-center gap-1">
+                                          <div className={`font-bold w-full truncate leading-tight pointer-events-none ${isCompact ? 'text-[8px] sm:text-[9px]' : 'text-[9px] sm:text-[10px]'} flex items-center gap-1`}>
                                             {renderConstructionBadge(e, true)}
                                             <span className="truncate">{e.isIcal ? `[iCal] ${e.title}` : e.title}</span>
                                           </div>
@@ -3410,7 +3767,7 @@ export function Calendar({
                                                 initialStartY: evt.clientY,
                                                 initialEndMs: currentEnd,
                                                 currentEndMs: currentEnd,
-                                                slotHeightPx: 50,
+                                                slotHeightPx: slotHeight,
                                                 dateStr,
                                               });
                                             }}
@@ -4281,6 +4638,18 @@ export function Calendar({
       <ConfirmModal
         {...confirmModal}
         onClose={() => setConfirmModal((prev) => ({ ...prev, isOpen: false }))}
+      />
+
+      {/* カレンダー表示設定モーダル (平日のみ / 時間帯 / 表示密度 / マイグループ管理) */}
+      <CalendarSettingsModal
+        isOpen={isSettingsModalOpen}
+        onClose={() => setIsSettingsModalOpen(false)}
+        currentSettings={calendarSettings}
+        onSaveSettings={handleSaveCalendarSettings}
+        allUsers={allUsers}
+        memberGroups={memberGroups}
+        onSaveMemberGroups={handleSaveMemberGroups}
+        initialTab={settingsModalTab}
       />
 
       {/* お気に入り操作トースト通知 */}

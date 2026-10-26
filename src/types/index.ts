@@ -21,6 +21,7 @@ export interface CalendarPreset {
   office?: string;
   division?: string;
   typeFilter?: string;
+  groupId?: string; // マイグループID
 }
 
 export interface MyPageSectionCounts {
@@ -39,6 +40,21 @@ export interface MyPageEnvSettings {
   [key: string]: any;                      // 将来の環境設定拡張用
 }
 
+export interface CalendarViewSettings {
+  hideWeekends?: boolean;               // 平日のみ表示 (土日非表示 / 5日表示)
+  workStartHour?: number;               // 表示開始時刻 (例: 8)
+  workEndHour?: number;                 // 表示終了時刻 (例: 19)
+  isTimeFilterActive?: boolean;         // 時間帯絞り込みを有効にするか
+  density?: 'standard' | 'compact';     // 表示密度 (標準 / コンパクト)
+}
+
+export interface CalendarMemberGroup {
+  id: string;
+  name: string;
+  memberIds: string[];
+  createdAt?: string;
+}
+
 export interface UserPreferences {
   mypageSectionOrder?: string[];
   mypageSectionCounts?: MyPageSectionCounts; // マイページ各セクションの表示件数
@@ -55,6 +71,8 @@ export interface UserPreferences {
   hideSafetyConfirmation?: boolean;  // 互換用
   calendarPresets?: CalendarPreset[]; // カレンダー表示設定のお気に入り一覧
   defaultCalendarPresetId?: string;  // カレンダー起動時の初期表示プリセットID
+  calendarViewSettings?: CalendarViewSettings; // カレンダー表示設定 (平日のみ/時間帯/密度)
+  calendarMemberGroups?: CalendarMemberGroup[]; // カレンダー用マイグループ一覧
   favoriteTopicIds?: string[];       // 掲示板のお気に入りトピックID一覧
   colorTheme?: string;               // 選択カラーテーマ (soft, sage, terracotta等)
   fontSize?: 'small' | 'standard' | 'medium' | 'large'; // 選択フォントサイズ (小/標準/中/大)

@@ -2,14 +2,16 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   X, Layers, Calendar, User as UserIcon, Building, MapPin, 
   ExternalLink, MessageSquare, Send, CheckCircle2, Clock, 
-  FileText, Paperclip, Trash2, Edit3, Save, RefreshCw, AlertCircle, FileSpreadsheet, Download, Eye, HardHat
+  FileText, Paperclip, Trash2, Edit3, Save, RefreshCw, AlertCircle, FileSpreadsheet, Download, Eye, HardHat,
+  Camera, Upload, UploadCloud, Image as ImageIcon, Loader2
 } from 'lucide-react';
-import { Site, SiteMainPart, SiteSubPart, SiteComment, SiteStatus, PartStatus } from '../../types/site';
+import { Site, SiteMainPart, SiteSubPart, SiteComment, SiteStatus, PartStatus, SiteAttachment } from '../../types/site';
 import { User, AttachmentFile, CalendarEvent } from '../../types';
 import { getAvatarUrl, handleAvatarError } from '../../utils/avatar';
 import { API_BASE_URL } from '../../config/api';
 import { FilePreviewModal } from '../FilePreviewModal';
 import { getFittingLabel, cleanPartName } from '../../utils/siteUtils';
+import { uploadFile, resolveFileUrl } from '../../utils/fileUpload';
 
 interface SiteDetailModalProps {
   site: Site | null;
@@ -194,10 +196,12 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
   const [subParts, setSubParts] = useState<SiteSubPart[]>(site?.subPartsCache || []);
   const [isLoadingSubParts, setIsLoadingSubParts] = useState(false);
 
-  // 添付ファイル追加用
-  const [newAttachmentName, setNewAttachmentName] = useState('');
-  const [newAttachmentUrl, setNewAttachmentUrl] = useState('');
-  const [showAddAttachment, setShowAddAttachment] = useState(false);
+  // 添付ファイル・現場写真アップロード用
+  const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
+  const [uploadAttachmentError, setUploadAttachmentError] = useState<string | null>(null);
+  const [isDragOverAttachment, setIsDragOverAttachment] = useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
+  const cameraInputRef = React.useRef<HTMLInputElement | null>(null);
 
   const [infoForm, setInfoForm] = useState<Partial<Site>>({});
 
@@ -389,27 +393,71 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
     }
   };
 
-  // ファイル添付の追加
-  const handleAddAttachment = async () => {
-    if (!currentSite || !newAttachmentName.trim() || !newAttachmentUrl.trim()) return;
+  // 画像判定ヘルパー
+  const isImageAttachment = (att: { url?: string; name?: string }) => {
+    const target = `${att.url || ''} ${att.name || ''}`.toLowerCase();
+    return /\.(jpe?g|png|gif|webp|svg|bmp)(\?.*)?$/i.test(target);
+  };
 
-    const newAtt = {
-      id: `att-${Date.now()}`,
-      name: newAttachmentName.trim(),
-      url: newAttachmentUrl.trim(),
-      uploadedBy: currentUser.name,
-      uploadedAt: new Date().toISOString()
-    };
+  // ファイル・写真アップロード処理（端末ファイル・カメラ撮影・D&D複数一括対応）
+  const handleUploadFiles = async (files: FileList | File[]) => {
+    if (!currentSite || !files || files.length === 0) return;
+    setIsUploadingAttachment(true);
+    setUploadAttachmentError(null);
 
-    const updated = {
+    const fileList = Array.from(files);
+    const newAttachments: SiteAttachment[] = [];
+    const errors: string[] = [];
+
+    for (const file of fileList) {
+      try {
+        const uploaded = await uploadFile(file);
+        newAttachments.push({
+          id: uploaded.id || `att-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          name: uploaded.name || file.name,
+          url: uploaded.url,
+          size: file.size,
+          uploadedBy: currentUser.name || '担当者',
+          uploadedAt: new Date().toISOString(),
+        });
+      } catch (err: any) {
+        console.error('File upload error:', err);
+        errors.push(`${file.name}: ${err.message || 'アップロード失敗'}`);
+      }
+    }
+
+    if (errors.length > 0) {
+      setUploadAttachmentError(errors.join('\n'));
+    }
+
+    if (newAttachments.length > 0) {
+      const updated: Site = {
+        ...currentSite,
+        attachments: [...(currentSite.attachments || []), ...newAttachments]
+      };
+      setCurrentSite(updated);
+      await saveSiteChanges(updated);
+    }
+
+    setIsUploadingAttachment(false);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    if (cameraInputRef.current) cameraInputRef.current.value = '';
+  };
+
+  // 添付ファイル削除
+  const handleRemoveAttachment = async (attachmentId: string) => {
+    if (!currentSite) return;
+    const targetAtt = (currentSite.attachments || []).find(a => a.id === attachmentId);
+    const confirmName = targetAtt ? `「${targetAtt.name}」` : 'この添付ファイル';
+    if (!window.confirm(`${confirmName}を削除してもよろしいですか？`)) return;
+
+    const updatedAttachments = (currentSite.attachments || []).filter(a => a.id !== attachmentId);
+    const updated: Site = {
       ...currentSite,
-      attachments: [...(currentSite.attachments || []), newAtt]
+      attachments: updatedAttachments
     };
     setCurrentSite(updated);
     await saveSiteChanges(updated);
-    setNewAttachmentName('');
-    setNewAttachmentUrl('');
-    setShowAddAttachment(false);
   };
 
   // 現場削除
@@ -758,9 +806,245 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
           {/* TAB 3: 施工図面・申し送り・添付ファイル */}
           {activeTab === 'timeline' && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
-              {/* 左列: 図面 (NAS 02-施工図PDF) + 添付ファイル・現場写真・指示書 */}
+              {/* 左列: 添付ファイル・現場写真・指示書 (左上) + 図面 (NAS 02-施工図PDF) (左下) */}
               <div className="space-y-5">
-                {/* NAS施工図PDF連携 (02-施工図PDF) */}
+                {/* 1. 添付ファイル・現場写真・指示書（左上） */}
+                <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-2">
+                    <div className="flex items-center gap-1.5">
+                      <Paperclip className="w-4 h-4 text-indigo-600" />
+                      <h5 className="font-bold text-sm text-slate-800">添付ファイル・現場写真・指示書</h5>
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-800">
+                        {currentSite.attachments?.length || 0}件
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      {/* スマホカメラ起動ボタン */}
+                      <button
+                        type="button"
+                        onClick={() => cameraInputRef.current?.click()}
+                        disabled={isUploadingAttachment}
+                        className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50 shadow-2xs"
+                        title="現場写真をカメラで直接撮影"
+                      >
+                        <Camera className="w-3.5 h-3.5 text-indigo-600" />
+                        <span>写真撮影</span>
+                      </button>
+
+                      {/* 端末ファイル選択ボタン */}
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isUploadingAttachment}
+                        className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50 shadow-2xs"
+                        title="PCや端末から写真・ファイルを選択"
+                      >
+                        <Upload className="w-3.5 h-3.5" />
+                        <span>アップロード</span>
+                      </button>
+
+                      {/* 隠し input 要素 */}
+                      <input
+                        type="file"
+                        ref={cameraInputRef}
+                        accept="image/*"
+                        capture="environment"
+                        className="hidden"
+                        onChange={(e) => {
+                          if (e.target.files && e.target.files.length > 0) {
+                            handleUploadFiles(e.target.files);
+                          }
+                        }}
+                      />
+                      <input
+                        type="file"
+                        ref={fileInputRef}
+                        accept="*/*"
+                        multiple
+                        className="hidden"
+                        onChange={(e) => {
+                          if (e.target.files && e.target.files.length > 0) {
+                            handleUploadFiles(e.target.files);
+                          }
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* ドラッグ＆ドロップ領域 */}
+                  <div
+                    onDragOver={(e) => { e.preventDefault(); setIsDragOverAttachment(true); }}
+                    onDragLeave={() => setIsDragOverAttachment(false)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setIsDragOverAttachment(false);
+                      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                        handleUploadFiles(e.dataTransfer.files);
+                      }
+                    }}
+                    className={`p-3 rounded-xl border-2 border-dashed transition-all text-center ${
+                      isDragOverAttachment
+                        ? 'border-indigo-500 bg-indigo-50/80 ring-2 ring-indigo-500/20 shadow-md'
+                        : 'border-slate-300 bg-white hover:border-slate-400'
+                    }`}
+                  >
+                    <div className="py-0.5 space-y-0.5">
+                      <div className="w-7 h-7 rounded-full bg-indigo-50 text-indigo-600 mx-auto flex items-center justify-center mb-0.5 shadow-2xs">
+                        <UploadCloud className="w-3.5 h-3.5" />
+                      </div>
+                      <p className="text-xs font-bold text-slate-700">
+                        写真・指示書ファイルをドラッグ＆ドロップ（複数一括対応）
+                      </p>
+                      <p className="text-[10px] text-slate-400">
+                        画像・PDF・Officeファイルを直接アップロード
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* アップロード進行中インジケーター */}
+                  {isUploadingAttachment && (
+                    <div className="p-2.5 bg-indigo-50 border border-indigo-200 rounded-lg flex items-center justify-center gap-2 text-xs font-bold text-indigo-700 animate-pulse">
+                      <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
+                      <span>ファイルをアップロードして保存中...</span>
+                    </div>
+                  )}
+
+                  {/* アップロードエラー表示 */}
+                  {uploadAttachmentError && (
+                    <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700 flex items-start gap-1.5 whitespace-pre-wrap">
+                      <AlertCircle className="w-4 h-4 shrink-0 text-rose-600 mt-0.5" />
+                      <div>{uploadAttachmentError}</div>
+                    </div>
+                  )}
+
+                  {/* 添付ファイル・写真一覧 */}
+                  {(!currentSite.attachments || currentSite.attachments.length === 0) ? (
+                    <div className="text-xs text-slate-400 italic py-2 text-center bg-white rounded-lg border border-slate-200">
+                      添付ファイル・現場写真はありません。上のボタンまたはドラッグ＆ドロップで追加してください。
+                    </div>
+                  ) : (
+                    <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1">
+                      {currentSite.attachments.map((att) => {
+                        const isImg = isImageAttachment(att);
+                        const fileUrl = resolveFileUrl(att.url);
+                        const formattedSize = typeof att.size === 'number'
+                          ? att.size > 1024 * 1024
+                            ? `${(att.size / (1024 * 1024)).toFixed(2)} MB`
+                            : `${(att.size / 1024).toFixed(1)} KB`
+                          : (att.size || '');
+
+                        const formattedDate = att.uploadedAt
+                          ? new Date(att.uploadedAt).toLocaleString('ja-JP', {
+                              timeZone: 'Asia/Tokyo',
+                              month: 'numeric',
+                              day: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })
+                          : '';
+
+                        return (
+                          <div
+                            key={att.id}
+                            className="flex items-center justify-between p-2.5 bg-white rounded-xl text-xs border border-slate-200 hover:border-indigo-300 shadow-2xs gap-2 transition-all"
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                              {/* サムネイル画像またはファイル種別アイコン */}
+                              {isImg ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setPreviewFile({
+                                      id: att.id,
+                                      name: att.name,
+                                      url: fileUrl,
+                                      size: formattedSize,
+                                      type: 'image',
+                                    });
+                                    setIsPreviewOpen(true);
+                                  }}
+                                  className="w-11 h-11 shrink-0 rounded-lg overflow-hidden border border-slate-200 hover:opacity-85 transition-opacity cursor-pointer shadow-2xs bg-slate-100 flex items-center justify-center"
+                                  title="拡大プレビュー"
+                                >
+                                  <img
+                                    src={fileUrl}
+                                    alt={att.name}
+                                    className="w-full h-full object-cover"
+                                    onError={(e) => {
+                                      // 画像ロード失敗時はフォールバック
+                                      (e.target as HTMLElement).style.display = 'none';
+                                    }}
+                                  />
+                                </button>
+                              ) : (
+                                <div className="w-11 h-11 shrink-0 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center border border-indigo-100 shadow-2xs">
+                                  <FileText className="w-5 h-5" />
+                                </div>
+                              )}
+
+                              <div className="min-w-0 flex-1">
+                                <span className="font-bold text-slate-800 truncate block text-xs" title={att.name}>
+                                  {att.name}
+                                </span>
+                                <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-slate-400 mt-0.5">
+                                  {formattedSize && <span>{formattedSize}</span>}
+                                  {formattedSize && att.uploadedBy && <span>•</span>}
+                                  {att.uploadedBy && <span>{att.uploadedBy}</span>}
+                                  {formattedDate && <span>•</span>}
+                                  {formattedDate && <span>{formattedDate}</span>}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setPreviewFile({
+                                    id: att.id,
+                                    name: att.name,
+                                    url: fileUrl,
+                                    size: formattedSize,
+                                    type: isImg ? 'image' : (att as any).type || '',
+                                  });
+                                  setIsPreviewOpen(true);
+                                }}
+                                className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-lg flex items-center gap-1 text-[11px] transition-colors cursor-pointer"
+                                title="プレビュー閲覧"
+                              >
+                                <Eye className="w-3 h-3" />
+                                <span>閲覧</span>
+                              </button>
+
+                              <a
+                                href={fileUrl}
+                                download={att.name}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="p-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg transition-colors border border-slate-200"
+                                title="ダウンロード"
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                              </a>
+
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveAttachment(att.id)}
+                                className="p-1 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg transition-colors cursor-pointer"
+                                title="添付ファイルを削除"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* 2. NAS施工図PDF連携 (02-施工図PDF)（左下） */}
                 <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
                   <div className="flex items-center justify-between border-b border-slate-200 pb-2">
                     <h5 className="font-bold text-sm text-slate-800 flex items-center gap-1.5">
@@ -981,92 +1265,6 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
                       </div>
                     );
                   })()}
-                </div>
-
-                {/* 添付ファイル管理 */}
-                <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
-                  <div className="flex items-center justify-between border-b border-slate-200 pb-2">
-                    <h5 className="font-bold text-sm text-slate-800 flex items-center gap-1.5">
-                      <Paperclip className="w-4 h-4 text-indigo-600" />
-                      <span>添付ファイル・現場写真・指示書</span>
-                    </h5>
-                    <button
-                      type="button"
-                      onClick={() => setShowAddAttachment(!showAddAttachment)}
-                      className="text-xs font-semibold text-indigo-600 hover:underline cursor-pointer"
-                    >
-                      + 追加
-                    </button>
-                  </div>
-
-                  {showAddAttachment && (
-                    <div className="p-3 bg-indigo-50/60 rounded-xl border border-indigo-100 flex flex-wrap gap-2 items-center text-xs">
-                      <input
-                        type="text"
-                        value={newAttachmentName}
-                        onChange={(e) => setNewAttachmentName(e.target.value)}
-                        placeholder="ファイル名"
-                        className="px-2 py-1 bg-white border border-indigo-200 rounded text-xs flex-1 min-w-[120px]"
-                      />
-                      <input
-                        type="text"
-                        value={newAttachmentUrl}
-                        onChange={(e) => setNewAttachmentUrl(e.target.value)}
-                        placeholder="URLまたはパス"
-                        className="px-2 py-1 bg-white border border-indigo-200 rounded text-xs flex-1 min-w-[150px]"
-                      />
-                      <button
-                        type="button"
-                        onClick={handleAddAttachment}
-                        className="px-3 py-1 bg-indigo-600 text-white rounded font-bold cursor-pointer"
-                      >
-                        追加
-                      </button>
-                    </div>
-                  )}
-
-                  {(!currentSite.attachments || currentSite.attachments.length === 0) ? (
-                    <div className="text-xs text-slate-400 italic">
-                      添付ファイルはありません。
-                    </div>
-                  ) : (
-                    <div className="space-y-1.5">
-                      {currentSite.attachments.map(att => (
-                        <div key={att.id} className="flex items-center justify-between p-2.5 bg-white rounded-lg text-xs border border-slate-200 shadow-2xs">
-                          <span className="font-medium text-slate-800 truncate mr-2" title={att.name}>{att.name}</span>
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setPreviewFile({
-                                  id: att.id,
-                                  name: att.name,
-                                  url: att.url,
-                                  size: typeof att.size === 'number' ? `${(att.size / 1024 / 1024).toFixed(2)} MB` : String(att.size || ''),
-                                  type: (att as any).type || '',
-                                });
-                                setIsPreviewOpen(true);
-                              }}
-                              className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-md flex items-center gap-1 text-[11px] transition-colors cursor-pointer"
-                            >
-                              <Eye className="w-3 h-3" />
-                              閲覧
-                            </button>
-                            <a
-                              href={att.url}
-                              download={att.name}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="p-1 text-slate-400 hover:text-indigo-600 rounded-md transition-colors"
-                              title="ダウンロード"
-                            >
-                              <Download className="w-3.5 h-3.5" />
-                            </a>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </div>
               </div>
 
