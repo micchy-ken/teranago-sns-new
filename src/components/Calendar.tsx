@@ -7,6 +7,7 @@ import { ChevronLeft, ChevronRight, List as ListIcon, Calendar as CalendarIcon, 
 import { EventModal } from './EventModal';
 import { GlobalEventDetailModal } from './GlobalEventDetailModal';
 import { CalendarSettingsModal } from './CalendarSettingsModal';
+import { CalendarConstructionTimeline } from './CalendarConstructionTimeline';
 import { renderWithClickableLinks } from '../utils/linkify';
 import { renderContentWithLinks } from '../utils/renderContentWithLinks';
 import { UrlPastePopup, useUrlPasteHandler } from './common/UrlPastePopup';
@@ -758,8 +759,8 @@ export function Calendar({
   const [content, setContent] = useState('');
   const memoContentPasteHandler = useUrlPasteHandler(content, setContent);
 
-  // チーム表示・日の表示切替 (タイムライン / 現在地マップ / 簡易エリア別カード)
-  const [teamDaySubView, setTeamDaySubView] = useState<'timeline' | 'map' | 'cards'>('timeline');
+  // チーム表示・日の表示切替 (タイムライン / 工事タイムライン / 現在地マップ / 簡易エリア別カード)
+  const [teamDaySubView, setTeamDaySubView] = useState<'timeline' | 'construction' | 'map' | 'cards'>('timeline');
 
   // チームタイムラインの各時間枠（実測X軸座標・幅）の管理
   const [hourLayouts, setHourLayouts] = useState<Record<number, { left: number; width: number }>>({});
@@ -1816,12 +1817,12 @@ export function Calendar({
 
     return (
       <div className="w-full h-full flex flex-col bg-white overflow-hidden">
-        {/* サブ表示切り替えツールバー (タイムライン / 現在地マップ / 簡易エリア別カード) */}
+        {/* サブ表示切り替えツールバー (タイムライン / 工事タイムライン / 現在地マップ / 簡易エリア別カード) */}
         <div className="p-2 bg-slate-100 border-b border-slate-200 flex items-center justify-between shrink-0 z-20 flex-wrap gap-2">
           <div className="flex items-center gap-1 bg-white p-0.5 rounded-lg border border-slate-200 shadow-2xs text-xs font-bold">
             <button
               onClick={() => setTeamDaySubView('timeline')}
-              className={`px-3 py-1 rounded-md transition-all flex items-center gap-1.5 ${
+              className={`px-3 py-1 rounded-md transition-all flex items-center gap-1.5 cursor-pointer ${
                 teamDaySubView === 'timeline'
                   ? 'bg-indigo-600 text-white shadow-2xs font-extrabold'
                   : 'text-slate-600 hover:text-slate-900'
@@ -1831,8 +1832,19 @@ export function Calendar({
               <span>📅 タイムライン表示</span>
             </button>
             <button
+              onClick={() => setTeamDaySubView('construction')}
+              className={`px-3 py-1 rounded-md transition-all flex items-center gap-1.5 cursor-pointer ${
+                teamDaySubView === 'construction'
+                  ? 'bg-amber-600 text-white shadow-2xs font-extrabold'
+                  : 'text-slate-600 hover:text-amber-800 hover:bg-amber-50'
+              }`}
+            >
+              <HardHat className="w-3.5 h-3.5" />
+              <span>🏗️ 工事タイムライン</span>
+            </button>
+            <button
               onClick={() => setTeamDaySubView('map')}
-              className={`px-3 py-1 rounded-md transition-all flex items-center gap-1.5 ${
+              className={`px-3 py-1 rounded-md transition-all flex items-center gap-1.5 cursor-pointer ${
                 teamDaySubView === 'map'
                   ? 'bg-indigo-600 text-white shadow-2xs font-extrabold'
                   : 'text-slate-600 hover:text-slate-900'
@@ -1843,7 +1855,7 @@ export function Calendar({
             </button>
             <button
               onClick={() => setTeamDaySubView('cards')}
-              className={`px-3 py-1 rounded-md transition-all flex items-center gap-1.5 ${
+              className={`px-3 py-1 rounded-md transition-all flex items-center gap-1.5 cursor-pointer ${
                 teamDaySubView === 'cards'
                   ? 'bg-indigo-600 text-white shadow-2xs font-extrabold'
                   : 'text-slate-600 hover:text-slate-900'
@@ -1854,13 +1866,29 @@ export function Calendar({
           </div>
 
           <div className="text-[11px] text-slate-500 hidden md:block font-medium">
+            {teamDaySubView === 'construction' && '※ 現場ごとの乗り込み種別（新規・残・出庫有）とタイムライン一覧'}
             {teamDaySubView === 'map' && '※ メンバーの予定と「前の所在地＋移動中」を東海4県マップ上に自動判定表示します'}
             {teamDaySubView === 'cards' && '※ 東海4県の主要エリア別にメンバーの現在地・移動状況を一覧カード表示します'}
             {teamDaySubView === 'timeline' && '※ チームメンバーの空き枠と時間軸スケジュール一覧'}
           </div>
         </div>
 
-        {teamDaySubView === 'map' ? (
+        {teamDaySubView === 'construction' ? (
+          <div className="flex-1 overflow-hidden">
+            <CalendarConstructionTimeline
+              currentDate={currentDate}
+              onChangeDate={setCurrentDate}
+              teamMembers={teamMembers}
+              allUsers={allUsers || []}
+              events={filteredEvents}
+              sites={internalSites}
+              onEventClick={handleEventClick}
+              onOpenAddEvent={(dateStr) => openAddModalWithDate(dateStr || `${getLocalDateStr(currentDate)}T09:00:00`)}
+              onNavigateToSite={onNavigateToSite}
+              calendarSettings={calendarSettings}
+            />
+          </div>
+        ) : teamDaySubView === 'map' ? (
           <div className="flex-1 overflow-hidden p-2">
             <TeamLocationMap
               currentDate={currentDate}
@@ -2420,11 +2448,32 @@ export function Calendar({
                 週
               </button>
               <button
-                onClick={() => setView('day')}
-                className={`px-2.5 py-1 rounded transition-colors ${view === 'day' ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}
+                onClick={() => {
+                  setView('day');
+                  if (teamDaySubView === 'construction') setTeamDaySubView('timeline');
+                }}
+                className={`px-2.5 py-1 rounded transition-colors ${view === 'day' && teamDaySubView !== 'construction' ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}
               >
                 日
               </button>
+              {calendarMode === 'team' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setView('day');
+                    setTeamDaySubView('construction');
+                  }}
+                  className={`px-2 py-1 rounded transition-all flex items-center gap-1 cursor-pointer ${
+                    view === 'day' && teamDaySubView === 'construction'
+                      ? 'bg-amber-100 text-amber-900 font-bold shadow-2xs'
+                      : 'text-amber-800 hover:bg-amber-50'
+                  }`}
+                  title="工事タイムライン（現場乗り込み・出庫・残工事の可視化）"
+                >
+                  <HardHat className="w-3.5 h-3.5 text-amber-600" />
+                  <span className="hidden sm:inline">工事</span>
+                </button>
+              )}
               {calendarMode !== 'team' && (
                 <button
                   onClick={() => setView('list')}
@@ -3103,11 +3152,28 @@ export function Calendar({
                 週
               </button>
               <button
-                onClick={() => setView('day')}
-                className={`flex-1 py-1 rounded text-center transition-colors ${view === 'day' ? 'bg-indigo-600 text-white font-bold' : 'text-slate-600'}`}
+                onClick={() => {
+                  setView('day');
+                  if (teamDaySubView === 'construction') setTeamDaySubView('timeline');
+                }}
+                className={`flex-1 py-1 rounded text-center transition-colors ${view === 'day' && teamDaySubView !== 'construction' ? 'bg-indigo-600 text-white font-bold' : 'text-slate-600'}`}
               >
                 日
               </button>
+              {calendarMode === 'team' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setView('day');
+                    setTeamDaySubView('construction');
+                  }}
+                  className={`flex-1 py-1 rounded text-center transition-colors flex items-center justify-center gap-1 ${view === 'day' && teamDaySubView === 'construction' ? 'bg-amber-600 text-white font-bold' : 'text-amber-700'}`}
+                  title="工事タイムライン"
+                >
+                  <HardHat className="w-3.5 h-3.5" />
+                  <span>工事</span>
+                </button>
+              )}
               {calendarMode !== 'team' && (
                 <button
                   onClick={() => setView('list')}

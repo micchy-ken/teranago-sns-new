@@ -163,6 +163,118 @@ async function ensureBulletinTables(pool) {
 }
 
 // ==========================================
+// 掲示板サマリー取得 (GET /api/bulletins/summary & /api/board/summary)
+// マイページ・速報表示用（最新N件・単一クエリ高速取得）
+// ==========================================
+router.get([
+  '/bulletins/summary',
+  '/bulletins/summary/',
+  '/board/summary',
+  '/board/summary/',
+  '/summary',
+  '/summary/'
+], async (req, res) => {
+  try {
+    const pool = await getPool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection failed' });
+    }
+
+    await ensureBulletinTables(pool);
+
+    // 期限が切れたピン留めの自動解除（DB側同期）
+    try {
+      await pool.request().query(`
+        UPDATE dbo.Bulletins
+        SET isPinned = 0
+        WHERE isPinned = 1 
+          AND pinnedUntil IS NOT NULL 
+          AND pinnedUntil != '' 
+          AND TRY_CAST(pinnedUntil AS DATETIMEOFFSET) <= GETDATE();
+      `);
+    } catch (_) {}
+
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100);
+
+    // カレンダーや伝言メモと同じ、SQL Server標準の単一テーブル高速1クエリのみ
+    const result = await pool.request().query(`
+      SELECT TOP (${limit}) b.*, u.name AS authorName, u.department AS authorDepartment, u.avatarUrl AS authorAvatarUrl
+      FROM dbo.Bulletins b
+      LEFT JOIN dbo.Users u ON b.authorId = u.id
+      ORDER BY b.isPinned DESC, b.createdAt DESC
+    `);
+    const bulletins = result.recordset || [];
+
+    const nowMs = Date.now();
+    const formatted = bulletins.map(row => {
+      const pollObj = safeParseJSON(row.poll, null);
+      let isPollAutoPinned = false;
+      if (pollObj && pollObj.autoPinUntilDeadline && pollObj.deadline) {
+        const trimmed = String(pollObj.deadline).trim();
+        const deadlineMs = /^\d{4}-\d{2}-\d{2}$/.test(trimmed)
+          ? new Date(`${trimmed}T23:59:59.999+09:00`).getTime()
+          : new Date(trimmed).getTime();
+        if (!isNaN(deadlineMs) && deadlineMs > nowMs) {
+          isPollAutoPinned = true;
+        }
+      }
+
+      // ピン留め期限判定
+      const isCurrentlyPinned = isPollAutoPinned || (!!row.isPinned && (!row.pinnedUntil || new Date(row.pinnedUntil).getTime() > nowMs));
+
+      // マイページ・サマリー用の軽量化アンケートオブジェクト（タイトル・締切・投票者IDリストのみ）
+      let lightweightPoll = null;
+      if (pollObj) {
+        lightweightPoll = {
+          question: pollObj.question || pollObj.title || '',
+          deadline: pollObj.deadline || null,
+          autoPinUntilDeadline: !!pollObj.autoPinUntilDeadline,
+          votes: Array.isArray(pollObj.votes)
+            ? pollObj.votes.map(v => ({ userId: String(v.userId) }))
+            : []
+        };
+      }
+
+      return {
+        id: String(row.id),
+        category: row.category,
+        title: row.title,
+        content: row.content,
+        authorId: row.authorId,
+        author: {
+          id: row.authorId,
+          name: row.authorName || '不明',
+          department: row.authorDepartment || '',
+          avatarUrl: row.authorAvatarUrl || ''
+        },
+        createdAt: row.createdAt,
+        views: row.views || 0,
+        likes: row.likes || 0,
+        office: row.office || '全社',
+        division: row.division || '全部署',
+        scope: row.scope || '全社',
+        tags: row.tags ? (typeof row.tags === 'string' ? row.tags.split(',').map(t => t.trim()).filter(Boolean) : row.tags) : [],
+        isPinned: isCurrentlyPinned,
+        pinnedUntil: row.pinnedUntil || null,
+        pinnedDuration: row.pinnedDuration || (row.pinnedUntil ? undefined : (isCurrentlyPinned ? 'forever' : undefined)),
+        hasPeriod: !!row.hasPeriod,
+        startDate: row.startDate || '',
+        endDate: row.endDate || '',
+        attachments: safeParseJSON(row.attachments, []),
+        poll: lightweightPoll,
+        comments: [],
+        viewers: [],
+        commentsCount: 0
+      };
+    });
+
+    res.json(formatted);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==========================================
 // 掲示板トピック一覧取得 (GET /api/bulletins & /api/board)
 // ==========================================
 router.get(['/bulletins', '/bulletins/', '/board', '/board/'], async (req, res) => {
@@ -535,7 +647,6 @@ router.post(['/bulletins/:id/poll/vote', '/board/:id/poll/vote', '/:id/poll/vote
     res.status(500).json({ error: err.message });
   }
 });
-
 
 // ==========================================
 // コメント個別追加 API (POST /api/bulletins/:id/comments)

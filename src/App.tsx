@@ -102,11 +102,11 @@ const mapUserFromApi = (apiUser: any): User => {
   } catch (_) {}
 
   const mergedPreferences = {
-    ...(preferences || {}),
     ...(cachedPrefs || {}),
+    ...(preferences || {}),
     emailNotifications: {
-      ...(preferences?.emailNotifications || {}),
       ...(cachedPrefs?.emailNotifications || {}),
+      ...(preferences?.emailNotifications || {}),
     }
   };
 
@@ -1074,22 +1074,42 @@ export default function App() {
     }
   };
 
-  const refetchTopics = async (currentUsers = usersList) => {
+  const refetchTopics = async (currentUsers = usersList, options?: { summary?: boolean }) => {
     try {
-      const response = await fetchWithRetry(`${API_BASE_URL}/bulletins`, {
+      const endpoint = options?.summary ? `${API_BASE_URL}/bulletins/summary?limit=30` : `${API_BASE_URL}/bulletins`;
+      let response = await fetchWithRetry(endpoint, {
         headers: { 'Accept': 'application/json' }
       });
+      // サーバー未更新時の 404 フォールバック（通常一覧への安全な切り替え）
+      if (!response.ok && options?.summary && response.status === 404) {
+        response = await fetchWithRetry(`${API_BASE_URL}/bulletins`, {
+          headers: { 'Accept': 'application/json' }
+        });
+      }
       if (!response.ok) {
         throw new Error(`HTTP status ${response.status}`);
       }
       const data = await response.json();
       if (Array.isArray(data)) {
+        // 高速化：O(1) ハッシュマップ作成で数千回の find ループを排除
+        const userMap = new Map<string, User>();
+        for (const u of currentUsers) {
+          if (u.id) userMap.set(String(u.id), u);
+          if (u.loginId) userMap.set(String(u.loginId), u);
+          if (u.name) userMap.set(u.name, u);
+        }
+        if (userState?.id) {
+          userMap.set(String(userState.id), userState);
+          if (userState.loginId) userMap.set(String(userState.loginId), userState);
+          if (userState.name) userMap.set(userState.name, userState);
+        }
+
         const mapped = data.map((t: any) => {
           let detailsObj: any = {};
           if (t.content && typeof t.content === 'string' && t.content.startsWith('{')) {
             try { detailsObj = JSON.parse(t.content); } catch (_) {}
           }
-          const authorUser = currentUsers.find(u => u.id === t.authorId) || t.author || userState;
+          const authorUser = (t.authorId ? userMap.get(String(t.authorId)) : undefined) || t.author || userState;
           
           // APIから取得したコメントをそのまま使用
           const commentsList = Array.isArray(t.comments) ? t.comments : [];
@@ -1110,15 +1130,9 @@ export default function App() {
             const uName = v.user?.name || v.name || (typeof v.user === 'string' ? v.user : undefined);
             const uLoginId = v.user?.loginId || v.loginId;
 
-            const matchedUser = currentUsers.find(u => 
-              (uId && (String(u.id) === String(uId) || String(u.loginId) === String(uId))) ||
-              (uLoginId && (String(u.loginId) === String(uLoginId) || String(u.id) === String(uLoginId))) ||
-              (uName && u.name === uName)
-            ) || (userState && (
-              (uId && (String(userState.id) === String(uId) || String(userState.loginId) === String(uId))) ||
-              (uLoginId && (String(userState.loginId) === String(uLoginId) || String(userState.id) === String(uLoginId))) ||
-              (uName && userState.name === uName)
-            ) ? userState : null);
+            const matchedUser = (uId ? userMap.get(String(uId)) : undefined) ||
+                                (uLoginId ? userMap.get(String(uLoginId)) : undefined) ||
+                                (uName ? userMap.get(uName) : undefined);
 
             let resolvedUser = matchedUser;
             if (!resolvedUser) {
@@ -1181,7 +1195,27 @@ export default function App() {
             attachments: parsedAtts
           };
         });
-        setTopics(mapped);
+
+        // サマリー取得時、既存トピックに詳細コメント等がある場合は維持マージ
+        setTopics(prevTopics => {
+          if (options?.summary && prevTopics.length > 0) {
+            const prevMap = new Map(prevTopics.map(p => [p.id, p]));
+            return mapped.map(item => {
+              const existing = prevMap.get(item.id);
+              if (existing && existing.comments && existing.comments.length > 0) {
+                return {
+                  ...item,
+                  comments: existing.comments,
+                  viewers: existing.viewers && existing.viewers.length > 0 ? existing.viewers : item.viewers,
+                  commentsCount: existing.commentsCount || item.commentsCount
+                };
+              }
+              return item;
+            });
+          }
+          return mapped;
+        });
+
         setFetchErrors(prev => { if (!prev.bulletins) return prev; const next = { ...prev }; delete next.bulletins; return next; });
       }
     } catch (err: any) {
@@ -1531,14 +1565,20 @@ export default function App() {
       if (isCancelled || isSyncing) return;
       try {
         isSyncing = true;
+        const isMyPageFastLoad = activeTab === 'mypage' && topics.length === 0;
         await Promise.allSettled([
           refetchMemos(usersList),
           refetchApplications(usersList),
-          refetchTopics(usersList),
+          refetchTopics(usersList, { summary: isMyPageFastLoad }),
           refetchEvents(usersList),
           refetchReports(usersList),
           refetchSafetyEvents(),
         ]);
+        if (isMyPageFastLoad) {
+          setTimeout(() => {
+            if (!isCancelled) refetchTopics(usersList);
+          }, 1500);
+        }
       } catch (err) {
         console.warn('[Overall Polling] Sync error:', err);
       } finally {

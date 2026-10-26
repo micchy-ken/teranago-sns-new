@@ -4789,6 +4789,80 @@ async function startServer() {
     }
   }
 
+  // 掲示板トピック・サマリー取得 (GET /api/bulletins/summary & /api/board/summary)
+  // マイページ・速報表示用（最新N件・単一クエリ高速取得）
+  app.get([
+    '/api/bulletins/summary',
+    '/api/bulletins/summary/',
+    '/api/board/summary',
+    '/api/board/summary/'
+  ], (req, res) => {
+    try {
+      const allBulletins = loadBulletins();
+      const limit = Math.min(Math.max(parseInt(req.query.limit as string, 10) || 20, 1), 100);
+      const nowMs = Date.now();
+      const sliced = allBulletins.slice(0, limit);
+
+      const summaryList = sliced.map((topic: any) => {
+        let isPollAutoPinned = false;
+        if (topic.poll && topic.poll.autoPinUntilDeadline && topic.poll.deadline) {
+          const trimmed = String(topic.poll.deadline).trim();
+          const deadlineMs = /^\d{4}-\d{2}-\d{2}$/.test(trimmed)
+            ? new Date(`${trimmed}T23:59:59.999+09:00`).getTime()
+            : new Date(trimmed).getTime();
+          if (!isNaN(deadlineMs) && deadlineMs > nowMs) {
+            isPollAutoPinned = true;
+          }
+        }
+
+        const isCurrentlyPinned = isPollAutoPinned || (!!topic.isPinned && (!topic.pinnedUntil || new Date(topic.pinnedUntil).getTime() > nowMs));
+        
+        let lightweightPoll = null;
+        if (topic.poll) {
+          lightweightPoll = {
+            question: topic.poll.question || topic.poll.title || '',
+            deadline: topic.poll.deadline || null,
+            autoPinUntilDeadline: !!topic.poll.autoPinUntilDeadline,
+            votes: Array.isArray(topic.poll.votes)
+              ? topic.poll.votes.map((v: any) => ({ userId: String(v.userId) }))
+              : []
+          };
+        }
+
+        return {
+          id: String(topic.id),
+          category: topic.category || 'general',
+          title: topic.title,
+          content: topic.content,
+          author: topic.author || { id: 'unknown', name: '匿名' },
+          createdAt: topic.createdAt,
+          views: topic.views || 0,
+          likes: topic.likes || 0,
+          office: topic.office || '全社',
+          division: topic.division || '全部署',
+          scope: topic.scope || '全社',
+          tags: Array.isArray(topic.tags) ? topic.tags : (topic.tags ? [topic.tags] : []),
+          isPinned: isCurrentlyPinned,
+          pinnedUntil: topic.pinnedUntil || null,
+          pinnedDuration: topic.pinnedDuration || null,
+          hasPeriod: !!topic.hasPeriod,
+          startDate: topic.startDate || '',
+          endDate: topic.endDate || '',
+          attachments: topic.attachments || [],
+          poll: lightweightPoll,
+          comments: [],
+          viewers: [],
+          commentsCount: topic.commentsCount || 0
+        };
+      });
+
+      res.json(summaryList);
+    } catch (err: any) {
+      console.error('Failed to get bulletins summary:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // 掲示板トピック一覧取得 (GET /api/bulletins & /api/board)
   app.get(['/api/bulletins', '/api/bulletins/', '/api/board', '/api/board/'], (req, res) => {
     try {

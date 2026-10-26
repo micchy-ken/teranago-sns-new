@@ -1035,8 +1035,10 @@ export function MyPage({
   }, [allActivePolls, user?.id]);
 
   // 2. 対象の掲示板トピック（全社・自拠点・自部署宛て、または自分が投稿）
-  const myTopics = topics
-    .filter((t) => {
+  const myTopics = useMemo(() => {
+    if (!topics || !topics.length) return [];
+    return topics
+      .filter((t) => {
       // 自分が投稿・作成したトピックは常にマイページに表示
       const isAuthor =
         (t.author?.id && user?.id && String(t.author.id) === String(user.id)) ||
@@ -1074,8 +1076,11 @@ export function MyPage({
       // 2. 作成日時降順
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
+  }, [topics, user?.id, user?.name, user?.office, user?.division, user?.department]);
 
-  const unreadTopics = myTopics.filter((t) => isTopicUnread(t, user, readTopicIds));
+  const unreadTopics = useMemo(() => {
+    return myTopics.filter((t) => isTopicUnread(t, user, readTopicIds));
+  }, [myTopics, user, readTopicIds]);
 
   // 未回答のアンケート付きトピック（期限内かつ自分が未回答）
   const unansweredPollTopics = useMemo(() => {

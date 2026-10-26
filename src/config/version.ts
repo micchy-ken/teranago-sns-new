@@ -14,11 +14,11 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.26.4',
+  version: '2026.10.26.10',
   date: '2026-10-26',
-  releaseNumber: 4,
-  display: 'v2026.10.26 #4',
-  description: 'カレンダーのマイグループ管理機能の実装（グループ登録・編集・メンバー検索選択・チーム表示切り替え・プリセット連携）',
+  releaseNumber: 10,
+  display: 'v2026.10.26 #10',
+  description: 'マイページ高速表示用エンドポイント GET /bulletins/summary の新設（単一テーブル高速取得・既存SQL完全保護）とフロントエンド高速初期ロード対応',
 };
 
 
