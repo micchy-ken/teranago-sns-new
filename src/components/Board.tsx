@@ -160,6 +160,37 @@ export function Board({
   const filteredAndSortedTopics = useMemo(() => {
     return topics
       .filter(t => {
+        // 限定公開 (isStrictScope) 制御: 指定拠点・部署以外のユーザーには完全非表示
+        if (t.isStrictScope && currentUser) {
+          const isAuthor =
+            (t.author?.id && String(t.author.id) === String(currentUser.id)) ||
+            (t.author?.name && t.author.name === currentUser.name) ||
+            ((t as any).authorId && String((t as any).authorId) === String(currentUser.id));
+          const isAdmin = currentUser.role === 'admin' || currentUser.isAdmin;
+
+          if (!isAuthor && !isAdmin) {
+            const userOffice = currentUser.office || '';
+            const userDivision = currentUser.division || '';
+            const userDept = currentUser.department || '';
+
+            if (t.office && t.office !== '全社') {
+              const matchOffice =
+                t.office === userOffice ||
+                (userOffice && t.office.includes(userOffice)) ||
+                (userDept && userDept.includes(t.office));
+              if (!matchOffice) return false;
+            }
+
+            if (t.division && t.division !== '全部署') {
+              const matchDivision =
+                t.division === userDivision ||
+                (userDivision && t.division.includes(userDivision)) ||
+                (userDept && userDept.includes(t.division));
+              if (!matchDivision) return false;
+            }
+          }
+        }
+
         // タグフィルタ
         if (selectedTag !== 'ALL') {
           if (!t.tags || !t.tags.includes(selectedTag)) return false;
@@ -208,7 +239,7 @@ export function Board({
         // 日付降順
         return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
       });
-  }, [topics, selectedTag, selectedOffice, selectedDivision, searchQuery, onlyFavorites, favoriteSet, onlyPolls]);
+  }, [topics, currentUser, selectedTag, selectedOffice, selectedDivision, searchQuery, onlyFavorites, favoriteSet, onlyPolls]);
 
   const handleCreateSubmit = (topicData: Omit<BoardTopic, 'id' | 'createdAt' | 'views' | 'commentsCount'>) => {
     if (onAddTopic) {

@@ -126,6 +126,32 @@ export function formatDateDividerLabel(isoDateStr: string | undefined | null): s
   }
 }
 
+/**
+ * チャットルームの最新アクティビティ（最新メッセージの送信日時、またはルーム更新日時）をミリ秒タイムスタンプで返却する関数
+ */
+export function getLatestRoomTimestamp(room: ChatRoom): number {
+  let maxTime = 0;
+  if (room.messages && room.messages.length > 0) {
+    for (let i = room.messages.length - 1; i >= 0; i--) {
+      const msg = room.messages[i];
+      if (msg && msg.createdAt) {
+        const t = new Date(msg.createdAt).getTime();
+        if (!isNaN(t) && t > maxTime) {
+          maxTime = t;
+        }
+      }
+    }
+  }
+  if (maxTime > 0) return maxTime;
+
+  const updatedStr = room.lastUpdated || (room as any).updatedAt;
+  if (updatedStr) {
+    const t = new Date(updatedStr).getTime();
+    if (!isNaN(t) && t > 0) return t;
+  }
+  return 0;
+}
+
 // カスタムスタンプ型定義
 export interface ChatStampItem {
   id: string;
@@ -643,12 +669,18 @@ export function Chat({
   initialRoomId,
   refetchRooms
 }: ChatProps) {
-  // 自分が参加している部屋のみを抽出
-  const myRooms = rooms.filter((r) => r.participants && r.participants.some((p) => p.id === currentUser.id));
+  // 自分が参加している部屋のみを抽出し、最近の書き込みがあった順（最新メッセージ日時または更新日時降順）に並べ替え
+  const myRooms = useMemo(() => {
+    return rooms
+      .filter((r) => r.participants && r.participants.some((p) => p.id === currentUser?.id))
+      .sort((a, b) => getLatestRoomTimestamp(b) - getLatestRoomTimestamp(a));
+  }, [rooms, currentUser?.id]);
 
   const [activeRoomId, setActiveRoomId] = useState<string>(() => {
-    const initial = rooms.filter((r) => r.participants && r.participants.some((p) => p.id === currentUser.id))[0]?.id || '';
-    return initial;
+    const sortedInitial = rooms
+      .filter((r) => r.participants && r.participants.some((p) => p.id === currentUser?.id))
+      .sort((a, b) => getLatestRoomTimestamp(b) - getLatestRoomTimestamp(a));
+    return sortedInitial[0]?.id || '';
   });
   const [mobileView, setMobileView] = useState<'list' | 'room'>(() => initialRoomId ? 'room' : 'list');
   const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });

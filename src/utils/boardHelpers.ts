@@ -52,7 +52,7 @@ export function formatPinnedUntilBadge(pinnedUntil?: string | null, poll?: Board
         const d = new Date(deadlineMs);
         const month = d.getMonth() + 1;
         const day = d.getDate();
-        return `（📊 アンケート自動固定中: あと${diffDays}日 / 〜${month}/${day}まで）`;
+        return `（あと${diffDays}日 / 〜${month}/${day}まで）`;
       }
     }
   }

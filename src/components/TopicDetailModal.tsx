@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { X, MessageSquare, Eye, Pin, Paperclip, Calendar as CalendarIcon, Send, Trash2, Building2, Users, Tag, CheckCircle2, Edit3, Save, Plus, Loader2, Eye as EyeIcon, Download, UploadCloud, Share2, Check, Star, BarChart2, AlertCircle, Clock, CheckSquare } from 'lucide-react';
+import { X, MessageSquare, Eye, Pin, Paperclip, Calendar as CalendarIcon, Send, Trash2, Building2, Users, Tag, CheckCircle2, Edit3, Save, Plus, Loader2, Eye as EyeIcon, Download, UploadCloud, Share2, Check, Star, BarChart2, AlertCircle, Clock, CheckSquare, Lock } from 'lucide-react';
 import { BoardTopic, User, OfficeMaster, DivisionMaster, AttachmentFile, BoardViewer, BoardPollVote, BoardPoll } from '../types';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
@@ -70,6 +70,7 @@ export function TopicDetailModal({
   const editPasteHandler = useUrlPasteHandler(editContent, setEditContent);
   const [editOffice, setEditOffice] = useState('');
   const [editDivision, setEditDivision] = useState('');
+  const [editIsStrictScope, setEditIsStrictScope] = useState(false);
   const [editIsPinned, setEditIsPinned] = useState(false);
   const [editPinnedPeriod, setEditPinnedPeriod] = useState<'1week' | '1month' | 'forever'>('1week');
   const [editHasPeriod, setEditHasPeriod] = useState(false);
@@ -221,6 +222,7 @@ export function TopicDetailModal({
           setEditContent(topic.content || '');
           setEditOffice(topic.office || '全社');
           setEditDivision(topic.division || '全部署');
+          setEditIsStrictScope(!!topic.isStrictScope);
           setEditIsPinned(!!topic.isPinned);
           if (topic.isPinned) {
             if (topic.pinnedDuration) {
@@ -502,6 +504,7 @@ export function TopicDetailModal({
       content: (editContent || '').trim(),
       office: editOffice,
       division: editDivision,
+      isStrictScope: editIsStrictScope,
       isPinned: finalIsPinned,
       pinnedUntil: finalPinnedUntil,
       pinnedDuration: editIsPinned ? editPinnedPeriod : undefined,
@@ -935,6 +938,21 @@ export function TopicDetailModal({
                 </div>
               </div>
 
+              <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+                <label className="flex items-center gap-2 cursor-pointer select-none text-xs font-bold text-slate-700 hover:text-indigo-900 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={editIsStrictScope}
+                    onChange={e => setEditIsStrictScope(e.target.checked)}
+                    className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 cursor-pointer"
+                  />
+                  <span className="flex items-center gap-1">
+                    <Lock className="w-3.5 h-3.5 text-indigo-600" />
+                    公開範囲のみ表示（指定拠点・部署以外のユーザーには限定非表示）
+                  </span>
+                </label>
+              </div>
+
               <div className="relative">
                 <label className="block text-xs font-bold text-slate-700 mb-1">内容 <span className="text-red-500">*</span></label>
                 <UrlPastePopup
@@ -1338,6 +1356,13 @@ export function TopicDetailModal({
                   <Users className="w-3.5 h-3.5 text-slate-500" />
                   部署: {topic.division || '全部署'}
                 </span>
+
+                {topic.isStrictScope && (
+                  <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1 bg-rose-50 text-rose-800 border border-rose-200 rounded-lg" title="指定拠点・部署以外のユーザーには限定非表示">
+                    <Lock className="w-3.5 h-3.5 text-rose-600" />
+                    公開範囲限定
+                  </span>
+                )}
 
                 {topic.hasPeriod && topic.startDate && topic.endDate && (
                   <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 bg-amber-50 text-amber-800 border border-amber-200 rounded-lg">

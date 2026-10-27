@@ -1841,9 +1841,29 @@ export function Calendar({
       return (h - minHour + m / 60) * slotWidth;
     };
 
+    // 「工事」表示モード時は2行目の不要なサブツールバーを丸ごと排除し、直接「現場ガントタイムライン」を展開
+    if (teamDaySubView === 'construction') {
+      return (
+        <div className="w-full h-full flex flex-col bg-white overflow-hidden">
+          <CalendarConstructionTimeline
+            currentDate={currentDate}
+            onChangeDate={setCurrentDate}
+            teamMembers={teamMembers}
+            allUsers={allUsers || []}
+            events={filteredEvents}
+            sites={internalSites}
+            onEventClick={handleEventClick}
+            onOpenAddEvent={(dateStr) => openAddModalWithDate(dateStr || `${getLocalDateStr(currentDate)}T09:00:00`)}
+            onNavigateToSite={onNavigateToSite}
+            calendarSettings={calendarSettings}
+          />
+        </div>
+      );
+    }
+
     return (
       <div className="w-full h-full flex flex-col bg-white overflow-hidden">
-        {/* サブ表示切り替えツールバー (タイムライン / 工事タイムライン / 現在地マップ / 簡易エリア別カード) */}
+        {/* 日表示時のサブ表示切り替えツールバー (タイムライン / 現在地マップ / 簡易エリア別カード) */}
         <div className="p-2 bg-slate-100 border-b border-slate-200 flex items-center justify-between shrink-0 z-20 flex-wrap gap-2">
           <div className="flex items-center gap-1 bg-white p-0.5 rounded-lg border border-slate-200 shadow-2xs text-xs font-bold">
             <button
@@ -1856,17 +1876,6 @@ export function Calendar({
             >
               <CalendarIcon className="w-3.5 h-3.5" />
               <span>📅 タイムライン表示</span>
-            </button>
-            <button
-              onClick={() => setTeamDaySubView('construction')}
-              className={`px-3 py-1 rounded-md transition-all flex items-center gap-1.5 cursor-pointer ${
-                teamDaySubView === 'construction'
-                  ? 'bg-amber-600 text-white shadow-2xs font-extrabold'
-                  : 'text-slate-600 hover:text-amber-800 hover:bg-amber-50'
-              }`}
-            >
-              <HardHat className="w-3.5 h-3.5" />
-              <span>🏗️ 工事タイムライン</span>
             </button>
             <button
               onClick={() => setTeamDaySubView('map')}
@@ -1892,29 +1901,13 @@ export function Calendar({
           </div>
 
           <div className="text-[11px] text-slate-500 hidden md:block font-medium">
-            {teamDaySubView === 'construction' && '※ 現場ごとの乗り込み種別（新規・残・出庫有）とタイムライン一覧'}
             {teamDaySubView === 'map' && '※ メンバーの予定と「前の所在地＋移動中」を東海4県マップ上に自動判定表示します'}
             {teamDaySubView === 'cards' && '※ 東海4県の主要エリア別にメンバーの現在地・移動状況を一覧カード表示します'}
             {teamDaySubView === 'timeline' && '※ チームメンバーの空き枠と時間軸スケジュール一覧'}
           </div>
         </div>
 
-        {teamDaySubView === 'construction' ? (
-          <div className="flex-1 overflow-hidden">
-            <CalendarConstructionTimeline
-              currentDate={currentDate}
-              onChangeDate={setCurrentDate}
-              teamMembers={teamMembers}
-              allUsers={allUsers || []}
-              events={filteredEvents}
-              sites={internalSites}
-              onEventClick={handleEventClick}
-              onOpenAddEvent={(dateStr) => openAddModalWithDate(dateStr || `${getLocalDateStr(currentDate)}T09:00:00`)}
-              onNavigateToSite={onNavigateToSite}
-              calendarSettings={calendarSettings}
-            />
-          </div>
-        ) : teamDaySubView === 'map' ? (
+        {teamDaySubView === 'map' ? (
           <div className="flex-1 overflow-hidden p-2">
             <TeamLocationMap
               currentDate={currentDate}
@@ -2515,14 +2508,20 @@ export function Calendar({
               <div className="flex items-center gap-1.5">
                 {/* チーム表示対象セレクター (所属 or マイグループ) */}
                 <select
-                  value={selectedGroupId}
+                  value={selectedGroupId === 'org' ? 'org' : 'mygroup'}
                   onChange={e => {
-                    const val = e.target.value;
-                    if (val === '__manage__') {
-                      setSettingsModalTab('groups');
-                      setIsSettingsModalOpen(true);
+                    const mode = e.target.value;
+                    if (mode === 'org') {
+                      setSelectedGroupId('org');
                     } else {
-                      setSelectedGroupId(val);
+                      if (memberGroups.length > 0) {
+                        if (selectedGroupId === 'org') {
+                          setSelectedGroupId(memberGroups[0].id);
+                        }
+                      } else {
+                        setSettingsModalTab('groups');
+                        setIsSettingsModalOpen(true);
+                      }
                     }
                   }}
                   className={`border rounded px-2 py-1 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-2xs transition-colors ${
@@ -2532,15 +2531,8 @@ export function Calendar({
                   }`}
                   title="チーム表示対象の切り替え"
                 >
-                  <option value="org">🏢 所属（拠点・部署）で表示</option>
-                  {memberGroups.length > 0 && (
-                    <optgroup label="⭐ マイグループ">
-                      {memberGroups.map(g => (
-                        <option key={g.id} value={g.id}>👥 {g.name} ({g.memberIds.length}名)</option>
-                      ))}
-                    </optgroup>
-                  )}
-                  <option value="__manage__">⚙️ マイグループを管理・作成...</option>
+                  <option value="org">🏢 所属</option>
+                  <option value="mygroup">👥 マイグループ</option>
                 </select>
 
                 {selectedGroupId === 'org' ? (
@@ -2549,6 +2541,7 @@ export function Calendar({
                       value={selectedOffice}
                       onChange={e => setSelectedOffice(e.target.value)}
                       className="bg-white border border-slate-200 rounded px-2 py-1 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-2xs"
+                      title="拠点フィルター"
                     >
                       {officeNames.filter(o => o !== '全社' && o !== '全拠点').map(o => (
                         <option key={o} value={o}>{o}</option>
@@ -2558,6 +2551,7 @@ export function Calendar({
                       value={selectedDivision}
                       onChange={e => setSelectedDivision(e.target.value)}
                       className="bg-white border border-slate-200 rounded px-2 py-1 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-2xs"
+                      title="部署フィルター"
                     >
                       {divisionNames.filter(d => d !== '全部署').map(d => (
                         <option key={d} value={d}>{d}</option>
@@ -2565,18 +2559,29 @@ export function Calendar({
                     </select>
                   </>
                 ) : (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSettingsModalTab('groups');
-                      setIsSettingsModalOpen(true);
+                  <select
+                    value={selectedGroupId}
+                    onChange={e => {
+                      const val = e.target.value;
+                      if (val === '__manage__') {
+                        setSettingsModalTab('groups');
+                        setIsSettingsModalOpen(true);
+                      } else {
+                        setSelectedGroupId(val);
+                      }
                     }}
-                    className="flex items-center gap-1 px-2 py-1 rounded bg-indigo-100 hover:bg-indigo-200 text-indigo-800 text-[11px] font-bold transition-colors cursor-pointer"
-                    title="マイグループの管理・編集"
+                    className="bg-indigo-50/80 border border-indigo-300 text-indigo-900 ring-1 ring-indigo-200 rounded px-2 py-1 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-2xs"
+                    title="マイグループ一覧・管理"
                   >
-                    <Users className="w-3.5 h-3.5" />
-                    <span>グループ編集</span>
-                  </button>
+                    {memberGroups.length > 0 ? (
+                      memberGroups.map(g => (
+                        <option key={g.id} value={g.id}>👥 {g.name} ({g.memberIds.length}名)</option>
+                      ))
+                    ) : (
+                      <option value="" disabled>登録されているマイグループはありません</option>
+                    )}
+                    <option value="__manage__">⚙️ マイグループの管理・作成...</option>
+                  </select>
                 )}
               </div>
             )}
@@ -3018,31 +3023,23 @@ export function Calendar({
                     {calendarMode === 'team' && (
                       <div className="space-y-2 pt-1 border-t border-slate-100">
                         <div>
-                          <div className="flex items-center justify-between mb-1">
-                            <label className="text-[11px] font-bold text-slate-600">表示対象</label>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setSettingsModalTab('groups');
-                                setIsSettingsModalOpen(true);
-                                setIsFavoritesMobileOpen(false);
-                              }}
-                              className="text-[10px] text-indigo-600 font-bold hover:underline flex items-center gap-0.5 cursor-pointer"
-                            >
-                              <Users className="w-3 h-3" />
-                              <span>グループ管理</span>
-                            </button>
-                          </div>
+                          <label className="text-[11px] font-bold text-slate-600 mb-1 block">チーム表示基準</label>
                           <select
-                            value={selectedGroupId}
+                            value={selectedGroupId === 'org' ? 'org' : 'mygroup'}
                             onChange={e => {
-                              const val = e.target.value;
-                              if (val === '__manage__') {
-                                setSettingsModalTab('groups');
-                                setIsSettingsModalOpen(true);
-                                setIsFavoritesMobileOpen(false);
+                              const mode = e.target.value;
+                              if (mode === 'org') {
+                                setSelectedGroupId('org');
                               } else {
-                                setSelectedGroupId(val);
+                                if (memberGroups.length > 0) {
+                                  if (selectedGroupId === 'org') {
+                                    setSelectedGroupId(memberGroups[0].id);
+                                  }
+                                } else {
+                                  setSettingsModalTab('groups');
+                                  setIsSettingsModalOpen(true);
+                                  setIsFavoritesMobileOpen(false);
+                                }
                               }
                             }}
                             className={`w-full border rounded px-2 py-1 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
@@ -3051,19 +3048,12 @@ export function Calendar({
                                 : 'bg-slate-50 border-slate-200 text-slate-800'
                             }`}
                           >
-                            <option value="org">🏢 所属（拠点・部署）で表示</option>
-                            {memberGroups.length > 0 && (
-                              <optgroup label="⭐ マイグループ">
-                                {memberGroups.map(g => (
-                                  <option key={g.id} value={g.id}>👥 {g.name} ({g.memberIds.length}名)</option>
-                                ))}
-                              </optgroup>
-                            )}
-                            <option value="__manage__">⚙️ マイグループを管理・作成...</option>
+                            <option value="org">🏢 所属</option>
+                            <option value="mygroup">👥 マイグループ</option>
                           </select>
                         </div>
 
-                        {selectedGroupId === 'org' && (
+                        {selectedGroupId === 'org' ? (
                           <>
                             <div>
                               <label className="text-[11px] font-bold text-slate-600 mb-1 block">拠点</label>
@@ -3090,6 +3080,33 @@ export function Calendar({
                               </select>
                             </div>
                           </>
+                        ) : (
+                          <div>
+                            <label className="text-[11px] font-bold text-slate-600 mb-1 block">マイグループ選択</label>
+                            <select
+                              value={selectedGroupId}
+                              onChange={e => {
+                                const val = e.target.value;
+                                if (val === '__manage__') {
+                                  setSettingsModalTab('groups');
+                                  setIsSettingsModalOpen(true);
+                                  setIsFavoritesMobileOpen(false);
+                                } else {
+                                  setSelectedGroupId(val);
+                                }
+                              }}
+                              className="w-full bg-indigo-50/80 border border-indigo-300 text-indigo-900 rounded px-2 py-1 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                            >
+                              {memberGroups.length > 0 ? (
+                                memberGroups.map(g => (
+                                  <option key={g.id} value={g.id}>👥 {g.name} ({g.memberIds.length}名)</option>
+                                ))
+                              ) : (
+                                <option value="" disabled>登録されているマイグループはありません</option>
+                              )}
+                              <option value="__manage__">⚙️ マイグループの管理・作成...</option>
+                            </select>
+                          </div>
                         )}
                       </div>
                     )}

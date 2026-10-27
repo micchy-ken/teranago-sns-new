@@ -48,8 +48,12 @@ const OFFICE_BASE_LOCATIONS: Record<string, { coords: [number, number]; address:
   '本社': { coords: [35.1932, 136.9110], address: '愛知県名古屋市北区清水5-10-2', name: '名古屋拠点 (清水)', badge: '🏢 名古屋拠点', regionKey: 'nagoya_owari' },
   '名古屋': { coords: [35.1932, 136.9110], address: '愛知県名古屋市北区清水5-10-2', name: '名古屋拠点 (清水)', badge: '🏢 名古屋拠点', regionKey: 'nagoya_owari' },
   '名古屋支店': { coords: [35.1932, 136.9110], address: '愛知県名古屋市北区清水5-10-2', name: '名古屋拠点 (清水)', badge: '🏢 名古屋拠点', regionKey: 'nagoya_owari' },
+  '浜松': { coords: [34.7108, 137.7261], address: '静岡県浜松市中央区', name: '浜松営業所', badge: '🏢 浜松営業所', regionKey: 'shizuoka' },
+  '浜松営業所': { coords: [34.7108, 137.7261], address: '静岡県浜松市中央区', name: '浜松営業所', badge: '🏢 浜松営業所', regionKey: 'shizuoka' },
+  '浜松オフィス': { coords: [34.7108, 137.7261], address: '静岡県浜松市中央区', name: '浜松営業所', badge: '🏢 浜松営業所', regionKey: 'shizuoka' },
   '静岡': { coords: [34.9756, 138.3828], address: '静岡県静岡市葵区', name: '静岡営業所', badge: '🏢 静岡営業所', regionKey: 'shizuoka' },
   '静岡営業所': { coords: [34.9756, 138.3828], address: '静岡県静岡市葵区', name: '静岡営業所', badge: '🏢 静岡営業所', regionKey: 'shizuoka' },
+  '静岡支店': { coords: [34.9756, 138.3828], address: '静岡県静岡市葵区', name: '静岡営業所', badge: '🏢 静岡営業所', regionKey: 'shizuoka' },
   '三河': { coords: [34.9548, 137.1723], address: '愛知県岡崎市', name: '三河営業所', badge: '🏢 三河営業所', regionKey: 'mikawa' },
   '三河営業所': { coords: [34.9548, 137.1723], address: '愛知県岡崎市', name: '三河営業所', badge: '🏢 三河営業所', regionKey: 'mikawa' },
   '岡崎': { coords: [34.9548, 137.1723], address: '愛知県岡崎市', name: '三河営業所', badge: '🏢 三河営業所', regionKey: 'mikawa' },
@@ -65,16 +69,21 @@ const OFFICE_BASE_LOCATIONS: Record<string, { coords: [number, number]; address:
 };
 
 function resolveUserBaseLocation(user: User, offices?: OfficeMaster[]): { coords: [number, number]; address: string; name: string; badge: string; regionKey: MemberLocationStatus['regionKey'] } {
-  const officeName = user.office || user.department || '';
+  const rawOffice = (user.office || user.department || '').trim();
 
+  // 1. OFFICE_BASE_LOCATIONS との直接・部分キーワード一致
   for (const [key, base] of Object.entries(OFFICE_BASE_LOCATIONS)) {
-    if (officeName.includes(key)) {
+    if (rawOffice.includes(key)) {
       return base;
     }
   }
 
+  // 2. 拠点マスター (offices) とのマッチング
   if (offices && offices.length > 0) {
-    const matchedOffice = offices.find(o => officeName.includes(o.name) || o.name.includes(officeName));
+    const matchedOffice = offices.find(o => 
+      (rawOffice && (rawOffice.includes(o.name) || o.name.includes(rawOffice))) ||
+      (o.code && rawOffice.includes(o.code))
+    );
     if (matchedOffice) {
       const matchedKey = matchedOffice.name;
       for (const [key, base] of Object.entries(OFFICE_BASE_LOCATIONS)) {
@@ -82,17 +91,33 @@ function resolveUserBaseLocation(user: User, offices?: OfficeMaster[]): { coords
           return base;
         }
       }
-      let badge = '🏢 拠点';
+      let badge = `🏢 ${matchedOffice.name}`;
       if (matchedOffice.type === 'branch') badge = `🏢 ${matchedOffice.name} (支店)`;
       else if (matchedOffice.type === 'sales_office') badge = `🏢 ${matchedOffice.name} (営業所)`;
       else if (matchedOffice.type === 'headquarter') badge = `🏢 ${matchedOffice.name} (本社)`;
 
+      const geocoded = resolveLocationWithFullHierarchy(matchedOffice.location || matchedOffice.name);
+
       return {
-        coords: DEFAULT_HEADQUARTERS.coords,
+        coords: geocoded.coords,
         address: matchedOffice.location || DEFAULT_HEADQUARTERS.address,
         name: matchedOffice.name,
         badge,
-        regionKey: 'nagoya_owari'
+        regionKey: geocoded.regionKey || 'nagoya_owari'
+      };
+    }
+  }
+
+  // 3. 所属表記自体 (例: 「浜松営業所」「静岡支社」「豊橋営業所」) から自動ジオコーディング
+  if (rawOffice) {
+    const geocoded = resolveLocationWithFullHierarchy(rawOffice);
+    if (geocoded && geocoded.source !== 'fallback_base') {
+      return {
+        coords: geocoded.coords,
+        address: rawOffice,
+        name: rawOffice,
+        badge: `🏢 ${rawOffice}`,
+        regionKey: geocoded.regionKey || 'shizuoka'
       };
     }
   }

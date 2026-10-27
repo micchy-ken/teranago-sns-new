@@ -14,11 +14,11 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.26.15',
+  version: '2026.10.26.25',
   date: '2026-10-26',
-  releaseNumber: 15,
-  display: 'v2026.10.26 #15',
-  description: 'カレンダーチーム日表示のメンバー毎全件探索（75,000回ループ）撤去および O(1) 辞書引き化（日付移動処理の爆速化・3秒➔数ミリ秒化）',
+  releaseNumber: 25,
+  display: 'v2026.10.26 #25',
+  description: '掲示板投稿への「公開範囲のみ表示 (isStrictScope)」チェックボックスの追加および対象拠点・部署外の社員に対する限定非表示（閲覧制限）の適用',
 };
 
 

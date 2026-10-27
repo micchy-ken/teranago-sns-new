@@ -403,6 +403,7 @@ export interface BoardTopic {
   office?: string;    // 公開範囲（拠点: 全社、本社、名古屋支店など）
   division?: string;  // 公開範囲（部署: 全部署、営業、設計など）
   scope?: string;     // 公開範囲のスコープ
+  isStrictScope?: boolean; // 公開範囲のみ表示フラグ（指定拠点・部署以外のユーザーには限定非表示）
   tags: string[];     // タグ配列
   attachments?: AttachmentFile[];
   hasPeriod?: boolean;  // 公開期間設定（デフォルト: false）

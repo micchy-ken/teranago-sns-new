@@ -137,6 +137,7 @@ async function ensureBulletinTables(pool) {
       IF COL_LENGTH('dbo.Bulletins', 'attachments') IS NULL ALTER TABLE dbo.Bulletins ADD attachments NVARCHAR(MAX) NULL;
       IF COL_LENGTH('dbo.Bulletins', 'pinnedUntil') IS NULL ALTER TABLE dbo.Bulletins ADD pinnedUntil VARCHAR(40) NULL;
       IF COL_LENGTH('dbo.Bulletins', 'poll') IS NULL ALTER TABLE dbo.Bulletins ADD poll NVARCHAR(MAX) NULL;
+      IF COL_LENGTH('dbo.Bulletins', 'isStrictScope') IS NULL ALTER TABLE dbo.Bulletins ADD isStrictScope BIT NULL DEFAULT 0;
 
       IF COL_LENGTH('dbo.BoardComments', 'bulletinId') IS NULL ALTER TABLE dbo.BoardComments ADD bulletinId VARCHAR(50) NULL;
       IF COL_LENGTH('dbo.BoardComments', 'topicId') IS NULL ALTER TABLE dbo.BoardComments ADD topicId VARCHAR(50) NULL;
@@ -250,6 +251,7 @@ router.get([
         office: row.office || '全社',
         division: row.division || '全部署',
         scope: row.scope || '全社',
+        isStrictScope: !!row.isStrictScope,
         tags: row.tags ? (typeof row.tags === 'string' ? row.tags.split(',').map(t => t.trim()).filter(Boolean) : row.tags) : [],
         isPinned: isCurrentlyPinned,
         pinnedUntil: row.pinnedUntil || null,
@@ -376,6 +378,7 @@ router.get(['/bulletins', '/bulletins/', '/board', '/board/'], async (req, res) 
         office: row.office || '全社',
         division: row.division || '全部署',
         scope: row.scope || '全社',
+        isStrictScope: !!row.isStrictScope,
         tags: row.tags ? (typeof row.tags === 'string' ? row.tags.split(',').map(t => t.trim()).filter(Boolean) : row.tags) : [],
         isPinned: isCurrentlyPinned,
         pinnedUntil: row.pinnedUntil || null,
@@ -400,7 +403,7 @@ router.get(['/bulletins', '/bulletins/', '/board', '/board/'], async (req, res) 
 // ==========================================
 router.post(['/bulletins', '/bulletins/', '/board', '/board/'], async (req, res) => {
   try {
-    const { title, content, category, authorId, isPinned, office, division, scope, tags, attachments, hasPeriod, startDate, endDate, pinnedUntil, poll } = req.body;
+    const { title, content, category, authorId, isPinned, office, division, scope, isStrictScope, tags, attachments, hasPeriod, startDate, endDate, pinnedUntil, poll } = req.body;
     const pool = await getPool();
     const id = req.body.id || `b-${Date.now()}`;
 
@@ -423,6 +426,7 @@ router.post(['/bulletins', '/bulletins/', '/board', '/board/'], async (req, res)
       .input('office', sql.NVarChar, office || '全社')
       .input('division', sql.NVarChar, division || '全部署')
       .input('scope', sql.NVarChar, scope || '全社')
+      .input('isStrictScope', sql.Bit, isStrictScope ? 1 : 0)
       .input('tags', sql.NVarChar, Array.isArray(tags) ? tags.join(',') : (tags || ''))
       .input('hasPeriod', sql.Bit, hasPeriod ? 1 : 0)
       .input('startDate', sql.VarChar, startDate || null)
@@ -430,8 +434,8 @@ router.post(['/bulletins', '/bulletins/', '/board', '/board/'], async (req, res)
       .input('attachments', sql.NVarChar, attachments ? JSON.stringify(attachments) : null)
       .input('poll', sql.NVarChar, pollStr)
       .query(`
-        INSERT INTO dbo.Bulletins (id, title, content, category, authorId, isPinned, pinnedUntil, office, division, scope, tags, attachments, hasPeriod, startDate, endDate, poll, createdAt, views, likes)
-        VALUES (@id, @title, @content, @category, @authorId, @isPinned, @pinnedUntil, @office, @division, @scope, @tags, @attachments, @hasPeriod, @startDate, @endDate, @poll, GETDATE(), 0, 0)
+        INSERT INTO dbo.Bulletins (id, title, content, category, authorId, isPinned, pinnedUntil, office, division, scope, isStrictScope, tags, attachments, hasPeriod, startDate, endDate, poll, createdAt, views, likes)
+        VALUES (@id, @title, @content, @category, @authorId, @isPinned, @pinnedUntil, @office, @division, @scope, @isStrictScope, @tags, @attachments, @hasPeriod, @startDate, @endDate, @poll, GETDATE(), 0, 0)
       `);
     res.status(201).json({ id, message: '掲示板トピック作成完了' });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -443,7 +447,7 @@ router.post(['/bulletins', '/bulletins/', '/board', '/board/'], async (req, res)
 router.put(['/bulletins/:id', '/board/:id'], async (req, res) => {
   try {
     const id = req.params.id;
-    const { title, content, category, isPinned, office, division, scope, tags, attachments, hasPeriod, startDate, endDate, pinnedUntil, poll } = req.body;
+    const { title, content, category, isPinned, office, division, scope, isStrictScope, tags, attachments, hasPeriod, startDate, endDate, pinnedUntil, poll } = req.body;
     const pool = await getPool();
 
     if (pool) {
@@ -464,6 +468,7 @@ router.put(['/bulletins/:id', '/board/:id'], async (req, res) => {
       .input('office', sql.NVarChar, office || '全社')
       .input('division', sql.NVarChar, division || '全部署')
       .input('scope', sql.NVarChar, scope || '全社')
+      .input('isStrictScope', sql.Bit, isStrictScope ? 1 : 0)
       .input('tags', sql.NVarChar, Array.isArray(tags) ? tags.join(',') : (tags || ''))
       .input('hasPeriod', sql.Bit, hasPeriod ? 1 : 0)
       .input('startDate', sql.VarChar, startDate || null)
@@ -485,6 +490,7 @@ router.put(['/bulletins/:id', '/board/:id'], async (req, res) => {
         office = @office,
         division = @division,
         scope = @scope,
+        isStrictScope = @isStrictScope,
         tags = @tags,
         attachments = @attachments,
         hasPeriod = @hasPeriod,
