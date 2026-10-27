@@ -14,11 +14,11 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.26.27',
+  version: '2026.10.26.28',
   date: '2026-10-26',
-  releaseNumber: 27,
-  display: 'v2026.10.26 #27',
-  description: 'チャット投稿時の楽観的UI更新の即時化およびデータ同期時の未確定メッセージ保持マージ処理の適用（メッセージ消失・チラつきの完全解消）',
+  releaseNumber: 28,
+  display: 'v2026.10.26 #28',
+  description: 'チャット未確定メッセージの薄色（半透明）表示および「送信中...」ローディング表示演出の実装',
 };
 
 

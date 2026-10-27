@@ -345,6 +345,16 @@ const ChatMessageItem = React.memo(function ChatMessageItem({
   const senderAvatar = (msg.sender.id === currentUser.id ? currentUser.avatarUrl : senderUser?.avatarUrl) || msg.sender.avatarUrl;
   const senderName = (msg.sender.id === currentUser.id ? currentUser.name : senderUser?.name) || msg.sender.name;
 
+  // 未確定（送信中）仮メッセージの判定
+  const isPending =
+    typeof msg.id === 'string' &&
+    (msg.id.startsWith('m_') ||
+      msg.id.startsWith('stamp_') ||
+      msg.id.startsWith('img_') ||
+      msg.id.startsWith('album_') ||
+      msg.id.startsWith('c_') ||
+      msg.id.startsWith('temp_'));
+
   return (
     <div className="flex flex-col">
       {isDifferentDate && (
@@ -382,7 +392,7 @@ const ChatMessageItem = React.memo(function ChatMessageItem({
           </div>
         )}
 
-        <div className={`flex flex-col ${isMine ? 'items-end' : 'items-start'} max-w-[85%] sm:max-w-[75%]`}>
+        <div className={`flex flex-col ${isMine ? 'items-end' : 'items-start'} max-w-[85%] sm:max-w-[75%] ${isPending ? 'opacity-70 transition-opacity duration-300' : 'opacity-100 transition-opacity duration-300'}`}>
           {showSenderName && (
             <span className="text-[10px] sm:text-[11px] font-bold text-slate-600 mb-1 ml-1">
               {senderName}
@@ -595,47 +605,54 @@ const ChatMessageItem = React.memo(function ChatMessageItem({
 
             {/* 既読 & タイムスタンプ */}
             <div className={`flex flex-col text-[10px] text-slate-400 shrink-0 mb-0.5 ${isMine ? 'items-end' : 'items-start'}`}>
-              {(() => {
-                const viewersList = msg.viewers || [];
-                const senderId = String(msg.sender?.id ?? '');
-                // 送信者を除外した既読メンバー (IDをString型に正規化して数値・文字列の型違いによる誤カウントを完全防止)
-                const readMembers = viewersList.filter((v: any) => {
-                  const viewerId = String(v?.user?.id ?? v?.userId ?? v?.id ?? '');
-                  return viewerId !== '' && viewerId !== senderId;
-                });
-                const readCount = readMembers.length;
+              {isPending ? (
+                <div className="text-[10px] font-bold text-amber-600/90 flex items-center gap-1 my-0.5 animate-pulse" title="サーバーへ送信中...">
+                  <Loader2 className="w-2.5 h-2.5 animate-spin text-amber-600 shrink-0" />
+                  <span>送信中...</span>
+                </div>
+              ) : (
+                (() => {
+                  const viewersList = msg.viewers || [];
+                  const senderId = String(msg.sender?.id ?? '');
+                  // 送信者を除外した既読メンバー (IDをString型に正規化して数値・文字列の型違いによる誤カウントを完全防止)
+                  const readMembers = viewersList.filter((v: any) => {
+                    const viewerId = String(v?.user?.id ?? v?.userId ?? v?.id ?? '');
+                    return viewerId !== '' && viewerId !== senderId;
+                  });
+                  const readCount = readMembers.length;
 
-                // 送信者を除いたトーク参加メンバー
-                const otherParticipants = (activeRoom?.participants || []).filter(
-                  (p: any) => String(p?.id ?? '') !== senderId
-                );
-                
-                let displayText = `[既読 ${readCount}]`;
-                const isAllRead = otherParticipants.length > 0 && otherParticipants.every(
-                  (p: any) => readMembers.some((v: any) => String(v?.user?.id ?? v?.userId ?? v?.id ?? '') === String(p?.id ?? ''))
-                );
-                
-                if (readCount === 0) {
-                  displayText = '[未読]';
-                } else if (isAllRead) {
-                  displayText = '[全員が既読]';
-                }
+                  // 送信者を除いたトーク参加メンバー
+                  const otherParticipants = (activeRoom?.participants || []).filter(
+                    (p: any) => String(p?.id ?? '') !== senderId
+                  );
+                  
+                  let displayText = `[既読 ${readCount}]`;
+                  const isAllRead = otherParticipants.length > 0 && otherParticipants.every(
+                    (p: any) => readMembers.some((v: any) => String(v?.user?.id ?? v?.userId ?? v?.id ?? '') === String(p?.id ?? ''))
+                  );
+                  
+                  if (readCount === 0) {
+                    displayText = '[未読]';
+                  } else if (isAllRead) {
+                    displayText = '[全員が既読]';
+                  }
 
-                return (
-                  <button
-                    type="button"
-                    onClick={() => onOpenViewers(msg)}
-                    className={`text-[10px] font-bold hover:underline cursor-pointer bg-transparent border-none p-0 flex items-center gap-0.5 ${
-                      readCount === 0 
-                        ? 'text-slate-400 hover:text-slate-500' 
-                        : 'text-emerald-600 hover:text-emerald-700'
-                    }`}
-                    title="既読メンバーを確認"
-                  >
-                    {displayText}
-                  </button>
-                );
-              })()}
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => onOpenViewers(msg)}
+                      className={`text-[10px] font-bold hover:underline cursor-pointer bg-transparent border-none p-0 flex items-center gap-0.5 ${
+                        readCount === 0 
+                          ? 'text-slate-400 hover:text-slate-500' 
+                          : 'text-emerald-600 hover:text-emerald-700'
+                      }`}
+                      title="既読メンバーを確認"
+                    >
+                      {displayText}
+                    </button>
+                  );
+                })()
+              )}
               <span>
                 {formatChatTimestamp(msg.createdAt, false)}
               </span>
