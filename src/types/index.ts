@@ -335,6 +335,11 @@ export interface WorkflowApplication {
   stepsConfig?: ApprovalStepConfig[];
   history?: ApprovalHistoryRecord[];
   rejectReason?: string;
+
+  // 案件・報告書連携拡張プロパティ
+  jobNo?: string;
+  inspectionReportId?: string;
+  dailyReportId?: string;
   attachments?: AttachmentFile[];
 }
 

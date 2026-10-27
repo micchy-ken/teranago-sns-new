@@ -14,11 +14,11 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.26.28',
-  date: '2026-10-26',
-  releaseNumber: 28,
-  display: 'v2026.10.26 #28',
-  description: 'チャット未確定メッセージの薄色（半透明）表示および「送信中...」ローディング表示演出の実装',
+  version: '2026.10.27.1',
+  date: '2026-10-27',
+  releaseNumber: 1,
+  display: 'v2026.10.27 #1',
+  description: '点検報告書および保守日報からの重複防止機能付き部品補充依頼（補充伝票）連携機能の実装',
 };
 
 

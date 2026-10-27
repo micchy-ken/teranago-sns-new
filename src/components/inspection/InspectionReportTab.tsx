@@ -26,6 +26,13 @@ import { InspectionReportPrintView } from './InspectionReportPrintView';
 import { InspectionPhotoReportModal } from './InspectionPhotoReportModal';
 import { InspectionPhotoReportFolderModal } from './InspectionPhotoReportFolderModal';
 import { 
+  WorkflowApplication, 
+  ApprovalFlowRule, 
+  ItemMaster, 
+  ApplicationStatus 
+} from '../../types';
+import { ApplicationModal } from '../ApplicationModal';
+import { 
   FileCheck2, 
   Calendar as CalendarIcon, 
   Clock, 
@@ -51,7 +58,9 @@ import {
   CheckCircle2,
   Settings,
   Camera,
-  FolderOpen
+  FolderOpen,
+  PackagePlus,
+  PackageCheck
 } from 'lucide-react';
 import { InspectionCheckItemMasterModal } from './InspectionCheckItemMasterModal';
 
@@ -61,6 +70,11 @@ interface InspectionReportTabProps {
   events: CalendarEvent[];
   offices?: OfficeMaster[];
   divisions?: DivisionMaster[];
+  applications?: WorkflowApplication[];
+  onAddApplication?: (app: Omit<WorkflowApplication, 'id' | 'createdAt' | 'status'> & { id?: string; status?: ApplicationStatus }) => Promise<void> | void;
+  onUpdateApplication?: (app: WorkflowApplication) => Promise<void> | void;
+  approvalFlows?: ApprovalFlowRule[];
+  itemMasters?: ItemMaster[];
 }
 
 export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
@@ -69,7 +83,49 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
   events,
   offices = [],
   divisions = [],
+  applications = [],
+  onAddApplication,
+  onUpdateApplication,
+  approvalFlows = [],
+  itemMasters = [],
 }) => {
+  // 補充伝票作成・詳細参照モーダル状態
+  const [isReplenishmentModalOpen, setIsReplenishmentModalOpen] = useState(false);
+  const [selectedReplenishmentApp, setSelectedReplenishmentApp] = useState<WorkflowApplication | null>(null);
+  const [replenishmentInitialTitle, setReplenishmentInitialTitle] = useState('');
+  const [replenishmentInitialPurpose, setReplenishmentInitialPurpose] = useState('');
+
+  // 点検報告書・案件に紐づく既存の補充伝票を検索するヘルパー関数
+  const findExistingReplenishmentApp = (rep: InspectionReportRecord) => {
+    if (!applications || applications.length === 0) return null;
+    const jobNo = rep.jobNo;
+    return applications.find(app => {
+      if (app.type !== 'inventory_issue' && app.type !== 'purchase_order' && app.type !== 'purchase_request') return false;
+      if (app.jobNo && String(app.jobNo) === String(jobNo)) return true;
+      if (app.inspectionReportId && app.inspectionReportId === rep.id) return true;
+      if (jobNo && app.purchasePurpose && app.purchasePurpose.includes(jobNo)) return true;
+      if (jobNo && app.title && app.title.includes(jobNo)) return true;
+      if (rep.customerName && app.title && app.title.includes(rep.customerName)) return true;
+      return false;
+    }) || null;
+  };
+
+  const handleOpenReplenishmentForReport = (rep: InspectionReportRecord) => {
+    const existingApp = findExistingReplenishmentApp(rep);
+    if (existingApp) {
+      setSelectedReplenishmentApp(existingApp);
+      setReplenishmentInitialTitle('');
+      setReplenishmentInitialPurpose('');
+    } else {
+      setSelectedReplenishmentApp(null);
+      const titleStr = `【パーツ補充伝票】${rep.customerName || '現場'} (${rep.jobNo ? `作業No:${rep.jobNo}` : `点検日:${rep.inspectionDate}`})`;
+      const purposeStr = `案件No: ${rep.jobNo || rep.id} / 現場名: ${rep.customerName || ''} / 点検日: ${rep.inspectionDate || ''} (点検員: ${rep.inspectorName || currentUser.name})`;
+      setReplenishmentInitialTitle(titleStr);
+      setReplenishmentInitialPurpose(purposeStr);
+    }
+    setIsReplenishmentModalOpen(true);
+  };
+
   // 日本標準時（JST）の今日の日付文字列 (YYYY-MM-DD)
   const todayJst = useMemo(() => getLocalDateStr(new Date()), []);
 
@@ -859,6 +915,29 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
                           );
                         })()}
 
+                        {(() => {
+                          const existingApp = findExistingReplenishmentApp(rep);
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenReplenishmentForReport(rep)}
+                              className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs ${
+                                existingApp
+                                  ? 'bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300'
+                                  : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200'
+                              }`}
+                              title={existingApp ? `既作成の補充伝票 (${existingApp.title}) を参照` : 'この点検からパーツ補充伝票を作成'}
+                            >
+                              {existingApp ? (
+                                <PackageCheck className="w-4 h-4 text-amber-700" />
+                              ) : (
+                                <PackagePlus className="w-4 h-4 text-amber-600" />
+                              )}
+                              <span>{existingApp ? '補充伝票 (作成済)' : '補充伝票'}</span>
+                            </button>
+                          );
+                        })()}
+
                         <button
                           type="button"
                           onClick={() => setPreviewingReport(rep)}
@@ -1135,6 +1214,29 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
                               );
                             })()}
 
+                            {existingReport && (() => {
+                              const existingApp = findExistingReplenishmentApp(existingReport);
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenReplenishmentForReport(existingReport)}
+                                  className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs ${
+                                    existingApp
+                                      ? 'bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300'
+                                      : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200'
+                                  }`}
+                                  title={existingApp ? `既作成の補充伝票 (${existingApp.title}) を参照` : 'この点検報告書からパーツ補充伝票を作成'}
+                                >
+                                  {existingApp ? (
+                                    <PackageCheck className="w-4 h-4 text-amber-700" />
+                                  ) : (
+                                    <PackagePlus className="w-4 h-4 text-amber-600" />
+                                  )}
+                                  <span>{existingApp ? '補充伝票 (作成済)' : '補充伝票'}</span>
+                                </button>
+                              );
+                            })()}
+
                             <button
                               type="button"
                               onClick={() => setPreviewingReport(existingReport)}
@@ -1310,6 +1412,32 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
           onRefresh={() => {
             refreshData();
           }}
+        />
+      )}
+
+      {/* 補充伝票作成・詳細参照モーダル */}
+      {isReplenishmentModalOpen && (
+        <ApplicationModal
+          isOpen={isReplenishmentModalOpen}
+          onClose={() => setIsReplenishmentModalOpen(false)}
+          onSave={(appData) => {
+            if (selectedReplenishmentApp && onUpdateApplication) {
+              onUpdateApplication({ ...selectedReplenishmentApp, ...appData } as WorkflowApplication);
+            } else if (onAddApplication) {
+              onAddApplication({ ...appData, type: appData.type || 'inventory_issue' });
+            }
+            setIsReplenishmentModalOpen(false);
+          }}
+          allUsers={allUsers}
+          currentUser={currentUser}
+          approvalFlows={approvalFlows}
+          initialData={selectedReplenishmentApp}
+          initialType="inventory_issue"
+          initialTitle={replenishmentInitialTitle}
+          initialDescription={replenishmentInitialPurpose}
+          itemMasters={itemMasters}
+          applications={applications}
+          offices={offices}
         />
       )}
     </div>

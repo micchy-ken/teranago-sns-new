@@ -3336,6 +3336,11 @@ export default function App() {
               events={events}
               offices={offices}
               divisions={divisions}
+              applications={applications}
+              onAddApplication={handleAddApplication}
+              onUpdateApplication={handleUpdateApplication}
+              approvalFlows={approvalFlows}
+              itemMasters={itemMasters}
             />
           )}
           {activeTab === 'site_management' && (
