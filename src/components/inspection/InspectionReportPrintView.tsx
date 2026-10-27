@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   InspectionReportRecord, 
   InspectionDoorReport,
@@ -136,8 +137,8 @@ export const InspectionReportPrintView: React.FC<InspectionReportPrintViewProps>
   const fiveColPages = get5ColumnPages();
   const wideCols = get15ColumnDoors();
 
-  return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/70 backdrop-blur-xs flex justify-center p-2 sm:p-6 print:p-0 print:bg-white print:static print-modal-overlay">
+  return createPortal(
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/70 backdrop-blur-xs flex justify-center p-2 sm:p-6 print:p-0 print:bg-white print:static print-modal-overlay print-portal-root">
       {/* 印刷専用CSSスタイル注入 */}
       <style>{`
         @media print {
@@ -863,7 +864,8 @@ export const InspectionReportPrintView: React.FC<InspectionReportPrintViewProps>
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 

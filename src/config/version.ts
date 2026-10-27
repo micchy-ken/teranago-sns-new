@@ -14,11 +14,11 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.27.2',
+  version: '2026.10.27.3',
   date: '2026-10-27',
-  releaseNumber: 2,
-  display: 'v2026.10.27 #2',
-  description: '写真報告書および点検報告書帳票の印刷出力時に編集画面や背景UIが混入する問題を修正（A4単一・複数ページ印刷完全独立化）',
+  releaseNumber: 3,
+  display: 'v2026.10.27 #3',
+  description: '写真報告書および点検報告書帳票のReact Portal（#root完全分離）によるA4印刷出力隔離機能の実装',
 };
 
 

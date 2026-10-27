@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
   X,
   Camera,
@@ -711,8 +712,8 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
 
   if (!isOpen) return null;
 
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/75 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto print:static print:p-0 print:m-0 print:bg-white print:overflow-visible print:z-auto print:block print-modal-overlay">
+  return createPortal(
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/75 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto print:static print:p-0 print:m-0 print:bg-white print:overflow-visible print:z-auto print:block print-modal-overlay print-portal-root">
       {/* 印刷用スタイル定義 (2ページ以上の複数ページも確実に印刷出力) */}
       <style>{`
         @media print {
@@ -1743,6 +1744,7 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

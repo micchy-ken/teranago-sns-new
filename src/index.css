@@ -532,6 +532,11 @@ img.avatar-img,
    Global Print Optimization (A4 帳票・写真報告書・点検報告書 印刷専用設定)
    ========================================================================== */
 @media print {
+  /* 1. 印刷時：メインアプリケーション (#root) を完全に隠蔽・非表示化 */
+  #root {
+    display: none !important;
+  }
+
   /* 用紙・基本スタイルのクリア */
   html, body {
     margin: 0 !important;
@@ -547,31 +552,58 @@ img.avatar-img,
     print-color-adjust: exact !important;
   }
 
+  /* ポータル要素（印刷ターゲット）の前面配置・表示強制 */
+  .print-portal-root {
+    display: block !important;
+    position: static !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+
   /* 非表示（印刷除外）共通ユーティリティ */
   .print\:hidden,
   .no-print,
   header,
   nav,
   aside,
-  footer {
+  footer,
+  .photo-report-modal-header,
+  .photo-report-modal-footer,
+  .photo-report-edit-form,
+  .inspection-editor-modal-header,
+  .inspection-editor-modal-footer,
+  .inspection-editor-modal-content {
     display: none !important;
   }
 
-  /* 写真報告書または点検報告書の印刷エリアが存在する場合、それ以外の全背景画面・親モーダル編集フォーム・背景UIを完全非表示 */
-  body:has(#photo-report-print-area) #root > *:not(:has(#photo-report-print-area)),
-  body:has(#photo-report-print-area) .editor-form-container,
-  body:has(#photo-report-print-area) .photo-report-modal-header,
-  body:has(#photo-report-print-area) .photo-report-modal-footer,
-  body:has(#photo-report-print-area) .photo-report-edit-form,
-  body:has(#photo-report-print-area) .inspection-editor-modal-content,
+  /* ポータル外フォールバック（#photo-report-print-area または #inspection-report-print-area が存在する場合） */
+  body:has(#photo-report-print-area),
+  body:has(#inspection-report-print-area) {
+    visibility: hidden !important;
+  }
 
-  body:has(#inspection-report-print-area) #root > *:not(:has(#inspection-report-print-area)),
-  body:has(#inspection-report-print-area) .inspection-editor-modal-content,
-  body:has(#inspection-report-print-area) .inspection-editor-modal-header,
-  body:has(#inspection-report-print-area) .inspection-editor-modal-footer,
+  #photo-report-print-area,
+  #photo-report-print-area *,
+  #inspection-report-print-area,
+  #inspection-report-print-area * {
+    visibility: visible !important;
+  }
 
-  body:has(.printable-area) #root > *:not(:has(.printable-area)) {
-    display: none !important;
+  #photo-report-print-area,
+  #inspection-report-print-area {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+    border: none !important;
   }
 
   /* オーバーレイ・モーダル外枠のレイアウト幅・背景・スクロール解除 */
