@@ -528,3 +528,84 @@ img.avatar-img,
      0 2px 4px rgba(0, 0, 0, 0.85) !important;
 }
 
+/* ==========================================================================
+   Global Print Optimization (A4 帳票・写真報告書・点検報告書 印刷専用設定)
+   ========================================================================== */
+@media print {
+  /* 用紙・基本スタイルのクリア */
+  html, body {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: auto !important;
+    overflow: visible !important;
+    position: static !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* 非表示（印刷除外）共通ユーティリティ */
+  .print\:hidden,
+  .no-print,
+  header,
+  nav,
+  aside,
+  footer {
+    display: none !important;
+  }
+
+  /* 写真報告書または点検報告書の印刷エリアが存在する場合、それ以外の全背景画面・親モーダル編集フォーム・背景UIを完全非表示 */
+  body:has(#photo-report-print-area) #root > *:not(:has(#photo-report-print-area)),
+  body:has(#photo-report-print-area) .editor-form-container,
+  body:has(#photo-report-print-area) .photo-report-modal-header,
+  body:has(#photo-report-print-area) .photo-report-modal-footer,
+  body:has(#photo-report-print-area) .photo-report-edit-form,
+  body:has(#photo-report-print-area) .inspection-editor-modal-content,
+
+  body:has(#inspection-report-print-area) #root > *:not(:has(#inspection-report-print-area)),
+  body:has(#inspection-report-print-area) .inspection-editor-modal-content,
+  body:has(#inspection-report-print-area) .inspection-editor-modal-header,
+  body:has(#inspection-report-print-area) .inspection-editor-modal-footer,
+
+  body:has(.printable-area) #root > *:not(:has(.printable-area)) {
+    display: none !important;
+  }
+
+  /* オーバーレイ・モーダル外枠のレイアウト幅・背景・スクロール解除 */
+  .print-modal-overlay {
+    position: static !important;
+    inset: auto !important;
+    z-index: auto !important;
+    background: transparent !important;
+    backdrop-filter: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    width: 100% !important;
+    height: auto !important;
+    max-height: none !important;
+    box-shadow: none !important;
+    border: none !important;
+    display: block !important;
+  }
+
+  .print-modal-container {
+    position: static !important;
+    background: transparent !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    width: 100% !important;
+    max-width: none !important;
+    height: auto !important;
+    max-height: none !important;
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    display: block !important;
+  }
+}
+

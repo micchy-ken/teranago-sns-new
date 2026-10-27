@@ -712,7 +712,7 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/75 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto print:static print:p-0 print:m-0 print:bg-white print:overflow-visible print:z-auto print:block">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/75 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto print:static print:p-0 print:m-0 print:bg-white print:overflow-visible print:z-auto print:block print-modal-overlay">
       {/* 印刷用スタイル定義 (2ページ以上の複数ページも確実に印刷出力) */}
       <style>{`
         @media print {
@@ -733,15 +733,12 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
             print-color-adjust: exact !important;
           }
 
-          /* 画面上のアプリ全体の背景や親コンテナのoverflow・fixedを解除して複数ページ改ページを有効化 */
-          #root, #root > div, .fixed, [class*="overflow-"], [class*="max-h-"] {
-            overflow: visible !important;
-            height: auto !important;
-            max-height: none !important;
-            position: static !important;
+          /* 印刷時：画面背景UI、サイドバー、ヘッダー、モーダルの編集領域・ボタンバーを完全隠蔽 */
+          #root > *:not(:has(#photo-report-print-area)) {
+            display: none !important;
           }
 
-          .print\\:hidden, header, nav, aside {
+          .print\\:hidden, header, nav, aside, footer, .photo-report-modal-header, .photo-report-modal-footer, .photo-report-edit-form {
             display: none !important;
           }
 
@@ -782,12 +779,12 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
         }
       `}</style>
 
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl max-h-[92vh] flex flex-col overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95 duration-200 print:shadow-none print:border-none print:max-h-none print:h-auto print:overflow-visible print:w-full print:rounded-none print:block print:m-0 print:p-0">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl max-h-[92vh] flex flex-col overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95 duration-200 print:shadow-none print:border-none print:max-h-none print:h-auto print:overflow-visible print:w-full print:rounded-none print:block print:m-0 print:p-0 print-modal-container">
         
         {/* ============================================================ */}
         {/* モーダルヘッダー (印刷時は非表示) */}
         {/* ============================================================ */}
-        <div className="px-5 py-3.5 bg-slate-900 text-white flex items-center justify-between shrink-0 border-b border-slate-800 print:hidden">
+        <div className="px-5 py-3.5 bg-slate-900 text-white flex items-center justify-between shrink-0 border-b border-slate-800 print:hidden photo-report-modal-header">
           <div className="flex items-center gap-3 min-w-0">
             <div className="p-2 bg-indigo-600/80 rounded-xl text-white shadow-xs">
               <Camera className="w-5 h-5" />
@@ -915,7 +912,7 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
           ) : (
             <>
               {/* 編集入力フォーム */}
-              <div className={activeTab === 'edit' ? 'max-w-4xl mx-auto space-y-6 print:hidden' : 'hidden'}>
+              <div className={activeTab === 'edit' ? 'max-w-4xl mx-auto space-y-6 print:hidden photo-report-edit-form' : 'hidden print:hidden photo-report-edit-form'}>
 
               {/* 既存の写真報告書が複数ある場合、または作成済みの切り替えバー */}
               {historyReports.length > 0 && (
@@ -1711,7 +1708,7 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
         {/* ============================================================ */}
         {/* モーダルフッター */}
         {/* ============================================================ */}
-        <div className="px-5 py-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0 print:hidden">
+        <div className="px-5 py-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0 print:hidden photo-report-modal-footer">
           <div className="text-xs text-slate-500">
             作成者: <span className="font-bold text-slate-700">{currentUser.name}</span>
           </div>

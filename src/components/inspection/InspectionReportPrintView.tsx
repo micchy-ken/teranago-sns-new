@@ -137,7 +137,7 @@ export const InspectionReportPrintView: React.FC<InspectionReportPrintViewProps>
   const wideCols = get15ColumnDoors();
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/70 backdrop-blur-xs flex justify-center p-2 sm:p-6 print:p-0 print:bg-white print:static">
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/70 backdrop-blur-xs flex justify-center p-2 sm:p-6 print:p-0 print:bg-white print:static print-modal-overlay">
       {/* 印刷専用CSSスタイル注入 */}
       <style>{`
         @media print {
@@ -145,10 +145,23 @@ export const InspectionReportPrintView: React.FC<InspectionReportPrintViewProps>
             size: ${layoutMode === 'wide15' ? 'A4 landscape' : 'A4 portrait'};
             margin: 8mm 6mm 8mm 6mm;
           }
-          body {
+          html, body {
+            margin: 0 !important;
+            padding: 0 !important;
             background: white !important;
+            height: auto !important;
+            min-height: 100% !important;
+            overflow: visible !important;
+            position: static !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
+          }
+          /* 画面上のアプリ全体の背景や親コンテナの編集画面を印刷対象から完全隠蔽 */
+          #root > *:not(:has(#inspection-report-print-area)) {
+            display: none !important;
+          }
+          .inspection-editor-modal-content {
+            display: none !important;
           }
           .print-break-page {
             page-break-after: always;
@@ -161,7 +174,7 @@ export const InspectionReportPrintView: React.FC<InspectionReportPrintViewProps>
         }
       `}</style>
 
-      <div className="bg-white rounded-xl shadow-2xl max-w-6xl w-full my-auto overflow-hidden flex flex-col print:shadow-none print:max-w-none print:w-full print:rounded-none">
+      <div className="bg-white rounded-xl shadow-2xl max-w-6xl w-full my-auto overflow-hidden flex flex-col print:shadow-none print:max-w-none print:w-full print:rounded-none print-modal-container">
         
         {/* 操作バー（画面上部・印刷時は非表示） */}
         <div className="px-4 sm:px-6 py-3 bg-slate-900 text-white flex flex-wrap items-center justify-between gap-3 print:hidden shrink-0">
@@ -278,7 +291,7 @@ export const InspectionReportPrintView: React.FC<InspectionReportPrintViewProps>
         {/* ==================================================================== */}
         {/* 帳票実体エリア */}
         {/* ==================================================================== */}
-        <div className="p-4 sm:p-8 bg-slate-100 print:bg-white text-slate-900 select-text overflow-x-auto print:p-0 print:overflow-visible">
+        <div id="inspection-report-print-area" className="p-4 sm:p-8 bg-slate-100 print:bg-white text-slate-900 select-text overflow-x-auto print:p-0 print:overflow-visible inspection-report-print-area">
           
           {/* ------------------------------------------------------------------ */}
           {/* ① 5列標準様式 (A4縦 / 5台毎ページ分割) */}

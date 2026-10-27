@@ -153,10 +153,10 @@ export const InspectionReportEditorModal: React.FC<InspectionReportEditorModalPr
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex justify-center p-2 sm:p-4 animate-in fade-in duration-150">
-      <div className="bg-slate-50 rounded-2xl shadow-2xl border border-slate-200 max-w-5xl w-full my-auto flex flex-col max-h-[94vh] overflow-hidden">
+    <div className={`fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex justify-center p-2 sm:p-4 animate-in fade-in duration-150 print-modal-overlay ${isPreviewOpen ? 'print:p-0 print:bg-white' : ''}`}>
+      <div className="bg-slate-50 rounded-2xl shadow-2xl border border-slate-200 max-w-5xl w-full my-auto flex flex-col max-h-[94vh] overflow-hidden inspection-editor-modal-content print:hidden">
         {/* トップバー */}
-        <div className="px-4 sm:px-6 py-3.5 bg-slate-900 text-white flex items-center justify-between shrink-0">
+        <div className="px-4 sm:px-6 py-3.5 bg-slate-900 text-white flex items-center justify-between shrink-0 print:hidden inspection-editor-modal-header">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <span className="p-1.5 rounded-lg bg-indigo-500/30 text-indigo-300 border border-indigo-400/30">
               <FileText className="w-4 h-4" />

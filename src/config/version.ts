@@ -14,11 +14,11 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.27.1',
+  version: '2026.10.27.2',
   date: '2026-10-27',
-  releaseNumber: 1,
-  display: 'v2026.10.27 #1',
-  description: '点検報告書および保守日報からの重複防止機能付き部品補充依頼（補充伝票）連携機能の実装',
+  releaseNumber: 2,
+  display: 'v2026.10.27 #2',
+  description: '写真報告書および点検報告書帳票の印刷出力時に編集画面や背景UIが混入する問題を修正（A4単一・複数ページ印刷完全独立化）',
 };
 
 
