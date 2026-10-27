@@ -35,8 +35,8 @@ export function TopicCreateModal({
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const pasteHandler = useUrlPasteHandler(content, setContent);
-  const [selectedOffice, setSelectedOffice] = useState('全社');
-  const [selectedDivision, setSelectedDivision] = useState('全部署');
+  const [selectedOffice, setSelectedOffice] = useState(() => currentUser?.office || '全社');
+  const [selectedDivision, setSelectedDivision] = useState(() => currentUser?.division || '全部署');
   const [isStrictScope, setIsStrictScope] = useState(false);
   
   // タグ関連
@@ -77,8 +77,8 @@ export function TopicCreateModal({
     if (isOpen) {
       setTitle('');
       setContent('');
-      setSelectedOffice('全社');
-      setSelectedDivision('全部署');
+      setSelectedOffice(currentUser?.office || '全社');
+      setSelectedDivision(currentUser?.division || '全部署');
       setIsStrictScope(false);
       setTags([]);
       setTagInput('');

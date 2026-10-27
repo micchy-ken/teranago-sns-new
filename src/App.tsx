@@ -1332,12 +1332,49 @@ export default function App() {
             if (!userState?.id) return true;
             return room.participants.some((p: any) => String(p.id) === String(userState.id));
           });
-        // 差分比較を行い、データに変更がない場合は不要なState更新（2.5秒ごとの全画面再レンダリング）を抑制
+        // サーバーからの取得結果（mapped）に対し、まだサーバーDBに反映されていないローカルの未確定仮メッセージ（m_, stamp_, img_, album_等）を保持マージする
         setChatRooms(prevRooms => {
-          if (prevRooms.length !== mapped.length) return mapped;
+          const mergedMapped = mapped.map(serverRoom => {
+            const prevRoom = prevRooms.find(pr => String(pr.id) === String(serverRoom.id));
+            if (!prevRoom) return serverRoom;
+
+            // ローカルにのみ存在する仮メッセージ（送信中・未確定データ）を抽出
+            const localTempMsgs = (prevRoom.messages || []).filter(pm => {
+              if (!pm || !pm.id) return false;
+              const isTempId =
+                typeof pm.id === 'string' &&
+                (pm.id.startsWith('m_') || pm.id.startsWith('stamp_') || pm.id.startsWith('img_') || pm.id.startsWith('album_') || pm.id.startsWith('c_'));
+              if (!isTempId) return false;
+
+              // 既にサーバーメッセージに同じIDまたは同等のメッセージ（同じ送信者・同じテキスト内容・近い作成日時）が存在するか確認
+              const existsOnServer = (serverRoom.messages || []).some(sm => {
+                if (String(sm.id) === String(pm.id)) return true;
+                if (
+                  String(sm.sender?.id ?? '') === String(pm.sender?.id ?? '') &&
+                  sm.content === pm.content &&
+                  Math.abs(new Date(sm.createdAt).getTime() - new Date(pm.createdAt).getTime()) < 15000
+                ) {
+                  return true;
+                }
+                return false;
+              });
+
+              return !existsOnServer;
+            });
+
+            if (localTempMsgs.length === 0) return serverRoom;
+
+            return {
+              ...serverRoom,
+              messages: [...(serverRoom.messages || []), ...localTempMsgs]
+            };
+          });
+
+          // 差分比較を行い、データに変更がない場合は不要なState更新（2.5秒ごとの全画面再レンダリング）を抑制
+          if (prevRooms.length !== mergedMapped.length) return mergedMapped;
           let isChanged = false;
-          for (let i = 0; i < mapped.length; i++) {
-            const m = mapped[i];
+          for (let i = 0; i < mergedMapped.length; i++) {
+            const m = mergedMapped[i];
             const p = prevRooms[i];
             if (!p || p.id !== m.id || p.name !== m.name || p.lastUpdated !== m.lastUpdated) {
               isChanged = true;
@@ -1365,7 +1402,7 @@ export default function App() {
               }
             }
           }
-          return isChanged ? mapped : prevRooms;
+          return isChanged ? mergedMapped : prevRooms;
         });
 
         // 成功時はエラー状態とカウンターをリセット
@@ -3026,6 +3063,9 @@ export default function App() {
   };
 
   const handleUpdateChatRooms = async (updatedRooms: ChatRoom[]) => {
+    // 楽観的UI更新: 即座にローカルStateへ反映
+    setChatRooms(updatedRooms);
+
     try {
       for (const room of updatedRooms) {
         await fetch(`${API_BASE_URL}/chats/${room.id}`, {
@@ -3043,7 +3083,6 @@ export default function App() {
       await refetchChatRooms();
     } catch (err) {
       console.warn('Failed to update chat room read status via API:', err);
-      setChatRooms(updatedRooms);
     } finally {
       window.dispatchEvent(new CustomEvent('notifications_updated'));
     }

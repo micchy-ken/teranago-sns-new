@@ -14,11 +14,11 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.26.25',
+  version: '2026.10.26.27',
   date: '2026-10-26',
-  releaseNumber: 25,
-  display: 'v2026.10.26 #25',
-  description: '掲示板投稿への「公開範囲のみ表示 (isStrictScope)」チェックボックスの追加および対象拠点・部署外の社員に対する限定非表示（閲覧制限）の適用',
+  releaseNumber: 27,
+  display: 'v2026.10.26 #27',
+  description: 'チャット投稿時の楽観的UI更新の即時化およびデータ同期時の未確定メッセージ保持マージ処理の適用（メッセージ消失・チラつきの完全解消）',
 };
 
 

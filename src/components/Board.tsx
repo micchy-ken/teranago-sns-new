@@ -38,9 +38,23 @@ export function Board({
   onUpdateUser,
 }: BoardProps) {
   const [selectedTag, setSelectedTag] = useState<string>('ALL');
-  const [selectedOffice, setSelectedOffice] = useState<string>('全社');
-  const [selectedDivision, setSelectedDivision] = useState<string>('全部署');
+  const [selectedOffice, setSelectedOffice] = useState<string>(() => currentUser?.office || '全社');
+  const [selectedDivision, setSelectedDivision] = useState<string>(() => currentUser?.division || '全部署');
   const [searchQuery, setSearchQuery] = useState('');
+
+  // currentUserの所属拠点・所属部署情報を初期フィルターとして自動適用
+  const hasInitializedFilters = React.useRef(false);
+  React.useEffect(() => {
+    if (currentUser && !hasInitializedFilters.current) {
+      if (currentUser.office) {
+        setSelectedOffice(currentUser.office);
+      }
+      if (currentUser.division) {
+        setSelectedDivision(currentUser.division);
+      }
+      hasInitializedFilters.current = true;
+    }
+  }, [currentUser?.office, currentUser?.division]);
 
   // お気に入り管理
   const favoriteTopicIds: string[] = useMemo(() => {
