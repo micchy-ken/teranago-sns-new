@@ -1464,8 +1464,19 @@ export function TopicDetailModal({
                         ? Math.max(1, Math.ceil((deadlineMs - Date.now()) / (1000 * 60 * 60 * 24)))
                         : 0;
 
+                      // 選択肢の安全な取得（万一optionsが欠落または空でも、votesまたはデフォルトから復元）
+                      const safeOptions = (Array.isArray(poll.options) && poll.options.length > 0)
+                        ? poll.options
+                        : (votes.length > 0
+                            ? Array.from(new Set(votes.flatMap(v => v.selectedOptionIds || []))).map((optId, idx) => ({
+                                id: optId,
+                                text: optId === 'opt-1' ? '選択肢 1' : optId === 'opt-2' ? '選択肢 2' : optId === 'opt-3' ? '選択肢 3' : `選択肢 ${idx + 1}`,
+                                requireComment: false,
+                              }))
+                            : []);
+
                       // 選択中の選択肢の中に理由コメント必須のものがあるか
-                      const selectedOptions = (poll.options || []).filter(o => selectedPollOptionIds.includes(o.id));
+                      const selectedOptions = safeOptions.filter(o => selectedPollOptionIds.includes(o.id));
                       const isCommentRequired = selectedOptions.some(o => o.requireComment);
                       const requiredCommentOption = selectedOptions.find(o => o.requireComment);
 
@@ -1473,7 +1484,7 @@ export function TopicDetailModal({
                       const showVotingForm = (!hasVoted || isChangingVote) && !isExpired;
 
                       // 選択肢ごとの得票集計
-                      const optionStats = (poll.options || []).map(opt => {
+                      const optionStats = safeOptions.map(opt => {
                         const optVotes = votes.filter(v => (v.selectedOptionIds || []).includes(opt.id));
                         const count = optVotes.length;
                         const percent = totalVotes > 0 ? Math.round((count / totalVotes) * 100) : 0;
@@ -1512,7 +1523,7 @@ export function TopicDetailModal({
                               </div>
                               <div>
                                 <h4 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
-                                  <span>{poll.title || 'アンケート / 意思決定投票'}</span>
+                                  <span>{poll.title || poll.question || 'アンケート / 意思決定投票'}</span>
                                   {poll.allowMultiple && (
                                     <span className="text-[10px] bg-slate-100 text-slate-600 font-bold px-1.5 py-0.5 rounded">
                                       複数選択可
@@ -1582,7 +1593,7 @@ export function TopicDetailModal({
                               </div>
 
                               <div className="space-y-2">
-                                {(poll.options || []).map((opt) => {
+                                {safeOptions.map((opt) => {
                                   const isSelected = selectedPollOptionIds.includes(opt.id);
                                   return (
                                     <label

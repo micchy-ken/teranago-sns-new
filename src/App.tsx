@@ -1197,16 +1197,32 @@ export default function App() {
         });
 
         // サマリー取得時、既存トピックに詳細コメント等がある場合は維持マージ
+        // サマリー取得時、既存トピックに詳細コメントや完全なアンケート情報がある場合は維持マージ
         setTopics(prevTopics => {
           if (options?.summary && prevTopics.length > 0) {
             const prevMap = new Map(prevTopics.map(p => [p.id, p]));
             return mapped.map(item => {
               const existing = prevMap.get(item.id);
-              if (existing && existing.comments && existing.comments.length > 0) {
+              if (existing) {
+                // アンケート選択肢の保護: 既存にoptionsがあり、サマリー側のoptionsが空の場合は既存を復元
+                let safePoll = item.poll;
+                if (existing.poll && Array.isArray(existing.poll.options) && existing.poll.options.length > 0) {
+                  if (!item.poll || !Array.isArray(item.poll.options) || item.poll.options.length === 0) {
+                    safePoll = {
+                      ...existing.poll,
+                      ...(item.poll || {}),
+                      options: existing.poll.options,
+                      votes: (item.poll && Array.isArray(item.poll.votes) && item.poll.votes.length > 0)
+                        ? item.poll.votes
+                        : (existing.poll.votes || [])
+                    };
+                  }
+                }
                 return {
                   ...item,
-                  comments: existing.comments,
-                  viewers: existing.viewers && existing.viewers.length > 0 ? existing.viewers : item.viewers,
+                  poll: safePoll,
+                  comments: (existing.comments && existing.comments.length > 0) ? existing.comments : item.comments,
+                  viewers: (existing.viewers && existing.viewers.length > 0) ? existing.viewers : item.viewers,
                   commentsCount: existing.commentsCount || item.commentsCount
                 };
               }
@@ -1777,6 +1793,23 @@ export default function App() {
   };
 
   const handleUpdateTopic = async (updatedTopic: BoardTopic) => {
+    // 既存の状態からアンケート選択肢(options)を保護
+    const currentInState = topics.find(t => t.id === updatedTopic.id);
+    let safePoll = updatedTopic.poll;
+    if (currentInState?.poll && Array.isArray(currentInState.poll.options) && currentInState.poll.options.length > 0) {
+      if (!safePoll?.options || !Array.isArray(safePoll.options) || safePoll.options.length === 0) {
+        safePoll = {
+          ...currentInState.poll,
+          ...(safePoll || {}),
+          options: currentInState.poll.options,
+          votes: (safePoll?.votes && Array.isArray(safePoll.votes) && safePoll.votes.length > 0)
+            ? safePoll.votes
+            : (currentInState.poll.votes || [])
+        };
+        updatedTopic = { ...updatedTopic, poll: safePoll };
+      }
+    }
+
     // ローカル状態を即座に更新し、UIやモーダルに確実に反映させる
     setTopics(prev => prev.map(t => t.id === updatedTopic.id ? updatedTopic : t));
 

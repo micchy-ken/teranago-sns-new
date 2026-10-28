@@ -220,16 +220,20 @@ router.get([
       // ピン留め期限判定
       const isCurrentlyPinned = isPollAutoPinned || (!!row.isPinned && (!row.pinnedUntil || new Date(row.pinnedUntil).getTime() > nowMs));
 
-      // マイページ・サマリー用の軽量化アンケートオブジェクト（タイトル・締切・投票者IDリストのみ）
-      let lightweightPoll = null;
+      // サマリー用アンケートオブジェクト（選択肢 options・タイトル・締切・投票データを完全に保持）
+      let safePoll = null;
       if (pollObj) {
-        lightweightPoll = {
-          question: pollObj.question || pollObj.title || '',
+        safePoll = {
+          ...pollObj,
+          id: pollObj.id || `poll-${row.id}`,
+          title: pollObj.title || pollObj.question || 'アンケート / 意思決定投票',
+          question: pollObj.question || pollObj.title || 'アンケート / 意思決定投票',
           deadline: pollObj.deadline || null,
           autoPinUntilDeadline: !!pollObj.autoPinUntilDeadline,
-          votes: Array.isArray(pollObj.votes)
-            ? pollObj.votes.map(v => ({ userId: String(v.userId) }))
-            : []
+          allowMultiple: !!pollObj.allowMultiple,
+          isAnonymous: !!pollObj.isAnonymous,
+          options: Array.isArray(pollObj.options) ? pollObj.options : [],
+          votes: Array.isArray(pollObj.votes) ? pollObj.votes : []
         };
       }
 
@@ -260,7 +264,7 @@ router.get([
         startDate: row.startDate || '',
         endDate: row.endDate || '',
         attachments: safeParseJSON(row.attachments, []),
-        poll: lightweightPoll,
+        poll: safePoll,
         comments: [],
         viewers: [],
         commentsCount: 0
@@ -456,7 +460,38 @@ router.put(['/bulletins/:id', '/board/:id'], async (req, res) => {
 
     const finalPinned = isPinned ? 1 : 0;
     const finalPinnedUntil = isPinned ? (pinnedUntil || null) : null;
-    const pollStr = poll !== undefined ? (poll ? JSON.stringify(poll) : null) : undefined;
+
+    // アンケート更新時の保護: 既存DBにoptionsが存在する場合、空または欠落したoptionsで上書きして消失させない
+    let finalPoll = poll;
+    if (poll !== undefined && poll !== null) {
+      try {
+        const existingCheck = await pool.request()
+          .input('checkId', sql.VarChar, String(id))
+          .query('SELECT poll FROM dbo.Bulletins WHERE id = @checkId');
+        if (existingCheck.recordset && existingCheck.recordset.length > 0) {
+          const dbPoll = safeParseJSON(existingCheck.recordset[0].poll, null);
+          if (dbPoll) {
+            const incomingOptions = Array.isArray(poll.options) ? poll.options : [];
+            const existingOptions = Array.isArray(dbPoll.options) ? dbPoll.options : [];
+
+            // リクエスト側でoptionsが欠落または空で、DB側にoptionsが存在する場合、既存optionsを復元・保護
+            if (incomingOptions.length === 0 && existingOptions.length > 0) {
+              finalPoll = {
+                ...dbPoll,
+                ...poll,
+                options: existingOptions,
+                title: poll.title || poll.question || dbPoll.title || dbPoll.question || 'アンケート / 意思決定投票',
+                question: poll.question || poll.title || dbPoll.question || dbPoll.title || 'アンケート / 意思決定投票',
+                votes: Array.isArray(poll.votes) && poll.votes.length > 0 ? poll.votes : (dbPoll.votes || [])
+              };
+            }
+          }
+        }
+      } catch (checkErr) {
+        console.warn('[PUT /bulletins/:id] Error checking existing poll for options protection:', checkErr.message);
+      }
+    }
+    const pollStr = finalPoll !== undefined ? (finalPoll ? JSON.stringify(finalPoll) : null) : undefined;
 
     const request = pool.request()
       .input('id', sql.VarChar, String(id))

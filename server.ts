@@ -4828,15 +4828,19 @@ async function startServer() {
 
         const isCurrentlyPinned = isPollAutoPinned || (!!topic.isPinned && (!topic.pinnedUntil || new Date(topic.pinnedUntil).getTime() > nowMs));
         
-        let lightweightPoll = null;
+        let safePoll = null;
         if (topic.poll) {
-          lightweightPoll = {
-            question: topic.poll.question || topic.poll.title || '',
+          safePoll = {
+            ...topic.poll,
+            id: topic.poll.id || `poll-${topic.id}`,
+            title: topic.poll.title || topic.poll.question || 'アンケート / 意思決定投票',
+            question: topic.poll.question || topic.poll.title || 'アンケート / 意思決定投票',
             deadline: topic.poll.deadline || null,
             autoPinUntilDeadline: !!topic.poll.autoPinUntilDeadline,
-            votes: Array.isArray(topic.poll.votes)
-              ? topic.poll.votes.map((v: any) => ({ userId: String(v.userId) }))
-              : []
+            allowMultiple: !!topic.poll.allowMultiple,
+            isAnonymous: !!topic.poll.isAnonymous,
+            options: Array.isArray(topic.poll.options) ? topic.poll.options : [],
+            votes: Array.isArray(topic.poll.votes) ? topic.poll.votes : []
           };
         }
 
@@ -4860,7 +4864,7 @@ async function startServer() {
           startDate: topic.startDate || '',
           endDate: topic.endDate || '',
           attachments: topic.attachments || [],
-          poll: lightweightPoll,
+          poll: safePoll,
           comments: [],
           viewers: [],
           commentsCount: topic.commentsCount || 0
@@ -4996,13 +5000,29 @@ async function startServer() {
       if (idx === -1) {
         return res.status(404).json({ error: 'トピックが見つかりません' });
       }
+      let mergedPoll = req.body.poll !== undefined ? req.body.poll : bulletinsList[idx].poll;
+      if (req.body.poll && bulletinsList[idx].poll) {
+        const incomingOptions = Array.isArray(req.body.poll.options) ? req.body.poll.options : [];
+        const existingOptions = Array.isArray(bulletinsList[idx].poll.options) ? bulletinsList[idx].poll.options : [];
+        if (incomingOptions.length === 0 && existingOptions.length > 0) {
+          mergedPoll = {
+            ...bulletinsList[idx].poll,
+            ...req.body.poll,
+            options: existingOptions,
+            title: req.body.poll.title || req.body.poll.question || bulletinsList[idx].poll.title || bulletinsList[idx].poll.question || 'アンケート / 意思決定投票',
+            question: req.body.poll.question || req.body.poll.title || bulletinsList[idx].poll.question || bulletinsList[idx].poll.title || 'アンケート / 意思決定投票',
+            votes: Array.isArray(req.body.poll.votes) && req.body.poll.votes.length > 0 ? req.body.poll.votes : (bulletinsList[idx].poll.votes || [])
+          };
+        }
+      }
+
       bulletinsList[idx] = {
         ...bulletinsList[idx],
         ...req.body,
         isPinned: !!req.body.isPinned,
         pinnedUntil: req.body.isPinned ? (req.body.pinnedUntil || null) : null,
         pinnedDuration: req.body.isPinned ? (req.body.pinnedDuration || null) : null,
-        poll: req.body.poll !== undefined ? req.body.poll : bulletinsList[idx].poll,
+        poll: mergedPoll,
         updatedAt: new Date().toISOString()
       };
       saveBulletins(bulletinsList);

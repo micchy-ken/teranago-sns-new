@@ -14,11 +14,11 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.28.1',
+  version: '2026.10.28.2',
   date: '2026-10-28',
-  releaseNumber: 1,
-  display: 'v2026.10.28 #1',
-  description: '文書管理添付ファイルのエンドポイント衝突解消・/documents/file/及び/download/:fileId?inline=1インライン配信・GitHub Pages対応iframe CSP設定',
+  releaseNumber: 2,
+  display: 'v2026.10.28 #2',
+  description: '掲示板アンケート選択肢消失防止・DB保護マージおよびサマリー同期強化',
 };
 
 
