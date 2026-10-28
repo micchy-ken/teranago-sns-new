@@ -1,7 +1,7 @@
 export const RECOMMEND_SERVER_JS = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年10月26日 (掲示板の「公開範囲のみ表示 (isStrictScope)」フラグのdbo.Bulletinsテーブル自動マイグレーション・閲覧制限API連携拡張版)
+ * 最終更新日時 (最終アップデート): 2026年10月28日 (文書管理添付ファイルのエンドポイント多重マウント・インライン配信・GitHub Pages iframe CSP frame-ancestors対応版)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -98,7 +98,18 @@ async function startServer() {
   // 2. セキュリティ強化レスポンスヘッダーミドルウェア
   app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    // ドキュメントプレビューやiframe埋め込みを許可するため、documents関連・静的配信・プレビューリクエストではX-Frame-Optionsを緩和
+    if (
+      req.path.includes('/documents') || 
+      req.path.includes('/uploads/documents') ||
+      req.path.includes('/preview') ||
+      req.path.includes('/file/') ||
+      req.query.inline === '1'
+    ) {
+      res.setHeader('Content-Security-Policy', "frame-ancestors 'self' https://micchy-ken.github.io https://sns.teranago.synology.me http://localhost:3000 http://localhost:5173 *");
+    } else {
+      res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    }
     res.setHeader('X-XSS-Protection', '1; mode=block');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     next();
@@ -813,7 +824,7 @@ async function startServer() {
     fs.mkdirSync(documentsFilesDir, { recursive: true });
   }
   app.use(['/uploads/documents', '/api/uploads/documents', '/api/documents/uploads'], express.static(documentsFilesDir, staticFileOptions));
-  app.use('/api/documents', documentsRouter);
+  app.use(['/api/documents', '/api/document', '/api'], documentsRouter);
 
   // 日程調整APIルーター
   app.use(['/api/schedule-polls', '/api/schedule/polls', '/api/polls'], schedulePollsRouter);

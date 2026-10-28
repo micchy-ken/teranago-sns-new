@@ -2,7 +2,7 @@
  * routes/documents.js
  * 寺岡オートドアSNS / 寺子屋SNS 文書管理・フォルダ機能モジュール (Express & MS SQL Server & JSON Fallback)
  * 
- * 最終更新: 2026年10月2日 (閲覧権限フィルタ厳密化 & プレビュー配信エンドポイント /api/uploads/documents 追加)
+ * 最終更新: 2026年10月28日 (エンドポイント衝突解消・/documents/file/及び/download/:fileId?inline=1インライン配信・GitHub Pages対応iframe CSP設定)
  */
 import { Router } from 'express';
 import multer from 'multer';
@@ -234,7 +234,9 @@ router.get([
   '/documents/uploads/:filename',
   '/uploads/:filename',
   '/file/:filename',
-  '/preview/:filename'
+  '/documents/file/:filename',
+  '/preview/:filename',
+  '/documents/preview/:filename'
 ], (req, res) => {
   try {
     const rawFilename = decodeURIComponent(req.params.filename || '');
@@ -248,10 +250,20 @@ router.get([
     const ext = path.extname(safeName).toLowerCase();
     if (ext === '.pdf') {
       res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', 'inline');
     } else if (['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp'].includes(ext)) {
-      res.setHeader('Content-Disposition', 'inline');
+      const mimeMap = {
+        '.png': 'image/png',
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.gif': 'image/gif',
+        '.svg': 'image/svg+xml',
+        '.webp': 'image/webp'
+      };
+      res.setHeader('Content-Type', mimeMap[ext] || 'image/jpeg');
     }
+    res.setHeader('Content-Disposition', 'inline');
+    res.removeHeader('X-Frame-Options');
+    res.setHeader('Content-Security-Policy', "frame-ancestors 'self' https://micchy-ken.github.io https://sns.teranago.synology.me http://localhost:3000 http://localhost:5173 *");
 
     res.sendFile(filePath);
   } catch (err) {
@@ -960,7 +972,29 @@ router.get(['/download/:fileId', '/documents/download/:fileId'], async (req, res
       saveLocalDocumentsData(local);
     }
 
-    // レスポンスヘッダー設定 & ダウンロード送信
+    // レスポンスヘッダー設定 & ダウンロード / インライン配信
+    const isInline = req.query.inline === '1' || req.query.inline === 'true';
+    if (isInline) {
+      const ext = path.extname(matchedFile.fileName).toLowerCase();
+      if (ext === '.pdf') {
+        res.setHeader('Content-Type', 'application/pdf');
+      } else if (['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp'].includes(ext)) {
+        const mimeMap = {
+          '.png': 'image/png',
+          '.jpg': 'image/jpeg',
+          '.jpeg': 'image/jpeg',
+          '.gif': 'image/gif',
+          '.svg': 'image/svg+xml',
+          '.webp': 'image/webp'
+        };
+        res.setHeader('Content-Type', mimeMap[ext] || 'image/jpeg');
+      }
+      res.setHeader('Content-Disposition', 'inline');
+      res.removeHeader('X-Frame-Options');
+      res.setHeader('Content-Security-Policy', "frame-ancestors 'self' https://micchy-ken.github.io https://sns.teranago.synology.me http://localhost:3000 http://localhost:5173 *");
+      return res.sendFile(filePath);
+    }
+
     res.download(filePath, matchedFile.fileName);
   } catch (err) {
     console.error('[Documents Download Error]:', err);
@@ -1119,3 +1153,6 @@ router.get(['/items/:id/downloads', '/documents/items/:id/downloads'], async (re
 });
 
 export default router;
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = router;
+}

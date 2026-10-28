@@ -90,7 +90,7 @@ export default function DocumentManager({
   const [loadingLogs, setLoadingLogs] = useState<boolean>(false);
 
   // プレビューモーダル
-  const [previewFile, setPreviewFile] = useState<{ name: string; url: string; ext: string } | null>(null);
+  const [previewFile, setPreviewFile] = useState<{ name: string; url: string; ext: string; fileId?: string } | null>(null);
   const [previewContent, setPreviewContent] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState<boolean>(false);
 
@@ -616,9 +616,15 @@ export default function DocumentManager({
   // ------------------------------------------
   const handlePreviewFile = async (file: DocumentAttachedFile) => {
     const ext = file.fileName.split('.').pop()?.toLowerCase() || '';
-    const fileUrl = `${API_BASE_URL}${file.fileUrl.startsWith('/') ? '' : '/'}${file.fileUrl}`;
+    // エンドポイント衝突防止 & 確実なインラインプレビュー配信:
+    // fileId がある場合は /documents/download/:fileId?inline=1 を優先
+    // なければ /documents/file/:filename または /uploads/documents/:filename を安全に解決
+    const rawStorageName = file.storagePath || (file.fileUrl ? file.fileUrl.split('/').pop() : '') || file.fileName;
+    const fileUrl = file.fileId
+      ? `${API_BASE_URL}/documents/download/${file.fileId}?inline=1`
+      : `${API_BASE_URL}/documents/file/${encodeURIComponent(rawStorageName)}`;
     
-    setPreviewFile({ name: file.fileName, url: fileUrl, ext });
+    setPreviewFile({ name: file.fileName, url: fileUrl, ext, fileId: file.fileId });
     setPreviewContent(null);
 
     if (PREVIEW_TEXT_EXTS.includes(ext)) {
@@ -1752,9 +1758,13 @@ export default function DocumentManager({
               </div>
               <div className="flex items-center gap-2">
                 <a
-                  href={previewFile.url}
+                  href={
+                    previewFile.fileId 
+                      ? `${API_BASE_URL}/documents/download/${previewFile.fileId}?userId=${encodeURIComponent(currentUser?.id || 'unknown')}&userName=${encodeURIComponent(currentUser?.name || '匿名')}&userDepartment=${encodeURIComponent(currentUser?.department || '')}`
+                      : previewFile.url
+                  }
                   download={previewFile.name}
-                  className="px-3 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg flex items-center gap-1 transition-colors"
+                  className="px-3 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
                 >
                   <Download className="w-3.5 h-3.5" />
                   <span>ダウンロード</span>
