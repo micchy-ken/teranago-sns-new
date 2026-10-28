@@ -14,11 +14,11 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.28.3',
+  version: '2026.10.28.4',
   date: '2026-10-28',
-  releaseNumber: 3,
-  display: 'v2026.10.28 #3',
-  description: 'アンケート投票データからの選択肢自動復元・編集画面ID整合性担保',
+  releaseNumber: 4,
+  display: 'v2026.10.28 #4',
+  description: 'アンケートバッジ「回答済」及びピン留め期限「あと◯日」への表示簡潔化',
 };
 
 

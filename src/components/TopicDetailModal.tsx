@@ -768,10 +768,7 @@ export function TopicDetailModal({
             {topic && isTopicCurrentlyPinned(topic) && !isEditing && (
               <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-100 text-amber-800 rounded-lg text-xs font-bold shrink-0">
                 <Pin className="w-3.5 h-3.5 text-amber-600" />
-                <span>ピン留め</span>
-                <span className="text-[10px] text-amber-700 font-medium">
-                  {formatPinnedUntilBadge(topic.pinnedUntil)}
-                </span>
+                <span>{formatPinnedUntilBadge(topic.pinnedUntil, topic.poll)}</span>
               </span>
             )}
             <h2 className="text-lg font-bold text-slate-800 truncate">

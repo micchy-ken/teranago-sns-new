@@ -39,6 +39,7 @@ export function isTopicCurrentlyPinned(topic?: (Partial<BoardTopic> & { isPinned
 
 /**
  * ピン留め期限またはアンケート自動ピン留めのバッジ文字列を生成
+ * 例: 「あと8日」「常時固定」「期限終了」
  */
 export function formatPinnedUntilBadge(pinnedUntil?: string | null, poll?: BoardPoll): string {
   // アンケート自動ピン留めが有効な場合
@@ -49,20 +50,17 @@ export function formatPinnedUntilBadge(pinnedUntil?: string | null, poll?: Board
       const diffMs = deadlineMs - now;
       if (diffMs > 0) {
         const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-        const d = new Date(deadlineMs);
-        const month = d.getMonth() + 1;
-        const day = d.getDate();
-        return `（あと${diffDays}日 / 〜${month}/${day}まで）`;
+        return `あと${diffDays}日`;
       }
     }
   }
 
-  if (!pinnedUntil) return '（常時固定）';
+  if (!pinnedUntil) return '常時固定';
   const d = new Date(pinnedUntil);
-  if (isNaN(d.getTime())) return '';
+  if (isNaN(d.getTime())) return 'ピン留め';
   const now = new Date();
   const diffDays = Math.ceil((d.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-  if (diffDays <= 0) return '（期限切れ）';
-  return `（あと${diffDays}日 / 〜${d.getMonth() + 1}/${d.getDate()}まで）`;
+  if (diffDays <= 0) return '期限終了';
+  return `あと${diffDays}日`;
 }
 

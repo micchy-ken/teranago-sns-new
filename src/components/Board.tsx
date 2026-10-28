@@ -446,10 +446,7 @@ export function Board({
                           {isTopicCurrentlyPinned(topic) && (
                             <span className="inline-flex items-center gap-1 text-[10px] sm:text-[11px] font-bold px-1.5 sm:px-2 py-0.5 bg-amber-500 text-white rounded-md shadow-2xs shrink-0">
                               <Pin className="w-3 h-3 fill-white" />
-                              <span>ピン留め</span>
-                              <span className="text-[9px] sm:text-[10px] text-amber-100 font-normal">
-                                {formatPinnedUntilBadge(topic.pinnedUntil, topic.poll)}
-                              </span>
+                              <span>{formatPinnedUntilBadge(topic.pinnedUntil, topic.poll)}</span>
                             </span>
                           )}
 
@@ -468,7 +465,7 @@ export function Board({
                                     : 'bg-sky-50 text-sky-800 border-sky-300 ring-1 ring-sky-200'
                                 }`}>
                                   <BarChart2 className="w-3 h-3 text-sky-600" />
-                                  <span>{myVote ? 'アンケート回答済' : isExpired ? 'アンケート終了' : 'アンケート要回答'}</span>
+                                  <span>{myVote ? '回答済' : isExpired ? 'アンケート終了' : 'アンケート要回答'}</span>
                                   {topic.poll.deadline && !isExpired && (
                                     <span className="text-[9px] text-sky-700 font-normal">
                                       〜{topic.poll.deadline.slice(5)}

@@ -1581,10 +1581,7 @@ export function MyPage({
                               {isPinned && (
                                 <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 bg-amber-500 text-white rounded-md shadow-2xs">
                                   <Pin className="w-2.5 h-2.5 fill-white" />
-                                  <span>ピン留め</span>
-                                  <span className="text-[9px] text-amber-100 font-normal">
-                                    {formatPinnedUntilBadge(topic.pinnedUntil, topic.poll)}
-                                  </span>
+                                  <span>{formatPinnedUntilBadge(topic.pinnedUntil, topic.poll)}</span>
                                 </span>
                               )}
 
@@ -1603,7 +1600,7 @@ export function MyPage({
                                         : 'bg-rose-500 text-white font-black animate-pulse shadow-2xs'
                                     }`}>
                                       <BarChart2 className="w-2.5 h-2.5" />
-                                      <span>{myVote ? 'アンケート回答済' : isExpired ? 'アンケート終了' : '要回答'}</span>
+                                      <span>{myVote ? '回答済' : isExpired ? 'アンケート終了' : '要回答'}</span>
                                     </span>
                                   );
                                 })()
