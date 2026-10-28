@@ -144,7 +144,7 @@ export const InspectionReportPrintView: React.FC<InspectionReportPrintViewProps>
         @media print {
           @page {
             size: ${layoutMode === 'wide15' ? 'A4 landscape' : 'A4 portrait'};
-            margin: 8mm 6mm 8mm 6mm;
+            margin: 4mm 4mm 4mm 4mm;
           }
           html, body {
             margin: 0 !important;
@@ -157,20 +157,58 @@ export const InspectionReportPrintView: React.FC<InspectionReportPrintViewProps>
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
           }
-          /* 画面上のアプリ全体の背景や親コンテナの編集画面を印刷対象から完全隠蔽 */
-          #root > *:not(:has(#inspection-report-print-area)) {
+          /* メインアプリケーション (#root) を印刷対象から完全隠蔽 */
+          #root {
             display: none !important;
           }
           .inspection-editor-modal-content {
             display: none !important;
           }
           .print-break-page {
-            page-break-after: always;
-            break-after: page;
+            page-break-after: always !important;
+            break-after: page !important;
           }
           .print-avoid-break {
-            page-break-inside: avoid;
-            break-inside: avoid;
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+          }
+          .inspection-report-page {
+            width: 100% !important;
+            max-width: 200mm !important;
+            height: 287mm !important;
+            max-height: 287mm !important;
+            margin: 0 auto !important;
+            padding: 1.5mm !important;
+            box-sizing: border-box !important;
+            page-break-after: always !important;
+            break-after: page !important;
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+            background: white !important;
+            box-shadow: none !important;
+            display: flex !important;
+            flex-direction: column !important;
+            justify-content: space-between !important;
+          }
+          .inspection-report-page:last-child {
+            page-break-after: auto !important;
+            break-after: auto !important;
+          }
+          .inspection-report-page-landscape {
+            width: 100% !important;
+            max-width: 287mm !important;
+            height: 200mm !important;
+            max-height: 200mm !important;
+            margin: 0 auto !important;
+            padding: 1.5mm !important;
+            box-sizing: border-box !important;
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+            background: white !important;
+            box-shadow: none !important;
+            display: flex !important;
+            flex-direction: column !important;
+            justify-content: space-between !important;
           }
         }
       `}</style>
@@ -310,22 +348,22 @@ export const InspectionReportPrintView: React.FC<InspectionReportPrintViewProps>
                     }`}
                   >
                     {/* 上部タイトル＆検印欄 */}
-                    <div className="flex items-start justify-between border-b-2 border-slate-900 pb-2 mb-2">
-                      <div className="w-20" /> {/* 余白バランス用 */}
+                    <div className="flex items-start justify-between border-b-2 border-slate-900 pb-2 print:pb-0.5 mb-2 print:mb-0.5">
+                      <div className="w-20 print:w-12" /> {/* 余白バランス用 */}
                       
                       <div className="text-center">
-                        <h1 className="text-xl sm:text-2xl font-black tracking-widest text-slate-900 px-4">
+                        <h1 className="text-xl sm:text-2xl print:text-base font-black tracking-widest text-slate-900 px-4 print:px-1">
                           自 動 ド ア 保 守 点 検 報 告 書
                         </h1>
-                        <div className="text-[10px] text-slate-600 tracking-wider mt-0.5">
+                        <div className="text-[10px] print:text-[7.5px] text-slate-600 tracking-wider mt-0.5 print:mt-0">
                           TERAOKA AUTO DOOR MAINTENANCE REPORT
                         </div>
                       </div>
 
                       {/* 右上：事務検印＆ページ表記 */}
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 print:gap-1">
                         <div className="text-right">
-                          <div className="text-[9px] font-bold text-slate-500">
+                          <div className="text-[9px] print:text-[7.5px] font-bold text-slate-500">
                             Page {pageIdx + 1} / {fiveColPages.length}
                           </div>
                         </div>
@@ -334,29 +372,29 @@ export const InspectionReportPrintView: React.FC<InspectionReportPrintViewProps>
                     </div>
 
                     {/* お客様情報 & 作業情報ヘッダーグリッド */}
-                    <div className="grid grid-cols-12 border border-slate-900 mb-2 divide-x divide-slate-900 text-[11px]">
+                    <div className="grid grid-cols-12 border border-slate-900 mb-2 print:mb-0.5 divide-x divide-slate-900 text-[11px] print:text-[8.5px]">
                       {/* 左側：お客様情報 */}
-                      <div className="col-span-7 p-2 space-y-1">
+                      <div className="col-span-7 p-2 print:p-1 space-y-1 print:space-y-0.5">
                         <div className="flex items-baseline">
-                          <span className="w-20 font-bold text-slate-700 shrink-0">お客様名:</span>
-                          <span className="text-sm font-bold text-slate-900 border-b border-dotted border-slate-400 flex-1 pb-0.5 truncate">
+                          <span className="w-20 print:w-16 font-bold text-slate-700 shrink-0">お客様名:</span>
+                          <span className="text-sm print:text-[10px] font-bold text-slate-900 border-b border-dotted border-slate-400 flex-1 pb-0.5 print:pb-0 truncate">
                             {report.customerName}
                           </span>
                         </div>
                         <div className="flex items-baseline">
-                          <span className="w-20 font-bold text-slate-700 shrink-0">ご住所:</span>
-                          <span className="text-slate-800 border-b border-dotted border-slate-400 flex-1 pb-0.5 truncate">
+                          <span className="w-20 print:w-16 font-bold text-slate-700 shrink-0">ご住所:</span>
+                          <span className="text-slate-800 border-b border-dotted border-slate-400 flex-1 pb-0.5 print:pb-0 truncate">
                             {report.address || '―'}
                           </span>
                         </div>
-                        <div className="flex items-baseline gap-4 pt-0.5">
+                        <div className="flex items-baseline gap-4 print:gap-2 pt-0.5 print:pt-0">
                           <div className="flex items-center">
-                            <span className="font-bold text-slate-700 mr-2">電話番号:</span>
+                            <span className="font-bold text-slate-700 mr-2 print:mr-1">電話番号:</span>
                             <span className="text-slate-800">{report.phone || '―'}</span>
                           </div>
                           <div className="flex items-center">
-                            <span className="font-bold text-slate-700 mr-2">契約種別:</span>
-                            <span className="font-bold text-slate-900 px-2 py-0.2 bg-slate-100 rounded border border-slate-300">
+                            <span className="font-bold text-slate-700 mr-2 print:mr-1">契約種別:</span>
+                            <span className="font-bold text-slate-900 px-2 print:px-1 py-0.2 bg-slate-100 rounded border border-slate-300">
                               {report.contractType || 'ST'}
                             </span>
                           </div>
@@ -364,10 +402,10 @@ export const InspectionReportPrintView: React.FC<InspectionReportPrintViewProps>
                       </div>
 
                       {/* 右側：作業情報 */}
-                      <div className="col-span-5 p-2 space-y-1 bg-slate-50/60">
+                      <div className="col-span-5 p-2 print:p-1 space-y-1 print:space-y-0.5 bg-slate-50/60">
                         <div className="flex items-baseline justify-between">
                           <span className="font-bold text-slate-700">受付番号(作業No):</span>
-                          <span className="font-mono font-bold text-xs text-slate-900 bg-white px-2 border border-slate-300 rounded">
+                          <span className="font-mono font-bold text-xs print:text-[9.5px] text-slate-900 bg-white px-2 print:px-1 border border-slate-300 rounded">
                             {report.jobNo || '未登録'}
                           </span>
                         </div>
@@ -379,7 +417,7 @@ export const InspectionReportPrintView: React.FC<InspectionReportPrintViewProps>
                         </div>
                         <div className="flex items-baseline justify-between">
                           <span className="font-bold text-slate-700">点検員(担当):</span>
-                          <span className="font-bold text-slate-900 border-b border-slate-400 px-2">
+                          <span className="font-bold text-slate-900 border-b border-slate-400 px-2 print:px-1">
                             {report.inspectorName || '―'} {report.subInspectorName ? ` / ${report.subInspectorName}` : ''}
                           </span>
                         </div>
@@ -387,7 +425,7 @@ export const InspectionReportPrintView: React.FC<InspectionReportPrintViewProps>
                     </div>
 
                     {/* 判定記号凡例バー */}
-                    <div className="border border-slate-400 bg-slate-100 px-2 py-0.5 mb-1.5 text-[9.5px] flex flex-wrap items-center justify-between gap-1">
+                    <div className="border border-slate-400 bg-slate-100 px-2 print:px-1 py-0.5 print:py-0 mb-1.5 print:mb-0.5 text-[9.5px] print:text-[7.5px] flex flex-wrap items-center justify-between gap-1">
                       <span className="font-bold text-slate-700">【判定凡例】</span>
                       {JUDGEMENT_OPTIONS.map((opt) => (
                         <span key={opt.code} className="inline-flex items-center gap-0.5">
@@ -398,16 +436,16 @@ export const InspectionReportPrintView: React.FC<InspectionReportPrintViewProps>
                     </div>
 
                     {/* 5列点検テーブル */}
-                    <div className="border border-slate-900 mb-2">
-                      <table className="w-full text-center border-collapse text-[10.5px]">
+                    <div className="border border-slate-900 mb-2 print:mb-0.5">
+                      <table className="w-full text-center border-collapse text-[10.5px] print:text-[8px] print:leading-none">
                         <thead>
                           <tr className="bg-slate-200 border-b border-slate-900 font-bold">
-                            <th className="border-r border-slate-900 p-1 w-24 text-left pl-2">区分</th>
-                            <th className="border-r border-slate-900 p-1 w-44 text-left pl-2">点検項目</th>
+                            <th className="border-r border-slate-900 p-1 print:p-0.5 w-24 print:w-20 text-left pl-2 print:pl-1">区分</th>
+                            <th className="border-r border-slate-900 p-1 print:p-0.5 w-44 print:w-36 text-left pl-2 print:pl-1">点検項目</th>
                             {pageDoors.map((col, cIdx) => (
                               <th 
                                 key={cIdx} 
-                                className="border-r border-slate-900 p-1 w-[88px] bg-slate-100 last:border-r-0 font-bold"
+                                className="border-r border-slate-900 p-1 print:p-0.5 w-[88px] print:w-[70px] bg-slate-100 last:border-r-0 font-bold"
                               >
                                 扉 {col.doorNum}
                               </th>
@@ -415,39 +453,39 @@ export const InspectionReportPrintView: React.FC<InspectionReportPrintViewProps>
                           </tr>
 
                           {/* 扉ヘッダー（建具・機種・開閉回数など） */}
-                          <tr className="border-b border-slate-900 bg-slate-50 text-[9.5px]">
-                            <td colSpan={2} className="border-r border-slate-900 p-1 font-bold text-right pr-2">
+                          <tr className="border-b border-slate-900 bg-slate-50 text-[9.5px] print:text-[7.5px]">
+                            <td colSpan={2} className="border-r border-slate-900 p-1 print:p-0.5 font-bold text-right pr-2 print:pr-1">
                               扉No / 設置場所 / 機種
                             </td>
                             {pageDoors.map((col, cIdx) => (
-                              <td key={cIdx} className="border-r border-slate-900 p-1 text-slate-800 last:border-r-0">
+                              <td key={cIdx} className="border-r border-slate-900 p-1 print:p-0.5 text-slate-800 last:border-r-0">
                                 {col.door ? (
                                   <>
                                     <div className="font-mono font-bold text-slate-900 truncate">{col.door.doorNumber || '―'}</div>
-                                    <div className="text-[9px] text-slate-600 truncate">{col.door.location || '―'}</div>
-                                    <div className="text-[9px] font-bold text-indigo-700 truncate">{col.door.model || '―'}</div>
+                                    <div className="text-[9px] print:text-[7px] text-slate-600 truncate">{col.door.location || '―'}</div>
+                                    <div className="text-[9px] print:text-[7px] font-bold text-indigo-700 truncate">{col.door.model || '―'}</div>
                                   </>
                                 ) : (
-                                  <div className="text-slate-300 py-1 font-mono">―</div>
+                                  <div className="text-slate-300 py-1 print:py-0 font-mono">―</div>
                                 )}
                               </td>
                             ))}
                           </tr>
-                          <tr className="border-b border-slate-900 bg-slate-50 text-[9.5px]">
-                            <td colSpan={2} className="border-r border-slate-900 p-1 font-bold text-right pr-2">
+                          <tr className="border-b border-slate-900 bg-slate-50 text-[9.5px] print:text-[7.5px]">
+                            <td colSpan={2} className="border-r border-slate-900 p-1 print:p-0.5 font-bold text-right pr-2 print:pr-1">
                               開閉回数 / 開・閉速度 / タイマー
                             </td>
                             {pageDoors.map((col, cIdx) => (
-                              <td key={cIdx} className="border-r border-slate-900 p-1 text-slate-800 last:border-r-0">
+                              <td key={cIdx} className="border-r border-slate-900 p-1 print:p-0.5 text-slate-800 last:border-r-0">
                                 {col.door ? (
                                   <>
                                     <div className="font-mono font-semibold text-slate-900">{col.door.openCount ? `${col.door.openCount}回` : '―'}</div>
-                                    <div className="text-[8.5px] text-slate-600">
+                                    <div className="text-[8.5px] print:text-[7px] text-slate-600">
                                       開:{col.door.openSpeed || '8'} / 閉:{col.door.closeSpeed || '3'} ({col.door.timerSeconds || '1'}s)
                                     </div>
                                   </>
                                 ) : (
-                                  <div className="text-slate-300 py-1 font-mono">―</div>
+                                  <div className="text-slate-300 py-1 print:py-0 font-mono">―</div>
                                 )}
                               </td>
                             ))}
@@ -458,22 +496,22 @@ export const InspectionReportPrintView: React.FC<InspectionReportPrintViewProps>
                             const items = masterItems.filter(i => i.category === category.id);
                             if (items.length === 0) return null;
                             return items.map((item, itemIdx) => (
-                              <tr key={item.key} className="border-b border-slate-300 hover:bg-slate-50/50 leading-tight">
+                              <tr key={item.key} className="border-b border-slate-300 hover:bg-slate-50/50 leading-tight print:leading-none">
                                 {itemIdx === 0 && (
                                   <td 
                                     rowSpan={items.length} 
-                                    className="border-r border-slate-900 p-1 font-bold text-slate-800 bg-slate-50 align-middle text-left pl-2 text-[9.5px]"
+                                    className="border-r border-slate-900 p-1 print:p-0.5 font-bold text-slate-800 bg-slate-50 align-middle text-left pl-2 print:pl-1 text-[9.5px] print:text-[7.5px]"
                                   >
                                     {category.name}
                                   </td>
                                 )}
-                                <td className="border-r border-slate-900 p-1 text-left pl-2 text-slate-800 text-[9.5px]">
+                                <td className="border-r border-slate-900 p-1 print:p-0.5 text-left pl-2 print:pl-1 text-slate-800 text-[9.5px] print:text-[7.5px]">
                                   {item.label}
                                 </td>
                                 {pageDoors.map((col, cIdx) => {
                                   if (!col.door) {
                                     return (
-                                      <td key={cIdx} className="border-r border-slate-900 p-0.5 text-slate-300 font-mono text-[9px] last:border-r-0">
+                                      <td key={cIdx} className="border-r border-slate-900 p-0.5 print:p-0 text-slate-300 font-mono text-[9px] print:text-[7.5px] last:border-r-0">
                                         ―
                                       </td>
                                     );
@@ -483,7 +521,7 @@ export const InspectionReportPrintView: React.FC<InspectionReportPrintViewProps>
                                   return (
                                     <td 
                                       key={cIdx} 
-                                      className={`border-r border-slate-900 p-0.5 font-bold last:border-r-0 ${
+                                      className={`border-r border-slate-900 p-0.5 print:p-0 font-bold last:border-r-0 ${
                                         isAlert ? 'bg-rose-50 text-rose-700 font-black' : 'text-slate-800'
                                       }`}
                                     >
@@ -496,15 +534,15 @@ export const InspectionReportPrintView: React.FC<InspectionReportPrintViewProps>
                           })}
 
                           {/* センサー検出範囲 */}
-                          <tr className="border-b border-slate-900 bg-slate-50 text-[9.5px]">
-                            <td rowSpan={2} className="border-r border-slate-900 p-1 font-bold text-slate-800 text-left pl-2 align-middle">
+                          <tr className="border-b border-slate-900 bg-slate-50 text-[9.5px] print:text-[7.5px]">
+                            <td rowSpan={2} className="border-r border-slate-900 p-1 print:p-0.5 font-bold text-slate-800 text-left pl-2 print:pl-1 align-middle">
                               センサー検出範囲
                             </td>
-                            <td className="border-r border-slate-900 p-1 text-left pl-2 text-slate-800">
+                            <td className="border-r border-slate-900 p-1 print:p-0.5 text-left pl-2 print:pl-1 text-slate-800">
                               有効開口幅 / 外部センサー
                             </td>
                             {pageDoors.map((col, cIdx) => (
-                              <td key={cIdx} className="border-r border-slate-900 p-1 text-[9.5px] last:border-r-0">
+                              <td key={cIdx} className="border-r border-slate-900 p-1 print:p-0.5 text-[9.5px] print:text-[7.5px] last:border-r-0">
                                 {col.door ? (
                                   <>
                                     <span className="font-mono">{col.door.sensorWidth || '1200'}mm</span> / {col.door.outerSensorWidthOk ? '○' : '―'}
@@ -515,12 +553,12 @@ export const InspectionReportPrintView: React.FC<InspectionReportPrintViewProps>
                               </td>
                             ))}
                           </tr>
-                          <tr className="border-b border-slate-900 bg-slate-50 text-[9.5px]">
-                            <td className="border-r border-slate-900 p-1 text-left pl-2 text-slate-800">
+                          <tr className="border-b border-slate-900 bg-slate-50 text-[9.5px] print:text-[7.5px]">
+                            <td className="border-r border-slate-900 p-1 print:p-0.5 text-left pl-2 print:pl-1 text-slate-800">
                               内部センサー
                             </td>
                             {pageDoors.map((col, cIdx) => (
-                              <td key={cIdx} className="border-r border-slate-900 p-1 text-[9.5px] last:border-r-0">
+                              <td key={cIdx} className="border-r border-slate-900 p-1 print:p-0.5 text-[9.5px] print:text-[7.5px] last:border-r-0">
                                 {col.door ? (
                                   <span>{col.door.innerSensorWidthOk ? '○' : '―'}</span>
                                 ) : (
@@ -534,28 +572,28 @@ export const InspectionReportPrintView: React.FC<InspectionReportPrintViewProps>
                     </div>
 
                     {/* 下部：所見 & サイン枠（最終ページまたは全ページに共通枠を配置） */}
-                    <div className="grid grid-cols-12 border border-slate-900 divide-x divide-slate-900 text-[11px] print-avoid-break">
+                    <div className="grid grid-cols-12 border border-slate-900 divide-x divide-slate-900 text-[11px] print:text-[8.5px] print-avoid-break">
                       {/* 所見・特記事項 */}
-                      <div className="col-span-8 p-2 flex flex-col justify-between min-h-[85px]">
+                      <div className="col-span-8 p-2 print:p-1 flex flex-col justify-between min-h-[85px] print:min-h-[45px]">
                         <div>
-                          <div className="font-bold text-slate-900 mb-0.5 text-[10.5px]">
+                          <div className="font-bold text-slate-900 mb-0.5 text-[10.5px] print:text-[8.5px]">
                             【点検結果・所見・総合特記事項】
                           </div>
-                          <div className="text-slate-800 whitespace-pre-wrap leading-relaxed text-[10.5px]">
+                          <div className="text-slate-800 whitespace-pre-wrap leading-relaxed print:leading-tight text-[10.5px] print:text-[8px]">
                             {report.overallRemarks || '定期保守点検を実施いたしました。各部機構動作およびセンサー検出動作ともに良好です。'}
                           </div>
                         </div>
-                        <div className="text-[8.5px] text-slate-500 mt-1">
+                        <div className="text-[8.5px] print:text-[7px] text-slate-500 mt-1 print:mt-0">
                           ※安全基準(JADA規格等)に基づき適正な維持管理をお願い申し上げます。
                         </div>
                       </div>
 
                       {/* お客様受領サイン枠 */}
-                      <div className="col-span-4 p-2 flex flex-col justify-between bg-slate-50/50">
-                        <div className="font-bold text-slate-900 text-center border-b border-slate-300 pb-0.5 text-[10.5px]">
+                      <div className="col-span-4 p-2 print:p-1 flex flex-col justify-between bg-slate-50/50">
+                        <div className="font-bold text-slate-900 text-center border-b border-slate-300 pb-0.5 print:pb-0 text-[10.5px] print:text-[8.5px]">
                           お客様ご確認（受領署名）
                         </div>
-                        <div className="h-16 flex items-center justify-center border border-dashed border-slate-300 bg-white rounded my-1 p-0.5">
+                        <div className="h-16 print:h-9 flex items-center justify-center border border-dashed border-slate-300 bg-white rounded my-1 print:my-0.5 p-0.5">
                           {report.customerSignature ? (
                             <img 
                               src={report.customerSignature} 
@@ -563,10 +601,10 @@ export const InspectionReportPrintView: React.FC<InspectionReportPrintViewProps>
                               className="max-h-full max-w-full object-contain"
                             />
                           ) : (
-                            <span className="text-slate-400 text-[10px] italic">未受領</span>
+                            <span className="text-slate-400 text-[10px] print:text-[7.5px] italic">未受領</span>
                           )}
                         </div>
-                        <div className="flex items-center justify-between text-[8.5px] text-slate-600 pt-0.5">
+                        <div className="flex items-center justify-between text-[8.5px] print:text-[7px] text-slate-600 pt-0.5 print:pt-0">
                           <span>受領日: {report.signedAt ? report.signedAt.split('T')[0] : (report.inspectionDate || '―')}</span>
                           <span className="font-bold text-slate-800">{report.signedCustomerName || 'ご担当者様'}</span>
                         </div>
