@@ -305,7 +305,7 @@ export const InspectionReportPrintView: React.FC<InspectionReportPrintViewProps>
                 return (
                   <div 
                     key={pageIdx}
-                    className={`bg-white border border-slate-900 p-4 font-sans text-xs min-w-[760px] mx-auto shadow-md print:shadow-none print:border-slate-900 print:p-3 relative ${
+                    className={`bg-white border border-slate-900 p-4 font-sans text-xs min-w-[760px] print:min-w-0 print:w-full inspection-report-page mx-auto shadow-md print:shadow-none print:border-slate-900 print:p-2.5 relative ${
                       !isLastPage ? 'print-break-page' : ''
                     }`}
                   >
@@ -582,7 +582,7 @@ export const InspectionReportPrintView: React.FC<InspectionReportPrintViewProps>
           {/* ② 15列ワイド様式 (A4横 Landscape / 最大15台一括) */}
           {/* ------------------------------------------------------------------ */}
           {layoutMode === 'wide15' && (
-            <div className="bg-white border border-slate-900 p-3 font-sans text-xs min-w-[1050px] mx-auto shadow-md print:shadow-none print:border-slate-900 print:p-2 relative">
+            <div className="bg-white border border-slate-900 p-3 font-sans text-xs min-w-[1050px] print:min-w-0 print:w-full inspection-report-page-landscape mx-auto shadow-md print:shadow-none print:border-slate-900 print:p-2 relative">
               {/* 上部タイトル＆検印欄 */}
               <div className="flex items-center justify-between border-b-2 border-slate-900 pb-1.5 mb-2">
                 <div className="flex items-center gap-3">
@@ -727,7 +727,7 @@ export const InspectionReportPrintView: React.FC<InspectionReportPrintViewProps>
           {/* ③ 実台数フィット様式 (Auto Fit) */}
           {/* ------------------------------------------------------------------ */}
           {layoutMode === 'auto' && (
-            <div className="bg-white border border-slate-900 p-4 font-sans text-xs min-w-[760px] mx-auto shadow-md print:shadow-none print:border-slate-900 print:p-3 relative">
+            <div className="bg-white border border-slate-900 p-4 font-sans text-xs min-w-[760px] print:min-w-0 print:w-full inspection-report-page mx-auto shadow-md print:shadow-none print:border-slate-900 print:p-2.5 relative">
               <div className="flex items-start justify-between border-b-2 border-slate-900 pb-2 mb-2">
                 <div className="w-16" />
                 <div className="text-center">

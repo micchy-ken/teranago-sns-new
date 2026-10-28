@@ -14,11 +14,11 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.27.3',
+  version: '2026.10.27.4',
   date: '2026-10-27',
-  releaseNumber: 3,
-  display: 'v2026.10.27 #3',
-  description: '写真報告書および点検報告書帳票のReact Portal（#root完全分離）によるA4印刷出力隔離機能の実装',
+  releaseNumber: 4,
+  display: 'v2026.10.27 #4',
+  description: '点検報告書（A4縦・横帳票）の印刷レイアウト・ページ幅 (198mm/283mm) および改ページ位置の精密調整、#root分離完全化',
 };
 
 
