@@ -14,11 +14,11 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.27.5',
+  version: '2026.10.27.6',
   date: '2026-10-27',
-  releaseNumber: 5,
-  display: 'v2026.10.27 #5',
-  description: '点検報告書（A4縦帳票）のフォントサイズ・行高・セル内余白のコンパクト化によるA4用紙1枚完全収まりデフォルト化',
+  releaseNumber: 6,
+  display: 'v2026.10.27 #6',
+  description: '点検報告書A4印刷出力のzoom:0.90による比率等倍スケーリング（プレビューの美観を隙間なく100%保持したA4用紙1枚完全収まり化）',
 };
 
 
