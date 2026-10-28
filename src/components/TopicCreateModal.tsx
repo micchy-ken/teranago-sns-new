@@ -186,9 +186,21 @@ export function TopicCreateModal({
 
   const handleAddOption = () => {
     if (pollOptions.length >= 10) return;
+    const existingIds = new Set(pollOptions.map(o => o.id));
+    let nextId = '';
+    for (let i = 1; i <= 20; i++) {
+      const candidate = `opt-${i}`;
+      if (!existingIds.has(candidate)) {
+        nextId = candidate;
+        break;
+      }
+    }
+    if (!nextId) {
+      nextId = `opt-${Date.now()}`;
+    }
     setPollOptions([
       ...pollOptions,
-      { id: `opt-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`, text: '', requireComment: false },
+      { id: nextId, text: '', requireComment: false },
     ]);
   };
 

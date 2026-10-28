@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { X, MessageSquare, Eye, Pin, Paperclip, Calendar as CalendarIcon, Send, Trash2, Building2, Users, Tag, CheckCircle2, Edit3, Save, Plus, Loader2, Eye as EyeIcon, Download, UploadCloud, Share2, Check, Star, BarChart2, AlertCircle, Clock, CheckSquare, Lock } from 'lucide-react';
+import { X, MessageSquare, Eye, Pin, Paperclip, Calendar as CalendarIcon, Send, Trash2, Building2, Users, Tag, CheckCircle2, Edit3, Save, Plus, Loader2, Eye as EyeIcon, Download, UploadCloud, Share2, Check, Star, BarChart2, AlertCircle, Clock, CheckSquare, Lock, RotateCcw } from 'lucide-react';
 import { BoardTopic, User, OfficeMaster, DivisionMaster, AttachmentFile, BoardViewer, BoardPollVote, BoardPoll } from '../types';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
@@ -12,6 +12,38 @@ import { triggerOpenUserModal } from '../utils/userModal';
 import { buildAppUrl, copyTextToClipboard } from '../utils/urlParams';
 import { API_BASE_URL } from '../config/api';
 import { isTopicCurrentlyPinned, formatPinnedUntilBadge, getPollDeadlineMs } from '../utils/boardHelpers';
+
+export const getRestoredPollOptions = (poll: BoardPoll | undefined | null): Array<{ id: string; text: string; requireComment: boolean }> => {
+  if (!poll) {
+    return [
+      { id: 'opt-1', text: '選択肢 1', requireComment: false },
+      { id: 'opt-2', text: '選択肢 2', requireComment: false },
+      { id: 'opt-3', text: '選択肢 3', requireComment: false },
+    ];
+  }
+  if (Array.isArray(poll.options) && poll.options.length > 0) {
+    return poll.options.map(o => ({
+      id: o.id,
+      text: o.text || '',
+      requireComment: !!o.requireComment,
+    }));
+  }
+  const votes = poll.votes || [];
+  const votedIds = Array.from(new Set(votes.flatMap(v => v.selectedOptionIds || [])));
+  votedIds.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  if (votedIds.length > 0) {
+    return votedIds.map((optId, idx) => ({
+      id: optId,
+      text: optId === 'opt-1' ? '選択肢 1' : optId === 'opt-2' ? '選択肢 2' : optId === 'opt-3' ? '選択肢 3' : `選択肢 ${idx + 1}`,
+      requireComment: false,
+    }));
+  }
+  return [
+    { id: 'opt-1', text: '選択肢 1', requireComment: false },
+    { id: 'opt-2', text: '選択肢 2', requireComment: false },
+    { id: 'opt-3', text: '選択肢 3', requireComment: false },
+  ];
+};
 
 interface TopicDetailModalProps {
   topic: BoardTopic | null;
@@ -102,9 +134,21 @@ export function TopicDetailModal({
 
   const handleAddEditOption = () => {
     if (editPollOptions.length >= 10) return;
+    const existingIds = new Set(editPollOptions.map(o => o.id));
+    let nextId = '';
+    for (let i = 1; i <= 20; i++) {
+      const candidate = `opt-${i}`;
+      if (!existingIds.has(candidate)) {
+        nextId = candidate;
+        break;
+      }
+    }
+    if (!nextId) {
+      nextId = `opt-${Date.now()}`;
+    }
     setEditPollOptions([
       ...editPollOptions,
-      { id: `opt-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`, text: '', requireComment: false },
+      { id: nextId, text: '', requireComment: false },
     ]);
   };
 
@@ -253,13 +297,7 @@ export function TopicDetailModal({
 
           if (topic.poll) {
             setEditHasPoll(true);
-            setEditPollOptions(
-              (topic.poll.options || []).map(o => ({
-                id: o.id,
-                text: o.text,
-                requireComment: !!o.requireComment,
-              }))
-            );
+            setEditPollOptions(getRestoredPollOptions(topic.poll));
             setEditPollDeadline(topic.poll.deadline || getDefaultDeadlineDate());
             setEditPollAutoPin(topic.poll.autoPinUntilDeadline !== false);
             setEditPollAllowMultiple(!!topic.poll.allowMultiple);
@@ -267,9 +305,9 @@ export function TopicDetailModal({
           } else {
             setEditHasPoll(false);
             setEditPollOptions([
-              { id: 'opt-1', text: '賛成', requireComment: false },
-              { id: 'opt-2', text: '条件付き賛成', requireComment: false },
-              { id: 'opt-3', text: 'どれも反対', requireComment: true },
+              { id: 'opt-1', text: '選択肢 1', requireComment: false },
+              { id: 'opt-2', text: '選択肢 2', requireComment: false },
+              { id: 'opt-3', text: '選択肢 3', requireComment: false },
             ]);
             setEditPollDeadline(getDefaultDeadlineDate());
             setEditPollAutoPin(true);
@@ -369,8 +407,9 @@ export function TopicDetailModal({
     }
 
     // 必須コメントチェック
+    const currentOptions = getRestoredPollOptions(topic.poll);
     const isCommentRequired = selectedPollOptionIds.some(id => 
-      topic.poll?.options.find(o => o.id === id)?.requireComment
+      currentOptions.find(o => o.id === id)?.requireComment
     );
     if (isCommentRequired && !pollComment.trim()) {
       setPollError('選択された項目は理由コメントの記入が必須です。');
@@ -399,13 +438,19 @@ export function TopicDetailModal({
       }
 
       const resData = await res.json();
-      const updatedPoll = resData.poll || {
+      let updatedPoll = resData.poll || {
         ...topic.poll,
         votes: [
           ...(topic.poll.votes || []).filter(v => String(v.userId) !== String(currentUser.id)),
           resData.vote,
         ],
       };
+      if (!updatedPoll.options || !Array.isArray(updatedPoll.options) || updatedPoll.options.length === 0) {
+        updatedPoll = {
+          ...updatedPoll,
+          options: currentOptions,
+        };
+      }
 
       const updatedTopic: BoardTopic = {
         ...topic,
@@ -790,6 +835,25 @@ export function TopicDetailModal({
                     ...a,
                     id: a.id || `att-${i}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`
                   })));
+                  if (topic.poll) {
+                    setEditHasPoll(true);
+                    setEditPollOptions(getRestoredPollOptions(topic.poll));
+                    setEditPollDeadline(topic.poll.deadline || getDefaultDeadlineDate());
+                    setEditPollAutoPin(topic.poll.autoPinUntilDeadline !== false);
+                    setEditPollAllowMultiple(!!topic.poll.allowMultiple);
+                    setEditPollIsAnonymous(!!topic.poll.isAnonymous);
+                  } else {
+                    setEditHasPoll(false);
+                    setEditPollOptions([
+                      { id: 'opt-1', text: '選択肢 1', requireComment: false },
+                      { id: 'opt-2', text: '選択肢 2', requireComment: false },
+                      { id: 'opt-3', text: '選択肢 3', requireComment: false },
+                    ]);
+                    setEditPollDeadline(getDefaultDeadlineDate());
+                    setEditPollAutoPin(true);
+                    setEditPollAllowMultiple(false);
+                    setEditPollIsAnonymous(false);
+                  }
                   setIsEditing(true);
                 }}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs rounded-xl border border-indigo-200 transition-colors"
@@ -1165,6 +1229,21 @@ export function TopicDetailModal({
                             </div>
                           ))}
                         </div>
+                        {editPollOptions.length === 0 && (
+                          <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs space-y-2 mb-2">
+                            <p className="text-amber-800 font-semibold">
+                              選択肢が未設定です。既存の投票データ（{topic.poll?.votes?.length || 0}件）に対応する選択肢を自動復元できます。
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => setEditPollOptions(getRestoredPollOptions(topic.poll))}
+                              className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-xs transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                            >
+                              <RotateCcw className="w-3.5 h-3.5" />
+                              既存の投票データから選択肢を復元する
+                            </button>
+                          </div>
+                        )}
                         {editPollOptions.length < 10 && (
                           <button
                             type="button"
@@ -1465,15 +1544,7 @@ export function TopicDetailModal({
                         : 0;
 
                       // 選択肢の安全な取得（万一optionsが欠落または空でも、votesまたはデフォルトから復元）
-                      const safeOptions = (Array.isArray(poll.options) && poll.options.length > 0)
-                        ? poll.options
-                        : (votes.length > 0
-                            ? Array.from(new Set(votes.flatMap(v => v.selectedOptionIds || []))).map((optId, idx) => ({
-                                id: optId,
-                                text: optId === 'opt-1' ? '選択肢 1' : optId === 'opt-2' ? '選択肢 2' : optId === 'opt-3' ? '選択肢 3' : `選択肢 ${idx + 1}`,
-                                requireComment: false,
-                              }))
-                            : []);
+                      const safeOptions = getRestoredPollOptions(poll);
 
                       // 選択中の選択肢の中に理由コメント必須のものがあるか
                       const selectedOptions = safeOptions.filter(o => selectedPollOptionIds.includes(o.id));
@@ -1523,7 +1594,7 @@ export function TopicDetailModal({
                               </div>
                               <div>
                                 <h4 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
-                                  <span>{poll.title || poll.question || 'アンケート / 意思決定投票'}</span>
+                                  <span>{poll.title || (poll as any).question || 'アンケート / 意思決定投票'}</span>
                                   {poll.allowMultiple && (
                                     <span className="text-[10px] bg-slate-100 text-slate-600 font-bold px-1.5 py-0.5 rounded">
                                       複数選択可
@@ -1766,7 +1837,7 @@ export function TopicDetailModal({
                                   <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                                     {votesWithComments.map((v) => {
                                       const chosenTexts = (v.selectedOptionIds || [])
-                                        .map(id => poll.options.find(o => o.id === id)?.text)
+                                        .map(id => safeOptions.find(o => o.id === id)?.text)
                                         .filter(Boolean)
                                         .join(', ');
                                       return (

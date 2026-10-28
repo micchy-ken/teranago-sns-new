@@ -1793,18 +1793,42 @@ export default function App() {
   };
 
   const handleUpdateTopic = async (updatedTopic: BoardTopic) => {
-    // 既存の状態からアンケート選択肢(options)を保護
+    // 既存の状態および投票データからアンケート選択肢(options)を保護・自動復元
     const currentInState = topics.find(t => t.id === updatedTopic.id);
-    let safePoll = updatedTopic.poll;
-    if (currentInState?.poll && Array.isArray(currentInState.poll.options) && currentInState.poll.options.length > 0) {
-      if (!safePoll?.options || !Array.isArray(safePoll.options) || safePoll.options.length === 0) {
-        safePoll = {
-          ...currentInState.poll,
-          ...(safePoll || {}),
-          options: currentInState.poll.options,
-          votes: (safePoll?.votes && Array.isArray(safePoll.votes) && safePoll.votes.length > 0)
+    if (updatedTopic.poll) {
+      let safePoll = updatedTopic.poll;
+      if (!safePoll.options || !Array.isArray(safePoll.options) || safePoll.options.length === 0) {
+        let restoredOptions = (currentInState?.poll && Array.isArray(currentInState.poll.options) && currentInState.poll.options.length > 0)
+          ? currentInState.poll.options
+          : [];
+        if (restoredOptions.length === 0) {
+          const effectiveVotes = (safePoll.votes && Array.isArray(safePoll.votes) && safePoll.votes.length > 0)
             ? safePoll.votes
-            : (currentInState.poll.votes || [])
+            : (currentInState?.poll?.votes || []);
+          const votedIds = Array.from(new Set(effectiveVotes.flatMap((v: any) => v.selectedOptionIds || [])));
+          votedIds.sort((a: any, b: any) => String(a).localeCompare(String(b), undefined, { numeric: true }));
+          if (votedIds.length > 0) {
+            restoredOptions = votedIds.map((optId: any, idx: number) => ({
+              id: optId,
+              text: optId === 'opt-1' ? '選択肢 1' : optId === 'opt-2' ? '選択肢 2' : optId === 'opt-3' ? '選択肢 3' : `選択肢 ${idx + 1}`,
+              requireComment: false,
+            }));
+          }
+        }
+        if (restoredOptions.length === 0) {
+          restoredOptions = [
+            { id: 'opt-1', text: '選択肢 1', requireComment: false },
+            { id: 'opt-2', text: '選択肢 2', requireComment: false },
+            { id: 'opt-3', text: '選択肢 3', requireComment: false },
+          ];
+        }
+        safePoll = {
+          ...(currentInState?.poll || {}),
+          ...safePoll,
+          options: restoredOptions,
+          votes: (safePoll.votes && Array.isArray(safePoll.votes) && safePoll.votes.length > 0)
+            ? safePoll.votes
+            : (currentInState?.poll?.votes || []),
         };
         updatedTopic = { ...updatedTopic, poll: safePoll };
       }
