@@ -21,8 +21,8 @@ export function getPollDeadlineMs(deadlineStr?: string | null): number {
 export function isTopicCurrentlyPinned(topic?: (Partial<BoardTopic> & { isPinned?: boolean; pinnedUntil?: string | null; poll?: BoardPoll }) | null): boolean {
   if (!topic) return false;
 
-  // 1. アンケート回答期限内の自動ピン留め判定
-  if (topic.poll && topic.poll.autoPinUntilDeadline && topic.poll.deadline) {
+  // 1. アンケート回答期限内の自動ピン留め判定（締め切られていない場合のみ有効）
+  if (topic.poll && topic.poll.autoPinUntilDeadline && topic.poll.deadline && !topic.poll.isClosed) {
     const deadlineMs = getPollDeadlineMs(topic.poll.deadline);
     if (!isNaN(deadlineMs) && deadlineMs > Date.now()) {
       return true;
@@ -39,11 +39,14 @@ export function isTopicCurrentlyPinned(topic?: (Partial<BoardTopic> & { isPinned
 
 /**
  * ピン留め期限またはアンケート自動ピン留めのバッジ文字列を生成
- * 例: 「あと8日」「常時固定」「期限終了」
+ * 例: 「あと8日」「常時固定」「期限終了」「受付終了」
  */
 export function formatPinnedUntilBadge(pinnedUntil?: string | null, poll?: BoardPoll): string {
-  // アンケート自動ピン留めが有効な場合
+  // アンケート自動ピン留めが設定されている場合
   if (poll && poll.autoPinUntilDeadline && poll.deadline) {
+    if (poll.isClosed) {
+      return '受付終了';
+    }
     const deadlineMs = getPollDeadlineMs(poll.deadline);
     if (!isNaN(deadlineMs)) {
       const now = Date.now();
@@ -51,6 +54,8 @@ export function formatPinnedUntilBadge(pinnedUntil?: string | null, poll?: Board
       if (diffMs > 0) {
         const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
         return `あと${diffDays}日`;
+      } else {
+        return '受付終了';
       }
     }
   }

@@ -1,7 +1,7 @@
 export const RECOMMEND_SERVER_JS = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年10月28日 (安否確認気象庁自動連動設定のファイル・DB永続化・サーバー再起動後復元対応版)
+ * 最終更新日時 (最終アップデート): 2026年10月29日 (アンケート早期締め切り・回答受付終了・ピン留め同時解除対応版)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -4913,7 +4913,7 @@ async function startServer() {
         const topicViewers = allViewers.filter((v: any) => String(v.topicId || v.topic_id) === String(topic.id));
         
         let isPollAutoPinned = false;
-        if (topic.poll && topic.poll.autoPinUntilDeadline && topic.poll.deadline) {
+        if (topic.poll && topic.poll.autoPinUntilDeadline && topic.poll.deadline && !topic.poll.isClosed) {
           const trimmed = String(topic.poll.deadline).trim();
           const deadlineMs = /^\\d{4}-\\d{2}-\\d{2}$/.test(trimmed)
             ? new Date(\`\${trimmed}T23:59:59.999+09:00\`).getTime()
@@ -5100,6 +5100,9 @@ async function startServer() {
       }
 
       // 締め切りチェック
+      if (topic.poll.isClosed) {
+        return res.status(400).json({ error: 'アンケートは締め切られました' });
+      }
       if (topic.poll.deadline) {
         const trimmed = String(topic.poll.deadline).trim();
         const deadlineMs = /^\\d{4}-\\d{2}-\\d{2}$/.test(trimmed)
@@ -5134,6 +5137,41 @@ async function startServer() {
       saveBulletins(bulletinsList);
 
       res.json({ success: true, poll: topic.poll, topic });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // アンケート早期締め切り & ピン留め解除 API (POST /api/bulletins/:id/poll/close)
+  app.post(['/api/bulletins/:id/poll/close', '/api/board/:id/poll/close'], (req, res) => {
+    try {
+      const topicId = req.params.id;
+      const { closedAt, closedById } = req.body || {};
+      const bulletinsList = loadBulletins();
+      const idx = bulletinsList.findIndex((t: any) => String(t.id) === String(topicId));
+      if (idx === -1) {
+        return res.status(404).json({ error: 'トピックが見つかりません' });
+      }
+
+      const topic = bulletinsList[idx];
+      if (!topic.poll) {
+        return res.status(400).json({ error: 'このトピックにはアンケートが設定されていません' });
+      }
+
+      const nowIso = closedAt || new Date().toISOString();
+      topic.poll.isClosed = true;
+      topic.poll.closedAt = nowIso;
+      topic.poll.closedById = closedById || null;
+      topic.poll.autoPinUntilDeadline = false;
+
+      // 締め切りと同時にピン留めも解除
+      topic.isPinned = false;
+      topic.pinnedUntil = null;
+      topic.pinnedDuration = null;
+      topic.updatedAt = nowIso;
+
+      saveBulletins(bulletinsList);
+      res.json({ success: true, message: 'アンケートは締め切られました', poll: topic.poll, topic });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

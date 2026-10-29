@@ -14,11 +14,11 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.28.12',
-  date: '2026-10-28',
-  releaseNumber: 12,
-  display: 'v2026.10.28 #12',
-  description: '安否確認・気象庁自動連動設定のファイルおよびDB二重永続化対応（サーバー再起動・リビルド後の設定自動復元）',
+  version: '2026.10.29.1',
+  date: '2026-10-29',
+  releaseNumber: 1,
+  display: 'v2026.10.29 #1',
+  description: 'アンケート投稿者向け途中締め切りボタン追加（「アンケートは締め切りました」表示・回答停止・ピン留め同時終了）',
 };
 
 

@@ -391,6 +391,8 @@ export interface BoardPoll {
   isAnonymous?: boolean;   // 匿名投票か (デフォルト false)
   deadline?: string | null; // 回答期限 (YYYY-MM-DD または ISO string)
   autoPinUntilDeadline?: boolean; // 回答期限までは自動ピン留め (デフォルト true)
+  isClosed?: boolean;      // 途中で締め切られたか（早期締め切りフラグ）
+  closedAt?: string;       // 締め切り日時 (ISO string)
   votes: BoardPollVote[];
 }
 

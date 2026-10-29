@@ -351,7 +351,7 @@ router.get(['/bulletins', '/bulletins/', '/board', '/board/'], async (req, res) 
 
       const pollObj = safeParseJSON(row.poll, null);
       let isPollAutoPinned = false;
-      if (pollObj && pollObj.autoPinUntilDeadline && pollObj.deadline) {
+      if (pollObj && pollObj.autoPinUntilDeadline && pollObj.deadline && !pollObj.isClosed) {
         const trimmed = String(pollObj.deadline).trim();
         const deadlineMs = /^\d{4}-\d{2}-\d{2}$/.test(trimmed)
           ? new Date(`${trimmed}T23:59:59.999+09:00`).getTime()
@@ -627,6 +627,9 @@ router.post(['/bulletins/:id/poll/vote', '/board/:id/poll/vote', '/:id/poll/vote
       }
 
       // 締め切りチェック
+      if (currentPoll.isClosed) {
+        return res.status(400).json({ error: 'アンケートは締め切られました' });
+      }
       if (currentPoll.deadline) {
         const trimmed = String(currentPoll.deadline).trim();
         const deadlineMs = /^\d{4}-\d{2}-\d{2}$/.test(trimmed)
@@ -669,6 +672,59 @@ router.post(['/bulletins/:id/poll/vote', '/board/:id/poll/vote', '/:id/poll/vote
     }
 
     res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==========================================
+// アンケート締め切り & ピン留め解除 API (POST /api/bulletins/:id/poll/close)
+// ==========================================
+router.post(['/bulletins/:id/poll/close', '/board/:id/poll/close', '/:id/poll/close'], async (req, res) => {
+  try {
+    const topicId = req.params.id;
+    const { closedAt, closedById } = req.body;
+    const pool = await getPool();
+
+    if (pool) {
+      await ensureBulletinTablesOnce(pool);
+      const result = await pool.request()
+        .input('id', sql.VarChar, String(topicId))
+        .query('SELECT poll FROM dbo.Bulletins WHERE id = @id');
+
+      if (!result.recordset || result.recordset.length === 0) {
+        return res.status(404).json({ error: 'トピックが見つかりません' });
+      }
+
+      const currentPoll = safeParseJSON(result.recordset[0].poll, null);
+      if (!currentPoll) {
+        return res.status(400).json({ error: 'このトピックにはアンケートが設定されていません' });
+      }
+
+      const nowIso = closedAt || new Date().toISOString();
+      currentPoll.isClosed = true;
+      currentPoll.closedAt = nowIso;
+      currentPoll.closedById = closedById || null;
+      currentPoll.autoPinUntilDeadline = false;
+
+      const updatedPollStr = JSON.stringify(currentPoll);
+
+      // アンケート締め切りとともにピン留めも即時解除
+      await pool.request()
+        .input('id', sql.VarChar, String(topicId))
+        .input('poll', sql.NVarChar, updatedPollStr)
+        .query(`
+          UPDATE dbo.Bulletins
+          SET poll = @poll,
+              isPinned = 0,
+              pinnedUntil = NULL
+          WHERE id = @id
+        `);
+
+      return res.json({ success: true, message: 'アンケートは締め切られました', poll: currentPoll });
+    }
+
+    res.json({ success: true, message: 'アンケートは締め切られました' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

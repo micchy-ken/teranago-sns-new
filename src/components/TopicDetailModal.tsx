@@ -494,6 +494,61 @@ export function TopicDetailModal({
     }
   };
 
+  // 投稿者本人によるアンケート締め切り処理（早期終了＋ピン留め解除）
+  const [isClosingPoll, setIsClosingPoll] = useState(false);
+
+  const handleClosePollConfirm = () => {
+    if (!topic || !topic.poll) return;
+    setConfirmModal({
+      isOpen: true,
+      title: 'アンケートの締め切り',
+      message: 'このアンケートを締め切りますか？\n締め切り後はメンバーの回答・再投票ができなくなり、掲示板のピン留め（上部固定）も終了します。',
+      type: 'warning',
+      confirmText: 'アンケートを締め切る',
+      cancelText: 'キャンセル',
+      onConfirm: executeClosePoll,
+    });
+  };
+
+  const executeClosePoll = async () => {
+    if (!topic || !topic.poll) return;
+    setIsClosingPoll(true);
+    const nowIso = new Date().toISOString();
+
+    const updatedPoll: BoardPoll = {
+      ...topic.poll,
+      isClosed: true,
+      closedAt: nowIso,
+      autoPinUntilDeadline: false,
+    };
+
+    const updatedTopic: BoardTopic = {
+      ...topic,
+      isPinned: false,
+      pinnedUntil: null,
+      poll: updatedPoll,
+    };
+
+    try {
+      // 1. 専用エンドポイントへの通知
+      fetch(`${API_BASE_URL}/bulletins/${topic.id}/poll/close`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          closedAt: nowIso,
+          closedById: currentUser.id,
+        }),
+      }).catch(err => console.warn('POST /poll/close background error:', err));
+    } catch (_) {}
+
+    // 2. クライアントState & 親コンポーネント更新 (PUT /bulletins/:id を経由してDB二重保存)
+    onUpdateTopic(updatedTopic);
+    setIsChangingVote(false);
+    setPollFeedback('アンケートは締め切りました');
+    setIsClosingPoll(false);
+    setTimeout(() => setPollFeedback(null), 4000);
+  };
+
   // 保存処理 (本人編集)
   const handleSaveEdit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1533,12 +1588,20 @@ export function TopicDetailModal({
                       const myVote = votes.find(v => String(v.userId) === String(currentUser?.id));
                       const hasVoted = !!myVote;
 
-                      // 期限判定
+                      // 期限・締め切り判定
+                      const isClosed = !!poll.isClosed;
                       const deadlineMs = poll.deadline ? getPollDeadlineMs(poll.deadline) : NaN;
-                      const isExpired = !isNaN(deadlineMs) && Date.now() > deadlineMs;
+                      const isTimeExpired = !isNaN(deadlineMs) && Date.now() > deadlineMs;
+                      const isExpired = isClosed || isTimeExpired;
                       const remainingDays = !isNaN(deadlineMs) && !isExpired
                         ? Math.max(1, Math.ceil((deadlineMs - Date.now()) / (1000 * 60 * 60 * 24)))
                         : 0;
+
+                      // 投稿者判定 (本人または管理者)
+                      const isAuthor =
+                        (topic.author?.id && String(topic.author.id) === String(currentUser?.id)) ||
+                        ((topic as any).authorId && String((topic as any).authorId) === String(currentUser?.id)) ||
+                        (currentUser?.role === 'admin' || (currentUser as any)?.isAdmin);
 
                       // 選択肢の安全な取得（万一optionsが欠落または空でも、votesまたはデフォルトから復元）
                       const safeOptions = getRestoredPollOptions(poll);
@@ -1608,7 +1671,9 @@ export function TopicDetailModal({
                                   {poll.deadline && (
                                     <span className={`flex items-center gap-1 font-semibold ${isExpired ? 'text-slate-500' : 'text-sky-700'}`}>
                                       <Clock className="w-3.5 h-3.5" />
-                                      {isExpired
+                                      {isClosed
+                                        ? '受付終了（締め切り済み）'
+                                        : isTimeExpired
                                         ? `期限終了 (${poll.deadline})`
                                         : `期限: 〜${poll.deadline}（あと${remainingDays}日）`}
                                     </span>
@@ -1617,24 +1682,36 @@ export function TopicDetailModal({
                               </div>
                             </div>
 
-                            {/* 自動ピン留め・ステータスバッジ */}
-                            <div className="flex items-center gap-1.5">
-                              {poll.autoPinUntilDeadline && !isExpired && (
-                                <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-100/80 text-amber-900 text-[11px] font-bold rounded-lg border border-amber-200 shadow-2xs">
-                                  <Pin className="w-3.5 h-3.5 text-amber-700" />
-                                  回答期限まで自動固定
-                                </span>
-                              )}
+                            {/* ステータスバッジ & アンケート締め切りボタン */}
+                            <div className="flex items-center gap-1.5 flex-wrap">
                               {hasVoted && !showVotingForm && (
                                 <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-100 text-emerald-800 text-[11px] font-bold rounded-lg border border-emerald-200">
                                   <Check className="w-3.5 h-3.5" />
                                   回答済み
                                 </span>
                               )}
-                              {isExpired && (
+                              {isExpired ? (
                                 <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-200 text-slate-700 text-[11px] font-bold rounded-lg">
-                                  受付終了
+                                  <Lock className="w-3.5 h-3.5 text-slate-500" />
+                                  アンケートは締め切りました
                                 </span>
+                              ) : (
+                                isAuthor && (
+                                  <button
+                                    type="button"
+                                    disabled={isClosingPoll}
+                                    onClick={handleClosePollConfirm}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 rounded-lg text-[11px] font-bold transition-all shadow-2xs hover:shadow-xs active:scale-95 cursor-pointer disabled:opacity-50"
+                                    title="アンケートの回答受付を終了し、ピン留めを解除します"
+                                  >
+                                    {isClosingPoll ? (
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    ) : (
+                                      <Lock className="w-3.5 h-3.5 text-rose-600" />
+                                    )}
+                                    <span>アンケートを締め切る</span>
+                                  </button>
+                                )
                               )}
                             </div>
                           </div>
