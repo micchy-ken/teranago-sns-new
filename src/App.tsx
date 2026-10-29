@@ -3377,12 +3377,15 @@ export default function App() {
               allUsers={usersList}
               currentUser={userState}
               offices={offices}
+              events={events}
               onAddEvents={(newEvents) => {
                 newEvents.forEach((evt) => {
                   const { id, ...eventData } = evt;
                   handleAddEvent(eventData);
                 });
               }}
+              onUpdateEvent={handleUpdateEvent}
+              onDeleteEvent={handleDeleteEvent}
               onNavigateToCalendar={() => setActiveTab('calendar')}
             />
           )}

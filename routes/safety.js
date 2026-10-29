@@ -1,7 +1,7 @@
 /**
  * routes/safety.js (本番環境・MS SQL Server & 暗号化 & 気象庁地震連動 完全連携版)
- * 寺岡オートドアSNS 安否確認モジュール (MS SQL Server & AES-256-GCM暗号化 & 気象庁地震速報自動発動 & ログイン不要ゲスト直接回答URL対応)
- * 最終更新: 2026年9月7日 (安否確認回答後の未読バッジ即時クリア・レスポンス正規化 & 複数アクティブイベント回答同期・インメモリ&LocalStorage二重キャッシュ対応 完全版)
+ * 寺岡オートドアSNS 安否確認モジュール (MS SQL Server & AES-256-GCM暗号化 & 気象庁地震速報自動発動 & 24時間重複連送抑制 & ログイン不要ゲスト直接回答URL対応)
+ * 最終更新: 2026年10月28日 (安否確認メールの24時間連送抑制・クールダウン制御および緊急送信フラグ対応 完全統合版)
  */
 import { Router } from 'express';
 import crypto from 'crypto';
@@ -64,6 +64,62 @@ export function maskEmail(email) {
 }
 
 // -------------------------------------------------------------
+// 24時間連送抑制（クールダウン）設定 ＆ ヘルパー
+// -------------------------------------------------------------
+/**
+ * 24時間連送抑制（クールダウン）チェックヘルパー
+ * @param {string} targetOffice 対象拠点
+ * @param {boolean} force 強制送信フラグ
+ * @returns {Promise<{isCooldownActive: boolean, cooldownHours?: number, remainingMinutes?: number, lastEvent?: object}>}
+ */
+export async function checkSafetyCooldown(targetOffice = '全社', force = false) {
+  if (force) {
+    return { isCooldownActive: false };
+  }
+
+  const cooldownHours = Number(memoryAutoSettings.cooldownHours) || 24;
+  if (cooldownHours <= 0) {
+    return { isCooldownActive: false };
+  }
+
+  try {
+    const pool = await getPool();
+    if (!pool) return { isCooldownActive: false };
+
+    const result = await pool.request().query('SELECT TOP 5 * FROM dbo.SafetyEvents ORDER BY createdAt DESC');
+    const events = result.recordset || [];
+    if (events.length === 0) return { isCooldownActive: false };
+
+    const now = Date.now();
+    const cooldownMs = cooldownHours * 60 * 60 * 1000;
+
+    for (const ev of events) {
+      const createdAtMs = new Date(ev.createdAt).getTime();
+      const diffMs = now - createdAtMs;
+
+      if (diffMs < cooldownMs) {
+        const remainingMinutes = Math.ceil((cooldownMs - diffMs) / (60 * 1000));
+        return {
+          isCooldownActive: true,
+          cooldownHours,
+          remainingMinutes,
+          lastEvent: {
+            id: String(ev.id),
+            title: ev.title,
+            createdAt: ev.createdAt,
+            createdByName: ev.createdByName || '管理者'
+          }
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('Check safety cooldown error:', err);
+  }
+
+  return { isCooldownActive: false };
+}
+
+// -------------------------------------------------------------
 // 1. 安否確認イベント一覧取得
 // 対応URL: /api/safety-events, /api/safety/events, /api/events
 // -------------------------------------------------------------
@@ -82,7 +138,26 @@ router.get(['/safety-events', '/safety-events/', '/safety/events', '/safety/even
 });
 
 // -------------------------------------------------------------
-// 1-2. 特定の安否確認イベント詳細取得
+// 1-2. 連送抑制（24時間クールダウン）ステータス確認
+// 対応URL: /api/safety/cooldown-status, /api/safety-cooldown-status
+// -------------------------------------------------------------
+router.get([
+  '/safety/cooldown-status',
+  '/safety/cooldown-status/',
+  '/safety-cooldown-status',
+  '/safety-cooldown-status/'
+], async (req, res) => {
+  try {
+    const { office = '全社', force = 'false' } = req.query || {};
+    const status = await checkSafetyCooldown(office, force === 'true');
+    res.json(status);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// -------------------------------------------------------------
+// 1-3. 特定の安否確認イベント詳細取得
 // 対応URL: /api/safety-events/:id, /api/safety/events/:id, /api/events/:id
 // -------------------------------------------------------------
 router.get(['/safety-events/:id', '/safety-events/:id/', '/safety/events/:id', '/safety/events/:id/', '/events/:id', '/events/:id/'], async (req, res) => {
@@ -128,11 +203,33 @@ router.post(['/safety-events', '/safety-events/', '/safety/events', '/safety/eve
       channels,
       isDrill = false,
       isTest = false,
+      force = false,
+      bypassCooldown = false,
       appBaseUrl,
       createdBy,
       createdById,
       createdByName
     } = req.body || {};
+
+    const isForceSend = Boolean(force || bypassCooldown);
+
+    // 24時間連送抑制（クールダウン）チェック
+    const cooldownCheck = await checkSafetyCooldown(targetOffice || '全社', isForceSend);
+    if (cooldownCheck.isCooldownActive) {
+      const lastTimeStr = cooldownCheck.lastEvent?.createdAt 
+        ? new Date(cooldownCheck.lastEvent.createdAt).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })
+        : '24時間以内';
+
+      return res.status(200).json({
+        success: true,
+        skipped: true,
+        cooldownActive: true,
+        reason: `24時間連送抑制機能が有効です。前回の安否確認配信（${lastTimeStr}）から${memoryAutoSettings.cooldownHours || 24}時間経過していないため、重複自動配信をスキップしました。`,
+        message: `24時間連送抑制により発動をスキップしました（前回の配信: ${lastTimeStr}）。緊急で送信が必要な場合は「緊急送信（連送抑制解除）」を有効にして再送信してください。`,
+        remainingMinutes: cooldownCheck.remainingMinutes,
+        lastEvent: cooldownCheck.lastEvent
+      });
+    }
 
     const eventType = type || disasterType || 'earthquake';
     const eventSeverity = severity || level || 'warning';
@@ -1009,6 +1106,7 @@ router.get([
 let memoryAutoSettings = {
   enabled: true,
   minIntensity: '5minus', // '4' (震度4), '5minus' (震度5弱), '5plus' (震度5強), '6minus' (震度6弱), '6plus' (震度6強), '7' (震度7)
+  cooldownHours: 24,      // 24時間重複連送抑制（デフォルト: 24時間）
   targetScope: 'all',
   targetOffices: ['名古屋', '東京', '大阪', '静岡', '浜松', '本社'],
   notifyWebPush: true,
@@ -1059,21 +1157,50 @@ async function getLatestQuakes() {
   }
 }
 
-// 地震検知時の自動起票・通知処理
-async function executeEarthquakeAutoTrigger(quake, isSimulated = false) {
-  if (!memoryAutoSettings.enabled && !isSimulated) {
+// 地震検知時の自動起票・通知処理 (24時間連送抑制組み込み)
+async function executeEarthquakeAutoTrigger(quake, isSimulated = false, force = false) {
+  if (!memoryAutoSettings.enabled && !isSimulated && !force) {
     return { triggered: false, reason: '自動連動が無効です' };
   }
 
   const quakeId = quake.id || `sim_${Date.now()}`;
-  if (!isSimulated && memoryAutoSettings.lastTriggeredQuakeId === quakeId) {
+  if (!isSimulated && !force && memoryAutoSettings.lastTriggeredQuakeId === quakeId) {
     return { triggered: false, reason: 'すでに発動済みの地震情報です' };
+  }
+
+  // 24時間重複連送抑制（クールダウン）チェック
+  const cooldownCheck = await checkSafetyCooldown('全社', force);
+  if (cooldownCheck.isCooldownActive && !isSimulated) {
+    const lastTimeStr = cooldownCheck.lastEvent?.createdAt 
+      ? new Date(cooldownCheck.lastEvent.createdAt).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })
+      : '24時間以内';
+
+    const logEntry = {
+      id: `log_${Date.now()}`,
+      time: new Date().toISOString(),
+      quakeId,
+      epicenter: quake.earthquake?.hypocenter?.name || quake.hypocenter?.name || '国内震源',
+      maxScaleText: formatIntensity(quake.earthquake?.maxScale || quake.maxScale || 0),
+      status: 'skipped_cooldown',
+      reason: `24時間重複連送抑制機能により重複配信を自動スキップ（前回の配信: ${lastTimeStr}）`,
+      remainingMinutes: cooldownCheck.remainingMinutes
+    };
+    memoryAutoSettings.logs = [logEntry, ...(memoryAutoSettings.logs || []).slice(0, 19)];
+
+    return {
+      triggered: false,
+      skipped: true,
+      cooldownActive: true,
+      reason: logEntry.reason,
+      remainingMinutes: cooldownCheck.remainingMinutes,
+      lastEvent: cooldownCheck.lastEvent
+    };
   }
 
   const maxScale = quake.earthquake?.maxScale || quake.maxScale || 0;
   const threshold = INTENSITY_MAP[memoryAutoSettings.minIntensity] || 45;
 
-  if (maxScale < threshold && !isSimulated) {
+  if (maxScale < threshold && !isSimulated && !force) {
     return { triggered: false, reason: `最大震度(${formatIntensity(maxScale)})が設定閾値(${formatIntensity(threshold)})未満です` };
   }
 
@@ -1256,7 +1383,9 @@ router.post([
       epicenter = '愛知県西部',
       scale = 50,
       magnitude = 6.2,
-      depth = 10
+      depth = 10,
+      force = false,
+      bypassCooldown = false
     } = req.body || {};
 
     const mockQuake = {
@@ -1273,7 +1402,8 @@ router.post([
       }
     };
 
-    const result = await executeEarthquakeAutoTrigger(mockQuake, true);
+    const isForceSend = Boolean(force || bypassCooldown);
+    const result = await executeEarthquakeAutoTrigger(mockQuake, true, isForceSend);
     res.json({
       success: true,
       message: `疑似地震（${epicenter} / 最大${formatIntensity(scale)}）の連動テスト発動が完了しました。`,

@@ -200,6 +200,8 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
   const [useCompanyEmail, setUseCompanyEmail] = useState(true);
   const [usePersonalEmail, setUsePersonalEmail] = useState(true);
   const [isTestMode, setIsTestMode] = useState(false);
+  const [isForceSend, setIsForceSend] = useState(false);
+  const [cooldownInfo, setCooldownInfo] = useState<{ isCooldownActive: boolean; cooldownHours?: number; remainingMinutes?: number; lastEvent?: any } | null>(null);
 
   // Response Form State (for current user)
   const [mySafetyStatus, setMySafetyStatus] = useState<'safe' | 'minor_injury' | 'severe_injury' | 'need_rescue'>('safe');
@@ -253,12 +255,29 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
     return responses.find(r => r.userId === currentUser.id);
   }, [responses, currentUser.id]);
 
+  const fetchCooldownStatus = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/safety/cooldown-status`);
+      if (res.ok) {
+        const data = await res.json();
+        setCooldownInfo(data);
+      }
+    } catch (_) {}
+  };
+
   // Load events on mount
   useEffect(() => {
     fetchEvents();
     fetchJmaSettings();
     fetchRecentQuakes();
+    fetchCooldownStatus();
   }, []);
+
+  useEffect(() => {
+    if (activeTab === 'trigger') {
+      fetchCooldownStatus();
+    }
+  }, [activeTab]);
 
   // initialEventId が渡された場合、対象イベントを選択して回答モーダルをピンポイントで即座に展開
   useEffect(() => {
@@ -739,6 +758,8 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
       createdBy: currentUser.id,
       createdById: currentUser.id,
       createdByName: currentUser.name,
+      force: isForceSend,
+      bypassCooldown: isForceSend,
     };
 
     const confirmText = isTestMode
@@ -773,14 +794,21 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
       });
       const data = await res.json();
       if (res.ok) {
-        setActionMessage({
-          type: 'success',
-          text: `安否確認を発動しました！ (${data.totalTargets || 0}名に通知送信完了 / WebPush: ${data.pushSent || 0}件, メール: ${data.emailSent || 0}件)`,
-        });
-        await fetchEvents();
-        setActiveTab('dashboard');
-        if (data.event?.id) {
-          setSelectedEventId(data.event.id);
+        if (data.skipped && data.cooldownActive) {
+          setActionMessage({
+            type: 'error',
+            text: `【24時間連送抑制】${data.message || '前回の配信から24時間以内のため自動連送を抑制しました。'}`,
+          });
+        } else {
+          setActionMessage({
+            type: 'success',
+            text: `安否確認を発動しました！ (${data.totalTargets || 0}名に通知送信完了)`,
+          });
+          await fetchEvents();
+          setActiveTab('dashboard');
+          if (data.event?.id) {
+            setSelectedEventId(data.event.id);
+          }
         }
         window.dispatchEvent(new CustomEvent('notifications_updated'));
         window.dispatchEvent(new CustomEvent('safety_updated'));
@@ -2687,6 +2715,31 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
               災害種別を選択し、WebPush・会社メール・個人メール（暗号化）を通じて全社または指定拠点へ緊急確認を一斉送信します。
             </p>
           </div>
+
+          {/* 24時間連送抑制（クールダウン）警告・案内バナー */}
+          {cooldownInfo?.isCooldownActive && (
+            <div className="bg-amber-50 border border-amber-300 rounded-2xl p-4 space-y-2 text-xs text-amber-900 shadow-2xs">
+              <div className="font-bold text-amber-950 flex items-center gap-2">
+                <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>【24時間連送抑制（重複連送防止）が有効です】</span>
+              </div>
+              <p className="text-amber-800 leading-relaxed text-[11px]">
+                前回の安否確認（「{cooldownInfo.lastEvent?.title || '安否確認'}」 / 発動者: {cooldownInfo.lastEvent?.createdByName || '管理者'}）の配信から24時間経過していません。<br />
+                余震や断続的な通知による社員の混乱を防ぐため、通常の自動送信は抑制されます。
+              </p>
+              <div className="flex items-center gap-2 pt-1 border-t border-amber-200/80">
+                <label className="flex items-center gap-2 font-bold text-rose-700 cursor-pointer bg-rose-50 hover:bg-rose-100 px-3 py-1.5 rounded-xl border border-rose-300 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={isForceSend}
+                    onChange={(e) => setIsForceSend(e.target.checked)}
+                    className="w-4 h-4 rounded text-rose-600 focus:ring-rose-500 border-rose-400 cursor-pointer"
+                  />
+                  <span>緊急送信（24時間連送抑制を解除して強制送信する）</span>
+                </label>
+              </div>
+            </div>
+          )}
 
           {/* Quick Template Selector */}
           <div>

@@ -79,22 +79,31 @@ import {
 import { getAvatarUrl } from '../utils/avatar';
 import { markEventAsRead } from '../utils/notifications';
 import { API_BASE_URL } from '../config/api';
+import { getAllInspectionReports, fetchInspectionReportsApi } from '../utils/inspectionReportStorage';
+import { InspectionReportRecord } from '../types/inspectionReport';
+import { ensureJstIsoString } from '../utils/dateUtils';
 
 interface InspectionSchedulerProps {
   allUsers: User[];
   currentUser: User;
   offices?: OfficeMaster[];
+  events?: CalendarEvent[];
   onAddEvents: (events: CalendarEvent[]) => void;
+  onUpdateEvent?: (event: CalendarEvent) => void;
+  onDeleteEvent?: (eventId: string) => void;
   onNavigateToCalendar?: () => void;
 }
 
-type StepType = 'import' | 'assign_date' | 'assign_member' | 'completed';
+type StepType = 'import' | 'assign_date' | 'assign_member' | 'completed' | 'overview';
 
 export function InspectionScheduler({
   allUsers,
   currentUser,
   offices,
+  events = [],
   onAddEvents,
+  onUpdateEvent,
+  onDeleteEvent,
   onNavigateToCalendar
 }: InspectionSchedulerProps) {
   const [currentStep, setCurrentStep] = useState<StepType>('import');
@@ -125,6 +134,66 @@ export function InspectionScheduler({
   const [dragOverDate, setDragOverDate] = useState<string | null>(null);
   const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
   const [dragOverItemId, setDragOverItemId] = useState<string | null>(null);
+
+  // 点検報告書データ（サイン受領済みの現場を自動ロックして再配置制限）
+  const [inspectionReports, setInspectionReports] = useState<InspectionReportRecord[]>(() => getAllInspectionReports());
+
+  // 報告書一覧の最新化（マウント時および定期）
+  const refreshInspectionReports = useCallback(async () => {
+    try {
+      const serverReports = await fetchInspectionReportsApi();
+      if (serverReports && Array.isArray(serverReports)) {
+        setInspectionReports(serverReports);
+      } else {
+        setInspectionReports(getAllInspectionReports());
+      }
+    } catch (_) {
+      setInspectionReports(getAllInspectionReports());
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshInspectionReports();
+    const interval = setInterval(refreshInspectionReports, 30000); // 30秒ごとに報告書状態を最新同期
+    return () => clearInterval(interval);
+  }, [refreshInspectionReports]);
+
+  // 点検報告書が提出完了（お客様サイン受領済）しているかどうかのロック判定
+  const isItemReportLocked = useCallback((item: InspectionItem | null | undefined): boolean => {
+    if (!item) return false;
+    if (inspectionReports.length === 0) return false;
+
+    // 1. 作業No (jobNo) での照合
+    if (item.jobNo && item.jobNo.trim()) {
+      const targetJob = item.jobNo.trim();
+      const match = inspectionReports.find((r) => 
+        r.jobNo === targetJob && (r.status === 'signed' || Boolean(r.customerSignature))
+      );
+      if (match) return true;
+    }
+
+    // 2. カレンダーイベントID (eventId) での照合
+    if (item.eventId) {
+      const match = inspectionReports.find((r) => 
+        r.scheduleEventId === item.eventId && (r.status === 'signed' || Boolean(r.customerSignature))
+      );
+      if (match) return true;
+    }
+
+    // 3. 現場名 + 点検日での照合
+    if (item.siteName && item.assignedDate) {
+      const targetName = item.siteName.trim();
+      const targetDate = item.assignedDate.trim();
+      const match = inspectionReports.find((r) => 
+        r.customerName?.trim() === targetName && 
+        r.inspectionDate === targetDate && 
+        (r.status === 'signed' || Boolean(r.customerSignature))
+      );
+      if (match) return true;
+    }
+
+    return false;
+  }, [inspectionReports]);
 
   // 自動保存・下書き状態管理
   type SyncDestination = 'server' | 'local_only';
@@ -247,6 +316,17 @@ export function InspectionScheduler({
 
   // メンバー登録時の部署フィルター（デフォルト：保守メンバーのみ）
   const [onlyMaintenanceMembers, setOnlyMaintenanceMembers] = useState<boolean>(true);
+
+  // メンバー登録画面での表示フィルター ('all' | 'placed' | 'registered')
+  const [memberStepFilter, setMemberStepFilter] = useState<'all' | 'placed' | 'registered'>('all');
+
+  // 4. 一覧・保守画面（overview）用ステート
+  const [editingMemberItemId, setEditingMemberItemId] = useState<string | null>(null);
+  const [detailModalItem, setDetailModalItem] = useState<InspectionItem | null>(null);
+  const [overviewStatusFilter, setOverviewStatusFilter] = useState<'all' | 'placed' | 'registered'>('all');
+  const [overviewMemberFilter, setOverviewMemberFilter] = useState<string>('all');
+  const [overviewOnlyHasItems, setOverviewOnlyHasItems] = useState<boolean>(true); // 一覧性向上のため、初期値は予定のある日のみ（トグルで全日表示可能）
+  const [overviewSearchQuery, setOverviewSearchQuery] = useState<string>('');
 
   // 日時指定手動モーダル
   const [manualModalItem, setManualModalItem] = useState<InspectionItem | null>(null);
@@ -767,9 +847,71 @@ export function InspectionScheduler({
   };
 
   // ------------------------------------------
-  // 時間の30分刻み直接更新ハンドラー
+  // 確定済み点検予定の再配置・時間変更に伴うカレンダー予定の自動同期
+  // ------------------------------------------
+  const syncCalendarEventForMovedItem = useCallback((
+    updatedItem: InspectionItem,
+    newDateKey: string,
+    newStartTime?: string,
+    newEndTime?: string
+  ) => {
+    if (!events || events.length === 0) return;
+
+    // 該当するカレンダーイベントを特定
+    const matchedEvent = events.find((ev) => {
+      if (updatedItem.eventId && ev.id === updatedItem.eventId) return true;
+      if (updatedItem.jobNo && ev.memo && ev.memo.includes(`【作業No】${updatedItem.jobNo}`)) return true;
+      if (ev.title === updatedItem.siteName) return true;
+      return false;
+    });
+
+    if (!matchedEvent) return;
+
+    const startH = newStartTime || updatedItem.assignedStartTime || '09:00';
+    const endH = newEndTime || updatedItem.assignedEndTime || '10:00';
+
+    const safeStartIso = ensureJstIsoString(`${newDateKey}T${startH}:00`);
+    const safeEndIso = ensureJstIsoString(`${newDateKey}T${endH}:00`);
+
+    const updatedEvent: CalendarEvent = {
+      ...matchedEvent,
+      start: safeStartIso,
+      end: safeEndIso,
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (onUpdateEvent) {
+      onUpdateEvent(updatedEvent);
+    }
+
+    // サーバーAPIへも直接PUTして永続同期
+    fetch(`${API_BASE_URL}/events/${matchedEvent.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...matchedEvent,
+        startAt: safeStartIso,
+        endAt: safeEndIso,
+        start: safeStartIso,
+        end: safeEndIso,
+      }),
+    }).catch((err) => {
+      console.warn('[InspectionScheduler] Failed to sync updated event to server:', err);
+    });
+  }, [events, onUpdateEvent]);
+
+  // ------------------------------------------
+  // 時間の30分刻み直接更新ハンドラー（仮配置＆確定済みの未ロック現場に対応）
   // ------------------------------------------
   const handleUpdateItemTime = (itemId: string, newStart: string, newEnd?: string) => {
+    const targetItem = items.find((i) => i.id === itemId);
+    if (targetItem && targetItem.status === 'registered') {
+      if (isItemReportLocked(targetItem)) {
+        alert('🔒 点検報告書が提出済みのため、作業時間を変更することはできません。');
+        return;
+      }
+    }
+
     setItems((prev) =>
       prev.map((item) => {
         if (item.id === itemId) {
@@ -788,6 +930,12 @@ export function InspectionScheduler({
               lastPlacedEndTime: calculatedEnd,
             });
           }
+
+          // 確定済みアイテムならカレンダーイベント本体も即座に同期更新
+          if (item.status === 'registered' && item.assignedDate) {
+            syncCalendarEventForMovedItem(item, item.assignedDate, newStart, calculatedEnd);
+          }
+
           return {
             ...item,
             assignedStartTime: newStart,
@@ -1270,11 +1418,87 @@ export function InspectionScheduler({
   });
 
   // ------------------------------------------
+  // 確定済みアイテムを「仮配置（未確定）」に戻す（日程再調整用）
+  // ------------------------------------------
+  const handleRevertToPlaced = (itemId: string) => {
+    const targetItem = items.find((i) => i.id === itemId);
+    if (!targetItem) return;
+
+    if (isItemReportLocked(targetItem)) {
+      alert('🔒 この現場はすでに「点検報告書（お客様サイン受領済）」が提出されているため、安全のため仮配置に戻すことはできません。');
+      return;
+    }
+
+    if (!confirm(`「${targetItem.siteName}」の確定を取り消し、仮配置（日程・メンバー再調整可能）に戻しますか？\n\n※カレンダーの確定予定は取り消され、再度メンバー登録や日程調整が行えるようになります。`)) {
+      return;
+    }
+
+    // カレンダーイベントの連動削除
+    if (targetItem.eventId && onDeleteEvent) {
+      onDeleteEvent(targetItem.eventId);
+    } else {
+      const matched = events.find((ev) => 
+        (targetItem.eventId && ev.id === targetItem.eventId) ||
+        (targetItem.jobNo && ev.memo && ev.memo.includes(`【作業No】${targetItem.jobNo}`)) ||
+        ev.title === targetItem.siteName
+      );
+      if (matched && onDeleteEvent) {
+        onDeleteEvent(matched.id);
+      }
+    }
+
+    if (targetItem.eventId) {
+      fetch(`${API_BASE_URL}/events/${targetItem.eventId}`, {
+        method: 'DELETE',
+      }).catch(() => {});
+    }
+
+    setItems((prev) =>
+      prev.map((i) => {
+        if (i.id === itemId) {
+          return {
+            ...i,
+            status: 'placed' as const,
+            isConfirmed: false,
+            eventId: undefined,
+          };
+        }
+        return i;
+      })
+    );
+
+    setCopySuccessToast(`「${targetItem.siteName}」を仮配置に戻しました。日程やメンバーを再調整できます。`);
+    setTimeout(() => setCopySuccessToast(null), 3500);
+  };
+
+  // ------------------------------------------
   // D&D 日付配置 & 再配置（別日付への移動）
   // ------------------------------------------
   const handleAssignItemToDate = (itemId: string, newDateKey: string) => {
     const targetItem = items.find((i) => i.id === itemId);
     if (!targetItem) return;
+
+    // 確定済みアイテムの再配置処理
+    if (targetItem.status === 'registered') {
+      if (isItemReportLocked(targetItem)) {
+        alert('🔒 この現場はすでに「点検報告書（お客様サイン受領済）」が提出されているため、日付を変更・再配置することはできません。');
+        return;
+      }
+
+      const startH = targetItem.assignedStartTime || '09:00';
+      const endH = targetItem.assignedEndTime || '10:00';
+
+      setItems((prev) =>
+        prev.map((i) => (i.id === itemId ? { ...i, assignedDate: newDateKey } : i))
+      );
+
+      // カレンダーイベント本体を即座に連動更新
+      syncCalendarEventForMovedItem(targetItem, newDateKey, startH, endH);
+
+      setCopySuccessToast(`【再配置】「${targetItem.siteName}」を ${newDateKey.slice(5)} へ再配置しました（カレンダー予定も連動更新）`);
+      setTimeout(() => setCopySuccessToast(null), 3500);
+      return;
+    }
 
     const oldDateKey = targetItem.status === 'placed' ? targetItem.assignedDate : undefined;
 
@@ -1337,6 +1561,26 @@ export function InspectionScheduler({
     const droppedItem = items.find((i) => i.id === droppedItemId);
     const targetItem = items.find((i) => i.id === targetItemId);
     if (!droppedItem || !targetItem || !targetItem.assignedDate) return;
+
+    // 確定済みアイテムの割り込み再配置
+    if (droppedItem.status === 'registered') {
+      if (isItemReportLocked(droppedItem)) {
+        alert('🔒 この現場はすでに「点検報告書（お客様サイン受領済）」が提出されているため、日付を変更・再配置することはできません。');
+        return;
+      }
+      const newDateKey = targetItem.assignedDate;
+      const startH = droppedItem.assignedStartTime || '09:00';
+      const endH = droppedItem.assignedEndTime || '10:00';
+
+      setItems((prev) =>
+        prev.map((i) => (i.id === droppedItemId ? { ...i, assignedDate: newDateKey } : i))
+      );
+
+      syncCalendarEventForMovedItem(droppedItem, newDateKey, startH, endH);
+      setCopySuccessToast(`【再配置】「${droppedItem.siteName}」を ${newDateKey.slice(5)} へ再配置しました（カレンダー予定も連動更新）`);
+      setTimeout(() => setCopySuccessToast(null), 3500);
+      return;
+    }
 
     const newDateKey = targetItem.assignedDate;
     const oldDateKey = droppedItem.status === 'placed' ? droppedItem.assignedDate : undefined;
@@ -1480,6 +1724,12 @@ export function InspectionScheduler({
     const targetUser = allUsers.find((u) => u.id === userId);
     if (!targetUser) return;
 
+    const targetItem = items.find((i) => i.id === itemId);
+    if (targetItem && targetItem.status === 'registered' && isItemReportLocked(targetItem)) {
+      alert('🔒 点検報告書が提出済みのため、担当メンバーを変更することはできません。');
+      return;
+    }
+
     setItems((prev) =>
       prev.map((i) => {
         if (i.id === itemId) {
@@ -1488,6 +1738,32 @@ export function InspectionScheduler({
           const nextUsers = exists
             ? currentUsers.filter((u) => u.id !== userId)
             : [...currentUsers, targetUser];
+
+          // 確定済みアイテムならカレンダーイベントの参加メンバーも即座に同期更新
+          if (i.status === 'registered' && events && events.length > 0) {
+            const matchedEvent = events.find((ev) => 
+              (i.eventId && ev.id === i.eventId) ||
+              (i.jobNo && ev.memo && ev.memo.includes(`【作業No】${i.jobNo}`)) ||
+              ev.title === i.siteName
+            );
+            if (matchedEvent) {
+              const updatedEv: CalendarEvent = {
+                ...matchedEvent,
+                attendees: nextUsers.length > 0 ? nextUsers : [currentUser],
+                updatedAt: new Date().toISOString(),
+              };
+              if (onUpdateEvent) onUpdateEvent(updatedEv);
+              fetch(`${API_BASE_URL}/events/${matchedEvent.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  ...matchedEvent,
+                  attendees: nextUsers.length > 0 ? nextUsers : [currentUser],
+                }),
+              }).catch(() => {});
+            }
+          }
+
           return { ...i, assignedUsers: nextUsers };
         }
         return i;
@@ -1495,14 +1771,37 @@ export function InspectionScheduler({
     );
   };
 
-  // 全アイテムに共通担当者を一括設定
+  // 全アイテムに共通担当者を一括設定（未確定または未ロックの確定済みに適用）
   const handleApplyBatchUsers = () => {
     if (batchUserIds.length === 0) return;
     const selectedUsers = allUsers.filter((u) => batchUserIds.includes(u.id));
 
     setItems((prev) =>
       prev.map((i) => {
-        if (i.status === 'placed') {
+        if (i.status === 'placed' || (i.status === 'registered' && !isItemReportLocked(i))) {
+          if (i.status === 'registered' && events && events.length > 0) {
+            const matchedEvent = events.find((ev) => 
+              (i.eventId && ev.id === i.eventId) ||
+              (i.jobNo && ev.memo && ev.memo.includes(`【作業No】${i.jobNo}`)) ||
+              ev.title === i.siteName
+            );
+            if (matchedEvent) {
+              const updatedEv: CalendarEvent = {
+                ...matchedEvent,
+                attendees: selectedUsers,
+                updatedAt: new Date().toISOString(),
+              };
+              if (onUpdateEvent) onUpdateEvent(updatedEv);
+              fetch(`${API_BASE_URL}/events/${matchedEvent.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  ...matchedEvent,
+                  attendees: selectedUsers,
+                }),
+              }).catch(() => {});
+            }
+          }
           return { ...i, assignedUsers: selectedUsers };
         }
         return i;
@@ -1583,14 +1882,19 @@ export function InspectionScheduler({
 
     onAddEvents(createdEvents);
 
-    // 確定されたアイテムのステータスを 'registered' に変更し、次回以降の重複追加を防止
-    const registeredIds = new Set(itemsToRegister.map((i) => i.id));
+    // 確定されたアイテムのステータスを 'registered' に変更し、生成された eventId を紐づけ
+    const itemEventMap = new Map<string, string>();
+    itemsToRegister.forEach((item, idx) => {
+      itemEventMap.set(item.id, createdEvents[idx].id);
+    });
+
     const updatedItems = items.map((i) => {
-      if (registeredIds.has(i.id)) {
+      if (itemEventMap.has(i.id)) {
         return {
           ...i,
           status: 'registered' as const,
           isConfirmed: true,
+          eventId: itemEventMap.get(i.id),
           draftSavedAt: new Date().toISOString(),
         };
       }
@@ -1655,7 +1959,7 @@ export function InspectionScheduler({
             <span className="text-slate-300">→</span>
 
             <button
-              disabled={placedItems.length === 0}
+              disabled={placedItems.length === 0 && registeredItems.length === 0}
               onClick={() => setCurrentStep('assign_member')}
               className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
                 currentStep === 'assign_member'
@@ -1663,7 +1967,21 @@ export function InspectionScheduler({
                   : 'text-slate-600 hover:bg-slate-200/60'
               }`}
             >
-              <span>3. メンバー登録 (保守)</span>
+              <span>3. メンバー登録・確定 (保守)</span>
+            </button>
+
+            <span className="text-slate-300">→</span>
+
+            <button
+              disabled={placedItems.length === 0 && registeredItems.length === 0}
+              onClick={() => setCurrentStep('overview')}
+              className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                currentStep === 'overview'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'text-slate-600 hover:bg-slate-200/60'
+              }`}
+            >
+              <span>4. 一覧・保守 (スケジュール一覧)</span>
             </button>
           </div>
         </div>
@@ -2286,11 +2604,11 @@ export function InspectionScheduler({
                 </>
               )}
               <button
-                disabled={placedItems.length === 0}
+                disabled={placedItems.length === 0 && registeredItems.length === 0}
                 onClick={() => setCurrentStep('assign_member')}
                 className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-sm transition-all flex items-center gap-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                メンバー登録へ進む (Step 5)
+                <span>{placedItems.length > 0 ? `メンバー登録へ進む (${placedItems.length}件)` : `メンバー・日時再調整 (${registeredItems.length}件)`}</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
             </div>
@@ -2394,11 +2712,17 @@ export function InspectionScheduler({
                   ) : (
                     filteredListItems.map((item) => {
                       const isSpot = item.workCategory === '2' || item.workName === 'スポット' || item.workName === 'スポット点検' || (item.workName ? item.workName.includes('スポット') : false);
+                      const isReportLocked = isItemReportLocked(item);
+                      const canDrag = item.status === 'pending' || item.status === 'placed' || (item.status === 'registered' && !isReportLocked);
                       return (
                       <div
                         key={item.id}
-                        draggable={item.status === 'pending' || item.status === 'placed'}
+                        draggable={canDrag}
                         onDragStart={(e) => {
+                          if (!canDrag) {
+                            e.preventDefault();
+                            return;
+                          }
                           e.dataTransfer.setData('text/plain', item.id);
                           setDraggedItemId(item.id);
                         }}
@@ -2407,11 +2731,17 @@ export function InspectionScheduler({
                           setDragOverDate(null);
                           setDragOverItemId(null);
                         }}
-                        className={`p-3.5 rounded-xl border transition-all relative group cursor-grab active:cursor-grabbing ${
+                        className={`p-3.5 rounded-xl border transition-all relative group ${
+                          canDrag ? 'cursor-grab active:cursor-grabbing' : 'cursor-default'
+                        } ${
                           item.status === 'pending'
                             ? 'bg-white border-slate-200 hover:border-indigo-400 hover:shadow-sm'
                             : item.status === 'placed'
                             ? 'bg-emerald-50/40 border-emerald-300'
+                            : item.status === 'registered'
+                            ? isReportLocked
+                              ? 'bg-slate-100 border-slate-300 opacity-70'
+                              : 'bg-emerald-50/50 border-emerald-300 hover:border-emerald-500 hover:shadow-xs'
                             : item.status === 'carried_over'
                             ? 'bg-indigo-50/40 border-indigo-200 opacity-70'
                             : 'bg-slate-100 border-slate-200 opacity-50'
@@ -2683,10 +3013,40 @@ export function InspectionScheduler({
 
                           {item.status === 'registered' && (
                             <div className="w-full flex items-center justify-between gap-1 flex-wrap">
-                              <span className="text-emerald-900 font-bold flex items-center gap-1 bg-emerald-100 px-2 py-0.5 rounded text-[11px] border border-emerald-300">
-                                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                                確定済: {item.assignedDate?.slice(5)} ({item.assignedStartTime})
-                              </span>
+                              {isReportLocked ? (
+                                <span className="text-slate-700 font-bold flex items-center gap-1 bg-slate-200 px-2 py-0.5 rounded text-[11px] border border-slate-300" title="点検報告書が提出済のため変更不可">
+                                  <Lock className="w-3 h-3 text-slate-500" />
+                                  報告書受領済 ({item.assignedDate?.slice(5)})
+                                </span>
+                              ) : (
+                                <span className="text-emerald-900 font-bold flex items-center gap-1 bg-emerald-100 px-2 py-0.5 rounded text-[11px] border border-emerald-300" title="確定済み（ドラッグしてカレンダーの別日へドロップ可能）">
+                                  <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                  確定済: {item.assignedDate?.slice(5)} ({item.assignedStartTime})
+                                </span>
+                              )}
+                              {!isReportLocked && (
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setManualModalItem(item);
+                                      setManualDate(item.assignedDate || `${targetYearMonth}-01`);
+                                    }}
+                                    className="text-indigo-600 hover:text-indigo-800 cursor-pointer underline text-[10px]"
+                                    title="日付を指定して移動"
+                                  >
+                                    日付変更
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRevertToPlaced(item.id)}
+                                    className="text-rose-600 hover:text-rose-800 cursor-pointer underline text-[10px]"
+                                    title="仮配置に戻して日程やメンバーを再調整する"
+                                  >
+                                    仮配置に戻す
+                                  </button>
+                                </div>
+                              )}
                             </div>
                           )}
 
@@ -3241,27 +3601,183 @@ export function InspectionScheduler({
                               );
                             })}
 
-                            {/* 2. 確定済みの点検予定 (薄く表示・ロック状態・横スクロール) */}
+                            {/* 2. 確定済みの点検予定 (報告書未受領ならドラッグ＆ドロップで再配置可能、受領済なら完全ロック) */}
                             {dayRegisteredItems.map((reg) => {
                               const isSpot = reg.workCategory === '2' || reg.workName === 'スポット' || reg.workName === 'スポット点検' || (reg.workName ? reg.workName.includes('スポット') : false);
+                              const isReportLocked = isItemReportLocked(reg);
+                              const isEditingTime = editingTimeItemId === reg.id;
+                              const isItemDragOver = dragOverItemId === reg.id;
+
                               return (
                               <div
                                 key={reg.id}
-                                className="w-72 shrink-0 p-3 bg-slate-100/80 border border-slate-200/90 rounded-xl shadow-2xs flex flex-col justify-between gap-2 opacity-65 hover:opacity-90 transition-opacity select-none"
+                                draggable={!isReportLocked}
+                                onDragStart={(e) => {
+                                  if (isReportLocked) {
+                                    e.preventDefault();
+                                    return;
+                                  }
+                                  e.stopPropagation();
+                                  e.dataTransfer.setData('text/plain', reg.id);
+                                  setDraggedItemId(reg.id);
+                                }}
+                                onDragEnd={() => {
+                                  setDraggedItemId(null);
+                                  setDragOverDate(null);
+                                  setDragOverItemId(null);
+                                }}
+                                onDragOver={(e) => {
+                                  if (!isReportLocked) {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    setDragOverItemId(reg.id);
+                                  }
+                                }}
+                                onDragLeave={(e) => {
+                                  e.preventDefault();
+                                  if (dragOverItemId === reg.id) {
+                                    setDragOverItemId(null);
+                                  }
+                                }}
+                                onDrop={(e) => {
+                                  if (isReportLocked) return;
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setDragOverDate(null);
+                                  setDragOverItemId(null);
+                                  const sourceItemId = e.dataTransfer.getData('text/plain') || draggedItemId;
+                                  if (sourceItemId) {
+                                    handleDropOnItem(sourceItemId, reg.id);
+                                  }
+                                }}
+                                className={`w-72 shrink-0 p-3 rounded-xl border shadow-2xs flex flex-col justify-between gap-2 transition-all relative group ${
+                                  isReportLocked
+                                    ? 'bg-slate-100/90 border-slate-300 opacity-75 cursor-default select-none'
+                                    : isItemDragOver
+                                    ? 'border-indigo-500 ring-2 ring-indigo-200 bg-indigo-50/50 cursor-grab active:cursor-grabbing'
+                                    : 'bg-emerald-50/50 border-emerald-300 hover:border-emerald-500 hover:shadow-xs cursor-grab active:cursor-grabbing'
+                                }`}
                               >
                                 <div>
-                                  <div className="flex items-center justify-between gap-1 mb-1">
-                                    <span className="px-2 py-0.5 bg-slate-200 text-slate-700 font-mono font-bold rounded text-xs flex items-center gap-1">
-                                      <Lock className="w-3 h-3 text-slate-400" />
-                                      {reg.assignedStartTime || '09:00'} - {reg.assignedEndTime || '10:00'}
-                                    </span>
-                                    <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded flex items-center gap-1 border border-emerald-200">
-                                      <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                                      確定済
-                                    </span>
+                                  <div className="flex items-center justify-between gap-1 mb-1.5 relative">
+                                    {/* 時間バッジ（未ロックなら30分刻みで変更可能） */}
+                                    <div className="relative">
+                                      {isReportLocked ? (
+                                        <span className="px-2 py-0.5 bg-slate-200 text-slate-700 font-mono font-bold rounded text-xs flex items-center gap-1" title="点検報告書が提出済のため時間変更不可">
+                                          <Lock className="w-3 h-3 text-slate-500" />
+                                          {reg.assignedStartTime || '09:00'} - {reg.assignedEndTime || '10:00'}
+                                        </span>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setEditingTimeItemId(isEditingTime ? null : reg.id);
+                                          }}
+                                          className="px-2 py-0.5 bg-white hover:bg-emerald-100 text-emerald-900 text-xs font-mono font-bold rounded-lg border border-emerald-300 transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                                          title="クリックして時間を直接変更 (30分刻み)"
+                                        >
+                                          <Clock className="w-3 h-3 text-emerald-600" />
+                                          <span>{reg.assignedStartTime || '09:00'} - {reg.assignedEndTime || '10:00'}</span>
+                                          <ChevronDown className="w-3 h-3 text-emerald-600" />
+                                        </button>
+                                      )}
+
+                                      {/* 時間クイック選択ポップオーバー */}
+                                      {!isReportLocked && isEditingTime && (
+                                        <div
+                                          onClick={(e) => e.stopPropagation()}
+                                          className="absolute left-0 top-full mt-1.5 z-30 bg-white rounded-xl border border-slate-200 shadow-xl p-3 w-64 space-y-2 ring-1 ring-slate-900/10 text-xs animate-in fade-in zoom-in-95 duration-100"
+                                        >
+                                          <div className="flex items-center justify-between pb-1 border-b border-slate-100">
+                                            <span className="font-bold text-slate-800 flex items-center gap-1">
+                                              <Clock className="w-3.5 h-3.5 text-indigo-600" />
+                                              確定予定の時間変更
+                                            </span>
+                                            <button
+                                              type="button"
+                                              onClick={() => setEditingTimeItemId(null)}
+                                              className="text-slate-400 hover:text-slate-600 text-xs font-bold px-1"
+                                            >
+                                              ✕
+                                            </button>
+                                          </div>
+
+                                          <div className="grid grid-cols-2 gap-2">
+                                            <div>
+                                              <label className="text-[10px] font-bold text-slate-500 block mb-1">開始時刻</label>
+                                              <select
+                                                value={reg.assignedStartTime || '09:00'}
+                                                onChange={(e) => {
+                                                  const newStart = e.target.value;
+                                                  handleUpdateItemTime(reg.id, newStart);
+                                                }}
+                                                className="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono font-bold focus:ring-2 focus:ring-indigo-500"
+                                              >
+                                                {TIME_OPTIONS_30MIN.map((t) => (
+                                                  <option key={t} value={t}>{t}</option>
+                                                ))}
+                                              </select>
+                                            </div>
+                                            <div>
+                                              <label className="text-[10px] font-bold text-slate-500 block mb-1">終了時刻</label>
+                                              <select
+                                                value={reg.assignedEndTime || '10:00'}
+                                                onChange={(e) => {
+                                                  const newEnd = e.target.value;
+                                                  handleUpdateItemTime(reg.id, reg.assignedStartTime || '09:00', newEnd);
+                                                }}
+                                                className="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono font-bold focus:ring-2 focus:ring-indigo-500"
+                                              >
+                                                {TIME_OPTIONS_30MIN.map((t) => (
+                                                  <option key={t} value={t}>{t}</option>
+                                                ))}
+                                              </select>
+                                            </div>
+                                          </div>
+
+                                          <div className="pt-1 border-t border-slate-100 flex items-center justify-between gap-1 flex-wrap">
+                                            {['09:00', '10:30', '13:00', '14:30', '16:00'].map((preset) => (
+                                              <button
+                                                key={preset}
+                                                type="button"
+                                                onClick={() => {
+                                                  handleUpdateItemTime(reg.id, preset);
+                                                  setEditingTimeItemId(null);
+                                                }}
+                                                className="px-1.5 py-0.5 bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 font-mono text-[10px] font-bold rounded text-slate-600 transition-colors"
+                                              >
+                                                {preset}
+                                              </button>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
+
+                                    {/* 右上ステータスバッジ */}
+                                    <div className="flex items-center gap-1">
+                                      {isReportLocked ? (
+                                        <span
+                                          className="px-1.5 py-0.5 bg-slate-200 text-slate-700 text-[10px] font-bold rounded flex items-center gap-1 border border-slate-300"
+                                          title="点検報告書がサイン受領・提出済のためロックされています（移動・変更不可）"
+                                        >
+                                          <Lock className="w-3 h-3 text-slate-600" />
+                                          報告書受領済
+                                        </span>
+                                      ) : (
+                                        <span
+                                          className="px-1.5 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded flex items-center gap-1 border border-emerald-300 shadow-2xs"
+                                          title="確定済みですが報告書未受領のため、ドラッグ＆ドロップで別日へ再配置可能です"
+                                        >
+                                          <GripVertical className="w-3 h-3 text-emerald-600" />
+                                          確定済 (再配置可)
+                                        </span>
+                                      )}
+                                    </div>
                                   </div>
 
-                                  <h4 className="text-xs font-semibold text-slate-800 line-clamp-1">
+                                  <h4 className="text-xs font-semibold text-slate-800 line-clamp-1" title={reg.siteName}>
                                     {reg.siteName}
                                   </h4>
                                   <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-1.5 flex-wrap" title={`地区: ${reg.area || '-'} / 住所: ${reg.address || '-'}`}>
@@ -3280,11 +3796,34 @@ export function InspectionScheduler({
                                   </div>
                                 </div>
 
-                                {reg.assignedUsers && reg.assignedUsers.length > 0 && (
-                                  <div className="pt-2 border-t border-slate-200/60 flex items-center justify-end text-[10px] text-slate-600 truncate">
-                                    担当: {reg.assignedUsers.map((u) => u.name).join(', ')}
+                                <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between text-[10px] text-slate-600 gap-1 flex-wrap">
+                                  <div className="truncate max-w-[120px]" title={reg.assignedUsers?.map((u) => u.name).join(', ')}>
+                                    担当: {reg.assignedUsers && reg.assignedUsers.length > 0 ? reg.assignedUsers.map((u) => u.name).join(', ') : '未設定'}
                                   </div>
-                                )}
+                                  {!isReportLocked && (
+                                    <div className="flex items-center gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setManualModalItem(reg);
+                                          setManualDate(reg.assignedDate || `${targetYearMonth}-01`);
+                                        }}
+                                        className="text-indigo-600 hover:text-indigo-800 font-bold cursor-pointer underline text-[10px]"
+                                        title="日付を指定して移動"
+                                      >
+                                        日付変更
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleRevertToPlaced(reg.id)}
+                                        className="text-rose-600 hover:text-rose-800 font-bold cursor-pointer underline text-[10px]"
+                                        title="仮配置に戻して日程やメンバーを再調整する"
+                                      >
+                                        仮配置に戻す
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
                               </div>
                             );
                           })}
@@ -3301,92 +3840,143 @@ export function InspectionScheduler({
       )}
 
       {/* ==========================================
-          STEP 5: MEMBER ASSIGNMENT & FINAL SAVE
+          STEP 3: MEMBER ASSIGNMENT & RESCHEDULING
           ========================================== */}
       {currentStep === 'assign_member' && (
         <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm ring-1 ring-slate-900/5 space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-lg font-black text-slate-900 flex items-center gap-2">
                   <Users className="w-5 h-5 text-indigo-600" />
-                  メンバー登録・確定画面 (Step 5)
+                  3. メンバー登録・確定＆再配置画面
                 </h2>
                 <span className="px-2.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-xs font-bold flex items-center gap-1">
                   <UserCheck className="w-3.5 h-3.5" />
-                  部署「保守」メンバー表示
+                  部署「保守」メンバー割当
                 </span>
               </div>
-              <p className="text-xs text-slate-500 mt-0.5">
-                仮配置した {placedItems.length} 件の点検予定に担当メンバーを割り当ててカレンダーに確定反映します。
+              <p className="text-xs text-slate-500 mt-1">
+                仮配置した未確定の予定だけでなく、<strong>確定済みの点検予定もこの画面上で直接「日付移動・再配置」「時間変更」「メンバー変更」が可能</strong>です。（※点検報告書提出済みの現場は自動ロックされます）
               </p>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <button
                 onClick={() => setCurrentStep('assign_date')}
                 className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-colors cursor-pointer flex items-center gap-1.5"
+                title="D&Dによるカレンダー横スクロール配置画面へ戻る"
               >
                 <ArrowLeft className="w-4 h-4" />
-                日付登録に戻る
+                2. 日付配置 (D&D) に戻る
               </button>
 
+              {placedItems.length > 0 ? (
+                <button
+                  onClick={handleFinalConfirmRegistration}
+                  className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl shadow-md shadow-emerald-200 transition-all flex items-center gap-2 cursor-pointer"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  未確定の仮配置をカレンダーに確定登録する ({placedItems.length}件)
+                </button>
+              ) : (
+                <div className="px-4 py-2 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-bold flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  全予定が確定登録済みです（日時・メンバーの再調整可能）
+                </div>
+              )}
+
               <button
-                onClick={handleFinalConfirmRegistration}
-                className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl shadow-md shadow-emerald-200 transition-all flex items-center gap-2 cursor-pointer"
+                type="button"
+                onClick={() => setCurrentStep('overview')}
+                className="px-4 py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs rounded-xl border border-indigo-200 transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                title="一覧性と変更機能を兼ね備えたスケジュール一覧画面へ進みます"
               >
-                <CheckCircle2 className="w-4 h-4" />
-                カレンダーに確定登録する ({placedItems.length}件)
+                <span>4. 一覧・保守画面へ</span>
+                <ArrowRight className="w-4 h-4" />
               </button>
             </div>
           </div>
 
-          {/* 部署フィルター切り替えバー & 一括担当者設定ツールバー */}
-          <div className="bg-indigo-50/50 border border-indigo-100 rounded-xl p-4 space-y-3">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-indigo-100/70">
-              <div className="flex items-center gap-2">
-                <Filter className="w-4 h-4 text-indigo-600" />
-                <span className="text-xs font-bold text-indigo-950">表示対象メンバー:</span>
-                <span className="text-xs text-slate-600 font-semibold">
-                  {onlyMaintenanceMembers ? `「保守」部署のみ (${selectableUsers.length}名)` : `全部署 (${selectableUsers.length}名)`}
-                </span>
+          {/* 表示切替タブ & 部署フィルター & 一括担当者設定 */}
+          <div className="space-y-3">
+            {/* 状態切替タブ (すべて / 仮配置中 / 確定済) */}
+            <div className="flex items-center justify-between gap-3 flex-wrap bg-slate-50 p-2 rounded-xl border border-slate-200">
+              <div className="flex items-center gap-1.5 flex-wrap text-xs font-bold">
+                <span className="text-slate-500 mr-1 text-[11px]">表示切替:</span>
+                <button
+                  type="button"
+                  onClick={() => setMemberStepFilter('all')}
+                  className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                    memberStepFilter === 'all'
+                      ? 'bg-slate-800 text-white shadow-xs'
+                      : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  すべて ({placedItems.length + registeredItems.length}件)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMemberStepFilter('placed')}
+                  className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                    memberStepFilter === 'placed'
+                      ? 'bg-indigo-600 text-white shadow-xs'
+                      : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  仮配置中・未確定 ({placedItems.length}件)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMemberStepFilter('registered')}
+                  className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                    memberStepFilter === 'registered'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                  確定済・カレンダー反映済 ({registeredItems.length}件)
+                </button>
               </div>
 
-              <div className="flex items-center gap-1 text-xs">
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-bold text-slate-500">部署:</span>
                 <button
                   type="button"
                   onClick={() => setOnlyMaintenanceMembers(true)}
-                  className={`px-2.5 py-1 rounded-lg border font-bold cursor-pointer transition-all ${
+                  className={`px-2.5 py-1 rounded-lg border text-xs font-bold cursor-pointer transition-all ${
                     onlyMaintenanceMembers
                       ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
-                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
                   }`}
                 >
-                  ✓ 保守部署のみ
+                  ✓ 保守のみ
                 </button>
                 <button
                   type="button"
                   onClick={() => setOnlyMaintenanceMembers(false)}
-                  className={`px-2.5 py-1 rounded-lg border font-bold cursor-pointer transition-all ${
+                  className={`px-2.5 py-1 rounded-lg border text-xs font-bold cursor-pointer transition-all ${
                     !onlyMaintenanceMembers
                       ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
-                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
                   }`}
                 >
-                  全メンバー表示
+                  全部署
                 </button>
               </div>
             </div>
 
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <Users className="w-4 h-4 text-indigo-600 shrink-0" />
-                <span className="text-xs font-bold text-indigo-900">
-                  全配置予定への一括メンバー割り当て:
+            {/* 一括担当者設定ツールバー */}
+            <div className="bg-indigo-50/50 border border-indigo-100 rounded-xl p-3 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-2 shrink-0">
+                <Users className="w-4 h-4 text-indigo-600" />
+                <span className="font-bold text-indigo-900">
+                  一括担当者指定 (選択中現場に適用):
                 </span>
               </div>
 
-              <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-1.5 flex-wrap">
                 {selectableUsers.map((u) => {
                   const isSelected = batchUserIds.includes(u.id);
                   return (
@@ -3410,13 +4000,6 @@ export function InspectionScheduler({
                         className="w-4 h-4 rounded-full"
                       />
                       <span>{u.name}</span>
-                      {u.division && (
-                        <span className={`text-[10px] px-1 py-0.2 rounded font-normal ${
-                          isSelected ? 'bg-indigo-700 text-white' : 'bg-slate-100 text-slate-500'
-                        }`}>
-                          {u.division}
-                        </span>
-                      )}
                     </button>
                   );
                 })}
@@ -3427,95 +4010,314 @@ export function InspectionScheduler({
                   disabled={batchUserIds.length === 0}
                   className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all shadow-2xs cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ml-2"
                 >
-                  全予定に適用
+                  表示中の全予定に適用
                 </button>
               </div>
             </div>
           </div>
 
-          {/* 点検予定ごとのメンバー個別指定テーブル */}
-          <div className="overflow-x-auto border border-slate-200 rounded-xl max-h-[60vh] shadow-2xs">
-            <table className="w-full min-w-[1000px] text-left text-xs table-fixed">
-              <colgroup>
-                <col className="w-32" />
-                <col className="w-28" />
-                <col className="w-52" />
-                <col className="w-56" />
-                <col className="w-auto" />
-              </colgroup>
-              <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold sticky top-0 z-10">
-                <tr>
-                  <th className="py-2.5 px-3 whitespace-nowrap">日時</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap">作業No</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap">現場名 (台数・作業名)</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap">地区 / 客先規則</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap">カレンダー参加メンバー (保守)</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-800 bg-white">
-                {placedItems.map((item) => (
-                  <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="py-3 px-3 font-bold whitespace-nowrap">
-                      <div className="text-slate-900">{item.assignedDate}</div>
-                      <div className="text-indigo-600 font-mono text-[11px]">
-                        {item.assignedStartTime} - {item.assignedEndTime}
-                      </div>
-                    </td>
-                    <td className="py-3 px-3 font-mono font-bold text-slate-700 whitespace-nowrap">{item.jobNo}</td>
-                    <td className="py-3 px-3 min-w-0">
-                      <div className="font-bold text-slate-900 truncate" title={item.siteName}>{item.siteName}</div>
-                      <div className="flex items-center gap-1.5 mt-0.5">
-                        <span className="text-[10px] text-slate-500 font-semibold whitespace-nowrap">{item.quantity}台</span>
-                        <span className={`text-[10px] px-1.5 py-0.2 rounded font-bold whitespace-nowrap inline-block ${
-                          item.workName === '点検'
-                            ? 'bg-blue-50 text-blue-700 border border-blue-200'
-                            : item.workName === 'スポット'
-                            ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                            : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                        }`}>
-                          {item.workName || '点検'}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="py-3 px-3 min-w-0">
-                      <div className="text-slate-700 truncate font-medium" title={item.area ? `${item.area}${item.address ? ` (${item.address})` : ''}` : item.address}>{item.area || item.address || '-'}</div>
-                      {item.customerRules && (
-                        <div className="text-[10px] text-amber-800 bg-amber-50/80 px-1.5 py-0.5 rounded mt-0.5 truncate font-medium border border-amber-100" title={item.customerRules}>
-                          規則: {item.customerRules}
-                        </div>
-                      )}
-                    </td>
-                    <td className="py-3 px-3 min-w-0">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        {selectableUsers.map((u) => {
-                          const isAssigned = (item.assignedUsers || []).some((au) => au.id === u.id);
-                          return (
-                            <button
-                              key={u.id}
-                              type="button"
-                              onClick={() => handleToggleUserAssignment(item.id, u.id)}
-                              className={`flex items-center gap-1 px-2 py-0.5 rounded-lg border text-[11px] font-semibold transition-colors cursor-pointer ${
-                                isAssigned
-                                  ? 'bg-emerald-600 text-white border-emerald-600'
-                                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
-                              }`}
-                            >
-                              <img
-                                src={getAvatarUrl(u.avatarUrl)}
-                                alt={u.name}
-                                className="w-3.5 h-3.5 rounded-full"
-                              />
-                              <span>{u.name}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          {/* 点検予定ごとのメンバー個別指定 ＆ 日時直接再配置テーブル */}
+          {(() => {
+            let list: InspectionItem[] = [];
+            if (memberStepFilter === 'placed') {
+              list = placedItems;
+            } else if (memberStepFilter === 'registered') {
+              list = registeredItems;
+            } else {
+              list = [...placedItems, ...registeredItems];
+            }
+
+            const sortedList = [...list].sort((a, b) => {
+              const dateDiff = (a.assignedDate || '').localeCompare(b.assignedDate || '');
+              if (dateDiff !== 0) return dateDiff;
+              return (a.assignedStartTime || '09:00').localeCompare(b.assignedStartTime || '09:00');
+            });
+
+            if (sortedList.length === 0) {
+              return (
+                <div className="p-12 text-center bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                  <CalendarDays className="w-10 h-10 text-slate-400 mx-auto" />
+                  <p className="text-sm font-bold text-slate-700">
+                    {memberStepFilter === 'placed'
+                      ? '仮配置中の未確定予定はありません。'
+                      : memberStepFilter === 'registered'
+                      ? '確定済みの点検予定はありません。'
+                      : '配置済みの点検予定がありません。'}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    「2. 日付配置 (D&D)」画面で予定を日付に配置してください。
+                  </p>
+                  <button
+                    onClick={() => setCurrentStep('assign_date')}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all inline-flex items-center gap-1.5 cursor-pointer mt-2"
+                  >
+                    <ArrowLeft className="w-4 h-4" />
+                    日付配置画面へ進む
+                  </button>
+                </div>
+              );
+            }
+
+            return (
+              <div className="overflow-x-auto border border-slate-200 rounded-xl max-h-[62vh] shadow-2xs">
+                <table className="w-full min-w-[1080px] text-left text-xs table-fixed">
+                  <colgroup>
+                    <col className="w-44" />
+                    <col className="w-32" />
+                    <col className="w-24" />
+                    <col className="w-48" />
+                    <col className="w-48" />
+                    <col className="w-auto" />
+                  </colgroup>
+                  <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold sticky top-0 z-10 shadow-xs">
+                    <tr>
+                      <th className="py-2.5 px-3 whitespace-nowrap">日付・作業時間 (再配置)</th>
+                      <th className="py-2.5 px-3 whitespace-nowrap">状態 / 操作</th>
+                      <th className="py-2.5 px-3 whitespace-nowrap">作業No</th>
+                      <th className="py-2.5 px-3 whitespace-nowrap">現場名 (台数・作業名)</th>
+                      <th className="py-2.5 px-3 whitespace-nowrap">地区 / 客先規則</th>
+                      <th className="py-2.5 px-3 whitespace-nowrap">カレンダー参加メンバー (保守)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-slate-800 bg-white">
+                    {sortedList.map((item) => {
+                      const isReportLocked = isItemReportLocked(item);
+                      const isRegistered = item.status === 'registered';
+                      const isEditingTime = editingTimeItemId === item.id;
+
+                      return (
+                        <tr
+                          key={item.id}
+                          className={`transition-colors ${
+                            isRegistered
+                              ? isReportLocked
+                                ? 'bg-slate-50/70'
+                                : 'bg-emerald-50/20 hover:bg-emerald-50/40'
+                              : 'hover:bg-slate-50/80'
+                          }`}
+                        >
+                          {/* 日付・時間変更 (再配置) カラム */}
+                          <td className="py-3 px-3 align-top min-w-0">
+                            {isReportLocked ? (
+                              <div className="space-y-1">
+                                <div className="font-bold text-slate-800 text-xs flex items-center gap-1">
+                                  <Lock className="w-3.5 h-3.5 text-slate-400" />
+                                  <span>{item.assignedDate}</span>
+                                </div>
+                                <div className="text-slate-500 font-mono text-[11px]">
+                                  {item.assignedStartTime || '09:00'} - {item.assignedEndTime || '10:00'}
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="space-y-1.5">
+                                {/* 日付直接変更 (カレンダーピッカー) */}
+                                <div className="flex items-center gap-1">
+                                  <CalendarIcon className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                                  <input
+                                    type="date"
+                                    value={item.assignedDate || ''}
+                                    onChange={(e) => {
+                                      const newDate = e.target.value;
+                                      if (newDate) {
+                                        handleAssignItemToDate(item.id, newDate);
+                                      }
+                                    }}
+                                    className="px-2 py-0.5 bg-slate-50 hover:bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-900 focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-2xs"
+                                    title="クリックして別の日付へ即座に移動・再配置"
+                                  />
+                                </div>
+
+                                {/* 時間変更ボタン ＆ 30分刻みポップオーバー */}
+                                <div className="relative">
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingTimeItemId(isEditingTime ? null : item.id)}
+                                    className="px-2 py-0.5 bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-700 font-mono text-[11px] font-bold rounded-lg border border-slate-200 transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                                    title="クリックして開始・終了時間を直接変更 (30分刻み)"
+                                  >
+                                    <Clock className="w-3 h-3 text-slate-500" />
+                                    <span>{item.assignedStartTime || '09:00'} - {item.assignedEndTime || '10:00'}</span>
+                                    <ChevronDown className="w-2.5 h-2.5 text-slate-400" />
+                                  </button>
+
+                                  {isEditingTime && (
+                                    <div
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="absolute left-0 top-full mt-1 z-30 bg-white rounded-xl border border-slate-200 shadow-xl p-3 w-60 space-y-2 ring-1 ring-slate-900/10 text-xs animate-in fade-in zoom-in-95 duration-100"
+                                    >
+                                      <div className="flex items-center justify-between pb-1 border-b border-slate-100">
+                                        <span className="font-bold text-slate-800">時間変更 (30分刻み)</span>
+                                        <button
+                                          type="button"
+                                          onClick={() => setEditingTimeItemId(null)}
+                                          className="text-slate-400 hover:text-slate-600 text-xs font-bold px-1"
+                                        >
+                                          ✕
+                                        </button>
+                                      </div>
+
+                                      <div className="grid grid-cols-2 gap-2">
+                                        <div>
+                                          <label className="text-[10px] font-bold text-slate-500 block mb-0.5">開始時刻</label>
+                                          <select
+                                            value={item.assignedStartTime || '09:00'}
+                                            onChange={(e) => handleUpdateItemTime(item.id, e.target.value)}
+                                            className="w-full px-1.5 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono font-bold"
+                                          >
+                                            {TIME_OPTIONS_30MIN.map((t) => (
+                                              <option key={t} value={t}>{t}</option>
+                                            ))}
+                                          </select>
+                                        </div>
+                                        <div>
+                                          <label className="text-[10px] font-bold text-slate-500 block mb-0.5">終了時刻</label>
+                                          <select
+                                            value={item.assignedEndTime || '10:00'}
+                                            onChange={(e) => handleUpdateItemTime(item.id, item.assignedStartTime || '09:00', e.target.value)}
+                                            className="w-full px-1.5 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono font-bold"
+                                          >
+                                            {TIME_OPTIONS_30MIN.map((t) => (
+                                              <option key={t} value={t}>{t}</option>
+                                            ))}
+                                          </select>
+                                        </div>
+                                      </div>
+
+                                      <div className="pt-1 border-t border-slate-100 flex items-center justify-between gap-1 flex-wrap">
+                                        {['09:00', '10:30', '13:00', '14:30', '16:00'].map((preset) => (
+                                          <button
+                                            key={preset}
+                                            type="button"
+                                            onClick={() => {
+                                              handleUpdateItemTime(item.id, preset);
+                                              setEditingTimeItemId(null);
+                                            }}
+                                            className="px-1.5 py-0.5 bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 font-mono text-[10px] font-bold rounded text-slate-600"
+                                          >
+                                            {preset}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </td>
+
+                          {/* 状態 / 操作 カラム */}
+                          <td className="py-3 px-3 align-top whitespace-nowrap">
+                            <div className="space-y-1.5">
+                              {isRegistered ? (
+                                isReportLocked ? (
+                                  <span className="px-2 py-0.5 bg-slate-200 text-slate-700 text-[10px] font-bold rounded flex items-center gap-1 border border-slate-300 w-fit" title="点検報告書が提出済のため変更不可">
+                                    <Lock className="w-3 h-3 text-slate-500" />
+                                    報告書受領済
+                                  </span>
+                                ) : (
+                                  <div className="space-y-1">
+                                    <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded flex items-center gap-1 border border-emerald-300 w-fit">
+                                      <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                      確定済 (再調整可)
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRevertToPlaced(item.id)}
+                                      className="text-rose-600 hover:text-rose-800 text-[10px] font-bold underline cursor-pointer block"
+                                      title="確定を取り消して仮配置に戻す"
+                                    >
+                                      仮配置に戻す
+                                    </button>
+                                  </div>
+                                )
+                              ) : (
+                                <div className="space-y-1">
+                                  <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 text-[10px] font-bold rounded flex items-center gap-1 border border-indigo-200 w-fit">
+                                    <Clock className="w-3 h-3 text-indigo-500" />
+                                    仮配置中 (未確定)
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveFromCalendar(item.id)}
+                                    className="text-slate-400 hover:text-rose-600 text-[10px] underline cursor-pointer block"
+                                  >
+                                    未配置に戻す
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* 作業No */}
+                          <td className="py-3 px-3 align-top font-mono font-bold text-slate-700 whitespace-nowrap">
+                            {item.jobNo}
+                          </td>
+
+                          {/* 現場名 (台数・作業名) */}
+                          <td className="py-3 px-3 align-top min-w-0">
+                            <div className="font-bold text-slate-900 truncate" title={item.siteName}>{item.siteName}</div>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <span className="text-[10px] text-slate-500 font-semibold whitespace-nowrap">{item.quantity}台</span>
+                              <span className={`text-[10px] px-1.5 py-0.2 rounded font-bold whitespace-nowrap inline-block ${
+                                item.workName === '点検'
+                                  ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                                  : item.workName === 'スポット'
+                                  ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                  : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                              }`}>
+                                {item.workName || '点検'}
+                              </span>
+                            </div>
+                          </td>
+
+                          {/* 地区 / 客先規則 */}
+                          <td className="py-3 px-3 align-top min-w-0">
+                            <div className="text-slate-700 truncate font-medium" title={item.area ? `${item.area}${item.address ? ` (${item.address})` : ''}` : item.address}>
+                              {item.area || item.address || '-'}
+                            </div>
+                            {item.customerRules && (
+                              <div className="text-[10px] text-amber-800 bg-amber-50/80 px-1.5 py-0.5 rounded mt-0.5 truncate font-medium border border-amber-100" title={item.customerRules}>
+                                規則: {item.customerRules}
+                              </div>
+                            )}
+                          </td>
+
+                          {/* カレンダー参加メンバー (保守) */}
+                          <td className="py-3 px-3 align-top min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              {selectableUsers.map((u) => {
+                                const isAssigned = (item.assignedUsers || []).some((au) => au.id === u.id);
+                                return (
+                                  <button
+                                    key={u.id}
+                                    type="button"
+                                    disabled={isReportLocked}
+                                    onClick={() => handleToggleUserAssignment(item.id, u.id)}
+                                    className={`flex items-center gap-1 px-2 py-0.5 rounded-lg border text-[11px] font-semibold transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                                      isAssigned
+                                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                                    }`}
+                                  >
+                                    <img
+                                      src={getAvatarUrl(u.avatarUrl)}
+                                      alt={u.name}
+                                      className="w-3.5 h-3.5 rounded-full"
+                                    />
+                                    <span>{u.name}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()}
         </div>
       )}
 
@@ -3570,6 +4372,20 @@ export function InspectionScheduler({
                 残りの点検（未配置 {pendingItems.length}件）の配置を続ける
               </button>
             )}
+            <button
+              onClick={() => setCurrentStep('overview')}
+              className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-md shadow-indigo-200 transition-all cursor-pointer flex items-center gap-2"
+            >
+              <ClipboardList className="w-4 h-4" />
+              4. スケジュール一覧・保守画面へ進む
+            </button>
+            <button
+              onClick={() => setCurrentStep('assign_member')}
+              className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md shadow-blue-200 transition-all cursor-pointer flex items-center gap-2"
+            >
+              <Users className="w-4 h-4" />
+              メンバー登録・日程再調整画面へ（確定済の変更・再配置）
+            </button>
             {onNavigateToCalendar && (
               <button
                 onClick={onNavigateToCalendar}
@@ -3588,6 +4404,558 @@ export function InspectionScheduler({
             >
               別のファイルを取り込む
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ==========================================
+          STEP 4: SCHEDULE OVERVIEW & MAINTENANCE (4. 一覧・保守)
+          ========================================== */}
+      {currentStep === 'overview' && (
+        <div className="space-y-4">
+          {/* コントロールツールバー */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm ring-1 ring-slate-900/5 space-y-3">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
+                  <ClipboardList className="w-5 h-5 text-indigo-600" />
+                  {targetYearMonth}度 点検スケジュール一覧・保守
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  全予定を一覧表示しながら、ドラッグでの日付移動、クリックでの時間・参加メンバーの即時変更が可能です。
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await exportInspectionCalendarMatrixToExcel(items, targetYearMonth);
+                    } catch (err: any) {
+                      alert('点検予定表Excelの出力中にエラーが発生しました: ' + err.message);
+                    }
+                  }}
+                  className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+                  title="点検予定表Excel(カレンダーマトリクス形式)を出力"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-white" />
+                  <span>点検予定表Excel出力</span>
+                </button>
+                {onNavigateToCalendar && (
+                  <button
+                    type="button"
+                    onClick={onNavigateToCalendar}
+                    className="px-3.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs rounded-xl border border-indigo-200 transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                  >
+                    <CalendarIcon className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>カレンダー画面で確認</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setCurrentStep('assign_member')}
+                  className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span>3. メンバー登録画面へ</span>
+                </button>
+              </div>
+            </div>
+
+            {/* サブバー: フィルター & 一覧性スイッチ */}
+            <div className="pt-2 border-t border-slate-100 flex flex-col lg:flex-row lg:items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* 状態フィルター */}
+                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
+                  <button
+                    type="button"
+                    onClick={() => setOverviewStatusFilter('all')}
+                    className={`px-2.5 py-1 rounded-lg font-bold cursor-pointer transition-all ${
+                      overviewStatusFilter === 'all'
+                        ? 'bg-slate-900 text-white shadow-2xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    すべて ({placedItems.length + registeredItems.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOverviewStatusFilter('registered')}
+                    className={`px-2.5 py-1 rounded-lg font-bold cursor-pointer transition-all flex items-center gap-1 ${
+                      overviewStatusFilter === 'registered'
+                        ? 'bg-emerald-600 text-white shadow-2xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                    確定済 ({registeredItems.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOverviewStatusFilter('placed')}
+                    className={`px-2.5 py-1 rounded-lg font-bold cursor-pointer transition-all ${
+                      overviewStatusFilter === 'placed'
+                        ? 'bg-indigo-600 text-white shadow-2xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    仮配置 ({placedItems.length})
+                  </button>
+                </div>
+
+                {/* 担当メンバーフィルター */}
+                <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-xl">
+                  <Users className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                  <span className="font-bold text-slate-600">担当:</span>
+                  <select
+                    value={overviewMemberFilter}
+                    onChange={(e) => setOverviewMemberFilter(e.target.value)}
+                    className="font-bold text-slate-800 bg-transparent border-none focus:outline-none cursor-pointer text-xs"
+                  >
+                    <option value="all">全員表示</option>
+                    {allUsers.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.name} {u.department ? `(${u.department})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* 検索窓 */}
+                <div className="relative min-w-[200px]">
+                  <input
+                    type="text"
+                    value={overviewSearchQuery}
+                    onChange={(e) => setOverviewSearchQuery(e.target.value)}
+                    placeholder="現場名・住所・作業Noで検索..."
+                    className="w-full pl-8 pr-3 py-1 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                  />
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                  {overviewSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setOverviewSearchQuery('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* 一覧性向上: 予定のある日のみ表示トグル */}
+              <div className="flex items-center gap-2">
+                <label className="flex items-center gap-2 px-3 py-1 bg-indigo-50/70 border border-indigo-200 rounded-xl cursor-pointer select-none text-xs font-bold text-indigo-900">
+                  <input
+                    type="checkbox"
+                    checked={overviewOnlyHasItems}
+                    onChange={(e) => setOverviewOnlyHasItems(e.target.checked)}
+                    className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-indigo-300 cursor-pointer"
+                  />
+                  <span>予定のある日のみコンパクト表示（一覧性重視）</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          {/* カレンダー一覧ビュー: 左=カレンダー日付ブロック / 右=予定カードの横並び */}
+          <div className="space-y-2.5 max-h-[75vh] overflow-y-auto pr-1">
+            {monthDays
+              .filter((day) => {
+                if (!overviewOnlyHasItems) return true;
+                const hasItem = officeFilteredItems.some((item) => {
+                  if (item.assignedDate !== day.dateKey) return false;
+                  if (overviewStatusFilter === 'placed' && item.status !== 'placed') return false;
+                  if (overviewStatusFilter === 'registered' && item.status !== 'registered') return false;
+                  if (overviewStatusFilter === 'all' && item.status !== 'placed' && item.status !== 'registered') return false;
+                  if (overviewMemberFilter !== 'all') {
+                    const hasMember = (item.assignedUsers || []).some((u) => u.id === overviewMemberFilter);
+                    if (!hasMember) return false;
+                  }
+                  if (overviewSearchQuery.trim()) {
+                    const q = overviewSearchQuery.toLowerCase();
+                    const match =
+                      item.siteName.toLowerCase().includes(q) ||
+                      item.address.toLowerCase().includes(q) ||
+                      item.jobNo.toLowerCase().includes(q);
+                    if (!match) return false;
+                  }
+                  return true;
+                });
+                return hasItem;
+              })
+              .map((day) => {
+                const dayItems = officeFilteredItems.filter((item) => {
+                  if (item.assignedDate !== day.dateKey) return false;
+                  if (overviewStatusFilter === 'placed' && item.status !== 'placed') return false;
+                  if (overviewStatusFilter === 'registered' && item.status !== 'registered') return false;
+                  if (overviewStatusFilter === 'all' && item.status !== 'placed' && item.status !== 'registered') return false;
+                  if (overviewMemberFilter !== 'all') {
+                    const hasMember = (item.assignedUsers || []).some((u) => u.id === overviewMemberFilter);
+                    if (!hasMember) return false;
+                  }
+                  if (overviewSearchQuery.trim()) {
+                    const q = overviewSearchQuery.toLowerCase();
+                    const match =
+                      item.siteName.toLowerCase().includes(q) ||
+                      item.address.toLowerCase().includes(q) ||
+                      item.jobNo.toLowerCase().includes(q);
+                    if (!match) return false;
+                  }
+                  return true;
+                });
+
+                dayItems.sort((a, b) => {
+                  return (a.assignedStartTime || '09:00').localeCompare(b.assignedStartTime || '09:00');
+                });
+
+                const totalUnits = dayItems.reduce((acc, i) => acc + (Number(i.quantity) || 0), 0);
+                const isHovered = dragOverDate === day.dateKey;
+
+                return (
+                  <div
+                    key={day.dateKey}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setDragOverDate(day.dateKey);
+                    }}
+                    onDragLeave={(e) => {
+                      e.preventDefault();
+                      if (dragOverDate === day.dateKey) {
+                        setDragOverDate(null);
+                      }
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setDragOverDate(null);
+                      setDragOverItemId(null);
+                      const itemId = e.dataTransfer.getData('text/plain') || draggedItemId;
+                      if (itemId) {
+                        handleAssignItemToDate(itemId, day.dateKey);
+                      }
+                    }}
+                    className={`p-2.5 rounded-2xl border transition-all flex flex-col md:flex-row items-stretch gap-3 ${
+                      isHovered
+                        ? 'bg-indigo-50 border-indigo-400 ring-2 ring-indigo-300'
+                        : day.isSunday
+                        ? 'bg-rose-50/20 border-rose-200/80'
+                        : day.isSaturday
+                        ? 'bg-blue-50/20 border-blue-200/80'
+                        : 'bg-white border-slate-200 shadow-2xs'
+                    }`}
+                  >
+                    {/* 左カラム: 日付カレンダー見出し */}
+                    <div className="w-full md:w-36 md:shrink-0 flex md:flex-col items-center md:items-start justify-between md:justify-center gap-1 p-2 bg-slate-50/80 rounded-xl border border-slate-200/80 shadow-2xs">
+                      <span
+                        className={`px-2 py-0.5 rounded-md font-black text-xs w-full text-center ${
+                          day.isSunday
+                            ? 'bg-rose-500 text-white'
+                            : day.isSaturday
+                            ? 'bg-blue-500 text-white'
+                            : 'bg-slate-800 text-white'
+                        }`}
+                      >
+                        {day.monthNumber}/{day.dayNumber} ({day.dayOfWeekStr})
+                      </span>
+
+                      <div className="flex items-center justify-between w-full text-[11px] font-bold text-slate-600 px-0.5 mt-0.5">
+                        <span>{dayItems.length}件</span>
+                        {totalUnits > 0 && <span className="text-slate-500">({totalUnits}台)</span>}
+                      </div>
+                    </div>
+
+                    {/* 右カラム: 予定カードの横並び配置 (横スクロール) */}
+                    <div className="flex-1 min-w-0 flex items-stretch gap-2.5 overflow-x-auto p-1">
+                      {dayItems.length === 0 ? (
+                        <div className="w-full py-3 text-center text-xs text-slate-400 flex items-center justify-center gap-1.5 border border-dashed border-slate-200 rounded-xl">
+                          <Plus className="w-3.5 h-3.5 text-slate-300" />
+                          予定なし（ドラッグ＆ドロップでこの日へ移動）
+                        </div>
+                      ) : (
+                        dayItems.map((item) => {
+                          const isReportLocked = isItemReportLocked(item);
+                          const isEditingTime = editingTimeItemId === item.id;
+                          const isEditingMember = editingMemberItemId === item.id;
+                          const isSpot =
+                            item.workCategory === '2' ||
+                            item.workName === 'スポット' ||
+                            item.workName === 'スポット点検' ||
+                            (item.workName ? item.workName.includes('スポット') : false);
+
+                          return (
+                            <div
+                              key={item.id}
+                              draggable={!isReportLocked}
+                              onDragStart={(e) => {
+                                if (isReportLocked) {
+                                  e.preventDefault();
+                                  return;
+                                }
+                                e.stopPropagation();
+                                e.dataTransfer.setData('text/plain', item.id);
+                                setDraggedItemId(item.id);
+                              }}
+                              onDragEnd={() => {
+                                setDraggedItemId(null);
+                                setDragOverDate(null);
+                                setDragOverItemId(null);
+                              }}
+                              className={`w-72 shrink-0 p-2.5 rounded-xl border shadow-xs flex flex-col justify-between gap-2 transition-all relative ${
+                                isReportLocked
+                                  ? 'bg-slate-50/90 border-slate-300 cursor-not-allowed opacity-90'
+                                  : item.status === 'registered'
+                                  ? 'bg-white border-emerald-300 hover:border-emerald-500 hover:shadow-sm cursor-grab active:cursor-grabbing'
+                                  : 'bg-white border-indigo-200 hover:border-indigo-400 hover:shadow-sm cursor-grab active:cursor-grabbing'
+                              }`}
+                            >
+                              {/* 上段: 時間バッジ ＆ ステータス/ロック ＆ 詳細ボタン */}
+                              <div className="flex items-center justify-between gap-1 relative">
+                                {/* 時間変更ボタン (クリックで30分刻みポップオーバー) */}
+                                <div className="relative">
+                                  {isReportLocked ? (
+                                    <span
+                                      className="px-2 py-0.5 bg-slate-200 text-slate-700 text-[11px] font-mono font-bold rounded-lg border border-slate-300 flex items-center gap-1"
+                                      title="点検報告書が提出済のため時間変更不可"
+                                    >
+                                      <Lock className="w-3 h-3 text-slate-500" />
+                                      {item.assignedStartTime || '09:00'} - {item.assignedEndTime || '10:00'}
+                                    </span>
+                                  ) : (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setEditingTimeItemId(isEditingTime ? null : item.id);
+                                        }}
+                                        className="px-2 py-0.5 bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-800 text-[11px] font-mono font-bold rounded-lg border border-slate-200 transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                                        title="クリックして時間を直接変更 (30分刻み)"
+                                      >
+                                        <Clock className="w-3 h-3 text-indigo-600" />
+                                        <span>{item.assignedStartTime || '09:00'} - {item.assignedEndTime || '10:00'}</span>
+                                        <ChevronDown className="w-2.5 h-2.5 text-slate-400" />
+                                      </button>
+
+                                      {/* 時間ポップオーバー */}
+                                      {isEditingTime && (
+                                        <div
+                                          onClick={(e) => e.stopPropagation()}
+                                          className="absolute left-0 top-full mt-1 z-30 bg-white rounded-xl border border-slate-200 shadow-xl p-3 w-60 space-y-2 ring-1 ring-slate-900/10 text-xs animate-in fade-in zoom-in-95 duration-100"
+                                        >
+                                          <div className="flex items-center justify-between pb-1 border-b border-slate-100">
+                                            <span className="font-bold text-slate-800">時間変更 (30分刻み)</span>
+                                            <button
+                                              type="button"
+                                              onClick={() => setEditingTimeItemId(null)}
+                                              className="text-slate-400 hover:text-slate-600 text-xs font-bold px-1"
+                                            >
+                                              ✕
+                                            </button>
+                                          </div>
+                                          <div className="grid grid-cols-2 gap-2">
+                                            <div>
+                                              <label className="text-[10px] font-bold text-slate-500 block mb-0.5">開始時刻</label>
+                                              <select
+                                                value={item.assignedStartTime || '09:00'}
+                                                onChange={(e) => handleUpdateItemTime(item.id, e.target.value)}
+                                                className="w-full px-1.5 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono font-bold"
+                                              >
+                                                {TIME_OPTIONS_30MIN.map((t) => (
+                                                  <option key={t} value={t}>{t}</option>
+                                                ))}
+                                              </select>
+                                            </div>
+                                            <div>
+                                              <label className="text-[10px] font-bold text-slate-500 block mb-0.5">終了時刻</label>
+                                              <select
+                                                value={item.assignedEndTime || '10:00'}
+                                                onChange={(e) => handleUpdateItemTime(item.id, item.assignedStartTime || '09:00', e.target.value)}
+                                                className="w-full px-1.5 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono font-bold"
+                                              >
+                                                {TIME_OPTIONS_30MIN.map((t) => (
+                                                  <option key={t} value={t}>{t}</option>
+                                                ))}
+                                              </select>
+                                            </div>
+                                          </div>
+                                          <div className="pt-1 border-t border-slate-100 flex items-center justify-between gap-1 flex-wrap">
+                                            {['09:00', '10:30', '13:00', '14:30', '16:00'].map((preset) => (
+                                              <button
+                                                key={preset}
+                                                type="button"
+                                                onClick={() => {
+                                                  handleUpdateItemTime(item.id, preset);
+                                                  setEditingTimeItemId(null);
+                                                }}
+                                                className="px-1.5 py-0.5 bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 font-mono text-[10px] font-bold rounded text-slate-600 transition-colors"
+                                              >
+                                                {preset}
+                                              </button>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      )}
+                                    </>
+                                  )}
+                                </div>
+
+                                {/* 右上: ロック / ステータス ＆ 詳細ボタン */}
+                                <div className="flex items-center gap-1.5">
+                                  {isReportLocked ? (
+                                    <span className="px-1.5 py-0.5 bg-slate-200 text-slate-700 text-[10px] font-bold rounded flex items-center gap-0.5 border border-slate-300">
+                                      <Lock className="w-2.5 h-2.5 text-slate-500" />
+                                      受領済
+                                    </span>
+                                  ) : item.status === 'registered' ? (
+                                    <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded flex items-center gap-0.5 border border-emerald-200">
+                                      <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" />
+                                      確定
+                                    </span>
+                                  ) : (
+                                    <span className="px-1.5 py-0.5 bg-indigo-50 text-indigo-700 text-[10px] font-bold rounded border border-indigo-200">
+                                      仮配置
+                                    </span>
+                                  )}
+
+                                  {/* 詳細ボタン (ポップアップ表示) */}
+                                  <button
+                                    type="button"
+                                    onClick={() => setDetailModalItem(item)}
+                                    className="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 rounded-md text-[10px] font-bold transition-colors cursor-pointer flex items-center gap-0.5 shadow-2xs"
+                                    title="現場の詳細情報をポップアップで確認"
+                                  >
+                                    <FileText className="w-3 h-3 text-slate-500" />
+                                    <span>詳細</span>
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* 中段: 現場名 ＆ 区分・台数 */}
+                              <div>
+                                <h4
+                                  className="text-xs font-bold text-slate-900 truncate"
+                                  title={item.siteName}
+                                >
+                                  {item.siteName}
+                                </h4>
+                                <div className="flex items-center gap-1.5 text-[10px] text-slate-500 mt-0.5 flex-wrap">
+                                  <span className={`px-1 py-0.2 rounded font-bold ${
+                                    isSpot
+                                      ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                                      : 'bg-blue-50 text-blue-700 border border-blue-200'
+                                  }`}>
+                                    {item.workName || '点検'}
+                                  </span>
+                                  <span className="font-semibold text-slate-700">{item.quantity}台</span>
+                                  {item.area && <span className="truncate max-w-[100px]">({item.area})</span>}
+                                </div>
+                              </div>
+
+                              {/* 下段: メンバー表示 ＆ クリックでメンバー増減ポップオーバー */}
+                              <div className="pt-1.5 border-t border-slate-100 relative">
+                                <div className="flex items-center justify-between gap-1">
+                                  <span className="text-[10px] font-bold text-slate-500">担当:</span>
+
+                                  {isReportLocked ? (
+                                    <div className="flex items-center gap-1 truncate text-[11px] font-medium text-slate-700">
+                                      {item.assignedUsers && item.assignedUsers.length > 0 ? (
+                                        item.assignedUsers.map((u) => (
+                                          <span key={u.id} className="inline-flex items-center gap-1 bg-slate-200/80 px-1.5 py-0.5 rounded text-[10px]">
+                                            <img src={getAvatarUrl(u.avatarUrl)} alt={u.name} className="w-3 h-3 rounded-full" />
+                                            {u.name}
+                                          </span>
+                                        ))
+                                      ) : (
+                                        <span className="text-slate-400 text-[10px]">未割当</span>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <div className="relative">
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setEditingMemberItemId(isEditingMember ? null : item.id);
+                                        }}
+                                        className="flex items-center gap-1 px-2 py-0.5 bg-slate-50 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-300 rounded-lg text-[10px] font-bold text-slate-700 transition-colors cursor-pointer shadow-2xs max-w-[200px] truncate"
+                                        title="クリックして担当メンバーを変更・増減"
+                                      >
+                                        <Users className="w-3 h-3 text-indigo-600 shrink-0" />
+                                        {item.assignedUsers && item.assignedUsers.length > 0 ? (
+                                          <span className="truncate">
+                                            {item.assignedUsers.map((u) => u.name).join(', ')}
+                                          </span>
+                                        ) : (
+                                          <span className="text-indigo-600 font-bold">+ メンバー割当</span>
+                                        )}
+                                        <ChevronDown className="w-2.5 h-2.5 text-slate-400 shrink-0" />
+                                      </button>
+
+                                      {/* メンバー増減ポップオーバー */}
+                                      {isEditingMember && (
+                                        <div
+                                          onClick={(e) => e.stopPropagation()}
+                                          className="absolute right-0 bottom-full mb-1 z-30 bg-white rounded-xl border border-slate-200 shadow-xl p-3 w-64 space-y-2 ring-1 ring-slate-900/10 text-xs animate-in fade-in zoom-in-95 duration-100"
+                                        >
+                                          <div className="flex items-center justify-between pb-1 border-b border-slate-100">
+                                            <span className="font-bold text-slate-800">担当メンバーの変更・増減</span>
+                                            <button
+                                              type="button"
+                                              onClick={() => setEditingMemberItemId(null)}
+                                              className="text-slate-400 hover:text-slate-600 text-xs font-bold px-1"
+                                            >
+                                              ✕
+                                            </button>
+                                          </div>
+                                          <div className="max-h-48 overflow-y-auto space-y-1 pr-1">
+                                            {selectableUsers.map((u) => {
+                                              const isAssigned = (item.assignedUsers || []).some((au) => au.id === u.id);
+                                              return (
+                                                <button
+                                                  key={u.id}
+                                                  type="button"
+                                                  onClick={() => handleToggleUserAssignment(item.id, u.id)}
+                                                  className={`w-full flex items-center justify-between px-2 py-1.5 rounded-lg border text-xs font-medium transition-all cursor-pointer ${
+                                                    isAssigned
+                                                      ? 'bg-emerald-50 text-emerald-900 border-emerald-300 font-bold'
+                                                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                                                  }`}
+                                                >
+                                                  <div className="flex items-center gap-1.5">
+                                                    <img src={getAvatarUrl(u.avatarUrl)} alt={u.name} className="w-4 h-4 rounded-full" />
+                                                    <span>{u.name}</span>
+                                                  </div>
+                                                  {isAssigned && <Check className="w-3.5 h-3.5 text-emerald-600" />}
+                                                </button>
+                                              );
+                                            })}
+                                          </div>
+                                          <div className="pt-1 border-t border-slate-100 text-right">
+                                            <button
+                                              type="button"
+                                              onClick={() => setEditingMemberItemId(null)}
+                                              className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                                            >
+                                              完了
+                                            </button>
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
           </div>
         </div>
       )}
@@ -3645,6 +5013,178 @@ export function InspectionScheduler({
                 className="px-4 py-1.5 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg cursor-pointer"
               >
                 この日時で配置
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 現場詳細ポップアップモーダル */}
+      {detailModalItem && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 sm:p-7 max-w-lg w-full shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150 border border-slate-200 max-h-[90vh] overflow-y-auto">
+            {/* ヘッダー */}
+            <div className="flex items-start justify-between border-b border-slate-100 pb-3 gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-indigo-600 text-white flex items-center justify-center font-bold shadow-xs shrink-0">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 leading-snug">
+                    {detailModalItem.siteName}
+                  </h3>
+                  <div className="flex items-center gap-2 mt-0.5 text-xs text-slate-500 font-mono">
+                    <span>作業No: {detailModalItem.jobNo}</span>
+                    {detailModalItem.siteCode && <span>/ コード: {detailModalItem.siteCode}</span>}
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDetailModalItem(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* ステータスバナー */}
+            <div className="flex items-center justify-between p-3 rounded-2xl border text-xs bg-slate-50/70 border-slate-200">
+              <div className="flex items-center gap-2">
+                {isItemReportLocked(detailModalItem) ? (
+                  <span className="px-2.5 py-1 bg-slate-200 text-slate-800 font-bold rounded-lg flex items-center gap-1.5 border border-slate-300">
+                    <Lock className="w-3.5 h-3.5 text-slate-600" />
+                    🔒 点検報告書受領済（変更不可・完全ロック）
+                  </span>
+                ) : detailModalItem.status === 'registered' ? (
+                  <span className="px-2.5 py-1 bg-emerald-100 text-emerald-900 font-bold rounded-lg flex items-center gap-1.5 border border-emerald-300">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    確定済 (再調整・移動可能)
+                  </span>
+                ) : (
+                  <span className="px-2.5 py-1 bg-indigo-50 text-indigo-900 font-bold rounded-lg flex items-center gap-1.5 border border-indigo-200">
+                    <Clock className="w-3.5 h-3.5 text-indigo-600" />
+                    仮配置中 (未確定)
+                  </span>
+                )}
+              </div>
+              <span className="font-bold text-slate-700">{detailModalItem.quantity}台</span>
+            </div>
+
+            {/* 基本情報グリッド */}
+            <div className="bg-slate-50/80 rounded-2xl p-4 border border-slate-200 space-y-2.5 text-xs">
+              <div className="grid grid-cols-3 gap-2">
+                <span className="font-bold text-slate-500">点検予定日時:</span>
+                <span className="col-span-2 font-black text-indigo-950 font-mono">
+                  {detailModalItem.assignedDate || '未配置'} {detailModalItem.assignedStartTime || '09:00'} - {detailModalItem.assignedEndTime || '10:00'}
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <span className="font-bold text-slate-500">作業名 (区分):</span>
+                <span className="col-span-2 font-bold text-slate-800">
+                  {detailModalItem.workName || '点検'}{detailModalItem.workCategory ? ` (${detailModalItem.workCategory})` : ''}
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <span className="font-bold text-slate-500">地区 / 住所:</span>
+                <span className="col-span-2 text-slate-800 leading-relaxed">
+                  {detailModalItem.area ? `[${detailModalItem.area}] ` : ''}{detailModalItem.address || '-'}
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <span className="font-bold text-slate-500">客先規則:</span>
+                <span className="col-span-2 text-slate-800 leading-relaxed">
+                  {detailModalItem.customerRules || 'なし'}
+                </span>
+              </div>
+              {detailModalItem.conditions && (
+                <div className="grid grid-cols-3 gap-2">
+                  <span className="font-bold text-slate-500">注意事項:</span>
+                  <span className="col-span-2 text-amber-900 font-medium leading-relaxed">
+                    {detailModalItem.conditions}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* 担当メンバー */}
+            <div className="space-y-1.5">
+              <span className="text-xs font-bold text-slate-700 block">担当メンバー:</span>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {detailModalItem.assignedUsers && detailModalItem.assignedUsers.length > 0 ? (
+                  detailModalItem.assignedUsers.map((u) => (
+                    <span
+                      key={u.id}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 shadow-2xs"
+                    >
+                      <img src={getAvatarUrl(u.avatarUrl)} alt={u.name} className="w-4 h-4 rounded-full" />
+                      {u.name} {u.department ? `(${u.department})` : ''}
+                    </span>
+                  ))
+                ) : (
+                  <span className="text-xs text-slate-400">未設定</span>
+                )}
+              </div>
+            </div>
+
+            {/* 貼紙・作業届・WEB入力ステータス */}
+            <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100 text-xs">
+              <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                <div className="text-[10px] font-bold text-slate-500 mb-1">貼紙</div>
+                <div className="font-bold text-slate-800">
+                  {detailModalItem.metaA?.posterType && detailModalItem.metaA.posterType !== 'none'
+                    ? `貼紙${
+                        detailModalItem.metaA.posterType === 'post' || detailModalItem.metaA.posterType === 'postal'
+                          ? '郵送'
+                          : detailModalItem.metaA.posterType === 'mail'
+                          ? 'Mail'
+                          : detailModalItem.metaA.posterType === 'fax'
+                          ? 'Fax'
+                          : '直接'
+                      } (${detailModalItem.metaA.posterDone ? '✓済' : '未済'})`
+                    : 'なし'}
+                </div>
+              </div>
+              <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                <div className="text-[10px] font-bold text-slate-500 mb-1">作業届</div>
+                <div className="font-bold text-slate-800">
+                  {detailModalItem.metaA?.workNoticeType && detailModalItem.metaA.workNoticeType !== 'none'
+                    ? `${detailModalItem.metaA.workNoticeType.toUpperCase()} (${detailModalItem.metaA.workNoticeDone ? '✓済' : '未済'})`
+                    : 'なし'}
+                </div>
+              </div>
+              <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                <div className="text-[10px] font-bold text-slate-500 mb-1">WEB入力</div>
+                <div className="font-bold text-slate-800">
+                  {detailModalItem.metaA?.webEntryType && detailModalItem.metaA.webEntryType !== 'none'
+                    ? `必要 (${detailModalItem.metaA.webEntryDone ? '✓済' : '未済'})`
+                    : 'なし'}
+                </div>
+              </div>
+            </div>
+
+            {/* 操作・閉じるボタン */}
+            <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+              <div>
+                {!isItemReportLocked(detailModalItem) && detailModalItem.status === 'registered' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleRevertToPlaced(detailModalItem.id);
+                      setDetailModalItem(null);
+                    }}
+                    className="px-3 py-1.5 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer border border-rose-200"
+                  >
+                    ↺ 仮配置に戻す
+                  </button>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setDetailModalItem(null)}
+                className="px-5 py-2 text-xs font-bold bg-slate-900 hover:bg-slate-800 text-white rounded-xl transition-all cursor-pointer shadow-xs"
+              >
+                閉じる
               </button>
             </div>
           </div>

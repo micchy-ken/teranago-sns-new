@@ -497,9 +497,16 @@ export function isMemoUnhandled(m: Memo, user: User): boolean {
   }
 
   // フォールバック: 自分宛て判定 (toUsers / toUser / targetOffices / targetDivisions)
+  const hasExplicitToUsers = (m.toUsers && m.toUsers.length > 0) || !!m.toUser;
+  if (hasExplicitToUsers) {
+    const isExplicitMatch =
+      (m.toUsers && m.toUsers.some((u) => String(u?.id) === String(user.id) || u?.name === user.name || (u?.loginId && user.loginId && u.loginId === user.loginId))) ||
+      (m.toUser && (String(m.toUser.id) === String(user.id) || m.toUser.name === user.name || (m.toUser.loginId && user.loginId && m.toUser.loginId === user.loginId)));
+    return !!isExplicitMatch;
+  }
+
+  // 宛先個別指定がない全体・拠点向け伝言の場合のみ拠点・部署で判定
   const isToUser =
-    (m.toUsers && m.toUsers.some((u) => String(u?.id) === String(user.id) || u?.name === user.name)) ||
-    (m.toUser && (String(m.toUser.id) === String(user.id) || m.toUser.name === user.name || (m.toUser.loginId && m.toUser.loginId === user.loginId))) ||
     (m.targetOffices && user.office && m.targetOffices.includes(user.office)) ||
     (m.targetDivisions && user.division && m.targetDivisions.includes(user.division));
 
@@ -792,16 +799,31 @@ export function getAllNotifications({
 
   // 1. Memos (伝言メモ)
   memos.forEach((m) => {
-    const isToUser =
-      (m.recipientStatuses && m.recipientStatuses.some((st) => st.userId === user.id)) ||
-      (m.toUsers && m.toUsers.some((u) => u?.id === user.id || u?.name === user.name)) ||
-      (m.toUser && (m.toUser.id === user.id || m.toUser.name === user.name || (m.toUser.loginId && user.loginId && m.toUser.loginId === user.loginId))) ||
-      (m.targetOffices && user.office && m.targetOffices.includes(user.office)) ||
-      (m.targetDivisions && user.division && m.targetDivisions.includes(user.division));
+    // 宛先（recipientStatuses / toUsers / toUser）が明示されている場合は、本人が宛先に含まれている場合のみ通知対象とする
+    // （他人が他人に宛てた伝言メモが、拠点・部署の一致だけで通知履歴に混ざらないようにする）
+    const hasExplicitRecipients =
+      (m.recipientStatuses && m.recipientStatuses.length > 0) ||
+      (m.toUsers && m.toUsers.length > 0) ||
+      !!m.toUser;
+
+    const isDirectRecipient =
+      (m.recipientStatuses && m.recipientStatuses.some((st) => String(st.userId) === String(user.id) || (st.userName && st.userName === user.name))) ||
+      (m.toUsers && m.toUsers.some((u) => String(u?.id) === String(user.id) || u?.name === user.name || (u?.loginId && user.loginId && u.loginId === user.loginId))) ||
+      (m.toUser && (String(m.toUser.id) === String(user.id) || m.toUser.name === user.name || (m.toUser.loginId && user.loginId && m.toUser.loginId === user.loginId)));
+
+    let isToUser = false;
+    if (hasExplicitRecipients) {
+      isToUser = !!isDirectRecipient;
+    } else {
+      // 宛先個別指定がない全体・拠点向け伝言の場合のみ拠点・部署で判定
+      isToUser =
+        (m.targetOffices && user.office && m.targetOffices.includes(user.office)) ||
+        (m.targetDivisions && user.division && m.targetDivisions.includes(user.division));
+    }
 
     if (!isToUser) return;
     // 作成者自身で宛先に自分が含まれていない場合は除外
-    if ((m.createdByUser?.id === user.id || m.senderId === user.id) && (!m.toUsers || !m.toUsers.some((u) => u?.id === user.id))) {
+    if ((m.createdByUser?.id === user.id || m.senderId === user.id) && !isDirectRecipient) {
       return;
     }
 
@@ -954,6 +976,19 @@ export function getAllNotifications({
     if (e.isGoogleSynced) return;
 
     const unread = isEventUnread(e, user, readEventIds);
+
+    // 予定の通知タイムスタンプ:
+    // 予定の開催日時(e.start)が未来の場合、その未来日時を createdAt に使用すると
+    // 「通知一覧の最上部に未来の予定が永続的に居座る」現象が発生するため、
+    // 登録日時(e.createdAt / registeredAt)を優先し、未来日時は現在時刻以下に補正する
+    const rawCreatedAt = (e as any).createdAt || (e as any).created_at || (e as any).draftSavedAt || (e as any).registeredAt;
+    let effectiveNotificationTime = rawCreatedAt || e.start;
+    if (!effectiveNotificationTime || new Date(effectiveNotificationTime).getTime() > Date.now()) {
+      effectiveNotificationTime = (rawCreatedAt && new Date(rawCreatedAt).getTime() <= Date.now())
+        ? rawCreatedAt
+        : new Date().toISOString();
+    }
+
     const item: NotificationItem = {
       id: `evt_${e.id}`,
       type: 'event',
@@ -964,7 +999,7 @@ export function getAllNotifications({
         hour: '2-digit',
         minute: '2-digit',
       })} ${e.location ? `(${e.location})` : ''}`,
-      createdAt: e.start,
+      createdAt: effectiveNotificationTime,
       tab: 'calendar',
       originalData: e,
       isRead: !unread,

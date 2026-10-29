@@ -14,11 +14,11 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.28.4',
+  version: '2026.10.28.8',
   date: '2026-10-28',
-  releaseNumber: 4,
-  display: 'v2026.10.28 #4',
-  description: 'アンケートバッジ「回答済」及びピン留め期限「あと◯日」への表示簡潔化',
+  releaseNumber: 8,
+  display: 'v2026.10.28 #8',
+  description: '安否確認メールの24時間重複連送抑制（クールダウン制御）および緊急送信（強制解除）機能を実装',
 };
 
 

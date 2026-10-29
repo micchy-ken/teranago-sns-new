@@ -18,6 +18,7 @@ import photoReportsRouter from './routes/photoReports.js';
 import sitesRouter from './routes/sites.js';
 import inspectionsRouter from './routes/inspections.js';
 import eventsRouter from './routes/events.js';
+import safetyRouter from './routes/safety.js';
 
 // サーバークラッシュ防止（非同期未処理例外・Promise拒否でプロセスが落ちるのを完全防止）
 process.on('uncaughtException', (err) => {
@@ -830,6 +831,9 @@ async function startServer() {
 
   // カレンダー行事・予定・現場工事スケジュールAPIルーター
   app.use(['/api/events', '/api'], eventsRouter);
+
+  // 安否確認・災害速報・連送抑制APIルーター
+  app.use(['/api/safety-events', '/api/safety/events', '/api/safety'], safetyRouter);
 
   // PWA・静的アイコン・マニフェスト等の明示的エンドポイント（開発/本番問わずバイナリとして確実に返却）
   const publicStaticFiles = ['pwa-192x192.png', 'pwa-512x512.png', 'icon.svg', 'manifest.json'];
