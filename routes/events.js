@@ -54,6 +54,14 @@ async function ensureEventsColumns(pool) {
       BEGIN
         ALTER TABLE dbo.Events ADD constructionPhase VARCHAR(20) NULL;
       END
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Events') AND name = 'createdAt')
+      BEGIN
+        ALTER TABLE dbo.Events ADD createdAt DATETIME2 NULL DEFAULT SYSUTCDATETIME();
+      END
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Events') AND name = 'updatedAt')
+      BEGIN
+        ALTER TABLE dbo.Events ADD updatedAt DATETIME2 NULL DEFAULT SYSUTCDATETIME();
+      END
     `);
   } catch (_) {}
 }
@@ -94,6 +102,10 @@ router.get(['/events', '/api/events'], async (req, res) => {
             if (row.description && typeof row.description === 'string' && row.description.startsWith('{')) {
               try { detailsObj = JSON.parse(row.description); } catch (_) {}
             }
+            const rawCreated = row.createdAt || detailsObj.createdAt || detailsObj.registeredAt;
+            const parsedCreated = rawCreated ? new Date(rawCreated).toISOString() : null;
+            const nowIso = new Date().toISOString();
+
             return {
               id: String(row.id),
               title: row.title,
@@ -117,7 +129,12 @@ router.get(['/events', '/api/events'], async (req, res) => {
               siteId: row.siteId || detailsObj.siteId || null,
               siteCode: row.siteCode || detailsObj.siteCode || null,
               siteName: row.siteName || detailsObj.siteName || null,
-              constructionPhase: row.constructionPhase || detailsObj.constructionPhase || null
+              constructionPhase: row.constructionPhase || detailsObj.constructionPhase || null,
+              createdBy: detailsObj.createdBy || detailsObj.creator || row.createdBy || null,
+              createdById: detailsObj.createdById || detailsObj.creatorId || row.createdById || null,
+              attendees: detailsObj.attendees || detailsObj.participants || [],
+              createdAt: (parsedCreated && new Date(parsedCreated).getTime() <= Date.now()) ? parsedCreated : nowIso,
+              updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : nowIso
             };
           });
           fromSql = true;

@@ -763,6 +763,7 @@ router.post(['/schedule-polls/:id/confirm', '/schedule/polls/:id/confirm', '/pol
     const eventLocation = finalLocation !== undefined ? finalLocation : (poll.location || '');
     const eventDesc = finalDescription || (poll.description ? `${poll.description}\n\n(日程調整より自動確定)` : '(日程調整より自動確定)');
 
+    const nowIso = new Date().toISOString();
     const descPayload = {
       memo: eventDesc,
       createdBy: {
@@ -775,6 +776,8 @@ router.post(['/schedule-polls/:id/confirm', '/schedule/polls/:id/confirm', '/pol
       location: eventLocation,
       source: 'schedule_poll',
       pollId: id,
+      createdAt: nowIso,
+      registeredAt: nowIso,
     };
 
     const newEvent = {
@@ -794,8 +797,11 @@ router.post(['/schedule-polls/:id/confirm', '/schedule/polls/:id/confirm', '/pol
       recurrenceParentId: null,
       recurrenceOriginalDate: null,
       recurrenceExceptions: [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdBy: { id: poll.organizerId, name: poll.organizerName },
+      createdById: poll.organizerId,
+      attendees: (poll.targetUserIds || []).map(uId => ({ id: uId })),
+      createdAt: nowIso,
+      updatedAt: nowIso,
     };
 
     if (pool) {
@@ -816,15 +822,17 @@ router.post(['/schedule-polls/:id/confirm', '/schedule/polls/:id/confirm', '/pol
         .input('eRecurrenceParentId', sql.VarChar, null)
         .input('eRecurrenceOriginalDate', sql.VarChar, null)
         .input('eRecurrenceExceptions', sql.NVarChar, null)
+        .input('eCreatedAt', sql.DateTime2, new Date(newEvent.createdAt))
+        .input('eUpdatedAt', sql.DateTime2, new Date(newEvent.updatedAt))
         .query(`
           INSERT INTO dbo.Events (
             id, title, startAt, endAt, isAllDay, isPrivate, category, description,
             location, office, division, attachments, recurrence, recurrenceParentId,
-            recurrenceOriginalDate, recurrenceExceptions
+            recurrenceOriginalDate, recurrenceExceptions, createdAt, updatedAt
           ) VALUES (
             @eId, @eTitle, @eStartAt, @eEndAt, @eIsAllDay, @eIsPrivate, @eCategory, @eDesc,
             @eLoc, @eOffice, @eDivision, @eAttachments, @eRecurrence, @eRecurrenceParentId,
-            @eRecurrenceOriginalDate, @eRecurrenceExceptions
+            @eRecurrenceOriginalDate, @eRecurrenceExceptions, @eCreatedAt, @eUpdatedAt
           )
         `);
 

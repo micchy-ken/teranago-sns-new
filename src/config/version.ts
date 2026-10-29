@@ -14,11 +14,11 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.28.8',
+  version: '2026.10.28.9',
   date: '2026-10-28',
-  releaseNumber: 8,
-  display: 'v2026.10.28 #8',
-  description: '安否確認メールの24時間重複連送抑制（クールダウン制御）および緊急送信（強制解除）機能を実装',
+  releaseNumber: 9,
+  display: 'v2026.10.28 #9',
+  description: '日程調整確定時のカレンダー連携通知タイムスタンプ・作成日時を現在時刻(即時)に統一（未来通知の固定化を完全防止）',
 };
 
 
