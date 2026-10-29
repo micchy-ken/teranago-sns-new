@@ -908,7 +908,7 @@ export function Header({
               <div className="absolute left-0 top-full mt-2 hidden group-hover/teranago-logo:flex items-center gap-1.5 px-2.5 py-1 bg-slate-900/95 text-white text-[11px] font-medium rounded-md shadow-xl border border-slate-700/60 backdrop-blur-xs whitespace-nowrap z-50 pointer-events-none transition-all duration-150 animate-in fade-in slide-in-from-top-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
                 <span className="font-semibold text-emerald-300">{APP_VERSION.display}</span>
-                <span className="text-slate-400 text-[10px]">({APP_VERSION.date})</span>
+                <span className="text-slate-400 text-[10px]">({APP_VERSION.date} 日本標準時 JST)</span>
               </div>
             </div>
           </div>

@@ -56,6 +56,7 @@ import { User, OfficeMaster, DivisionMaster, PositionMaster, OfficeType, Approva
 import { sortUsers, sortUsersByDivision } from '../utils/userSort';
 import { StampAdmin } from './StampAdmin';
 import { AdminLogs } from './AdminLogs';
+import { APP_VERSION } from '../config/version';
 
 interface AdminPanelProps {
   currentUser: User;
@@ -3203,9 +3204,14 @@ export function AdminPanel({
                   KnowledgeSyncの開発・運用に必要なDB構成、サーバーコード、およびAPI接続状況を管理・共有します。
                 </p>
               </div>
-              <div className="flex items-center gap-2 text-xs bg-indigo-50 text-indigo-700 font-semibold px-3 py-1.5 rounded-lg border border-indigo-100">
-                <Activity className="w-4 h-4 text-indigo-500 animate-pulse" />
-                現在稼働環境: 本番 / 同期運用
+              <div className="flex flex-col items-end gap-1">
+                <div className="flex items-center gap-2 text-xs bg-indigo-50 text-indigo-700 font-bold px-3 py-1.5 rounded-lg border border-indigo-100">
+                  <Activity className="w-4 h-4 text-indigo-500 animate-pulse" />
+                  <span>バージョン: {APP_VERSION.display}</span>
+                </div>
+                <span className="text-[10px] text-slate-400 font-medium">
+                  リリース日: {APP_VERSION.date} ({APP_VERSION.timeZone})
+                </span>
               </div>
             </div>
 

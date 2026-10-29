@@ -404,6 +404,11 @@ export default function App() {
     return localStorage.getItem('is_logged_in') === 'true';
   });
 
+  // URLの招待/パスワード再設定トークン優先表示フラグ（ログイン中ユーザーでもURLトークンがあれば設定画面を最優先表示）
+  const [showAuthScreen, setShowAuthScreen] = useState<boolean>(() => {
+    return !localStorage.getItem('is_logged_in') || !!(initialUrlParams.resetToken || initialUrlParams.inviteToken || initialUrlParams.authMode === 'reset-password' || initialUrlParams.authMode === 'invite');
+  });
+
   const [userState, setUserState] = useState<User>(() => {
     const cachedUserData = localStorage.getItem('logged_in_user_data');
     if (cachedUserData) {
@@ -3146,6 +3151,31 @@ export default function App() {
   };
 
 
+
+  if (showAuthScreen || !isAuthenticated) {
+    return (
+      <LoginScreen
+        users={usersList}
+        offices={offices}
+        divisions={divisions}
+        positions={positions}
+        initialAuthMode={initialUrlParams.authMode || (initialUrlParams.resetToken ? 'reset-password' : initialUrlParams.inviteToken ? 'invite' : 'login')}
+        initialInviteToken={initialUrlParams.inviteToken}
+        initialResetToken={initialUrlParams.resetToken}
+        isAlreadyLoggedIn={isAuthenticated}
+        onLogin={(user) => {
+          handleLogin(user);
+          setShowAuthScreen(false);
+        }}
+        onUserRegistered={(newUser) => {
+          setUsersList(prev => [...prev, newUser]);
+        }}
+        onCancelReset={() => {
+          setShowAuthScreen(false);
+        }}
+      />
+    );
+  }
 
   return (
     <div className={`min-h-screen ${activeTab === 'chat' ? 'h-[100dvh] flex flex-col overflow-hidden sm:h-auto sm:overflow-visible sm:block' : ''} text-slate-900 font-sans selection:bg-indigo-100 selection:text-indigo-900 overflow-x-clip transition-colors duration-300`} style={{ backgroundColor: 'var(--app-bg, #f5f7fa)' }}>

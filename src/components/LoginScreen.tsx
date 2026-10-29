@@ -67,8 +67,10 @@ interface LoginScreenProps {
   initialAuthMode?: 'login' | 'invite' | 'reset-password';
   initialInviteToken?: string;
   initialResetToken?: string;
+  isAlreadyLoggedIn?: boolean;
   onLogin: (user: User) => void;
   onUserRegistered?: (user: User) => void;
+  onCancelReset?: () => void;
 }
 
 export function LoginScreen({
@@ -79,8 +81,10 @@ export function LoginScreen({
   initialAuthMode = 'login',
   initialInviteToken,
   initialResetToken,
+  isAlreadyLoggedIn = false,
   onLogin,
-  onUserRegistered
+  onUserRegistered,
+  onCancelReset
 }: LoginScreenProps) {
   const [authMode, setAuthMode] = useState<'login' | 'invite' | 'reset-password'>(initialAuthMode);
   
@@ -934,17 +938,24 @@ export function LoginScreen({
                 )}
 
                 {resetUserData && (
-                  <div className="p-3 bg-slate-900 border border-slate-700 rounded-xl text-xs space-y-1">
+                  <div className="p-3 bg-slate-900 border border-slate-700 rounded-xl text-xs space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="text-slate-400">対象メンバー:</span>
                       <span className="font-bold text-white text-sm">{resetUserData.name}</span>
                     </div>
-                    {resetUserData.loginId && (
-                      <div className="flex items-center justify-between text-[11px] text-slate-400">
-                        <span>ユーザーID:</span>
-                        <span className="font-mono text-indigo-300">{resetUserData.loginId}</span>
-                      </div>
-                    )}
+                    <div>
+                      <label className="block text-[11px] font-medium text-slate-400 mb-1">
+                        ユーザーID <span className="text-[10px] text-slate-500">(パスワード自動保存キー)</span>
+                      </label>
+                      <input
+                        type="text"
+                        name="username"
+                        value={resetUserData.loginId || resetUserData.email || resetUserData.name || ''}
+                        readOnly
+                        autoComplete="username"
+                        className="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-lg text-indigo-300 font-mono text-xs font-bold focus:outline-none cursor-default"
+                      />
+                    </div>
                   </div>
                 )}
 
@@ -955,9 +966,11 @@ export function LoginScreen({
                   <div className="relative">
                     <input
                       type={showResetPassword ? 'text' : 'password'}
+                      name="new-password"
                       value={resetNewPassword}
                       onChange={e => setResetNewPassword(e.target.value)}
                       placeholder="4文字以上の新しいパスワード"
+                      autoComplete="new-password"
                       autoFocus
                       required
                       className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-slate-100 placeholder-slate-500 text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
@@ -978,9 +991,11 @@ export function LoginScreen({
                   </label>
                   <input
                     type={showResetPassword ? 'text' : 'password'}
+                    name="confirm-password"
                     value={resetConfirmPassword}
                     onChange={e => setResetConfirmPassword(e.target.value)}
                     placeholder="もう一度入力してください"
+                    autoComplete="new-password"
                     required
                     className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-slate-100 placeholder-slate-500 text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                   />
@@ -1006,14 +1021,23 @@ export function LoginScreen({
                   </button>
                 </div>
 
-                <div className="text-center pt-2">
+                <div className="text-center pt-2 flex items-center justify-center gap-4">
                   <button
                     type="button"
                     onClick={() => setAuthMode('login')}
                     className="text-xs text-slate-400 hover:text-slate-200 transition cursor-pointer"
                   >
-                    ログイン画面へ戻る
+                    ログイン画面へ移動
                   </button>
+                  {isAlreadyLoggedIn && onCancelReset && (
+                    <button
+                      type="button"
+                      onClick={onCancelReset}
+                      className="text-xs text-indigo-400 hover:text-indigo-300 font-bold transition cursor-pointer"
+                    >
+                      メイン画面へ戻る
+                    </button>
+                  )}
                 </div>
               </form>
             )}
