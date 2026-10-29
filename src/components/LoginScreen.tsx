@@ -71,6 +71,7 @@ interface LoginScreenProps {
   onLogin: (user: User) => void;
   onUserRegistered?: (user: User) => void;
   onCancelReset?: () => void;
+  onRefetchUsers?: () => Promise<User[] | void>;
 }
 
 export function LoginScreen({
@@ -84,9 +85,17 @@ export function LoginScreen({
   isAlreadyLoggedIn = false,
   onLogin,
   onUserRegistered,
-  onCancelReset
+  onCancelReset,
+  onRefetchUsers
 }: LoginScreenProps) {
   const [authMode, setAuthMode] = useState<'login' | 'invite' | 'reset-password'>(initialAuthMode);
+
+  // ログイン画面表示時にサーバーから最新のユーザーリストを自動フェッチ
+  useEffect(() => {
+    if (onRefetchUsers) {
+      onRefetchUsers();
+    }
+  }, [onRefetchUsers]);
   
   // マスタデータ（プロップスまたはデフォルト、マスタAPI直接取得で補完）
   const [masterOffices, setMasterOffices] = useState<OfficeMaster[]>(offices.length > 0 ? offices : DEFAULT_OFFICES);
@@ -231,7 +240,7 @@ export function LoginScreen({
   };
 
   // 通常ログイン処理
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
@@ -243,9 +252,28 @@ export function LoginScreen({
       return;
     }
 
-    const matchedUser = users.find(
+    let activeUsers = users;
+    let matchedUser = activeUsers.find(
       u => u.loginId?.toLowerCase() === trimmedId.toLowerCase() && u.password === trimmedPw
     );
+
+    // オンデマンド最新化: 初回メモリで不一致の場合、DBから最新のユーザー一覧を再取得して即座に再検索
+    if (!matchedUser && onRefetchUsers) {
+      setLoading(true);
+      try {
+        const freshUsers = await onRefetchUsers();
+        if (Array.isArray(freshUsers) && freshUsers.length > 0) {
+          activeUsers = freshUsers;
+          matchedUser = activeUsers.find(
+            u => u.loginId?.toLowerCase() === trimmedId.toLowerCase() && u.password === trimmedPw
+          );
+        }
+      } catch (_) {
+        // ignore fetch error and fall back
+      } finally {
+        setLoading(false);
+      }
+    }
 
     if (matchedUser) {
       // パスワード強制変更が必要なユーザーかチェック
@@ -415,6 +443,9 @@ export function LoginScreen({
       }
 
       setSuccessMessage('新しいパスワードを設定しました。ログイン画面へ移動します...');
+      if (onRefetchUsers) {
+        await onRefetchUsers();
+      }
       setTimeout(() => {
         setAuthMode('login');
         setPassword('');

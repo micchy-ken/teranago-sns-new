@@ -3173,6 +3173,7 @@ export default function App() {
         onCancelReset={() => {
           setShowAuthScreen(false);
         }}
+        onRefetchUsers={refetchUsers}
       />
     );
   }

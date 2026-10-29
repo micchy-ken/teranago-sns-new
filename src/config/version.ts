@@ -15,12 +15,12 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.29.2',
+  version: '2026.10.29.3',
   date: '2026-10-29',
-  releaseNumber: 2,
-  display: 'v2026.10.29 #2 (JST)',
+  releaseNumber: 3,
+  display: 'v2026.10.29 #3 (JST)',
   timeZone: '日本標準時 (JST / UTC+09:00)',
-  description: 'パスワード設定・再設定リンク時の画面優先表示機能およびChromeパスワードマネージャー(自動保存)対応',
+  description: 'ログイン画面表示時およびパスワード設定完了時の最新ユーザー情報(DB)自動同期・メモリ同期機能追加',
 };
 
 /**
