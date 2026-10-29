@@ -6,8 +6,11 @@
 import { Router } from 'express';
 import crypto from 'crypto';
 import sql from 'mssql';
+import path from 'path';
+import fs from 'fs';
 import { getPool } from '../db.js';
 import { sendEmailNotification } from './email.js';
+import { dataDir, safeParseJSON } from '../config.js';
 
 const router = Router();
 
@@ -1103,7 +1106,9 @@ router.get([
 // 12. 気象庁 / 地震速報連動 自動安否確認発動エンジン (JMA Auto-Trigger)
 // =============================================================
 
-let memoryAutoSettings = {
+const jmaConfigFilePath = path.join(dataDir, 'safety_jma_config.json');
+
+const defaultAutoSettings = {
   enabled: true,
   minIntensity: '5minus', // '4' (震度4), '5minus' (震度5弱), '5plus' (震度5強), '6minus' (震度6弱), '6plus' (震度6強), '7' (震度7)
   cooldownHours: 24,      // 24時間重複連送抑制（デフォルト: 24時間）
@@ -1117,6 +1122,76 @@ let memoryAutoSettings = {
   lastCheckedAt: new Date().toISOString(),
   logs: []
 };
+
+function loadAutoSettings() {
+  let settings = { ...defaultAutoSettings };
+  try {
+    if (fs.existsSync(jmaConfigFilePath)) {
+      const raw = fs.readFileSync(jmaConfigFilePath, 'utf8');
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        settings = { ...settings, ...parsed };
+      }
+    }
+  } catch (e) {
+    console.warn('[Safety] Failed to load JMA config file:', e.message);
+  }
+  return settings;
+}
+
+let memoryAutoSettings = loadAutoSettings();
+
+function saveAutoSettings(newSettings) {
+  memoryAutoSettings = {
+    ...memoryAutoSettings,
+    ...newSettings,
+    updatedAt: new Date().toISOString()
+  };
+
+  try {
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
+    }
+    fs.writeFileSync(jmaConfigFilePath, JSON.stringify(memoryAutoSettings, null, 2), 'utf8');
+  } catch (e) {
+    console.error('[Safety] Failed to save JMA config to file:', e.message);
+  }
+
+  (async () => {
+    try {
+      const pool = await getPool();
+      if (pool) {
+        await pool.request().query(`
+          IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'SystemSettings' AND schema_id = SCHEMA_ID('dbo'))
+          BEGIN
+            CREATE TABLE dbo.SystemSettings (
+              settingKey NVARCHAR(100) PRIMARY KEY,
+              settingValue NVARCHAR(MAX) NOT NULL,
+              updatedAt DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+            );
+          END
+        `);
+
+        await pool.request()
+          .input('settingKey', sql.NVarChar(100), 'safety_jma_config')
+          .input('settingValue', sql.NVarChar(sql.MAX), JSON.stringify(memoryAutoSettings))
+          .query(`
+            MERGE dbo.SystemSettings AS target
+            USING (SELECT @settingKey AS settingKey) AS source
+            ON (target.settingKey = source.settingKey)
+            WHEN MATCHED THEN
+              UPDATE SET settingValue = @settingValue, updatedAt = SYSUTCDATETIME()
+            WHEN NOT MATCHED THEN
+              INSERT (settingKey, settingValue, updatedAt) VALUES (@settingKey, @settingValue, SYSUTCDATETIME());
+          `);
+      }
+    } catch (sqlErr) {
+      console.warn('[Safety] SQL Server save JMA config notice:', sqlErr.message);
+    }
+  })().catch(() => {});
+
+  return memoryAutoSettings;
+}
 
 const INTENSITY_MAP = {
   '1': 10,
@@ -1335,6 +1410,7 @@ router.get([
   '/safety/auto-settings',
   '/safety/auto-settings/'
 ], (req, res) => {
+  memoryAutoSettings = loadAutoSettings();
   res.json(memoryAutoSettings);
 });
 
@@ -1348,15 +1424,11 @@ router.post([
   '/safety/auto-settings/'
 ], (req, res) => {
   const data = req.body || {};
-  memoryAutoSettings = {
-    ...memoryAutoSettings,
-    ...data,
-    updatedAt: new Date().toISOString()
-  };
+  const updated = saveAutoSettings(data);
   res.json({
     success: true,
     message: '気象庁連動・自動発動設定を保存しました。',
-    settings: memoryAutoSettings
+    settings: updated
   });
 });
 

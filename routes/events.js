@@ -104,7 +104,29 @@ router.get(['/events', '/api/events'], async (req, res) => {
             }
             const rawCreated = row.createdAt || detailsObj.createdAt || detailsObj.registeredAt;
             const parsedCreated = rawCreated ? new Date(rawCreated).toISOString() : null;
-            const nowIso = new Date().toISOString();
+
+            let safeCreatedAt = null;
+            if (parsedCreated && new Date(parsedCreated).getTime() <= Date.now()) {
+              safeCreatedAt = parsedCreated;
+            } else {
+              // IDから作成時のエポックミリ秒（過去時刻）を抽出 (e.g. e-poll-1730171234567-xxxx)
+              const match = String(row.id).match(/e(?:-poll)?-(\d{12,13})/);
+              if (match) {
+                const ts = Number(match[1]);
+                if (!isNaN(ts) && ts <= Date.now()) {
+                  safeCreatedAt = new Date(ts).toISOString();
+                }
+              }
+              if (!safeCreatedAt && row.updatedAt) {
+                const uDate = new Date(row.updatedAt);
+                if (!isNaN(uDate.getTime()) && uDate.getTime() <= Date.now()) {
+                  safeCreatedAt = uDate.toISOString();
+                }
+              }
+              if (!safeCreatedAt) {
+                safeCreatedAt = new Date().toISOString();
+              }
+            }
 
             return {
               id: String(row.id),
@@ -133,8 +155,8 @@ router.get(['/events', '/api/events'], async (req, res) => {
               createdBy: detailsObj.createdBy || detailsObj.creator || row.createdBy || null,
               createdById: detailsObj.createdById || detailsObj.creatorId || row.createdById || null,
               attendees: detailsObj.attendees || detailsObj.participants || [],
-              createdAt: (parsedCreated && new Date(parsedCreated).getTime() <= Date.now()) ? parsedCreated : nowIso,
-              updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : nowIso
+              createdAt: safeCreatedAt,
+              updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : safeCreatedAt
             };
           });
           fromSql = true;

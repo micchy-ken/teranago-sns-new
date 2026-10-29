@@ -14,11 +14,11 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.28.9',
+  version: '2026.10.28.12',
   date: '2026-10-28',
-  releaseNumber: 9,
-  display: 'v2026.10.28 #9',
-  description: '日程調整確定時のカレンダー連携通知タイムスタンプ・作成日時を現在時刻(即時)に統一（未来通知の固定化を完全防止）',
+  releaseNumber: 12,
+  display: 'v2026.10.28 #12',
+  description: '安否確認・気象庁自動連動設定のファイルおよびDB二重永続化対応（サーバー再起動・リビルド後の設定自動復元）',
 };
 
 

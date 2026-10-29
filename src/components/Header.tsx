@@ -19,6 +19,7 @@ import {
   markChatRoomAsRead,
   getReadMemoIds,
   markMemoAsRead,
+  isMemoVisibleToUser,
   getReadWorkflowIds,
   markWorkflowAsRead,
   getReadReportIds,
@@ -358,18 +359,27 @@ export function Header({
 
     // 3. 伝言メモ (Memos)
     memos.forEach((m) => {
+      // ログインユーザーに関係のない（自分宛て・自作成・自拠点/部署宛て以外の他人の）伝言メモは検索除外
+      if (!isMemoVisibleToUser(m, currentUser)) {
+        return;
+      }
+
       const matchFrom = m.fromName?.toLowerCase().includes(q) || m.fromCompany?.toLowerCase().includes(q);
       const matchContent = m.content?.toLowerCase().includes(q) || m.requirementText?.toLowerCase().includes(q);
-      const matchTo = m.toUser?.name?.toLowerCase().includes(q);
+      const matchTo = m.toUser?.name?.toLowerCase().includes(q) || m.toUsers?.some((u) => u?.name?.toLowerCase().includes(q));
 
       if (matchFrom || matchContent || matchTo) {
+        const recipientName = m.toUsers && m.toUsers.length > 0
+          ? m.toUsers.map((u) => u.name).join(', ')
+          : (m.toUser?.name || '自分');
+
         results.push({
           id: `memo-${m.id}`,
           type: 'memo',
           typeName: '伝言メモ',
           title: `${m.fromCompany ? `${m.fromCompany} ` : ''}${m.fromName || '伝言メモ'}`,
           snippet: `【用件】${m.requirementText || m.content || '詳細なし'}`,
-          badgeText: `宛先: ${m.toUser?.name || '自分'}`,
+          badgeText: `宛先: ${recipientName}`,
           dateStr: formatLocalDateStr(m.createdAt),
           tab: 'memo',
           originalData: m,

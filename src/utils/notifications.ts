@@ -534,6 +534,47 @@ export function isMemoUnread(m: Memo, user: User, readMemoIds: string[] = getRea
   return true;
 }
 
+/** 伝言メモの閲覧・アクセス権限判定（自分に関係のある伝言メモか） */
+export function isMemoVisibleToUser(m: Memo, user: User): boolean {
+  if (!user || !m) return false;
+
+  // 1. 自分が受領・宛先（個人）に含まれるか
+  const isToUser =
+    (m.toUsers && m.toUsers.some((u) => String(u?.id) === String(user.id) || u?.name === user.name || (u?.loginId && user.loginId && u.loginId === user.loginId))) ||
+    (m.toUser && (String(m.toUser.id) === String(user.id) || m.toUser.name === user.name || (m.toUser.loginId && user.loginId && m.toUser.loginId === user.loginId))) ||
+    (m.recipientStatuses && m.recipientStatuses.some((st) => String(st.userId) === String(user.id) || (st.userName && st.userName === user.name)));
+
+  if (isToUser) return true;
+
+  // 2. 自分が作成者（受付・登録者）か
+  const isCreator =
+    (m.createdByUser && (String(m.createdByUser.id) === String(user.id) || m.createdByUser.name === user.name)) ||
+    (m.senderId && String(m.senderId) === String(user.id)) ||
+    (Boolean((m as any).createdById) && String((m as any).createdById) === String(user.id));
+
+  if (isCreator) return true;
+
+  // 3. 宛先個人が未指定で、自分の所属拠点・部署が対象に含まれているか
+  const hasNoSpecificToUser = (!m.toUsers || m.toUsers.length === 0) && !m.toUser;
+  if (hasNoSpecificToUser) {
+    const userOffice = user.office || '';
+    const userDivision = user.division || '';
+    const userDept = user.department || '';
+
+    const matchOffice =
+      m.targetOffices &&
+      m.targetOffices.some((off) => off === '全社' || off === userOffice || (userOffice && off.includes(userOffice)) || (userDept && userDept.includes(off)));
+
+    const matchDivision =
+      m.targetDivisions &&
+      m.targetDivisions.some((div) => div === '全部署' || div === userDivision || (userDivision && div.includes(userDivision)) || (userDept && userDept.includes(div)));
+
+    if (matchOffice || matchDivision) return true;
+  }
+
+  return false;
+}
+
 /** 5. ワークフロー承認依頼の未承認(処理前)判定 */
 export function isWorkflowPending(app: WorkflowApplication, user: User, allUsers: User[] = []): boolean {
   if (!user || !app) return false;
@@ -984,9 +1025,19 @@ export function getAllNotifications({
     const rawCreatedAt = (e as any).createdAt || (e as any).created_at || (e as any).draftSavedAt || (e as any).registeredAt;
     let effectiveNotificationTime = rawCreatedAt || e.start;
     if (!effectiveNotificationTime || new Date(effectiveNotificationTime).getTime() > Date.now()) {
-      effectiveNotificationTime = (rawCreatedAt && new Date(rawCreatedAt).getTime() <= Date.now())
-        ? rawCreatedAt
-        : new Date().toISOString();
+      // 1. IDから作成タイムスタンプ（ミリ秒）を抽出 (e.g. e-poll-1730171234567-xxxx)
+      const match = String(e.id).match(/e(?:-poll)?-(\d{12,13})/);
+      if (match) {
+        const ts = Number(match[1]);
+        if (!isNaN(ts) && ts <= Date.now()) {
+          effectiveNotificationTime = new Date(ts).toISOString();
+        }
+      }
+      if (!effectiveNotificationTime || new Date(effectiveNotificationTime).getTime() > Date.now()) {
+        effectiveNotificationTime = (rawCreatedAt && new Date(rawCreatedAt).getTime() <= Date.now())
+          ? rawCreatedAt
+          : ((e as any).updatedAt && new Date((e as any).updatedAt).getTime() <= Date.now() ? (e as any).updatedAt : new Date().toISOString());
+      }
     }
 
     const item: NotificationItem = {
