@@ -15,12 +15,12 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.30.5',
+  version: '2026.10.30.6',
   date: '2026-10-30',
-  releaseNumber: 5,
-  display: 'v2026.10.30 #5 (JST)',
+  releaseNumber: 6,
+  display: 'v2026.10.30 #6 (JST)',
   timeZone: '日本標準時 (JST / UTC+09:00)',
-  description: 'Synology NAS向けログイン認証API(/auth/login)実装・ログインID/メールエイリアス照合強化・PW設定トークン検証の仮ID自動解決対応',
+  description: 'パスワード再設定完了時のログイン画面自動遷移ブロッキング解消・即時遷移ボタン追加',
 };
 
 /**
