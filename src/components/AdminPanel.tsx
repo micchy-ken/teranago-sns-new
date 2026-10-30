@@ -2352,14 +2352,10 @@ export function AdminPanel({
                             </span>
                           )}
 
-                          {user.isAdmin ? (
+                          {user.isAdmin && (
                             <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-indigo-100 text-indigo-700 border border-indigo-200 flex items-center gap-1">
                               <Shield className="w-3 h-3 text-indigo-600" />
                               管理者
-                            </span>
-                          ) : (
-                            <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
-                              一般
                             </span>
                           )}
                           <span className="text-slate-300 font-bold">|</span>
@@ -2423,11 +2419,6 @@ export function AdminPanel({
                           <KeyRound className={`w-3.5 h-3.5 ${isUnsetPw ? 'text-white' : 'text-amber-600'}`} />
                           {resetPasswordSendingId === user.id ? '送信中...' : isUnsetPw ? '⚠️ パスワード未設定 / 設定依頼' : 'パスワード設定依頼'}
                         </button>
-                      ) : isUnsetPw ? (
-                        <span className="px-2.5 py-1.5 rounded-lg text-xs font-bold text-rose-700 bg-rose-100 border border-rose-200 flex items-center gap-1" title="メールアドレスが設定されていないため送信不可">
-                          <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
-                          PW未設定 (アドレス要登録)
-                        </span>
                       ) : null}
 
                       {user.mobileEmail && (

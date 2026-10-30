@@ -15,12 +15,12 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.30.3',
+  version: '2026.10.30.4',
   date: '2026-10-30',
-  releaseNumber: 3,
-  display: 'v2026.10.30 #3 (JST)',
+  releaseNumber: 4,
+  display: 'v2026.10.30 #4 (JST)',
   timeZone: '日本標準時 (JST / UTC+09:00)',
-  description: 'パスワード未設定・初期値(test)メンバー赤色ハイライト・識別表示＆未設定者向け一括設定依頼メール送信機能追加',
+  description: '登録メンバー一覧の一般バッジおよびアドレス未登録用PW未設定表示の削除調整',
 };
 
 /**
