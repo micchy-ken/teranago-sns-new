@@ -76,6 +76,40 @@ const typeLabels: Record<EventType, string> = {
   meeting: '会議'
 };
 
+// 初期お気に入りプリセット設定の同期解決（初回描画時の個人ページ・デフォルト表示からのチラつき・二重読み込み防止）
+function getInitialPresetInfo(
+  user?: User,
+  initials?: {
+    office?: string;
+    division?: string;
+    mode?: 'personal' | 'team';
+    view?: ViewMode;
+    typeFilter?: string;
+  }
+) {
+  const hasExplicitUrlParams = Boolean(
+    initials?.mode || initials?.view || initials?.office || initials?.division || initials?.typeFilter
+  );
+  if (hasExplicitUrlParams || !user?.preferences) return null;
+
+  const defaultId = user.preferences.defaultCalendarPresetId;
+  const userPresets = user.preferences.calendarPresets || [];
+  if (!defaultId || !userPresets.length) return null;
+
+  const defaultPreset = userPresets.find(p => p.id === defaultId);
+  if (!defaultPreset) return null;
+
+  const memberGroups = user.preferences.calendarMemberGroups || [];
+  const validGroupId = defaultPreset.groupId && memberGroups.some(g => g.id === defaultPreset.groupId)
+    ? defaultPreset.groupId
+    : 'org';
+
+  return {
+    preset: defaultPreset,
+    groupId: validGroupId
+  };
+}
+
 export function Calendar({
   events,
   sites,
@@ -230,7 +264,13 @@ export function Calendar({
     setLocalEvents(merged);
   }, [events]);
 
-  const [view, setView] = useState<ViewMode>(() => initialView || 'month');
+  const [view, setView] = useState<ViewMode>(() => {
+    if (initialView) return initialView;
+    const presetInfo = getInitialPresetInfo(currentUser, { initialOffice, initialDivision, initialMode, initialView, initialTypeFilter });
+    if (presetInfo?.preset.view) return presetInfo.preset.view;
+    return 'month';
+  });
+
   const [currentDate, setCurrentDate] = useState<Date>(() => {
     if (initialDate) {
       if (initialDate.toLowerCase() === 'today') return new Date();
@@ -247,27 +287,56 @@ export function Calendar({
   const [countdown, setCountdown] = useState<number>(30);
   const [copiedLink, setCopiedLink] = useState<boolean>(false);
   
-  // 拠点・部署のプルダウンフィルター状態（初期値は指定パラメータまたはログインユーザーの所属拠点・所属部署）
-  const [selectedOffice, setSelectedOffice] = useState<string>(() => initialOffice || currentUser?.office || '全社');
-  const [selectedDivision, setSelectedDivision] = useState<string>(() => initialDivision || currentUser?.division || '全部署');
-  const [selectedTypeFilter, setSelectedTypeFilter] = useState<string>(() => initialTypeFilter || 'all');
+  // 拠点・部署のプルダウンフィルター状態（初期値はお気に入りプリセット、指定パラメータ、またはログインユーザーの所属拠点・所属部署）
+  const [selectedOffice, setSelectedOffice] = useState<string>(() => {
+    if (initialOffice) return initialOffice;
+    const presetInfo = getInitialPresetInfo(currentUser, { initialOffice, initialDivision, initialMode, initialView, initialTypeFilter });
+    if (presetInfo?.preset && presetInfo.preset.mode === 'team' && presetInfo.groupId === 'org' && presetInfo.preset.office) {
+      return presetInfo.preset.office;
+    }
+    return currentUser?.office || '全社';
+  });
 
-  // currentUserの所属拠点・所属部署の初期反映（initialOffice/initialDivisionがない場合のみ）
+  const [selectedDivision, setSelectedDivision] = useState<string>(() => {
+    if (initialDivision) return initialDivision;
+    const presetInfo = getInitialPresetInfo(currentUser, { initialOffice, initialDivision, initialMode, initialView, initialTypeFilter });
+    if (presetInfo?.preset && presetInfo.preset.mode === 'team' && presetInfo.groupId === 'org' && presetInfo.preset.division) {
+      return presetInfo.preset.division;
+    }
+    return currentUser?.division || '全部署';
+  });
+
+  const [selectedTypeFilter, setSelectedTypeFilter] = useState<string>(() => {
+    if (initialTypeFilter) return initialTypeFilter;
+    const presetInfo = getInitialPresetInfo(currentUser, { initialOffice, initialDivision, initialMode, initialView, initialTypeFilter });
+    if (presetInfo?.preset.typeFilter) return presetInfo.preset.typeFilter;
+    return 'all';
+  });
+
+  // currentUserの所属拠点・所属部署の初期反映（initialOffice/initialDivisionがなく、プリセットもない場合のみ）
   const userInitRef = React.useRef(false);
   useEffect(() => {
     if (currentUser && !userInitRef.current) {
-      if (!initialOffice && currentUser.office) {
-        setSelectedOffice(currentUser.office);
-      }
-      if (!initialDivision && currentUser.division) {
-        setSelectedDivision(currentUser.division);
+      const presetInfo = getInitialPresetInfo(currentUser, { initialOffice, initialDivision, initialMode, initialView, initialTypeFilter });
+      if (!presetInfo) {
+        if (!initialOffice && currentUser.office) {
+          setSelectedOffice(currentUser.office);
+        }
+        if (!initialDivision && currentUser.division) {
+          setSelectedDivision(currentUser.division);
+        }
       }
       userInitRef.current = true;
     }
-  }, [currentUser, initialOffice, initialDivision]);
+  }, [currentUser, initialOffice, initialDivision, initialMode, initialView, initialTypeFilter]);
 
   // カレンダーモード：'personal' (個人表示) or 'team' (チーム表示)
-  const [calendarMode, setCalendarMode] = useState<'personal' | 'team'>(() => initialMode || 'personal');
+  const [calendarMode, setCalendarMode] = useState<'personal' | 'team'>(() => {
+    if (initialMode) return initialMode;
+    const presetInfo = getInitialPresetInfo(currentUser, { initialOffice, initialDivision, initialMode, initialView, initialTypeFilter });
+    if (presetInfo?.preset.mode) return presetInfo.preset.mode;
+    return 'personal';
+  });
 
   // initialPropsの動的変更を反映
   useEffect(() => {
@@ -333,7 +402,11 @@ export function Calendar({
   });
 
   // 選択中マイグループ ('org' = 組織/拠点・部署、または group.id)
-  const [selectedGroupId, setSelectedGroupId] = useState<string>('org');
+  const [selectedGroupId, setSelectedGroupId] = useState<string>(() => {
+    const presetInfo = getInitialPresetInfo(currentUser, { initialOffice, initialDivision, initialMode, initialView, initialTypeFilter });
+    if (presetInfo?.groupId) return presetInfo.groupId;
+    return 'org';
+  });
 
   // currentUserの更新に追従
   useEffect(() => {
@@ -404,7 +477,7 @@ export function Calendar({
   const defaultPresetId = currentUser?.preferences?.defaultCalendarPresetId;
 
   // 初期ロード時：URLパラメータで明示指定がない場合、ユーザーの「初期表示」プリセット（defaultCalendarPresetId）を自動適用
-  const hasAppliedDefaultPresetRef = useRef(false);
+  const hasAppliedDefaultPresetRef = useRef(Boolean(getInitialPresetInfo(currentUser, { initialOffice, initialDivision, initialMode, initialView, initialTypeFilter })));
   useEffect(() => {
     if (hasAppliedDefaultPresetRef.current) return;
     if (!currentUser?.preferences) return;

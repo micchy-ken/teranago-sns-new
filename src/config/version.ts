@@ -15,12 +15,12 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.30.8',
+  version: '2026.10.30.9',
   date: '2026-10-30',
-  releaseNumber: 8,
-  display: 'v2026.10.30 #8 (JST)',
+  releaseNumber: 9,
+  display: 'v2026.10.30 #9 (JST)',
   timeZone: '日本標準時 (JST / UTC+09:00)',
-  description: 'ハッシュ化パスワード対応に伴うPW未設定判定（!user.password誤検知）の修正',
+  description: 'カレンダー画面初期ロード時のお気に入りプリセット（初期表示）直接読込機能の実装（個人画面経由の画面チラつき防止）',
 };
 
 /**
