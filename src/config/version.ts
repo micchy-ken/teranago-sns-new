@@ -15,12 +15,12 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.30.7',
+  version: '2026.10.30.8',
   date: '2026-10-30',
-  releaseNumber: 7,
-  display: 'v2026.10.30 #7 (JST)',
+  releaseNumber: 8,
+  display: 'v2026.10.30 #8 (JST)',
   timeZone: '日本標準時 (JST / UTC+09:00)',
-  description: 'マイページ掲示板本文の遅延表示・定期リロード時のチラつき（フリッカー）防止およびDiff比較・コンテンツ保護マージ機能の実装',
+  description: 'ハッシュ化パスワード対応に伴うPW未設定判定（!user.password誤検知）の修正',
 };
 
 /**

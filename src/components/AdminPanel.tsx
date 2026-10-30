@@ -900,7 +900,7 @@ export function AdminPanel({
   const handleSendBulkPasswordResetRequest = () => {
     // パスワード未設定（isPasswordDefault === true, または mustChangePassword, または password === 'test'）のメンバーを抽出
     const unsetUsers = allUsers.filter(u =>
-      u.isPasswordDefault === true || u.mustChangePassword === true || u.password === 'test' || !u.password
+      u.isPasswordDefault === true || u.mustChangePassword === true || u.password === 'test'
     );
     const unsetWithEmail = unsetUsers.filter(u =>
       !!((u.email && u.email.includes('@')) || (u.mobileEmail && u.mobileEmail.includes('@')))
@@ -2276,7 +2276,7 @@ export function AdminPanel({
           {userViewMode === 'list' && userTabSubMode === 'members' ? (
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden divide-y divide-slate-100">
               {(() => {
-                const unsetUsers = filteredUsers.filter(u => u.isPasswordDefault === true || u.mustChangePassword === true || u.password === 'test' || !u.password);
+                const unsetUsers = filteredUsers.filter(u => u.isPasswordDefault === true || u.mustChangePassword === true || u.password === 'test');
                 const unsetWithEmail = unsetUsers.filter(u => !!((u.email && u.email.includes('@')) || (u.mobileEmail && u.mobileEmail.includes('@'))));
 
                 return (
@@ -2326,7 +2326,7 @@ export function AdminPanel({
               </div>
             ) : (
               filteredUsers.map((user) => {
-                const isUnsetPw = user.isPasswordDefault === true || user.mustChangePassword === true || user.password === 'test' || !user.password;
+                const isUnsetPw = user.isPasswordDefault === true || user.mustChangePassword === true || user.password === 'test';
 
                 return (
                   <div key={user.id} className={`p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 transition-colors ${
