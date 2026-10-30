@@ -1171,11 +1171,16 @@ export default function App() {
             parsedAtts = detailsObj.attachments;
           }
 
+          const rawContentText =
+            (typeof detailsObj.content === 'string' && detailsObj.content) ||
+            (typeof detailsObj.text === 'string' && detailsObj.text) ||
+            (typeof detailsObj.body === 'string' && detailsObj.body) ||
+            (typeof t.content === 'string' ? t.content : '');
+
           return {
             id: String(t.id),
             category: t.category || 'general',
             title: t.title,
-            content: t.content,
             author: authorUser,
             createdAt: t.createdAt,
             views: t.views || 0,
@@ -1197,44 +1202,80 @@ export default function App() {
               ? (() => { try { return JSON.parse(t.poll); } catch (_) { return null; } })()
               : (t.poll || detailsObj.poll || null),
             ...detailsObj,
+            content: rawContentText,
             attachments: parsedAtts
           };
         });
 
-        // サマリー取得時、既存トピックに詳細コメント等がある場合は維持マージ
-        // サマリー取得時、既存トピックに詳細コメントや完全なアンケート情報がある場合は維持マージ
+        // 差分比較 (Diff Checking) ＆ サマリー・バックグラウンド取得時のコンテンツ・選択肢データ保護マージ
         setTopics(prevTopics => {
-          if (options?.summary && prevTopics.length > 0) {
-            const prevMap = new Map(prevTopics.map(p => [p.id, p]));
-            return mapped.map(item => {
-              const existing = prevMap.get(item.id);
-              if (existing) {
-                // アンケート選択肢の保護: 既存にoptionsがあり、サマリー側のoptionsが空の場合は既存を復元
-                let safePoll = item.poll;
-                if (existing.poll && Array.isArray(existing.poll.options) && existing.poll.options.length > 0) {
-                  if (!item.poll || !Array.isArray(item.poll.options) || item.poll.options.length === 0) {
-                    safePoll = {
-                      ...existing.poll,
-                      ...(item.poll || {}),
-                      options: existing.poll.options,
-                      votes: (item.poll && Array.isArray(item.poll.votes) && item.poll.votes.length > 0)
-                        ? item.poll.votes
-                        : (existing.poll.votes || [])
-                    };
-                  }
-                }
-                return {
-                  ...item,
-                  poll: safePoll,
-                  comments: (existing.comments && existing.comments.length > 0) ? existing.comments : item.comments,
-                  viewers: (existing.viewers && existing.viewers.length > 0) ? existing.viewers : item.viewers,
-                  commentsCount: existing.commentsCount || item.commentsCount
+          const prevMap = new Map(prevTopics.map(p => [p.id, p]));
+          const mergedList = mapped.map(item => {
+            const existing = prevMap.get(item.id);
+            if (!existing) return item;
+
+            // アンケート選択肢の保護: 既存にoptionsがあり、新しい側にoptionsが空の場合は既存を復元
+            let safePoll = item.poll;
+            if (existing.poll && Array.isArray(existing.poll.options) && existing.poll.options.length > 0) {
+              if (!item.poll || !Array.isArray(item.poll.options) || item.poll.options.length === 0) {
+                safePoll = {
+                  ...existing.poll,
+                  ...(item.poll || {}),
+                  options: existing.poll.options,
+                  votes: (item.poll && Array.isArray(item.poll.votes) && item.poll.votes.length > 0)
+                    ? item.poll.votes
+                    : (existing.poll.votes || [])
                 };
               }
-              return item;
-            });
+            }
+
+            // content（本文）の保護: 新しい方のcontentが空で既存にcontentがある場合は保持
+            const safeContent = item.content || existing.content || '';
+
+            // commentsの保護: 新しい方のcommentsが空で既存にcommentsがある場合は保持
+            const safeComments = (item.comments && item.comments.length > 0) ? item.comments : (existing.comments || []);
+
+            // viewersの保護: 新しい方のviewersが空で既存にviewersがある場合は保持
+            const safeViewers = (item.viewers && item.viewers.length > 0) ? item.viewers : (existing.viewers || []);
+
+            return {
+              ...item,
+              content: safeContent,
+              poll: safePoll,
+              comments: safeComments,
+              viewers: safeViewers,
+              commentsCount: Math.max(item.commentsCount || 0, safeComments.length, existing.commentsCount || 0)
+            };
+          });
+
+          // 差分比較で不要なState更新（全画面・カードの再レンダリング・チラつき）を抑制
+          if (prevTopics.length !== mergedList.length) return mergedList;
+
+          let isChanged = false;
+          for (let i = 0; i < mergedList.length; i++) {
+            const m = mergedList[i];
+            const p = prevTopics[i];
+            if (!p || p.id !== m.id || p.title !== m.title || p.content !== m.content || p.isPinned !== m.isPinned || p.views !== m.views || p.likes !== m.likes || p.commentsCount !== m.commentsCount) {
+              isChanged = true;
+              break;
+            }
+            // アンケート回答数の変化チェック
+            const pVotesCount = p.poll?.votes?.length || 0;
+            const mVotesCount = m.poll?.votes?.length || 0;
+            if (pVotesCount !== mVotesCount) {
+              isChanged = true;
+              break;
+            }
+            // 閲覧人数の変化チェック
+            const pViewersCount = p.viewers?.length || 0;
+            const mViewersCount = m.viewers?.length || 0;
+            if (pViewersCount !== mViewersCount) {
+              isChanged = true;
+              break;
+            }
           }
-          return mapped;
+
+          return isChanged ? mergedList : prevTopics;
         });
 
         setFetchErrors(prev => { if (!prev.bulletins) return prev; const next = { ...prev }; delete next.bulletins; return next; });

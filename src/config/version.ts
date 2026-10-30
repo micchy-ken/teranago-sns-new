@@ -15,12 +15,12 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.30.6',
+  version: '2026.10.30.7',
   date: '2026-10-30',
-  releaseNumber: 6,
-  display: 'v2026.10.30 #6 (JST)',
+  releaseNumber: 7,
+  display: 'v2026.10.30 #7 (JST)',
   timeZone: '日本標準時 (JST / UTC+09:00)',
-  description: 'パスワード再設定完了時のログイン画面自動遷移ブロッキング解消・即時遷移ボタン追加',
+  description: 'マイページ掲示板本文の遅延表示・定期リロード時のチラつき（フリッカー）防止およびDiff比較・コンテンツ保護マージ機能の実装',
 };
 
 /**
