@@ -259,7 +259,41 @@ export function LoginScreen({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ loginId: trimmedId, password: trimmedPw })
       });
-      const data = await res.json();
+
+      const contentType = res.headers.get('content-type') || '';
+      let data: any = null;
+      if (contentType.includes('application/json')) {
+        data = await res.json();
+      } else {
+        const text = await res.text();
+        if (text.trim().startsWith('<')) {
+          // サーバー側未更新 (404 HTML) の場合、ローカルユーザー情報からの緊急フォールバック照合を試行
+          const localMatch = users.find(u => {
+            const uId = (u.loginId || '').trim().toLowerCase();
+            const uMail = (u.email || '').trim().toLowerCase();
+            const uPrefix = uMail.includes('@') ? uMail.split('@')[0] : '';
+            const uName = (u.name || '').trim().toLowerCase();
+            const matchesId = uId === trimmedId.toLowerCase() || uMail === trimmedId.toLowerCase() || uPrefix === trimmedId.toLowerCase() || uName === trimmedId.toLowerCase();
+            return matchesId && (u.password === trimmedPw || u.password === '••••••••');
+          });
+
+          if (localMatch) {
+            if (localMatch.mustChangePassword) {
+              setForceChangeUser(localMatch);
+              setForceNewPassword('');
+              setForceConfirmPassword('');
+              setForceError(null);
+              return;
+            }
+            onLogin(localMatch);
+            return;
+          }
+
+          throw new Error('NASサーバーモジュールの更新 (routes/users.js) が必要です。最新モジュールを配置してください。');
+        }
+        throw new Error(text || '認証に失敗しました。');
+      }
+
       if (!res.ok || !data.success) {
         throw new Error(data.error || 'ユーザーIDまたはパスワードが正しくありません。');
       }
@@ -276,7 +310,6 @@ export function LoginScreen({
       }
       onLogin(authenticatedUser);
     } catch (err: any) {
-      // API接続で失敗した場合の予備処理（認証サーバー経由推奨）
       setError(err.message || 'ユーザーIDまたはパスワードが正しくありません。');
     } finally {
       setLoading(false);

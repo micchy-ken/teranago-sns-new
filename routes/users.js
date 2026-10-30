@@ -1,12 +1,13 @@
 /**
- * routes/users.js (本番環境・MS SQL Server 連携 メンバー管理モジュール)
- * 寺岡オートドアSNS ユーザー管理・所属・表示順・アバター・設定モジュール
- * 最終更新: 2026年10月1日 (ユーザー削除API・SQL＆JSON完全二重削除同期対応版)
+ * routes/users.js (本番環境・MS SQL Server 連携 メンバー管理 & 認証モジュール)
+ * 寺岡オートドアSNS ユーザー管理・所属・表示順・アバター・設定・サーバーサイド認証
+ * 最終更新: 2026年10月30日 (パスワードソルト付きscryptハッシュ化・POST /auth/login サーバー認証・平文排除・メールプレフィックス柔軟照合版)
  */
 import { Router } from 'express';
 import path from 'path';
 import fs from 'fs';
 import multer from 'multer';
+import crypto from 'crypto';
 import sql from 'mssql';
 import { getPool } from '../db.js';
 import { encryptText, maskEmail } from './safety.js';
@@ -15,6 +16,53 @@ import { uploadDir, dataDir } from '../config.js';
 const router = Router();
 const userPrefsFile = path.join(dataDir, 'user_preferences.json');
 const usersFile = path.join(dataDir, 'users.json');
+
+// =============================================================
+// セキュア・パスワードハッシュ化 (scrypt) & 認証ヘルパー
+// =============================================================
+function hashPassword(password) {
+  if (!password) return '';
+  if (typeof password === 'string' && password.startsWith('scrypt:16384:')) return password;
+  const salt = crypto.randomBytes(16).toString('hex');
+  const derivedKey = crypto.scryptSync(password, salt, 64, { N: 16384, r: 8, p: 1 });
+  return `scrypt:16384:${salt}:${derivedKey.toString('hex')}`;
+}
+
+function verifyPassword(passwordInput, storedHashOrPlain) {
+  if (!storedHashOrPlain || !passwordInput) return { isValid: false, needsRehash: false };
+  if (typeof storedHashOrPlain === 'string' && storedHashOrPlain.startsWith('scrypt:16384:')) {
+    const parts = storedHashOrPlain.split(':');
+    if (parts.length === 4) {
+      const salt = parts[2];
+      const originalHashHex = parts[3];
+      const testHash = crypto.scryptSync(passwordInput, salt, 64, { N: 16384, r: 8, p: 1 });
+      try {
+        const isValid = crypto.timingSafeEqual(Buffer.from(originalHashHex, 'hex'), testHash);
+        return { isValid, needsRehash: false };
+      } catch (_) {
+        return { isValid: false, needsRehash: false };
+      }
+    }
+  }
+  const isPlainMatch = (passwordInput === storedHashOrPlain);
+  return { isValid: isPlainMatch, needsRehash: isPlainMatch };
+}
+
+function sanitizeUserForResponse(user) {
+  if (!user) return user;
+  const copy = { ...user };
+  const rawPw = user.password || '';
+  const isTestPw = !rawPw || rawPw === 'test' || verifyPassword('test', rawPw).isValid;
+  const isPasswordDefault = isTestPw || user.mustChangePassword === true || user.isPasswordDefault === true;
+
+  delete copy.password;
+  delete copy.passwordHash;
+  return {
+    ...copy,
+    passwordMasked: '••••••••',
+    isPasswordDefault
+  };
+}
 
 function loadUsers() {
   try {
@@ -40,6 +88,8 @@ function saveUsers(users) {
 
 // 予約語（ユーザーIDと誤認させてはならないエンドポイント名）
 const RESERVED_USER_IDS = new Set([
+  'auth',
+  'login',
   'invite',
   'invitations',
   'reorder',
@@ -135,6 +185,157 @@ async function checkPreferencesColumn(pool) {
 }
 
 // =============================================================
+// 0. サーバーサイドログイン認証 API (POST /auth/login & /login)
+// ※ /users/:id より前に必ず定義
+// =============================================================
+const loginPaths = [
+  '/auth/login',
+  '/auth/login/',
+  '/api/auth/login',
+  '/api/auth/login/',
+  '/login',
+  '/login/',
+  '/api/login',
+  '/api/login/'
+];
+
+router.post(loginPaths, async (req, res) => {
+  try {
+    const { loginId, password } = req.body || {};
+    if (!loginId || !password) {
+      return res.status(400).json({ error: 'ユーザーIDとパスワードを入力してください。' });
+    }
+
+    const trimmedInput = String(loginId).trim().toLowerCase();
+    const pool = await getPool();
+
+    let allUsers = [];
+    if (pool) {
+      const cols = await getUserTableColumns(pool);
+      const hasCol = cols ? cols.has('preferences') : await checkPreferencesColumn(pool);
+      const hasRolesCol = cols ? cols.has('roles') : false;
+      const hasSortOrderCol = cols ? cols.has('sortorder') : false;
+      const hasMustChangeCol = cols ? cols.has('mustchangepassword') : false;
+      const allFilePrefs = loadAllUserPrefs();
+
+      const result = await pool.request().query('SELECT * FROM dbo.Users');
+      allUsers = (result.recordset || []).map(row => {
+        const uId = String(row.id);
+        let prefs = {};
+        if (hasCol && row.preferences) {
+          try { prefs = typeof row.preferences === 'string' ? JSON.parse(row.preferences) : row.preferences; } catch (_) {}
+        }
+        if (allFilePrefs[uId]) {
+          prefs = { ...prefs, ...allFilePrefs[uId] };
+        }
+        let resolvedRoles = [row.role || 'user'];
+        if (hasRolesCol && row.roles) {
+          try { resolvedRoles = typeof row.roles === 'string' ? JSON.parse(row.roles) : row.roles; } catch (_) {}
+        } else if (prefs && Array.isArray(prefs.roles)) {
+          resolvedRoles = prefs.roles;
+        }
+        const mustChangePassword = hasMustChangeCol 
+          ? Boolean(row.mustChangePassword) 
+          : (prefs.mustChangePassword !== undefined ? Boolean(prefs.mustChangePassword) : false);
+
+        return {
+          ...row,
+          sortOrder: row.sortOrder !== undefined && row.sortOrder !== null ? Number(row.sortOrder) : undefined,
+          roles: resolvedRoles,
+          preferences: prefs,
+          mustChangePassword
+        };
+      });
+    } else {
+      allUsers = loadUsers();
+    }
+
+    // 柔軟なログイン照合:
+    // 1. loginId (完全一致)
+    // 2. email (完全一致、または @前のプレフィックス: 例 koga@... -> koga)
+    // 3. mobileEmail (完全一致、または @前のプレフィックス)
+    // 4. id (主キー一致)
+    // 5. name / kanaName
+    let matchedUser = allUsers.find(u => {
+      const uLoginId = (u.loginId || '').trim().toLowerCase();
+      const uEmail = (u.email || '').trim().toLowerCase();
+      const uEmailPrefix = uEmail.includes('@') ? uEmail.split('@')[0] : '';
+      const uMobile = (u.mobileEmail || '').trim().toLowerCase();
+      const uMobilePrefix = uMobile.includes('@') ? uMobile.split('@')[0] : '';
+      const uId = String(u.id || '').trim().toLowerCase();
+      const uName = String(u.name || '').trim().toLowerCase();
+
+      return (
+        (uLoginId && uLoginId === trimmedInput) ||
+        (uEmail && uEmail === trimmedInput) ||
+        (uEmailPrefix && uEmailPrefix === trimmedInput) ||
+        (uMobile && uMobile === trimmedInput) ||
+        (uMobilePrefix && uMobilePrefix === trimmedInput) ||
+        (uId && uId === trimmedInput) ||
+        (uName && uName === trimmedInput)
+      );
+    });
+
+    if (!matchedUser) {
+      return res.status(401).json({ error: 'ユーザーIDまたはパスワードが正しくありません。' });
+    }
+
+    const authResult = verifyPassword(String(password).trim(), matchedUser.password);
+    if (!authResult.isValid) {
+      return res.status(401).json({ error: 'ユーザーIDまたはパスワードが正しくありません。' });
+    }
+
+    // 平文パスワードで一致した場合、またはログインIDが仮生成(user_xxxx)でメールプレフィックスで入った場合の自己修復
+    const updates = [];
+    if (authResult.needsRehash) {
+      matchedUser.password = hashPassword(String(password).trim());
+      updates.push('password');
+    }
+    // ログインIDが空欄や仮ID(user_xxxx)で、メールのユーザー名(例: koga)でログインした場合、正式にloginIdを反映
+    if ((!matchedUser.loginId || matchedUser.loginId.startsWith('user_')) && trimmedInput && !trimmedInput.startsWith('user_')) {
+      matchedUser.loginId = trimmedInput;
+      updates.push('loginId');
+    }
+
+    if (updates.length > 0) {
+      try {
+        if (pool) {
+          const updateReq = pool.request().input('id', sql.VarChar, String(matchedUser.id));
+          const setClauses = [];
+          if (updates.includes('password')) {
+            updateReq.input('password', sql.VarChar, matchedUser.password);
+            setClauses.push('password = @password');
+          }
+          if (updates.includes('loginId')) {
+            updateReq.input('loginId', sql.VarChar, matchedUser.loginId);
+            setClauses.push('loginId = @loginId');
+          }
+          await updateReq.query(`UPDATE dbo.Users SET ${setClauses.join(', ')} WHERE id = @id`);
+        }
+        const fileUsers = loadUsers();
+        const fIdx = fileUsers.findIndex(u => String(u.id) === String(matchedUser.id));
+        if (fIdx !== -1) {
+          if (updates.includes('password')) fileUsers[fIdx].password = matchedUser.password;
+          if (updates.includes('loginId')) fileUsers[fIdx].loginId = matchedUser.loginId;
+          saveUsers(fileUsers);
+        }
+      } catch (patchErr) {
+        console.warn('[Auth] Auto-update warning:', patchErr.message);
+      }
+    }
+
+    res.json({
+      success: true,
+      message: 'ログインに成功しました。',
+      user: sanitizeUserForResponse(matchedUser)
+    });
+  } catch (err) {
+    console.error('[Auth] Login error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// =============================================================
 // 1. ユーザー表示順の一括更新 API (PUT & POST /users/reorder)
 // ※ /users/:id より前に必ず定義
 // =============================================================
@@ -197,7 +398,7 @@ router.put(reorderPaths, reorderUsersHandler);
 router.post(reorderPaths, reorderUsersHandler);
 
 // =============================================================
-// 2. ユーザー一覧取得 (GET /users & /api/users)
+// 2. ユーザー一覧取得 (GET /users & /api/users - 平文パスワード非開示)
 // =============================================================
 router.get(['/users', '/users/', '/api/users', '/api/users/'], async (req, res) => {
   try {
@@ -241,13 +442,15 @@ router.get(['/users', '/users/', '/api/users', '/api/users/'], async (req, res) 
         ? Boolean(row.mustChangePassword) 
         : (prefs.mustChangePassword !== undefined ? Boolean(prefs.mustChangePassword) : false);
 
-      return {
+      const userObj = {
         ...row,
         sortOrder: row.sortOrder !== undefined && row.sortOrder !== null ? Number(row.sortOrder) : undefined,
         roles: resolvedRoles,
         preferences: prefs,
         mustChangePassword
       };
+
+      return sanitizeUserForResponse(userObj);
     });
     res.json(users);
   } catch (err) { 
@@ -256,7 +459,7 @@ router.get(['/users', '/users/', '/api/users', '/api/users/'], async (req, res) 
 });
 
 // =============================================================
-// 3. 単一ユーザー取得 (GET /users/:id & /api/users/:id)
+// 3. 単一ユーザー取得 (GET /users/:id & /api/users/:id - 平文パスワード非開示)
 // =============================================================
 router.get(['/users/:id', '/api/users/:id'], async (req, res, next) => {
   try {
@@ -307,13 +510,15 @@ router.get(['/users/:id', '/api/users/:id'], async (req, res, next) => {
       ? Boolean(row.mustChangePassword) 
       : (prefs.mustChangePassword !== undefined ? Boolean(prefs.mustChangePassword) : false);
 
-    res.json({
+    const userObj = {
       ...row,
       sortOrder: row.sortOrder !== undefined && row.sortOrder !== null ? Number(row.sortOrder) : undefined,
       roles: resolvedRoles,
       preferences: prefs,
       mustChangePassword
-    });
+    };
+
+    res.json(sanitizeUserForResponse(userObj));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -341,6 +546,33 @@ async function saveOrUpdateUser(req, res, targetUserId = null, next = null) {
     const hasMustChangeCol = cols ? cols.has('mustchangepassword') : false;
     const userId = rawId || `u-${Date.now()}`;
     
+    // 既存パスワードの保持チェック（空欄またはマスク時は既存維持）
+    let existingPassword = null;
+    if (targetUserId) {
+      if (pool) {
+        try {
+          const exRes = await pool.request().input('exId', sql.VarChar, userId).query('SELECT password FROM dbo.Users WHERE id = @exId');
+          if (exRes.recordset && exRes.recordset.length > 0) {
+            existingPassword = exRes.recordset[0].password;
+          }
+        } catch (_) {}
+      }
+      if (!existingPassword) {
+        const fileUsers = loadUsers();
+        const fUser = fileUsers.find(fu => String(fu.id) === String(userId));
+        if (fUser) existingPassword = fUser.password;
+      }
+    }
+
+    let finalPassword = u.password;
+    if (finalPassword && finalPassword !== '••••••••') {
+      finalPassword = hashPassword(String(finalPassword).trim());
+    } else if (existingPassword) {
+      finalPassword = existingPassword;
+    } else {
+      finalPassword = hashPassword('test');
+    }
+
     const rolesArr = Array.isArray(u.roles) 
       ? u.roles 
       : (typeof u.roles === 'string' ? [u.roles] : [u.role || 'user']);
@@ -379,10 +611,14 @@ async function saveOrUpdateUser(req, res, targetUserId = null, next = null) {
     }
     const prefStr = JSON.stringify(mergedPrefs);
 
+    const fallbackLoginId = (u.loginId && String(u.loginId).trim()) 
+      ? String(u.loginId).trim() 
+      : (u.email && u.email.includes('@') ? u.email.split('@')[0] : userId);
+
     const reqBuilder = pool.request()
       .input('id', sql.VarChar, userId)
-      .input('loginId', sql.VarChar, u.loginId || u.id || userId)
-      .input('password', sql.VarChar, u.password || 'password')
+      .input('loginId', sql.VarChar, fallbackLoginId)
+      .input('password', sql.VarChar, finalPassword)
       .input('name', sql.NVarChar, u.name || '')
       .input('kanaName', sql.NVarChar, u.kanaName || '')
       .input('department', sql.NVarChar, u.department || '')
@@ -467,7 +703,28 @@ async function saveOrUpdateUser(req, res, targetUserId = null, next = null) {
 
     await reqBuilder.query(queryStr);
 
-    res.json({ id: userId, sortOrder: parsedSortOrder, preferences: mergedPrefs, roles: rolesArr, success: true, message: 'ユーザー保存成功' });
+    // users.json にもバックアップ同期
+    try {
+      const fileUsers = loadUsers();
+      const fIdx = fileUsers.findIndex(fu => String(fu.id) === String(userId));
+      const savedUserObj = {
+        ...u,
+        id: userId,
+        loginId: fallbackLoginId,
+        password: finalPassword,
+        sortOrder: parsedSortOrder,
+        preferences: mergedPrefs,
+        roles: rolesArr
+      };
+      if (fIdx !== -1) {
+        fileUsers[fIdx] = savedUserObj;
+      } else {
+        fileUsers.push(savedUserObj);
+      }
+      saveUsers(fileUsers);
+    } catch (_) {}
+
+    res.json({ id: userId, loginId: fallbackLoginId, sortOrder: parsedSortOrder, preferences: mergedPrefs, roles: rolesArr, success: true, message: 'ユーザー保存成功' });
   } catch (err) { 
     console.error('[Users] saveOrUpdateUser error:', err);
     res.status(500).json({ error: err.message }); 
