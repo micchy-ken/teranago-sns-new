@@ -1,25 +1,19 @@
-export const RECOMMEND_SERVER_JS = `/**
- * =====================================================================
- * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年10月30日 (パスワードソルト付きscryptハッシュ化・APIレスポンス平文排除・サーバーサイド認証版)
+/**
+ * Synology NAS (Docker / Node.js) 用 推奨サーバーコード
  * 
- * 【重要：開発サーバーの再起動ループ対策について】
- * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
- * ファイルがアップロードされると「プロジェクト内のファイル変更」と検知され、
- * サーバーが自動的に再起動して接続切断（ループ）を引き起こす原因になります。
+ * 最終更新日時 (最終アップデート): 2026年10月30日 (パスワード未設定・初期PW(test)判別・一括設定依頼メール送信API追加版)
  * 
- * 解決策1：nodemon を使用している場合、nodemon.json でアップロード先ディレクトリを監視対象から除外します。
- * {
- *   "ignore": ["uploads/*", "public/uploads/*"]
- * }
+ * 概要:
+ * 本コードは TERANAGO 社内SNS のバックエンドAPIサーバー (Express + MS SQL Server / JSONファイルDB) の完全版です。
  * 
- * 解決策2：本番運用時、または安定動作のため、本コードは uploads ディレクトリを
- * カレントディレクトリに作成するようにしていますが、必要に応じてプロジェクト外の
- * 永続的な共有ディレクトリや、クラウドストレージ（AWS S3 や Azure Blob）に保存する
- * ようカスタマイズしてください。
- * =====================================================================
+ * [最新の主な変更・新機能]
+ * 1. パスワード未設定・初期値(test)メンバー自動判定機能 (isPasswordDefault: true)
+ * 2. 未設定メンバー宛て一括パスワード設定依頼メール送信 API (POST /api/passwords/request-reset-bulk)
+ * 3. パスワードの暗号学的ソルト付き scrypt ハッシュ化 & サーバーサイドログイン認証 (/api/auth/login)
+ * 4. APIレスポンス平文パスワード完全削除・マスク化
  */
-import express from 'express';
+
+export const RECOMMEND_SERVER_JS = `import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
@@ -681,7 +675,7 @@ async function startServer() {
       const nowStr = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
 
       const subject = '【テストメール】寺岡オートドアSNS メール通知連携テスト';
-      const text = \`\${nameStr}\\n\\n寺岡オートドアSNS からのメール通知送信テストです。\\n本メールを受信できている場合、SMTPメール通知機能（\${smtpConfig.host}:\${smtpConfig.port}）の設定および連携は正常に機能しています。\\n\\n送信日時: \${nowStr}\\n差出人: \${smtpFromFormatted}\\n送信先: \${to}\`;
+      const text = \`\${nameStr}\n\n寺岡オートドアSNS からのメール通知送信テストです。\n本メールを受信できている場合、SMTPメール通知機能（\${smtpConfig.host}:\${smtpConfig.port}）の設定および連携は正常に機能しています。\n\n送信日時: \${nowStr}\n差出人: \${smtpFromFormatted}\n送信先: \${to}\`;
       const html = \`
         <div style="font-family: sans-serif; padding: 24px; line-height: 1.6; color: #1e293b; max-width: 600px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
           <div style="background-color: #2563eb; color: #ffffff; padding: 12px 16px; border-radius: 8px 8px 0 0; margin: -24px -24px 20px -24px;">
@@ -764,17 +758,17 @@ async function startServer() {
     } catch (_) {}
   }
 
-  // パス正規化ヘルパー: Windows UNCパス (\\volume1\\Teraoka-Sekkei\\share\\02-施工図PDF\\現場A\\平面図.pdf) 等から相対パスを抽出
+  // パス正規化ヘルパー: Windows UNCパス (/volume1/Teraoka-Sekkei/share/02-施工図PDF/現場A/平面図.pdf) 等から相対パスを抽出
   function sanitizeDrawingRelPath(rawPath: string): string {
     if (!rawPath || typeof rawPath !== 'string') return '';
-    let cleaned = rawPath.trim().replace(/^["']|["']$/g, '').replace(/\\\\/g, '/');
+    let cleaned = rawPath.trim().replace(/^["']|["']$/g, '').replace(/\\/g, '/');
     
-    cleaned = cleaned.replace(/^(?:\\\\\\\\|\\/\\/)[^\\/]+\\/(?:Teraoka-Sekkei\\/)?(?:share\\/)?02-施工図PDF\\/?/i, '');
-    cleaned = cleaned.replace(/^(?:\\\\\\\\|\\/\\/)[^\\/]+\\/[^\\/]+\\/02-施工図PDF\\/?/i, '');
-    cleaned = cleaned.replace(/^(?:\\/|\\\\\\\\)volume1\\/Teraoka-Sekkei\\/share\\/02-施工図PDF\\/?/i, '');
-    cleaned = cleaned.replace(/^[a-zA-Z]:\\/(?:02-施工図PDF\\/)?/i, '');
-    cleaned = cleaned.replace(/^\\/?02-施工図PDF\\//i, '');
-    cleaned = cleaned.replace(/^\\/+/g, '');
+    cleaned = cleaned.replace(/^(?:\\\\|\/\/)[^\/]+\/(?:Teraoka-Sekkei\/)?(?:share\/)?02-施工図PDF\/?/i, '');
+    cleaned = cleaned.replace(/^(?:\\\\|\/\/)[^\/]+\/[^\/]+\/02-施工図PDF\/?/i, '');
+    cleaned = cleaned.replace(/^(?:\/|\\\\)volume1\/Teraoka-Sekkei\/share\/02-施工図PDF\/?/i, '');
+    cleaned = cleaned.replace(/^[a-zA-Z]:\/(?:02-施工図PDF\/)?/i, '');
+    cleaned = cleaned.replace(/^\/?02-施工図PDF\//i, '');
+    cleaned = cleaned.replace(/^\/+/g, '');
     
     return cleaned;
   }
@@ -1081,7 +1075,7 @@ async function startServer() {
   // ==========================================
   const externalStorage = multer.diskStorage({
     destination: function (req, file, cb) {
-      const subDir = typeof req.body.folder === 'string' ? req.body.folder.replace(/\\.\\./g, '') : '';
+      const subDir = typeof req.body.folder === 'string' ? req.body.folder.replace(/\.\./g, '') : '';
       const targetPath = path.join(externalFilesDir, subDir);
       if (!fs.existsSync(targetPath)) {
         fs.mkdirSync(targetPath, { recursive: true });
@@ -1105,7 +1099,7 @@ async function startServer() {
       if (!req.file) {
         return res.status(400).json({ error: 'ファイルが選択されていません。' });
       }
-      const relPath = req.body.folder ? (req.body.folder + '/' + req.file.filename).replace(/\\\\/g, '/') : req.file.filename;
+      const relPath = req.body.folder ? (req.body.folder + '/' + req.file.filename).replace(/\\/g, '/') : req.file.filename;
       res.json({
         message: 'アップロード完了しました。',
         file: {
@@ -1138,7 +1132,7 @@ async function startServer() {
         if (stat.isDirectory()) {
           results.push({
             name: file,
-            path: relPath.replace(/\\\\/g, '/'),
+            path: relPath.replace(/\\/g, '/'),
             size: 0,
             mtime: stat.mtime,
             isDirectory: true,
@@ -1149,8 +1143,8 @@ async function startServer() {
           const ext = path.extname(file).replace('.', '').toLowerCase();
           results.push({
             name: file,
-            path: relPath.replace(/\\\\/g, '/'),
-            url: '/api/external-files/serve?path=' + encodeURIComponent(relPath.replace(/\\\\/g, '/')),
+            path: relPath.replace(/\\/g, '/'),
+            url: '/api/external-files/serve?path=' + encodeURIComponent(relPath.replace(/\\/g, '/')),
             size: stat.size,
             mtime: stat.mtime,
             isDirectory: false,
@@ -1189,7 +1183,7 @@ async function startServer() {
       if (!targetRelPath || typeof targetRelPath !== 'string') {
         return res.status(400).json({ error: 'ファイルパスが指定されていません' });
       }
-      const sanitizedPath = targetRelPath.replace(/\\.\\./g, '').replace(/\\\\/g, '/').replace(/^\\/+/, '');
+      const sanitizedPath = targetRelPath.replace(/\.\./g, '').replace(/\\/g, '/').replace(/^\/+/, '');
       if (!sanitizedPath || sanitizedPath === '.' || sanitizedPath === '/') {
         return res.status(400).json({ error: '有効なファイルパスが指定されていません' });
       }
@@ -1215,7 +1209,7 @@ async function startServer() {
       if (!folder || typeof folder !== 'string') {
         return res.status(400).json({ error: 'フォルダ名が指定されていません' });
       }
-      const sanitizedPath = folder.replace(/\\.\\./g, '').replace(/\\\\/g, '/').replace(/^\\/+/, '');
+      const sanitizedPath = folder.replace(/\.\./g, '').replace(/\\/g, '/').replace(/^\/+/, '');
       if (!sanitizedPath || sanitizedPath === '.' || sanitizedPath === '/') {
         return res.status(400).json({ error: '有効なフォルダ名が指定されていません' });
       }
@@ -1244,7 +1238,7 @@ async function startServer() {
         return res.status(400).json({ error: '有効なファイルパスを指定してください' });
       }
 
-      const safePath = path.normalize(relPath).replace(/^(\\.\\.[\\/\\\\])+/, '');
+      const safePath = path.normalize(relPath).replace(/^(\.\.[\/\\])+/, '');
       const absolutePath = path.join(drawingsBaseDir, safePath);
 
       if (!absolutePath.startsWith(path.resolve(drawingsBaseDir))) {
@@ -1283,7 +1277,7 @@ async function startServer() {
         return res.status(400).json({ success: false, valid: false, error: 'ファイルパスが指定されていません。' });
       }
 
-      const normalizedRaw = rawPath.replace(/\\\\/g, '/');
+      const normalizedRaw = rawPath.replace(/\\/g, '/');
       const fileName = normalizedRaw.split('/').pop() || rawPath;
       const ext = path.extname(fileName).toLowerCase();
 
@@ -1297,7 +1291,7 @@ async function startServer() {
       }
 
       // ② 所定のフォルダ (02-施工図PDF) チェック
-      const isWinAbsolutePath = /^(?:\\\\\\\\|\\/\\/|[a-zA-Z]:\\/)/i.test(normalizedRaw);
+      const isWinAbsolutePath = /^(?:\\\\|\/\/|[a-zA-Z]:\/)/i.test(normalizedRaw);
       if (isWinAbsolutePath && !/02-施工図PDF/i.test(normalizedRaw)) {
         return res.status(400).json({
           success: false,
@@ -1315,7 +1309,7 @@ async function startServer() {
         });
       }
 
-      const safePath = path.normalize(relPath).replace(/^(\\.\\.[\\/\\\\])+/, '');
+      const safePath = path.normalize(relPath).replace(/^(\.\.[\/\\])+/, '');
       const absolutePath = path.join(drawingsBaseDir, safePath);
 
       if (!absolutePath.startsWith(path.resolve(drawingsBaseDir))) {
@@ -1405,7 +1399,7 @@ async function startServer() {
       .replace(/&#039;/g, "'")
       .replace(/&#x27;/g, "'")
       .replace(/&nbsp;/g, ' ')
-      .replace(/&#(\\d+);/g, (_, dec) => String.fromCharCode(Number(dec)))
+      .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(Number(dec)))
       .trim();
   }
 
@@ -1439,7 +1433,7 @@ async function startServer() {
     }
 
     let targetUrl = rawUrl.trim();
-    if (!/^https?:\\/\\//i.test(targetUrl)) {
+    if (!/^https?:\/\//i.test(targetUrl)) {
       targetUrl = 'https://' + targetUrl;
     }
 
@@ -1496,14 +1490,14 @@ async function startServer() {
         return match ? decodeHtmlEntities(match[1]) : '';
       };
 
-      const titleMatch = html.match(/<title[^>]*>([^<]*)<\\/title>/i);
+      const titleMatch = html.match(/<title[^>]*>([^<]*)<\/title>/i);
       const rawTitle = getMetaContent('og:title') || getMetaContent('twitter:title') || (titleMatch ? decodeHtmlEntities(titleMatch[1]) : '') || hostname;
-      const title = rawTitle.replace(/\\s+/g, ' ').trim();
+      const title = rawTitle.replace(/\s+/g, ' ').trim();
 
-      const description = (getMetaContent('og:description') || getMetaContent('twitter:description') || getMetaContent('description') || '').replace(/\\s+/g, ' ').trim();
+      const description = (getMetaContent('og:description') || getMetaContent('twitter:description') || getMetaContent('description') || '').replace(/\s+/g, ' ').trim();
       
       let image = getMetaContent('og:image:secure_url') || getMetaContent('og:image') || getMetaContent('twitter:image') || '';
-      if (image && !/^https?:\\/\\//i.test(image)) {
+      if (image && !/^https?:\/\//i.test(image)) {
         try {
           image = new URL(image, targetUrl).toString();
         } catch {
@@ -1852,7 +1846,7 @@ async function startServer() {
       if (!targetRelPath || typeof targetRelPath !== 'string') {
         return res.status(400).json({ error: 'ファイルパスが指定されていません' });
       }
-      const sanitizedPath = targetRelPath.replace(/\\.\\./g, '').replace(/\\\\/g, '/').replace(/^\\/+/, '');
+      const sanitizedPath = targetRelPath.replace(/\.\./g, '').replace(/\\/g, '/').replace(/^\/+/, '');
       
       if (!sanitizedPath || sanitizedPath === '.' || sanitizedPath === '/') {
         return res.status(400).json({ error: 'ルートディレクトリを削除することはできません。' });
@@ -2304,11 +2298,18 @@ async function startServer() {
   function sanitizeUserForResponse(user: any): any {
     if (!user) return user;
     const copy = { ...user };
+
+    // パスワードが未設定、またはデフォルト（'test'）、あるいは初回ログイン変更要求が有効かチェック
+    const rawPw = user.password || '';
+    const isTestPw = !rawPw || rawPw === 'test' || verifyPassword('test', rawPw).isValid;
+    const isPasswordDefault = isTestPw || user.mustChangePassword === true || user.isPasswordDefault === true;
+
     delete copy.password;
     delete copy.passwordHash;
     return {
       ...copy,
-      passwordMasked: '••••••••'
+      passwordMasked: '••••••••',
+      isPasswordDefault: isPasswordDefault
     };
   }
 
@@ -2787,7 +2788,7 @@ async function startServer() {
 
       const nowStr = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
       const subject = '【安否確認テスト】緊急連絡先メール疎通確認';
-      const text = \`\${user.name} 様\\n\\n寺岡オートドアSNS 安否確認システムからの緊急連絡先メール通知テストです。\\n\\n本メールは、緊急安否確認が発動された際にご登録の個人メールアドレスへ確実に通知が届くかをテストするために配信されています。\\n\\n送信日時: \${nowStr}\\n対象ユーザー: \${user.name} (\${user.office || ''} \${user.division || ''})\`;
+      const text = \`\${user.name} 様\n\n寺岡オートドアSNS 安否確認システムからの緊急連絡先メール通知テストです。\n\n本メールは、緊急安否確認が発動された際にご登録の個人メールアドレスへ確実に通知が届くかをテストするために配信されています。\n\n送信日時: \${nowStr}\n対象ユーザー: \${user.name} (\${user.office || ''} \${user.division || ''})\`;
       const html = \`
         <div style="font-family: sans-serif; padding: 24px; line-height: 1.6; color: #1e293b; max-width: 600px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
           <div style="background-color: #dc2626; color: #ffffff; padding: 12px 16px; border-radius: 8px 8px 0 0; margin: -24px -24px 20px -24px;">
@@ -2860,7 +2861,7 @@ async function startServer() {
       if (Array.isArray(emails)) {
         emailList = emails;
       } else if (typeof emails === 'string') {
-        emailList = emails.split(/[\\n,;]+/).map((e: string) => e.trim()).filter((e: string) => e.length > 0);
+        emailList = emails.split(/[\n,;]+/).map((e: string) => e.trim()).filter((e: string) => e.length > 0);
       }
 
       const validEmails = Array.from(new Set(
@@ -2910,7 +2911,7 @@ async function startServer() {
 
         const inviteUrl = \`\${appBaseUrl}\${appBaseUrl.includes('?') ? '&' : '?'}mode=invite&token=\${token}\`;
         const subject = \`【TERANAGO SNS】社内ポータルへの招待が届きました\`;
-        const text = \`\${email} 様\\n\\n\${createdByName}様より、TERANAGO 社内SNS・グループウェアへの招待が届いています。\\n以下のリンクを開き、アカウントの初期設定（氏名・パスワード設定等）を完了してください。\\n\\n▼ アカウント初期登録URL:\\n\${inviteUrl}\\n\\n※有効期限: \${new Date(expiresAt).toLocaleDateString('ja-JP')} まで\\n※心当たりのない場合は本メールを破棄してください。\`;
+        const text = \`\${email} 様\n\n\${createdByName}様より、TERANAGO 社内SNS・グループウェアへの招待が届いています。\n以下のリンクを開き、アカウントの初期設定（氏名・パスワード設定等）を完了してください。\n\n▼ アカウント初期登録URL:\n\${inviteUrl}\n\n※有効期限: \${new Date(expiresAt).toLocaleDateString('ja-JP')} まで\n※心当たりのない場合は本メールを破棄してください。\`;
         
         const html = \`
           <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; background: #ffffff;">
@@ -3047,7 +3048,7 @@ async function startServer() {
 
       const inviteUrl = \`\${appBaseUrl}\${appBaseUrl.includes('?') ? '&' : '?'}mode=invite&token=\${token}\`;
       const subject = \`【再送】【TERANAGO SNS】社内ポータルへの招待が届きました\`;
-      const text = \`\${target.email} 様\\n\\nTERANAGO 社内SNS・グループウェアへの招待リンクを再送いたします。\\n以下のリンクを開き、アカウント初期設定を完了してください。\\n\\n▼ アカウント初期登録URL:\\n\${inviteUrl}\\n\\n※有効期限: \${new Date(expiresAt).toLocaleDateString('ja-JP')} まで\`;
+      const text = \`\${target.email} 様\n\nTERANAGO 社内SNS・グループウェアへの招待リンクを再送いたします。\n以下のリンクを開き、アカウント初期設定を完了してください。\n\n▼ アカウント初期登録URL:\n\${inviteUrl}\n\n※有効期限: \${new Date(expiresAt).toLocaleDateString('ja-JP')} まで\`;
       const html = \`
         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; background: #ffffff;">
           <div style="background: linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%); color: #ffffff; padding: 24px; text-align: center;">
@@ -3237,7 +3238,7 @@ async function startServer() {
       const resetUrl = \`\${appBaseUrl}\${appBaseUrl.includes('?') ? '&' : '?'}mode=reset-password&token=\${token}\`;
 
       const subject = \`【TERANAGO SNS】パスワード設定のお願い\`;
-      const text = \`\${user.name} 様\\n\\n\${senderName}様より、TERANAGO 社内SNS・グループウェアのパスワード設定依頼が届いています。\\n以下のリンクを開き、新しいパスワードを設定してください。\\n\\n▼ パスワード設定URL:\\n\${resetUrl}\\n\\n※有効期限: 24時間以内\\n※心当たりのない場合は管理者までご連絡ください。\`;
+      const text = \`\${user.name} 様\n\n\${senderName}様より、TERANAGO 社内SNS・グループウェアのパスワード設定依頼が届いています。\n以下のリンクを開き、新しいパスワードを設定してください。\n\n▼ パスワード設定URL:\n\${resetUrl}\n\n※有効期限: 24時間以内\n※心当たりのない場合は管理者までご連絡ください。\`;
       const html = \`
         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; background: #ffffff;">
           <div style="background: linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%); color: #ffffff; padding: 24px; text-align: center;">
@@ -3268,6 +3269,91 @@ async function startServer() {
         success: true,
         message: \`\${user.name} 様（\${targetEmail}）へパスワード設定案内メールを送信しました。\`,
         targetEmail
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 7-2. パスワード未設定ユーザーへ一括パスワード設定依頼メール送信 API
+  app.post([
+    '/api/passwords/request-reset-bulk',
+    '/api/passwords/request-reset-bulk/',
+    '/api/users/request-password-reset-bulk',
+    '/api/users/request-password-reset-bulk/'
+  ], async (req, res) => {
+    try {
+      const { senderName = '管理者', baseUrl } = req.body || {};
+      const users = loadUsers();
+      let sentCount = 0;
+      let skippedCount = 0;
+      const sentUsers: string[] = [];
+
+      for (const user of users) {
+        const rawPw = user.password || '';
+        const isTestPw = !rawPw || rawPw === 'test' || verifyPassword('test', rawPw).isValid;
+        const isPasswordDefault = isTestPw || user.mustChangePassword === true || user.isPasswordDefault === true;
+
+        const targetEmail = (user.mobileEmail || user.email || '').trim();
+
+        if (isPasswordDefault && targetEmail && targetEmail.includes('@')) {
+          const token = crypto.randomBytes(24).toString('hex');
+          const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+          if (!user.preferences) user.preferences = {};
+          user.preferences.resetPasswordToken = token;
+          user.preferences.resetPasswordExpires = expiresAt;
+          user.mustChangePassword = true;
+          user.preferences.mustChangePassword = true;
+
+          const appBaseUrl = baseUrl || 'https://micchy-ken.github.io/teranago-sns-new/';
+          const resetUrl = \`\${appBaseUrl}\${appBaseUrl.includes('?') ? '&' : '?'}mode=reset-password&token=\${token}\`;
+
+          const subject = \`【TERANAGO SNS】パスワード設定のお願い\`;
+          const text = \`\${user.name} 様\n\n\${senderName}様より、TERANAGO 社内SNS・グループウェアのパスワード設定依頼が届いています。\n以下のリンクを開き、新しいパスワードを設定してください。\n\n▼ パスワード設定URL:\n\${resetUrl}\n\n※有効期限: 24時間以内\n※心当たりのない場合は管理者までご連絡ください。\`;
+          const html = \`
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; background: #ffffff;">
+              <div style="background: linear-gradient(135deg, #e11d48 0%, #4f46e5 100%); color: #ffffff; padding: 24px; text-align: center;">
+                <h2 style="margin: 0; font-size: 20px; font-weight: 700;">パスワード設定のお願い</h2>
+                <p style="margin: 6px 0 0 0; font-size: 13px; opacity: 0.9;">TERANAGO 社内ポータル</p>
+              </div>
+              <div style="padding: 24px; color: #334155; line-height: 1.6; font-size: 14px;">
+                <p><b>\${user.name}</b> 様</p>
+                <p>管理者（\${senderName}）より、パスワード設定の依頼が届いています。</p>
+                <p>下のボタンをクリックして、新しいパスワードを設定してください。</p>
+                <div style="text-align: center; margin: 28px 0;">
+                  <a href="\${resetUrl}" style="display: inline-block; background-color: #e11d48; color: #ffffff; font-weight: bold; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-size: 15px;">
+                    🔑 新しいパスワードを設定する
+                  </a>
+                </div>
+                <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px; font-size: 12px; color: #64748b;">
+                  <p style="margin: 0 0 4px 0;"><b>ボタンが開けない場合:</b> 以下のURLをブラウザに貼り付けてください。</p>
+                  <p style="margin: 0; word-break: break-all; color: #4f46e5;">\${resetUrl}</p>
+                  <p style="margin: 8px 0 0 0; color: #e11d48;">※有効期限: <b>24時間以内</b></p>
+                </div>
+              </div>
+            </div>
+          \`;
+
+          try {
+            await sendEmailNotification({ to: targetEmail, subject, text, html });
+            sentCount++;
+            sentUsers.push(\`\${user.name} (\${targetEmail})\`);
+          } catch (e) {
+            console.error(\`[Bulk Reset] Failed to send to \${user.name}:\`, e);
+          }
+        } else if (isPasswordDefault) {
+          skippedCount++;
+        }
+      }
+
+      saveUsers(users);
+      res.json({
+        success: true,
+        sentCount,
+        skippedCount,
+        message: \`\${sentCount}名に一括パスワード設定依頼メールを送信しました。\` + (skippedCount > 0 ? \` (\${skippedCount}名はメールアドレス未設定のためスキップされました)\` : ''),
+        sentUsers
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -3441,7 +3527,7 @@ async function startServer() {
         const nowJst = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
         const subject = '【安否確認・緊急連絡先登録のお願い】個人メールアドレスの登録手続きについて';
 
-        const textBody = \`\${u.name} 様\\n\\n寺岡オートドアSNS 安否確認システムより、緊急連絡先（個人メールアドレス）登録のお願いです。\\n\\n大地震や自然災害などの有事発生時、会社のPCメールや携帯電話が使用できない場合でも確実に安否確認通知をお届けできるよう、ご自身の個人メールアドレス（Gmailや携帯キャリアメール等）の事前登録をお願いしております。\\n\\n\${customMessage ? \`【連絡事項・依頼メッセージ】\\n\${customMessage}\\n\\n\` : ''}▼ 以下のリンクをクリックすると、個人設定の緊急連絡先登録画面が直接開きます。\\n\${directRegistrationUrl}\\n\\n※ご登録いただいた個人メールアドレスは AES-256-GCM により最高水準で暗号化されて保管され、管理者やデータベース上でも平文は一切表示・閲覧できない仕様となっておりますのでご安心ください。\\n\\n送信日時: \${nowJst}\\n発信元: \${senderName}\`;
+        const textBody = \`\${u.name} 様\n\n寺岡オートドアSNS 安否確認システムより、緊急連絡先（個人メールアドレス）登録のお願いです。\n\n大地震や自然災害などの有事発生時、会社のPCメールや携帯電話が使用できない場合でも確実に安否確認通知をお届けできるよう、ご自身の個人メールアドレス（Gmailや携帯キャリアメール等）の事前登録をお願いしております。\n\n\${customMessage ? \`【連絡事項・依頼メッセージ】\n\${customMessage}\n\n\` : ''}▼ 以下のリンクをクリックすると、個人設定の緊急連絡先登録画面が直接開きます。\n\${directRegistrationUrl}\n\n※ご登録いただいた個人メールアドレスは AES-256-GCM により最高水準で暗号化されて保管され、管理者やデータベース上でも平文は一切表示・閲覧できない仕様となっておりますのでご安心ください。\n\n送信日時: \${nowJst}\n発信元: \${senderName}\`;
 
         const htmlBody = \`
           <div style="font-family: sans-serif; padding: 24px; line-height: 1.6; color: #1e293b; max-width: 600px; border: 1px solid #cbd5e1; border-radius: 12px; background-color: #ffffff; margin: auto;">
@@ -3718,12 +3804,12 @@ async function startServer() {
           if (emailAddresses.length === 0) return;
 
           const appBaseUrl = (req.body && req.body.appBaseUrl && typeof req.body.appBaseUrl === 'string' && req.body.appBaseUrl.startsWith('http'))
-            ? req.body.appBaseUrl.replace(/\\/+$/, '')
+            ? req.body.appBaseUrl.replace(/\/+$/, '')
             : 'https://micchy-ken.github.io/teranago-sns-new';
           const directAnswerLink = \`\${appBaseUrl}/?tab=safety_confirmation&safetyEventId=\${newId}&safetyUserId=\${u.id}\`;
           const nowJst = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
           const subject = \`【緊急安否確認】\${isDrill ? '【訓練】' : ''}\${title}\`;
-          const text = \`\${u.name} 様\\n\\n【緊急安否確認】\${isDrill ? '【訓練】' : ''}\${title}\\n\\n\${message ? \`■ 本部からの連絡事項:\\n\${message}\\n\\n\` : ''}至急、以下のURLを開き現在の安否状況をご回答ください。\\n（スマートフォンまたはPCから1タップで簡単に回答・報告できます）\\n\\n▼ 安否回答用URL:\\n\${directAnswerLink}\\n\\n発動日時: \${nowJst}\\n発信本部: \${createdByName || '安否確認本部'}\`;
+          const text = \`\${u.name} 様\n\n【緊急安否確認】\${isDrill ? '【訓練】' : ''}\${title}\n\n\${message ? \`■ 本部からの連絡事項:\n\${message}\n\n\` : ''}至急、以下のURLを開き現在の安否状況をご回答ください。\n（スマートフォンまたはPCから1タップで簡単に回答・報告できます）\n\n▼ 安否回答用URL:\n\${directAnswerLink}\n\n発動日時: \${nowJst}\n発信本部: \${createdByName || '安否確認本部'}\`;
 
           const html = \`
             <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; padding: 24px; line-height: 1.6; color: #1e293b; max-width: 600px; border: 2px solid #dc2626; border-radius: 16px; background-color: #ffffff; margin: 0 auto;">
@@ -3814,7 +3900,7 @@ async function startServer() {
       }
 
       const resolvedBaseUrl = (appBaseUrl && typeof appBaseUrl === 'string' && appBaseUrl.startsWith('http'))
-        ? appBaseUrl.replace(/\\/$/, '')
+        ? appBaseUrl.replace(/\/$/, '')
         : 'https://micchy-ken.github.io/teranago-sns-new';
 
       const directAnswerLink = \`\${resolvedBaseUrl}/?tab=safety_confirmation&safetyEventId=\${event.id}\`;
@@ -3852,7 +3938,7 @@ async function startServer() {
         if (emailAddresses.length === 0) return;
 
         const subject = \`【再送・至急】⚠️【安否確認】未回答の確認 (\${event.title})\`;
-        const text = \`\${u.name} 様\\n\\n【安否確認システムからの再送連絡】\\n\\n発動中の安否確認（\${event.title}）について、まだ回答が確認できておりません。\\n\\n身の安全を確保した上で、至急以下のURLより安否状況をご回答ください。\\n\\n▼ 安否回答用URL:\\n\${directAnswerLink}\\n\\n発動本部: \${senderName || event.createdByName || '安否確認本部'}\\n送信日時: \${nowJst}\`;
+        const text = \`\${u.name} 様\n\n【安否確認システムからの再送連絡】\n\n発動中の安否確認（\${event.title}）について、まだ回答が確認できておりません。\n\n身の安全を確保した上で、至急以下のURLより安否状況をご回答ください。\n\n▼ 安否回答用URL:\n\${directAnswerLink}\n\n発動本部: \${senderName || event.createdByName || '安否確認本部'}\n送信日時: \${nowJst}\`;
 
         const html = \`
           <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; padding: 24px; line-height: 1.6; color: #1e293b; max-width: 600px; border: 2px solid #e11d48; border-radius: 16px; background-color: #ffffff; margin: 0 auto;">
@@ -4258,7 +4344,7 @@ async function startServer() {
     const quakeTime = quake.earthquake?.time || quake.time || new Date().toLocaleString('ja-JP');
 
     const eventTitle = \`【緊急安否確認(気象庁連動)】\${epicenter}で最大\${maxScaleText}観測\`;
-    const eventMessage = \`気象庁より\${epicenter}を震源とする地震（最大\${maxScaleText}、M\${magnitude}、発生時刻: \${quakeTime}）が検知されました。\\nシステムにより安否確認が自動発動されました。身の安全を最優先に確保した上で、現在の安否状況をご回答ください。\`;
+    const eventMessage = \`気象庁より\${epicenter}を震源とする地震（最大\${maxScaleText}、M\${magnitude}、発生時刻: \${quakeTime}）が検知されました。\nシステムにより安否確認が自動発動されました。身の安全を最優先に確保した上で、現在の安否状況をご回答ください。\`;
 
     const newEventId = \`safety_jma_\${Date.now()}_\${Math.random().toString(36).substring(2, 6)}\`;
     const nowIso = new Date().toISOString();
@@ -4326,7 +4412,7 @@ async function startServer() {
         }
 
         const mailSubject = \`【緊急安否確認(自動発動)】\${eventTitle}\`;
-        const mailText = \`\${u.name} 様\\n\\n\${eventMessage}\\n\\n▼ 安否状況の回答URL (1タップ回答):\\n\${directLink}\\n\\n発動日時: \${new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}\`;
+        const mailText = \`\${u.name} 様\n\n\${eventMessage}\n\n▼ 安否状況の回答URL (1タップ回答):\n\${directLink}\n\n発動日時: \${new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}\`;
 
         for (const addr of emailAddresses) {
           sendEmailNotification({
@@ -4956,7 +5042,7 @@ async function startServer() {
         let isPollAutoPinned = false;
         if (topic.poll && topic.poll.autoPinUntilDeadline && topic.poll.deadline) {
           const trimmed = String(topic.poll.deadline).trim();
-          const deadlineMs = /^\\d{4}-\\d{2}-\\d{2}$/.test(trimmed)
+          const deadlineMs = /^\d{4}-\d{2}-\d{2}$/.test(trimmed)
             ? new Date(\`\${trimmed}T23:59:59.999+09:00\`).getTime()
             : new Date(trimmed).getTime();
           if (!isNaN(deadlineMs) && deadlineMs > nowMs) {
@@ -5032,7 +5118,7 @@ async function startServer() {
         let isPollAutoPinned = false;
         if (topic.poll && topic.poll.autoPinUntilDeadline && topic.poll.deadline && !topic.poll.isClosed) {
           const trimmed = String(topic.poll.deadline).trim();
-          const deadlineMs = /^\\d{4}-\\d{2}-\\d{2}$/.test(trimmed)
+          const deadlineMs = /^\d{4}-\d{2}-\d{2}$/.test(trimmed)
             ? new Date(\`\${trimmed}T23:59:59.999+09:00\`).getTime()
             : new Date(trimmed).getTime();
           if (!isNaN(deadlineMs) && deadlineMs > nowMs) {
@@ -5222,7 +5308,7 @@ async function startServer() {
       }
       if (topic.poll.deadline) {
         const trimmed = String(topic.poll.deadline).trim();
-        const deadlineMs = /^\\d{4}-\\d{2}-\\d{2}$/.test(trimmed)
+        const deadlineMs = /^\d{4}-\d{2}-\d{2}$/.test(trimmed)
           ? new Date(\`\${trimmed}T23:59:59.999+09:00\`).getTime()
           : new Date(trimmed).getTime();
         if (!isNaN(deadlineMs) && Date.now() > deadlineMs) {
@@ -5520,13 +5606,13 @@ async function startServer() {
       if (!this.currentResolve) return;
 
       if (this.isMultiline) {
-        let termIndex = this.buffer.indexOf('\\r\\n.\\r\\n');
+        let termIndex = this.buffer.indexOf('\r\n.\r\n');
         let termLen = 5;
         if (termIndex === -1) {
-          termIndex = this.buffer.indexOf('\\n.\\n');
+          termIndex = this.buffer.indexOf('\n.\n');
           termLen = 3;
         }
-        if (termIndex === -1 && (this.buffer === '.\\r\\n' || this.buffer.startsWith('.\\r\\n'))) {
+        if (termIndex === -1 && (this.buffer === '.\r\n' || this.buffer.startsWith('.\r\n'))) {
           termIndex = 0;
           termLen = 3;
         }
@@ -5536,7 +5622,7 @@ async function startServer() {
           this.buffer = this.buffer.slice(termIndex + termLen);
           this.isMultiline = false;
 
-          const lines = fullContent.split(/\\r?\\n/);
+          const lines = fullContent.split(/\r?\n/);
           const header = lines[0] || '';
           const bodyLines = lines.slice(1).map(l => l.startsWith('..') ? l.substring(1) : l);
 
@@ -5546,11 +5632,11 @@ async function startServer() {
           r({
             header,
             body: bodyLines,
-            raw: Buffer.from(bodyLines.join('\\r\\n'), 'latin1')
+            raw: Buffer.from(bodyLines.join('\r\n'), 'latin1')
           });
         }
       } else {
-        const lineEnd = this.buffer.indexOf('\\r\\n');
+        const lineEnd = this.buffer.indexOf('\r\n');
         if (lineEnd !== -1) {
           const line = this.buffer.slice(0, lineEnd);
           this.buffer = this.buffer.slice(lineEnd + 2);
@@ -5575,7 +5661,7 @@ async function startServer() {
           }
         };
         this.currentReject = reject;
-        this.socket!.write(cmd + '\\r\\n');
+        this.socket!.write(cmd + '\r\n');
       });
     }
 
@@ -5591,7 +5677,7 @@ async function startServer() {
           }
         };
         this.currentReject = reject;
-        this.socket!.write(cmd + '\\r\\n');
+        this.socket!.write(cmd + '\r\n');
       });
     }
 
@@ -5612,15 +5698,15 @@ async function startServer() {
     for (const rawAddr of candidateAddresses) {
       if (!rawAddr) continue;
       // <user@example.com> などのブラケットや引用符を除去
-      const cleanAddr = rawAddr.replace(/[<>\\"\\'\\s]/g, '').trim().toLowerCase();
+      const cleanAddr = rawAddr.replace(/[<>\"\'\s]/g, '').trim().toLowerCase();
       if (!cleanAddr) continue;
 
       const addrUserPart = cleanAddr.split('@')[0] || '';
 
       // 1. メールアドレス完全一致 (PCメール / 携帯メール)
       const exactMatch = allUsers.find(u => {
-        const pc = (u.email || '').replace(/[<>\\"\\'\\s]/g, '').trim().toLowerCase();
-        const mobile = (u.mobileEmail || '').replace(/[<>\\"\\'\\s]/g, '').trim().toLowerCase();
+        const pc = (u.email || '').replace(/[<>\"\'\s]/g, '').trim().toLowerCase();
+        const mobile = (u.mobileEmail || '').replace(/[<>\"\'\s]/g, '').trim().toLowerCase();
         return (pc && pc === cleanAddr) || (mobile && mobile === cleanAddr);
       });
       if (exactMatch) return exactMatch;
@@ -5636,8 +5722,8 @@ async function startServer() {
 
       // 3. 部分一致 (ヘッダー内の name <address> またはドメイン・ユーザー名一致)
       const partialMatch = allUsers.find(u => {
-        const pc = (u.email || '').replace(/[<>\\"\\'\\s]/g, '').trim().toLowerCase();
-        const mobile = (u.mobileEmail || '').replace(/[<>\\"\\'\\s]/g, '').trim().toLowerCase();
+        const pc = (u.email || '').replace(/[<>\"\'\s]/g, '').trim().toLowerCase();
+        const mobile = (u.mobileEmail || '').replace(/[<>\"\'\s]/g, '').trim().toLowerCase();
         return (pc && (cleanAddr.includes(pc) || pc.includes(cleanAddr))) ||
                (mobile && (cleanAddr.includes(mobile) || mobile.includes(cleanAddr)));
       });
@@ -5651,7 +5737,7 @@ async function startServer() {
     if (!str) return '';
     try {
       let text = str;
-      text = text.replace(/=\\?([^?]+)\\?([BQbq])\\?([^?]+)\\?=/g, (_, charset, encoding, encText) => {
+      text = text.replace(/=\?([^?]+)\?([BQbq])\?([^?]+)\?=/g, (_, charset, encoding, encText) => {
         try {
           if (encoding.toUpperCase() === 'B') {
             return Buffer.from(encText, 'base64').toString('utf8');
@@ -5713,7 +5799,7 @@ async function startServer() {
         });
       }
       if (parsed.from?.text) {
-        const matches = parsed.from.text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}/g);
+        const matches = parsed.from.text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g);
         if (matches) candidateSenders.push(...matches);
       }
       if (parsed.replyTo?.value) {
@@ -5751,7 +5837,7 @@ async function startServer() {
             }
 
             const cleanBase = path.basename(decodedFilename, ext)
-              .replace(/[^a-zA-Z0-9_\\-\\u3000-\\u303F\\u3040-\\u309F\\u30A0-\\u30FF\\u4E00-\\u9FFF\\uFF65-\\uFF9F\\uFF01-\\uFF5E]/g, '_') || 'file';
+              .replace(/[^a-zA-Z0-9_\-\u3000-\u303F\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF\uFF65-\uFF9F\uFF01-\uFF5E]/g, '_') || 'file';
             
             const safeSavedFilename = \`\${Date.now()}_\${i}_\${cleanBase}\${ext}\`;
             const filePath = path.join(bulletinsFilesDir, safeSavedFilename);
@@ -5793,7 +5879,7 @@ async function startServer() {
       });
 
       // 本文を行ごとに分割し、最初の非空行（1行目）をチェック
-      const lines = rawText.split(/\\r?\\n/);
+      const lines = rawText.split(/\r?\n/);
       let firstLineIndex = -1;
       for (let idx = 0; idx < lines.length; idx++) {
         if (lines[idx].trim().length > 0) {
@@ -5814,9 +5900,9 @@ async function startServer() {
         // パターンC: #タグ名
         // パターンD: 単一の短いキーワード行（例: "重要", "お知らせ", "保守", "名古屋支店"）
         let extractedDirective = '';
-        const bracketMatch = firstLineRaw.match(/^[\\[【\\(「](.+?)[\\]】\\)」]$/);
-        const prefixMatch = firstLineRaw.match(/^(?:タブ|タグ|カテゴリ|カテゴリー|宛先|対象|公開範囲|拠点|部署|scope)[\\s:：]+(.+)$/i);
-        const hashMatch = firstLineRaw.match(/^#([^\\s#　]+)$/);
+        const bracketMatch = firstLineRaw.match(/^[\[【\(「](.+?)[\]】\)」]$/);
+        const prefixMatch = firstLineRaw.match(/^(?:タブ|タグ|カテゴリ|カテゴリー|宛先|対象|公開範囲|拠点|部署|scope)[\s:：]+(.+)$/i);
+        const hashMatch = firstLineRaw.match(/^#([^\s#　]+)$/);
 
         if (bracketMatch) {
           extractedDirective = bracketMatch[1].trim();
@@ -5858,8 +5944,8 @@ async function startServer() {
 
           // 3. タグ判定（スラッシュや記号で分割してタグとして登録）
           const tagTokens = extractedDirective
-            .split(/[\\/\\s,、|｜・]+/)
-            .map(t => t.replace(/^[#＃\\[\\]【】\\(\\)]/, '').trim())
+            .split(/[\/\s,、|｜・]+/)
+            .map(t => t.replace(/^[#＃\[\]【】\(\)]/, '').trim())
             .filter(Boolean);
 
           tagTokens.forEach(token => {
@@ -5875,13 +5961,13 @@ async function startServer() {
             while (remainingLines.length > 0 && remainingLines[0].trim() === '') {
               remainingLines.shift();
             }
-            bodyTextForContent = remainingLines.join('\\n');
+            bodyTextForContent = remainingLines.join('\n');
           }
         }
       }
 
       // 件名および本文からの #ハッシュタグ も抽出
-      const tagMatches = \`\${mailSubject} \${rawText}\`.match(/#([^\\s#　]+)/g);
+      const tagMatches = \`\${mailSubject} \${rawText}\`.match(/#([^\s#　]+)/g);
       if (tagMatches) {
         tagMatches.forEach(t => {
           const cleanTag = t.replace(/^#/, '').trim();
@@ -5896,7 +5982,7 @@ async function startServer() {
         ? '全社 / 全部署'
         : \`\${targetOffice} / \${targetDivision}\`;
 
-      const formattedContent = \`\${bodyTextForContent}\\n\\n───────────────\\n📧 メール受信情報\\n差出人: \${fromDisplay}\\n宛先: \${targetDisplay}\\n送信日時: \${mailDateStr}\\n添付ファイル: \${attachmentsList.length} 件\`;
+      const formattedContent = \`\${bodyTextForContent}\n\n───────────────\n📧 メール受信情報\n差出人: \${fromDisplay}\n宛先: \${targetDisplay}\n送信日時: \${mailDateStr}\n添付ファイル: \${attachmentsList.length} 件\`;
 
       // 掲示板トピック作成
       const topicId = \`topic_mail_\${Date.now()}_\${Math.random().toString(36).substr(2, 6)}\`;
@@ -6200,7 +6286,7 @@ async function startServer() {
         \`Content-Type: text/plain; charset=utf-8\`,
         \`\`,
         body
-      ].join('\\r\\n');
+      ].join('\r\n');
 
       const processRes = await processIncomingEmail(Buffer.from(mockRawEmail, 'utf8'));
       res.json({
@@ -7500,7 +7586,7 @@ async function startServer() {
       );
 
       const nowStr = formatToUtc(new Date());
-      let icsContent = "BEGIN:VCALENDAR\\r\\nVERSION:2.0\\r\\nPRODID:-//Company SNS Calendar//JA\\r\\nCALSCALE:GREGORIAN\\r\\nMETHOD:PUBLISH\\r\\nX-WR-CALNAME:社内カレンダー同期\\r\\nX-WR-TIMEZONE:Asia/Tokyo\\r\\n";
+      let icsContent = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Company SNS Calendar//JA\r\nCALSCALE:GREGORIAN\r\nMETHOD:PUBLISH\r\nX-WR-CALNAME:社内カレンダー同期\r\nX-WR-TIMEZONE:Asia/Tokyo\r\n";
 
       // A. 単発イベントの出力
       for (const evt of singleEvents) {
@@ -7513,32 +7599,32 @@ async function startServer() {
           const endJst = evt.end ? getJstDateString(evt.end) : startJst;
           if (startJst) {
             const startClean = startJst.replace(/-/g, '');
-            dtStartLine = \`DTSTART;VALUE=DATE:\${startClean}\\r\\n\`;
+            dtStartLine = \`DTSTART;VALUE=DATE:\${startClean}\r\n\`;
             const endCleanNext = addDaysJstFormatted(endJst || startJst, 1);
-            dtEndLine = \`DTEND;VALUE=DATE:\${endCleanNext}\\r\\n\`;
+            dtEndLine = \`DTEND;VALUE=DATE:\${endCleanNext}\r\n\`;
           }
         } else {
           const startD = evt.start ? new Date(evt.start) : null;
           const endD = evt.end ? new Date(evt.end) : startD;
           if (startD && endD) {
-            dtStartLine = \`DTSTART:\${formatToUtc(startD)}\\r\\n\`;
-            dtEndLine = \`DTEND:\${formatToUtc(endD)}\\r\\n\`;
+            dtStartLine = \`DTSTART:\${formatToUtc(startD)}\r\n\`;
+            dtEndLine = \`DTEND:\${formatToUtc(endD)}\r\n\`;
           }
         }
 
-        const summaryEscaped = (evt.title || '').replace(/\\r\\n|\\r|\\n/g, ' ').replace(/[,;]/g, '\\\\$&');
-        const descEscaped = String(evt.memo || '').replace(/\\r\\n|\\r|\\n/g, '\\\\n').replace(/[,;]/g, '\\\\$&');
-        const locEscaped = (evt.location || '').replace(/\\r\\n|\\r|\\n/g, ' ').replace(/[,;]/g, '\\\\$&');
+        const summaryEscaped = (evt.title || '').replace(/\r\n|\r|\n/g, ' ').replace(/[,;]/g, '\\$&');
+        const descEscaped = String(evt.memo || '').replace(/\r\n|\r|\n/g, '\\n').replace(/[,;]/g, '\\$&');
+        const locEscaped = (evt.location || '').replace(/\r\n|\r|\n/g, ' ').replace(/[,;]/g, '\\$&');
 
-        icsContent += "BEGIN:VEVENT\\r\\n";
-        icsContent += \`UID:evt-\${evt.id}@company-sns\\r\\n\`;
-        icsContent += \`DTSTAMP:\${nowStr}\\r\\n\`;
-        icsContent += \`SUMMARY:\${summaryEscaped}\\r\\n\`;
-        if (evt.memo) icsContent += \`DESCRIPTION:\${descEscaped}\\r\\n\`;
-        if (evt.location) icsContent += \`LOCATION:\${locEscaped}\\r\\n\`;
+        icsContent += "BEGIN:VEVENT\r\n";
+        icsContent += \`UID:evt-\${evt.id}@company-sns\r\n\`;
+        icsContent += \`DTSTAMP:\${nowStr}\r\n\`;
+        icsContent += \`SUMMARY:\${summaryEscaped}\r\n\`;
+        if (evt.memo) icsContent += \`DESCRIPTION:\${descEscaped}\r\n\`;
+        if (evt.location) icsContent += \`LOCATION:\${locEscaped}\r\n\`;
         if (dtStartLine) icsContent += dtStartLine;
         if (dtEndLine) icsContent += dtEndLine;
-        icsContent += "END:VEVENT\\r\\n";
+        icsContent += "END:VEVENT\r\n";
       }
 
       // B. 繰り返し親イベントの出力 (RRULE & EXDATE)
@@ -7552,16 +7638,16 @@ async function startServer() {
           const endJst = master.end ? getJstDateString(master.end) : startJst;
           if (startJst) {
             const startClean = startJst.replace(/-/g, '');
-            dtStartLine = \`DTSTART;VALUE=DATE:\${startClean}\\r\\n\`;
+            dtStartLine = \`DTSTART;VALUE=DATE:\${startClean}\r\n\`;
             const endCleanNext = addDaysJstFormatted(endJst || startJst, 1);
-            dtEndLine = \`DTEND;VALUE=DATE:\${endCleanNext}\\r\\n\`;
+            dtEndLine = \`DTEND;VALUE=DATE:\${endCleanNext}\r\n\`;
           }
         } else {
           const startD = master.start ? new Date(master.start) : null;
           const endD = master.end ? new Date(master.end) : startD;
           if (startD && endD) {
-            dtStartLine = \`DTSTART:\${formatToUtc(startD)}\\r\\n\`;
-            dtEndLine = \`DTEND:\${formatToUtc(endD)}\\r\\n\`;
+            dtStartLine = \`DTSTART:\${formatToUtc(startD)}\r\n\`;
+            dtEndLine = \`DTEND:\${formatToUtc(endD)}\r\n\`;
           }
         }
 
@@ -7584,7 +7670,7 @@ async function startServer() {
         if (pureDeletedDates.length > 0) {
           if (isAllDay) {
             const datesFormatted = pureDeletedDates.map(d => d.replace(/-/g, '')).join(',');
-            exdateLines = \`EXDATE;VALUE=DATE:\${datesFormatted}\\r\\n\`;
+            exdateLines = \`EXDATE;VALUE=DATE:\${datesFormatted}\r\n\`;
           } else {
             // 親の開始時刻 (UTC) の時分秒を取得し、除外日に適用
             const masterD = new Date(master.start);
@@ -7597,25 +7683,25 @@ async function startServer() {
               const exUtc = new Date(Date.UTC(y, m - 1, d, mHours, mMinutes, mSeconds));
               return formatToUtc(exUtc);
             }).join(',');
-            exdateLines = \`EXDATE:\${datesFormatted}\\r\\n\`;
+            exdateLines = \`EXDATE:\${datesFormatted}\r\n\`;
           }
         }
 
-        const summaryEscaped = (master.title || '').replace(/\\r\\n|\\r|\\n/g, ' ').replace(/[,;]/g, '\\\\$&');
-        const descEscaped = String(master.memo || '').replace(/\\r\\n|\\r|\\n/g, '\\\\n').replace(/[,;]/g, '\\\\$&');
-        const locEscaped = (master.location || '').replace(/\\r\\n|\\r|\\n/g, ' ').replace(/[,;]/g, '\\\\$&');
+        const summaryEscaped = (master.title || '').replace(/\r\n|\r|\n/g, ' ').replace(/[,;]/g, '\\$&');
+        const descEscaped = String(master.memo || '').replace(/\r\n|\r|\n/g, '\\n').replace(/[,;]/g, '\\$&');
+        const locEscaped = (master.location || '').replace(/\r\n|\r|\n/g, ' ').replace(/[,;]/g, '\\$&');
 
-        icsContent += "BEGIN:VEVENT\\r\\n";
-        icsContent += \`UID:evt-\${master.id}@company-sns\\r\\n\`;
-        icsContent += \`DTSTAMP:\${nowStr}\\r\\n\`;
-        icsContent += \`SUMMARY:\${summaryEscaped}\\r\\n\`;
-        if (master.memo) icsContent += \`DESCRIPTION:\${descEscaped}\\r\\n\`;
-        if (master.location) icsContent += \`LOCATION:\${locEscaped}\\r\\n\`;
+        icsContent += "BEGIN:VEVENT\r\n";
+        icsContent += \`UID:evt-\${master.id}@company-sns\r\n\`;
+        icsContent += \`DTSTAMP:\${nowStr}\r\n\`;
+        icsContent += \`SUMMARY:\${summaryEscaped}\r\n\`;
+        if (master.memo) icsContent += \`DESCRIPTION:\${descEscaped}\r\n\`;
+        if (master.location) icsContent += \`LOCATION:\${locEscaped}\r\n\`;
         if (dtStartLine) icsContent += dtStartLine;
         if (dtEndLine) icsContent += dtEndLine;
-        icsContent += \`\${rrule}\\r\\n\`;
+        icsContent += \`\${rrule}\r\n\`;
         if (exdateLines) icsContent += exdateLines;
-        icsContent += "END:VEVENT\\r\\n";
+        icsContent += "END:VEVENT\r\n";
       }
 
       // C. 「この予定のみ変更」されたオーバーライド例外の出力 (RECURRENCE-ID)
@@ -7632,16 +7718,16 @@ async function startServer() {
           const endJst = ovr.end ? getJstDateString(ovr.end) : startJst;
           if (startJst) {
             const startClean = startJst.replace(/-/g, '');
-            dtStartLine = \`DTSTART;VALUE=DATE:\${startClean}\\r\\n\`;
+            dtStartLine = \`DTSTART;VALUE=DATE:\${startClean}\r\n\`;
             const endCleanNext = addDaysJstFormatted(endJst || startJst, 1);
-            dtEndLine = \`DTEND;VALUE=DATE:\${endCleanNext}\\r\\n\`;
+            dtEndLine = \`DTEND;VALUE=DATE:\${endCleanNext}\r\n\`;
           }
         } else {
           const startD = ovr.start ? new Date(ovr.start) : null;
           const endD = ovr.end ? new Date(ovr.end) : startD;
           if (startD && endD) {
-            dtStartLine = \`DTSTART:\${formatToUtc(startD)}\\r\\n\`;
-            dtEndLine = \`DTEND:\${formatToUtc(endD)}\\r\\n\`;
+            dtStartLine = \`DTSTART:\${formatToUtc(startD)}\r\n\`;
+            dtEndLine = \`DTEND:\${formatToUtc(endD)}\r\n\`;
           }
         }
 
@@ -7651,7 +7737,7 @@ async function startServer() {
 
         if (origDateStr && origDateStr.includes('-')) {
           if (parent.isAllDay) {
-            recurrenceIdLine = \`RECURRENCE-ID;VALUE=DATE:\${origDateStr.replace(/-/g, '')}\\r\\n\`;
+            recurrenceIdLine = \`RECURRENCE-ID;VALUE=DATE:\${origDateStr.replace(/-/g, '')}\r\n\`;
           } else {
             const parentD = new Date(parent.start);
             const pHours = parentD.getUTCHours();
@@ -7659,31 +7745,31 @@ async function startServer() {
             const pSeconds = parentD.getUTCSeconds();
             const [y, m, d] = origDateStr.split('-').map(Number);
             const origUtc = new Date(Date.UTC(y, m - 1, d, pHours, pMinutes, pSeconds));
-            recurrenceIdLine = \`RECURRENCE-ID:\${formatToUtc(origUtc)}\\r\\n\`;
+            recurrenceIdLine = \`RECURRENCE-ID:\${formatToUtc(origUtc)}\r\n\`;
           }
         }
 
-        const summaryEscaped = (ovr.title || '').replace(/\\r\\n|\\r|\\n/g, ' ').replace(/[,;]/g, '\\\\$&');
-        const descEscaped = String(ovr.memo || '').replace(/\\r\\n|\\r|\\n/g, '\\\\n').replace(/[,;]/g, '\\\\$&');
-        const locEscaped = (ovr.location || '').replace(/\\r\\n|\\r|\\n/g, ' ').replace(/[,;]/g, '\\\\$&');
+        const summaryEscaped = (ovr.title || '').replace(/\r\n|\r|\n/g, ' ').replace(/[,;]/g, '\\$&');
+        const descEscaped = String(ovr.memo || '').replace(/\r\n|\r|\n/g, '\\n').replace(/[,;]/g, '\\$&');
+        const locEscaped = (ovr.location || '').replace(/\r\n|\r|\n/g, ' ').replace(/[,;]/g, '\\$&');
 
-        icsContent += "BEGIN:VEVENT\\r\\n";
+        icsContent += "BEGIN:VEVENT\r\n";
         // 親と同じ UID を持つことで、クライアントに「親の該当インスタンスの置換」と認識させる
-        icsContent += \`UID:evt-\${parent.id}@company-sns\\r\\n\`;
-        icsContent += \`DTSTAMP:\${nowStr}\\r\\n\`;
+        icsContent += \`UID:evt-\${parent.id}@company-sns\r\n\`;
+        icsContent += \`DTSTAMP:\${nowStr}\r\n\`;
         if (recurrenceIdLine) icsContent += recurrenceIdLine;
-        icsContent += \`SUMMARY:\${summaryEscaped}\\r\\n\`;
-        if (ovr.memo) icsContent += \`DESCRIPTION:\${descEscaped}\\r\\n\`;
-        if (ovr.location) icsContent += \`LOCATION:\${locEscaped}\\r\\n\`;
+        icsContent += \`SUMMARY:\${summaryEscaped}\r\n\`;
+        if (ovr.memo) icsContent += \`DESCRIPTION:\${descEscaped}\r\n\`;
+        if (ovr.location) icsContent += \`LOCATION:\${locEscaped}\r\n\`;
         if (dtStartLine) icsContent += dtStartLine;
         if (dtEndLine) icsContent += dtEndLine;
-        icsContent += "END:VEVENT\\r\\n";
+        icsContent += "END:VEVENT\r\n";
       }
 
-      icsContent += "END:VCALENDAR\\r\\n";
+      icsContent += "END:VCALENDAR\r\n";
 
       // Folding 75 octets (RFC 5545 standard)
-      const lines = icsContent.split("\\r\\n");
+      const lines = icsContent.split("\r\n");
       const foldedLines = lines.map(line => {
         if (!line) return '';
         const buf = Buffer.from(line, 'utf-8');
@@ -7698,7 +7784,7 @@ async function startServer() {
           const charBytes = Buffer.from(char, 'utf-8').length;
 
           if (currentBytes + charBytes > 72) {
-            result += currentStr + "\\r\\n ";
+            result += currentStr + "\r\n ";
             currentStr = char;
             currentBytes = charBytes;
           } else {
@@ -7709,7 +7795,7 @@ async function startServer() {
         result += currentStr;
         return result;
       });
-      const finalIcs = foldedLines.join("\\r\\n");
+      const finalIcs = foldedLines.join("\r\n");
 
       res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
       res.setHeader('Content-Disposition', 'inline; filename="user_' + userId + '_calendar.ics"');
@@ -7915,51 +8001,15 @@ async function startServer() {
 startServer();
 `;
 
-export interface ServerCodeHistory {
-  version: string;
-  date: string;
-  summary: string;
-}
-
-export const SERVER_CODE_HISTORY: ServerCodeHistory[] = [
+export const SERVER_CODE_HISTORY = [
   {
-    version: "v2026.10.30",
+    version: "v2026.10.30 #3",
     date: "2026-10-30",
-    summary: "パスワードソルト付きscryptハッシュ化・POST /api/auth/login サーバー認証・APIレスポンス平文排除・既存平文自動ハッシュ移行対応版",
+    summary: "パスワード未設定・初期PW(test)ユーザー識別 (isPasswordDefault)・一括設定依頼メール送信API (POST /api/passwords/request-reset-bulk) 対応版"
   },
   {
-    version: "v2026.10.29",
-    date: "2026-10-29",
-    summary: "アンケート早期締め切り・回答受付終了・ピン留め同時解除対応版",
-  },
-  {
-    version: "v2026.10.22",
-    date: "2026-10-22",
-    summary: "点検予定一括登録通信のCORS許可ヘッダー拡充および下書き通信最適化",
-  },
-  {
-    version: "v2026.10.06",
-    date: "2026-10-06",
-    summary: "チャットメッセージ既読数・送信者除外判定型正規化 String(id) & viewersJson 型不一致バグ修正版",
-  },
-  {
-    version: "v2026.10.01.2",
-    date: "2026-10-01",
-    summary: "文書管理・フォルダ機能 (routes/documents.js) 連携・階層フォルダ・権限設定・バージョン履歴・複数ファイル同梱・ZIP一括DL・DL者追跡ログ 完全同期版",
-  },
-  {
-    version: "v2026.10.01",
-    date: "2026-10-01",
-    summary: "ユーザー複数一括招待・トークン検証登録・パスワード設定依頼メール・初回ログイン時パスワード変更強制機能 完全同期版",
-  },
-  {
-    version: "v2026.09.30",
-    date: "2026-09-30",
-    summary: "画像・スタンプ静的配信の30日間高速キャッシュ設定 maxAge/immutable および2段階サムネイル対応 完全同期",
-  },
-  {
-    version: "v2026.09.01",
-    date: "2026-09-01",
-    summary: "ワークフロー補充申請・各種申請登録・表示バグ修正 & DB自動カラム追加対応版",
-  },
+    version: "v2026.10.30 #1",
+    date: "2026-10-30",
+    summary: "パスワードソルト付きscryptハッシュ化・POST /api/auth/login サーバー認証・APIレスポンス平文排除・既存平文自動ハッシュ移行対応版"
+  }
 ];

@@ -468,6 +468,7 @@ export function AdminPanel({
   const [isLoadingInvitations, setIsLoadingInvitations] = useState(false);
   const [userTabSubMode, setUserTabSubMode] = useState<'members' | 'invitations'>('members');
   const [resetPasswordSendingId, setResetPasswordSendingId] = useState<string | null>(null);
+  const [isSendingBulkReset, setIsSendingBulkReset] = useState(false);
 
   // ワンクリック・個別メニュー表示切り替え（点検予定管理）
   const handleToggleInspection = (targetUser: User) => {
@@ -891,6 +892,59 @@ export function AdminPanel({
           alert(`❌ エラー: ${err.message}`);
         } finally {
           setResetPasswordSendingId(null);
+        }
+      }
+    });
+  };
+
+  const handleSendBulkPasswordResetRequest = () => {
+    // パスワード未設定（isPasswordDefault === true, または mustChangePassword, または password === 'test'）のメンバーを抽出
+    const unsetUsers = allUsers.filter(u =>
+      u.isPasswordDefault === true || u.mustChangePassword === true || u.password === 'test' || !u.password
+    );
+    const unsetWithEmail = unsetUsers.filter(u =>
+      !!((u.email && u.email.includes('@')) || (u.mobileEmail && u.mobileEmail.includes('@')))
+    );
+
+    if (unsetUsers.length === 0) {
+      alert('現在、パスワード未設定（初期PW: test）のメンバーはいません。全メンバー設定済みです。');
+      return;
+    }
+
+    if (unsetWithEmail.length === 0) {
+      alert(`⚠️ パスワード未設定のメンバーが ${unsetUsers.length} 名存在しますが、いずれもメールアドレスが未登録のため送信できません。ユーザー編集からメールアドレスを設定してください。`);
+      return;
+    }
+
+    const nameList = unsetWithEmail.slice(0, 8).map(u => `• ${u.name} (${u.mobileEmail || u.email})`).join('\n') +
+      (unsetWithEmail.length > 8 ? `\n...他 ${unsetWithEmail.length - 8} 名` : '');
+
+    setConfirmModal({
+      isOpen: true,
+      title: '未設定メンバーへ一括パスワード設定依頼送信',
+      message: `パスワードが未設定（初期PW: test）のメンバー ${unsetWithEmail.length} 名へ、パスワード設定依頼メールを一括送信しますか？\n\n【対象メンバー（一部抜粋）】\n${nameList}\n\n※メールアドレス未設定のメンバー（${unsetUsers.length - unsetWithEmail.length}名）は自動的にスキップされます。`,
+      confirmText: `${unsetWithEmail.length}名に一括送信する`,
+      type: 'warning',
+      onConfirm: async () => {
+        setIsSendingBulkReset(true);
+        try {
+          const res = await fetch(`${API_BASE_URL}/passwords/request-reset-bulk`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              senderName: currentUser.name || '管理者'
+            })
+          });
+          const data = await res.json();
+          if (res.ok && data.success) {
+            alert(`✅ ${data.message || '一括送信が完了しました。'}`);
+          } else {
+            alert(`❌ 送信失敗: ${data.error || 'エラーが発生しました'}`);
+          }
+        } catch (err: any) {
+          alert(`❌ エラー: ${err.message}`);
+        } finally {
+          setIsSendingBulkReset(false);
         }
       }
     });
@@ -2221,14 +2275,49 @@ export function AdminPanel({
           {/* Members Table / List (Normal View vs Reorder View vs Invitations View) */}
           {userViewMode === 'list' && userTabSubMode === 'members' ? (
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden divide-y divide-slate-100">
-              <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between text-xs">
-                <div className="flex items-center gap-2">
-                  <Users className="w-4 h-4 text-indigo-600" />
-                  <span className="font-extrabold text-slate-800 text-sm">
-                    登録メンバー一覧 ({filteredUsers.length}名)
-                  </span>
-                </div>
-              </div>
+              {(() => {
+                const unsetUsers = filteredUsers.filter(u => u.isPasswordDefault === true || u.mustChangePassword === true || u.password === 'test' || !u.password);
+                const unsetWithEmail = unsetUsers.filter(u => !!((u.email && u.email.includes('@')) || (u.mobileEmail && u.mobileEmail.includes('@'))));
+
+                return (
+                  <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Users className="w-4 h-4 text-indigo-600" />
+                      <span className="font-extrabold text-slate-800 text-sm">
+                        登録メンバー一覧 ({filteredUsers.length}名)
+                      </span>
+                      {unsetUsers.length > 0 && (
+                        <span className="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-rose-100 text-rose-800 border border-rose-300 flex items-center gap-1 shadow-2xs">
+                          <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
+                          PW未設定(初期PW): {unsetUsers.length}名
+                        </span>
+                      )}
+                    </div>
+
+                    {unsetWithEmail.length > 0 && (
+                      <button
+                        type="button"
+                        disabled={isSendingBulkReset}
+                        onClick={handleSendBulkPasswordResetRequest}
+                        title="パスワード未設定のメンバーへ一括でメールを送信します"
+                        className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white font-extrabold rounded-xl shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer text-xs self-start sm:self-auto shrink-0"
+                      >
+                        {isSendingBulkReset ? (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            <span>送信中...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Send className="w-3.5 h-3.5" />
+                            <span>✉️ 未設定 {unsetWithEmail.length}名へ一括パスワード設定依頼を送信</span>
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </div>
+                );
+              })()}
 
             {filteredUsers.length === 0 ? (
               <div className="p-12 text-center space-y-3">
@@ -2236,131 +2325,156 @@ export function AdminPanel({
                 <p className="text-slate-500 text-xs font-bold">該当するメンバーが見つかりません。</p>
               </div>
             ) : (
-              filteredUsers.map((user) => (
-                <div key={user.id} className="p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-slate-50/80 transition-colors">
-                  <div className="flex items-center gap-3.5">
-                    <img
-                      src={getAvatarUrl(user.avatarUrl)}
-                      alt={user.name}
-                      className="w-11 h-11 rounded-full object-cover border-2 border-indigo-100 ring-2 ring-slate-100 shrink-0"
-                    />
-                    <div className="space-y-1.5">
-                      {/* 氏名 & 権限バッジ & 所属タグ */}
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-extrabold text-slate-900 text-base">{user.name}</span>
-                        {user.isAdmin ? (
-                          <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-indigo-100 text-indigo-700 border border-indigo-200 flex items-center gap-1">
-                            <Shield className="w-3 h-3 text-indigo-600" />
-                            管理者
-                          </span>
-                        ) : (
-                          <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
-                            一般
-                          </span>
-                        )}
-                        <span className="text-slate-300 font-bold">|</span>
-                        <span className="text-xs font-bold text-slate-800 bg-slate-100 px-2.5 py-0.5 rounded-md border border-slate-200 flex items-center gap-1">
-                          <Building2 className="w-3 h-3 text-slate-500" />
-                          {user.office || '拠点未設定'}
-                        </span>
-                        <span className="text-xs font-extrabold text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded-md border border-indigo-200 flex items-center gap-1">
-                          <Layers className="w-3 h-3 text-indigo-500" />
-                          {user.division || '部署未設定'}
-                        </span>
-                        {user.position && (
-                          <span className="text-xs font-extrabold text-purple-700 bg-purple-50 px-2.5 py-0.5 rounded-md border border-purple-200 flex items-center gap-1">
-                            <Briefcase className="w-3 h-3 text-purple-500" />
-                            {user.position}
-                          </span>
-                        )}
-                      </div>
+              filteredUsers.map((user) => {
+                const isUnsetPw = user.isPasswordDefault === true || user.mustChangePassword === true || user.password === 'test' || !user.password;
 
-                      {/* 連絡先情報 */}
-                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 font-medium">
-                        {user.mobileEmail ? (
-                          <span className="flex items-center gap-1 font-mono text-indigo-700 bg-indigo-50/70 px-2 py-0.5 rounded border border-indigo-100">
-                            <Smartphone className="w-3 h-3 text-indigo-500" />
-                            携帯: {user.mobileEmail}
+                return (
+                  <div key={user.id} className={`p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 transition-colors ${
+                    isUnsetPw ? 'bg-rose-50/30 hover:bg-rose-50/60' : 'hover:bg-slate-50/80'
+                  }`}>
+                    <div className="flex items-center gap-3.5">
+                      <img
+                        src={getAvatarUrl(user.avatarUrl)}
+                        alt={user.name}
+                        className={`w-11 h-11 rounded-full object-cover border-2 shrink-0 ${
+                          isUnsetPw ? 'border-rose-300 ring-2 ring-rose-100' : 'border-indigo-100 ring-2 ring-slate-100'
+                        }`}
+                      />
+                      <div className="space-y-1.5">
+                        {/* 氏名 & 権限バッジ & 未設定警告バッジ & 所属タグ */}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-extrabold text-slate-900 text-base">{user.name}</span>
+                          
+                          {isUnsetPw && (
+                            <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-rose-600 text-white border border-rose-700 flex items-center gap-1 shadow-2xs">
+                              <AlertTriangle className="w-3 h-3 text-white" />
+                              PW未設定 (初期値)
+                            </span>
+                          )}
+
+                          {user.isAdmin ? (
+                            <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-indigo-100 text-indigo-700 border border-indigo-200 flex items-center gap-1">
+                              <Shield className="w-3 h-3 text-indigo-600" />
+                              管理者
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+                              一般
+                            </span>
+                          )}
+                          <span className="text-slate-300 font-bold">|</span>
+                          <span className="text-xs font-bold text-slate-800 bg-slate-100 px-2.5 py-0.5 rounded-md border border-slate-200 flex items-center gap-1">
+                            <Building2 className="w-3 h-3 text-slate-500" />
+                            {user.office || '拠点未設定'}
                           </span>
-                        ) : (
-                          <span className="text-slate-400 text-[11px]">携帯: 未設定</span>
-                        )}
-                        {user.email && (
-                          <span className="flex items-center gap-1 font-mono">
-                            <Mail className="w-3 h-3 text-slate-400" />
-                            PC: {user.email}
+                          <span className="text-xs font-extrabold text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded-md border border-indigo-200 flex items-center gap-1">
+                            <Layers className="w-3 h-3 text-indigo-500" />
+                            {user.division || '部署未設定'}
                           </span>
-                        )}
-                        {user.phone && (
-                          <span className="flex items-center gap-1">
-                            <Phone className="w-3 h-3 text-slate-400" />
-                            {user.phone}
-                          </span>
-                        )}
+                          {user.position && (
+                            <span className="text-xs font-extrabold text-purple-700 bg-purple-50 px-2.5 py-0.5 rounded-md border border-purple-200 flex items-center gap-1">
+                              <Briefcase className="w-3 h-3 text-purple-500" />
+                              {user.position}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* 連絡先情報 */}
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 font-medium">
+                          {user.mobileEmail ? (
+                            <span className="flex items-center gap-1 font-mono text-indigo-700 bg-indigo-50/70 px-2 py-0.5 rounded border border-indigo-100">
+                              <Smartphone className="w-3 h-3 text-indigo-500" />
+                              携帯: {user.mobileEmail}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400 text-[11px]">携帯: 未設定</span>
+                          )}
+                          {user.email && (
+                            <span className="flex items-center gap-1 font-mono">
+                              <Mail className="w-3 h-3 text-slate-400" />
+                              PC: {user.email}
+                            </span>
+                          )}
+                          {user.phone && (
+                            <span className="flex items-center gap-1">
+                              <Phone className="w-3 h-3 text-slate-400" />
+                              {user.phone}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
 
-                  {/* 操作ボタン */}
-                  <div className="flex flex-wrap items-center gap-2 self-end md:self-center shrink-0">
-                    {/* パスワード設定依頼ボタン */}
-                    {(user.email || user.mobileEmail) && (
+                    {/* 操作ボタン */}
+                    <div className="flex flex-wrap items-center gap-2 self-end md:self-center shrink-0">
+                      {/* パスワード設定依頼ボタン */}
+                      {(user.email || user.mobileEmail) ? (
+                        <button
+                          type="button"
+                          disabled={resetPasswordSendingId === user.id}
+                          onClick={() => handleSendPasswordResetRequest(user)}
+                          title={isUnsetPw ? "パスワードが未設定（初期PW: test）です。設定依頼メールを送信します。" : "このメンバー宛てにパスワード設定依頼メールを送信"}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 ${
+                            isUnsetPw
+                              ? 'text-white bg-rose-600 hover:bg-rose-700 border border-rose-500 shadow-sm animate-pulse'
+                              : 'text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200'
+                          }`}
+                        >
+                          <KeyRound className={`w-3.5 h-3.5 ${isUnsetPw ? 'text-white' : 'text-amber-600'}`} />
+                          {resetPasswordSendingId === user.id ? '送信中...' : isUnsetPw ? '⚠️ パスワード未設定 / 設定依頼' : 'パスワード設定依頼'}
+                        </button>
+                      ) : isUnsetPw ? (
+                        <span className="px-2.5 py-1.5 rounded-lg text-xs font-bold text-rose-700 bg-rose-100 border border-rose-200 flex items-center gap-1" title="メールアドレスが設定されていないため送信不可">
+                          <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
+                          PW未設定 (アドレス要登録)
+                        </span>
+                      ) : null}
+
+                      {user.mobileEmail && (
+                        <button
+                          type="button"
+                          disabled={testEmailSendingKey === `user-mob-${user.id}`}
+                          onClick={() => handleSendTestEmail(user.mobileEmail!, user.name, `user-mob-${user.id}`)}
+                          title="このメンバーの携帯メールへテスト送信"
+                          className="px-2.5 py-1.5 rounded-lg text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                        >
+                          <Smartphone className="w-3.5 h-3.5 text-indigo-600" />
+                          {testEmailSendingKey === `user-mob-${user.id}` ? '送信中...' : '携帯宛テスト送信'}
+                        </button>
+                      )}
+
                       <button
-                        type="button"
-                        disabled={resetPasswordSendingId === user.id}
-                        onClick={() => handleSendPasswordResetRequest(user)}
-                        title="このメンバー宛てにパスワード設定依頼メールを送信"
-                        className="px-2.5 py-1.5 rounded-lg text-xs font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                        onClick={() => onToggleUserAdmin(user.id)}
+                        title="管理者権限切り替え"
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 border transition-all cursor-pointer ${
+                          user.isAdmin
+                            ? 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
+                            : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                        }`}
                       >
-                        <KeyRound className="w-3.5 h-3.5 text-amber-600" />
-                        {resetPasswordSendingId === user.id ? '送信中...' : 'パスワード設定依頼'}
+                        <Shield className="w-3.5 h-3.5" />
+                        {user.isAdmin ? '管理者' : '一般'}
                       </button>
-                    )}
 
-                    {user.mobileEmail && (
                       <button
-                        type="button"
-                        disabled={testEmailSendingKey === `user-mob-${user.id}`}
-                        onClick={() => handleSendTestEmail(user.mobileEmail!, user.name, `user-mob-${user.id}`)}
-                        title="このメンバーの携帯メールへテスト送信"
-                        className="px-2.5 py-1.5 rounded-lg text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                        onClick={() => handleOpenEditUserModal(user)}
+                        className="px-3.5 py-1.5 text-xs font-bold text-slate-700 hover:text-indigo-600 bg-slate-100 hover:bg-indigo-50 rounded-lg flex items-center gap-1.5 transition-colors border border-slate-200 cursor-pointer"
                       >
-                        <Smartphone className="w-3.5 h-3.5 text-indigo-600" />
-                        {testEmailSendingKey === `user-mob-${user.id}` ? '送信中...' : '携帯宛テスト送信'}
+                        <Edit2 className="w-3.5 h-3.5" />
+                        編集
                       </button>
-                    )}
 
-                    <button
-                      onClick={() => onToggleUserAdmin(user.id)}
-                      title="管理者権限切り替え"
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 border transition-all cursor-pointer ${
-                        user.isAdmin
-                          ? 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
-                          : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
-                      }`}
-                    >
-                      <Shield className="w-3.5 h-3.5" />
-                      {user.isAdmin ? '管理者' : '一般'}
-                    </button>
-
-                    <button
-                      onClick={() => handleOpenEditUserModal(user)}
-                      className="px-3.5 py-1.5 text-xs font-bold text-slate-700 hover:text-indigo-600 bg-slate-100 hover:bg-indigo-50 rounded-lg flex items-center gap-1.5 transition-colors border border-slate-200 cursor-pointer"
-                    >
-                      <Edit2 className="w-3.5 h-3.5" />
-                      編集
-                    </button>
-
-                    <button
-                      onClick={() => handleDeleteUserClick(user)}
-                      className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors border border-transparent hover:border-red-200 cursor-pointer"
-                      title="メンバー削除"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                      <button
+                        onClick={() => handleDeleteUserClick(user)}
+                        className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors border border-transparent hover:border-red-200 cursor-pointer"
+                        title="メンバー削除"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
           ) : userViewMode === 'list' && userTabSubMode === 'invitations' ? (

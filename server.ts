@@ -743,7 +743,7 @@ async function startServer() {
     } catch (_) {}
   }
 
-  // パス正規化ヘルパー: Windows UNCパス (\volume1\Teraoka-Sekkei\share\02-施工図PDF\現場A\平面図.pdf) 等から相対パスを抽出
+  // パス正規化ヘルパー: Windows UNCパス (/volume1/Teraoka-Sekkei/share/02-施工図PDF/現場A/平面図.pdf) 等から相対パスを抽出
   function sanitizeDrawingRelPath(rawPath: string): string {
     if (!rawPath || typeof rawPath !== 'string') return '';
     let cleaned = rawPath.trim().replace(/^["']|["']$/g, '').replace(/\\/g, '/');
@@ -2283,11 +2283,18 @@ async function startServer() {
   function sanitizeUserForResponse(user: any): any {
     if (!user) return user;
     const copy = { ...user };
+
+    // パスワードが未設定、またはデフォルト（'test'）、あるいは初回ログイン変更要求が有効かチェック
+    const rawPw = user.password || '';
+    const isTestPw = !rawPw || rawPw === 'test' || verifyPassword('test', rawPw).isValid;
+    const isPasswordDefault = isTestPw || user.mustChangePassword === true || user.isPasswordDefault === true;
+
     delete copy.password;
     delete copy.passwordHash;
     return {
       ...copy,
-      passwordMasked: '••••••••'
+      passwordMasked: '••••••••',
+      isPasswordDefault: isPasswordDefault
     };
   }
 
@@ -3247,6 +3254,91 @@ async function startServer() {
         success: true,
         message: `${user.name} 様（${targetEmail}）へパスワード設定案内メールを送信しました。`,
         targetEmail
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 7-2. パスワード未設定ユーザーへ一括パスワード設定依頼メール送信 API
+  app.post([
+    '/api/passwords/request-reset-bulk',
+    '/api/passwords/request-reset-bulk/',
+    '/api/users/request-password-reset-bulk',
+    '/api/users/request-password-reset-bulk/'
+  ], async (req, res) => {
+    try {
+      const { senderName = '管理者', baseUrl } = req.body || {};
+      const users = loadUsers();
+      let sentCount = 0;
+      let skippedCount = 0;
+      const sentUsers: string[] = [];
+
+      for (const user of users) {
+        const rawPw = user.password || '';
+        const isTestPw = !rawPw || rawPw === 'test' || verifyPassword('test', rawPw).isValid;
+        const isPasswordDefault = isTestPw || user.mustChangePassword === true || user.isPasswordDefault === true;
+
+        const targetEmail = (user.mobileEmail || user.email || '').trim();
+
+        if (isPasswordDefault && targetEmail && targetEmail.includes('@')) {
+          const token = crypto.randomBytes(24).toString('hex');
+          const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+          if (!user.preferences) user.preferences = {};
+          user.preferences.resetPasswordToken = token;
+          user.preferences.resetPasswordExpires = expiresAt;
+          user.mustChangePassword = true;
+          user.preferences.mustChangePassword = true;
+
+          const appBaseUrl = baseUrl || 'https://micchy-ken.github.io/teranago-sns-new/';
+          const resetUrl = `${appBaseUrl}${appBaseUrl.includes('?') ? '&' : '?'}mode=reset-password&token=${token}`;
+
+          const subject = `【TERANAGO SNS】パスワード設定のお願い`;
+          const text = `${user.name} 様\n\n${senderName}様より、TERANAGO 社内SNS・グループウェアのパスワード設定依頼が届いています。\n以下のリンクを開き、新しいパスワードを設定してください。\n\n▼ パスワード設定URL:\n${resetUrl}\n\n※有効期限: 24時間以内\n※心当たりのない場合は管理者までご連絡ください。`;
+          const html = `
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; background: #ffffff;">
+              <div style="background: linear-gradient(135deg, #e11d48 0%, #4f46e5 100%); color: #ffffff; padding: 24px; text-align: center;">
+                <h2 style="margin: 0; font-size: 20px; font-weight: 700;">パスワード設定のお願い</h2>
+                <p style="margin: 6px 0 0 0; font-size: 13px; opacity: 0.9;">TERANAGO 社内ポータル</p>
+              </div>
+              <div style="padding: 24px; color: #334155; line-height: 1.6; font-size: 14px;">
+                <p><b>${user.name}</b> 様</p>
+                <p>管理者（${senderName}）より、パスワード設定の依頼が届いています。</p>
+                <p>下のボタンをクリックして、新しいパスワードを設定してください。</p>
+                <div style="text-align: center; margin: 28px 0;">
+                  <a href="${resetUrl}" style="display: inline-block; background-color: #e11d48; color: #ffffff; font-weight: bold; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-size: 15px;">
+                    🔑 新しいパスワードを設定する
+                  </a>
+                </div>
+                <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px; font-size: 12px; color: #64748b;">
+                  <p style="margin: 0 0 4px 0;"><b>ボタンが開けない場合:</b> 以下のURLをブラウザに貼り付けてください。</p>
+                  <p style="margin: 0; word-break: break-all; color: #4f46e5;">${resetUrl}</p>
+                  <p style="margin: 8px 0 0 0; color: #e11d48;">※有効期限: <b>24時間以内</b></p>
+                </div>
+              </div>
+            </div>
+          `;
+
+          try {
+            await sendEmailNotification({ to: targetEmail, subject, text, html });
+            sentCount++;
+            sentUsers.push(`${user.name} (${targetEmail})`);
+          } catch (e) {
+            console.error(`[Bulk Reset] Failed to send to ${user.name}:`, e);
+          }
+        } else if (isPasswordDefault) {
+          skippedCount++;
+        }
+      }
+
+      saveUsers(users);
+      res.json({
+        success: true,
+        sentCount,
+        skippedCount,
+        message: `${sentCount}名に一括パスワード設定依頼メールを送信しました。` + (skippedCount > 0 ? ` (${skippedCount}名はメールアドレス未設定のためスキップされました)` : ''),
+        sentUsers
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message });

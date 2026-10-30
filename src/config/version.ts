@@ -15,12 +15,12 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.30.2',
+  version: '2026.10.30.3',
   date: '2026-10-30',
-  releaseNumber: 2,
-  display: 'v2026.10.30 #2 (JST)',
+  releaseNumber: 3,
+  display: 'v2026.10.30 #3 (JST)',
   timeZone: '日本標準時 (JST / UTC+09:00)',
-  description: '管理画面メンバープロフィール編集時のパスワード平文表示を廃止・マスク表示＆Eye/EyeOff切り替えUIおよび空欄保持修正',
+  description: 'パスワード未設定・初期値(test)メンバー赤色ハイライト・識別表示＆未設定者向け一括設定依頼メール送信機能追加',
 };
 
 /**
