@@ -2250,9 +2250,91 @@ async function startServer() {
   });
 
   // ==========================================
-  // ユーザー情報・マイ設定 (Users & Preferences) API
+  // セキュア・パスワードハッシュ化 (scrypt) & 認証ヘルパー
   // ==========================================
-  const usersPath = path.join(dataDir, 'users.json');
+  function hashPassword(password: string): string {
+    if (!password) return '';
+    if (password.startsWith('scrypt:16384:')) return password;
+    const salt = crypto.randomBytes(16).toString('hex');
+    const derivedKey = crypto.scryptSync(password, salt, 64, { N: 16384, r: 8, p: 1 });
+    return `scrypt:16384:${salt}:${derivedKey.toString('hex')}`;
+  }
+
+  function verifyPassword(passwordInput: string, storedHashOrPlain: string): { isValid: boolean; needsRehash: boolean } {
+    if (!storedHashOrPlain || !passwordInput) return { isValid: false, needsRehash: false };
+    if (storedHashOrPlain.startsWith('scrypt:16384:')) {
+      const parts = storedHashOrPlain.split(':');
+      if (parts.length === 4) {
+        const salt = parts[2];
+        const originalHashHex = parts[3];
+        const testHash = crypto.scryptSync(passwordInput, salt, 64, { N: 16384, r: 8, p: 1 });
+        try {
+          const isValid = crypto.timingSafeEqual(Buffer.from(originalHashHex, 'hex'), testHash);
+          return { isValid, needsRehash: false };
+        } catch (_) {
+          return { isValid: false, needsRehash: false };
+        }
+      }
+    }
+    const isPlainMatch = (passwordInput === storedHashOrPlain);
+    return { isValid: isPlainMatch, needsRehash: isPlainMatch };
+  }
+
+  function sanitizeUserForResponse(user: any): any {
+    if (!user) return user;
+    const copy = { ...user };
+    delete copy.password;
+    delete copy.passwordHash;
+    return {
+      ...copy,
+      passwordMasked: '••••••••'
+    };
+  }
+
+  // サーバーサイドログイン認証 API
+  app.post(['/api/auth/login', '/api/auth/login/', '/api/login', '/api/login/'], (req, res) => {
+    try {
+      const { loginId, password } = req.body || {};
+      if (!loginId || !password) {
+        return res.status(400).json({ error: 'ユーザーIDとパスワードを入力してください。' });
+      }
+
+      const trimmedId = String(loginId).trim().toLowerCase();
+      const users = loadUsers();
+      const matchedIndex = users.findIndex((u: any) =>
+        (u.loginId && String(u.loginId).toLowerCase() === trimmedId) ||
+        (u.email && String(u.email).toLowerCase() === trimmedId) ||
+        (u.id && String(u.id).toLowerCase() === trimmedId)
+      );
+
+      if (matchedIndex === -1) {
+        return res.status(401).json({ error: 'ユーザーIDまたはパスワードが正しくありません。' });
+      }
+
+      const user = users[matchedIndex];
+      const authResult = verifyPassword(String(password).trim(), user.password);
+
+      if (!authResult.isValid) {
+        return res.status(401).json({ error: 'ユーザーIDまたはパスワードが正しくありません。' });
+      }
+
+      // 平文マッチの場合は即座にハッシュ値へアップグレード更新
+      if (authResult.needsRehash) {
+        user.password = hashPassword(String(password).trim());
+        users[matchedIndex] = user;
+        saveUsers(users);
+      }
+
+      res.json({
+        success: true,
+        message: 'ログインに成功しました。',
+        user: sanitizeUserForResponse(user)
+      });
+    } catch (err: any) {
+      console.error('[Auth] Login error:', err);
+      res.status(500).json({ error: 'ログイン処理中にエラーが発生しました。' });
+    }
+  });
 
   const defaultInitialUsers = [
     {
@@ -2357,42 +2439,55 @@ async function startServer() {
   ];
 
   function loadUsers(): any[] {
+    let rawUsers: any[] = [];
     if (!fs.existsSync(usersPath)) {
+      rawUsers = defaultInitialUsers;
+    } else {
       try {
-        fs.writeFileSync(usersPath, JSON.stringify(defaultInitialUsers, null, 2), 'utf8');
-        return defaultInitialUsers;
+        const data = JSON.parse(fs.readFileSync(usersPath, 'utf8'));
+        rawUsers = (Array.isArray(data) && data.length > 0) ? data : defaultInitialUsers;
       } catch (e) {
-        return defaultInitialUsers;
+        rawUsers = defaultInitialUsers;
       }
     }
-    try {
-      const data = JSON.parse(fs.readFileSync(usersPath, 'utf8'));
-      if (!Array.isArray(data) || data.length === 0) {
-        fs.writeFileSync(usersPath, JSON.stringify(defaultInitialUsers, null, 2), 'utf8');
-        return defaultInitialUsers;
+
+    // 自動一括ハッシュ化マイグレーション (平文パスワードを安全なscryptハッシュ値へ自動アップグレード)
+    let hasUnhashed = false;
+    const migratedUsers = rawUsers.map((u: any) => {
+      if (u.password && !u.password.startsWith('scrypt:16384:')) {
+        hasUnhashed = true;
+        return { ...u, password: hashPassword(u.password) };
       }
-      return data;
-    } catch (e) {
-      return defaultInitialUsers;
+      return u;
+    });
+
+    if (hasUnhashed) {
+      try {
+        fs.writeFileSync(usersPath, JSON.stringify(migratedUsers, null, 2), 'utf8');
+        console.log('[Security] Unhashed user passwords successfully migrated to scrypt hashes.');
+      } catch (e) {
+        console.error('[Security] Failed to save migrated user passwords:', e);
+      }
     }
+
+    return migratedUsers;
   }
 
   function saveUsers(users: any[]) {
     fs.writeFileSync(usersPath, JSON.stringify(users, null, 2), 'utf8');
   }
 
-  // ユーザー一覧取得 API (sortOrder 昇順、名前 昇順)
+  // ユーザー一覧取得 API (sortOrder 昇順、名前 昇順 / 平文パスワード非開示)
   app.get(['/api/users', '/api/users/'], (req, res) => {
     try {
       const users = loadUsers();
-      // sortOrder があれば優先してソート
       const sortedUsers = [...users].sort((a: any, b: any) => {
         const orderA = a.sortOrder !== undefined && a.sortOrder !== null ? Number(a.sortOrder) : 999999;
         const orderB = b.sortOrder !== undefined && b.sortOrder !== null ? Number(b.sortOrder) : 999999;
         if (orderA !== orderB) return orderA - orderB;
         return (a.name || '').localeCompare(b.name || '', 'ja');
       });
-      res.json(sortedUsers);
+      res.json(sortedUsers.map(sanitizeUserForResponse));
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -2436,13 +2531,13 @@ async function startServer() {
   app.put(['/api/users/reorder', '/api/users/reorder/'], handleUsersReorder);
   app.post(['/api/users/reorder', '/api/users/reorder/'], handleUsersReorder);
 
-  // 単一ユーザー取得 API
+  // 単一ユーザー取得 API (平文パスワード非開示)
   app.get('/api/users/:id', (req, res) => {
     try {
       const users = loadUsers();
       const user = users.find((u: any) => u.id === req.params.id);
       if (!user) return res.status(404).json({ error: 'ユーザーが見つかりません' });
-      res.json(user);
+      res.json(sanitizeUserForResponse(user));
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -2451,19 +2546,28 @@ async function startServer() {
   // ユーザー保存・更新 API (POST / PUT)
   app.post(['/api/users', '/api/users/'], (req, res) => {
     try {
-      const u = req.body;
+      const u = { ...req.body };
       if (!u || !u.id) {
         return res.status(400).json({ error: 'ユーザーIDが必要です' });
       }
       const users = loadUsers();
       const idx = users.findIndex((item: any) => item.id === u.id);
+
+      if (u.password && u.password !== '••••••••' && !u.password.startsWith('scrypt:16384:')) {
+        u.password = hashPassword(u.password);
+      } else if (idx >= 0 && (!u.password || u.password === '••••••••')) {
+        u.password = users[idx].password; // 既存ハッシュ維持
+      }
+
       if (idx >= 0) {
         users[idx] = { ...users[idx], ...u };
       } else {
+        if (!u.password) u.password = hashPassword('password123');
         users.push(u);
       }
       saveUsers(users);
-      res.json({ success: true, user: users[idx >= 0 ? idx : users.length - 1] });
+      const savedUser = users[idx >= 0 ? idx : users.length - 1];
+      res.json({ success: true, user: sanitizeUserForResponse(savedUser) });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -2471,17 +2575,26 @@ async function startServer() {
 
   app.put('/api/users/:id', (req, res) => {
     try {
-      const u = req.body;
+      const u = { ...req.body };
       u.id = req.params.id;
       const users = loadUsers();
       const idx = users.findIndex((item: any) => item.id === u.id);
+
+      if (u.password && u.password !== '••••••••' && !u.password.startsWith('scrypt:16384:')) {
+        u.password = hashPassword(u.password);
+      } else if (idx >= 0 && (!u.password || u.password === '••••••••')) {
+        u.password = users[idx].password; // 既存ハッシュ維持
+      }
+
       if (idx >= 0) {
         users[idx] = { ...users[idx], ...u };
       } else {
+        if (!u.password) u.password = hashPassword('password123');
         users.push(u);
       }
       saveUsers(users);
-      res.json({ success: true, user: users[idx >= 0 ? idx : users.length - 1] });
+      const savedUser = users[idx >= 0 ? idx : users.length - 1];
+      res.json({ success: true, user: sanitizeUserForResponse(savedUser) });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -3021,7 +3134,7 @@ async function startServer() {
       const userObj = {
         id: newUserId,
         loginId: finalLoginId,
-        password: password,
+        password: hashPassword(password),
         name: name.trim(),
         kanaName: (kanaName || '').trim(),
         department: deptString,
@@ -3061,7 +3174,7 @@ async function startServer() {
       res.json({
         success: true,
         message: 'アカウント登録が完了しました。',
-        user: userObj
+        user: sanitizeUserForResponse(userObj)
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -3193,7 +3306,7 @@ async function startServer() {
         return res.status(400).json({ error: 'リンクの有効期限が切れています。' });
       }
 
-      user.password = newPassword;
+      user.password = hashPassword(newPassword);
       user.mustChangePassword = false;
       delete user.preferences.resetPasswordToken;
       delete user.preferences.resetPasswordExpires;
@@ -3205,7 +3318,7 @@ async function startServer() {
       res.json({
         success: true,
         message: 'パスワードを設定しました。新しいパスワードでログインしてください。',
-        user
+        user: sanitizeUserForResponse(user)
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -3228,11 +3341,11 @@ async function startServer() {
       const user = users.find((u: any) => u.id === userId);
 
       if (!user) return res.status(404).json({ error: 'ユーザーが見つかりません' });
-      if (currentPassword && user.password && user.password !== currentPassword) {
+      if (currentPassword && user.password && !verifyPassword(currentPassword, user.password).isValid) {
         return res.status(400).json({ error: '現在のパスワードが一致しません' });
       }
 
-      user.password = newPassword;
+      user.password = hashPassword(newPassword);
       user.mustChangePassword = false;
       if (!user.preferences) user.preferences = {};
       user.preferences.mustChangePassword = false;
@@ -3243,7 +3356,7 @@ async function startServer() {
       res.json({
         success: true,
         message: 'パスワードを変更しました。',
-        user
+        user: sanitizeUserForResponse(user)
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message });

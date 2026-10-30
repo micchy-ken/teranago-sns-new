@@ -50,7 +50,9 @@ import {
   Save,
   Smile,
   Sparkles,
-  FileText
+  FileText,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { User, OfficeMaster, DivisionMaster, PositionMaster, OfficeType, ApprovalFlowRule, ApprovalStepConfig, ApplicationType, ApproverType, ItemMaster, WorkflowApplication, ApplicationStatus, UserInvitation } from '../types';
 import { sortUsers, sortUsersByDivision } from '../utils/userSort';
@@ -560,13 +562,16 @@ export function AdminPanel({
 
 
   // --- USER HANDLERS ---
+  const [showUserPassword, setShowUserPassword] = useState(false);
+
   const handleOpenAddUserModal = () => {
     setEditingUser(null);
+    setShowUserPassword(false);
     setUserFormData({
       name: '',
       kanaName: '',
       loginId: '',
-      password: 'test',
+      password: '',
       office: '',
       division: '',
       position: '',
@@ -589,11 +594,12 @@ export function AdminPanel({
 
   const handleOpenEditUserModal = (user: User) => {
     setEditingUser(user);
+    setShowUserPassword(false);
     setUserFormData({
       name: user.name,
       kanaName: user.kanaName || '',
       loginId: user.loginId || '',
-      password: user.password || 'test',
+      password: '', // パスワード変更時のみ入力（未変更時は空欄のまま保持）
       office: user.office || '',
       division: user.division || '',
       position: user.position || '',
@@ -633,12 +639,16 @@ export function AdminPanel({
     const finalLoginId = (userFormData.loginId || '').trim() || `user_${Date.now().toString().slice(-4)}`;
 
     if (editingUser) {
+      // パスワード入力が空欄（またはマスク）の場合は既存のパスワードハッシュを保持
+      const inputPw = userFormData.password.trim();
+      const effectivePassword = inputPw && inputPw !== '••••••••' ? inputPw : (editingUser.password || '••••••••');
+
       onUpdateUser({
         ...editingUser,
         name: (userFormData.name || '').trim(),
         kanaName: (userFormData.kanaName || '').trim(),
         loginId: finalLoginId,
-        password: (userFormData.password || '').trim() || 'test',
+        password: effectivePassword,
         office: userFormData.office,
         division: userFormData.division,
         position: userFormData.position,
@@ -666,11 +676,14 @@ export function AdminPanel({
         },
       });
     } else {
+      const inputPw = userFormData.password.trim();
+      const effectivePassword = inputPw || '••••••••';
+
       onAddUser({
         name: (userFormData.name || '').trim(),
         kanaName: (userFormData.kanaName || '').trim(),
         loginId: finalLoginId,
-        password: (userFormData.password || '').trim() || 'test',
+        password: effectivePassword,
         office: userFormData.office,
         division: userFormData.division,
         position: userFormData.position,
@@ -4343,16 +4356,26 @@ END;`}
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    パスワード
+                    パスワード <span className="text-slate-400 font-normal text-[10px]">({editingUser ? '変更時のみ入力' : '任意'})</span>
                   </label>
-                  <input
-                    type="text"
-                    autoComplete="off"
-                    placeholder="例: test"
-                    value={userFormData.password}
-                    onChange={(e) => setUserFormData({ ...userFormData, password: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
-                  />
+                  <div className="relative">
+                    <input
+                      type={showUserPassword ? 'text' : 'password'}
+                      autoComplete="new-password"
+                      placeholder={editingUser ? '変更しない場合は空欄（••••••••）' : '4文字以上のパスワード'}
+                      value={userFormData.password}
+                      onChange={(e) => setUserFormData({ ...userFormData, password: e.target.value })}
+                      className="w-full pl-3 pr-9 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowUserPassword(!showUserPassword)}
+                      className="absolute inset-y-0 right-0 pr-2.5 flex items-center text-slate-400 hover:text-slate-600 cursor-pointer"
+                      title={showUserPassword ? 'パスワードを非表示にする' : 'パスワードを表示する'}
+                    >
+                      {showUserPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
                 </div>
                 <div className="col-span-2 pt-1 pb-1">
                   <label className="flex items-center gap-2 cursor-pointer select-none">

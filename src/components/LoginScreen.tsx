@@ -252,41 +252,34 @@ export function LoginScreen({
       return;
     }
 
-    let activeUsers = users;
-    let matchedUser = activeUsers.find(
-      u => u.loginId?.toLowerCase() === trimmedId.toLowerCase() && u.password === trimmedPw
-    );
-
-    // オンデマンド最新化: 初回メモリで不一致の場合、DBから最新のユーザー一覧を再取得して即座に再検索
-    if (!matchedUser && onRefetchUsers) {
-      setLoading(true);
-      try {
-        const freshUsers = await onRefetchUsers();
-        if (Array.isArray(freshUsers) && freshUsers.length > 0) {
-          activeUsers = freshUsers;
-          matchedUser = activeUsers.find(
-            u => u.loginId?.toLowerCase() === trimmedId.toLowerCase() && u.password === trimmedPw
-          );
-        }
-      } catch (_) {
-        // ignore fetch error and fall back
-      } finally {
-        setLoading(false);
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ loginId: trimmedId, password: trimmedPw })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'ユーザーIDまたはパスワードが正しくありません。');
       }
-    }
 
-    if (matchedUser) {
+      const authenticatedUser: User = data.user;
+
       // パスワード強制変更が必要なユーザーかチェック
-      if (matchedUser.mustChangePassword) {
-        setForceChangeUser(matchedUser);
+      if (authenticatedUser.mustChangePassword) {
+        setForceChangeUser(authenticatedUser);
         setForceNewPassword('');
         setForceConfirmPassword('');
         setForceError(null);
         return;
       }
-      onLogin(matchedUser);
-    } else {
-      setError('ユーザーIDまたはパスワードが正しくありません。');
+      onLogin(authenticatedUser);
+    } catch (err: any) {
+      // API接続で失敗した場合の予備処理（認証サーバー経由推奨）
+      setError(err.message || 'ユーザーIDまたはパスワードが正しくありません。');
+    } finally {
+      setLoading(false);
     }
   };
 

@@ -15,12 +15,12 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.29.3',
-  date: '2026-10-29',
-  releaseNumber: 3,
-  display: 'v2026.10.29 #3 (JST)',
+  version: '2026.10.30.2',
+  date: '2026-10-30',
+  releaseNumber: 2,
+  display: 'v2026.10.30 #2 (JST)',
   timeZone: '日本標準時 (JST / UTC+09:00)',
-  description: 'ログイン画面表示時およびパスワード設定完了時の最新ユーザー情報(DB)自動同期・メモリ同期機能追加',
+  description: '管理画面メンバープロフィール編集時のパスワード平文表示を廃止・マスク表示＆Eye/EyeOff切り替えUIおよび空欄保持修正',
 };
 
 /**
