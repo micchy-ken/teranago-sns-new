@@ -1,4 +1,5 @@
 import { ComponentType, lazy, LazyExoticComponent } from 'react';
+import { syncReactInternals } from './reactBridge';
 
 /**
  * 新バージョン配信によるチャンクロードエラー（Failed to fetch dynamically imported module等）
@@ -8,12 +9,14 @@ export function lazyWithRetry<T extends ComponentType<any>>(
   componentImport: () => Promise<{ default: T } | { [key: string]: any }>
 ): LazyExoticComponent<T> {
   return lazy(async () => {
+    syncReactInternals();
     const pageAlreadyRefreshed = JSON.parse(
       window.sessionStorage.getItem('retry-lazy-refreshed') || 'false'
     );
 
     try {
       const component = await componentImport();
+      syncReactInternals();
       // 読み込みが正常に成功した場合はフラグをクリア
       window.sessionStorage.setItem('retry-lazy-refreshed', 'false');
       

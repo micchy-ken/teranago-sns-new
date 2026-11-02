@@ -22,6 +22,11 @@ export default defineConfig(({ command }) => {
         'react/jsx-dev-runtime',
         'lucide-react',
         'motion',
+        'exceljs',
+        'leaflet',
+        'mammoth',
+        'pdfjs-dist',
+        'xlsx',
       ],
     },
     server: {

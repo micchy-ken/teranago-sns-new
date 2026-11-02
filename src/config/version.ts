@@ -15,12 +15,12 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.11.02.1',
+  version: '2026.11.02.2',
   date: '2026-11-02',
-  releaseNumber: 1,
-  display: 'v2026.11.02 #1 (JST)',
+  releaseNumber: 2,
+  display: 'v2026.11.02 #2 (JST)',
   timeZone: '日本標準時 (JST / UTC+09:00)',
-  description: 'ユーティリティタブに写真報告書タブを追加（自作写真報告書一覧・新規作成・編集・複製・A4印刷対応）',
+  description: '動的チャンクロード時のReactフックディスパッチャー共有ブリッジ実装（Invalid hook call / useState読み取りエラー防止）および依存関係最適化',
 };
 
 /**
