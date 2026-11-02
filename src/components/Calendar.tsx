@@ -7,6 +7,7 @@ import { ChevronLeft, ChevronRight, List as ListIcon, Calendar as CalendarIcon, 
 import { EventModal } from './EventModal';
 import { GlobalEventDetailModal } from './GlobalEventDetailModal';
 import { CalendarSettingsModal } from './CalendarSettingsModal';
+import { MobileTeamSettingsModal } from './MobileTeamSettingsModal';
 import { CalendarConstructionTimeline } from './CalendarConstructionTimeline';
 import { renderWithClickableLinks } from '../utils/linkify';
 import { renderContentWithLinks } from '../utils/renderContentWithLinks';
@@ -382,6 +383,8 @@ export function Calendar({
   // --- カレンダー表示設定 (平日のみ / 時間帯 / 密度) & マイグループ ---
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [settingsModalTab, setSettingsModalTab] = useState<'display' | 'groups'>('display');
+  // スマホ用チーム表示・マイグループ設定ポップアップ
+  const [isMobileTeamModalOpen, setIsMobileTeamModalOpen] = useState(false);
 
   const [calendarSettings, setCalendarSettings] = useState<CalendarViewSettings>(() => {
     const fromUser = currentUser?.preferences?.calendarViewSettings;
@@ -2941,6 +2944,19 @@ export function Calendar({
                 <Plus className="w-4 h-4 stroke-[2.5]" />
               </button>
 
+              {/* Mobile Team Settings Button */}
+              {calendarMode === 'team' && (
+                <button
+                  type="button"
+                  onClick={() => setIsMobileTeamModalOpen(true)}
+                  className="h-7 px-1.5 bg-indigo-50 hover:bg-indigo-100 border border-indigo-300 text-indigo-900 rounded-lg flex items-center gap-1 text-[11px] font-bold shadow-2xs transition-colors shrink-0 cursor-pointer"
+                  title="チーム表示・マイグループ設定"
+                >
+                  <Users className="w-3.5 h-3.5 text-indigo-700" />
+                  <span className="hidden xs:inline">チーム設定</span>
+                </button>
+              )}
+
               {/* Calendar View Settings Button on Mobile */}
               <button
                 type="button"
@@ -3254,6 +3270,45 @@ export function Calendar({
             </div>
           </div>
 
+          {/* Mobile Team Target Bar: チーム表示時に現在の対象（所属またはマイグループ）を表示＆タップで設定ポップアップ */}
+          {calendarMode === 'team' && (
+            <div className="flex items-center justify-between gap-1.5 bg-gradient-to-r from-indigo-50/95 via-indigo-50/80 to-blue-50/80 border border-indigo-200/90 rounded-xl px-2.5 py-1.5 text-xs shadow-2xs">
+              <button
+                type="button"
+                onClick={() => setIsMobileTeamModalOpen(true)}
+                className="flex items-center gap-2 min-w-0 flex-1 text-left cursor-pointer group"
+              >
+                <span className="p-1.5 bg-indigo-600 text-white rounded-lg shrink-0 shadow-2xs group-hover:bg-indigo-700 transition-colors">
+                  <Users className="w-3.5 h-3.5" />
+                </span>
+                <div className="min-w-0 flex-1 truncate">
+                  <div className="text-[10px] text-indigo-700 font-bold leading-tight flex items-center gap-1">
+                    <span>チーム表示対象</span>
+                    <span className="text-[9px] px-1 py-0.1 bg-indigo-100 text-indigo-800 rounded font-bold">
+                      {teamMembers.length}名
+                    </span>
+                  </div>
+                  <div className="text-xs font-bold text-slate-900 truncate">
+                    {selectedGroupId === 'org' ? (
+                      `🏢 ${selectedOffice || '全社'} / ${selectedDivision || '全部署'}`
+                    ) : (
+                      `👥 ${activeSelectedGroup?.name || 'マイグループ'}`
+                    )}
+                  </div>
+                </div>
+                <ChevronDown className="w-4 h-4 text-indigo-400 shrink-0 group-hover:text-indigo-600 transition-colors" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsMobileTeamModalOpen(true)}
+                className="px-2.5 py-1 bg-white hover:bg-indigo-50 active:bg-indigo-100 border border-indigo-300 text-indigo-800 rounded-lg text-xs font-bold shrink-0 shadow-2xs transition-colors flex items-center gap-1 cursor-pointer"
+              >
+                <SlidersHorizontal className="w-3 h-3 text-indigo-600" />
+                <span>設定</span>
+              </button>
+            </div>
+          )}
 
           {/* Mobile Row 2: View Switcher (Google Calendar segmented) + Quick Sub-Controls */}
           <div className="flex items-center justify-between gap-1.5">
@@ -4838,6 +4893,30 @@ export function Calendar({
         memberGroups={memberGroups}
         onSaveMemberGroups={handleSaveMemberGroups}
         initialTab={settingsModalTab}
+      />
+
+      {/* スマホ用 チーム表示・マイグループ設定ポップアップ */}
+      <MobileTeamSettingsModal
+        isOpen={isMobileTeamModalOpen}
+        onClose={() => setIsMobileTeamModalOpen(false)}
+        selectedGroupId={selectedGroupId}
+        onSelectGroupId={setSelectedGroupId}
+        selectedOffice={selectedOffice}
+        onSelectOffice={setSelectedOffice}
+        officeNames={officeNames}
+        selectedDivision={selectedDivision}
+        onSelectDivision={setSelectedDivision}
+        divisionNames={divisionNames}
+        memberGroups={memberGroups}
+        allUsers={allUsers}
+        teamMembersCount={teamMembers.length}
+        selectedTypeFilter={selectedTypeFilter}
+        onSelectTypeFilter={setSelectedTypeFilter}
+        typeLabels={typeLabels}
+        onOpenManageGroups={() => {
+          setSettingsModalTab('groups');
+          setIsSettingsModalOpen(true);
+        }}
       />
 
       {/* お気に入り操作トースト通知 */}

@@ -15,12 +15,12 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.11.02.2',
+  version: '2026.11.02.4',
   date: '2026-11-02',
-  releaseNumber: 2,
-  display: 'v2026.11.02 #2 (JST)',
+  releaseNumber: 4,
+  display: 'v2026.11.02 #4 (JST)',
   timeZone: '日本標準時 (JST / UTC+09:00)',
-  description: '動的チャンクロード時のReactフックディスパッチャー共有ブリッジ実装（Invalid hook call / useState読み取りエラー防止）および依存関係最適化',
+  description: 'スマホカレンダー表示におけるチーム・マイグループ設定ポップアップ（MobileTeamSettingsModal）およびチーム表示対象クイックバーの実装',
 };
 
 /**

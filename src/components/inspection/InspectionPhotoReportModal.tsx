@@ -96,6 +96,15 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
   const [isBulkUploading, setIsBulkUploading] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successToast, setSuccessToast] = useState<string | null>(null);
+  // 印刷・プレビュー時ヘッダー表示ON/OFF（デフォルトON、ブラウザに状態記憶）
+  const [showPrintHeader, setShowPrintHeader] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('photo_report_show_header');
+      return saved !== null ? saved === 'true' : true;
+    } catch (_) {
+      return true;
+    }
+  });
 
   // ファイルアップロード用Ref
   const fileInputRefs = useRef<(HTMLInputElement | null)[]>([]);
@@ -1553,19 +1562,36 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
             {/* activeTabに関わらずDOMに常時マウントし、印刷時は常に最前面で出力 */}
             {/* ============================================================ */}
             <div className={activeTab === 'preview' ? 'flex flex-col items-center w-full print:block' : 'hidden print:block w-full'}>
-              <div className="mb-4 flex items-center justify-between gap-3 w-full max-w-[210mm] print:hidden">
-                <div className="flex items-center gap-2">
+              <div className="mb-4 flex items-center justify-between gap-3 w-full max-w-[210mm] print:hidden flex-wrap sm:flex-nowrap">
+                <div className="flex items-center gap-2.5 flex-wrap">
                   <span className="text-xs font-bold text-slate-700">
                     A4縦 印刷プレビュー
                   </span>
                   <span className="text-xs px-2.5 py-0.5 rounded-full bg-indigo-100 text-indigo-800 font-bold border border-indigo-200">
                     全 {totalPages} ページ ({photos.length}枠登録)
                   </span>
+
+                  {/* ヘッダー表示ON/OFF切り替えスイッチ（デフォルトON・印刷前オフ可能） */}
+                  <label className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-700 cursor-pointer hover:bg-slate-50 transition-colors shadow-2xs select-none">
+                    <input
+                      type="checkbox"
+                      checked={showPrintHeader}
+                      onChange={(e) => {
+                        const nextVal = e.target.checked;
+                        setShowPrintHeader(nextVal);
+                        try {
+                          localStorage.setItem('photo_report_show_header', String(nextVal));
+                        } catch (_) {}
+                      }}
+                      className="w-3.5 h-3.5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer"
+                    />
+                    <span>ヘッダー（件名・頁数）あり</span>
+                  </label>
                 </div>
                 <button
                   type="button"
                   onClick={handlePrint}
-                  className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm transition-colors cursor-pointer flex items-center gap-1.5"
+                  className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm transition-colors cursor-pointer flex items-center gap-1.5 shrink-0"
                 >
                   <Printer className="w-3.5 h-3.5" />
                   <span>この内容で全ページ印刷 / PDF保存</span>
@@ -1587,10 +1613,10 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
                       className="photo-report-page w-full max-w-[210mm] min-h-[297mm] bg-white p-6 sm:p-8 shadow-xl border border-slate-300 mx-auto text-slate-900 font-sans flex flex-col justify-between relative print:shadow-none print:border-none print:m-0 print:p-0 print:min-h-0"
                       style={{ minHeight: '297mm' }}
                     >
-                      {/* 複数ページある場合のページヘッダー */}
-                      {totalPages > 1 && (
+                      {/* ページヘッダー（デフォルト表示・印刷前にOFF可能） */}
+                      {showPrintHeader && (
                         <div className="flex items-center justify-between text-[11px] text-slate-500 font-bold border-b border-slate-300 pb-1 mb-2">
-                          <span className="truncate text-slate-700">
+                          <span className="truncate text-slate-700 font-bold">
                             {title || '点検・写真報告書'}
                           </span>
                           <span className="font-mono bg-slate-100 px-2 py-0.5 rounded print:bg-transparent text-slate-800">
@@ -1694,8 +1720,8 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
                         })}
                       </div>
 
-                      {/* 複数ページある場合のページフッター */}
-                      {totalPages > 1 && (
+                      {/* ページフッター（ヘッダー表示連動） */}
+                      {showPrintHeader && (
                         <div className="text-center text-[10px] text-slate-400 font-mono pt-1.5 border-t border-slate-200 mt-2 print:border-slate-300">
                           - {pageNumber} / {totalPages} -
                         </div>
