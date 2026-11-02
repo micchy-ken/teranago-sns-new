@@ -106,6 +106,7 @@ export interface User {
   sortOrder?: number | null; // ユーザー表示順（ソート順序 / 昇順）
   preferences?: UserPreferences; // マイページ並び順・各種個人設定 (JSON)
   mustChangePassword?: boolean; // 初回ログイン時・管理者指定時のパスワード変更強制フラグ
+  isPasswordDefault?: boolean;  // 初期パスワード(test)または未設定状態フラグ
   resetPasswordToken?: string; // パスワード再設定用トークン
   resetPasswordExpires?: string; // パスワード再設定トークンの有効期限
   invitedAt?: string; // 招待受諾日時
@@ -404,6 +405,7 @@ export interface BoardTopic {
   author: User;
   createdAt: string; // ISO string
   views: number;
+  likes?: number;
   commentsCount: number;
   
   // 拡張項目

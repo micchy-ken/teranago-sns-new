@@ -44,6 +44,7 @@ interface InspectionPhotoReportModalProps {
   existingPhotoReport?: InspectionPhotoReport | null;
   inspectionReportsList?: InspectionReportRecord[];
   onSaved?: (savedReport: InspectionPhotoReport) => void;
+  initialTab?: 'edit' | 'preview';
 }
 
 // クイック選択用工程タグ
@@ -69,6 +70,7 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
   existingPhotoReport,
   inspectionReportsList = [],
   onSaved,
+  initialTab = 'edit',
 }) => {
   // 基本情報ステート
   const [reportId, setReportId] = useState<string>('');
@@ -119,6 +121,7 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
   useEffect(() => {
     if (!isOpen) return;
 
+    setActiveTab(initialTab);
     let isMounted = true;
 
     const loadData = async () => {

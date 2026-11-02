@@ -2343,6 +2343,8 @@ async function startServer() {
     }
   });
 
+  const usersPath = path.join(dataDir, 'users.json');
+
   const defaultInitialUsers = [
     {
       id: 'u1',

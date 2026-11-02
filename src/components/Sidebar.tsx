@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { Hash, Home, Bookmark, User, Calendar as CalendarIcon, FileText, MessageSquare, Phone, ClipboardList, Monitor, Shield, HardDrive, Users, ShieldAlert, Wrench, ChevronDown, ChevronRight, FileCheck2, FolderArchive, BookOpen, ExternalLink, CalendarDays, HardHat, Undo2 } from 'lucide-react';
+import { Hash, Home, Bookmark, User, Calendar as CalendarIcon, FileText, MessageSquare, Phone, ClipboardList, Monitor, Shield, HardDrive, Users, ShieldAlert, Wrench, ChevronDown, ChevronRight, FileCheck2, FolderArchive, BookOpen, ExternalLink, CalendarDays, HardHat, Undo2, Camera } from 'lucide-react';
 import { Post, BoardTopic, User as UserType } from '../types';
 
-export type AppTab = 'timeline' | 'calendar' | 'inspection_scheduler' | 'inspection_report' | 'site_management' | 'workflow' | 'board' | 'chat' | 'memo' | 'documents' | 'daily_report' | 'files' | 'members' | 'mypage' | 'admin' | 'safety_confirmation';
+export type AppTab = 'timeline' | 'calendar' | 'inspection_scheduler' | 'inspection_report' | 'site_management' | 'workflow' | 'board' | 'chat' | 'memo' | 'documents' | 'daily_report' | 'files' | 'members' | 'mypage' | 'admin' | 'safety_confirmation' | 'photo_reports';
 
 export interface SidebarUnreadCounts {
   chat?: number;
@@ -119,6 +119,7 @@ export function Sidebar({
 
   const hasUtilityItems = 
     isTabAllowed('members') ||
+    isTabAllowed('photo_reports') ||
     isTabAllowed('inspection_scheduler') || 
     isTabAllowed('files') || 
     isTabAllowed('safety_confirmation') || 
@@ -382,6 +383,20 @@ export function Sidebar({
                   >
                     <ClipboardList className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
                     <span className="truncate">点検予定管理</span>
+                  </button>
+                )}
+                {isTabAllowed('photo_reports') && (
+                  <button
+                    type="button"
+                    onClick={() => onChangeTab('photo_reports')}
+                    className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${
+                      activeTab === 'photo_reports'
+                        ? 'bg-indigo-50 text-indigo-700 font-bold shadow-2xs'
+                        : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                    }`}
+                  >
+                    <Camera className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                    <span className="truncate">写真報告書</span>
                   </button>
                 )}
                 {isTabAllowed('files') && (

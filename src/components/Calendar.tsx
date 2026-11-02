@@ -80,6 +80,11 @@ const typeLabels: Record<EventType, string> = {
 function getInitialPresetInfo(
   user?: User,
   initials?: {
+    initialOffice?: string;
+    initialDivision?: string;
+    initialMode?: 'personal' | 'team';
+    initialView?: ViewMode;
+    initialTypeFilter?: string;
     office?: string;
     division?: string;
     mode?: 'personal' | 'team';
@@ -88,7 +93,11 @@ function getInitialPresetInfo(
   }
 ) {
   const hasExplicitUrlParams = Boolean(
-    initials?.mode || initials?.view || initials?.office || initials?.division || initials?.typeFilter
+    initials?.initialMode || initials?.mode ||
+    initials?.initialView || initials?.view ||
+    initials?.initialOffice || initials?.office ||
+    initials?.initialDivision || initials?.division ||
+    initials?.initialTypeFilter || initials?.typeFilter
   );
   if (hasExplicitUrlParams || !user?.preferences) return null;
 

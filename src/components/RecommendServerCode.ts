@@ -1,7 +1,7 @@
 /**
  * Synology NAS (Docker / Node.js) 用 推奨サーバーコード
  * 
- * 最終更新日時 (最終アップデート): 2026年10月30日 (パスワード未設定・初期PW(test)判別・一括設定依頼メール送信API追加版)
+ * 最終更新日時 (最終アップデート): 2026年10月30日 (ユーザー認証・パスワード暗号化マイグレーションおよびusersPath参照バグ修正版)
  * 
  * 概要:
  * 本コードは TERANAGO 社内SNS のバックエンドAPIサーバー (Express + MS SQL Server / JSONファイルDB) の完全版です。
@@ -11,6 +11,7 @@
  * 2. 未設定メンバー宛て一括パスワード設定依頼メール送信 API (POST /api/passwords/request-reset-bulk)
  * 3. パスワードの暗号学的ソルト付き scrypt ハッシュ化 & サーバーサイドログイン認証 (/api/auth/login)
  * 4. APIレスポンス平文パスワード完全削除・マスク化
+ * 5. usersPath参照の安定化・安全性向上
  */
 
 export const RECOMMEND_SERVER_JS = `import express from 'express';
@@ -2357,6 +2358,8 @@ async function startServer() {
       res.status(500).json({ error: 'ログイン処理中にエラーが発生しました。' });
     }
   });
+
+  const usersPath = path.join(dataDir, 'users.json');
 
   const defaultInitialUsers = [
     {

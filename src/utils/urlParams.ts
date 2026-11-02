@@ -53,6 +53,7 @@ export function normalizeTab(tabStr?: string | null): AppTab | undefined {
   if (['files', 'file', 'nas', 'ファイル'].includes(lower)) return 'files';
   if (['mypage', 'my', 'profile', 'personal', 'マイページ', '個人設定'].includes(lower)) return 'mypage';
   if (['safety_confirmation', 'safety', 'anpi', 'anzen', '安否確認', '安否'].includes(lower)) return 'safety_confirmation';
+  if (['photo_reports', 'photo_report', 'photoreports', 'photoreport', '写真報告書', '写真報告'].includes(lower)) return 'photo_reports';
   if (['admin', 'kanri', 'settings', '管理'].includes(lower)) return 'admin';
 
   return undefined;

@@ -32,6 +32,7 @@ const MyPage = lazyWithRetry(() => import('./components/MyPage').then(m => ({ de
 const AdminPanel = lazyWithRetry(() => import('./components/AdminPanel').then(m => ({ default: m.AdminPanel })));
 const FileManager = lazyWithRetry(() => import('./components/FileManager'));
 const DocumentManager = lazyWithRetry(() => import('./components/DocumentManager'));
+const PhotoReportsTab = lazyWithRetry(() => import('./components/PhotoReportsTab').then(m => ({ default: m.PhotoReportsTab })));
 import { SchedulePollModal } from './components/SchedulePollModal';
 import { SchedulePoll } from './types/schedulePoll';
 import { Post, CalendarEvent, WorkflowApplication, User, OfficeMaster, DivisionMaster, PositionMaster, BoardTopic, ChatRoom, ApprovalFlowRule, ApprovalStepConfig, ItemMaster, ApplicationStatus, DailyReport, Memo, SafetyConfirmationEvent, SafetyConfirmationResponse } from './types';
@@ -3606,6 +3607,13 @@ export default function App() {
               divisions={divisions}
               onOpenConfirmModal={handleOpenConfirmModal}
               initialEventId={targetSafetyEventId}
+            />
+          )}
+          {activeTab === 'photo_reports' && (
+            <PhotoReportsTab
+              currentUser={userState}
+              allUsers={usersList}
+              events={events}
             />
           )}
           {activeTab === 'mypage' && (

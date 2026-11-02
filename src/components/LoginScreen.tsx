@@ -468,7 +468,7 @@ export function LoginScreen({
         throw new Error(data.error || 'パスワードの再設定に失敗しました。');
       }
 
-      // URLクエリパラメータをクリーンアップ
+      // URLクエリパラメータをクリーンアップしてURLをきれいにする
       if (typeof window !== 'undefined' && window.history) {
         try {
           const cleanUrl = window.location.pathname + (window.location.hash ? window.location.hash.split('?')[0] : '');
@@ -476,25 +476,61 @@ export function LoginScreen({
         } catch (_) {}
       }
 
-      // 解決されたログインID（koga 等）を自動セット
-      const resolvedId = data?.user?.loginId || resetUserData?.loginId || resetUserData?.email?.split('@')[0] || '';
-      if (resolvedId) {
-        setLoginId(resolvedId);
+      // 解決されたユーザーデータを構築
+      const baseUserData = data?.user || resetUserData || {};
+      const resolvedUser: User = {
+        id: String(baseUserData.id || resetUserData?.id || 'u1'),
+        name: baseUserData.name || resetUserData?.name || 'ユーザー',
+        loginId: baseUserData.loginId || resetUserData?.loginId || '',
+        email: baseUserData.email || resetUserData?.email || '',
+        office: baseUserData.office || '',
+        division: baseUserData.division || '',
+        position: baseUserData.position || '',
+        department: baseUserData.department || '',
+        avatarUrl: baseUserData.avatarUrl || '',
+        role: baseUserData.role || (baseUserData.isAdmin ? 'admin' : 'user'),
+        isAdmin: !!baseUserData.isAdmin,
+        mustChangePassword: false,
+        preferences: {
+          ...(baseUserData.preferences || {}),
+          mustChangePassword: false,
+        }
+      };
+
+      // 既存ユーザーリストから不足情報を補完
+      if (users && users.length > 0) {
+        const found = users.find(u => String(u.id) === String(resolvedUser.id) || (u.loginId && u.loginId === resolvedUser.loginId));
+        if (found) {
+          if (!resolvedUser.name) resolvedUser.name = found.name;
+          if (!resolvedUser.office) resolvedUser.office = found.office;
+          if (!resolvedUser.division) resolvedUser.division = found.division;
+          if (!resolvedUser.position) resolvedUser.position = found.position;
+          if (!resolvedUser.department) resolvedUser.department = found.department;
+          if (!resolvedUser.avatarUrl) resolvedUser.avatarUrl = found.avatarUrl;
+          if (found.isAdmin !== undefined) resolvedUser.isAdmin = found.isAdmin;
+          if (found.role) resolvedUser.role = found.role;
+        }
       }
 
-      // ユーザー一覧の再取得は非同期（バックグラウンド）で行い画面遷移を遅延させない
+      // ローカルストレージに最新の認証情報を確実に永続化
+      try {
+        localStorage.setItem('is_logged_in', 'true');
+        localStorage.setItem('logged_in_user_id', String(resolvedUser.id));
+        localStorage.setItem('logged_in_user_data', JSON.stringify(resolvedUser));
+        localStorage.removeItem('impersonator_admin_user');
+      } catch (_) {}
+
+      // ユーザー一覧の再取得は非同期（バックグラウンド）で行う
       if (onRefetchUsers) {
         onRefetchUsers().catch(err => console.warn('User refetch warning:', err));
       }
 
-      setSuccessMessage('新しいパスワードを設定しました。ログイン画面へ移動します...');
+      setSuccessMessage('パスワードを設定しました！ログインが完了しました。');
 
-      // 1秒後にログイン画面へ自動遷移
+      // ログイン画面へ戻さず、そのまま直接メイン画面へログイン遷移
       setTimeout(() => {
-        setAuthMode('login');
-        setPassword('');
-        setSuccessMessage('新しいパスワードを設定しました。設定したパスワードでログインしてください。');
-      }, 1000);
+        onLogin(resolvedUser);
+      }, 600);
     } catch (err: any) {
       setError(err.message || 'パスワード再設定中にエラーが発生しました。');
     } finally {
@@ -1003,23 +1039,12 @@ export function LoginScreen({
                 )}
 
                 {successMessage && (
-                  <div className="space-y-3">
-                    <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-center gap-2.5 text-emerald-400 text-xs font-bold animate-pulse">
-                      <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
-                      <span>{successMessage}</span>
+                  <div className="p-3.5 bg-emerald-500/15 border border-emerald-500/30 rounded-xl flex items-center gap-3 text-emerald-300 text-xs font-bold animate-pulse">
+                    <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-400" />
+                    <div>
+                      <p className="font-bold text-white">{successMessage}</p>
+                      <p className="text-[11px] text-emerald-400/80 font-normal mt-0.5">メイン画面へ移動しています...</p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAuthMode('login');
-                        setPassword('');
-                        setSuccessMessage('新しいパスワードを設定しました。設定したパスワードでログインしてください。');
-                      }}
-                      className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs transition cursor-pointer flex items-center justify-center gap-2 shadow-md shadow-emerald-600/20"
-                    >
-                      <LogIn className="w-4 h-4" />
-                      今すぐログイン画面へ移動する
-                    </button>
                   </div>
                 )}
 
@@ -1090,18 +1115,23 @@ export function LoginScreen({
                 <div className="pt-2">
                   <button
                     type="submit"
-                    disabled={loading}
+                    disabled={loading || !!successMessage}
                     className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold rounded-xl shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2 text-xs transition-all cursor-pointer"
                   >
                     {loading ? (
                       <>
                         <RefreshCw className="w-4 h-4 animate-spin" />
-                        パスワードを更新中...
+                        パスワードを設定中...
+                      </>
+                    ) : successMessage ? (
+                      <>
+                        <CheckCircle2 className="w-4 h-4 text-emerald-300" />
+                        設定完了・ログイン中...
                       </>
                     ) : (
                       <>
                         <CheckCircle2 className="w-4 h-4" />
-                        新しいパスワードを保存
+                        新しいパスワードを設定してログイン
                       </>
                     )}
                   </button>

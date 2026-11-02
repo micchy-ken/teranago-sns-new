@@ -15,12 +15,12 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.10.30.9',
-  date: '2026-10-30',
-  releaseNumber: 9,
-  display: 'v2026.10.30 #9 (JST)',
+  version: '2026.11.02.1',
+  date: '2026-11-02',
+  releaseNumber: 1,
+  display: 'v2026.11.02 #1 (JST)',
   timeZone: '日本標準時 (JST / UTC+09:00)',
-  description: 'カレンダー画面初期ロード時のお気に入りプリセット（初期表示）直接読込機能の実装（個人画面経由の画面チラつき防止）',
+  description: 'ユーティリティタブに写真報告書タブを追加（自作写真報告書一覧・新規作成・編集・複製・A4印刷対応）',
 };
 
 /**
