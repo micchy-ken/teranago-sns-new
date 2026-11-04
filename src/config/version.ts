@@ -15,12 +15,12 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.11.02.4',
-  date: '2026-11-02',
-  releaseNumber: 4,
-  display: 'v2026.11.02 #4 (JST)',
+  version: '2026.11.04.1',
+  date: '2026-11-04',
+  releaseNumber: 1,
+  display: 'v2026.11.04 #1 (JST)',
   timeZone: '日本標準時 (JST / UTC+09:00)',
-  description: 'スマホカレンダー表示におけるチーム・マイグループ設定ポップアップ（MobileTeamSettingsModal）およびチーム表示対象クイックバーの実装',
+  description: '掲示板・カレンダー・チャットのPDFプレビューにおいて、文書管理と同様に確実にインライン描画できる高精細ブラウザ標準ビューアー（BlobURL / iframe）への刷新',
 };
 
 /**
