@@ -15,12 +15,12 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.11.04.1',
+  version: '2026.11.04.2',
   date: '2026-11-04',
-  releaseNumber: 1,
-  display: 'v2026.11.04 #1 (JST)',
+  releaseNumber: 2,
+  display: 'v2026.11.04 #2 (JST)',
   timeZone: '日本標準時 (JST / UTC+09:00)',
-  description: '掲示板・カレンダー・チャットのPDFプレビューにおいて、文書管理と同様に確実にインライン描画できる高精細ブラウザ標準ビューアー（BlobURL / iframe）への刷新',
+  description: 'PDFプレビューの二重ヘッダー（入れ子表示）を解消し、モーダル最上部に「別タブで開く」「ダウンロード」を統合したすっきりした全画面ビューアーへの最適化',
 };
 
 /**

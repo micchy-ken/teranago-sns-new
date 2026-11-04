@@ -2,6 +2,7 @@ import React, { useEffect, Suspense, lazy } from 'react';
 import { 
   X, 
   Download, 
+  ExternalLink,
   FileText, 
   FileImage, 
   FileCode, 
@@ -123,6 +124,18 @@ export function FilePreviewModal({ isOpen, onClose, file }: FilePreviewModalProp
           <div className="flex items-center gap-2 shrink-0">
             {resolvedUrl && (
               <button
+                type="button"
+                onClick={() => window.open(resolvedUrl, '_blank', 'noopener,noreferrer')}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl border border-slate-200 transition-colors cursor-pointer"
+                title="ブラウザの別タブで開く"
+              >
+                <ExternalLink className="w-3.5 h-3.5 text-slate-600" />
+                <span className="hidden sm:inline">別タブで開く</span>
+              </button>
+            )}
+            {resolvedUrl && (
+              <button
+                type="button"
                 onClick={handleDownload}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs rounded-xl border border-indigo-200 transition-colors cursor-pointer"
                 title="端末にダウンロード"
@@ -132,6 +145,7 @@ export function FilePreviewModal({ isOpen, onClose, file }: FilePreviewModalProp
               </button>
             )}
             <button
+              type="button"
               onClick={onClose}
               className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-200/60 rounded-xl transition-colors cursor-pointer"
               title="閉じる (Esc)"
