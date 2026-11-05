@@ -15,12 +15,12 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.11.05.5',
+  version: '2026.11.05.6',
   date: '2026-11-05',
-  releaseNumber: 5,
-  display: 'v2026.11.05 #5 (JST)',
+  releaseNumber: 6,
+  display: 'v2026.11.05 #6 (JST)',
   timeZone: '日本標準時 (JST / UTC+09:00)',
-  description: 'クイズ出題時のメッセージ二重送信防止（App.tsx同期除外ガード）およびquizId欠損時のスピナー停止対応',
+  description: 'クイズ出題メッセージの送信中表示（isPending誤判定）の完全解消',
 };
 
 /**

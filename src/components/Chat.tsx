@@ -348,9 +348,12 @@ const ChatMessageItem = React.memo(function ChatMessageItem({
   const senderAvatar = (msg.sender.id === currentUser.id ? currentUser.avatarUrl : senderUser?.avatarUrl) || msg.sender.avatarUrl;
   const senderName = (msg.sender.id === currentUser.id ? currentUser.name : senderUser?.name) || msg.sender.name;
 
-  // 未確定（送信中）仮メッセージの判定
+  // 未確定（送信中）仮メッセージの判定（クイズメッセージは出題APIで確定済みのため除外）
   const isPending =
+    msg.type !== 'quiz' &&
     typeof msg.id === 'string' &&
+    !msg.id.startsWith('m_quiz_') &&
+    !msg.id.startsWith('c-quiz-') &&
     (msg.id.startsWith('m_') ||
       msg.id.startsWith('stamp_') ||
       msg.id.startsWith('img_') ||
