@@ -1,8 +1,8 @@
 /**
  * =====================================================================
  * routes/photoReports.js - 点検・写真報告書 API ルーター (完全版)
- * 最終更新日時: 2026年10月4日
- * 機能: 写真報告書(2〜4枚構成)の作成・更新・一覧取得・下書き保存・No手動紐付け・画像アップロード・MS SQL Server連携
+ * 最終更新日時: 2026年11月5日
+ * 機能: 写真報告書(2〜4枚構成)の作成・更新・一覧取得・下書き保存・No手動紐付け・画像アップロード・写真画像直接配信(/api/photo-reports/image/:filename)・MS SQL Server連携
  * =====================================================================
  */
 import { Router } from 'express';
@@ -237,8 +237,8 @@ router.post(
         return res.status(400).json({ error: '画像ファイルが指定されていません' });
       }
 
-      // 公開アクセス用URL
-      const fileUrl = `/uploads/photo-reports/${req.file.filename}`;
+      // 公開アクセス用URL（Synologyリバースプロキシを安全に通過する/api経由）
+      const fileUrl = `/api/photo-reports/image/${req.file.filename}`;
       res.json({
         success: true,
         fileUrl,
@@ -249,6 +249,36 @@ router.post(
     } catch (err) {
       console.error('[PhotoReports Upload Error]:', err);
       res.status(500).json({ error: '画像のアップロードに失敗しました', details: err.message });
+    }
+  }
+);
+
+// ==========================================
+// 3.5 写真画像の直接配信フォールバック (GET /api/photo-reports/image/:filename, /image/:filename)
+// ==========================================
+router.get(
+  [
+    '/image/:filename',
+    '/file/:filename',
+    '/photo-reports/image/:filename',
+    '/photo-reports/file/:filename',
+    '/uploads/photo-reports/:filename',
+    '/api/uploads/photo-reports/:filename',
+  ],
+  (req, res) => {
+    try {
+      const filename = path.basename(req.params.filename);
+      const filePath = path.join(UPLOAD_DIR, filename);
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+      res.setHeader('Cache-Control', 'public, max-age=2592000, immutable');
+      if (fs.existsSync(filePath)) {
+        return res.sendFile(filePath);
+      }
+      res.status(404).send('Not Found');
+    } catch (err) {
+      console.error('[PhotoReports Image Serve Error]:', err);
+      res.status(500).send('Error');
     }
   }
 );

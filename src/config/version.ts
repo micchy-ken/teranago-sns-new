@@ -15,12 +15,12 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.11.04.2',
-  date: '2026-11-04',
+  version: '2026.11.05.2',
+  date: '2026-11-05',
   releaseNumber: 2,
-  display: 'v2026.11.04 #2 (JST)',
+  display: 'v2026.11.05 #2 (JST)',
   timeZone: '日本標準時 (JST / UTC+09:00)',
-  description: 'PDFプレビューの二重ヘッダー（入れ子表示）を解消し、モーダル最上部に「別タブで開く」「ダウンロード」を統合したすっきりした全画面ビューアーへの最適化',
+  description: '写真報告書写真画像の直接配信エンドポイント（/api/photo-reports/image/）整備、Synologyリバースプロキシ用CORS対応、および回転時パス正規化・即時UI反映の強化',
 };
 
 /**

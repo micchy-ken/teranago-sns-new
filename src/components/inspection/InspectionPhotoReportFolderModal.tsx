@@ -25,6 +25,7 @@ import { InspectionPhotoReport } from '../../types/photoReport';
 import { InspectionReportRecord } from '../../types/inspectionReport';
 import { User } from '../../types';
 import { API_BASE_URL } from '../../config/api';
+import { resolveFileUrl } from '../../utils/fileUpload';
 
 interface InspectionPhotoReportFolderModalProps {
   isOpen: boolean;
@@ -387,7 +388,7 @@ export const InspectionPhotoReportFolderModal: React.FC<InspectionPhotoReportFol
                           >
                             {p.imageUrl ? (
                               <img
-                                src={p.imageUrl}
+                                src={resolveFileUrl(p.imageUrl)}
                                 alt={p.stageTitle || `写真${idx + 1}`}
                                 className="w-full h-full object-cover"
                               />

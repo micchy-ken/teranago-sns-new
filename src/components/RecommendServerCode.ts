@@ -1,17 +1,14 @@
 /**
  * Synology NAS (Docker / Node.js) 用 推奨サーバーコード
  * 
- * 最終更新日時 (最終アップデート): 2026年10月30日 (ユーザー認証・パスワード暗号化マイグレーションおよびusersPath参照バグ修正版)
+ * 最終更新日時 (最終アップデート): 2026年11月5日 (写真報告書画像の直接配信 /api/photo-reports/image およびCORS対応版)
  * 
  * 概要:
  * 本コードは TERANAGO 社内SNS のバックエンドAPIサーバー (Express + MS SQL Server / JSONファイルDB) の完全版です。
  * 
  * [最新の主な変更・新機能]
- * 1. パスワード未設定・初期値(test)メンバー自動判定機能 (isPasswordDefault: true)
- * 2. 未設定メンバー宛て一括パスワード設定依頼メール送信 API (POST /api/passwords/request-reset-bulk)
- * 3. パスワードの暗号学的ソルト付き scrypt ハッシュ化 & サーバーサイドログイン認証 (/api/auth/login)
- * 4. APIレスポンス平文パスワード完全削除・マスク化
- * 5. usersPath参照の安定化・安全性向上
+ * 1. 写真報告書写真画像の直接配信エンドポイント (/api/photo-reports/image, /api/photo-reports/file) 対応
+ * 2. 写真画像のCORSヘッダー完備とSynologyリバースプロキシ通過最適化
  */
 
 export const RECOMMEND_SERVER_JS = `import express from 'express';
@@ -831,7 +828,7 @@ async function startServer() {
   if (!fs.existsSync(photoReportsDir)) {
     fs.mkdirSync(photoReportsDir, { recursive: true });
   }
-  app.use(['/uploads/photo-reports', '/api/uploads/photo-reports'], express.static(photoReportsDir, staticFileOptions));
+  app.use(['/uploads/photo-reports', '/api/uploads/photo-reports', '/api/photo-reports/image', '/api/photo-reports/file'], express.static(photoReportsDir, staticFileOptions));
   app.use(['/api/photo-reports', '/api/inspection-photo-reports'], photoReportsRouter);
   app.use('/api', photoReportsRouter);
 

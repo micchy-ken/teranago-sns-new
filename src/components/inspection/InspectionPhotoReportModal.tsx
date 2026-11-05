@@ -35,6 +35,7 @@ import { InspectionReportRecord } from '../../types/inspectionReport';
 import { User } from '../../types';
 import { API_BASE_URL } from '../../config/api';
 import { compressImageToDataUrl, rotateImage } from '../../utils/imageCompressor';
+import { resolveFileUrl } from '../../utils/fileUpload';
 
 interface InspectionPhotoReportModalProps {
   isOpen: boolean;
@@ -373,7 +374,7 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
       if (uploadRes.ok) {
         const data = await uploadRes.json();
         // サーバーURLまたはBase64をセット
-        const finalUrl = data.fileUrl ? `${API_BASE_URL.replace('/api', '')}${data.fileUrl}` : compressedDataUrl;
+        const finalUrl = data.fileUrl ? resolveFileUrl(data.fileUrl) : compressedDataUrl;
         handleUpdatePhoto(index, { imageUrl: finalUrl });
       } else {
         // APIアップロードがフォールバック等の場合はBase64を直接保持
@@ -404,7 +405,11 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
       setErrorMessage(null);
 
       // Canvas で回転させた Base64 DataURL を取得
-      const rotatedDataUrl = await rotateImage(photo.imageUrl, degrees, 0.85);
+      const targetUrl = resolveFileUrl(photo.imageUrl);
+      const rotatedDataUrl = await rotateImage(targetUrl, degrees, 0.85);
+
+      // まず画面上で即座に回転後画像を表示（体感即時反映）
+      handleUpdatePhoto(index, { imageUrl: rotatedDataUrl });
 
       // サーバーへ回転後画像をアップロードしてURL更新を試みる
       try {
@@ -420,13 +425,11 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
 
         if (uploadRes.ok) {
           const data = await uploadRes.json();
-          const finalUrl = data.fileUrl ? `${API_BASE_URL.replace('/api', '')}${data.fileUrl}` : rotatedDataUrl;
+          const finalUrl = data.fileUrl ? resolveFileUrl(data.fileUrl) : rotatedDataUrl;
           handleUpdatePhoto(index, { imageUrl: finalUrl });
-        } else {
-          handleUpdatePhoto(index, { imageUrl: rotatedDataUrl });
         }
       } catch (_) {
-        handleUpdatePhoto(index, { imageUrl: rotatedDataUrl });
+        // アップロード失敗時も画面上は回転後のBase64を維持
       }
 
       setSuccessToast(`写真${index + 1}を${degrees > 0 ? '右' : '左'}に90°回転しました`);
@@ -480,7 +483,7 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
           if (uploadRes.ok) {
             const data = await uploadRes.json();
             if (data.fileUrl) {
-              finalUrl = `${API_BASE_URL.replace('/api', '')}${data.fileUrl}`;
+              finalUrl = resolveFileUrl(data.fileUrl);
             }
           }
         } catch (_) {
@@ -1333,7 +1336,7 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
                           {photo.imageUrl ? (
                             <>
                               <img
-                                src={photo.imageUrl}
+                                src={resolveFileUrl(photo.imageUrl)}
                                 alt={`写真${index + 1}`}
                                 className="w-full h-full object-contain bg-slate-900"
                               />
@@ -1655,7 +1658,7 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
                               <div className="w-[52%] border border-slate-300 bg-slate-100 flex items-center justify-center overflow-hidden relative">
                                 {photo.imageUrl ? (
                                   <img
-                                    src={photo.imageUrl}
+                                    src={resolveFileUrl(photo.imageUrl)}
                                     alt={photo.stageTitle || `写真${photoIndex + 1}`}
                                     className="w-full h-full object-contain"
                                   />

@@ -54,10 +54,18 @@ export function resolveFileUrl(url?: string): string {
   if (url.startsWith('http://') || url.startsWith('https://')) {
     try {
       const parsed = new URL(url);
-      // /bulletinsfiles/ で始まっているのに /api が抜けている場合、Synologyリバースプロキシを通過させるため /api/bulletinsfiles/ に補正
+      // /bulletinsfiles/ または /uploads/ で始まっているのに /api が抜けている場合、Synologyリバースプロキシを通過させるため /api 経由に補正
       if (parsed.pathname.startsWith('/bulletinsfiles/')) {
         const subPath = parsed.pathname.replace(/^\/bulletinsfiles\//, '');
         return `${apiBase}/bulletinsfiles/${subPath}${parsed.search}`;
+      }
+      if (parsed.pathname.startsWith('/uploads/photo-reports/')) {
+        const filename = parsed.pathname.replace(/^\/uploads\/photo-reports\//, '');
+        return `${apiBase}/photo-reports/image/${filename}${parsed.search}`;
+      }
+      if (parsed.pathname.startsWith('/uploads/')) {
+        const subPath = parsed.pathname.replace(/^\/uploads\//, '');
+        return `${apiBase}/uploads/${subPath}${parsed.search}`;
       }
       return url;
     } catch (_) {
@@ -68,6 +76,21 @@ export function resolveFileUrl(url?: string): string {
   // 2. 相対パスまたはファイル名のみの場合
   let clean = url.trim();
   if (clean.startsWith('./')) clean = clean.substring(2);
+
+  if (clean.startsWith('/api/uploads/photo-reports/')) {
+    const filename = clean.replace(/^\/api\/uploads\/photo-reports\//, '');
+    return `${apiBase}/photo-reports/image/${filename}`;
+  }
+
+  if (clean.startsWith('/uploads/photo-reports/')) {
+    const filename = clean.replace(/^\/uploads\/photo-reports\//, '');
+    return `${apiBase}/photo-reports/image/${filename}`;
+  }
+
+  if (clean.startsWith('uploads/photo-reports/')) {
+    const filename = clean.replace(/^uploads\/photo-reports\//, '');
+    return `${apiBase}/photo-reports/image/${filename}`;
+  }
 
   if (clean.startsWith('/api/')) {
     const sub = clean.substring(5);

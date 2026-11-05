@@ -815,7 +815,7 @@ async function startServer() {
   if (!fs.existsSync(photoReportsDir)) {
     fs.mkdirSync(photoReportsDir, { recursive: true });
   }
-  app.use(['/uploads/photo-reports', '/api/uploads/photo-reports'], express.static(photoReportsDir, staticFileOptions));
+  app.use(['/uploads/photo-reports', '/api/uploads/photo-reports', '/api/photo-reports/image', '/api/photo-reports/file'], express.static(photoReportsDir, staticFileOptions));
   app.use(['/api/photo-reports', '/api/inspection-photo-reports'], photoReportsRouter);
   app.use('/api', photoReportsRouter);
 
