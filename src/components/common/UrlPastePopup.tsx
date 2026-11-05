@@ -116,9 +116,9 @@ export function useUrlPasteHandler(
       const match = pasted.match(/https?:\/\/[^\s<>"'()]+/i);
       if (match) {
         const url = match[0];
-        const el = e.currentTarget;
-        const start = el.selectionStart ?? value.length;
-        const end = el.selectionEnd ?? value.length;
+        const el = e?.currentTarget || inputRef?.current;
+        const start = el?.selectionStart ?? value.length;
+        const end = el?.selectionEnd ?? value.length;
 
         // Default behavior allows normal paste of text
         // We set up prompt to convert to card if user desires
@@ -131,7 +131,7 @@ export function useUrlPasteHandler(
         });
       }
     },
-    [value]
+    [value, inputRef]
   );
 
   const handleInsertCard = useCallback(() => {

@@ -1379,6 +1379,7 @@ export default function App() {
 
               return {
                 ...msg,
+                _persisted: true, // サーバーDBから取得された確定済みメッセージ
                 sender: resolvedSender,
                 viewers: resolvedViewers
               };
@@ -3129,7 +3130,6 @@ export default function App() {
 
             if (isNewMsg && !isAlreadyHandledByType) {
               const payload = {
-                id: lastMsg.id,
                 roomId: updatedRoom.id,
                 senderId: lastMsg.sender.id,
                 message: lastMsg.content,

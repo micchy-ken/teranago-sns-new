@@ -15,12 +15,12 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.11.05.7',
-  date: '2026-11-05',
-  releaseNumber: 7,
-  display: 'v2026.11.05 #7 (JST)',
+  version: '2026.11.06.2',
+  date: '2026-11-06',
+  releaseNumber: 2,
+  display: 'v2026.11.06 #2 (JST)',
   timeZone: '日本標準時 (JST / UTC+09:00)',
-  description: 'クイズ取得・回答APIにおけるmessageId自動解決およびルーターパス全網羅（クイズデータを読み込めませんでしたの完全解消）',
+  description: 'チャット入力欄URL貼り付け時のselectionStart null参照例外完全防止（inputRefフォールバック＆イベントpersist化）',
 };
 
 /**

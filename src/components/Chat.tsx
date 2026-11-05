@@ -348,10 +348,13 @@ const ChatMessageItem = React.memo(function ChatMessageItem({
   const senderAvatar = (msg.sender.id === currentUser.id ? currentUser.avatarUrl : senderUser?.avatarUrl) || msg.sender.avatarUrl;
   const senderName = (msg.sender.id === currentUser.id ? currentUser.name : senderUser?.name) || msg.sender.name;
 
-  // 未確定（送信中）仮メッセージの判定（クイズメッセージは出題APIで確定済みのため除外）
+  // 未確定（送信中）仮メッセージの判定
+  // サーバーDBから取得済みの確定メッセージ(_persisted: true)や正規確定ID(c-)、クイズメッセージは絶対に除外
   const isPending =
+    !(msg as any)._persisted &&
     msg.type !== 'quiz' &&
     typeof msg.id === 'string' &&
+    !msg.id.startsWith('c-') &&
     !msg.id.startsWith('m_quiz_') &&
     !msg.id.startsWith('c-quiz-') &&
     (msg.id.startsWith('m_') ||
@@ -1080,8 +1083,9 @@ export function Chat({
       markChatRoomAsRead(currentUser.id, activeRoomId);
     }
   }, [activeRoomId, currentUser?.id]);
+  const chatTextareaRef = useRef<HTMLTextAreaElement>(null);
   const [messageText, setMessageText] = useState('');
-  const chatPasteHandler = useUrlPasteHandler(messageText, setMessageText);
+  const chatPasteHandler = useUrlPasteHandler(messageText, setMessageText, chatTextareaRef);
   const [roomFilter, setRoomFilter] = useState<'all' | 'group' | 'dm'>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -1152,7 +1156,6 @@ export function Chat({
   const [previewFile, setPreviewFile] = useState<AttachmentFile | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const chatFileInputRef = useRef<HTMLInputElement>(null);
-  const chatTextareaRef = useRef<HTMLTextAreaElement>(null);
   const [isComposing, setIsComposing] = useState(false);
 
   // テキストエリアの高さ自動調整 (最大120px)
@@ -1658,6 +1661,7 @@ export function Chat({
   }, [messageText, handlePhotoFilesSelected, processChatUploadedFiles]);
 
   const handleChatTextareaPaste = async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    e.persist?.();
     const handled = await handleChatClipboardPaste(e.clipboardData, e);
     if (!handled) {
       chatPasteHandler.handlePaste(e);
