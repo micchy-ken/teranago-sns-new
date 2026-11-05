@@ -1,8 +1,13 @@
 /**
  * =====================================================================
- * routes/chatQuizzes.js - チャット内クイズ・アンケート出題＆回答 API ルーター (完全版)
+ * routes/chatQuizzes.js - チャット内クイズ・アンケート出題＆回答 API ルーター (完全堅牢＆DB永続化版)
  * 最終更新日時: 2026年11月5日
- * 機能: チャットタイムライン内 n択カードUI出題(@quiz)・選択肢動的作成・正誤判定・アンケート対応・二重回答防止・MS SQL Server連携
+ * 改善内容:
+ *  1. dataDir 未定義時の即死完全防止 (process.cwd() / 'data' 自動フォールバック)
+ *  2. ensureFiles() の try-catch 完全保護 (パーミッションエラー等でのサーバー即死防止)
+ *  3. safeParseJSON の安全なフォールバック関数内蔵
+ *  4. MS SQL Server 永続化: dbo.ChatQuizzes, dbo.ChatQuizAnswers に加え、タイムライン表示用の dbo.ChatMessages(type='quiz', quizId) も完全同期INSERT
+ *  5. チャットタイムライン内 n択カードUI出題(@quiz)・選択肢動的作成・正誤判定・アンケート対応・二重回答防止
  * =====================================================================
  */
 import { Router } from 'express';
@@ -10,33 +15,56 @@ import sql from 'mssql';
 import path from 'path';
 import fs from 'fs';
 import { getPool } from '../db.js';
-import { safeParseJSON, dataDir } from '../config.js';
+import * as configModule from '../config.js';
 
 const router = Router();
 
-// ローカルJSON保存先
-const QUIZZES_FILE = path.join(dataDir, 'chat-quizzes.json');
-const ANSWERS_FILE = path.join(dataDir, 'chat-quiz-answers.json');
-const CHAT_ROOMS_FILE = path.join(dataDir, 'chat-rooms.json');
+// 安全なJSONパースヘルパー（config.jsに無くても落ちない安全設計）
+function safeParseJSON(str, fallback = null) {
+  if (typeof configModule.safeParseJSON === 'function') {
+    return configModule.safeParseJSON(str, fallback);
+  }
+  if (!str) return fallback;
+  if (typeof str === 'object') return str;
+  try {
+    return JSON.parse(str);
+  } catch (_) {
+    return fallback;
+  }
+}
 
-// 初期ファイル・ディレクトリ確保
+// データ保存ディレクトリ（未定義時もクラッシュさせない安全なフォールバック）
+const baseDataDir = configModule.dataDir || path.join(process.cwd(), 'data');
+
+// ローカルJSON保存先
+const QUIZZES_FILE = path.join(baseDataDir, 'chat-quizzes.json');
+const ANSWERS_FILE = path.join(baseDataDir, 'chat-quiz-answers.json');
+const CHAT_ROOMS_FILE = path.join(baseDataDir, 'chat-rooms.json');
+
+// 初期ファイル・ディレクトリ確保（エラー発生時もサーバーを絶対に落とさない try-catch 保護）
 function ensureFiles() {
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
-  }
-  if (!fs.existsSync(QUIZZES_FILE)) {
-    fs.writeFileSync(QUIZZES_FILE, '[]', 'utf8');
-  }
-  if (!fs.existsSync(ANSWERS_FILE)) {
-    fs.writeFileSync(ANSWERS_FILE, '[]', 'utf8');
+  try {
+    if (!fs.existsSync(baseDataDir)) {
+      fs.mkdirSync(baseDataDir, { recursive: true });
+    }
+    if (!fs.existsSync(QUIZZES_FILE)) {
+      fs.writeFileSync(QUIZZES_FILE, '[]', 'utf8');
+    }
+    if (!fs.existsSync(ANSWERS_FILE)) {
+      fs.writeFileSync(ANSWERS_FILE, '[]', 'utf8');
+    }
+  } catch (err) {
+    console.warn('⚠️ [ChatQuizzes] ensureFiles warning (non-fatal):', err.message);
   }
 }
 ensureFiles();
 
 // MS SQL Server テーブル初期化 ＆ マイグレーション
 async function initTables(pool) {
+  if (!pool) return;
   try {
     await pool.request().query(`
+      -- クイズ基本テーブル
       IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'ChatQuizzes' AND schema_id = SCHEMA_ID('dbo'))
       BEGIN
         CREATE TABLE dbo.ChatQuizzes (
@@ -56,6 +84,7 @@ async function initTables(pool) {
         CREATE INDEX IX_ChatQuizzes_roomId ON dbo.ChatQuizzes(roomId);
       END
 
+      -- クイズ回答・投票テーブル
       IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'ChatQuizAnswers' AND schema_id = SCHEMA_ID('dbo'))
       BEGIN
         CREATE TABLE dbo.ChatQuizAnswers (
@@ -72,13 +101,19 @@ async function initTables(pool) {
         CREATE INDEX IX_ChatQuizAnswers_quizId ON dbo.ChatQuizAnswers(quizId);
         CREATE INDEX IX_ChatQuizAnswers_userId ON dbo.ChatQuizAnswers(userId);
       END
+
+      -- 既存チャットメッセージテーブルに quizId カラムが存在しない場合は自動拡張
+      IF OBJECT_ID('dbo.ChatMessages', 'U') IS NOT NULL AND COL_LENGTH('dbo.ChatMessages', 'quizId') IS NULL
+      BEGIN
+        ALTER TABLE dbo.ChatMessages ADD quizId NVARCHAR(64) NULL;
+      END
     `);
   } catch (err) {
-    console.warn('[ChatQuizzes] DB table init failed (using JSON fallback):', err.message);
+    console.warn('⚠️ [ChatQuizzes] DB table init failed (using JSON fallback):', err.message);
   }
 }
 
-// チャットメッセージへクイズを同期・反映するヘルパー
+// チャットメッセージへクイズを同期・反映するヘルパー (ローカルJSON用)
 function attachQuizToChatMessage(roomId, messageId, quizData) {
   try {
     if (!fs.existsSync(CHAT_ROOMS_FILE)) return;
@@ -95,7 +130,7 @@ function attachQuizToChatMessage(roomId, messageId, quizData) {
       fs.writeFileSync(CHAT_ROOMS_FILE, JSON.stringify(rooms, null, 2), 'utf8');
     }
   } catch (err) {
-    console.error('[ChatQuizzes] attachQuizToChatMessage error:', err);
+    console.error('⚠️ [ChatQuizzes] attachQuizToChatMessage error:', err);
   }
 }
 
@@ -153,7 +188,7 @@ function buildQuizResponse(quiz, answers, viewerUserId) {
 // ==========================================
 // 1. クイズ新規出題 (POST /api/chats/quizzes)
 // ==========================================
-router.post(['/quizzes', '/api/chats/quizzes', '/api/chat-quizzes'], async (req, res) => {
+router.post(['/quizzes', '/chats/quizzes', '/api/chats/quizzes', '/api/chat-quizzes'], async (req, res) => {
   try {
     const {
       roomId,
@@ -175,6 +210,7 @@ router.post(['/quizzes', '/api/chats/quizzes', '/api/chat-quizzes'], async (req,
     const quizId = `quiz_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const messageId = `m_quiz_${Date.now()}`;
     const nowIso = new Date().toISOString();
+    const contentText = `【${isSurvey ? 'アンケート' : 'クイズ'}出題】${question.trim()}`;
 
     const normalizedOptions = options.map((opt, idx) => ({
       id: typeof opt === 'string' ? `opt_${idx + 1}` : opt.id || `opt_${idx + 1}`,
@@ -195,40 +231,91 @@ router.post(['/quizzes', '/api/chats/quizzes', '/api/chat-quizzes'], async (req,
       createdAt: nowIso,
     };
 
+    const initialViewers = [{
+      user: { id: String(createdById), name: createdByName || 'ユーザー', avatarUrl: senderAvatar || '', department: senderDepartment || '' },
+      viewedAt: nowIso,
+    }];
+    const viewersJsonStr = JSON.stringify(initialViewers);
+
     const pool = await getPool();
     if (pool) {
       await initTables(pool);
-      await pool.request()
-        .input('id', sql.NVarChar(64), quizRecord.id)
-        .input('messageId', sql.NVarChar(64), quizRecord.messageId)
-        .input('roomId', sql.NVarChar(64), quizRecord.roomId)
-        .input('question', sql.NVarChar(sql.MAX), quizRecord.question)
-        .input('options', sql.NVarChar(sql.MAX), JSON.stringify(quizRecord.options))
-        .input('correctOptionId', sql.NVarChar(64), quizRecord.correctOptionId)
-        .input('isSurvey', sql.Bit, quizRecord.isSurvey ? 1 : 0)
-        .input('explanation', sql.NVarChar(sql.MAX), quizRecord.explanation)
-        .input('createdById', sql.NVarChar(64), quizRecord.createdById)
-        .input('createdByName', sql.NVarChar(128), quizRecord.createdByName)
-        .query`
-          INSERT INTO dbo.ChatQuizzes (
-            id, messageId, roomId, question, options, correctOptionId,
-            isSurvey, explanation, createdById, createdByName, createdAt
-          ) VALUES (
-            @id, @messageId, @roomId, @question, @options, @correctOptionId,
-            @isSurvey, @explanation, @createdById, @createdByName, SYSUTCDATETIME()
-          )
-        `;
+
+      // 1. クイズテーブルに保存
+      try {
+        await pool.request()
+          .input('id', sql.NVarChar(64), quizRecord.id)
+          .input('messageId', sql.NVarChar(64), quizRecord.messageId)
+          .input('roomId', sql.NVarChar(64), quizRecord.roomId)
+          .input('question', sql.NVarChar(sql.MAX), quizRecord.question)
+          .input('options', sql.NVarChar(sql.MAX), JSON.stringify(quizRecord.options))
+          .input('correctOptionId', sql.NVarChar(64), quizRecord.correctOptionId)
+          .input('isSurvey', sql.Bit, quizRecord.isSurvey ? 1 : 0)
+          .input('explanation', sql.NVarChar(sql.MAX), quizRecord.explanation)
+          .input('createdById', sql.NVarChar(64), quizRecord.createdById)
+          .input('createdByName', sql.NVarChar(128), quizRecord.createdByName)
+          .query(`
+            INSERT INTO dbo.ChatQuizzes (
+              id, messageId, roomId, question, options, correctOptionId,
+              isSurvey, explanation, createdById, createdByName, createdAt
+            ) VALUES (
+              @id, @messageId, @roomId, @question, @options, @correctOptionId,
+              @isSurvey, @explanation, @createdById, @createdByName, SYSUTCDATETIME()
+            )
+          `);
+      } catch (insertQuizErr) {
+        console.warn('⚠️ [ChatQuizzes] Insert into dbo.ChatQuizzes failed:', insertQuizErr.message);
+      }
+
+      // 2. チャットタイムライン (dbo.ChatMessages) にメッセージとして保存 (重要!)
+      try {
+        await pool.request()
+          .input('msgId', sql.VarChar, messageId)
+          .input('senderId', sql.VarChar, String(createdById))
+          .input('roomId', sql.VarChar, String(roomId))
+          .input('message', sql.NVarChar, contentText)
+          .input('content', sql.NVarChar, contentText)
+          .input('type', sql.VarChar, 'quiz')
+          .input('quizId', sql.NVarChar(64), quizId)
+          .input('viewersJson', sql.NVarChar, viewersJsonStr)
+          .query(`
+            INSERT INTO dbo.ChatMessages (
+              id, senderId, roomId, message, content, type, quizId, viewersJson, createdAt
+            ) VALUES (
+              @msgId, @senderId, @roomId, @message, @content, @type, @quizId, @viewersJson, SYSUTCDATETIME()
+            )
+          `);
+
+        // 3. ルームの最終メッセージを更新
+        await pool.request()
+          .input('roomId', sql.VarChar, String(roomId))
+          .input('lastMessage', sql.NVarChar, contentText)
+          .query(`
+            UPDATE dbo.ChatRooms
+            SET lastMessage = @lastMessage, updatedAt = SYSUTCDATETIME()
+            WHERE id = @roomId
+          `);
+      } catch (msgErr) {
+        console.warn('⚠️ [ChatQuizzes] Insert into dbo.ChatMessages failed:', msgErr.message);
+      }
     }
 
     // ローカルJSONにも保存（フォールバック用）
     ensureFiles();
-    const rawQuizzes = fs.readFileSync(QUIZZES_FILE, 'utf8');
-    const quizzes = safeParseJSON(rawQuizzes, []);
-    quizzes.unshift(quizRecord);
-    fs.writeFileSync(QUIZZES_FILE, JSON.stringify(quizzes, null, 2), 'utf8');
+    try {
+      const rawQuizzes = fs.existsSync(QUIZZES_FILE) ? fs.readFileSync(QUIZZES_FILE, 'utf8') : '[]';
+      const quizzes = safeParseJSON(rawQuizzes, []);
+      quizzes.unshift(quizRecord);
+      fs.writeFileSync(QUIZZES_FILE, JSON.stringify(quizzes, null, 2), 'utf8');
+    } catch (_) {}
 
     // チャットルームのタイムラインにクイズメッセージを追加
-    const rawRooms = fs.readFileSync(CHAT_ROOMS_FILE, 'utf8');
+    let rawRooms = '[]';
+    try {
+      if (fs.existsSync(CHAT_ROOMS_FILE)) {
+        rawRooms = fs.readFileSync(CHAT_ROOMS_FILE, 'utf8');
+      }
+    } catch (_) {}
     const rooms = safeParseJSON(rawRooms, []);
     let room = rooms.find((r) => String(r.id) === String(roomId));
     if (!room) {
@@ -255,15 +342,12 @@ router.post(['/quizzes', '/api/chats/quizzes', '/api/chat-quizzes'], async (req,
         avatarUrl: senderAvatar || '',
         department: senderDepartment || '',
       },
-      content: `【${quizRecord.isSurvey ? 'アンケート' : 'クイズ'}出題】${quizRecord.question}`,
+      content: contentText,
       createdAt: nowIso,
       type: 'quiz',
       quizId,
       quiz: quizResponseData,
-      viewers: [{
-        user: { id: String(createdById), name: createdByName || 'ユーザー', avatarUrl: senderAvatar || '', department: senderDepartment || '' },
-        viewedAt: nowIso,
-      }],
+      viewers: initialViewers,
     };
 
     if (!Array.isArray(room.messages)) {
@@ -273,7 +357,10 @@ router.post(['/quizzes', '/api/chats/quizzes', '/api/chat-quizzes'], async (req,
     room.lastMessage = quizMessage.content;
     room.updatedAt = nowIso;
     room.lastUpdated = nowIso;
-    fs.writeFileSync(CHAT_ROOMS_FILE, JSON.stringify(rooms, null, 2), 'utf8');
+
+    try {
+      fs.writeFileSync(CHAT_ROOMS_FILE, JSON.stringify(rooms, null, 2), 'utf8');
+    } catch (_) {}
 
     res.status(201).json({
       success: true,
@@ -281,7 +368,7 @@ router.post(['/quizzes', '/api/chats/quizzes', '/api/chat-quizzes'], async (req,
       message: quizMessage,
     });
   } catch (err) {
-    console.error('[ChatQuizzes POST Create Error]:', err);
+    console.error('⚠️ [ChatQuizzes POST Create Error]:', err);
     res.status(500).json({ error: 'クイズの作成・出題に失敗しました', details: err.message });
   }
 });
@@ -289,7 +376,7 @@ router.post(['/quizzes', '/api/chats/quizzes', '/api/chat-quizzes'], async (req,
 // ==========================================
 // 2. クイズ詳細・回答状況取得 (GET /api/chats/quizzes/:quizId)
 // ==========================================
-router.get(['/quizzes/:quizId', '/api/chats/quizzes/:quizId', '/api/chat-quizzes/:quizId'], async (req, res) => {
+router.get(['/quizzes/:quizId', '/chats/quizzes/:quizId', '/api/chats/quizzes/:quizId', '/api/chat-quizzes/:quizId'], async (req, res) => {
   try {
     const { quizId } = req.params;
     const { userId } = req.query;
@@ -302,7 +389,7 @@ router.get(['/quizzes/:quizId', '/api/chats/quizzes/:quizId', '/api/chat-quizzes
       await initTables(pool);
       const quizRes = await pool.request()
         .input('quizId', sql.NVarChar(64), quizId)
-        .query`SELECT * FROM dbo.ChatQuizzes WHERE id = @quizId`;
+        .query('SELECT * FROM dbo.ChatQuizzes WHERE id = @quizId');
 
       if (quizRes.recordset && quizRes.recordset.length > 0) {
         const row = quizRes.recordset[0];
@@ -322,7 +409,7 @@ router.get(['/quizzes/:quizId', '/api/chats/quizzes/:quizId', '/api/chat-quizzes
 
         const answersRes = await pool.request()
           .input('quizId', sql.NVarChar(64), quizId)
-          .query`SELECT * FROM dbo.ChatQuizAnswers WHERE quizId = @quizId ORDER BY answeredAt ASC`;
+          .query('SELECT * FROM dbo.ChatQuizAnswers WHERE quizId = @quizId ORDER BY answeredAt ASC');
 
         answers = (answersRes.recordset || []).map((a) => ({
           id: String(a.id),
@@ -339,11 +426,17 @@ router.get(['/quizzes/:quizId', '/api/chats/quizzes/:quizId', '/api/chat-quizzes
 
     if (!quiz) {
       ensureFiles();
-      const rawQuizzes = fs.readFileSync(QUIZZES_FILE, 'utf8');
+      let rawQuizzes = '[]';
+      try {
+        if (fs.existsSync(QUIZZES_FILE)) rawQuizzes = fs.readFileSync(QUIZZES_FILE, 'utf8');
+      } catch (_) {}
       const quizzes = safeParseJSON(rawQuizzes, []);
       quiz = quizzes.find((q) => String(q.id) === String(quizId));
 
-      const rawAnswers = fs.readFileSync(ANSWERS_FILE, 'utf8');
+      let rawAnswers = '[]';
+      try {
+        if (fs.existsSync(ANSWERS_FILE)) rawAnswers = fs.readFileSync(ANSWERS_FILE, 'utf8');
+      } catch (_) {}
       const allAnswers = safeParseJSON(rawAnswers, []);
       answers = allAnswers.filter((a) => String(a.quizId) === String(quizId));
     }
@@ -355,7 +448,7 @@ router.get(['/quizzes/:quizId', '/api/chats/quizzes/:quizId', '/api/chat-quizzes
     const responseData = buildQuizResponse(quiz, answers, userId);
     res.json(responseData);
   } catch (err) {
-    console.error('[ChatQuizzes GET Error]:', err);
+    console.error('⚠️ [ChatQuizzes GET Error]:', err);
     res.status(500).json({ error: 'クイズ情報の取得に失敗しました', details: err.message });
   }
 });
@@ -363,7 +456,7 @@ router.get(['/quizzes/:quizId', '/api/chats/quizzes/:quizId', '/api/chat-quizzes
 // ==========================================
 // 3. 回答・投票送信 (POST /api/chats/quizzes/:quizId/answer)
 // ==========================================
-router.post(['/quizzes/:quizId/answer', '/api/chats/quizzes/:quizId/answer', '/api/chat-quizzes/:quizId/answer'], async (req, res) => {
+router.post(['/quizzes/:quizId/answer', '/chats/quizzes/:quizId/answer', '/api/chats/quizzes/:quizId/answer', '/api/chat-quizzes/:quizId/answer'], async (req, res) => {
   try {
     const { quizId } = req.params;
     const { selectedOptionId, userId, userName, userAvatar, userDepartment } = req.body;
@@ -380,7 +473,7 @@ router.post(['/quizzes/:quizId/answer', '/api/chats/quizzes/:quizId/answer', '/a
       await initTables(pool);
       const quizRes = await pool.request()
         .input('quizId', sql.NVarChar(64), quizId)
-        .query`SELECT * FROM dbo.ChatQuizzes WHERE id = @quizId`;
+        .query('SELECT * FROM dbo.ChatQuizzes WHERE id = @quizId');
 
       if (quizRes.recordset && quizRes.recordset.length > 0) {
         const row = quizRes.recordset[0];
@@ -402,7 +495,7 @@ router.post(['/quizzes/:quizId/answer', '/api/chats/quizzes/:quizId/answer', '/a
         const existingVote = await pool.request()
           .input('quizId', sql.NVarChar(64), quizId)
           .input('userId', sql.NVarChar(64), String(userId))
-          .query`SELECT id FROM dbo.ChatQuizAnswers WHERE quizId = @quizId AND userId = @userId`;
+          .query('SELECT id FROM dbo.ChatQuizAnswers WHERE quizId = @quizId AND userId = @userId');
 
         if (existingVote.recordset && existingVote.recordset.length > 0) {
           return res.status(409).json({ error: 'この問題には既に回答済みです（二重回答不可）' });
@@ -417,17 +510,17 @@ router.post(['/quizzes/:quizId/answer', '/api/chats/quizzes/:quizId/answer', '/a
           .input('userAvatar', sql.NVarChar(512), userAvatar || null)
           .input('userDepartment', sql.NVarChar(128), userDepartment || null)
           .input('selectedOptionId', sql.NVarChar(64), String(selectedOptionId))
-          .query`
+          .query(`
             INSERT INTO dbo.ChatQuizAnswers (
               id, quizId, userId, userName, userAvatar, userDepartment, selectedOptionId, answeredAt
             ) VALUES (
               @id, @quizId, @userId, @userName, @userAvatar, @userDepartment, @selectedOptionId, SYSUTCDATETIME()
             )
-          `;
+          `);
 
         const allAnswersRes = await pool.request()
           .input('quizId', sql.NVarChar(64), quizId)
-          .query`SELECT * FROM dbo.ChatQuizAnswers WHERE quizId = @quizId ORDER BY answeredAt ASC`;
+          .query('SELECT * FROM dbo.ChatQuizAnswers WHERE quizId = @quizId ORDER BY answeredAt ASC');
 
         answers = (allAnswersRes.recordset || []).map((a) => ({
           id: String(a.id),
@@ -444,7 +537,10 @@ router.post(['/quizzes/:quizId/answer', '/api/chats/quizzes/:quizId/answer', '/a
 
     if (!quiz) {
       ensureFiles();
-      const rawQuizzes = fs.readFileSync(QUIZZES_FILE, 'utf8');
+      let rawQuizzes = '[]';
+      try {
+        if (fs.existsSync(QUIZZES_FILE)) rawQuizzes = fs.readFileSync(QUIZZES_FILE, 'utf8');
+      } catch (_) {}
       const quizzes = safeParseJSON(rawQuizzes, []);
       quiz = quizzes.find((q) => String(q.id) === String(quizId));
 
@@ -452,7 +548,10 @@ router.post(['/quizzes/:quizId/answer', '/api/chats/quizzes/:quizId/answer', '/a
         return res.status(404).json({ error: '指定されたクイズが見つかりません' });
       }
 
-      const rawAnswers = fs.readFileSync(ANSWERS_FILE, 'utf8');
+      let rawAnswers = '[]';
+      try {
+        if (fs.existsSync(ANSWERS_FILE)) rawAnswers = fs.readFileSync(ANSWERS_FILE, 'utf8');
+      } catch (_) {}
       const allAnswers = safeParseJSON(rawAnswers, []);
 
       // 二重投票チェック
@@ -475,7 +574,9 @@ router.post(['/quizzes/:quizId/answer', '/api/chats/quizzes/:quizId/answer', '/a
       };
 
       allAnswers.push(newAnswer);
-      fs.writeFileSync(ANSWERS_FILE, JSON.stringify(allAnswers, null, 2), 'utf8');
+      try {
+        fs.writeFileSync(ANSWERS_FILE, JSON.stringify(allAnswers, null, 2), 'utf8');
+      } catch (_) {}
       answers = allAnswers.filter((a) => String(a.quizId) === String(quizId));
     }
 
@@ -490,7 +591,7 @@ router.post(['/quizzes/:quizId/answer', '/api/chats/quizzes/:quizId/answer', '/a
       quiz: updatedResponse,
     });
   } catch (err) {
-    console.error('[ChatQuizzes Answer POST Error]:', err);
+    console.error('⚠️ [ChatQuizzes Answer POST Error]:', err);
     res.status(500).json({ error: '回答の送信に失敗しました', details: err.message });
   }
 });

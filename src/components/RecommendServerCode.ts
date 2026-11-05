@@ -1,15 +1,16 @@
 /**
  * Synology NAS (Docker / Node.js) 用 推奨サーバーコード
  * 
- * 最終更新日時 (最終アップデート): 2026年11月5日 (チャット内クイズ・アンケート出題＆回答API /api/chats/quizzes 追加版)
+ * 最終更新日時 (最終アップデート): 2026年11月5日 (チャット内クイズ・アンケートのDB完全永続化・dbo.ChatMessages連携対応版)
  * 
  * 概要:
  * 本コードは TERANAGO 社内SNS のバックエンドAPIサーバー (Express + MS SQL Server / JSONファイルDB) の完全版です。
  * 
  * [最新の主な変更・新機能]
  * 1. チャット内クイズ・アンケート出題＆回答API (/api/chats/quizzes, /api/chat-quizzes) 追加
- * 2. クイズカードUI用二重回答防止＆未回答者向けカンニング防止マスキング対応
- * 3. 写真報告書写真画像の直接配信エンドポイント (/api/photo-reports/image) 対応
+ * 2. チャットタイムライン (dbo.ChatMessages / dbo.ChatRooms) へのクイズメッセージ完全永続化
+ * 3. クイズカードUI用二重回答防止＆未回答者向けカンニング防止マスキング対応
+ * 4. 写真報告書写真画像の直接配信エンドポイント (/api/photo-reports/image) 対応
  */
 
 export const RECOMMEND_SERVER_JS = `import express from 'express';

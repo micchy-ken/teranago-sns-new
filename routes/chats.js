@@ -25,11 +25,12 @@ router.get(['/chats', '/chats/rooms', '/', '/rooms'], async (req, res) => {
     const pool = await getPool();
     if (!pool) return res.json([]);
 
-    // カラム自動拡張（imagesJson, thumbnailUrl）
+    // カラム自動拡張（imagesJson, thumbnailUrl, quizId）
     try {
       await pool.request().query(`
         IF COL_LENGTH('dbo.ChatMessages', 'imagesJson') IS NULL ALTER TABLE dbo.ChatMessages ADD imagesJson NVARCHAR(MAX) NULL;
         IF COL_LENGTH('dbo.ChatMessages', 'thumbnailUrl') IS NULL ALTER TABLE dbo.ChatMessages ADD thumbnailUrl NVARCHAR(MAX) NULL;
+        IF COL_LENGTH('dbo.ChatMessages', 'quizId') IS NULL ALTER TABLE dbo.ChatMessages ADD quizId NVARCHAR(64) NULL;
       `);
     } catch (_) {}
 
@@ -79,6 +80,7 @@ router.get(['/chats', '/chats/rooms', '/', '/rooms'], async (req, res) => {
               stampText: m.stampText || null,
               stampCategory: m.stampCategory || null,
               attachments: safeParseJSON(m.attachments || m.attachmentsJson, []),
+              quizId: m.quizId ? String(m.quizId) : null,
               viewers: safeParseJSON(m.viewersJson || m.viewers, []).map(v => ({
                 ...v,
                 user: v.user ? { ...v.user, id: String(v.user.id) } : { id: String(v.userId || v.id || '') }

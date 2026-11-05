@@ -15,12 +15,12 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.11.05.3',
+  version: '2026.11.05.4',
   date: '2026-11-05',
-  releaseNumber: 3,
-  display: 'v2026.11.05 #3 (JST)',
+  releaseNumber: 4,
+  display: 'v2026.11.05 #4 (JST)',
   timeZone: '日本標準時 (JST / UTC+09:00)',
-  description: 'チャット内クイズ・アンケート出題機能（@quiz コマンド/出題ボタン）、対話タイムライン内n択カードUI、二重回答防止、およびカンニング防止マスキング対応',
+  description: 'チャット内クイズ・アンケートのMS SQL Server/JSONメッセージ完全永続化（dbo.ChatMessages・dbo.ChatRooms連動保存）',
 };
 
 /**
