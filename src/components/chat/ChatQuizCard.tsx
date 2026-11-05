@@ -40,7 +40,10 @@ export function ChatQuizCard({
 
   // 最新のクイズ状態（回答状況・集計結果）を取得
   const fetchQuizData = async () => {
-    if (!quizId) return;
+    if (!quizId) {
+      setLoading(false);
+      return;
+    }
     try {
       const res = await fetch(`${API_BASE_URL}/chats/quizzes/${quizId}?userId=${encodeURIComponent(currentUser.id)}`);
       if (res.ok) {

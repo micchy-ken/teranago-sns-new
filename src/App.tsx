@@ -3121,12 +3121,15 @@ export default function App() {
             })
           });
 
-          // 2. 新着メッセージがあれば POST で同期
+          // 2. 新着メッセージがあれば POST で同期 (クイズなどの専用API経由メッセージは二重登録を防ぐため除外)
           if (isMessagesChanged && updatedMsgs.length > 0) {
             const lastMsg = updatedMsgs[updatedMsgs.length - 1];
             const isNewMsg = originalMsgs.length === 0 || !originalMsgs.some(m => m.id === lastMsg.id);
-            if (isNewMsg) {
+            const isAlreadyHandledByType = lastMsg.type === 'quiz' || (lastMsg.id && String(lastMsg.id).startsWith('m_quiz_'));
+
+            if (isNewMsg && !isAlreadyHandledByType) {
               const payload = {
+                id: lastMsg.id,
                 roomId: updatedRoom.id,
                 senderId: lastMsg.sender.id,
                 message: lastMsg.content,
@@ -3136,6 +3139,7 @@ export default function App() {
                 roomType: updatedRoom.type,
                 participants: updatedRoom.participants,
                 type: lastMsg.type || 'text',
+                quizId: lastMsg.quizId || null,
                 imageUrl: lastMsg.imageUrl || null,
                 thumbnailUrl: lastMsg.thumbnailUrl || null,
                 images: lastMsg.images || null,
