@@ -15,12 +15,12 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.11.05.2',
+  version: '2026.11.05.3',
   date: '2026-11-05',
-  releaseNumber: 2,
-  display: 'v2026.11.05 #2 (JST)',
+  releaseNumber: 3,
+  display: 'v2026.11.05 #3 (JST)',
   timeZone: '日本標準時 (JST / UTC+09:00)',
-  description: '写真報告書写真画像の直接配信エンドポイント（/api/photo-reports/image/）整備、Synologyリバースプロキシ用CORS対応、および回転時パス正規化・即時UI反映の強化',
+  description: 'チャット内クイズ・アンケート出題機能（@quiz コマンド/出題ボタン）、対話タイムライン内n択カードUI、二重回答防止、およびカンニング防止マスキング対応',
 };
 
 /**

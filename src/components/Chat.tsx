@@ -42,7 +42,8 @@ import {
   PanelLeftOpen,
   Glasses,
   FileText,
-  Share2
+  Share2,
+  HelpCircle
 } from 'lucide-react';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { uploadMultipleFiles, uploadFile, isPreviewable } from '../utils/fileUpload';
@@ -53,6 +54,8 @@ import { renderContentWithLinks } from '../utils/renderContentWithLinks';
 import { UrlPastePopup, useUrlPasteHandler } from './common/UrlPastePopup';
 import { logActivity } from '../utils/logger';
 import { buildAppUrl, copyTextToClipboard } from '../utils/urlParams';
+import { ChatQuizModal } from './chat/ChatQuizModal';
+import { ChatQuizCard } from './chat/ChatQuizCard';
 
 interface ChatProps {
   rooms: ChatRoom[];
@@ -544,6 +547,12 @@ const ChatMessageItem = React.memo(function ChatMessageItem({
                   )}
                 </div>
               )
+            ) : msg.type === 'quiz' ? (
+              <ChatQuizCard
+                msg={msg}
+                currentUser={currentUser}
+                activeRoom={activeRoom}
+              />
             ) : (
               // LINE風フキダシ
               <div className="flex flex-col gap-1.5 items-stretch">
@@ -735,6 +744,9 @@ export function Chat({
   // 閲覧メンバーモーダル用
   const [viewersModalOpen, setViewersModalOpen] = useState(false);
   const [selectedMsgForViewers, setSelectedMsgForViewers] = useState<ChatMessage | null>(null);
+
+  // クイズ・アンケート作成モーダル用
+  const [isQuizModalOpen, setIsQuizModalOpen] = useState(false);
 
   const activeRoom = myRooms.find((r) => r.id === activeRoomId) || myRooms[0];
 
@@ -1375,6 +1387,16 @@ export function Chat({
     if (e) e.preventDefault();
     const isTextEmpty = !messageText || !messageText.trim();
     if (isTextEmpty && chatAttachments.length === 0) return;
+
+    // @quiz コマンドの検知：クイズ作成モーダルを開く
+    if (messageText.trim().toLowerCase() === '@quiz') {
+      setMessageText('');
+      if (chatTextareaRef.current) {
+        chatTextareaRef.current.style.height = 'auto';
+      }
+      setIsQuizModalOpen(true);
+      return;
+    }
 
     const newMessage: ChatMessage = {
       id: `m_${Date.now()}`,
@@ -2930,6 +2952,18 @@ export function Chat({
                   >
                     <Smile className="w-4 h-4 sm:w-5 sm:h-5" />
                   </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsQuizModalOpen(true);
+                      setShowStampPicker(false);
+                    }}
+                    className="p-1.5 sm:p-2 rounded-full hover:bg-indigo-50 text-indigo-600 transition-colors shrink-0 mb-0.5 cursor-pointer"
+                    title="クイズ・アンケートを出題 (@quiz)"
+                  >
+                    <HelpCircle className="w-4 h-4 sm:w-5 sm:h-5" />
+                  </button>
                 </>
               )}
 
@@ -2942,7 +2976,7 @@ export function Chat({
                 onCompositionStart={() => setIsComposing(true)}
                 onCompositionEnd={() => setIsComposing(false)}
                 onPaste={handleChatTextareaPaste}
-                placeholder={isBossMode ? "業務連絡・メッセージを入力... (Shift+Enterで改行, Enterで送信, 画像貼付可)" : "メッセージを入力... (Shift+Enterで改行, 画像の貼り付け・ファイル添付可)"}
+                placeholder={isBossMode ? "業務連絡・メッセージを入力... (Shift+Enterで改行, Enterで送信, 画像貼付可)" : "メッセージを入力... (@quizでクイズ出題, Shift+Enterで改行)"}
                 className="flex-1 min-w-0 px-3.5 sm:px-4 py-2 sm:py-2.5 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-xs sm:text-sm font-semibold text-slate-800 resize-none overflow-y-auto leading-relaxed"
                 style={{ minHeight: '38px', maxHeight: '120px' }}
               />
@@ -3193,6 +3227,19 @@ export function Chat({
         onClose={() => setIsPreviewOpen(false)}
         file={previewFile}
       />
+
+      {/* ----------------- クイズ・アンケート作成モーダル ----------------- */}
+      {isQuizModalOpen && activeRoom && (
+        <ChatQuizModal
+          isOpen={isQuizModalOpen}
+          onClose={() => setIsQuizModalOpen(false)}
+          roomId={activeRoom.id}
+          currentUser={currentUser}
+          onQuizCreated={(newMsg) => {
+            updateRoomMessages(activeRoom.id, newMsg);
+          }}
+        />
+      )}
 
       {/* ----------------- モーダル: 既読メンバー一覧 ----------------- */}
       {viewersModalOpen && selectedMsgForViewers && (

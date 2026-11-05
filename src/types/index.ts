@@ -431,7 +431,7 @@ export interface ChatMessage {
   sender: User;
   content: string;
   createdAt: string; // ISO string
-  type?: 'text' | 'stamp' | 'image' | 'file';
+  type?: 'text' | 'stamp' | 'image' | 'file' | 'quiz';
   imageUrl?: string;
   thumbnailUrl?: string; // 軽量サムネイルURL (チャットタイムライン爆速表示用)
   images?: Array<{ url: string; thumbnailUrl?: string }>; // 複数写真アルバム（最大10枚）
@@ -440,6 +440,8 @@ export interface ChatMessage {
   stampCategory?: string;
   attachments?: AttachmentFile[];
   viewers?: BoardViewer[];
+  quizId?: string;
+  quiz?: import('./chatQuiz').ChatQuizData;
 }
 
 export interface ChatRoom {
@@ -791,3 +793,4 @@ export interface DocumentItem {
 export * from './schedulePoll';
 export * from './photoReport';
 export * from './site';
+export * from './chatQuiz';

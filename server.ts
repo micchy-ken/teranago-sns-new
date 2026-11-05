@@ -19,6 +19,7 @@ import sitesRouter from './routes/sites.js';
 import inspectionsRouter from './routes/inspections.js';
 import eventsRouter from './routes/events.js';
 import safetyRouter from './routes/safety.js';
+import chatQuizzesRouter from './routes/chatQuizzes.js';
 
 // サーバークラッシュ防止（非同期未処理例外・Promise拒否でプロセスが落ちるのを完全防止）
 process.on('uncaughtException', (err) => {
@@ -818,6 +819,10 @@ async function startServer() {
   app.use(['/uploads/photo-reports', '/api/uploads/photo-reports', '/api/photo-reports/image', '/api/photo-reports/file'], express.static(photoReportsDir, staticFileOptions));
   app.use(['/api/photo-reports', '/api/inspection-photo-reports'], photoReportsRouter);
   app.use('/api', photoReportsRouter);
+
+  // チャット内クイズ・アンケート出題＆回答APIルーター
+  app.use(['/api/chats/quizzes', '/api/chat-quizzes'], chatQuizzesRouter);
+  app.use('/api', chatQuizzesRouter);
 
   // アクセス・操作ログ管理APIルーター
   app.use('/api/logs', logsRouter);

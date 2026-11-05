@@ -1,14 +1,15 @@
 /**
  * Synology NAS (Docker / Node.js) 用 推奨サーバーコード
  * 
- * 最終更新日時 (最終アップデート): 2026年11月5日 (写真報告書画像の直接配信 /api/photo-reports/image およびCORS対応版)
+ * 最終更新日時 (最終アップデート): 2026年11月5日 (チャット内クイズ・アンケート出題＆回答API /api/chats/quizzes 追加版)
  * 
  * 概要:
  * 本コードは TERANAGO 社内SNS のバックエンドAPIサーバー (Express + MS SQL Server / JSONファイルDB) の完全版です。
  * 
  * [最新の主な変更・新機能]
- * 1. 写真報告書写真画像の直接配信エンドポイント (/api/photo-reports/image, /api/photo-reports/file) 対応
- * 2. 写真画像のCORSヘッダー完備とSynologyリバースプロキシ通過最適化
+ * 1. チャット内クイズ・アンケート出題＆回答API (/api/chats/quizzes, /api/chat-quizzes) 追加
+ * 2. クイズカードUI用二重回答防止＆未回答者向けカンニング防止マスキング対応
+ * 3. 写真報告書写真画像の直接配信エンドポイント (/api/photo-reports/image) 対応
  */
 
 export const RECOMMEND_SERVER_JS = `import express from 'express';
@@ -32,6 +33,7 @@ import sitesRouter from './routes/sites.js';
 import inspectionsRouter from './routes/inspections.js';
 import eventsRouter from './routes/events.js';
 import safetyRouter from './routes/safety.js';
+import chatQuizzesRouter from './routes/chatQuizzes.js';
 
 // サーバークラッシュ防止（非同期未処理例外・Promise拒否でプロセスが落ちるのを完全防止）
 process.on('uncaughtException', (err) => {
@@ -831,6 +833,10 @@ async function startServer() {
   app.use(['/uploads/photo-reports', '/api/uploads/photo-reports', '/api/photo-reports/image', '/api/photo-reports/file'], express.static(photoReportsDir, staticFileOptions));
   app.use(['/api/photo-reports', '/api/inspection-photo-reports'], photoReportsRouter);
   app.use('/api', photoReportsRouter);
+
+  // チャット内クイズ・アンケート出題＆回答APIルーター
+  app.use(['/api/chats/quizzes', '/api/chat-quizzes'], chatQuizzesRouter);
+  app.use('/api', chatQuizzesRouter);
 
   // アクセス・操作ログ管理APIルーター
   app.use('/api/logs', logsRouter);
