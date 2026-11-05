@@ -36,7 +36,7 @@ export function ChatQuizCard({
   const [showVoters, setShowVoters] = useState<Record<string, boolean>>({});
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  const quizId = msg.quizId || msg.quiz?.id;
+  const quizId = msg.quizId || msg.quiz?.id || msg.id;
 
   // 最新のクイズ状態（回答状況・集計結果）を取得
   const fetchQuizData = async () => {
@@ -50,6 +50,8 @@ export function ChatQuizCard({
         const data: ChatQuizData = await res.json();
         setQuiz(data);
         onAnswerUpdated?.(data);
+      } else {
+        setLoading(false);
       }
     } catch (err) {
       console.warn('[ChatQuizCard] クイズ取得エラー:', err);

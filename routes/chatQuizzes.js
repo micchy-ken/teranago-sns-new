@@ -376,7 +376,7 @@ router.post(['/quizzes', '/chats/quizzes', '/api/chats/quizzes', '/api/chat-quiz
 // ==========================================
 // 2. クイズ詳細・回答状況取得 (GET /api/chats/quizzes/:quizId)
 // ==========================================
-router.get(['/quizzes/:quizId', '/chats/quizzes/:quizId', '/api/chats/quizzes/:quizId', '/api/chat-quizzes/:quizId'], async (req, res) => {
+router.get(['/:quizId', '/quizzes/:quizId', '/chats/quizzes/:quizId', '/api/chats/quizzes/:quizId', '/api/chat-quizzes/:quizId'], async (req, res) => {
   try {
     const { quizId } = req.params;
     const { userId } = req.query;
@@ -387,14 +387,16 @@ router.get(['/quizzes/:quizId', '/chats/quizzes/:quizId', '/api/chats/quizzes/:q
 
     if (pool) {
       await initTables(pool);
+      // id または messageId のどちらでもヒット可能にする
       const quizRes = await pool.request()
-        .input('quizId', sql.NVarChar(64), quizId)
-        .query('SELECT * FROM dbo.ChatQuizzes WHERE id = @quizId');
+        .input('queryId', sql.NVarChar(64), quizId)
+        .query('SELECT * FROM dbo.ChatQuizzes WHERE id = @queryId OR messageId = @queryId');
 
       if (quizRes.recordset && quizRes.recordset.length > 0) {
         const row = quizRes.recordset[0];
+        const actualQuizId = String(row.id);
         quiz = {
-          id: String(row.id),
+          id: actualQuizId,
           messageId: String(row.messageId),
           roomId: String(row.roomId),
           question: row.question,
@@ -408,8 +410,8 @@ router.get(['/quizzes/:quizId', '/chats/quizzes/:quizId', '/api/chats/quizzes/:q
         };
 
         const answersRes = await pool.request()
-          .input('quizId', sql.NVarChar(64), quizId)
-          .query('SELECT * FROM dbo.ChatQuizAnswers WHERE quizId = @quizId ORDER BY answeredAt ASC');
+          .input('actualQuizId', sql.NVarChar(64), actualQuizId)
+          .query('SELECT * FROM dbo.ChatQuizAnswers WHERE quizId = @actualQuizId ORDER BY answeredAt ASC');
 
         answers = (answersRes.recordset || []).map((a) => ({
           id: String(a.id),
@@ -431,14 +433,16 @@ router.get(['/quizzes/:quizId', '/chats/quizzes/:quizId', '/api/chats/quizzes/:q
         if (fs.existsSync(QUIZZES_FILE)) rawQuizzes = fs.readFileSync(QUIZZES_FILE, 'utf8');
       } catch (_) {}
       const quizzes = safeParseJSON(rawQuizzes, []);
-      quiz = quizzes.find((q) => String(q.id) === String(quizId));
+      quiz = quizzes.find((q) => String(q.id) === String(quizId) || String(q.messageId) === String(quizId));
 
-      let rawAnswers = '[]';
-      try {
-        if (fs.existsSync(ANSWERS_FILE)) rawAnswers = fs.readFileSync(ANSWERS_FILE, 'utf8');
-      } catch (_) {}
-      const allAnswers = safeParseJSON(rawAnswers, []);
-      answers = allAnswers.filter((a) => String(a.quizId) === String(quizId));
+      if (quiz) {
+        let rawAnswers = '[]';
+        try {
+          if (fs.existsSync(ANSWERS_FILE)) rawAnswers = fs.readFileSync(ANSWERS_FILE, 'utf8');
+        } catch (_) {}
+        const allAnswers = safeParseJSON(rawAnswers, []);
+        answers = allAnswers.filter((a) => String(a.quizId) === String(quiz.id));
+      }
     }
 
     if (!quiz) {
@@ -456,7 +460,7 @@ router.get(['/quizzes/:quizId', '/chats/quizzes/:quizId', '/api/chats/quizzes/:q
 // ==========================================
 // 3. 回答・投票送信 (POST /api/chats/quizzes/:quizId/answer)
 // ==========================================
-router.post(['/quizzes/:quizId/answer', '/chats/quizzes/:quizId/answer', '/api/chats/quizzes/:quizId/answer', '/api/chat-quizzes/:quizId/answer'], async (req, res) => {
+router.post(['/:quizId/answer', '/quizzes/:quizId/answer', '/chats/quizzes/:quizId/answer', '/api/chats/quizzes/:quizId/answer', '/api/chat-quizzes/:quizId/answer'], async (req, res) => {
   try {
     const { quizId } = req.params;
     const { selectedOptionId, userId, userName, userAvatar, userDepartment } = req.body;
@@ -472,13 +476,14 @@ router.post(['/quizzes/:quizId/answer', '/chats/quizzes/:quizId/answer', '/api/c
     if (pool) {
       await initTables(pool);
       const quizRes = await pool.request()
-        .input('quizId', sql.NVarChar(64), quizId)
-        .query('SELECT * FROM dbo.ChatQuizzes WHERE id = @quizId');
+        .input('queryId', sql.NVarChar(64), quizId)
+        .query('SELECT * FROM dbo.ChatQuizzes WHERE id = @queryId OR messageId = @queryId');
 
       if (quizRes.recordset && quizRes.recordset.length > 0) {
         const row = quizRes.recordset[0];
+        const actualQuizId = String(row.id);
         quiz = {
-          id: String(row.id),
+          id: actualQuizId,
           messageId: String(row.messageId),
           roomId: String(row.roomId),
           question: row.question,
@@ -493,9 +498,9 @@ router.post(['/quizzes/:quizId/answer', '/chats/quizzes/:quizId/answer', '/api/c
 
         // 二重投票チェック
         const existingVote = await pool.request()
-          .input('quizId', sql.NVarChar(64), quizId)
+          .input('actualQuizId', sql.NVarChar(64), actualQuizId)
           .input('userId', sql.NVarChar(64), String(userId))
-          .query('SELECT id FROM dbo.ChatQuizAnswers WHERE quizId = @quizId AND userId = @userId');
+          .query('SELECT id FROM dbo.ChatQuizAnswers WHERE quizId = @actualQuizId AND userId = @userId');
 
         if (existingVote.recordset && existingVote.recordset.length > 0) {
           return res.status(409).json({ error: 'この問題には既に回答済みです（二重回答不可）' });
@@ -504,7 +509,7 @@ router.post(['/quizzes/:quizId/answer', '/chats/quizzes/:quizId/answer', '/api/c
         const answerId = `ans_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
         await pool.request()
           .input('id', sql.NVarChar(64), answerId)
-          .input('quizId', sql.NVarChar(64), quizId)
+          .input('actualQuizId', sql.NVarChar(64), actualQuizId)
           .input('userId', sql.NVarChar(64), String(userId))
           .input('userName', sql.NVarChar(128), userName || 'ユーザー')
           .input('userAvatar', sql.NVarChar(512), userAvatar || null)
@@ -514,13 +519,13 @@ router.post(['/quizzes/:quizId/answer', '/chats/quizzes/:quizId/answer', '/api/c
             INSERT INTO dbo.ChatQuizAnswers (
               id, quizId, userId, userName, userAvatar, userDepartment, selectedOptionId, answeredAt
             ) VALUES (
-              @id, @quizId, @userId, @userName, @userAvatar, @userDepartment, @selectedOptionId, SYSUTCDATETIME()
+              @id, @actualQuizId, @userId, @userName, @userAvatar, @userDepartment, @selectedOptionId, SYSUTCDATETIME()
             )
           `);
 
         const allAnswersRes = await pool.request()
-          .input('quizId', sql.NVarChar(64), quizId)
-          .query('SELECT * FROM dbo.ChatQuizAnswers WHERE quizId = @quizId ORDER BY answeredAt ASC');
+          .input('actualQuizId', sql.NVarChar(64), actualQuizId)
+          .query('SELECT * FROM dbo.ChatQuizAnswers WHERE quizId = @actualQuizId ORDER BY answeredAt ASC');
 
         answers = (allAnswersRes.recordset || []).map((a) => ({
           id: String(a.id),
@@ -542,21 +547,18 @@ router.post(['/quizzes/:quizId/answer', '/chats/quizzes/:quizId/answer', '/api/c
         if (fs.existsSync(QUIZZES_FILE)) rawQuizzes = fs.readFileSync(QUIZZES_FILE, 'utf8');
       } catch (_) {}
       const quizzes = safeParseJSON(rawQuizzes, []);
-      quiz = quizzes.find((q) => String(q.id) === String(quizId));
+      quiz = quizzes.find((q) => String(q.id) === String(quizId) || String(q.messageId) === String(quizId));
 
       if (!quiz) {
         return res.status(404).json({ error: '指定されたクイズが見つかりません' });
       }
 
-      let rawAnswers = '[]';
-      try {
-        if (fs.existsSync(ANSWERS_FILE)) rawAnswers = fs.readFileSync(ANSWERS_FILE, 'utf8');
-      } catch (_) {}
+      const rawAnswers = fs.readFileSync(ANSWERS_FILE, 'utf8');
       const allAnswers = safeParseJSON(rawAnswers, []);
 
       // 二重投票チェック
       const hasAnswered = allAnswers.some(
-        (a) => String(a.quizId) === String(quizId) && String(a.userId) === String(userId)
+        (a) => String(a.quizId) === String(quiz.id) && String(a.userId) === String(userId)
       );
       if (hasAnswered) {
         return res.status(409).json({ error: 'この問題には既に回答済みです（二重回答不可）' });
@@ -564,7 +566,7 @@ router.post(['/quizzes/:quizId/answer', '/chats/quizzes/:quizId/answer', '/api/c
 
       const newAnswer = {
         id: `ans_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-        quizId: String(quizId),
+        quizId: String(quiz.id),
         userId: String(userId),
         userName: userName || 'ユーザー',
         userAvatar: userAvatar || '',
@@ -577,7 +579,7 @@ router.post(['/quizzes/:quizId/answer', '/chats/quizzes/:quizId/answer', '/api/c
       try {
         fs.writeFileSync(ANSWERS_FILE, JSON.stringify(allAnswers, null, 2), 'utf8');
       } catch (_) {}
-      answers = allAnswers.filter((a) => String(a.quizId) === String(quizId));
+      answers = allAnswers.filter((a) => String(a.quizId) === String(quiz.id));
     }
 
     // チャットルームメッセージ内キャッシュの更新
