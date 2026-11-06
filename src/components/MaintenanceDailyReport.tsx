@@ -866,10 +866,26 @@ export function MaintenanceDailyReportView({
     const mapCfg = currentOfficeConfig.scheduleMapping;
     const pts = currentOfficeConfig.pointSettings;
 
-    dayEvents.slice(0, 10).forEach((ev, idx) => {
+    // キーワードフィルタリング（点検・取替・修理のみ取り込み）
+    const targetEvents = (mapCfg.onlyTargetKeywords ?? true)
+      ? dayEvents.filter(ev => {
+          const full = `${ev.title || ''} ${ev.memo || ''} ${ev.location || ''} ${ev.type || ''}`;
+          const isInsp = (mapCfg.importInspection ?? true) && (full.includes('点検') || (ev.type as unknown as string) === '点検');
+          const isRepl = (mapCfg.importReplacement ?? true) && (full.includes('取替') || full.includes('EG') || full.includes('単体') || String(ev.type).includes('取替'));
+          const isRep = (mapCfg.importRepair ?? true) && (full.includes('修理') || full.includes('オンコール') || (ev.type as unknown as string) === '修理');
+          return isInsp || isRepl || isRep;
+        })
+      : dayEvents;
+
+    if (targetEvents.length === 0) {
+      alert(`${targetDateStr} のスケジュールに「点検」「取替」「修理」に該当する予定が見つかりませんでした。`);
+      return;
+    }
+
+    targetEvents.slice(0, 10).forEach((ev, idx) => {
       const startT = getEventTimeStrJST(ev.start);
       const endT = getEventTimeStrJST(ev.end);
-      const fullText = `${ev.memo || ''} ${ev.location || ''} ${ev.title || ''}`;
+      const fullText = `${ev.memo || ''} ${ev.location || ''} ${ev.title || ''} ${ev.type || ''}`;
 
       // 現場名の決定（マッピング設定準拠）
       let siteNameStr = ev.title || '現場名未設定';
@@ -911,7 +927,7 @@ export function MaintenanceDailyReportView({
         if (searchStr.includes('直帰')) isDirectReturn = true;
       }
 
-      // 内容区分の判定：スケジュールの内容（ev.type, ev.memo, ev.title）に準じる
+      // 内容区分の判定：スケジュール内容（点検、取替、修理）に応じたデフォルト割り当て
       let contentType = '';
       const ctExplicitMatch = fullText.match(/【内容区分】\s*([^\s\r\n】]+)/) || fullText.match(/【内容】\s*([^\s\r\n】]+)/);
       if (ctExplicitMatch && ctExplicitMatch[1]) {
@@ -922,22 +938,15 @@ export function MaintenanceDailyReportView({
       }
       
       if (!contentType) {
-        if (fullText.includes('EG取替') || (fullText.includes('EG') && fullText.includes('取替'))) {
-          contentType = 'EG取替';
-        } else if (fullText.includes('単体取替') || (fullText.includes('単体') && fullText.includes('取替'))) {
-          contentType = '単体取替';
-        } else if (fullText.includes('オンコール')) {
-          contentType = 'オンコール';
+        if (fullText.includes('取替') || fullText.includes('EG') || fullText.includes('単体')) {
+          contentType = mapCfg.replacementDefaultCategory || 'EG取替';
         } else if (fullText.includes('点検')) {
-          contentType = '点検';
-        } else if (fullText.includes('見積') || fullText.includes('現調')) {
-          contentType = '見積';
-        } else if (fullText.includes('修理')) {
-          contentType = '修理';
+          contentType = mapCfg.inspectionDefaultCategory || '点検';
+        } else if (fullText.includes('修理') || fullText.includes('オンコール')) {
+          contentType = mapCfg.repairDefaultCategory || '修理';
         } else if (ev.type && ['EG取替', '単体取替', '修理', 'オンコール', '点検', '見積'].includes(ev.type)) {
           contentType = ev.type;
         } else {
-          // 特段の記述がなければデフォルトは '修理'
           contentType = '修理';
         }
       }

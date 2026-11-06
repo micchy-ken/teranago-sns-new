@@ -641,6 +641,14 @@ export interface MaintenanceReportScheduleMapping {
   districtSource: 'tag' | 'location' | 'default_office' | 'none';      // 地区の転記元
   autoImportAttendees: boolean;     // 参加者から人数・同行者を自動取得するか
   autoDetectDirectGoReturn: boolean; // メモ等から直行・直帰を自動判定するか
+  // 予定絞り込み・内容区分割り当てカスタム設定
+  onlyTargetKeywords?: boolean;      // 「点検・取替・修理」のみを取り込み対象にするか (標準: true)
+  importInspection?: boolean;        // 「点検」を自動取り込み対象にするか (標準: true)
+  importReplacement?: boolean;       // 「取替」を自動取り込み対象にするか (標準: true)
+  importRepair?: boolean;            // 「修理」を自動取り込み対象にするか (標準: true)
+  replacementDefaultCategory?: 'EG取替' | '単体取替'; // 「取替」時のデフォルト内容区分 (標準: 'EG取替')
+  inspectionDefaultCategory?: '点検';               // 「点検」時のデフォルト内容区分 (標準: '点検')
+  repairDefaultCategory?: '修理' | 'オンコール';     // 「修理」時のデフォルト内容区分 (標準: '修理')
 }
 
 // 保守日報 拠点別設定マスター
