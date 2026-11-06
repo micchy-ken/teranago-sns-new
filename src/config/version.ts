@@ -15,12 +15,12 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.11.06.14',
+  version: '2026.11.06.15',
   date: '2026-11-06',
-  releaseNumber: 14,
-  display: 'v2026.11.06 #14 (JST)',
+  releaseNumber: 15,
+  display: 'v2026.11.06 #15 (JST)',
   timeZone: '日本標準時 (JST / UTC+09:00)',
-  description: '保守日報スケジュール自動取り込みの「修理・点検・取替」区分判定の厳密化および作業内容（workDescription）英語表記（repair等）の日本語変換（修理・点検等）対応',
+  description: '提出された保守日報の直接表示（全項目読み取り専用表示）・編集保存の排除・コメント入力および上長提出／差し戻しワークフロー機能の実装',
 };
 
 /**

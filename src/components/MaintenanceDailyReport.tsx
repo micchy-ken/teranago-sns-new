@@ -43,7 +43,9 @@ import {
   Sliders,
   GripVertical,
   ArrowUp,
-  ArrowDown
+  ArrowDown,
+  RotateCcw,
+  MessageSquare
 } from 'lucide-react';
 import { getAvatarUrl } from '../utils/avatar';
 import { getLocalDateStr } from '../utils/dateUtils';
@@ -508,9 +510,18 @@ export function MaintenanceDailyReportView({
     maintenanceData?.estimateSurveyHours || ''
   );
 
-  // ステータス
+  // ステータス & 提出済み（閲覧・レビュー確認）モード判定
   const [status, setStatus] = useState<WorkReportStatus>(report?.status || 'draft');
-  const [reviewComment, setReviewComment] = useState<string>('');
+  const isSubmittedMode = Boolean(report && (report.status === 'submitted' || report.status === 'reviewed'));
+
+  // 作成者・上長表示用情報
+  const reportAuthorName = report?.author?.name || maintenanceData?.userName || currentUser.name;
+  const reportAuthorDept = report?.author?.department || report?.department || currentUser.department || '保守';
+  const reportAuthorAvatar = report?.author?.avatarUrl || currentUser.avatarUrl;
+
+  const [reviewComment, setReviewComment] = useState<string>(() => {
+    return report?.feedbackComment || (report as any)?.review_feedback || '';
+  });
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   // report または maintenanceData 変更時の状態復元同期
@@ -521,6 +532,9 @@ export function MaintenanceDailyReportView({
       setSupervisorId(report?.supervisorId || (report as any)?.supervisor_id || '');
     }
     if (report?.status) setStatus(report.status);
+    if (report?.feedbackComment || (report as any)?.review_feedback) {
+      setReviewComment(report.feedbackComment || (report as any).review_feedback || '');
+    }
 
     if (maintenanceData) {
       let rowsSource = maintenanceData.mainWorkRows;
@@ -630,6 +644,31 @@ export function MaintenanceDailyReportView({
   const supervisorCandidates = useMemo(() => {
     return allUsers.filter(u => u.id !== currentUser.id);
   }, [allUsers, currentUser.id]);
+
+  const supervisorDisplayName = useMemo(() => {
+    const sId = supervisorId || report?.supervisorId || (report as any)?.supervisor_id;
+    const found = allUsers.find(u => u.id === sId);
+    if (found) return `${found.name} (${found.department || '上長'})`;
+    if (report?.supervisor?.name) return `${report.supervisor.name} (${report.supervisor.department || '上長'})`;
+    return '未指定';
+  }, [supervisorId, report, allUsers]);
+
+  // 提出済み日報表示用（入力のある有効行のみ抽出）
+  const displayedMainRows = useMemo(() => {
+    if (!isSubmittedMode) return mainWorkRows;
+    const filled = mainWorkRows.filter(r => 
+      Boolean(r.siteName?.trim() || r.contentType || (r.startTime && r.startTime !== '') || r.workDescription?.trim() || (r.inspectionCount && r.inspectionCount > 0) || (r.replacementCount && r.replacementCount > 0) || (r.oncallAmount && r.oncallAmount > 0))
+    );
+    return filled.length > 0 ? filled : mainWorkRows.slice(0, 1);
+  }, [isSubmittedMode, mainWorkRows]);
+
+  const displayedOfficeRows = useMemo(() => {
+    if (!isSubmittedMode) return officeWorkRows;
+    const filled = officeWorkRows.filter(r => 
+      Boolean(r.destination?.trim() || r.content?.trim() || (r.amount && r.amount > 0) || r.targetMonth?.trim() || (r.timeMinutes && r.timeMinutes > 0) || r.remarks?.trim())
+    );
+    return filled.length > 0 ? filled : officeWorkRows.slice(0, 1);
+  }, [isSubmittedMode, officeWorkRows]);
 
   // ---------------- D&D (ドラッグ＆ドロップ) および 行移動・行削除・行追加 ----------------
   const [draggedMainIndex, setDraggedMainIndex] = useState<number | null>(null);
@@ -1208,7 +1247,7 @@ export function MaintenanceDailyReportView({
     }
   };
 
-  // 上長レビュー確認
+  // 上長レビュー確認（旧）
   const handleReview = async () => {
     if (!report?.id || !onReviewReport) return;
     setIsSubmitting(true);
@@ -1217,6 +1256,59 @@ export function MaintenanceDailyReportView({
       setStatus('reviewed');
     } catch (e) {
       console.error('Failed to review:', e);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // 提出された日報の差し戻し処理
+  const handleRemand = async () => {
+    if (!report?.id) return;
+    const ok = window.confirm('この日報を作成者に差し戻しますか？（下書きに戻ります）');
+    if (!ok) return;
+
+    setIsSubmitting(true);
+    try {
+      if (onSaveReport) {
+        await onSaveReport({
+          id: report.id,
+          status: 'draft',
+          feedbackComment: reviewComment || '差し戻し',
+          tasks: report.tasks,
+          maintenanceData: maintenanceData || undefined,
+        });
+      }
+      alert('日報を作成者に差し戻しました。');
+      if (onBack) onBack();
+    } catch (err) {
+      console.error('Failed to remand report:', err);
+      alert('差し戻し処理に失敗しました。');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // 提出された日報の上長提出・確認完了処理
+  const handleForwardOrApprove = async () => {
+    if (!report?.id) return;
+    setIsSubmitting(true);
+    try {
+      if (onReviewReport) {
+        await onReviewReport(report.id, reviewComment || '');
+      } else if (onSaveReport) {
+        await onSaveReport({
+          id: report.id,
+          status: 'reviewed',
+          feedbackComment: reviewComment || '',
+          tasks: report.tasks,
+          maintenanceData: maintenanceData || undefined,
+        });
+      }
+      alert('日報を上長に提出（確認完了）しました。');
+      if (onBack) onBack();
+    } catch (err) {
+      console.error('Failed to forward/approve report:', err);
+      alert('提出処理に失敗しました。');
     } finally {
       setIsSubmitting(false);
     }
@@ -1237,7 +1329,9 @@ export function MaintenanceDailyReportView({
                 <ArrowLeft className="w-5 h-5" />
               </button>
             )}
-            <div className="w-9 h-9 rounded-xl bg-amber-500 flex items-center justify-center text-white font-bold shadow-sm shadow-amber-200">
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold shadow-sm ${
+              isSubmittedMode ? 'bg-indigo-600 shadow-indigo-200' : 'bg-amber-500 shadow-amber-200'
+            }`}>
               <FileText className="w-5 h-5" />
             </div>
             <div>
@@ -1245,85 +1339,178 @@ export function MaintenanceDailyReportView({
                 <h1 className="text-base sm:text-lg font-bold text-slate-900">
                   平日（月～金）保守日報
                 </h1>
-                <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
-                  保守部署専用
-                </span>
+                {isSubmittedMode ? (
+                  <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-indigo-100 text-indigo-800 border border-indigo-200 flex items-center gap-1">
+                    <UserCheck className="w-3.5 h-3.5" />
+                    {status === 'reviewed' ? '上長確認完了' : '提出済（上長確認中）'}
+                  </span>
+                ) : (
+                  <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                    保守部署専用
+                  </span>
+                )}
 
-                {/* 拠点別カスタム様式セレクター */}
+                {/* 拠点別カスタム様式セレクター / 直接表示 */}
                 <div className="flex items-center gap-1.5 ml-1">
                   <span className="text-[11px] font-bold text-slate-500 hidden md:inline">様式:</span>
-                  <div className="relative">
-                    <select
-                      value={selectedOfficeName}
-                      onChange={(e) => setSelectedOfficeName(e.target.value)}
-                      className="text-xs font-bold text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg px-2.5 py-1 pr-6 cursor-pointer appearance-none transition-colors"
-                      title="適用する拠点別カスタム様式（表示列・計算ポイント）を切り替えます"
-                    >
-                      {(offices.length > 0 ? offices.map(o => o.name) : ['本社', '名古屋支店', '静岡営業所', '浜松営業所', '三河営業所']).map(offName => (
-                        <option key={offName} value={offName}>
-                          {offName} 様式
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown className="w-3.5 h-3.5 text-amber-700 absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                  </div>
+                  {isSubmittedMode ? (
+                    <span className="text-xs font-bold text-amber-900 bg-amber-50 border border-amber-300 rounded-lg px-2.5 py-0.5">
+                      {selectedOfficeName} 様式
+                    </span>
+                  ) : (
+                    <div className="relative">
+                      <select
+                        value={selectedOfficeName}
+                        onChange={(e) => setSelectedOfficeName(e.target.value)}
+                        className="text-xs font-bold text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg px-2.5 py-1 pr-6 cursor-pointer appearance-none transition-colors"
+                        title="適用する拠点別カスタム様式（表示列・計算ポイント）を切り替えます"
+                      >
+                        {(offices.length > 0 ? offices.map(o => o.name) : ['本社', '名古屋支店', '静岡営業所', '浜松営業所', '三河営業所']).map(offName => (
+                          <option key={offName} value={offName}>
+                            {offName} 様式
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronDown className="w-3.5 h-3.5 text-amber-700 absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    </div>
+                  )}
                 </div>
               </div>
               <p className="text-xs text-slate-500 hidden sm:block">
-                当日のスケジュールから作業・点検・取替内容を自動算出し、日報を簡単に作成・保存します
+                {isSubmittedMode 
+                  ? '提出された日報の確認画面です。内容確認の上、コメントを入力して上長提出または差し戻しを行えます。'
+                  : '当日のスケジュールから作業・点検・取替内容を自動算出し、日報を簡単に作成・保存します'}
               </p>
             </div>
           </div>
 
           {/* 右側アクションボタン */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleAutoLoadSchedule}
-              className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
-              title="選択した日付のスケジュールから現場名・作業時間を自動入力します"
-            >
-              <Sparkles className="w-4 h-4" />
-              <span className="hidden sm:inline">スケジュール自動取り込み</span>
-              <span className="sm:hidden">自動取込</span>
-            </button>
+          {isSubmittedMode ? (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleRemand}
+                disabled={isSubmitting}
+                className="px-3.5 py-1.5 bg-white border border-rose-300 text-rose-700 hover:bg-rose-50 rounded-lg text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                title="日報を作成者に差し戻します（下書きに戻す）"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                差し戻し
+              </button>
+              <button
+                onClick={handleForwardOrApprove}
+                disabled={isSubmitting}
+                className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm shadow-indigo-200 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                title="コメントを添えて上長に提出（確認完了）します"
+              >
+                <Send className="w-3.5 h-3.5" />
+                上長に提出
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleAutoLoadSchedule}
+                className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+                title="選択した日付のスケジュールから現場名・作業時間を自動入力します"
+              >
+                <Sparkles className="w-4 h-4" />
+                <span className="hidden sm:inline">スケジュール自動取り込み</span>
+                <span className="sm:hidden">自動取込</span>
+              </button>
 
-            <button
-              onClick={() => handleSave('draft')}
-              disabled={isSubmitting}
-              className="px-3.5 py-1.5 bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 rounded-lg text-xs font-bold transition-all shadow-xs flex items-center gap-1 cursor-pointer disabled:opacity-50"
-            >
-              <Save className="w-4 h-4 text-slate-500" />
-              下書き保存
-            </button>
+              <button
+                onClick={() => handleSave('draft')}
+                disabled={isSubmitting}
+                className="px-3.5 py-1.5 bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 rounded-lg text-xs font-bold transition-all shadow-xs flex items-center gap-1 cursor-pointer disabled:opacity-50"
+              >
+                <Save className="w-4 h-4 text-slate-500" />
+                下書き保存
+              </button>
 
-            <button
-              onClick={() => handleSave('submitted')}
-              disabled={isSubmitting}
-              className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm shadow-indigo-200 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-            >
-              <Send className="w-4 h-4" />
-              日報を提出
-            </button>
-          </div>
+              <button
+                onClick={() => handleSave('submitted')}
+                disabled={isSubmitting}
+                className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm shadow-indigo-200 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                <Send className="w-4 h-4" />
+                日報を提出
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
       <div className="max-w-7xl mx-auto px-2 sm:px-6 pt-4 space-y-4">
+        {/* ---------------- 提出された日報用 上長確認・コメント・提出/差し戻しパネル ---------------- */}
+        {isSubmittedMode && (
+          <div className="bg-white border-2 border-indigo-300 rounded-xl p-4 shadow-sm space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-indigo-950 font-bold text-sm">
+                <MessageSquare className="w-4 h-4 text-indigo-600" />
+                <span>上長確認・コメント入力</span>
+                <span className="text-[11px] font-normal text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded-full border border-indigo-200">
+                  ※コメントは空白のままでも上長提出・差し戻し可能です
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleRemand}
+                  disabled={isSubmitting}
+                  className="px-3.5 py-1.5 bg-white border border-rose-300 text-rose-700 hover:bg-rose-50 rounded-lg text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  title="日報を作成者に差し戻します（下書きに戻す）"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  差し戻し
+                </button>
+                <button
+                  onClick={handleForwardOrApprove}
+                  disabled={isSubmitting}
+                  className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm shadow-indigo-200 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  title="コメントを添えて上長に提出（確認完了）します"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  上長に提出
+                </button>
+              </div>
+            </div>
+            <textarea
+              rows={2}
+              value={reviewComment}
+              onChange={e => setReviewComment(e.target.value)}
+              placeholder="コメントや確認事項、指示があれば入力（空白のまま「上長に提出」または「差し戻し」可能です）..."
+              className="w-full p-2.5 border border-indigo-200 rounded-lg text-xs bg-indigo-50/20 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-colors"
+            />
+            {report?.feedbackComment && report.feedbackComment !== reviewComment && (
+              <p className="text-[11px] text-slate-500">
+                前回のコメント: <span className="text-slate-700 font-semibold">{report.feedbackComment}</span>
+              </p>
+            )}
+          </div>
+        )}
+
         {/* ---------------- 色設定・操作ガイドバナー ---------------- */}
         <div className="bg-white rounded-xl border border-slate-200 p-3.5 sm:p-4 shadow-xs flex flex-wrap items-center justify-between gap-3 text-xs">
           <div className="flex flex-wrap items-center gap-4">
             <span className="font-bold text-slate-700 flex items-center gap-1">
               <HelpCircle className="w-4 h-4 text-amber-500" />
-              セルの色分けガイド:
+              {isSubmittedMode ? '日報確認モード:' : 'セルの色分けガイド:'}
             </span>
-            <div className="flex items-center gap-1.5">
-              <span className="w-4 h-4 rounded bg-[#FAF3E0] border border-amber-300 inline-block shadow-2xs"></span>
-              <span className="font-semibold text-amber-900">肌色 = 自動反映・自動計算項目</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="w-4 h-4 rounded bg-[#E8F8F0] border border-emerald-400 inline-block shadow-2xs"></span>
-              <span className="font-semibold text-emerald-900">緑色 = ※手入力項目</span>
-            </div>
+            {isSubmittedMode ? (
+              <span className="text-slate-600 font-medium">
+                提出された日報です（全項目直接表示）。コメントを入力の上、上長提出または差し戻しを行ってください。
+              </span>
+            ) : (
+              <>
+                <div className="flex items-center gap-1.5">
+                  <span className="w-4 h-4 rounded bg-[#FAF3E0] border border-amber-300 inline-block shadow-2xs"></span>
+                  <span className="font-semibold text-amber-900">肌色 = 自動反映・自動計算項目</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="w-4 h-4 rounded bg-[#E8F8F0] border border-emerald-400 inline-block shadow-2xs"></span>
+                  <span className="font-semibold text-emerald-900">緑色 = ※手入力項目</span>
+                </div>
+              </>
+            )}
           </div>
 
           <div className="flex items-center gap-2 text-slate-500 text-[11px]">
@@ -1336,77 +1523,96 @@ export function MaintenanceDailyReportView({
         {/* ---------------- 1. ヘッダー情報（日付・氏名・承認先） ---------------- */}
         <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
-            {/* 日付選択 */}
-            <div className="flex items-center gap-1.5">
+            {/* 日付選択 / 直接表示 */}
+            <div className="flex items-center gap-2">
               <label className="text-xs font-bold text-slate-600 shrink-0">日報日付:</label>
-              <div className="flex items-center gap-1 flex-1 min-w-[170px]">
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!reportDate) return;
-                    const [y, m, d] = reportDate.split('-').map(Number);
-                    const dt = new Date(y, m - 1, d - 1);
-                    setReportDate(getLocalDateStr(dt));
-                  }}
-                  className="p-1.5 bg-slate-100 hover:bg-amber-100 text-slate-600 hover:text-amber-800 border border-slate-300 hover:border-amber-300 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center shrink-0"
-                  title="前日へ移動"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-                <input
-                  type="date"
-                  value={reportDate}
-                  onChange={e => setReportDate(e.target.value)}
-                  className="w-full px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-800 focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 text-center cursor-pointer"
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!reportDate) return;
-                    const [y, m, d] = reportDate.split('-').map(Number);
-                    const dt = new Date(y, m - 1, d + 1);
-                    setReportDate(getLocalDateStr(dt));
-                  }}
-                  className="p-1.5 bg-slate-100 hover:bg-amber-100 text-slate-600 hover:text-amber-800 border border-slate-300 hover:border-amber-300 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center shrink-0"
-                  title="翌日へ移動"
-                >
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-              </div>
-              <span className="px-2 py-1 bg-amber-50 text-amber-800 border border-amber-200 rounded-lg text-xs font-extrabold shrink-0">
-                ({getDayOfWeekJa(reportDate)})
-              </span>
+              {isSubmittedMode ? (
+                <div className="flex-1 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-900 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <CalendarIcon className="w-3.5 h-3.5 text-amber-600" />
+                    {reportDate}
+                  </span>
+                  <span className="px-2 py-0.5 bg-amber-50 text-amber-800 border border-amber-200 rounded text-xs font-extrabold">
+                    ({getDayOfWeekJa(reportDate)})
+                  </span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1 flex-1 min-w-[170px]">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!reportDate) return;
+                      const [y, m, d] = reportDate.split('-').map(Number);
+                      const dt = new Date(y, m - 1, d - 1);
+                      setReportDate(getLocalDateStr(dt));
+                    }}
+                    className="p-1.5 bg-slate-100 hover:bg-amber-100 text-slate-600 hover:text-amber-800 border border-slate-300 hover:border-amber-300 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center shrink-0"
+                    title="前日へ移動"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <input
+                    type="date"
+                    value={reportDate}
+                    onChange={e => setReportDate(e.target.value)}
+                    className="w-full px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-800 focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 text-center cursor-pointer"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!reportDate) return;
+                      const [y, m, d] = reportDate.split('-').map(Number);
+                      const dt = new Date(y, m - 1, d + 1);
+                      setReportDate(getLocalDateStr(dt));
+                    }}
+                    className="p-1.5 bg-slate-100 hover:bg-amber-100 text-slate-600 hover:text-amber-800 border border-slate-300 hover:border-amber-300 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center shrink-0"
+                    title="翌日へ移動"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                  <span className="px-2 py-1 bg-amber-50 text-amber-800 border border-amber-200 rounded-lg text-xs font-extrabold shrink-0">
+                    ({getDayOfWeekJa(reportDate)})
+                  </span>
+                </div>
+              )}
             </div>
 
-            {/* 氏名（自動反映） */}
+            {/* 氏名 */}
             <div className="flex items-center gap-2">
               <label className="text-xs font-bold text-slate-600 shrink-0">氏名:</label>
               <div className="flex-1 px-3 py-1.5 bg-[#FAF3E0] border border-amber-200 rounded-lg text-xs font-bold text-slate-900 flex items-center gap-2">
                 <img
-                  src={getAvatarUrl(currentUser.avatarUrl)}
-                  alt={currentUser.name}
+                  src={getAvatarUrl(reportAuthorAvatar)}
+                  alt={reportAuthorName}
                   className="w-5 h-5 rounded-full object-cover"
                 />
-                <span>{currentUser.name}</span>
-                <span className="text-[10px] text-amber-700 font-normal ml-auto">({currentUser.department || '保守'})</span>
+                <span>{reportAuthorName}</span>
+                <span className="text-[10px] text-amber-700 font-normal ml-auto">({reportAuthorDept})</span>
               </div>
             </div>
 
             {/* 報告先上長 */}
             <div className="flex items-center gap-2">
               <label className="text-xs font-bold text-slate-600 shrink-0">報告先上長:</label>
-              <select
-                value={supervisorId}
-                onChange={e => setSupervisorId(e.target.value)}
-                className="flex-1 px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 cursor-pointer"
-              >
-                <option value="">（選択してください）</option>
-                {supervisorCandidates.map(u => (
-                  <option key={u.id} value={u.id}>
-                    {u.name} ({u.department || '上長'})
-                  </option>
-                ))}
-              </select>
+              {isSubmittedMode ? (
+                <div className="flex-1 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                  <UserCheck className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                  <span>{supervisorDisplayName}</span>
+                </div>
+              ) : (
+                <select
+                  value={supervisorId}
+                  onChange={e => setSupervisorId(e.target.value)}
+                  className="flex-1 px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 cursor-pointer"
+                >
+                  <option value="">（選択してください）</option>
+                  {supervisorCandidates.map(u => (
+                    <option key={u.id} value={u.id}>
+                      {u.name} ({u.department || '上長'})
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
           </div>
         </div>
@@ -1449,19 +1655,21 @@ export function MaintenanceDailyReportView({
                       補充<br /><span className="text-[9px] font-normal text-sky-700">※申請・確認</span>
                     </th>
                   )}
-                  <th className="p-2 text-center w-16 border-l border-slate-200">操作</th>
+                  {!isSubmittedMode && <th className="p-2 text-center w-16 border-l border-slate-200">操作</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 font-sans">
-                {mainWorkRows.map((row, idx) => (
+                {displayedMainRows.map((row, idx) => (
                   <tr
                     key={row.id}
-                    draggable
+                    draggable={!isSubmittedMode}
                     onDragStart={(e) => {
+                      if (isSubmittedMode) return;
                       setDraggedMainIndex(idx);
                       e.dataTransfer.effectAllowed = 'move';
                     }}
                     onDragOver={(e) => {
+                      if (isSubmittedMode) return;
                       e.preventDefault();
                       e.dataTransfer.dropEffect = 'move';
                       if (dragOverMainIndex !== idx) setDragOverMainIndex(idx);
@@ -1470,6 +1678,7 @@ export function MaintenanceDailyReportView({
                       if (dragOverMainIndex === idx) setDragOverMainIndex(null);
                     }}
                     onDrop={(e) => {
+                      if (isSubmittedMode) return;
                       e.preventDefault();
                       if (draggedMainIndex !== null && draggedMainIndex !== idx) {
                         moveMainRow(draggedMainIndex, idx);
@@ -1481,236 +1690,329 @@ export function MaintenanceDailyReportView({
                       setDraggedMainIndex(null);
                       setDragOverMainIndex(null);
                     }}
-                    className={`transition-colors select-none ${
-                      draggedMainIndex === idx ? 'opacity-40 bg-amber-100' : 'hover:bg-slate-50'
+                    className={`transition-colors ${
+                      !isSubmittedMode && draggedMainIndex === idx ? 'opacity-40 bg-amber-100' : 'hover:bg-slate-50'
                     } ${
-                      dragOverMainIndex === idx ? 'border-t-2 border-b-2 border-amber-500 bg-amber-100/70' : ''
+                      !isSubmittedMode && dragOverMainIndex === idx ? 'border-t-2 border-b-2 border-amber-500 bg-amber-100/70' : ''
                     }`}
                   >
                     {/* 番号 & ドラッグハンドル */}
-                    <td className="p-1 border-r border-slate-200 text-center font-bold text-slate-500 bg-slate-50/80">
-                      <div className="flex items-center justify-center gap-0.5">
-                        <span
-                          className="cursor-grab active:cursor-grabbing text-slate-400 hover:text-amber-700 p-0.5 rounded transition-colors"
-                          title="ドラッグして行順を移動"
-                        >
-                          <GripVertical className="w-3.5 h-3.5" />
-                        </span>
+                    <td className="p-2 border-r border-slate-200 text-center font-bold text-slate-500 bg-slate-50/80">
+                      {isSubmittedMode ? (
                         <span>{idx + 1}</span>
-                      </div>
+                      ) : (
+                        <div className="flex items-center justify-center gap-0.5">
+                          <span
+                            className="cursor-grab active:cursor-grabbing text-slate-400 hover:text-amber-700 p-0.5 rounded transition-colors"
+                            title="ドラッグして行順を移動"
+                          >
+                            <GripVertical className="w-3.5 h-3.5" />
+                          </span>
+                          <span>{idx + 1}</span>
+                        </div>
+                      )}
                     </td>
 
-                    {/* 直行・直帰 (手入力/チェック) */}
+                    {/* 直行・直帰 */}
                     {visibleColumns.directGoReturn && (
-                      <td className="p-1 border-r border-slate-200 text-center">
-                        <div className="flex items-center justify-center gap-1 text-[10px]">
-                          <label className="flex items-center gap-0.5 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={!!row.directGo}
-                              onChange={e => updateMainRow(idx, { directGo: e.target.checked })}
-                              className="rounded border-slate-300 text-amber-600 focus:ring-amber-500 h-3 w-3"
-                            />
-                            <span>直行</span>
-                          </label>
-                          <label className="flex items-center gap-0.5 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={!!row.directReturn}
-                              onChange={e => updateMainRow(idx, { directReturn: e.target.checked })}
-                              className="rounded border-slate-300 text-amber-600 focus:ring-amber-500 h-3 w-3"
-                            />
-                            <span>直帰</span>
-                          </label>
-                        </div>
+                      <td className="p-2 border-r border-slate-200 text-center">
+                        {isSubmittedMode ? (
+                          <div className="flex items-center justify-center gap-1 text-[10px] font-bold">
+                            {row.directGo && <span className="px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded border border-amber-200">直行</span>}
+                            {row.directReturn && <span className="px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded border border-amber-200">直帰</span>}
+                            {!row.directGo && !row.directReturn && <span className="text-slate-400 font-normal">-</span>}
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-center gap-1 text-[10px]">
+                            <label className="flex items-center gap-0.5 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={!!row.directGo}
+                                onChange={e => updateMainRow(idx, { directGo: e.target.checked })}
+                                className="rounded border-slate-300 text-amber-600 focus:ring-amber-500 h-3 w-3"
+                              />
+                              <span>直行</span>
+                            </label>
+                            <label className="flex items-center gap-0.5 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={!!row.directReturn}
+                                onChange={e => updateMainRow(idx, { directReturn: e.target.checked })}
+                                className="rounded border-slate-300 text-amber-600 focus:ring-amber-500 h-3 w-3"
+                              />
+                              <span>直帰</span>
+                            </label>
+                          </div>
+                        )}
                       </td>
                     )}
 
                     {/* 現場名 */}
-                    <td className="p-1 border-r border-slate-200">
-                      <input
-                        type="text"
-                        value={row.siteName}
-                        onChange={e => updateMainRow(idx, { siteName: e.target.value })}
-                        placeholder="現場名"
-                        className="w-full px-2 py-1 border border-slate-200 rounded text-xs focus:ring-1 focus:ring-amber-500 bg-white"
-                      />
+                    <td className="p-2 border-r border-slate-200 font-semibold text-slate-900">
+                      {isSubmittedMode ? (
+                        <span>{row.siteName || <span className="text-slate-400 font-normal">-</span>}</span>
+                      ) : (
+                        <input
+                          type="text"
+                          value={row.siteName}
+                          onChange={e => updateMainRow(idx, { siteName: e.target.value })}
+                          placeholder="現場名"
+                          className="w-full px-2 py-1 border border-slate-200 rounded text-xs focus:ring-1 focus:ring-amber-500 bg-white"
+                        />
+                      )}
                     </td>
 
                     {/* 作業内容 */}
-                    <td className="p-1 border-r border-slate-200">
-                      <input
-                        type="text"
-                        value={row.workDescription}
-                        onChange={e => updateMainRow(idx, { workDescription: e.target.value })}
-                        placeholder="作業内容"
-                        className="w-full px-2 py-1 border border-slate-200 rounded text-xs focus:ring-1 focus:ring-amber-500 bg-white"
-                      />
+                    <td className="p-2 border-r border-slate-200 text-slate-800">
+                      {isSubmittedMode ? (
+                        <span>{row.workDescription || <span className="text-slate-400">-</span>}</span>
+                      ) : (
+                        <input
+                          type="text"
+                          value={row.workDescription}
+                          onChange={e => updateMainRow(idx, { workDescription: e.target.value })}
+                          placeholder="作業内容"
+                          className="w-full px-2 py-1 border border-slate-200 rounded text-xs focus:ring-1 focus:ring-amber-500 bg-white"
+                        />
+                      )}
                     </td>
 
                     {/* 地区 */}
                     {visibleColumns.district && (
-                      <td className="p-1 border-r border-slate-200">
-                        <input
-                          type="text"
-                          value={row.district}
-                          onChange={e => updateMainRow(idx, { district: e.target.value })}
-                          placeholder="地区"
-                          className="w-full px-2 py-1 border border-slate-200 rounded text-xs focus:ring-1 focus:ring-amber-500 bg-white"
-                        />
+                      <td className="p-2 border-r border-slate-200 text-slate-700">
+                        {isSubmittedMode ? (
+                          <span>{row.district || <span className="text-slate-400">-</span>}</span>
+                        ) : (
+                          <input
+                            type="text"
+                            value={row.district}
+                            onChange={e => updateMainRow(idx, { district: e.target.value })}
+                            placeholder="地区"
+                            className="w-full px-2 py-1 border border-slate-200 rounded text-xs focus:ring-1 focus:ring-amber-500 bg-white"
+                          />
+                        )}
                       </td>
                     )}
 
                     {/* 人数 */}
                     {visibleColumns.peopleCoworkers && (
-                      <td className="p-1 border-r border-slate-200 text-center">
-                        <input
-                          type="number"
-                          min={1}
-                          value={row.peopleCount || ''}
-                          onChange={e => updateMainRow(idx, { peopleCount: Number(e.target.value) })}
-                          className="w-12 px-1 py-1 border border-slate-200 rounded text-xs text-center focus:ring-1 focus:ring-amber-500 bg-white"
-                        />
+                      <td className="p-2 border-r border-slate-200 text-center text-slate-700">
+                        {isSubmittedMode ? (
+                          <span>{row.peopleCount ? `${row.peopleCount}人` : '-'}</span>
+                        ) : (
+                          <input
+                            type="number"
+                            min={1}
+                            value={row.peopleCount || ''}
+                            onChange={e => updateMainRow(idx, { peopleCount: Number(e.target.value) })}
+                            className="w-12 px-1 py-1 border border-slate-200 rounded text-xs text-center focus:ring-1 focus:ring-amber-500 bg-white"
+                          />
+                        )}
                       </td>
                     )}
 
                     {/* 同行者 */}
                     {visibleColumns.peopleCoworkers && (
-                      <td className="p-1 border-r border-slate-200">
-                        <input
-                          type="text"
-                          value={row.coworkers}
-                          onChange={e => updateMainRow(idx, { coworkers: e.target.value })}
-                          placeholder="同行者"
-                          className="w-full px-2 py-1 border border-slate-200 rounded text-xs focus:ring-1 focus:ring-amber-500 bg-white"
-                        />
+                      <td className="p-2 border-r border-slate-200 text-slate-700">
+                        {isSubmittedMode ? (
+                          <span>{row.coworkers || <span className="text-slate-400">-</span>}</span>
+                        ) : (
+                          <input
+                            type="text"
+                            value={row.coworkers}
+                            onChange={e => updateMainRow(idx, { coworkers: e.target.value })}
+                            placeholder="同行者"
+                            className="w-full px-2 py-1 border border-slate-200 rounded text-xs focus:ring-1 focus:ring-amber-500 bg-white"
+                          />
+                        )}
                       </td>
                     )}
 
                     {/* 作業時間 開始 〜 終了 & 算出時間 */}
-                    <td className="p-1 border-r border-slate-200 text-center">
-                      <div className="flex items-center gap-1 justify-center">
-                        <input
-                          type="time"
-                          value={row.startTime}
-                          onChange={e => updateMainRow(idx, { startTime: e.target.value })}
-                          className="w-16 p-0.5 border border-slate-200 rounded text-[11px] text-center bg-white"
-                        />
-                        <span className="text-slate-400">〜</span>
-                        <input
-                          type="time"
-                          value={row.endTime}
-                          onChange={e => updateMainRow(idx, { endTime: e.target.value })}
-                          className="w-16 p-0.5 border border-slate-200 rounded text-[11px] text-center bg-white"
-                        />
-                      </div>
-                      {row.workHours && row.workHours !== '0:00' && (
-                        <div className="text-[10px] text-amber-700 font-semibold mt-0.5">
-                          ({row.workHours})
+                    <td className="p-2 border-r border-slate-200 text-center">
+                      {isSubmittedMode ? (
+                        <div className="font-semibold text-slate-800">
+                          {row.startTime || row.endTime ? (
+                            <span>{row.startTime || '--:--'} 〜 {row.endTime || '--:--'}</span>
+                          ) : (
+                            <span className="text-slate-400 font-normal">-</span>
+                          )}
+                          {row.workHours && row.workHours !== '0:00' && (
+                            <div className="text-[10px] text-amber-700 font-bold mt-0.5">
+                              ({row.workHours})
+                            </div>
+                          )}
                         </div>
+                      ) : (
+                        <>
+                          <div className="flex items-center gap-1 justify-center">
+                            <input
+                              type="time"
+                              value={row.startTime}
+                              onChange={e => updateMainRow(idx, { startTime: e.target.value })}
+                              className="w-16 p-0.5 border border-slate-200 rounded text-[11px] text-center bg-white"
+                            />
+                            <span className="text-slate-400">〜</span>
+                            <input
+                              type="time"
+                              value={row.endTime}
+                              onChange={e => updateMainRow(idx, { endTime: e.target.value })}
+                              className="w-16 p-0.5 border border-slate-200 rounded text-[11px] text-center bg-white"
+                            />
+                          </div>
+                          {row.workHours && row.workHours !== '0:00' && (
+                            <div className="text-[10px] text-amber-700 font-semibold mt-0.5">
+                              ({row.workHours})
+                            </div>
+                          )}
+                        </>
                       )}
                     </td>
 
                     {/* 内容区分 (EG取替, 見積, 修理, 単体取替等) */}
-                    <td className="p-1 border-r border-slate-200">
-                      <select
-                        value={row.contentType}
-                        onChange={e => updateMainRow(idx, { contentType: e.target.value })}
-                        className="w-full px-1.5 py-1 border border-slate-200 rounded text-xs font-semibold bg-white"
-                      >
-                        <option value="">（内容）</option>
-                        <option value="EG取替">EG取替</option>
-                        <option value="単体取替">単体取替</option>
-                        <option value="修理">修理</option>
-                        <option value="オンコール">オンコール</option>
-                        <option value="点検">点検</option>
-                        <option value="見積">見積</option>
-                      </select>
+                    <td className="p-2 border-r border-slate-200">
+                      {isSubmittedMode ? (
+                        row.contentType ? (
+                          <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-200 text-[11px] font-bold">
+                            {row.contentType}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400">-</span>
+                        )
+                      ) : (
+                        <select
+                          value={row.contentType}
+                          onChange={e => updateMainRow(idx, { contentType: e.target.value })}
+                          className="w-full px-1.5 py-1 border border-slate-200 rounded text-xs font-semibold bg-white"
+                        >
+                          <option value="">（内容）</option>
+                          <option value="EG取替">EG取替</option>
+                          <option value="単体取替">単体取替</option>
+                          <option value="修理">修理</option>
+                          <option value="オンコール">オンコール</option>
+                          <option value="点検">点検</option>
+                          <option value="見積">見積</option>
+                        </select>
+                      )}
                     </td>
 
                     {/* 点検台数 / 点検数値 (肌色) */}
                     {visibleColumns.inspection && (
-                      <td className="p-1 border-r border-slate-200 bg-[#FAF3E0]">
-                        <div className="flex items-center gap-1 justify-center">
-                          <input
-                            type="number"
-                            placeholder="台"
-                            value={row.inspectionCount || ''}
-                            onChange={e => updateMainRow(idx, { inspectionCount: Number(e.target.value) })}
-                            className="w-10 px-1 py-0.5 border border-amber-200 rounded text-xs text-center bg-white"
-                          />
-                          <input
-                            type="number"
-                            placeholder="数値"
-                            value={row.inspectionValue || ''}
-                            onChange={e => updateMainRow(idx, { inspectionValue: Number(e.target.value) })}
-                            className="w-12 px-1 py-0.5 border border-amber-200 rounded text-xs text-center bg-white"
-                          />
-                        </div>
+                      <td className="p-2 border-r border-slate-200 bg-[#FAF3E0] text-center">
+                        {isSubmittedMode ? (
+                          (row.inspectionCount || row.inspectionValue) ? (
+                            <span className="font-bold text-amber-950">
+                              {row.inspectionCount || 0}台 / {row.inspectionValue || 0}pt
+                            </span>
+                          ) : (
+                            <span className="text-amber-800/40">-</span>
+                          )
+                        ) : (
+                          <div className="flex items-center gap-1 justify-center">
+                            <input
+                              type="number"
+                              placeholder="台"
+                              value={row.inspectionCount || ''}
+                              onChange={e => updateMainRow(idx, { inspectionCount: Number(e.target.value) })}
+                              className="w-10 px-1 py-0.5 border border-amber-200 rounded text-xs text-center bg-white"
+                            />
+                            <input
+                              type="number"
+                              placeholder="数値"
+                              value={row.inspectionValue || ''}
+                              onChange={e => updateMainRow(idx, { inspectionValue: Number(e.target.value) })}
+                              className="w-12 px-1 py-0.5 border border-amber-200 rounded text-xs text-center bg-white"
+                            />
+                          </div>
+                        )}
                       </td>
                     )}
 
                     {/* オンコール金額 / 数値 (肌色) */}
                     {visibleColumns.oncall && (
-                      <td className="p-1 border-r border-slate-200 bg-[#FAF3E0]">
-                        <div className="flex items-center gap-1 justify-center">
-                          <input
-                            type="number"
-                            placeholder="金額(円)"
-                            value={row.oncallAmount || ''}
-                            onChange={e => updateMainRow(idx, { oncallAmount: Number(e.target.value) })}
-                            className="w-16 px-1 py-0.5 border border-amber-200 rounded text-xs text-right bg-white"
-                          />
-                          <input
-                            type="number"
-                            placeholder="数値"
-                            value={row.oncallValue || ''}
-                            onChange={e => updateMainRow(idx, { oncallValue: Number(e.target.value) })}
-                            className="w-12 px-1 py-0.5 border border-amber-200 rounded text-xs text-center bg-white"
-                          />
-                        </div>
+                      <td className="p-2 border-r border-slate-200 bg-[#FAF3E0] text-center">
+                        {isSubmittedMode ? (
+                          (row.oncallAmount || row.oncallValue) ? (
+                            <span className="font-bold text-amber-950">
+                              ¥{(row.oncallAmount || 0).toLocaleString()} ({row.oncallValue || 0}pt)
+                            </span>
+                          ) : (
+                            <span className="text-amber-800/40">-</span>
+                          )
+                        ) : (
+                          <div className="flex items-center gap-1 justify-center">
+                            <input
+                              type="number"
+                              placeholder="金額(円)"
+                              value={row.oncallAmount || ''}
+                              onChange={e => updateMainRow(idx, { oncallAmount: Number(e.target.value) })}
+                              className="w-16 px-1 py-0.5 border border-amber-200 rounded text-xs text-right bg-white"
+                            />
+                            <input
+                              type="number"
+                              placeholder="数値"
+                              value={row.oncallValue || ''}
+                              onChange={e => updateMainRow(idx, { oncallValue: Number(e.target.value) })}
+                              className="w-12 px-1 py-0.5 border border-amber-200 rounded text-xs text-center bg-white"
+                            />
+                          </div>
+                        )}
                       </td>
                     )}
 
                     {/* 取替台数 / 金額 / 数値 (肌色) */}
                     {visibleColumns.replacement && (
-                      <td className="p-1 border-r border-slate-200 bg-[#FAF3E0]">
-                        <div className="flex items-center gap-1 justify-center">
-                          <input
-                            type="number"
-                            placeholder="台"
-                            value={row.replacementCount || ''}
-                            onChange={e => updateMainRow(idx, { replacementCount: Number(e.target.value) })}
-                            className="w-8 px-1 py-0.5 border border-amber-200 rounded text-xs text-center bg-white"
-                          />
-                          <input
-                            type="number"
-                            placeholder="金額(円)"
-                            value={row.replacementAmount || ''}
-                            onChange={e => updateMainRow(idx, { replacementAmount: Number(e.target.value) })}
-                            className="w-16 px-1 py-0.5 border border-amber-200 rounded text-xs text-right bg-white"
-                          />
-                          <input
-                            type="number"
-                            placeholder="数値"
-                            value={row.replacementValue || ''}
-                            onChange={e => updateMainRow(idx, { replacementValue: Number(e.target.value) })}
-                            className="w-10 px-1 py-0.5 border border-amber-200 rounded text-xs text-center bg-white"
-                          />
-                        </div>
+                      <td className="p-2 border-r border-slate-200 bg-[#FAF3E0] text-center">
+                        {isSubmittedMode ? (
+                          (row.replacementCount || row.replacementAmount || row.replacementValue) ? (
+                            <span className="font-bold text-amber-950">
+                              {row.replacementCount || 0}台 / ¥{(row.replacementAmount || 0).toLocaleString()} ({row.replacementValue || 0}pt)
+                            </span>
+                          ) : (
+                            <span className="text-amber-800/40">-</span>
+                          )
+                        ) : (
+                          <div className="flex items-center gap-1 justify-center">
+                            <input
+                              type="number"
+                              placeholder="台"
+                              value={row.replacementCount || ''}
+                              onChange={e => updateMainRow(idx, { replacementCount: Number(e.target.value) })}
+                              className="w-8 px-1 py-0.5 border border-amber-200 rounded text-xs text-center bg-white"
+                            />
+                            <input
+                              type="number"
+                              placeholder="金額(円)"
+                              value={row.replacementAmount || ''}
+                              onChange={e => updateMainRow(idx, { replacementAmount: Number(e.target.value) })}
+                              className="w-16 px-1 py-0.5 border border-amber-200 rounded text-xs text-right bg-white"
+                            />
+                            <input
+                              type="number"
+                              placeholder="数値"
+                              value={row.replacementValue || ''}
+                              onChange={e => updateMainRow(idx, { replacementValue: Number(e.target.value) })}
+                              className="w-10 px-1 py-0.5 border border-amber-200 rounded text-xs text-center bg-white"
+                            />
+                          </div>
+                        )}
                       </td>
                     )}
 
                     {/* 建材数値 (緑色 ※手入力) */}
                     {visibleColumns.buildingMaterial && (
-                      <td className="p-1 bg-[#E8F8F0] border-l border-emerald-300">
-                        <input
-                          type="number"
-                          placeholder="0"
-                          value={row.buildingMaterialValue || ''}
-                          onChange={e => updateMainRow(idx, { buildingMaterialValue: Number(e.target.value) })}
-                          className="w-full px-2 py-1 border border-emerald-400 rounded text-xs text-center font-bold text-emerald-950 bg-white focus:ring-2 focus:ring-emerald-500/20"
-                        />
+                      <td className="p-2 bg-[#E8F8F0] border-l border-emerald-300 text-center font-bold text-emerald-950">
+                        {isSubmittedMode ? (
+                          <span>{row.buildingMaterialValue || 0}</span>
+                        ) : (
+                          <input
+                            type="number"
+                            placeholder="0"
+                            value={row.buildingMaterialValue || ''}
+                            onChange={e => updateMainRow(idx, { buildingMaterialValue: Number(e.target.value) })}
+                            className="w-full px-2 py-1 border border-emerald-400 rounded text-xs text-center font-bold text-emerald-950 bg-white focus:ring-2 focus:ring-emerald-500/20"
+                          />
+                        )}
                       </td>
                     )}
 
@@ -1748,6 +2050,10 @@ export function MaintenanceDailyReportView({
                             );
                           }
 
+                          if (isSubmittedMode) {
+                            return <span className="text-slate-400 text-[11px]">-</span>;
+                          }
+
                           return (
                             <button
                               type="button"
@@ -1773,37 +2079,39 @@ export function MaintenanceDailyReportView({
                       </td>
                     )}
 
-                    {/* 行移動・削除ボタン列 */}
-                    <td className="p-1 border-l border-slate-200 text-center bg-slate-50/40">
-                      <div className="flex items-center justify-center gap-0.5">
-                        <button
-                          type="button"
-                          onClick={() => moveMainRow(idx, idx - 1)}
-                          disabled={idx === 0}
-                          className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-20 cursor-pointer"
-                          title="上へ移動"
-                        >
-                          <ArrowUp className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => moveMainRow(idx, idx + 1)}
-                          disabled={idx === mainWorkRows.length - 1}
-                          className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-20 cursor-pointer"
-                          title="下へ移動"
-                        >
-                          <ArrowDown className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => deleteMainRow(idx)}
-                          className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded cursor-pointer transition-colors"
-                          title="この行を削除"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </td>
+                    {/* 行移動・削除ボタン列（編集モード時のみ） */}
+                    {!isSubmittedMode && (
+                      <td className="p-1 border-l border-slate-200 text-center bg-slate-50/40">
+                        <div className="flex items-center justify-center gap-0.5">
+                          <button
+                            type="button"
+                            onClick={() => moveMainRow(idx, idx - 1)}
+                            disabled={idx === 0}
+                            className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-20 cursor-pointer"
+                            title="上へ移動"
+                          >
+                            <ArrowUp className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => moveMainRow(idx, idx + 1)}
+                            disabled={idx === mainWorkRows.length - 1}
+                            className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-20 cursor-pointer"
+                            title="下へ移動"
+                          >
+                            <ArrowDown className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => deleteMainRow(idx)}
+                            className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded cursor-pointer transition-colors"
+                            title="この行を削除"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 ))}
 
@@ -1839,27 +2147,31 @@ export function MaintenanceDailyReportView({
                   {visibleColumns.photoReportLink && (
                     <td className="p-2 text-center bg-slate-100 border-l border-slate-300 text-slate-400 font-normal text-[11px]">-</td>
                   )}
-                  <td className="p-2 text-center bg-slate-100 border-l border-slate-300 text-slate-400 font-normal text-[11px]">-</td>
+                  {!isSubmittedMode && (
+                    <td className="p-2 text-center bg-slate-100 border-l border-slate-300 text-slate-400 font-normal text-[11px]">-</td>
+                  )}
                 </tr>
               </tbody>
             </table>
           </div>
 
-          {/* 作業行追加フッター */}
-          <div className="p-2.5 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2">
-            <button
-              type="button"
-              onClick={() => addMainRow()}
-              className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              作業行を追加
-            </button>
-            <span className="text-[11px] font-semibold text-slate-500 flex items-center gap-1">
-              <GripVertical className="w-3.5 h-3.5 text-amber-500" />
-              行頭アイコン（⋮⋮）をドラッグ＆ドロップ、または上下矢印で順序を入れ替えられます。
-            </span>
-          </div>
+          {/* 作業行追加フッター（編集モード時のみ） */}
+          {!isSubmittedMode && (
+            <div className="p-2.5 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => addMainRow()}
+                className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                作業行を追加
+              </button>
+              <span className="text-[11px] font-semibold text-slate-500 flex items-center gap-1">
+                <GripVertical className="w-3.5 h-3.5 text-amber-500" />
+                行頭アイコン（⋮⋮）をドラッグ＆ドロップ、または上下矢印で順序を入れ替えられます。
+              </span>
+            </div>
+          )}
         </div>
 
         {/* ---------------- 2. メイン作業一覧（スマホ向けレスポンシブ表示） ---------------- */}
@@ -1869,15 +2181,18 @@ export function MaintenanceDailyReportView({
               <Building2 className="w-4 h-4 text-amber-400" />
               当日作業・点検一覧 (カード形式)
             </h2>
-            <button
-              onClick={handleAutoLoadSchedule}
-              className="px-2 py-1 bg-amber-500 text-white rounded text-[11px] font-bold"
-            >
-              自動取込
-            </button>
+            {!isSubmittedMode && (
+              <button
+                type="button"
+                onClick={handleAutoLoadSchedule}
+                className="px-2 py-1 bg-amber-500 text-white rounded text-[11px] font-bold"
+              >
+                自動取込
+              </button>
+            )}
           </div>
 
-          {mainWorkRows.map((row, idx) => {
+          {displayedMainRows.map((row, idx) => {
             const isExpanded = expandedMobileRow === row.id;
             const hasData = !!row.siteName || !!row.contentType;
 
@@ -1910,32 +2225,36 @@ export function MaintenanceDailyReportView({
                     {row.workHours && row.workHours !== '0:00' && (
                       <span className="text-[11px] font-bold text-amber-700 mr-1">{row.workHours}</span>
                     )}
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); moveMainRow(idx, idx - 1); }}
-                      disabled={idx === 0}
-                      className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-20 cursor-pointer"
-                      title="上へ移動"
-                    >
-                      <ArrowUp className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); moveMainRow(idx, idx + 1); }}
-                      disabled={idx === mainWorkRows.length - 1}
-                      className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-20 cursor-pointer"
-                      title="下へ移動"
-                    >
-                      <ArrowDown className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); deleteMainRow(idx); }}
-                      className="p-1 text-slate-400 hover:text-rose-600 rounded cursor-pointer transition-colors"
-                      title="この行を削除"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    {!isSubmittedMode && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); moveMainRow(idx, idx - 1); }}
+                          disabled={idx === 0}
+                          className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-20 cursor-pointer"
+                          title="上へ移動"
+                        >
+                          <ArrowUp className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); moveMainRow(idx, idx + 1); }}
+                          disabled={idx === mainWorkRows.length - 1}
+                          className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-20 cursor-pointer"
+                          title="下へ移動"
+                        >
+                          <ArrowDown className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); deleteMainRow(idx); }}
+                          className="p-1 text-slate-400 hover:text-rose-600 rounded cursor-pointer transition-colors"
+                          title="この行を削除"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </>
+                    )}
                     {isExpanded ? <ChevronUp className="w-4 h-4 text-slate-400 ml-0.5" /> : <ChevronDown className="w-4 h-4 text-slate-400 ml-0.5" />}
                   </div>
                 </div>
@@ -1946,24 +2265,34 @@ export function MaintenanceDailyReportView({
                     {/* 直行直帰 */}
                     <div className="flex items-center gap-4 bg-slate-50 p-2 rounded-lg">
                       <span className="font-bold text-slate-600">直行直帰:</span>
-                      <label className="flex items-center gap-1">
-                        <input
-                          type="checkbox"
-                          checked={!!row.directGo}
-                          onChange={e => updateMainRow(idx, { directGo: e.target.checked })}
-                          className="rounded text-amber-600 h-4 w-4"
-                        />
-                        <span>直行</span>
-                      </label>
-                      <label className="flex items-center gap-1">
-                        <input
-                          type="checkbox"
-                          checked={!!row.directReturn}
-                          onChange={e => updateMainRow(idx, { directReturn: e.target.checked })}
-                          className="rounded text-amber-600 h-4 w-4"
-                        />
-                        <span>直帰</span>
-                      </label>
+                      {isSubmittedMode ? (
+                        <div className="flex items-center gap-2">
+                          {row.directGo && <span className="px-2 py-0.5 bg-amber-100 text-amber-800 rounded font-bold text-[11px]">直行</span>}
+                          {row.directReturn && <span className="px-2 py-0.5 bg-amber-100 text-amber-800 rounded font-bold text-[11px]">直帰</span>}
+                          {!row.directGo && !row.directReturn && <span className="text-slate-400">-</span>}
+                        </div>
+                      ) : (
+                        <>
+                          <label className="flex items-center gap-1">
+                            <input
+                              type="checkbox"
+                              checked={!!row.directGo}
+                              onChange={e => updateMainRow(idx, { directGo: e.target.checked })}
+                              className="rounded text-amber-600 h-4 w-4"
+                            />
+                            <span>直行</span>
+                          </label>
+                          <label className="flex items-center gap-1">
+                            <input
+                              type="checkbox"
+                              checked={!!row.directReturn}
+                              onChange={e => updateMainRow(idx, { directReturn: e.target.checked })}
+                              className="rounded text-amber-600 h-4 w-4"
+                            />
+                            <span>直帰</span>
+                          </label>
+                        </>
+                      )}
                     </div>
 
                     {/* 現場名 & 作業内容 */}
@@ -1998,6 +2327,9 @@ export function MaintenanceDailyReportView({
                                 </button>
                               );
                             }
+                            if (isSubmittedMode) {
+                              return null;
+                            }
                             return (
                               <button
                                 type="button"
@@ -2022,21 +2354,33 @@ export function MaintenanceDailyReportView({
                             );
                           })()}
                         </div>
-                        <input
-                          type="text"
-                          value={row.siteName}
-                          onChange={e => updateMainRow(idx, { siteName: e.target.value })}
-                          className="w-full p-2 border border-slate-300 rounded text-xs bg-white"
-                        />
+                        {isSubmittedMode ? (
+                          <div className="p-2 bg-slate-50 border border-slate-200 rounded text-xs font-bold text-slate-900">
+                            {row.siteName || '-'}
+                          </div>
+                        ) : (
+                          <input
+                            type="text"
+                            value={row.siteName}
+                            onChange={e => updateMainRow(idx, { siteName: e.target.value })}
+                            className="w-full p-2 border border-slate-300 rounded text-xs bg-white"
+                          />
+                        )}
                       </div>
                       <div>
                         <label className="text-[11px] font-bold text-slate-600">作業内容</label>
-                        <input
-                          type="text"
-                          value={row.workDescription}
-                          onChange={e => updateMainRow(idx, { workDescription: e.target.value })}
-                          className="w-full p-2 border border-slate-300 rounded text-xs bg-white"
-                        />
+                        {isSubmittedMode ? (
+                          <div className="p-2 bg-slate-50 border border-slate-200 rounded text-xs text-slate-800">
+                            {row.workDescription || '-'}
+                          </div>
+                        ) : (
+                          <input
+                            type="text"
+                            value={row.workDescription}
+                            onChange={e => updateMainRow(idx, { workDescription: e.target.value })}
+                            className="w-full p-2 border border-slate-300 rounded text-xs bg-white"
+                          />
+                        )}
                       </div>
                     </div>
 
@@ -2044,72 +2388,101 @@ export function MaintenanceDailyReportView({
                     <div className="grid grid-cols-2 gap-2">
                       <div>
                         <label className="text-[11px] font-bold text-slate-600">開始 〜 終了</label>
-                        <div className="flex items-center gap-1">
-                          <input
-                            type="time"
-                            value={row.startTime}
-                            onChange={e => updateMainRow(idx, { startTime: e.target.value })}
-                            className="w-full p-1.5 border border-slate-300 rounded text-xs text-center"
-                          />
-                          <span>〜</span>
-                          <input
-                            type="time"
-                            value={row.endTime}
-                            onChange={e => updateMainRow(idx, { endTime: e.target.value })}
-                            className="w-full p-1.5 border border-slate-300 rounded text-xs text-center"
-                          />
-                        </div>
+                        {isSubmittedMode ? (
+                          <div className="p-2 bg-slate-50 border border-slate-200 rounded text-xs text-center font-bold text-slate-800">
+                            {row.startTime || row.endTime ? `${row.startTime || '--:--'} 〜 ${row.endTime || '--:--'}` : '-'}
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="time"
+                              value={row.startTime}
+                              onChange={e => updateMainRow(idx, { startTime: e.target.value })}
+                              className="w-full p-1.5 border border-slate-300 rounded text-xs text-center"
+                            />
+                            <span>〜</span>
+                            <input
+                              type="time"
+                              value={row.endTime}
+                              onChange={e => updateMainRow(idx, { endTime: e.target.value })}
+                              className="w-full p-1.5 border border-slate-300 rounded text-xs text-center"
+                            />
+                          </div>
+                        )}
                       </div>
                       <div>
                         <label className="text-[11px] font-bold text-slate-600">内容区分</label>
-                        <select
-                          value={row.contentType}
-                          onChange={e => updateMainRow(idx, { contentType: e.target.value })}
-                          className="w-full p-1.5 border border-slate-300 rounded text-xs font-bold"
-                        >
-                          <option value="">（内容）</option>
-                          <option value="EG取替">EG取替</option>
-                          <option value="単体取替">単体取替</option>
-                          <option value="修理">修理</option>
-                          <option value="オンコール">オンコール</option>
-                          <option value="点検">点検</option>
-                          <option value="見積">見積</option>
-                        </select>
+                        {isSubmittedMode ? (
+                          <div className="p-2 bg-slate-50 border border-slate-200 rounded text-xs font-bold text-slate-800">
+                            {row.contentType || '-'}
+                          </div>
+                        ) : (
+                          <select
+                            value={row.contentType}
+                            onChange={e => updateMainRow(idx, { contentType: e.target.value })}
+                            className="w-full p-1.5 border border-slate-300 rounded text-xs font-bold"
+                          >
+                            <option value="">（内容）</option>
+                            <option value="EG取替">EG取替</option>
+                            <option value="単体取替">単体取替</option>
+                            <option value="修理">修理</option>
+                            <option value="オンコール">オンコール</option>
+                            <option value="点検">点検</option>
+                            <option value="見積">見積</option>
+                          </select>
+                        )}
                       </div>
                     </div>
 
                     {/* オンコール・取替数値 (肌色) */}
                     <div className="bg-[#FAF3E0] p-2.5 rounded-lg border border-amber-200 space-y-2">
                       <div className="text-[11px] font-bold text-amber-900">オンコール・取替自動計算:</div>
-                      <div className="grid grid-cols-3 gap-2 text-center">
-                        <div>
-                          <span className="text-[10px] text-amber-800">取替台数</span>
-                          <input
-                            type="number"
-                            value={row.replacementCount || ''}
-                            onChange={e => updateMainRow(idx, { replacementCount: Number(e.target.value) })}
-                            className="w-full p-1 border border-amber-300 rounded text-center bg-white"
-                          />
+                      {isSubmittedMode ? (
+                        <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                          <div className="bg-white/80 p-1.5 rounded border border-amber-200">
+                            <span className="text-[10px] text-amber-800 block">取替台数</span>
+                            <span className="font-bold text-amber-950">{row.replacementCount ? `${row.replacementCount}台` : '-'}</span>
+                          </div>
+                          <div className="bg-white/80 p-1.5 rounded border border-amber-200">
+                            <span className="text-[10px] text-amber-800 block">取替金額</span>
+                            <span className="font-bold text-amber-950">{row.replacementAmount ? `¥${row.replacementAmount.toLocaleString()}` : '-'}</span>
+                          </div>
+                          <div className="bg-white/80 p-1.5 rounded border border-amber-200">
+                            <span className="text-[10px] text-amber-800 block">取替pt</span>
+                            <span className="font-bold text-amber-950">{row.replacementValue ? `${row.replacementValue}pt` : '-'}</span>
+                          </div>
                         </div>
-                        <div>
-                          <span className="text-[10px] text-amber-800">取替金額</span>
-                          <input
-                            type="number"
-                            value={row.replacementAmount || ''}
-                            onChange={e => updateMainRow(idx, { replacementAmount: Number(e.target.value) })}
-                            className="w-full p-1 border border-amber-300 rounded text-right bg-white"
-                          />
+                      ) : (
+                        <div className="grid grid-cols-3 gap-2 text-center">
+                          <div>
+                            <span className="text-[10px] text-amber-800">取替台数</span>
+                            <input
+                              type="number"
+                              value={row.replacementCount || ''}
+                              onChange={e => updateMainRow(idx, { replacementCount: Number(e.target.value) })}
+                              className="w-full p-1 border border-amber-300 rounded text-center bg-white"
+                            />
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-amber-800">取替金額</span>
+                            <input
+                              type="number"
+                              value={row.replacementAmount || ''}
+                              onChange={e => updateMainRow(idx, { replacementAmount: Number(e.target.value) })}
+                              className="w-full p-1 border border-amber-300 rounded text-right bg-white"
+                            />
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-amber-800">取替pt</span>
+                            <input
+                              type="number"
+                              value={row.replacementValue || ''}
+                              onChange={e => updateMainRow(idx, { replacementValue: Number(e.target.value) })}
+                              className="w-full p-1 border border-amber-300 rounded text-center bg-white"
+                            />
+                          </div>
                         </div>
-                        <div>
-                          <span className="text-[10px] text-amber-800">取替pt</span>
-                          <input
-                            type="number"
-                            value={row.replacementValue || ''}
-                            onChange={e => updateMainRow(idx, { replacementValue: Number(e.target.value) })}
-                            className="w-full p-1 border border-amber-300 rounded text-center bg-white"
-                          />
-                        </div>
-                      </div>
+                      )}
                     </div>
 
                     {/* 建材数値 (緑色 ※手入力) */}
@@ -2118,13 +2491,19 @@ export function MaintenanceDailyReportView({
                         <span>建材数値</span>
                         <span className="text-[10px] text-emerald-700 bg-emerald-200/60 px-1.5 py-0.2 rounded font-normal">※手入力</span>
                       </label>
-                      <input
-                        type="number"
-                        placeholder="0"
-                        value={row.buildingMaterialValue || ''}
-                        onChange={e => updateMainRow(idx, { buildingMaterialValue: Number(e.target.value) })}
-                        className="w-full p-2 border border-emerald-400 rounded text-center font-bold text-emerald-950 bg-white"
-                      />
+                      {isSubmittedMode ? (
+                        <div className="p-2 bg-white/80 border border-emerald-400 rounded text-center font-bold text-emerald-950 text-xs">
+                          {row.buildingMaterialValue ?? 0}
+                        </div>
+                      ) : (
+                        <input
+                          type="number"
+                          placeholder="0"
+                          value={row.buildingMaterialValue || ''}
+                          onChange={e => updateMainRow(idx, { buildingMaterialValue: Number(e.target.value) })}
+                          className="w-full p-2 border border-emerald-400 rounded text-center font-bold text-emerald-950 bg-white"
+                        />
+                      )}
                     </div>
                   </div>
                 )}
@@ -2132,14 +2511,16 @@ export function MaintenanceDailyReportView({
             );
           })}
           {/* モバイル用作業行追加ボタン */}
-          <button
-            type="button"
-            onClick={() => addMainRow()}
-            className="w-full py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            作業行を追加
-          </button>
+          {!isSubmittedMode && (
+            <button
+              type="button"
+              onClick={() => addMainRow()}
+              className="w-full py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              作業行を追加
+            </button>
+          )}
         </div>
 
         {/* ---------------- 3. 事務（見積）作業報告（5行） ---------------- */}
@@ -2150,14 +2531,16 @@ export function MaintenanceDailyReportView({
                 <FileText className="w-4 h-4 text-indigo-600" />
                 事務（見積）作業報告
               </h2>
-              <button
-                type="button"
-                onClick={addOfficeRow}
-                className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                事務行を追加
-              </button>
+              {!isSubmittedMode && (
+                <button
+                  type="button"
+                  onClick={addOfficeRow}
+                  className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  事務行を追加
+                </button>
+              )}
             </div>
 
             <div className="overflow-x-auto">
@@ -2171,19 +2554,21 @@ export function MaintenanceDailyReportView({
                     <th className="p-2 border-r border-slate-200 w-28 text-center">決定予定月</th>
                     <th className="p-2 border-r border-slate-200 w-20 text-center">時間(分)</th>
                     <th className="p-2 border-r border-slate-200 w-36">備考</th>
-                    <th className="p-2 text-center w-16">操作</th>
+                    {!isSubmittedMode && <th className="p-2 text-center w-16">操作</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
-                  {officeWorkRows.map((row, idx) => (
+                  {displayedOfficeRows.map((row, idx) => (
                     <tr
                       key={row.id}
-                      draggable
+                      draggable={!isSubmittedMode}
                       onDragStart={(e) => {
+                        if (isSubmittedMode) return;
                         setDraggedOfficeIndex(idx);
                         e.dataTransfer.effectAllowed = 'move';
                       }}
                       onDragOver={(e) => {
+                        if (isSubmittedMode) return;
                         e.preventDefault();
                         e.dataTransfer.dropEffect = 'move';
                         if (dragOverOfficeIndex !== idx) setDragOverOfficeIndex(idx);
@@ -2192,6 +2577,7 @@ export function MaintenanceDailyReportView({
                         if (dragOverOfficeIndex === idx) setDragOverOfficeIndex(null);
                       }}
                       onDrop={(e) => {
+                        if (isSubmittedMode) return;
                         e.preventDefault();
                         if (draggedOfficeIndex !== null && draggedOfficeIndex !== idx) {
                           moveOfficeRow(draggedOfficeIndex, idx);
@@ -2204,129 +2590,166 @@ export function MaintenanceDailyReportView({
                         setDragOverOfficeIndex(null);
                       }}
                       className={`transition-colors select-none ${
-                        draggedOfficeIndex === idx ? 'opacity-40 bg-indigo-100' : 'hover:bg-slate-50'
+                        !isSubmittedMode && draggedOfficeIndex === idx ? 'opacity-40 bg-indigo-100' : 'hover:bg-slate-50'
                       } ${
-                        dragOverOfficeIndex === idx ? 'border-t-2 border-b-2 border-indigo-500 bg-indigo-100/70' : ''
+                        !isSubmittedMode && dragOverOfficeIndex === idx ? 'border-t-2 border-b-2 border-indigo-500 bg-indigo-100/70' : ''
                       }`}
                     >
                       {/* 番号 */}
-                      <td className="p-1 border-r border-slate-200 text-center font-bold text-slate-500 bg-slate-50/80">
-                        <div className="flex items-center justify-center gap-0.5">
-                          <span
-                            className="cursor-grab active:cursor-grabbing text-slate-400 hover:text-indigo-700 p-0.5 rounded transition-colors"
-                            title="ドラッグして行順を移動"
-                          >
-                            <GripVertical className="w-3.5 h-3.5" />
-                          </span>
+                      <td className="p-2 border-r border-slate-200 text-center font-bold text-slate-500 bg-slate-50/80">
+                        {isSubmittedMode ? (
                           <span>{idx + 1}</span>
-                        </div>
+                        ) : (
+                          <div className="flex items-center justify-center gap-0.5">
+                            <span
+                              className="cursor-grab active:cursor-grabbing text-slate-400 hover:text-indigo-700 p-0.5 rounded transition-colors"
+                              title="ドラッグして行順を移動"
+                            >
+                              <GripVertical className="w-3.5 h-3.5" />
+                            </span>
+                            <span>{idx + 1}</span>
+                          </div>
+                        )}
                       </td>
-                      <td className="p-1 border-r border-slate-200">
-                        <input
-                          type="text"
-                          value={row.destination}
-                          onChange={e => {
-                            const next = [...officeWorkRows];
-                            next[idx].destination = e.target.value;
-                            setOfficeWorkRows(next);
-                          }}
-                          className="w-full px-2 py-1 border border-slate-200 rounded text-xs bg-white"
-                        />
+                      <td className="p-2 border-r border-slate-200">
+                        {isSubmittedMode ? (
+                          <span className="font-semibold text-slate-800">{row.destination || <span className="text-slate-400 font-normal">-</span>}</span>
+                        ) : (
+                          <input
+                            type="text"
+                            value={row.destination}
+                            onChange={e => {
+                              const next = [...officeWorkRows];
+                              next[idx].destination = e.target.value;
+                              setOfficeWorkRows(next);
+                            }}
+                            className="w-full px-2 py-1 border border-slate-200 rounded text-xs bg-white"
+                          />
+                        )}
                       </td>
-                      <td className="p-1 border-r border-slate-200">
-                        <input
-                          type="text"
-                          value={row.content}
-                          onChange={e => {
-                            const next = [...officeWorkRows];
-                            next[idx].content = e.target.value;
-                            setOfficeWorkRows(next);
-                          }}
-                          className="w-full px-2 py-1 border border-slate-200 rounded text-xs bg-white"
-                        />
+                      <td className="p-2 border-r border-slate-200">
+                        {isSubmittedMode ? (
+                          <span className="text-slate-700">{row.content || <span className="text-slate-400 font-normal">-</span>}</span>
+                        ) : (
+                          <input
+                            type="text"
+                            value={row.content}
+                            onChange={e => {
+                              const next = [...officeWorkRows];
+                              next[idx].content = e.target.value;
+                              setOfficeWorkRows(next);
+                            }}
+                            className="w-full px-2 py-1 border border-slate-200 rounded text-xs bg-white"
+                          />
+                        )}
                       </td>
-                      <td className="p-1 border-r border-slate-200">
-                        <input
-                          type="number"
-                          value={row.amount || ''}
-                          onChange={e => {
-                            const next = [...officeWorkRows];
-                            next[idx].amount = Number(e.target.value);
-                            setOfficeWorkRows(next);
-                          }}
-                          className="w-full px-2 py-1 border border-slate-200 rounded text-xs text-right bg-white"
-                        />
+                      <td className="p-2 border-r border-slate-200 text-right">
+                        {isSubmittedMode ? (
+                          <span className="font-semibold text-slate-800">{row.amount ? `¥${row.amount.toLocaleString()}` : <span className="text-slate-400 font-normal">-</span>}</span>
+                        ) : (
+                          <input
+                            type="number"
+                            value={row.amount || ''}
+                            onChange={e => {
+                              const next = [...officeWorkRows];
+                              next[idx].amount = Number(e.target.value);
+                              setOfficeWorkRows(next);
+                            }}
+                            className="w-full px-2 py-1 border border-slate-200 rounded text-xs text-right bg-white"
+                          />
+                        )}
                       </td>
-                      <td className="p-1 border-r border-slate-200">
-                        <input
-                          type="text"
-                          placeholder=""
-                          value={row.targetMonth}
-                          onChange={e => {
-                            const next = [...officeWorkRows];
-                            next[idx].targetMonth = e.target.value;
-                            setOfficeWorkRows(next);
-                          }}
-                          className="w-full px-2 py-1 border border-slate-200 rounded text-xs text-center bg-white"
-                        />
+                      <td className="p-2 border-r border-slate-200 text-center">
+                        {isSubmittedMode ? (
+                          <span>{row.targetMonth || <span className="text-slate-400 font-normal">-</span>}</span>
+                        ) : (
+                          <input
+                            type="text"
+                            placeholder=""
+                            value={row.targetMonth}
+                            onChange={e => {
+                              const next = [...officeWorkRows];
+                              next[idx].targetMonth = e.target.value;
+                              setOfficeWorkRows(next);
+                            }}
+                            className="w-full px-2 py-1 border border-slate-200 rounded text-xs text-center bg-white"
+                          />
+                        )}
                       </td>
-                      <td className="p-1 border-r border-slate-200">
-                        <input
-                          type="number"
-                          value={row.timeMinutes || ''}
-                          onChange={e => {
-                            const next = [...officeWorkRows];
-                            next[idx].timeMinutes = Number(e.target.value);
-                            setOfficeWorkRows(next);
-                          }}
-                          className="w-full px-2 py-1 border border-slate-200 rounded text-xs text-center bg-white"
-                        />
+                      <td className="p-2 border-r border-slate-200 text-center">
+                        {isSubmittedMode ? (
+                          <span>{row.timeMinutes ? `${row.timeMinutes}分` : <span className="text-slate-400 font-normal">-</span>}</span>
+                        ) : (
+                          <input
+                            type="number"
+                            value={row.timeMinutes || ''}
+                            onChange={e => {
+                              const next = [...officeWorkRows];
+                              next[idx].timeMinutes = Number(e.target.value);
+                              setOfficeWorkRows(next);
+                            }}
+                            className="w-full px-2 py-1 border border-slate-200 rounded text-xs text-center bg-white"
+                          />
+                        )}
                       </td>
-                      <td className="p-1 border-r border-slate-200">
-                        <input
-                          type="text"
-                          value={row.remarks}
-                          onChange={e => {
-                            const next = [...officeWorkRows];
-                            next[idx].remarks = e.target.value;
-                            setOfficeWorkRows(next);
-                          }}
-                          className="w-full px-2 py-1 border border-slate-200 rounded text-xs bg-white"
-                        />
+                      <td className="p-2 border-r border-slate-200">
+                        {isSubmittedMode ? (
+                          <span className="text-slate-600">{row.remarks || <span className="text-slate-400 font-normal">-</span>}</span>
+                        ) : (
+                          <input
+                            type="text"
+                            value={row.remarks}
+                            onChange={e => {
+                              const next = [...officeWorkRows];
+                              next[idx].remarks = e.target.value;
+                              setOfficeWorkRows(next);
+                            }}
+                            className="w-full px-2 py-1 border border-slate-200 rounded text-xs bg-white"
+                          />
+                        )}
                       </td>
                       {/* 操作列 */}
-                      <td className="p-1 text-center bg-slate-50/40">
-                        <div className="flex items-center justify-center gap-0.5">
-                          <button
-                            type="button"
-                            onClick={() => moveOfficeRow(idx, idx - 1)}
-                            disabled={idx === 0}
-                            className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-20 cursor-pointer"
-                            title="上へ移動"
-                          >
-                            <ArrowUp className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => moveOfficeRow(idx, idx + 1)}
-                            disabled={idx === officeWorkRows.length - 1}
-                            className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-20 cursor-pointer"
-                            title="下へ移動"
-                          >
-                            <ArrowDown className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => deleteOfficeRow(idx)}
-                            className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded cursor-pointer transition-colors"
-                            title="この行を削除"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </td>
+                      {!isSubmittedMode && (
+                        <td className="p-1 text-center bg-slate-50/40">
+                          <div className="flex items-center justify-center gap-0.5">
+                            <button
+                              type="button"
+                              onClick={() => moveOfficeRow(idx, idx - 1)}
+                              disabled={idx === 0}
+                              className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-20 cursor-pointer"
+                              title="上へ移動"
+                            >
+                              <ArrowUp className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => moveOfficeRow(idx, idx + 1)}
+                              disabled={idx === officeWorkRows.length - 1}
+                              className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-20 cursor-pointer"
+                              title="下へ移動"
+                            >
+                              <ArrowDown className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => deleteOfficeRow(idx)}
+                              className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded cursor-pointer transition-colors"
+                              title="この行を削除"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   ))}
+                  {isSubmittedMode && displayedOfficeRows.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="p-4 text-center text-slate-400">
+                        事務（見積）作業報告の記入はありません
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -2334,13 +2757,19 @@ export function MaintenanceDailyReportView({
             {/* その他事務作業 */}
             <div className="pt-2">
               <label className="block text-xs font-bold text-slate-700 mb-1">その他事務作業:</label>
-              <textarea
-                rows={2}
-                value={otherOfficeWork}
-                onChange={e => setOtherOfficeWork(e.target.value)}
-                placeholder="事務処理、会議、電話対応など"
-                className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white"
-              />
+              {isSubmittedMode ? (
+                <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200 text-xs text-slate-800 whitespace-pre-wrap min-h-[44px]">
+                  {otherOfficeWork || <span className="text-slate-400">（記入なし）</span>}
+                </div>
+              ) : (
+                <textarea
+                  rows={2}
+                  value={otherOfficeWork}
+                  onChange={e => setOtherOfficeWork(e.target.value)}
+                  placeholder="事務処理、会議、電話対応など"
+                  className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white"
+                />
+              )}
             </div>
           </div>
         )}
@@ -2383,39 +2812,59 @@ export function MaintenanceDailyReportView({
                     <tr>
                       {/* 工事内容 */}
                       <td className="p-2 border-r border-slate-200 text-left">
-                        <input
-                          type="text"
-                          value={constructionType}
-                          onChange={e => setConstructionType(e.target.value)}
-                          className="w-full px-1 py-0.5 border border-slate-200 rounded text-xs bg-white"
-                        />
+                        {isSubmittedMode ? (
+                          <span className="font-semibold text-slate-800">{constructionType || <span className="text-slate-400 font-normal">-</span>}</span>
+                        ) : (
+                          <input
+                            type="text"
+                            value={constructionType}
+                            onChange={e => setConstructionType(e.target.value)}
+                            className="w-full px-1 py-0.5 border border-slate-200 rounded text-xs bg-white"
+                          />
+                        )}
                       </td>
                       {/* 台数 */}
                       <td className="p-2 border-r border-slate-200">
-                        <input
-                          type="number"
-                          value={constructionCount}
-                          onChange={e => setConstructionCount(e.target.value === '' ? '' : Number(e.target.value))}
-                          className="w-12 px-1 py-0.5 border border-slate-200 rounded text-center bg-white"
-                        /> 台
+                        {isSubmittedMode ? (
+                          <span>{constructionCount !== '' && constructionCount !== undefined ? `${constructionCount} 台` : '-'}</span>
+                        ) : (
+                          <>
+                            <input
+                              type="number"
+                              value={constructionCount}
+                              onChange={e => setConstructionCount(e.target.value === '' ? '' : Number(e.target.value))}
+                              className="w-12 px-1 py-0.5 border border-slate-200 rounded text-center bg-white"
+                            /> 台
+                          </>
+                        )}
                       </td>
                       {/* 人数 */}
                       <td className="p-2 border-r border-slate-200">
-                        <input
-                          type="number"
-                          value={constructionPeople}
-                          onChange={e => setConstructionPeople(e.target.value === '' ? '' : Number(e.target.value))}
-                          className="w-12 px-1 py-0.5 border border-slate-200 rounded text-center bg-white"
-                        /> 人
+                        {isSubmittedMode ? (
+                          <span>{constructionPeople !== '' && constructionPeople !== undefined ? `${constructionPeople} 人` : '-'}</span>
+                        ) : (
+                          <>
+                            <input
+                              type="number"
+                              value={constructionPeople}
+                              onChange={e => setConstructionPeople(e.target.value === '' ? '' : Number(e.target.value))}
+                              className="w-12 px-1 py-0.5 border border-slate-200 rounded text-center bg-white"
+                            /> 人
+                          </>
+                        )}
                       </td>
                       {/* 工事数値 (緑色 ※手入力) */}
                       <td className="p-2 border-r border-emerald-300 bg-[#E8F8F0]">
-                        <input
-                          type="number"
-                          value={constructionValue}
-                          onChange={e => setConstructionValue(e.target.value === '' ? '' : Number(e.target.value))}
-                          className="w-16 px-1 py-0.5 border border-emerald-400 rounded text-center font-extrabold text-emerald-950 bg-white"
-                        />
+                        {isSubmittedMode ? (
+                          <span className="font-extrabold text-emerald-950">{constructionValue !== '' && constructionValue !== undefined ? constructionValue : 0}</span>
+                        ) : (
+                          <input
+                            type="number"
+                            value={constructionValue}
+                            onChange={e => setConstructionValue(e.target.value === '' ? '' : Number(e.target.value))}
+                            className="w-16 px-1 py-0.5 border border-emerald-400 rounded text-center font-extrabold text-emerald-950 bg-white"
+                          />
+                        )}
                       </td>
                       {/* 点検台数/数値 (肌色) */}
                       <td className="p-2 border-r border-slate-200 bg-[#FAF3E0] text-amber-950">
@@ -2435,12 +2884,16 @@ export function MaintenanceDailyReportView({
                       </td>
                       {/* 距離数値 (緑色 ※手入力) */}
                       <td className="p-2 border-r border-emerald-300 bg-[#E8F8F0]">
-                        <input
-                          type="number"
-                          value={distanceValue}
-                          onChange={e => setDistanceValue(e.target.value === '' ? '' : Number(e.target.value))}
-                          className="w-16 px-1 py-0.5 border border-emerald-400 rounded text-center font-extrabold text-emerald-950 bg-white"
-                        />
+                        {isSubmittedMode ? (
+                          <span className="font-extrabold text-emerald-950">{distanceValue !== '' && distanceValue !== undefined ? distanceValue : 0}</span>
+                        ) : (
+                          <input
+                            type="number"
+                            value={distanceValue}
+                            onChange={e => setDistanceValue(e.target.value === '' ? '' : Number(e.target.value))}
+                            className="w-16 px-1 py-0.5 border border-emerald-400 rounded text-center font-extrabold text-emerald-950 bg-white"
+                          />
+                        )}
                       </td>
                       {/* 当日数値合計 (肌色 自動計算) */}
                       <td className="p-2 bg-[#FAF3E0] font-black text-amber-900 text-sm">
@@ -2469,23 +2922,31 @@ export function MaintenanceDailyReportView({
 
                 <div className="flex items-center justify-between p-1.5 bg-slate-50 rounded border border-slate-200">
                   <span className="text-slate-600 font-semibold">休憩・待機時間:</span>
-                  <input
-                    type="text"
-                    value={breakHours}
-                    onChange={e => setBreakHours(e.target.value)}
-                    className="w-16 p-0.5 border border-slate-300 rounded text-center bg-white"
-                  />
+                  {isSubmittedMode ? (
+                    <strong className="text-slate-900">{breakHours || '0:00'}</strong>
+                  ) : (
+                    <input
+                      type="text"
+                      value={breakHours}
+                      onChange={e => setBreakHours(e.target.value)}
+                      className="w-16 p-0.5 border border-slate-300 rounded text-center bg-white"
+                    />
+                  )}
                 </div>
 
                 {/* 残業時間 (緑色 ※手入力) */}
                 <div className="flex items-center justify-between p-1.5 bg-[#E8F8F0] rounded border border-emerald-300">
                   <span className="text-emerald-900 font-bold">残業時間 (※手入力):</span>
-                  <input
-                    type="text"
-                    value={overtimeHours}
-                    onChange={e => setOvertimeHours(e.target.value)}
-                    className="w-16 p-0.5 border border-emerald-400 rounded text-center font-bold text-emerald-950 bg-white"
-                  />
+                  {isSubmittedMode ? (
+                    <strong className="text-emerald-950 font-bold">{overtimeHours || '0:00'}</strong>
+                  ) : (
+                    <input
+                      type="text"
+                      value={overtimeHours}
+                      onChange={e => setOvertimeHours(e.target.value)}
+                      className="w-16 p-0.5 border border-emerald-400 rounded text-center font-bold text-emerald-950 bg-white"
+                    />
+                  )}
                 </div>
 
                 <div className="flex items-center justify-between p-2 bg-slate-800 text-white rounded font-bold">
@@ -2524,27 +2985,52 @@ export function MaintenanceDailyReportView({
           </div>
         </div>
 
-        {/* ---------------- 上長用 レビューフィードバックエリア ---------------- */}
-        {report?.status === 'submitted' && (
-          <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 shadow-xs space-y-3">
-            <div className="flex items-center gap-2 text-amber-900 font-bold text-xs">
-              <UserCheck className="w-4 h-4 text-amber-600" />
-              <span>上長確認・コメント入力</span>
+        {/* ---------------- 提出後: 上長確認・コメント・提出/差し戻しエリア ---------------- */}
+        {isSubmittedMode && (
+          <div className="bg-indigo-50/70 border border-indigo-200 rounded-xl p-4 shadow-xs space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-indigo-900 font-bold text-xs">
+                <MessageSquare className="w-4 h-4 text-indigo-600" />
+                <span>上長確認・コメント入力</span>
+                <span className="text-[11px] font-normal text-indigo-700 bg-white px-2 py-0.5 rounded-full border border-indigo-200">
+                  ※コメントは空白のままでも上長提出・差し戻し可能です
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleRemand}
+                  disabled={isSubmitting}
+                  className="px-4 py-2 bg-white border border-rose-300 text-rose-700 hover:bg-rose-50 rounded-lg text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  title="日報を作成者に差し戻します（下書きに戻す）"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  差し戻し
+                </button>
+                <button
+                  type="button"
+                  onClick={handleForwardOrApprove}
+                  disabled={isSubmitting}
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  title="コメントを添えて上長に提出（確認完了）します"
+                >
+                  <Send className="w-4 h-4" />
+                  上長に提出
+                </button>
+              </div>
             </div>
             <textarea
               rows={2}
               value={reviewComment}
               onChange={e => setReviewComment(e.target.value)}
-              placeholder="確認時のフィードバックコメントを入力..."
-              className="w-full p-2 border border-amber-300 rounded-lg text-xs bg-white"
+              placeholder="コメントや確認事項、指示があれば入力（空白のまま「上長に提出」または「差し戻し」可能です）..."
+              className="w-full p-2.5 border border-indigo-200 rounded-lg text-xs bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-colors"
             />
-            <button
-              onClick={handleReview}
-              disabled={isSubmitting}
-              className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition-all shadow-xs cursor-pointer"
-            >
-              確認完了（確認印を押印）
-            </button>
+            {report?.feedbackComment && report.feedbackComment !== reviewComment && (
+              <p className="text-[11px] text-slate-500">
+                前回のコメント: <span className="text-slate-700 font-semibold">{report.feedbackComment}</span>
+              </p>
+            )}
           </div>
         )}
 
