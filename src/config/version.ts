@@ -15,12 +15,12 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.11.06.2',
+  version: '2026.11.06.7',
   date: '2026-11-06',
-  releaseNumber: 2,
-  display: 'v2026.11.06 #2 (JST)',
+  releaseNumber: 7,
+  display: 'v2026.11.06 #7 (JST)',
   timeZone: '日本標準時 (JST / UTC+09:00)',
-  description: 'チャット入力欄URL貼り付け時のselectionStart null参照例外完全防止（inputRefフォールバック＆イベントpersist化）',
+  description: 'コマンド案内モーダルに「サンプル入力」ボタン追加、サイコロ・ランダム抽選カードへのタイトル表示',
 };
 
 /**

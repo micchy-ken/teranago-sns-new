@@ -43,7 +43,7 @@ import {
   Glasses,
   FileText,
   Share2,
-  HelpCircle
+  AtSign
 } from 'lucide-react';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { uploadMultipleFiles, uploadFile, isPreviewable } from '../utils/fileUpload';
@@ -56,6 +56,8 @@ import { logActivity } from '../utils/logger';
 import { buildAppUrl, copyTextToClipboard } from '../utils/urlParams';
 import { ChatQuizModal } from './chat/ChatQuizModal';
 import { ChatQuizCard } from './chat/ChatQuizCard';
+import { ChatCommandHelpModal } from './chat/ChatCommandHelpModal';
+import { ChatCommandMessageCard, parseChatCommand } from './chat/ChatCommandMessageCard';
 
 interface ChatProps {
   rooms: ChatRoom[];
@@ -315,6 +317,8 @@ const ChatMessageItem = React.memo(function ChatMessageItem({
   onOpenLightbox,
   onDownloadAttachment
 }: ChatMessageItemProps) {
+  const commandData = useMemo(() => parseChatCommand(msg.content), [msg.content]);
+
   if (isSystem) {
     return (
       <div className="flex flex-col items-center">
@@ -559,6 +563,59 @@ const ChatMessageItem = React.memo(function ChatMessageItem({
                 currentUser={currentUser}
                 activeRoom={activeRoom}
               />
+            ) : commandData ? (
+              <div className="flex flex-col gap-1.5 items-stretch">
+                <ChatCommandMessageCard
+                  msg={msg}
+                  command={commandData.command}
+                  body={commandData.body}
+                  isMine={isMine}
+                />
+
+                {/* チャット添付ファイルリスト */}
+                {msg.attachments && msg.attachments.length > 0 && (
+                  <div className={`flex flex-col gap-1.5 ${isMine ? 'items-end' : 'items-start'}`}>
+                    {msg.attachments.map(att => (
+                      <div
+                        key={att.id}
+                        className="flex items-center justify-between gap-3 p-2 bg-white/95 border border-slate-200 rounded-xl text-xs shadow-2xs max-w-xs"
+                      >
+                        <div className="flex items-center gap-1.5 min-w-0 pr-1">
+                          <Paperclip className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          <div className="min-w-0">
+                            <div className="font-bold text-slate-800 truncate" title={att.name}>{att.name}</div>
+                            <div className="text-[9px] text-slate-400">{att.size}</div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0 border-l border-slate-100 pl-1.5 font-bold">
+                          {isPreviewable(att.name, att.type) && (
+                            <button
+                              type="button"
+                              onClick={() => onOpenPreview(att)}
+                              className="text-emerald-600 hover:text-emerald-800 text-[10px]"
+                            >
+                              プレビュー
+                            </button>
+                          )}
+                          <a
+                            href={att.url || '#'}
+                            download={att.name}
+                            onClick={(e) => {
+                              if (!att.url) {
+                                e.preventDefault();
+                                onDownloadAttachment(att);
+                              }
+                            }}
+                            className="text-indigo-600 hover:text-indigo-800 text-[10px] pl-1.5"
+                          >
+                            保存
+                          </a>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             ) : (
               // LINE風フキダシ
               <div className="flex flex-col gap-1.5 items-stretch">
@@ -753,6 +810,8 @@ export function Chat({
 
   // クイズ・アンケート作成モーダル用
   const [isQuizModalOpen, setIsQuizModalOpen] = useState(false);
+  // 特殊機能コマンド案内モーダル用 (@コマンドヘルプ)
+  const [isCommandHelpOpen, setIsCommandHelpOpen] = useState(false);
 
   const activeRoom = myRooms.find((r) => r.id === activeRoomId) || myRooms[0];
 
@@ -2963,13 +3022,17 @@ export function Chat({
                   <button
                     type="button"
                     onClick={() => {
-                      setIsQuizModalOpen(true);
+                      setIsCommandHelpOpen(!isCommandHelpOpen);
                       setShowStampPicker(false);
                     }}
-                    className="p-1.5 sm:p-2 rounded-full hover:bg-indigo-50 text-indigo-600 transition-colors shrink-0 mb-0.5 cursor-pointer"
-                    title="クイズ・アンケートを出題 (@quiz)"
+                    className={`p-1.5 sm:p-2 rounded-full transition-colors shrink-0 mb-0.5 cursor-pointer ${
+                      isCommandHelpOpen
+                        ? 'bg-indigo-100 text-indigo-600 ring-2 ring-indigo-200'
+                        : 'hover:bg-slate-100 text-slate-500'
+                    }`}
+                    title="特殊機能コマンド案内 (@機能ヘルプ)"
                   >
-                    <HelpCircle className="w-4 h-4 sm:w-5 sm:h-5" />
+                    <AtSign className="w-4 h-4 sm:w-5 sm:h-5" />
                   </button>
                 </>
               )}
@@ -2983,7 +3046,7 @@ export function Chat({
                 onCompositionStart={() => setIsComposing(true)}
                 onCompositionEnd={() => setIsComposing(false)}
                 onPaste={handleChatTextareaPaste}
-                placeholder={isBossMode ? "業務連絡・メッセージを入力... (Shift+Enterで改行, Enterで送信, 画像貼付可)" : "メッセージを入力... (@quizでクイズ出題, Shift+Enterで改行)"}
+                placeholder={isBossMode ? "業務連絡・メッセージを入力... (Shift+Enterで改行, Enterで送信, 画像貼付可)" : "メッセージを入力... (@機能対応, Shift+Enterで改行)"}
                 className="flex-1 min-w-0 px-3.5 sm:px-4 py-2 sm:py-2.5 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-xs sm:text-sm font-semibold text-slate-800 resize-none overflow-y-auto leading-relaxed"
                 style={{ minHeight: '38px', maxHeight: '120px' }}
               />
@@ -3247,6 +3310,24 @@ export function Chat({
           }}
         />
       )}
+
+      {/* ----------------- 特殊機能コマンド案内モーダル (@コマンドヘルプ) ----------------- */}
+      <ChatCommandHelpModal
+        isOpen={isCommandHelpOpen}
+        onClose={() => setIsCommandHelpOpen(false)}
+        onOpenQuizModal={() => {
+          setIsQuizModalOpen(true);
+        }}
+        onInsertCommand={(cmd) => {
+          setMessageText((prev) => {
+            if (!prev.trim()) return `${cmd} `;
+            return `${prev.trimEnd()} ${cmd} `;
+          });
+          setTimeout(() => {
+            chatTextareaRef.current?.focus();
+          }, 50);
+        }}
+      />
 
       {/* ----------------- モーダル: 既読メンバー一覧 ----------------- */}
       {viewersModalOpen && selectedMsgForViewers && (
