@@ -10,7 +10,9 @@ import {
   WorkflowApplication,
   ApprovalFlowRule,
   ItemMaster,
-  ApplicationStatus
+  ApplicationStatus,
+  OfficeMaster,
+  MaintenanceReportOfficeConfig
 } from '../types';
 import { 
   Calendar as CalendarIcon, 
@@ -37,12 +39,15 @@ import {
   AlertCircle,
   PackageCheck,
   PackagePlus,
-  Package
+  Package,
+  Sliders
 } from 'lucide-react';
 import { getAvatarUrl } from '../utils/avatar';
 import { getLocalDateStr } from '../utils/dateUtils';
 import { expandRecurringEvents } from '../utils/recurrenceUtils';
 import { ApplicationModal } from './ApplicationModal';
+import { API_BASE_URL } from '../config/api';
+import { createDefaultOfficeConfig } from './admin/MaintenanceOfficeConfigAdmin';
 
 // JST (日本標準時) 基準で YYYY-MM-DD を判定
 function getEventDateStrJST(dateInput: string | Date | undefined): string {
@@ -96,6 +101,7 @@ interface MaintenanceDailyReportProps {
   onUpdateApplication?: (app: WorkflowApplication) => Promise<void> | void;
   approvalFlows?: ApprovalFlowRule[];
   itemMasters?: ItemMaster[];
+  offices?: OfficeMaster[];
 }
 
 // 曜日漢字ヘルパー
@@ -251,7 +257,36 @@ export function MaintenanceDailyReportView({
   onUpdateApplication,
   approvalFlows = [],
   itemMasters = [],
+  offices = [],
 }: MaintenanceDailyReportProps) {
+  // 拠点別様式設定（所属拠点を初期選択）
+  const [selectedOfficeName, setSelectedOfficeName] = useState<string>(() => {
+    return currentUser.office || (offices[0]?.name) || '名古屋支店';
+  });
+  const [officeConfigs, setOfficeConfigs] = useState<MaintenanceReportOfficeConfig[]>([]);
+
+  useEffect(() => {
+    let isMounted = true;
+    fetch(`${API_BASE_URL}/masters/maintenance-configs`)
+      .then(res => res.json())
+      .then(data => {
+        if (!isMounted) return;
+        if (Array.isArray(data)) {
+          setOfficeConfigs(data);
+        }
+      })
+      .catch(() => {});
+    return () => { isMounted = false; };
+  }, []);
+
+  // 現在適用中の拠点様式設定
+  const currentOfficeConfig = useMemo<MaintenanceReportOfficeConfig>(() => {
+    const found = officeConfigs.find(c => c.officeName === selectedOfficeName);
+    return found || createDefaultOfficeConfig(selectedOfficeName);
+  }, [officeConfigs, selectedOfficeName]);
+
+  const visibleColumns = currentOfficeConfig.visibleColumns;
+
   // 補充申請モーダル管理用ステート
   const [supplyModalState, setSupplyModalState] = useState<{
     isOpen: boolean;
@@ -569,23 +604,24 @@ export function MaintenanceDailyReportView({
         updatedRow.workHours = calculateTimeDiff(updatedRow.startTime, updatedRow.endTime);
       }
 
-      // 内容（作業区分）が変更された場合、標準ポイント/金額のプリセット自動適用
+      // 内容（作業区分）が変更された場合、拠点設定の標準ポイント/金額のプリセット自動適用
       if (fields.contentType !== undefined) {
         const ct = fields.contentType;
+        const pts = currentOfficeConfig.pointSettings;
         if (ct === 'EG取替') {
           updatedRow.replacementCount = updatedRow.replacementCount || 1;
-          updatedRow.replacementAmount = updatedRow.replacementAmount || 291500;
-          updatedRow.replacementValue = updatedRow.replacementValue || 480;
+          updatedRow.replacementAmount = updatedRow.replacementAmount || pts.replacementEgAmount;
+          updatedRow.replacementValue = updatedRow.replacementValue || pts.replacementEgPoint;
         } else if (ct === '単体取替') {
           updatedRow.replacementCount = updatedRow.replacementCount || 1;
-          updatedRow.replacementAmount = updatedRow.replacementAmount || 150000;
-          updatedRow.replacementValue = updatedRow.replacementValue || 240;
+          updatedRow.replacementAmount = updatedRow.replacementAmount || pts.replacementSingleAmount;
+          updatedRow.replacementValue = updatedRow.replacementValue || pts.replacementSinglePoint;
         } else if (ct === '修理' || ct === 'オンコール') {
-          updatedRow.oncallAmount = updatedRow.oncallAmount || 34500;
-          updatedRow.oncallValue = updatedRow.oncallValue || 115;
+          updatedRow.oncallAmount = updatedRow.oncallAmount || pts.oncallAmount;
+          updatedRow.oncallValue = updatedRow.oncallValue || pts.oncallPoint;
         } else if (ct === '点検') {
           updatedRow.inspectionCount = updatedRow.inspectionCount || 1;
-          updatedRow.inspectionValue = updatedRow.inspectionValue || 120;
+          updatedRow.inspectionValue = updatedRow.inspectionValue || pts.inspectionPointPerUnit;
         }
       }
 
@@ -827,16 +863,52 @@ export function MaintenanceDailyReportView({
 
     // イベントからの自動セット (JST基準で正確な開始・終了時刻と作業時間を抽出)
     const newRows = createEmptyMainRows();
+    const mapCfg = currentOfficeConfig.scheduleMapping;
+    const pts = currentOfficeConfig.pointSettings;
+
     dayEvents.slice(0, 10).forEach((ev, idx) => {
       const startT = getEventTimeStrJST(ev.start);
       const endT = getEventTimeStrJST(ev.end);
-      
-      // 地区の抽出：スケジュールメモやタイトル等の詳細情報に【地区】〇〇が明記されている場合のみセット
-      let districtStr = '';
       const fullText = `${ev.memo || ''} ${ev.location || ''} ${ev.title || ''}`;
-      const districtMatch = fullText.match(/【地区】\s*([^\s\r\n】]+)/) || fullText.match(/地区[：:]\s*([^\s\r\n]+)/);
-      if (districtMatch && districtMatch[1]) {
-        districtStr = districtMatch[1].trim();
+
+      // 現場名の決定（マッピング設定準拠）
+      let siteNameStr = ev.title || '現場名未設定';
+      if (mapCfg.siteNameSource === 'location') {
+        siteNameStr = ev.location || ev.title || '現場名未設定';
+      } else if (mapCfg.siteNameSource === 'location_then_title') {
+        siteNameStr = (ev.location && ev.location.trim()) ? ev.location.trim() : (ev.title || '現場名未設定');
+      }
+
+      // 作業内容の決定（マッピング設定準拠）
+      let workDescStr = ev.memo || ev.type || '保守作業';
+      if (mapCfg.workDescriptionSource === 'memo') {
+        workDescStr = ev.memo || '保守作業';
+      } else if (mapCfg.workDescriptionSource === 'type') {
+        workDescStr = ev.type || '保守作業';
+      } else if (mapCfg.workDescriptionSource === 'title') {
+        workDescStr = ev.title || '保守作業';
+      }
+
+      // 地区の決定（マッピング設定準拠）
+      let districtStr = '';
+      if (mapCfg.districtSource === 'tag') {
+        const districtMatch = fullText.match(/【地区】\s*([^\s\r\n】]+)/) || fullText.match(/地区[：:]\s*([^\s\r\n]+)/);
+        if (districtMatch && districtMatch[1]) {
+          districtStr = districtMatch[1].trim();
+        }
+      } else if (mapCfg.districtSource === 'location') {
+        districtStr = ev.location || '';
+      } else if (mapCfg.districtSource === 'default_office') {
+        districtStr = selectedOfficeName;
+      }
+
+      // 直行・直帰の自動判定
+      let isDirectGo = false;
+      let isDirectReturn = false;
+      if (mapCfg.autoDetectDirectGoReturn) {
+        const searchStr = `${ev.title || ''} ${ev.memo || ''}`;
+        if (searchStr.includes('直行')) isDirectGo = true;
+        if (searchStr.includes('直帰')) isDirectReturn = true;
       }
 
       // 内容区分の判定：スケジュールの内容（ev.type, ev.memo, ev.title）に準じる
@@ -870,7 +942,7 @@ export function MaintenanceDailyReportView({
         }
       }
 
-      // 各内容区分ごとの数値・金額プリセット初期値設定
+      // 各内容区分ごとの数値・金額プリセット（拠点設定値）
       let inspectionCount = 0;
       let inspectionValue = 0;
       let oncallAmount = 0;
@@ -881,42 +953,42 @@ export function MaintenanceDailyReportView({
 
       if (contentType === 'EG取替') {
         replacementCount = 1;
-        replacementAmount = 291500;
-        replacementValue = 480;
+        replacementAmount = pts.replacementEgAmount;
+        replacementValue = pts.replacementEgPoint;
       } else if (contentType === '単体取替') {
         replacementCount = 1;
-        replacementAmount = 150000;
-        replacementValue = 240;
+        replacementAmount = pts.replacementSingleAmount;
+        replacementValue = pts.replacementSinglePoint;
       } else if (contentType === '修理' || contentType === 'オンコール') {
-        oncallAmount = 34500;
-        oncallValue = 115;
+        oncallAmount = pts.oncallAmount;
+        oncallValue = pts.oncallPoint;
       } else if (contentType === '点検') {
         inspectionCount = 1;
-        inspectionValue = 120;
+        inspectionValue = pts.inspectionPointPerUnit;
       }
 
       // 自分以外の参加メンバー抽出
-      const otherAttendees = (ev.attendees || []).filter(a => {
-        if (!a) return false;
-        if (a.id && currentUser.id && a.id === currentUser.id) return false;
-        if (a.name && currentUser.name && a.name.trim() === currentUser.name.trim()) return false;
-        return true;
-      });
-
-      // 人数算出（attendeesが存在すればその件数、なければ1人）
-      const totalPeople = (ev.attendees && ev.attendees.length > 0) ? ev.attendees.length : 1;
-
-      // 1人（本人だけ）の場合は同行者不要（空文字）。2人以上の場合は自分以外のメンバーを表示
-      const coworkersStr = (totalPeople >= 2 && otherAttendees.length > 0)
-        ? otherAttendees.map(a => a.name).filter(Boolean).join(', ')
-        : '';
+      let totalPeople = 1;
+      let coworkersStr = '';
+      if (mapCfg.autoImportAttendees) {
+        const otherAttendees = (ev.attendees || []).filter(a => {
+          if (!a) return false;
+          if (a.id && currentUser.id && a.id === currentUser.id) return false;
+          if (a.name && currentUser.name && a.name.trim() === currentUser.name.trim()) return false;
+          return true;
+        });
+        totalPeople = (ev.attendees && ev.attendees.length > 0) ? ev.attendees.length : 1;
+        coworkersStr = (totalPeople >= 2 && otherAttendees.length > 0)
+          ? otherAttendees.map(a => a.name).filter(Boolean).join(', ')
+          : '';
+      }
 
       newRows[idx] = {
         id: `row-${idx + 1}`,
-        directGo: false,
-        directReturn: false,
-        siteName: ev.title || '現場名未設定',
-        workDescription: ev.memo || ev.type || '保守作業',
+        directGo: isDirectGo,
+        directReturn: isDirectReturn,
+        siteName: siteNameStr,
+        workDescription: workDescStr,
         district: districtStr,
         peopleCount: totalPeople,
         coworkers: coworkersStr,
@@ -936,7 +1008,7 @@ export function MaintenanceDailyReportView({
     });
 
     setMainWorkRows(newRows);
-    alert(`${dayEvents.length} 件のスケジュールを自動取り込みしました！`);
+    alert(`${dayEvents.length} 件のスケジュールを自動取り込みしました！（様式: ${selectedOfficeName}）`);
   };
 
   // ---------------- 保存・提出処理 ----------------
@@ -1033,6 +1105,26 @@ export function MaintenanceDailyReportView({
                 <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
                   保守部署専用
                 </span>
+
+                {/* 拠点別カスタム様式セレクター */}
+                <div className="flex items-center gap-1.5 ml-1">
+                  <span className="text-[11px] font-bold text-slate-500 hidden md:inline">様式:</span>
+                  <div className="relative">
+                    <select
+                      value={selectedOfficeName}
+                      onChange={(e) => setSelectedOfficeName(e.target.value)}
+                      className="text-xs font-bold text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg px-2.5 py-1 pr-6 cursor-pointer appearance-none transition-colors"
+                      title="適用する拠点別カスタム様式（表示列・計算ポイント）を切り替えます"
+                    >
+                      {(offices.length > 0 ? offices.map(o => o.name) : ['本社', '名古屋支店', '静岡営業所', '浜松営業所', '三河営業所']).map(offName => (
+                        <option key={offName} value={offName}>
+                          {offName} 様式
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="w-3.5 h-3.5 text-amber-700 absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  </div>
+                </div>
               </div>
               <p className="text-xs text-slate-500 hidden sm:block">
                 当日のスケジュールから作業・点検・取替内容を自動算出し、日報を簡単に作成・保存します
@@ -1193,23 +1285,27 @@ export function MaintenanceDailyReportView({
               <thead>
                 <tr className="bg-slate-100 border-b border-slate-300 text-slate-700 font-bold text-[11px]">
                   <th className="p-2 border-r border-slate-200 text-center w-10">番号</th>
-                  <th className="p-2 border-r border-slate-200 text-center w-16">直行直帰</th>
+                  {visibleColumns.directGoReturn && <th className="p-2 border-r border-slate-200 text-center w-16">直行直帰</th>}
                   <th className="p-2 border-r border-slate-200 w-36">現場名</th>
                   <th className="p-2 border-r border-slate-200 w-32">作業内容</th>
-                  <th className="p-2 border-r border-slate-200 w-20">地区</th>
-                  <th className="p-2 border-r border-slate-200 text-center w-14">人数</th>
-                  <th className="p-2 border-r border-slate-200 w-24">同行者</th>
+                  {visibleColumns.district && <th className="p-2 border-r border-slate-200 w-20">地区</th>}
+                  {visibleColumns.peopleCoworkers && <th className="p-2 border-r border-slate-200 text-center w-14">人数</th>}
+                  {visibleColumns.peopleCoworkers && <th className="p-2 border-r border-slate-200 w-24">同行者</th>}
                   <th className="p-2 border-r border-slate-200 text-center w-36">作業時間</th>
                   <th className="p-2 border-r border-slate-200 w-24">内容区分</th>
-                  <th className="p-2 border-r border-slate-200 text-center bg-[#FAF3E0] w-24">点検台数/数値</th>
-                  <th className="p-2 border-r border-slate-200 text-center bg-[#FAF3E0] w-28">オンコール金額/数値</th>
-                  <th className="p-2 border-r border-slate-200 text-center bg-[#FAF3E0] w-32">取替台数/金額/数値</th>
-                  <th className="p-2 text-center bg-[#E8F8F0] w-24 text-emerald-900 border-l border-emerald-300">
-                    建材数値<br /><span className="text-[9px] font-normal text-emerald-700">※手入力</span>
-                  </th>
-                  <th className="p-2 text-center bg-[#EBF5FF] w-28 text-sky-900 border-l border-sky-300">
-                    補充<br /><span className="text-[9px] font-normal text-sky-700">※申請・確認</span>
-                  </th>
+                  {visibleColumns.inspection && <th className="p-2 border-r border-slate-200 text-center bg-[#FAF3E0] w-24">点検台数/数値</th>}
+                  {visibleColumns.oncall && <th className="p-2 border-r border-slate-200 text-center bg-[#FAF3E0] w-28">オンコール金額/数値</th>}
+                  {visibleColumns.replacement && <th className="p-2 border-r border-slate-200 text-center bg-[#FAF3E0] w-32">取替台数/金額/数値</th>}
+                  {visibleColumns.buildingMaterial && (
+                    <th className="p-2 text-center bg-[#E8F8F0] w-24 text-emerald-900 border-l border-emerald-300">
+                      建材数値<br /><span className="text-[9px] font-normal text-emerald-700">※手入力</span>
+                    </th>
+                  )}
+                  {visibleColumns.photoReportLink && (
+                    <th className="p-2 text-center bg-[#EBF5FF] w-28 text-sky-900 border-l border-sky-300">
+                      補充<br /><span className="text-[9px] font-normal text-sky-700">※申請・確認</span>
+                    </th>
+                  )}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 font-sans">
@@ -1221,28 +1317,30 @@ export function MaintenanceDailyReportView({
                     </td>
 
                     {/* 直行・直帰 (手入力/チェック) */}
-                    <td className="p-1 border-r border-slate-200 text-center">
-                      <div className="flex items-center justify-center gap-1 text-[10px]">
-                        <label className="flex items-center gap-0.5 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={!!row.directGo}
-                            onChange={e => updateMainRow(idx, { directGo: e.target.checked })}
-                            className="rounded border-slate-300 text-amber-600 focus:ring-amber-500 h-3 w-3"
-                          />
-                          <span>直行</span>
-                        </label>
-                        <label className="flex items-center gap-0.5 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={!!row.directReturn}
-                            onChange={e => updateMainRow(idx, { directReturn: e.target.checked })}
-                            className="rounded border-slate-300 text-amber-600 focus:ring-amber-500 h-3 w-3"
-                          />
-                          <span>直帰</span>
-                        </label>
-                      </div>
-                    </td>
+                    {visibleColumns.directGoReturn && (
+                      <td className="p-1 border-r border-slate-200 text-center">
+                        <div className="flex items-center justify-center gap-1 text-[10px]">
+                          <label className="flex items-center gap-0.5 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={!!row.directGo}
+                              onChange={e => updateMainRow(idx, { directGo: e.target.checked })}
+                              className="rounded border-slate-300 text-amber-600 focus:ring-amber-500 h-3 w-3"
+                            />
+                            <span>直行</span>
+                          </label>
+                          <label className="flex items-center gap-0.5 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={!!row.directReturn}
+                              onChange={e => updateMainRow(idx, { directReturn: e.target.checked })}
+                              className="rounded border-slate-300 text-amber-600 focus:ring-amber-500 h-3 w-3"
+                            />
+                            <span>直帰</span>
+                          </label>
+                        </div>
+                      </td>
+                    )}
 
                     {/* 現場名 */}
                     <td className="p-1 border-r border-slate-200">
@@ -1267,37 +1365,43 @@ export function MaintenanceDailyReportView({
                     </td>
 
                     {/* 地区 */}
-                    <td className="p-1 border-r border-slate-200">
-                      <input
-                        type="text"
-                        value={row.district}
-                        onChange={e => updateMainRow(idx, { district: e.target.value })}
-                        placeholder="地区"
-                        className="w-full px-2 py-1 border border-slate-200 rounded text-xs focus:ring-1 focus:ring-amber-500 bg-white"
-                      />
-                    </td>
+                    {visibleColumns.district && (
+                      <td className="p-1 border-r border-slate-200">
+                        <input
+                          type="text"
+                          value={row.district}
+                          onChange={e => updateMainRow(idx, { district: e.target.value })}
+                          placeholder="地区"
+                          className="w-full px-2 py-1 border border-slate-200 rounded text-xs focus:ring-1 focus:ring-amber-500 bg-white"
+                        />
+                      </td>
+                    )}
 
                     {/* 人数 */}
-                    <td className="p-1 border-r border-slate-200 text-center">
-                      <input
-                        type="number"
-                        min={1}
-                        value={row.peopleCount || ''}
-                        onChange={e => updateMainRow(idx, { peopleCount: Number(e.target.value) })}
-                        className="w-12 px-1 py-1 border border-slate-200 rounded text-xs text-center focus:ring-1 focus:ring-amber-500 bg-white"
-                      />
-                    </td>
+                    {visibleColumns.peopleCoworkers && (
+                      <td className="p-1 border-r border-slate-200 text-center">
+                        <input
+                          type="number"
+                          min={1}
+                          value={row.peopleCount || ''}
+                          onChange={e => updateMainRow(idx, { peopleCount: Number(e.target.value) })}
+                          className="w-12 px-1 py-1 border border-slate-200 rounded text-xs text-center focus:ring-1 focus:ring-amber-500 bg-white"
+                        />
+                      </td>
+                    )}
 
                     {/* 同行者 */}
-                    <td className="p-1 border-r border-slate-200">
-                      <input
-                        type="text"
-                        value={row.coworkers}
-                        onChange={e => updateMainRow(idx, { coworkers: e.target.value })}
-                        placeholder="同行者"
-                        className="w-full px-2 py-1 border border-slate-200 rounded text-xs focus:ring-1 focus:ring-amber-500 bg-white"
-                      />
-                    </td>
+                    {visibleColumns.peopleCoworkers && (
+                      <td className="p-1 border-r border-slate-200">
+                        <input
+                          type="text"
+                          value={row.coworkers}
+                          onChange={e => updateMainRow(idx, { coworkers: e.target.value })}
+                          placeholder="同行者"
+                          className="w-full px-2 py-1 border border-slate-200 rounded text-xs focus:ring-1 focus:ring-amber-500 bg-white"
+                        />
+                      </td>
+                    )}
 
                     {/* 作業時間 開始 〜 終了 & 算出時間 */}
                     <td className="p-1 border-r border-slate-200 text-center">
@@ -1341,164 +1445,184 @@ export function MaintenanceDailyReportView({
                     </td>
 
                     {/* 点検台数 / 点検数値 (肌色) */}
-                    <td className="p-1 border-r border-slate-200 bg-[#FAF3E0]">
-                      <div className="flex items-center gap-1 justify-center">
-                        <input
-                          type="number"
-                          placeholder="台"
-                          value={row.inspectionCount || ''}
-                          onChange={e => updateMainRow(idx, { inspectionCount: Number(e.target.value) })}
-                          className="w-10 px-1 py-0.5 border border-amber-200 rounded text-xs text-center bg-white"
-                        />
-                        <input
-                          type="number"
-                          placeholder="数値"
-                          value={row.inspectionValue || ''}
-                          onChange={e => updateMainRow(idx, { inspectionValue: Number(e.target.value) })}
-                          className="w-12 px-1 py-0.5 border border-amber-200 rounded text-xs text-center bg-white"
-                        />
-                      </div>
-                    </td>
+                    {visibleColumns.inspection && (
+                      <td className="p-1 border-r border-slate-200 bg-[#FAF3E0]">
+                        <div className="flex items-center gap-1 justify-center">
+                          <input
+                            type="number"
+                            placeholder="台"
+                            value={row.inspectionCount || ''}
+                            onChange={e => updateMainRow(idx, { inspectionCount: Number(e.target.value) })}
+                            className="w-10 px-1 py-0.5 border border-amber-200 rounded text-xs text-center bg-white"
+                          />
+                          <input
+                            type="number"
+                            placeholder="数値"
+                            value={row.inspectionValue || ''}
+                            onChange={e => updateMainRow(idx, { inspectionValue: Number(e.target.value) })}
+                            className="w-12 px-1 py-0.5 border border-amber-200 rounded text-xs text-center bg-white"
+                          />
+                        </div>
+                      </td>
+                    )}
 
                     {/* オンコール金額 / 数値 (肌色) */}
-                    <td className="p-1 border-r border-slate-200 bg-[#FAF3E0]">
-                      <div className="flex items-center gap-1 justify-center">
-                        <input
-                          type="number"
-                          placeholder="金額(円)"
-                          value={row.oncallAmount || ''}
-                          onChange={e => updateMainRow(idx, { oncallAmount: Number(e.target.value) })}
-                          className="w-16 px-1 py-0.5 border border-amber-200 rounded text-xs text-right bg-white"
-                        />
-                        <input
-                          type="number"
-                          placeholder="数値"
-                          value={row.oncallValue || ''}
-                          onChange={e => updateMainRow(idx, { oncallValue: Number(e.target.value) })}
-                          className="w-12 px-1 py-0.5 border border-amber-200 rounded text-xs text-center bg-white"
-                        />
-                      </div>
-                    </td>
+                    {visibleColumns.oncall && (
+                      <td className="p-1 border-r border-slate-200 bg-[#FAF3E0]">
+                        <div className="flex items-center gap-1 justify-center">
+                          <input
+                            type="number"
+                            placeholder="金額(円)"
+                            value={row.oncallAmount || ''}
+                            onChange={e => updateMainRow(idx, { oncallAmount: Number(e.target.value) })}
+                            className="w-16 px-1 py-0.5 border border-amber-200 rounded text-xs text-right bg-white"
+                          />
+                          <input
+                            type="number"
+                            placeholder="数値"
+                            value={row.oncallValue || ''}
+                            onChange={e => updateMainRow(idx, { oncallValue: Number(e.target.value) })}
+                            className="w-12 px-1 py-0.5 border border-amber-200 rounded text-xs text-center bg-white"
+                          />
+                        </div>
+                      </td>
+                    )}
 
                     {/* 取替台数 / 金額 / 数値 (肌色) */}
-                    <td className="p-1 border-r border-slate-200 bg-[#FAF3E0]">
-                      <div className="flex items-center gap-1 justify-center">
-                        <input
-                          type="number"
-                          placeholder="台"
-                          value={row.replacementCount || ''}
-                          onChange={e => updateMainRow(idx, { replacementCount: Number(e.target.value) })}
-                          className="w-8 px-1 py-0.5 border border-amber-200 rounded text-xs text-center bg-white"
-                        />
-                        <input
-                          type="number"
-                          placeholder="金額(円)"
-                          value={row.replacementAmount || ''}
-                          onChange={e => updateMainRow(idx, { replacementAmount: Number(e.target.value) })}
-                          className="w-16 px-1 py-0.5 border border-amber-200 rounded text-xs text-right bg-white"
-                        />
-                        <input
-                          type="number"
-                          placeholder="数値"
-                          value={row.replacementValue || ''}
-                          onChange={e => updateMainRow(idx, { replacementValue: Number(e.target.value) })}
-                          className="w-10 px-1 py-0.5 border border-amber-200 rounded text-xs text-center bg-white"
-                        />
-                      </div>
-                    </td>
+                    {visibleColumns.replacement && (
+                      <td className="p-1 border-r border-slate-200 bg-[#FAF3E0]">
+                        <div className="flex items-center gap-1 justify-center">
+                          <input
+                            type="number"
+                            placeholder="台"
+                            value={row.replacementCount || ''}
+                            onChange={e => updateMainRow(idx, { replacementCount: Number(e.target.value) })}
+                            className="w-8 px-1 py-0.5 border border-amber-200 rounded text-xs text-center bg-white"
+                          />
+                          <input
+                            type="number"
+                            placeholder="金額(円)"
+                            value={row.replacementAmount || ''}
+                            onChange={e => updateMainRow(idx, { replacementAmount: Number(e.target.value) })}
+                            className="w-16 px-1 py-0.5 border border-amber-200 rounded text-xs text-right bg-white"
+                          />
+                          <input
+                            type="number"
+                            placeholder="数値"
+                            value={row.replacementValue || ''}
+                            onChange={e => updateMainRow(idx, { replacementValue: Number(e.target.value) })}
+                            className="w-10 px-1 py-0.5 border border-amber-200 rounded text-xs text-center bg-white"
+                          />
+                        </div>
+                      </td>
+                    )}
 
                     {/* 建材数値 (緑色 ※手入力) */}
-                    <td className="p-1 bg-[#E8F8F0] border-l border-emerald-300">
-                      <input
-                        type="number"
-                        placeholder="0"
-                        value={row.buildingMaterialValue || ''}
-                        onChange={e => updateMainRow(idx, { buildingMaterialValue: Number(e.target.value) })}
-                        className="w-full px-2 py-1 border border-emerald-400 rounded text-xs text-center font-bold text-emerald-950 bg-white focus:ring-2 focus:ring-emerald-500/20"
-                      />
-                    </td>
+                    {visibleColumns.buildingMaterial && (
+                      <td className="p-1 bg-[#E8F8F0] border-l border-emerald-300">
+                        <input
+                          type="number"
+                          placeholder="0"
+                          value={row.buildingMaterialValue || ''}
+                          onChange={e => updateMainRow(idx, { buildingMaterialValue: Number(e.target.value) })}
+                          className="w-full px-2 py-1 border border-emerald-400 rounded text-xs text-center font-bold text-emerald-950 bg-white focus:ring-2 focus:ring-emerald-500/20"
+                        />
+                      </td>
+                    )}
 
                     {/* 補充ボタン列 */}
-                    <td className="p-1 border-l border-slate-200 text-center bg-slate-50/50">
-                      {(() => {
-                        const existingApp = getSupplyApplicationForSite(row.siteName);
-                        const isSiteEmpty = !row.siteName || !row.siteName.trim();
+                    {visibleColumns.photoReportLink && (
+                      <td className="p-1 border-l border-slate-200 text-center bg-slate-50/50">
+                        {(() => {
+                          const existingApp = getSupplyApplicationForSite(row.siteName);
+                          const isSiteEmpty = !row.siteName || !row.siteName.trim();
 
-                        if (existingApp) {
-                          let badgeColor = 'bg-amber-100 text-amber-900 border-amber-300 hover:bg-amber-200 shadow-2xs';
-                          let statusText = '申請中';
-                          if (existingApp.status === 'approved') {
-                            badgeColor = 'bg-emerald-100 text-emerald-900 border-emerald-300 hover:bg-emerald-200 shadow-2xs';
-                            statusText = '承認済';
-                          } else if (existingApp.status === 'rejected') {
-                            badgeColor = 'bg-rose-100 text-rose-900 border-rose-300 hover:bg-rose-200 shadow-2xs';
-                            statusText = '却下';
-                          } else if (existingApp.status === 'draft') {
-                            badgeColor = 'bg-slate-100 text-slate-800 border-slate-300 hover:bg-slate-200 shadow-2xs';
-                            statusText = '下書き';
+                          if (existingApp) {
+                            let badgeColor = 'bg-amber-100 text-amber-900 border-amber-300 hover:bg-amber-200 shadow-2xs';
+                            let statusText = '申請中';
+                            if (existingApp.status === 'approved') {
+                              badgeColor = 'bg-emerald-100 text-emerald-900 border-emerald-300 hover:bg-emerald-200 shadow-2xs';
+                              statusText = '承認済';
+                            } else if (existingApp.status === 'rejected') {
+                              badgeColor = 'bg-rose-100 text-rose-900 border-rose-300 hover:bg-rose-200 shadow-2xs';
+                              statusText = '却下';
+                            } else if (existingApp.status === 'draft') {
+                              badgeColor = 'bg-slate-100 text-slate-800 border-slate-300 hover:bg-slate-200 shadow-2xs';
+                              statusText = '下書き';
+                            }
+
+                            return (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenSupplyModal(row.siteName)}
+                                className={`w-full px-1.5 py-1 text-[11px] font-bold rounded border flex items-center justify-center gap-1 mx-auto transition-colors cursor-pointer ${badgeColor}`}
+                                title="クリックで補充申請の内容を確認・変更"
+                              >
+                                <PackageCheck className="w-3.5 h-3.5 shrink-0" />
+                                <span className="truncate">補充 ({statusText})</span>
+                              </button>
+                            );
                           }
 
                           return (
                             <button
                               type="button"
-                              onClick={() => handleOpenSupplyModal(row.siteName)}
-                              className={`w-full px-1.5 py-1 text-[11px] font-bold rounded border flex items-center justify-center gap-1 mx-auto transition-colors cursor-pointer ${badgeColor}`}
-                              title="クリックで補充申請の内容を確認・変更"
+                              onClick={() => {
+                                if (isSiteEmpty) {
+                                  alert('補充申請を作成するには、先に現場名を入力してください。');
+                                  return;
+                                }
+                                handleOpenSupplyModal(row.siteName);
+                              }}
+                              className={`w-full px-2 py-1 text-[11px] font-bold rounded border flex items-center justify-center gap-1 mx-auto transition-all ${
+                                isSiteEmpty 
+                                  ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-60' 
+                                  : 'bg-sky-50 text-sky-700 border-sky-300 hover:bg-sky-100 hover:text-sky-800 shadow-2xs cursor-pointer'
+                              }`}
+                              title={isSiteEmpty ? '現場名を入力すると補充依頼できます' : 'この現場の補充申請を作成'}
                             >
-                              <PackageCheck className="w-3.5 h-3.5 shrink-0" />
-                              <span className="truncate">補充 ({statusText})</span>
+                              <PackagePlus className="w-3.5 h-3.5 shrink-0 text-sky-600" />
+                              <span>補充</span>
                             </button>
                           );
-                        }
-
-                        return (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (isSiteEmpty) {
-                                alert('補充申請を作成するには、先に現場名を入力してください。');
-                                return;
-                              }
-                              handleOpenSupplyModal(row.siteName);
-                            }}
-                            className={`w-full px-2 py-1 text-[11px] font-bold rounded border flex items-center justify-center gap-1 mx-auto transition-all ${
-                              isSiteEmpty 
-                                ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-60' 
-                                : 'bg-sky-50 text-sky-700 border-sky-300 hover:bg-sky-100 hover:text-sky-800 shadow-2xs cursor-pointer'
-                            }`}
-                            title={isSiteEmpty ? '現場名を入力すると補充依頼できます' : 'この現場の補充申請を作成'}
-                          >
-                            <PackagePlus className="w-3.5 h-3.5 shrink-0 text-sky-600" />
-                            <span>補充</span>
-                          </button>
-                        );
-                      })()}
-                    </td>
+                        })()}
+                      </td>
+                    )}
                   </tr>
                 ))}
 
                 {/* 集計行 */}
                 <tr className="bg-amber-100/60 font-bold border-t-2 border-slate-300 text-slate-800">
-                  <td colSpan={7} className="p-2 text-right border-r border-slate-300">
+                  <td colSpan={3 + (visibleColumns.directGoReturn ? 1 : 0) + (visibleColumns.district ? 1 : 0) + (visibleColumns.peopleCoworkers ? 2 : 0)} className="p-2 text-right border-r border-slate-300">
                     作業時間計 / 各種小計:
                   </td>
                   <td className="p-2 text-center border-r border-slate-300 font-extrabold text-amber-900">
                     {mainTableTotals.workHoursStr}
                   </td>
                   <td className="p-2 border-r border-slate-300"></td>
-                  <td className="p-2 text-center border-r border-slate-300 text-amber-950">
-                    {mainTableTotals.inspectionCount}台 / {mainTableTotals.inspectionValue}pt
-                  </td>
-                  <td className="p-2 text-center border-r border-slate-300 text-amber-950">
-                    ¥{mainTableTotals.oncallAmount.toLocaleString()} ({mainTableTotals.oncallValue}pt)
-                  </td>
-                  <td className="p-2 text-center border-r border-slate-300 text-amber-950">
-                    {mainTableTotals.replacementCount}台 / ¥{mainTableTotals.replacementAmount.toLocaleString()} ({mainTableTotals.replacementValue}pt)
-                  </td>
-                  <td className="p-2 text-center font-bold text-emerald-900 bg-emerald-100/70 border-l border-emerald-300">
-                    {mainTableTotals.buildingMaterialValue}
-                  </td>
-                  <td className="p-2 text-center bg-slate-100 border-l border-slate-300 text-slate-400 font-normal text-[11px]">-</td>
+                  {visibleColumns.inspection && (
+                    <td className="p-2 text-center border-r border-slate-300 text-amber-950">
+                      {mainTableTotals.inspectionCount}台 / {mainTableTotals.inspectionValue}pt
+                    </td>
+                  )}
+                  {visibleColumns.oncall && (
+                    <td className="p-2 text-center border-r border-slate-300 text-amber-950">
+                      ¥{mainTableTotals.oncallAmount.toLocaleString()} ({mainTableTotals.oncallValue}pt)
+                    </td>
+                  )}
+                  {visibleColumns.replacement && (
+                    <td className="p-2 text-center border-r border-slate-300 text-amber-950">
+                      {mainTableTotals.replacementCount}台 / ¥{mainTableTotals.replacementAmount.toLocaleString()} ({mainTableTotals.replacementValue}pt)
+                    </td>
+                  )}
+                  {visibleColumns.buildingMaterial && (
+                    <td className="p-2 text-center font-bold text-emerald-900 bg-emerald-100/70 border-l border-emerald-300">
+                      {mainTableTotals.buildingMaterialValue}
+                    </td>
+                  )}
+                  {visibleColumns.photoReportLink && (
+                    <td className="p-2 text-center bg-slate-100 border-l border-slate-300 text-slate-400 font-normal text-[11px]">-</td>
+                  )}
                 </tr>
               </tbody>
             </table>
@@ -1751,227 +1875,231 @@ export function MaintenanceDailyReportView({
         </div>
 
         {/* ---------------- 3. 事務（見積）作業報告（5行） ---------------- */}
-        <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-4 space-y-3">
-          <h2 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
-            <FileText className="w-4 h-4 text-indigo-600" />
-            事務（見積）作業報告 (1〜5)
-          </h2>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs text-left border-collapse min-w-[700px]">
-              <thead>
-                <tr className="bg-slate-100 border-b border-slate-200 font-bold text-slate-700">
-                  <th className="p-2 border-r border-slate-200 w-36">見積提出先</th>
-                  <th className="p-2 border-r border-slate-200">内容</th>
-                  <th className="p-2 border-r border-slate-200 w-28 text-right">金額(円)</th>
-                  <th className="p-2 border-r border-slate-200 w-28 text-center">決定予定月</th>
-                  <th className="p-2 border-r border-slate-200 w-20 text-center">時間(分)</th>
-                  <th className="p-2 w-36">備考</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200">
-                {officeWorkRows.map((row, idx) => (
-                  <tr key={row.id}>
-                    <td className="p-1 border-r border-slate-200">
-                      <input
-                        type="text"
-                        value={row.destination}
-                        onChange={e => {
-                          const next = [...officeWorkRows];
-                          next[idx].destination = e.target.value;
-                          setOfficeWorkRows(next);
-                        }}
-                        className="w-full px-2 py-1 border border-slate-200 rounded text-xs bg-white"
-                      />
-                    </td>
-                    <td className="p-1 border-r border-slate-200">
-                      <input
-                        type="text"
-                        value={row.content}
-                        onChange={e => {
-                          const next = [...officeWorkRows];
-                          next[idx].content = e.target.value;
-                          setOfficeWorkRows(next);
-                        }}
-                        className="w-full px-2 py-1 border border-slate-200 rounded text-xs bg-white"
-                      />
-                    </td>
-                    <td className="p-1 border-r border-slate-200">
-                      <input
-                        type="number"
-                        value={row.amount || ''}
-                        onChange={e => {
-                          const next = [...officeWorkRows];
-                          next[idx].amount = Number(e.target.value);
-                          setOfficeWorkRows(next);
-                        }}
-                        className="w-full px-2 py-1 border border-slate-200 rounded text-xs text-right bg-white"
-                      />
-                    </td>
-                    <td className="p-1 border-r border-slate-200">
-                      <input
-                        type="text"
-                        placeholder=""
-                        value={row.targetMonth}
-                        onChange={e => {
-                          const next = [...officeWorkRows];
-                          next[idx].targetMonth = e.target.value;
-                          setOfficeWorkRows(next);
-                        }}
-                        className="w-full px-2 py-1 border border-slate-200 rounded text-xs text-center bg-white"
-                      />
-                    </td>
-                    <td className="p-1 border-r border-slate-200">
-                      <input
-                        type="number"
-                        value={row.timeMinutes || ''}
-                        onChange={e => {
-                          const next = [...officeWorkRows];
-                          next[idx].timeMinutes = Number(e.target.value);
-                          setOfficeWorkRows(next);
-                        }}
-                        className="w-full px-2 py-1 border border-slate-200 rounded text-xs text-center bg-white"
-                      />
-                    </td>
-                    <td className="p-1">
-                      <input
-                        type="text"
-                        value={row.remarks}
-                        onChange={e => {
-                          const next = [...officeWorkRows];
-                          next[idx].remarks = e.target.value;
-                          setOfficeWorkRows(next);
-                        }}
-                        className="w-full px-2 py-1 border border-slate-200 rounded text-xs bg-white"
-                      />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* その他事務作業 */}
-          <div className="pt-2">
-            <label className="block text-xs font-bold text-slate-700 mb-1">その他事務作業:</label>
-            <textarea
-              rows={2}
-              value={otherOfficeWork}
-              onChange={e => setOtherOfficeWork(e.target.value)}
-              placeholder="事務処理、会議、電話対応など"
-              className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white"
-            />
-          </div>
-        </div>
-
-        {/* ---------------- 4. 下部工事・集計サマリー & 時間集計 (2カラム) ---------------- */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {/* 左側2カラム: 工事集計サマリー (Excel下部再現) */}
-          <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 p-4 shadow-xs space-y-3">
+        {visibleColumns.showOfficeWorkTable && (
+          <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-4 space-y-3">
             <h2 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-              工事・点検・オンコール・取替 集計サマリー
+              <FileText className="w-4 h-4 text-indigo-600" />
+              事務（見積）作業報告 (1〜5)
             </h2>
 
             <div className="overflow-x-auto">
-              <table className="w-full text-xs border-collapse">
+              <table className="w-full text-xs text-left border-collapse min-w-[700px]">
                 <thead>
-                  <tr className="bg-slate-100 border-b border-slate-300 font-bold text-slate-700">
-                    <th className="p-2 border-r border-slate-200">工事内容</th>
-                    <th className="p-2 border-r border-slate-200 text-center">台数</th>
-                    <th className="p-2 border-r border-slate-200 text-center">人数</th>
-                    <th className="p-2 border-r border-slate-200 text-center bg-[#E8F8F0] text-emerald-900 border-emerald-300">
-                      工事数値<br /><span className="text-[9px] font-normal text-emerald-700">※手入力</span>
-                    </th>
-                    <th className="p-2 border-r border-slate-200 text-center bg-[#FAF3E0]">点検台数/数値</th>
-                    <th className="p-2 border-r border-slate-200 text-center bg-[#FAF3E0]">オンコール件/金額/pt</th>
-                    <th className="p-2 border-r border-slate-200 text-center bg-[#FAF3E0]">取替台/金額/pt</th>
-                    <th className="p-2 border-r border-slate-200 text-center bg-[#E8F8F0] text-emerald-900 border-emerald-300">
-                      建材数値<br /><span className="text-[9px] font-normal text-emerald-700">※手入力</span>
-                    </th>
-                    <th className="p-2 border-r border-slate-200 text-center bg-[#E8F8F0] text-emerald-900 border-emerald-300">
-                      距離数値<br /><span className="text-[9px] font-normal text-emerald-700">※手入力</span>
-                    </th>
-                    <th className="p-2 text-center bg-[#FAF3E0] font-extrabold text-amber-950">
-                      当日数値合計
-                    </th>
+                  <tr className="bg-slate-100 border-b border-slate-200 font-bold text-slate-700">
+                    <th className="p-2 border-r border-slate-200 w-36">見積提出先</th>
+                    <th className="p-2 border-r border-slate-200">内容</th>
+                    <th className="p-2 border-r border-slate-200 w-28 text-right">金額(円)</th>
+                    <th className="p-2 border-r border-slate-200 w-28 text-center">決定予定月</th>
+                    <th className="p-2 border-r border-slate-200 w-20 text-center">時間(分)</th>
+                    <th className="p-2 w-36">備考</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-200 text-center font-bold">
-                  <tr>
-                    {/* 工事内容 */}
-                    <td className="p-2 border-r border-slate-200 text-left">
-                      <input
-                        type="text"
-                        value={constructionType}
-                        onChange={e => setConstructionType(e.target.value)}
-                        className="w-full px-1 py-0.5 border border-slate-200 rounded text-xs bg-white"
-                      />
-                    </td>
-                    {/* 台数 */}
-                    <td className="p-2 border-r border-slate-200">
-                      <input
-                        type="number"
-                        value={constructionCount}
-                        onChange={e => setConstructionCount(e.target.value === '' ? '' : Number(e.target.value))}
-                        className="w-12 px-1 py-0.5 border border-slate-200 rounded text-center bg-white"
-                      /> 台
-                    </td>
-                    {/* 人数 */}
-                    <td className="p-2 border-r border-slate-200">
-                      <input
-                        type="number"
-                        value={constructionPeople}
-                        onChange={e => setConstructionPeople(e.target.value === '' ? '' : Number(e.target.value))}
-                        className="w-12 px-1 py-0.5 border border-slate-200 rounded text-center bg-white"
-                      /> 人
-                    </td>
-                    {/* 工事数値 (緑色 ※手入力) */}
-                    <td className="p-2 border-r border-emerald-300 bg-[#E8F8F0]">
-                      <input
-                        type="number"
-                        value={constructionValue}
-                        onChange={e => setConstructionValue(e.target.value === '' ? '' : Number(e.target.value))}
-                        className="w-16 px-1 py-0.5 border border-emerald-400 rounded text-center font-extrabold text-emerald-950 bg-white"
-                      />
-                    </td>
-                    {/* 点検台数/数値 (肌色) */}
-                    <td className="p-2 border-r border-slate-200 bg-[#FAF3E0] text-amber-950">
-                      {mainTableTotals.inspectionCount}台 / {mainTableTotals.inspectionValue}pt
-                    </td>
-                    {/* オンコール件/金額/pt (肌色) */}
-                    <td className="p-2 border-r border-slate-200 bg-[#FAF3E0] text-amber-950">
-                      {mainTableTotals.oncallCount}件 / ¥{mainTableTotals.oncallAmount.toLocaleString()} ({mainTableTotals.oncallValue}pt)
-                    </td>
-                    {/* 取替台/金額/pt (肌色) */}
-                    <td className="p-2 border-r border-slate-200 bg-[#FAF3E0] text-amber-950">
-                      {mainTableTotals.replacementCount}台 / ¥{mainTableTotals.replacementAmount.toLocaleString()} ({mainTableTotals.replacementValue}pt)
-                    </td>
-                    {/* 建材数値 (緑色 ※手入力) */}
-                    <td className="p-2 border-r border-emerald-300 bg-[#E8F8F0] text-emerald-900">
-                      {mainTableTotals.buildingMaterialValue}
-                    </td>
-                    {/* 距離数値 (緑色 ※手入力) */}
-                    <td className="p-2 border-r border-emerald-300 bg-[#E8F8F0]">
-                      <input
-                        type="number"
-                        value={distanceValue}
-                        onChange={e => setDistanceValue(e.target.value === '' ? '' : Number(e.target.value))}
-                        className="w-16 px-1 py-0.5 border border-emerald-400 rounded text-center font-extrabold text-emerald-950 bg-white"
-                      />
-                    </td>
-                    {/* 当日数値合計 (肌色 自動計算) */}
-                    <td className="p-2 bg-[#FAF3E0] font-black text-amber-900 text-sm">
-                      {calculatedDailyTotalValue}
-                    </td>
-                  </tr>
+                <tbody className="divide-y divide-slate-200">
+                  {officeWorkRows.map((row, idx) => (
+                    <tr key={row.id}>
+                      <td className="p-1 border-r border-slate-200">
+                        <input
+                          type="text"
+                          value={row.destination}
+                          onChange={e => {
+                            const next = [...officeWorkRows];
+                            next[idx].destination = e.target.value;
+                            setOfficeWorkRows(next);
+                          }}
+                          className="w-full px-2 py-1 border border-slate-200 rounded text-xs bg-white"
+                        />
+                      </td>
+                      <td className="p-1 border-r border-slate-200">
+                        <input
+                          type="text"
+                          value={row.content}
+                          onChange={e => {
+                            const next = [...officeWorkRows];
+                            next[idx].content = e.target.value;
+                            setOfficeWorkRows(next);
+                          }}
+                          className="w-full px-2 py-1 border border-slate-200 rounded text-xs bg-white"
+                        />
+                      </td>
+                      <td className="p-1 border-r border-slate-200">
+                        <input
+                          type="number"
+                          value={row.amount || ''}
+                          onChange={e => {
+                            const next = [...officeWorkRows];
+                            next[idx].amount = Number(e.target.value);
+                            setOfficeWorkRows(next);
+                          }}
+                          className="w-full px-2 py-1 border border-slate-200 rounded text-xs text-right bg-white"
+                        />
+                      </td>
+                      <td className="p-1 border-r border-slate-200">
+                        <input
+                          type="text"
+                          placeholder=""
+                          value={row.targetMonth}
+                          onChange={e => {
+                            const next = [...officeWorkRows];
+                            next[idx].targetMonth = e.target.value;
+                            setOfficeWorkRows(next);
+                          }}
+                          className="w-full px-2 py-1 border border-slate-200 rounded text-xs text-center bg-white"
+                        />
+                      </td>
+                      <td className="p-1 border-r border-slate-200">
+                        <input
+                          type="number"
+                          value={row.timeMinutes || ''}
+                          onChange={e => {
+                            const next = [...officeWorkRows];
+                            next[idx].timeMinutes = Number(e.target.value);
+                            setOfficeWorkRows(next);
+                          }}
+                          className="w-full px-2 py-1 border border-slate-200 rounded text-xs text-center bg-white"
+                        />
+                      </td>
+                      <td className="p-1">
+                        <input
+                          type="text"
+                          value={row.remarks}
+                          onChange={e => {
+                            const next = [...officeWorkRows];
+                            next[idx].remarks = e.target.value;
+                            setOfficeWorkRows(next);
+                          }}
+                          className="w-full px-2 py-1 border border-slate-200 rounded text-xs bg-white"
+                        />
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
+
+            {/* その他事務作業 */}
+            <div className="pt-2">
+              <label className="block text-xs font-bold text-slate-700 mb-1">その他事務作業:</label>
+              <textarea
+                rows={2}
+                value={otherOfficeWork}
+                onChange={e => setOtherOfficeWork(e.target.value)}
+                placeholder="事務処理、会議、電話対応など"
+                className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white"
+              />
+            </div>
           </div>
+        )}
+
+        {/* ---------------- 4. 下部工事・集計サマリー & 時間集計 (2カラム) ---------------- */}
+        <div className={`grid grid-cols-1 ${visibleColumns.showConstructionSummary ? 'lg:grid-cols-3' : 'lg:grid-cols-1'} gap-4`}>
+          {/* 左側2カラム: 工事集計サマリー (Excel下部再現) */}
+          {visibleColumns.showConstructionSummary && (
+            <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 p-4 shadow-xs space-y-3">
+              <h2 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                工事・点検・オンコール・取替 集計サマリー
+              </h2>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-slate-100 border-b border-slate-300 font-bold text-slate-700">
+                      <th className="p-2 border-r border-slate-200">工事内容</th>
+                      <th className="p-2 border-r border-slate-200 text-center">台数</th>
+                      <th className="p-2 border-r border-slate-200 text-center">人数</th>
+                      <th className="p-2 border-r border-slate-200 text-center bg-[#E8F8F0] text-emerald-900 border-emerald-300">
+                        工事数値<br /><span className="text-[9px] font-normal text-emerald-700">※手入力</span>
+                      </th>
+                      <th className="p-2 border-r border-slate-200 text-center bg-[#FAF3E0]">点検台数/数値</th>
+                      <th className="p-2 border-r border-slate-200 text-center bg-[#FAF3E0]">オンコール件/金額/pt</th>
+                      <th className="p-2 border-r border-slate-200 text-center bg-[#FAF3E0]">取替台/金額/pt</th>
+                      <th className="p-2 border-r border-slate-200 text-center bg-[#E8F8F0] text-emerald-900 border-emerald-300">
+                        建材数値<br /><span className="text-[9px] font-normal text-emerald-700">※手入力</span>
+                      </th>
+                      <th className="p-2 border-r border-slate-200 text-center bg-[#E8F8F0] text-emerald-900 border-emerald-300">
+                        距離数値<br /><span className="text-[9px] font-normal text-emerald-700">※手入力</span>
+                      </th>
+                      <th className="p-2 text-center bg-[#FAF3E0] font-extrabold text-amber-950">
+                        当日数値合計
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 text-center font-bold">
+                    <tr>
+                      {/* 工事内容 */}
+                      <td className="p-2 border-r border-slate-200 text-left">
+                        <input
+                          type="text"
+                          value={constructionType}
+                          onChange={e => setConstructionType(e.target.value)}
+                          className="w-full px-1 py-0.5 border border-slate-200 rounded text-xs bg-white"
+                        />
+                      </td>
+                      {/* 台数 */}
+                      <td className="p-2 border-r border-slate-200">
+                        <input
+                          type="number"
+                          value={constructionCount}
+                          onChange={e => setConstructionCount(e.target.value === '' ? '' : Number(e.target.value))}
+                          className="w-12 px-1 py-0.5 border border-slate-200 rounded text-center bg-white"
+                        /> 台
+                      </td>
+                      {/* 人数 */}
+                      <td className="p-2 border-r border-slate-200">
+                        <input
+                          type="number"
+                          value={constructionPeople}
+                          onChange={e => setConstructionPeople(e.target.value === '' ? '' : Number(e.target.value))}
+                          className="w-12 px-1 py-0.5 border border-slate-200 rounded text-center bg-white"
+                        /> 人
+                      </td>
+                      {/* 工事数値 (緑色 ※手入力) */}
+                      <td className="p-2 border-r border-emerald-300 bg-[#E8F8F0]">
+                        <input
+                          type="number"
+                          value={constructionValue}
+                          onChange={e => setConstructionValue(e.target.value === '' ? '' : Number(e.target.value))}
+                          className="w-16 px-1 py-0.5 border border-emerald-400 rounded text-center font-extrabold text-emerald-950 bg-white"
+                        />
+                      </td>
+                      {/* 点検台数/数値 (肌色) */}
+                      <td className="p-2 border-r border-slate-200 bg-[#FAF3E0] text-amber-950">
+                        {mainTableTotals.inspectionCount}台 / {mainTableTotals.inspectionValue}pt
+                      </td>
+                      {/* オンコール件/金額/pt (肌色) */}
+                      <td className="p-2 border-r border-slate-200 bg-[#FAF3E0] text-amber-950">
+                        {mainTableTotals.oncallCount}件 / ¥{mainTableTotals.oncallAmount.toLocaleString()} ({mainTableTotals.oncallValue}pt)
+                      </td>
+                      {/* 取替台/金額/pt (肌色) */}
+                      <td className="p-2 border-r border-slate-200 bg-[#FAF3E0] text-amber-950">
+                        {mainTableTotals.replacementCount}台 / ¥{mainTableTotals.replacementAmount.toLocaleString()} ({mainTableTotals.replacementValue}pt)
+                      </td>
+                      {/* 建材数値 (緑色 ※手入力) */}
+                      <td className="p-2 border-r border-emerald-300 bg-[#E8F8F0] text-emerald-900">
+                        {mainTableTotals.buildingMaterialValue}
+                      </td>
+                      {/* 距離数値 (緑色 ※手入力) */}
+                      <td className="p-2 border-r border-emerald-300 bg-[#E8F8F0]">
+                        <input
+                          type="number"
+                          value={distanceValue}
+                          onChange={e => setDistanceValue(e.target.value === '' ? '' : Number(e.target.value))}
+                          className="w-16 px-1 py-0.5 border border-emerald-400 rounded text-center font-extrabold text-emerald-950 bg-white"
+                        />
+                      </td>
+                      {/* 当日数値合計 (肌色 自動計算) */}
+                      <td className="p-2 bg-[#FAF3E0] font-black text-amber-900 text-sm">
+                        {calculatedDailyTotalValue}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           {/* 右側1カラム: 時間集計 & 当月累計数値 & 承認印欄 */}
-          <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs space-y-4 flex flex-col justify-between">
+          <div className={`${visibleColumns.showConstructionSummary ? '' : 'max-w-xl mx-auto w-full'} bg-white rounded-xl border border-slate-200 p-4 shadow-xs space-y-4 flex flex-col justify-between`}>
             <div>
               <h2 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-2 flex items-center gap-2">
                 <Clock className="w-4 h-4 text-indigo-600" />

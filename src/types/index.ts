@@ -609,6 +609,52 @@ export interface MaintenanceDailyReportData {
   monthlyTotalValue?: number;   // 当月数値合計 (自動計算/累計)
 }
 
+// 保守日報 拠点別カスタム様式（列の表示/非表示・様式A）
+export interface MaintenanceReportVisibleColumns {
+  directGoReturn: boolean;          // 直行・直帰
+  district: boolean;                // 地区
+  peopleCoworkers: boolean;         // 人数・同行者
+  inspection: boolean;              // 点検台数/数値
+  oncall: boolean;                  // オンコール金額/数値
+  replacement: boolean;             // 取替台数/金額/数値
+  buildingMaterial: boolean;        // 建材数値
+  photoReportLink: boolean;         // 業務アルバム写真リンク
+  showOfficeWorkTable: boolean;     // 事務作業表
+  showConstructionSummary: boolean; // 工事サマリー
+}
+
+// 保守日報 拠点別ポイント・金額初期設定
+export interface MaintenanceReportPointSettings {
+  inspectionPointPerUnit: number;   // 点検1台あたりポイント (例: 120)
+  replacementEgPoint: number;       // EG取替ポイント (例: 480)
+  replacementEgAmount: number;      // EG取替標準金額 (例: 291500)
+  replacementSinglePoint: number;   // 単体取替ポイント (例: 240)
+  replacementSingleAmount: number;  // 単体取替標準金額 (例: 150000)
+  oncallPoint: number;              // オンコール/修理ポイント (例: 115)
+  oncallAmount: number;             // オンコール/修理標準金額 (例: 34500)
+}
+
+// 保守日報 スケジュール情報転記マッピング設定
+export interface MaintenanceReportScheduleMapping {
+  siteNameSource: 'title' | 'location' | 'location_then_title';        // 現場名の転記元
+  workDescriptionSource: 'memo' | 'type' | 'memo_then_type' | 'title'; // 作業内容の転記元
+  districtSource: 'tag' | 'location' | 'default_office' | 'none';      // 地区の転記元
+  autoImportAttendees: boolean;     // 参加者から人数・同行者を自動取得するか
+  autoDetectDirectGoReturn: boolean; // メモ等から直行・直帰を自動判定するか
+}
+
+// 保守日報 拠点別設定マスター
+export interface MaintenanceReportOfficeConfig {
+  id: string;                       // 例: 'cfg-office-名古屋'
+  officeName: string;               // 拠点名 (例: '名古屋')
+  visibleColumns: MaintenanceReportVisibleColumns;
+  pointSettings: MaintenanceReportPointSettings;
+  scheduleMapping: MaintenanceReportScheduleMapping;
+  defaultBreakHours: string;        // デフォルト休憩時間 (例: '1:00')
+  defaultOvertimeHours?: string;    // デフォルト残業時間 (例: '')
+  updatedAt?: string;
+}
+
 export interface DailyReport {
   id: string;
   author: User;

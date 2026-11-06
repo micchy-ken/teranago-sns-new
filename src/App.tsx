@@ -3593,6 +3593,7 @@ export default function App() {
               onUpdateApplication={handleUpdateApplication}
               approvalFlows={approvalFlows}
               itemMasters={itemMasters}
+              offices={offices}
             />
           )}
           {activeTab === 'files' && (

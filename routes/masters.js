@@ -1,7 +1,38 @@
 import { Router } from 'express';
 import sql from 'mssql';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { getPool } from '../db.js';
 import { safeParseJSON } from '../config.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const DATA_DIR = path.resolve(__dirname, '../data');
+const MAINTENANCE_CONFIGS_FILE = path.join(DATA_DIR, 'maintenance_office_configs.json');
+
+function loadLocalMaintenanceConfigs() {
+  try {
+    if (fs.existsSync(MAINTENANCE_CONFIGS_FILE)) {
+      const raw = fs.readFileSync(MAINTENANCE_CONFIGS_FILE, 'utf8');
+      return JSON.parse(raw);
+    }
+  } catch (e) {
+    console.error('Failed to load maintenance_office_configs.json:', e);
+  }
+  return [];
+}
+
+function saveLocalMaintenanceConfigs(configsList) {
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    fs.writeFileSync(MAINTENANCE_CONFIGS_FILE, JSON.stringify(configsList, null, 2), 'utf8');
+  } catch (e) {
+    console.error('Failed to save maintenance_office_configs.json:', e);
+  }
+}
 
 const router = Router();
 
@@ -165,5 +196,95 @@ Object.entries(configs).forEach(([key, cfg]) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
   });
 });
+
+// 保守日報 拠点別カスタム様式・設定 (Maintenance Daily Report Office Configurations)
+const maintConfigPaths = ['/masters/maintenance-configs', '/maintenance-configs'];
+const maintConfigIdPaths = ['/masters/maintenance-configs/:officeName', '/maintenance-configs/:officeName'];
+
+router.get(maintConfigPaths, async (req, res) => {
+  try {
+    const pool = await getPool();
+    if (pool) {
+      try {
+        const queryRes = await pool.request()
+          .input('key', sql.NVarChar(100), 'maintenance_office_configs')
+          .query(`SELECT settingValue FROM dbo.SystemSettings WHERE settingKey = @key`);
+        if (queryRes.recordset && queryRes.recordset.length > 0) {
+          const val = safeParseJSON(queryRes.recordset[0].settingValue, null);
+          if (Array.isArray(val)) {
+            return res.json(val);
+          }
+        }
+      } catch (_) {}
+    }
+    const local = loadLocalMaintenanceConfigs();
+    return res.json(local);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+const saveMaintConfigHandler = async (req, res) => {
+  try {
+    const body = req.body;
+    let list = loadLocalMaintenanceConfigs();
+    if (!Array.isArray(list)) list = [];
+
+    if (Array.isArray(body)) {
+      list = body;
+    } else if (body && (body.officeName || body.id)) {
+      const officeName = body.officeName || req.params.officeName || body.id;
+      const index = list.findIndex(c => c.officeName === officeName || c.id === body.id);
+      const newConfig = {
+        ...body,
+        officeName,
+        id: body.id || `cfg-office-${officeName}`,
+        updatedAt: new Date().toISOString()
+      };
+      if (index >= 0) {
+        list[index] = newConfig;
+      } else {
+        list.push(newConfig);
+      }
+    }
+
+    saveLocalMaintenanceConfigs(list);
+
+    // SQL Server dbo.SystemSettings にも非同期・耐障害保存
+    try {
+      const pool = await getPool();
+      if (pool) {
+        await pool.request().query(`
+          IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'SystemSettings' AND schema_id = SCHEMA_ID('dbo'))
+          BEGIN
+            CREATE TABLE dbo.SystemSettings (
+              settingKey NVARCHAR(100) PRIMARY KEY,
+              settingValue NVARCHAR(MAX) NOT NULL,
+              updatedAt DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+            );
+          END
+        `);
+        await pool.request()
+          .input('key', sql.NVarChar(100), 'maintenance_office_configs')
+          .input('value', sql.NVarChar(sql.MAX), JSON.stringify(list))
+          .query(`
+            MERGE dbo.SystemSettings AS target
+            USING (SELECT @key AS settingKey) AS source
+            ON (target.settingKey = source.settingKey)
+            WHEN MATCHED THEN UPDATE SET settingValue = @value, updatedAt = SYSUTCDATETIME()
+            WHEN NOT MATCHED THEN INSERT (settingKey, settingValue, updatedAt) VALUES (@key, @value, SYSUTCDATETIME());
+          `);
+      }
+    } catch (_) {}
+
+    res.json({ success: true, configs: list });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+router.post(maintConfigPaths, saveMaintConfigHandler);
+router.put(maintConfigPaths, saveMaintConfigHandler);
+router.put(maintConfigIdPaths, saveMaintConfigHandler);
 
 export default router;

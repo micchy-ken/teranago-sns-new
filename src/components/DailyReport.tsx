@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { DailyReport, User, WorkReportStatus, CalendarEvent } from '../types';
+import { DailyReport, User, WorkReportStatus, CalendarEvent, OfficeMaster } from '../types';
 import { 
   FileText, 
   Plus, 
@@ -45,6 +45,7 @@ interface DailyReportProps {
   currentUser: User;
   allUsers?: User[];
   divisions?: { id: string; name: string }[];
+  offices?: OfficeMaster[];
   refetchReports?: () => Promise<void> | void;
   initialReportId?: string;
   applications?: any[];
@@ -103,6 +104,7 @@ export function DailyReportView({
   currentUser,
   allUsers = [],
   divisions = [],
+  offices = [],
   initialReportId,
   applications = [],
   onAddApplication,
@@ -425,6 +427,7 @@ export function DailyReportView({
         onUpdateApplication={onUpdateApplication}
         approvalFlows={approvalFlows}
         itemMasters={itemMasters}
+        offices={offices}
         onSaveReport={async (reportData) => {
           const targetId = reportData.id || activeMaintenanceReport?.id;
           if (targetId && onUpdateReport) {

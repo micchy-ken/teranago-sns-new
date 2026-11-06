@@ -1,17 +1,16 @@
 /**
  * Synology NAS (Docker / Node.js) 用 推奨サーバーコード
  * 
- * 最終更新日時 (最終アップデート): 2026年11月5日 (クイズID・メッセージID双方自動解決＆ルーティングパス全網羅版)
+ * 最終更新日時 (最終アップデート): 2026年11月6日 (保守日報 拠点別カスタム様式・ポイント設定・スケジュール転記マッピングAPI対応版)
  * 
  * 概要:
  * 本コードは TERANAGO 社内SNS のバックエンドAPIサーバー (Express + MS SQL Server / JSONファイルDB) の完全版です。
  * 
  * [最新の主な変更・新機能]
- * 1. チャット内クイズ・アンケート出題＆回答API (/api/chats/quizzes, /api/chat-quizzes) 追加
- * 2. クイズ取得・回答時に quizId と messageId (m_quiz_...) のどちらでも自動マッチングする多重フォールバック対応
- * 3. ルーティングマウント階層 (/api/chats/quizzes, /api) の全網羅対応
- * 4. チャットタイムライン (dbo.ChatMessages / dbo.ChatRooms) へのクイズメッセージ完全永続化
- * 5. クイズカードUI用二重回答防止＆未回答者向けカンニング防止マスキング対応
+ * 1. 保守日報の拠点別カスタム様式・ポイント設定・スケジュール転記マッピングAPI (/api/masters/maintenance-configs) の追加
+ * 2. 拠点ごとの表示列ON/OFF（様式A）、台数あたりpt数、スケジュール情報マッピングの完全永続化 (dbo.SystemSettings & JSON)
+ * 3. チャット引用返信（Quote Reply）対応
+ * 4. チャット内クイズ・アンケート出題＆回答API (/api/chats/quizzes, /api/chat-quizzes)
  */
 
 export const RECOMMEND_SERVER_JS = `import express from 'express';
@@ -6892,6 +6891,7 @@ async function startServer() {
   const positionsFilePath = path.join(dataDir, 'positions.json');
   const itemMastersFilePath = path.join(dataDir, 'item-masters.json');
   const approvalFlowsFilePath = path.join(dataDir, 'approval-flows.json');
+  const maintenanceConfigsFilePath = path.join(dataDir, 'maintenance_office_configs.json');
 
   const defaultOffices = [
     { id: 'off-1', name: '本社', type: 'headquarters', code: 'HQ', location: '愛知県名古屋市', phone: '052-000-0000' },
@@ -6987,6 +6987,38 @@ async function startServer() {
     saveJsonMaster(officesFilePath, list);
     res.json({ success: true, id });
   });
+
+  // 保守日報 拠点別カスタム様式・設定 (Maintenance Daily Report Office Configurations)
+  app.get(['/api/masters/maintenance-configs', '/api/masters/maintenance-configs/', '/api/maintenance-configs', '/api/maintenance-configs/'], (req, res) => {
+    res.json(loadJsonMaster(maintenanceConfigsFilePath, []));
+  });
+
+  const saveMaintenanceConfigHandler = (req: any, res: any) => {
+    let list = loadJsonMaster(maintenanceConfigsFilePath, []);
+    const body = req.body || {};
+    if (Array.isArray(body)) {
+      list = body;
+    } else if (body && (body.officeName || body.id)) {
+      const officeName = body.officeName || req.params.officeName || body.id;
+      const index = list.findIndex((c: any) => c.officeName === officeName || c.id === body.id);
+      const newConfig = {
+        ...body,
+        officeName,
+        id: body.id || \`cfg-office-\${officeName}\`,
+        updatedAt: new Date().toISOString()
+      };
+      if (index >= 0) {
+        list[index] = newConfig;
+      } else {
+        list.push(newConfig);
+      }
+    }
+    saveJsonMaster(maintenanceConfigsFilePath, list);
+    res.json({ success: true, configs: list });
+  };
+
+  app.post(['/api/masters/maintenance-configs', '/api/masters/maintenance-configs/', '/api/maintenance-configs', '/api/maintenance-configs/'], saveMaintenanceConfigHandler);
+  app.put(['/api/masters/maintenance-configs', '/api/masters/maintenance-configs/', '/api/maintenance-configs', '/api/maintenance-configs/', '/api/masters/maintenance-configs/:officeName', '/api/maintenance-configs/:officeName/'], saveMaintenanceConfigHandler);
 
   // 部署マスター (Divisions)
   app.get(['/api/masters/divisions', '/api/masters/divisions/', '/api/divisions', '/api/divisions/'], (req, res) => {

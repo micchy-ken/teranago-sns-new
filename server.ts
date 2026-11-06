@@ -6876,6 +6876,7 @@ async function startServer() {
   const positionsFilePath = path.join(dataDir, 'positions.json');
   const itemMastersFilePath = path.join(dataDir, 'item-masters.json');
   const approvalFlowsFilePath = path.join(dataDir, 'approval-flows.json');
+  const maintenanceConfigsFilePath = path.join(dataDir, 'maintenance_office_configs.json');
 
   const defaultOffices = [
     { id: 'off-1', name: '本社', type: 'headquarters', code: 'HQ', location: '愛知県名古屋市', phone: '052-000-0000' },
@@ -6971,6 +6972,38 @@ async function startServer() {
     saveJsonMaster(officesFilePath, list);
     res.json({ success: true, id });
   });
+
+  // 保守日報 拠点別カスタム様式・設定 (Maintenance Daily Report Office Configurations)
+  app.get(['/api/masters/maintenance-configs', '/api/masters/maintenance-configs/', '/api/maintenance-configs', '/api/maintenance-configs/'], (req, res) => {
+    res.json(loadJsonMaster(maintenanceConfigsFilePath, []));
+  });
+
+  const saveMaintenanceConfigHandler = (req: any, res: any) => {
+    let list = loadJsonMaster(maintenanceConfigsFilePath, []);
+    const body = req.body || {};
+    if (Array.isArray(body)) {
+      list = body;
+    } else if (body && (body.officeName || body.id)) {
+      const officeName = body.officeName || req.params.officeName || body.id;
+      const index = list.findIndex((c: any) => c.officeName === officeName || c.id === body.id);
+      const newConfig = {
+        ...body,
+        officeName,
+        id: body.id || `cfg-office-${officeName}`,
+        updatedAt: new Date().toISOString()
+      };
+      if (index >= 0) {
+        list[index] = newConfig;
+      } else {
+        list.push(newConfig);
+      }
+    }
+    saveJsonMaster(maintenanceConfigsFilePath, list);
+    res.json({ success: true, configs: list });
+  };
+
+  app.post(['/api/masters/maintenance-configs', '/api/masters/maintenance-configs/', '/api/maintenance-configs', '/api/maintenance-configs/'], saveMaintenanceConfigHandler);
+  app.put(['/api/masters/maintenance-configs', '/api/masters/maintenance-configs/', '/api/maintenance-configs', '/api/maintenance-configs/', '/api/masters/maintenance-configs/:officeName', '/api/maintenance-configs/:officeName/'], saveMaintenanceConfigHandler);
 
   // 部署マスター (Divisions)
   app.get(['/api/masters/divisions', '/api/masters/divisions/', '/api/divisions', '/api/divisions/'], (req, res) => {

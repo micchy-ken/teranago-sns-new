@@ -3,9 +3,11 @@ import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { RECOMMEND_SERVER_JS, SERVER_CODE_HISTORY } from './RecommendServerCode';
 import { getAvatarUrl, handleAvatarError, SILHOUETTE_SVG, optimizeAvatarFile } from '../utils/avatar';
 import { API_BASE_URL } from '../config/api';
+import { MaintenanceOfficeConfigAdmin } from './admin/MaintenanceOfficeConfigAdmin';
 import { 
   Shield, 
   Building2, 
+  Sliders,
   MapPin, 
   Phone, 
   User as UserIcon, 
@@ -134,7 +136,7 @@ export function AdminPanel({
   onUpdateItemMaster,
   onDeleteItemMaster,
 }: AdminPanelProps) {
-  const [activeSubTab, setActiveSubTab] = useState<'users' | 'offices' | 'divisions' | 'positions' | 'items' | 'approval_flows' | 'stamps' | 'logs' | 'system' | 'workflows_cleanup'>('users');
+  const [activeSubTab, setActiveSubTab] = useState<'users' | 'offices' | 'maintenance_report' | 'divisions' | 'positions' | 'items' | 'approval_flows' | 'stamps' | 'logs' | 'system' | 'workflows_cleanup'>('users');
   const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedOfficeFilter, setSelectedOfficeFilter] = useState<string>('all');
@@ -1911,6 +1913,17 @@ export function AdminPanel({
             拠点マスター
           </button>
           <button
+            onClick={() => setActiveSubTab('maintenance_report')}
+            className={`px-3.5 py-2 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer ${
+              activeSubTab === 'maintenance_report'
+                ? 'bg-amber-600 text-white shadow-sm'
+                : 'text-slate-600 hover:text-amber-800 hover:bg-amber-50'
+            }`}
+          >
+            <Sliders className="w-3.5 h-3.5" />
+            保守日報様式（拠点別）
+          </button>
+          <button
             onClick={() => setActiveSubTab('divisions')}
             className={`px-3.5 py-2 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer ${
               activeSubTab === 'divisions'
@@ -2874,6 +2887,11 @@ export function AdminPanel({
             </div>
           </div>
         </div>
+      )}
+
+      {/* SUB TAB: MAINTENANCE REPORT OFFICE CONFIGS */}
+      {activeSubTab === 'maintenance_report' && (
+        <MaintenanceOfficeConfigAdmin offices={offices} />
       )}
 
       {/* SUB TAB 3: DIVISION MASTERS */}
