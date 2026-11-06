@@ -15,12 +15,12 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.11.06.7',
+  version: '2026.11.06.9',
   date: '2026-11-06',
-  releaseNumber: 7,
-  display: 'v2026.11.06 #7 (JST)',
+  releaseNumber: 9,
+  display: 'v2026.11.06 #9 (JST)',
   timeZone: '日本標準時 (JST / UTC+09:00)',
-  description: 'コマンド案内モーダルに「サンプル入力」ボタン追加、サイコロ・ランダム抽選カードへのタイトル表示',
+  description: 'チャット引用返信機能の実装（方式A: フロントエンド完結・引用カード表示・元メッセージジャンプスクロール＆ハイライト対応）',
 };
 
 /**

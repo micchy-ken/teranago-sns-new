@@ -43,7 +43,8 @@ import {
   Glasses,
   FileText,
   Share2,
-  AtSign
+  AtSign,
+  CornerUpLeft
 } from 'lucide-react';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { uploadMultipleFiles, uploadFile, isPreviewable } from '../utils/fileUpload';
@@ -58,6 +59,8 @@ import { ChatQuizModal } from './chat/ChatQuizModal';
 import { ChatQuizCard } from './chat/ChatQuizCard';
 import { ChatCommandHelpModal } from './chat/ChatCommandHelpModal';
 import { ChatCommandMessageCard, parseChatCommand } from './chat/ChatCommandMessageCard';
+import { parseMessageQuote, extractQuoteSnippet } from './chat/chatQuoteUtils';
+import { ChatQuoteCard } from './chat/ChatQuoteCard';
 
 interface ChatProps {
   rooms: ChatRoom[];
@@ -187,6 +190,7 @@ interface ChatMessageItemProps {
   isBossMode?: boolean;
   isRecent?: boolean;
   onDeleteMessage: (id: string) => void;
+  onReplyMessage?: (msg: ChatMessage) => void;
   onOpenViewers: (msg: ChatMessage) => void;
   onOpenPreview: (att: AttachmentFile) => void;
   onOpenLightbox: (images: string | string[], initialIndex?: number) => void;
@@ -312,12 +316,14 @@ const ChatMessageItem = React.memo(function ChatMessageItem({
   isBossMode,
   isRecent,
   onDeleteMessage,
+  onReplyMessage,
   onOpenViewers,
   onOpenPreview,
   onOpenLightbox,
   onDownloadAttachment
 }: ChatMessageItemProps) {
-  const commandData = useMemo(() => parseChatCommand(msg.content), [msg.content]);
+  const { quote, actualContent } = useMemo(() => parseMessageQuote(msg.content), [msg.content]);
+  const commandData = useMemo(() => parseChatCommand(actualContent), [actualContent]);
 
   if (isSystem) {
     return (
@@ -369,7 +375,7 @@ const ChatMessageItem = React.memo(function ChatMessageItem({
       msg.id.startsWith('temp_'));
 
   return (
-    <div className="flex flex-col">
+    <div id={`chat-msg-${msg.id}`} className="flex flex-col transition-colors rounded-2xl">
       {isDifferentDate && (
         <div className="flex justify-center my-3 sm:my-4 select-none">
           <span className="px-3 py-1 bg-slate-200/90 text-slate-600 text-[11px] font-bold rounded-full shadow-2xs border border-slate-300/50">
@@ -565,6 +571,7 @@ const ChatMessageItem = React.memo(function ChatMessageItem({
               />
             ) : commandData ? (
               <div className="flex flex-col gap-1.5 items-stretch">
+                {quote && <ChatQuoteCard quote={quote} isMine={isMine} />}
                 <ChatCommandMessageCard
                   msg={msg}
                   command={commandData.command}
@@ -619,6 +626,7 @@ const ChatMessageItem = React.memo(function ChatMessageItem({
             ) : (
               // LINE風フキダシ
               <div className="flex flex-col gap-1.5 items-stretch">
+                {quote && <ChatQuoteCard quote={quote} isMine={isMine} />}
                 <div
                   className={`px-3.5 py-2 sm:px-4 sm:py-2.5 rounded-2xl text-xs sm:text-sm leading-relaxed whitespace-pre-wrap break-words shadow-2xs relative ${
                     isMine
@@ -626,7 +634,7 @@ const ChatMessageItem = React.memo(function ChatMessageItem({
                       : 'bg-white text-slate-800 rounded-tl-xs border border-slate-200'
                   }`}
                 >
-                  {renderContentWithLinks(msg.content)}
+                  {renderContentWithLinks(actualContent)}
                 </div>
                 
                 {/* チャット添付ファイルリスト */}
@@ -728,16 +736,26 @@ const ChatMessageItem = React.memo(function ChatMessageItem({
               <span>
                 {formatChatTimestamp(msg.createdAt, false)}
               </span>
-              {isMine && (
+              <div className="flex items-center gap-1 mt-1">
                 <button
                   type="button"
-                  onClick={() => onDeleteMessage(msg.id)}
-                  className="text-slate-400 hover:text-rose-500 transition-colors mt-1 cursor-pointer flex items-center gap-0.5"
-                  title="メッセージを削除"
+                  onClick={() => onReplyMessage?.(msg)}
+                  className="text-slate-400 hover:text-indigo-600 transition-colors cursor-pointer p-0.5 rounded hover:bg-slate-100"
+                  title="引用して返信"
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
+                  <CornerUpLeft className="w-3.5 h-3.5" />
                 </button>
-              )}
+                {isMine && (
+                  <button
+                    type="button"
+                    onClick={() => onDeleteMessage(msg.id)}
+                    className="text-slate-400 hover:text-rose-500 transition-colors cursor-pointer p-0.5 rounded hover:bg-slate-100"
+                    title="メッセージを削除"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -1145,6 +1163,28 @@ export function Chat({
   const chatTextareaRef = useRef<HTMLTextAreaElement>(null);
   const [messageText, setMessageText] = useState('');
   const chatPasteHandler = useUrlPasteHandler(messageText, setMessageText, chatTextareaRef);
+
+  // 引用返信（Quote Reply）状態
+  const [replyingToMessage, setReplyingToMessage] = useState<{ id: string; senderName: string; text: string } | null>(null);
+
+  const handleReplyMessage = useCallback((msg: ChatMessage) => {
+    const senderName = msg.sender?.name || 'メンバー';
+    const snippet = extractQuoteSnippet(msg);
+    setReplyingToMessage({
+      id: msg.id,
+      senderName,
+      text: snippet
+    });
+    setTimeout(() => {
+      chatTextareaRef.current?.focus();
+    }, 50);
+  }, []);
+
+  // ルーム切替時に引用状態をクリア
+  useEffect(() => {
+    setReplyingToMessage(null);
+  }, [activeRoomId]);
+
   const [roomFilter, setRoomFilter] = useState<'all' | 'group' | 'dm'>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -1463,10 +1503,18 @@ export function Chat({
       return;
     }
 
+    const rawContent = isTextEmpty ? 'ファイルを送信しました' : (messageText || '').trim();
+    let finalContent = rawContent;
+
+    if (replyingToMessage) {
+      finalContent = `[quote id="${replyingToMessage.id}" name="${replyingToMessage.senderName}"]${replyingToMessage.text}[/quote]\n${rawContent}`;
+      setReplyingToMessage(null);
+    }
+
     const newMessage: ChatMessage = {
       id: `m_${Date.now()}`,
       sender: currentUser,
-      content: isTextEmpty ? 'ファイルを送信しました' : (messageText || '').trim(),
+      content: finalContent,
       createdAt: new Date().toISOString(),
       type: chatAttachments.length > 0 ? 'file' : 'text',
       attachments: chatAttachments
@@ -1481,8 +1529,15 @@ export function Chat({
     }
   };
 
-  // キーボード操作：Shift+Enterで改行、Enter単体で送信（日本語IME確定時は送信しない）
+  // キーボード操作：Shift+Enterで改行、Enter単体で送信、Escapeで引用キャンセル
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Escape') {
+      if (replyingToMessage) {
+        e.preventDefault();
+        setReplyingToMessage(null);
+        return;
+      }
+    }
     if (e.key === 'Enter') {
       // 日本語変換（IME確定）の Enter では送信しない
       if (isComposing || e.nativeEvent.isComposing) {
@@ -2537,6 +2592,7 @@ export function Chat({
                       onOpenPreview={handleOpenPreviewFile}
                       onOpenLightbox={handleOpenLightboxImage}
                       onDownloadAttachment={handleDownloadAttachment}
+                      onReplyMessage={handleReplyMessage}
                     />
                   );
                 });
@@ -2962,6 +3018,33 @@ export function Chat({
               <div className="flex items-center gap-1.5 text-xs text-slate-500 font-semibold p-1 mb-2">
                 <Loader2 className="w-3.5 h-3.5 text-indigo-500 animate-spin" />
                 <span>ファイルアップロード中...</span>
+              </div>
+            )}
+
+            {/* 引用返信プレビューバー */}
+            {replyingToMessage && (
+              <div className="mb-2 p-2 sm:p-2.5 bg-indigo-50/90 border border-indigo-200/80 rounded-xl flex items-center justify-between gap-2 text-xs shadow-2xs animate-in fade-in slide-in-from-bottom-1 duration-150">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="w-6 h-6 rounded-lg bg-indigo-100 flex items-center justify-center shrink-0 text-indigo-600">
+                    <CornerUpLeft className="w-3.5 h-3.5" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="font-bold text-indigo-900 truncate flex items-center gap-1.5">
+                      <span>{replyingToMessage.senderName} への返信</span>
+                    </div>
+                    <div className="text-[11px] text-indigo-700/80 truncate max-w-md">
+                      {replyingToMessage.text}
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setReplyingToMessage(null)}
+                  className="p-1 rounded-md text-indigo-400 hover:text-indigo-700 hover:bg-indigo-100 transition-colors shrink-0 cursor-pointer"
+                  title="返信をキャンセル (Esc)"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
             )}
 
