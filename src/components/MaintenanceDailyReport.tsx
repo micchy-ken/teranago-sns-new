@@ -40,7 +40,10 @@ import {
   PackageCheck,
   PackagePlus,
   Package,
-  Sliders
+  Sliders,
+  GripVertical,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
 import { getAvatarUrl } from '../utils/avatar';
 import { getLocalDateStr } from '../utils/dateUtils';
@@ -110,6 +113,42 @@ function getDayOfWeekJa(dateStr: string): string {
   const d = new Date(dateStr);
   const days = ['日', '月', '火', '水', '木', '金', '土'];
   return days[d.getDay()] || '';
+}
+
+// スケジュール種別・区分の日本語変換ヘルパー（英語表記 repair 等を「修理」「点検」等に変換）
+function formatEventTypeJa(typeInput?: string): string {
+  if (!typeInput) return '保守作業';
+  const t = typeInput.trim().toLowerCase();
+  if (t === 'repair' || t === '修理') return '修理';
+  if (t === 'inspection' || t === '点検') return '点検';
+  if (t === 'replacement' || t === '取替' || t === 'eg取替' || t === '単体取替') return '取替';
+  if (t === 'oncall' || t === 'オンコール') return 'オンコール';
+  if (t === 'maintenance') return '定期点検';
+  if (t === 'site_work') return '現場作業';
+  if (t === 'meeting') return '会議・打ち合わせ';
+  if (t === 'construction') return '工事';
+  if (t === 'personal') return '個人予定';
+  if (t === 'business_trip') return '出張';
+  if (t === 'visitor') return '来客対応';
+  return typeInput;
+}
+
+// スケジュール区分「修理・点検・取替」判定ヘルパー
+function getNormalizedScheduleCategory(ev: CalendarEvent): '点検' | '取替' | '修理' | null {
+  const typeStr = String(ev.type || '').trim().toLowerCase();
+  const titleAndMemo = `${ev.title || ''} ${ev.memo || ''} ${ev.location || ''}`;
+
+  // 1. ev.type による種別判定
+  if (typeStr === 'inspection' || typeStr === '点検') return '点検';
+  if (typeStr === 'replacement' || typeStr === '取替' || typeStr === 'eg取替' || typeStr === '単体取替') return '取替';
+  if (typeStr === 'repair' || typeStr === '修理' || typeStr === 'oncall' || typeStr === 'オンコール') return '修理';
+
+  // 2. タイトル・メモ内の明示的な区分表記チェック
+  if (titleAndMemo.includes('点検')) return '点検';
+  if (titleAndMemo.includes('取替') || titleAndMemo.includes('EG') || titleAndMemo.includes('単体')) return '取替';
+  if (titleAndMemo.includes('修理') || titleAndMemo.includes('オンコール')) return '修理';
+
+  return null;
 }
 
 // 時間差分計算ヘルパー (HH:MM 〜 HH:MM => "H:MM")
@@ -592,6 +631,100 @@ export function MaintenanceDailyReportView({
     return allUsers.filter(u => u.id !== currentUser.id);
   }, [allUsers, currentUser.id]);
 
+  // ---------------- D&D (ドラッグ＆ドロップ) および 行移動・行削除・行追加 ----------------
+  const [draggedMainIndex, setDraggedMainIndex] = useState<number | null>(null);
+  const [dragOverMainIndex, setDragOverMainIndex] = useState<number | null>(null);
+
+  const moveMainRow = (fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0 || fromIndex >= mainWorkRows.length || toIndex >= mainWorkRows.length) return;
+    setMainWorkRows(prev => {
+      const next = [...prev];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      return next;
+    });
+  };
+
+  const deleteMainRow = (index: number) => {
+    setMainWorkRows(prev => {
+      if (prev.length <= 1) {
+        return createEmptyMainRows().slice(0, 1);
+      }
+      return prev.filter((_, i) => i !== index);
+    });
+  };
+
+  const addMainRow = (afterIndex?: number) => {
+    setMainWorkRows(prev => {
+      const newRow: MaintenanceWorkRow = {
+        id: `row-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        directGo: false,
+        directReturn: false,
+        siteName: '',
+        workDescription: '',
+        district: '',
+        peopleCount: 1,
+        coworkers: '',
+        startTime: '',
+        endTime: '',
+        contentType: '',
+        inspectionCount: 0,
+        inspectionValue: 0,
+        oncallAmount: 0,
+        oncallValue: 0,
+        replacementCount: 0,
+        replacementAmount: 0,
+        replacementValue: 0,
+        buildingMaterialValue: 0,
+        workHours: '0:00',
+      };
+      if (afterIndex !== undefined && afterIndex >= 0) {
+        const next = [...prev];
+        next.splice(afterIndex + 1, 0, newRow);
+        return next;
+      }
+      return [...prev, newRow];
+    });
+  };
+
+  // 事務作業行の D&D / 行操作
+  const [draggedOfficeIndex, setDraggedOfficeIndex] = useState<number | null>(null);
+  const [dragOverOfficeIndex, setDragOverOfficeIndex] = useState<number | null>(null);
+
+  const moveOfficeRow = (fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0 || fromIndex >= officeWorkRows.length || toIndex >= officeWorkRows.length) return;
+    setOfficeWorkRows(prev => {
+      const next = [...prev];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      return next;
+    });
+  };
+
+  const deleteOfficeRow = (index: number) => {
+    setOfficeWorkRows(prev => {
+      if (prev.length <= 1) {
+        return createEmptyOfficeRows().slice(0, 1);
+      }
+      return prev.filter((_, i) => i !== index);
+    });
+  };
+
+  const addOfficeRow = () => {
+    setOfficeWorkRows(prev => [
+      ...prev,
+      {
+        id: `office-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        destination: '',
+        content: '',
+        amount: 0,
+        targetMonth: '',
+        timeMinutes: 0,
+        remarks: '',
+      }
+    ]);
+  };
+
   // ---------------- 計算ロジック ----------------
   // 行ごとの自動算出値更新
   const updateMainRow = (index: number, fields: Partial<MaintenanceWorkRow>) => {
@@ -866,14 +999,15 @@ export function MaintenanceDailyReportView({
     const mapCfg = currentOfficeConfig.scheduleMapping;
     const pts = currentOfficeConfig.pointSettings;
 
-    // キーワードフィルタリング（点検・取替・修理のみ取り込み）
+    // スケジュール区分「修理・点検・取替」の取り込み（余分な判定は排し区分を厳密判定）
     const targetEvents = (mapCfg.onlyTargetKeywords ?? true)
       ? dayEvents.filter(ev => {
-          const full = `${ev.title || ''} ${ev.memo || ''} ${ev.location || ''} ${ev.type || ''}`;
-          const isInsp = (mapCfg.importInspection ?? true) && (full.includes('点検') || (ev.type as unknown as string) === '点検');
-          const isRepl = (mapCfg.importReplacement ?? true) && (full.includes('取替') || full.includes('EG') || full.includes('単体') || String(ev.type).includes('取替'));
-          const isRep = (mapCfg.importRepair ?? true) && (full.includes('修理') || full.includes('オンコール') || (ev.type as unknown as string) === '修理');
-          return isInsp || isRepl || isRep;
+          const category = getNormalizedScheduleCategory(ev);
+          if (!category) return false;
+          if (category === '点検') return mapCfg.importInspection ?? true;
+          if (category === '取替') return mapCfg.importReplacement ?? true;
+          if (category === '修理') return mapCfg.importRepair ?? true;
+          return false;
         })
       : dayEvents;
 
@@ -885,6 +1019,8 @@ export function MaintenanceDailyReportView({
     targetEvents.slice(0, 10).forEach((ev, idx) => {
       const startT = getEventTimeStrJST(ev.start);
       const endT = getEventTimeStrJST(ev.end);
+      const category = getNormalizedScheduleCategory(ev);
+      const typeJa = formatEventTypeJa(ev.type);
       const fullText = `${ev.memo || ''} ${ev.location || ''} ${ev.title || ''} ${ev.type || ''}`;
 
       // 現場名の決定（マッピング設定準拠）
@@ -895,14 +1031,14 @@ export function MaintenanceDailyReportView({
         siteNameStr = (ev.location && ev.location.trim()) ? ev.location.trim() : (ev.title || '現場名未設定');
       }
 
-      // 作業内容の決定（マッピング設定準拠）
-      let workDescStr = ev.memo || ev.type || '保守作業';
+      // 作業内容の決定（マッピング設定準拠＆日本語変換徹底）
+      let workDescStr = ev.memo && ev.memo.trim() ? ev.memo.trim() : (ev.title || typeJa);
       if (mapCfg.workDescriptionSource === 'memo') {
-        workDescStr = ev.memo || '保守作業';
+        workDescStr = ev.memo && ev.memo.trim() ? ev.memo.trim() : (ev.title || typeJa);
       } else if (mapCfg.workDescriptionSource === 'type') {
-        workDescStr = ev.type || '保守作業';
+        workDescStr = typeJa;
       } else if (mapCfg.workDescriptionSource === 'title') {
-        workDescStr = ev.title || '保守作業';
+        workDescStr = ev.title || typeJa;
       }
 
       // 地区の決定（マッピング設定準拠）
@@ -938,16 +1074,14 @@ export function MaintenanceDailyReportView({
       }
       
       if (!contentType) {
-        if (fullText.includes('取替') || fullText.includes('EG') || fullText.includes('単体')) {
+        if (category === '取替') {
           contentType = mapCfg.replacementDefaultCategory || 'EG取替';
-        } else if (fullText.includes('点検')) {
+        } else if (category === '点検') {
           contentType = mapCfg.inspectionDefaultCategory || '点検';
-        } else if (fullText.includes('修理') || fullText.includes('オンコール')) {
+        } else if (category === '修理') {
           contentType = mapCfg.repairDefaultCategory || '修理';
-        } else if (ev.type && ['EG取替', '単体取替', '修理', 'オンコール', '点検', '見積'].includes(ev.type)) {
-          contentType = ev.type;
         } else {
-          contentType = '修理';
+          contentType = typeJa;
         }
       }
 
@@ -1017,7 +1151,7 @@ export function MaintenanceDailyReportView({
     });
 
     setMainWorkRows(newRows);
-    alert(`${dayEvents.length} 件のスケジュールを自動取り込みしました！（様式: ${selectedOfficeName}）`);
+    alert(`${targetEvents.length} 件のスケジュールを自動取り込みしました！（様式: ${selectedOfficeName}）`);
   };
 
   // ---------------- 保存・提出処理 ----------------
@@ -1293,7 +1427,7 @@ export function MaintenanceDailyReportView({
             <table className="w-full text-xs text-left border-collapse min-w-[1200px]">
               <thead>
                 <tr className="bg-slate-100 border-b border-slate-300 text-slate-700 font-bold text-[11px]">
-                  <th className="p-2 border-r border-slate-200 text-center w-10">番号</th>
+                  <th className="p-2 border-r border-slate-200 text-center w-12">番号</th>
                   {visibleColumns.directGoReturn && <th className="p-2 border-r border-slate-200 text-center w-16">直行直帰</th>}
                   <th className="p-2 border-r border-slate-200 w-36">現場名</th>
                   <th className="p-2 border-r border-slate-200 w-32">作業内容</th>
@@ -1315,14 +1449,55 @@ export function MaintenanceDailyReportView({
                       補充<br /><span className="text-[9px] font-normal text-sky-700">※申請・確認</span>
                     </th>
                   )}
+                  <th className="p-2 text-center w-16 border-l border-slate-200">操作</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 font-sans">
                 {mainWorkRows.map((row, idx) => (
-                  <tr key={row.id} className="hover:bg-slate-50 transition-colors">
-                    {/* 番号 */}
-                    <td className="p-2 border-r border-slate-200 text-center font-bold text-slate-500 bg-slate-50">
-                      {idx + 1}
+                  <tr
+                    key={row.id}
+                    draggable
+                    onDragStart={(e) => {
+                      setDraggedMainIndex(idx);
+                      e.dataTransfer.effectAllowed = 'move';
+                    }}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = 'move';
+                      if (dragOverMainIndex !== idx) setDragOverMainIndex(idx);
+                    }}
+                    onDragLeave={() => {
+                      if (dragOverMainIndex === idx) setDragOverMainIndex(null);
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      if (draggedMainIndex !== null && draggedMainIndex !== idx) {
+                        moveMainRow(draggedMainIndex, idx);
+                      }
+                      setDraggedMainIndex(null);
+                      setDragOverMainIndex(null);
+                    }}
+                    onDragEnd={() => {
+                      setDraggedMainIndex(null);
+                      setDragOverMainIndex(null);
+                    }}
+                    className={`transition-colors select-none ${
+                      draggedMainIndex === idx ? 'opacity-40 bg-amber-100' : 'hover:bg-slate-50'
+                    } ${
+                      dragOverMainIndex === idx ? 'border-t-2 border-b-2 border-amber-500 bg-amber-100/70' : ''
+                    }`}
+                  >
+                    {/* 番号 & ドラッグハンドル */}
+                    <td className="p-1 border-r border-slate-200 text-center font-bold text-slate-500 bg-slate-50/80">
+                      <div className="flex items-center justify-center gap-0.5">
+                        <span
+                          className="cursor-grab active:cursor-grabbing text-slate-400 hover:text-amber-700 p-0.5 rounded transition-colors"
+                          title="ドラッグして行順を移動"
+                        >
+                          <GripVertical className="w-3.5 h-3.5" />
+                        </span>
+                        <span>{idx + 1}</span>
+                      </div>
                     </td>
 
                     {/* 直行・直帰 (手入力/チェック) */}
@@ -1597,6 +1772,38 @@ export function MaintenanceDailyReportView({
                         })()}
                       </td>
                     )}
+
+                    {/* 行移動・削除ボタン列 */}
+                    <td className="p-1 border-l border-slate-200 text-center bg-slate-50/40">
+                      <div className="flex items-center justify-center gap-0.5">
+                        <button
+                          type="button"
+                          onClick={() => moveMainRow(idx, idx - 1)}
+                          disabled={idx === 0}
+                          className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-20 cursor-pointer"
+                          title="上へ移動"
+                        >
+                          <ArrowUp className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => moveMainRow(idx, idx + 1)}
+                          disabled={idx === mainWorkRows.length - 1}
+                          className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-20 cursor-pointer"
+                          title="下へ移動"
+                        >
+                          <ArrowDown className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deleteMainRow(idx)}
+                          className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded cursor-pointer transition-colors"
+                          title="この行を削除"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
 
@@ -1632,9 +1839,26 @@ export function MaintenanceDailyReportView({
                   {visibleColumns.photoReportLink && (
                     <td className="p-2 text-center bg-slate-100 border-l border-slate-300 text-slate-400 font-normal text-[11px]">-</td>
                   )}
+                  <td className="p-2 text-center bg-slate-100 border-l border-slate-300 text-slate-400 font-normal text-[11px]">-</td>
                 </tr>
               </tbody>
             </table>
+          </div>
+
+          {/* 作業行追加フッター */}
+          <div className="p-2.5 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={() => addMainRow()}
+              className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              作業行を追加
+            </button>
+            <span className="text-[11px] font-semibold text-slate-500 flex items-center gap-1">
+              <GripVertical className="w-3.5 h-3.5 text-amber-500" />
+              行頭アイコン（⋮⋮）をドラッグ＆ドロップ、または上下矢印で順序を入れ替えられます。
+            </span>
           </div>
         </div>
 
@@ -1670,7 +1894,7 @@ export function MaintenanceDailyReportView({
                   className="p-3 bg-slate-50 rounded-t-xl flex items-center justify-between cursor-pointer border-b border-slate-100"
                 >
                   <div className="flex items-center gap-2 min-w-0">
-                    <span className="w-5 h-5 rounded-full bg-slate-200 text-slate-700 text-[11px] font-bold flex items-center justify-center shrink-0">
+                    <span className="w-5 h-5 rounded-full bg-amber-500 text-white text-[11px] font-bold flex items-center justify-center shrink-0">
                       {idx + 1}
                     </span>
                     <span className="font-bold text-xs text-slate-900 truncate">
@@ -1682,11 +1906,37 @@ export function MaintenanceDailyReportView({
                       </span>
                     )}
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex items-center gap-1 shrink-0">
                     {row.workHours && row.workHours !== '0:00' && (
-                      <span className="text-[11px] font-bold text-amber-700">{row.workHours}</span>
+                      <span className="text-[11px] font-bold text-amber-700 mr-1">{row.workHours}</span>
                     )}
-                    {isExpanded ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); moveMainRow(idx, idx - 1); }}
+                      disabled={idx === 0}
+                      className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-20 cursor-pointer"
+                      title="上へ移動"
+                    >
+                      <ArrowUp className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); moveMainRow(idx, idx + 1); }}
+                      disabled={idx === mainWorkRows.length - 1}
+                      className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-20 cursor-pointer"
+                      title="下へ移動"
+                    >
+                      <ArrowDown className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); deleteMainRow(idx); }}
+                      className="p-1 text-slate-400 hover:text-rose-600 rounded cursor-pointer transition-colors"
+                      title="この行を削除"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                    {isExpanded ? <ChevronUp className="w-4 h-4 text-slate-400 ml-0.5" /> : <ChevronDown className="w-4 h-4 text-slate-400 ml-0.5" />}
                   </div>
                 </div>
 
@@ -1881,31 +2131,96 @@ export function MaintenanceDailyReportView({
               </div>
             );
           })}
+          {/* モバイル用作業行追加ボタン */}
+          <button
+            type="button"
+            onClick={() => addMainRow()}
+            className="w-full py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            作業行を追加
+          </button>
         </div>
 
         {/* ---------------- 3. 事務（見積）作業報告（5行） ---------------- */}
         {visibleColumns.showOfficeWorkTable && (
           <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-4 space-y-3">
-            <h2 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
-              <FileText className="w-4 h-4 text-indigo-600" />
-              事務（見積）作業報告 (1〜5)
-            </h2>
+            <div className="flex items-center justify-between">
+              <h2 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                <FileText className="w-4 h-4 text-indigo-600" />
+                事務（見積）作業報告
+              </h2>
+              <button
+                type="button"
+                onClick={addOfficeRow}
+                className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                事務行を追加
+              </button>
+            </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full text-xs text-left border-collapse min-w-[700px]">
+              <table className="w-full text-xs text-left border-collapse min-w-[750px]">
                 <thead>
                   <tr className="bg-slate-100 border-b border-slate-200 font-bold text-slate-700">
+                    <th className="p-2 border-r border-slate-200 text-center w-12">番号</th>
                     <th className="p-2 border-r border-slate-200 w-36">見積提出先</th>
                     <th className="p-2 border-r border-slate-200">内容</th>
                     <th className="p-2 border-r border-slate-200 w-28 text-right">金額(円)</th>
                     <th className="p-2 border-r border-slate-200 w-28 text-center">決定予定月</th>
                     <th className="p-2 border-r border-slate-200 w-20 text-center">時間(分)</th>
-                    <th className="p-2 w-36">備考</th>
+                    <th className="p-2 border-r border-slate-200 w-36">備考</th>
+                    <th className="p-2 text-center w-16">操作</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
                   {officeWorkRows.map((row, idx) => (
-                    <tr key={row.id}>
+                    <tr
+                      key={row.id}
+                      draggable
+                      onDragStart={(e) => {
+                        setDraggedOfficeIndex(idx);
+                        e.dataTransfer.effectAllowed = 'move';
+                      }}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = 'move';
+                        if (dragOverOfficeIndex !== idx) setDragOverOfficeIndex(idx);
+                      }}
+                      onDragLeave={() => {
+                        if (dragOverOfficeIndex === idx) setDragOverOfficeIndex(null);
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        if (draggedOfficeIndex !== null && draggedOfficeIndex !== idx) {
+                          moveOfficeRow(draggedOfficeIndex, idx);
+                        }
+                        setDraggedOfficeIndex(null);
+                        setDragOverOfficeIndex(null);
+                      }}
+                      onDragEnd={() => {
+                        setDraggedOfficeIndex(null);
+                        setDragOverOfficeIndex(null);
+                      }}
+                      className={`transition-colors select-none ${
+                        draggedOfficeIndex === idx ? 'opacity-40 bg-indigo-100' : 'hover:bg-slate-50'
+                      } ${
+                        dragOverOfficeIndex === idx ? 'border-t-2 border-b-2 border-indigo-500 bg-indigo-100/70' : ''
+                      }`}
+                    >
+                      {/* 番号 */}
+                      <td className="p-1 border-r border-slate-200 text-center font-bold text-slate-500 bg-slate-50/80">
+                        <div className="flex items-center justify-center gap-0.5">
+                          <span
+                            className="cursor-grab active:cursor-grabbing text-slate-400 hover:text-indigo-700 p-0.5 rounded transition-colors"
+                            title="ドラッグして行順を移動"
+                          >
+                            <GripVertical className="w-3.5 h-3.5" />
+                          </span>
+                          <span>{idx + 1}</span>
+                        </div>
+                      </td>
                       <td className="p-1 border-r border-slate-200">
                         <input
                           type="text"
@@ -1967,7 +2282,7 @@ export function MaintenanceDailyReportView({
                           className="w-full px-2 py-1 border border-slate-200 rounded text-xs text-center bg-white"
                         />
                       </td>
-                      <td className="p-1">
+                      <td className="p-1 border-r border-slate-200">
                         <input
                           type="text"
                           value={row.remarks}
@@ -1978,6 +2293,37 @@ export function MaintenanceDailyReportView({
                           }}
                           className="w-full px-2 py-1 border border-slate-200 rounded text-xs bg-white"
                         />
+                      </td>
+                      {/* 操作列 */}
+                      <td className="p-1 text-center bg-slate-50/40">
+                        <div className="flex items-center justify-center gap-0.5">
+                          <button
+                            type="button"
+                            onClick={() => moveOfficeRow(idx, idx - 1)}
+                            disabled={idx === 0}
+                            className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-20 cursor-pointer"
+                            title="上へ移動"
+                          >
+                            <ArrowUp className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => moveOfficeRow(idx, idx + 1)}
+                            disabled={idx === officeWorkRows.length - 1}
+                            className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-20 cursor-pointer"
+                            title="下へ移動"
+                          >
+                            <ArrowDown className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => deleteOfficeRow(idx)}
+                            className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded cursor-pointer transition-colors"
+                            title="この行を削除"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
