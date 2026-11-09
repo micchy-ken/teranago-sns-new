@@ -28,7 +28,8 @@ import {
   Sparkles,
   ChevronRight,
   ExternalLink,
-  Eye
+  Eye,
+  Undo2
 } from 'lucide-react';
 import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
 import { MaintenanceDailyReportView } from './MaintenanceDailyReport';
@@ -711,7 +712,9 @@ export function DailyReportView({
             ) : (
               filteredMaintenanceReports.map(mReport => {
                 const mData = mReport.maintenanceData;
+                const authorId = mReport.author?.id || mReport.authorId || (mReport as any).author_id;
                 const authorName = mReport.author?.name || '作成者未設定';
+                const isAuthor = Boolean(authorId && authorId === currentUser.id);
 
                 return (
                   <div
@@ -744,7 +747,7 @@ export function DailyReportView({
                               {mReport.status === 'reviewed'
                                 ? '確認済'
                                 : mReport.status === 'submitted'
-                                ? '提出済（確認待ち）'
+                                ? (isAuthor ? '提出中' : '提出済（確認待ち）')
                                 : '下書き'}
                             </span>
                           </div>
@@ -755,36 +758,66 @@ export function DailyReportView({
                       </div>
 
                       <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => {
-                            setActiveMaintenanceReport(mReport);
-                            setIsEditingMaintenance(true);
-                          }}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                            mReport.status === 'submitted'
-                              ? 'bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100 shadow-2xs'
-                              : mReport.status === 'reviewed'
-                              ? 'bg-emerald-50 text-emerald-800 border border-emerald-300 hover:bg-emerald-100'
-                              : 'bg-slate-100 text-slate-700 border border-slate-300 hover:bg-slate-200'
-                          }`}
-                        >
-                          {mReport.status === 'submitted' ? (
-                            <>
+                        {mReport.status === 'submitted' ? (
+                          isAuthor ? (
+                            <button
+                              onClick={async () => {
+                                if (confirm(`提出中の保守日報（${mReport.date || ''}）を取り下げて編集しますか？\n取り下げると下書き状態に戻り、再編集できるようになります。`)) {
+                                  if (onUpdateReport) {
+                                    await onUpdateReport(mReport.id, {
+                                      status: 'draft',
+                                      reportType: 'maintenance_daily',
+                                      author: mReport.author,
+                                      authorId: authorId,
+                                      author_id: authorId,
+                                    });
+                                  }
+                                  setActiveMaintenanceReport({ ...mReport, status: 'draft' });
+                                  setIsEditingMaintenance(true);
+                                }
+                              }}
+                              className="px-3 py-1.5 bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                              title="提出を取り下げて編集します"
+                            >
+                              <Undo2 className="w-3.5 h-3.5 text-amber-600" />
+                              取り下げ・編集
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                setActiveMaintenanceReport(mReport);
+                                setIsEditingMaintenance(true);
+                              }}
+                              className="px-3 py-1.5 bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                              title="日報の内容を確認・承認します"
+                            >
                               <CheckCircle2 className="w-3.5 h-3.5 text-amber-600" />
                               確認・承認
-                            </>
-                          ) : mReport.status === 'reviewed' ? (
-                            <>
-                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                              確認・閲覧
-                            </>
-                          ) : (
-                            <>
-                              <Edit3 className="w-3.5 h-3.5" />
-                              開く・編集
-                            </>
-                          )}
-                        </button>
+                            </button>
+                          )
+                        ) : mReport.status === 'reviewed' ? (
+                          <button
+                            onClick={() => {
+                              setActiveMaintenanceReport(mReport);
+                              setIsEditingMaintenance(true);
+                            }}
+                            className="px-3 py-1.5 bg-emerald-50 text-emerald-800 border border-emerald-300 hover:bg-emerald-100 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                            確認・閲覧
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              setActiveMaintenanceReport(mReport);
+                              setIsEditingMaintenance(true);
+                            }}
+                            className="px-3 py-1.5 bg-slate-100 text-slate-700 border border-slate-300 hover:bg-slate-200 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                            開く・編集
+                          </button>
+                        )}
                         {onDeleteReport && (
                           <button
                             onClick={() => onDeleteReport(mReport.id)}
@@ -929,7 +962,7 @@ export function DailyReportView({
                       ) : report.status === 'submitted' ? (
                         <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200">
                           <Clock className="w-3.5 h-3.5 text-amber-500" />
-                          確認待ち
+                          {isAuthor ? '提出中' : '確認待ち'}
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600 border border-slate-200">
@@ -937,22 +970,46 @@ export function DailyReportView({
                         </span>
                       )}
 
-                      {/* 週報ステータス連動ボタン: 提出済は「確認・承認」、確認済は「確認・閲覧」、下書きは「開く・編集」 */}
+                      {/* 週報ステータス連動ボタン: 本人提出中は「取り下げ・編集」、上長は「確認・承認」、確認済は「確認・閲覧」、下書きは「開く・編集」 */}
                       {report.status === 'submitted' ? (
-                        <button
-                          onClick={() => {
-                            if (isPendingMyReview) {
-                              setReviewingReport(report);
-                              setReviewFeedback('');
-                            } else {
-                              setViewingReport(report);
-                            }
-                          }}
-                          className="px-3 py-1.5 bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs"
-                        >
-                          <CheckCircle2 className="w-3.5 h-3.5 text-amber-600" />
-                          確認・承認
-                        </button>
+                        isAuthor ? (
+                          <button
+                            onClick={async () => {
+                              if (confirm(`提出中の週報（${report.weekLabel || report.weekStartDate || ''}）を取り下げて編集しますか？\n取り下げると下書き状態に戻り、再編集できるようになります。`)) {
+                                if (onUpdateReport) {
+                                  await onUpdateReport(report.id, {
+                                    status: 'draft',
+                                    reportType: 'weekly',
+                                    author: report.author,
+                                    authorId: report.author?.id || (report as any).authorId,
+                                    author_id: report.author?.id || (report as any).authorId,
+                                  });
+                                }
+                                handleOpenEditModal({ ...report, status: 'draft' });
+                              }
+                            }}
+                            className="px-3 py-1.5 bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                            title="提出を取り下げて編集します"
+                          >
+                            <Undo2 className="w-3.5 h-3.5 text-amber-600" />
+                            取り下げ・編集
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              if (isPendingMyReview) {
+                                setReviewingReport(report);
+                                setReviewFeedback('');
+                              } else {
+                                setViewingReport(report);
+                              }
+                            }}
+                            className="px-3 py-1.5 bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5 text-amber-600" />
+                            確認・承認
+                          </button>
+                        )
                       ) : report.status === 'reviewed' ? (
                         <button
                           onClick={() => setViewingReport(report)}

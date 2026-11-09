@@ -15,12 +15,12 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.11.09.4',
+  version: '2026.11.09.5',
   date: '2026-11-09',
-  releaseNumber: 4,
-  display: 'v2026.11.09 #4 (JST)',
+  releaseNumber: 5,
+  display: 'v2026.11.09 #5 (JST)',
   timeZone: '日本標準時 (JST / UTC+09:00)',
-  description: '保守日報・週報の上長承認（最終承認・回覧・差し戻し）時に作成者(author / author_id)が上長ですり替わってしまう不具合を完全修正。フロントエンド・サーバー側（API/SQL Server/ファイルDB）両面で原本作成者の厳格保持を徹底',
+  description: '提出した保守日報・週報における作成者本人の表示を「提出中」および「取り下げ・編集」に最適化し、上長閲覧時のみ「確認・承認」フローを表示する役割分離の徹底',
 };
 
 /**

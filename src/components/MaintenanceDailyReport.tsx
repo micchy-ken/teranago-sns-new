@@ -48,7 +48,8 @@ import {
   RotateCcw,
   MessageSquare,
   ArrowRight,
-  ShieldCheck
+  ShieldCheck,
+  Undo2
 } from 'lucide-react';
 import { getAvatarUrl } from '../utils/avatar';
 import { getLocalDateStr } from '../utils/dateUtils';
@@ -523,7 +524,7 @@ export function MaintenanceDailyReportView({
 
   // ステータス & 提出済み（閲覧・レビュー確認）モード判定
   const [status, setStatus] = useState<WorkReportStatus>(report?.status || 'draft');
-  const isSubmittedMode = Boolean(report && (report.status === 'submitted' || report.status === 'reviewed'));
+  const isSubmittedMode = status === 'submitted' || status === 'reviewed';
 
   // 作成者・上長表示用情報
   const reportAuthorName = report?.author?.name || maintenanceData?.userName || currentUser.name;
@@ -742,6 +743,11 @@ export function MaintenanceDailyReportView({
     if (!nextSupervisor) return true;
     return false;
   }, [currentUser, nextSupervisor]);
+
+  // 現在の操作ユーザーが日報の作成者本人か判定
+  const isAuthor = useMemo(() => {
+    return Boolean(reportAuthor.id === currentUser.id);
+  }, [reportAuthor.id, currentUser.id]);
 
   // 承認印欄（支店長・課長・係長）の押印情報判定
   const stampBoxInfo = useMemo(() => {
@@ -1736,6 +1742,34 @@ export function MaintenanceDailyReportView({
     }
   };
 
+  // 提出の取り下げ処理（作成者本人が下書きに戻して編集可能にする）
+  const handleWithdraw = async () => {
+    if (!report?.id || !onSaveReport) return;
+    if (!confirm('日報の提出を取り下げて下書き（編集可能）に戻しますか？\n取り下げると入力内容を修正して再提出できるようになります。')) {
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      await onSaveReport({
+        id: report.id,
+        author: reportAuthor,
+        authorId: reportAuthor.id,
+        author_id: reportAuthor.id,
+        reportType: 'maintenance_daily',
+        status: 'draft',
+        tasks: report.tasks,
+        maintenanceData,
+      });
+      setStatus('draft');
+      alert('日報の提出を取り下げました。編集して再提出してください。');
+    } catch (err) {
+      console.error('Failed to withdraw report:', err);
+      alert('提出の取り下げに失敗しました。');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
     <div className="flex-1 bg-slate-100 min-h-screen pb-20 font-sans text-slate-800">
       {/* ---------------- 画面トップ固定ヘッダー ---------------- */}
@@ -1765,7 +1799,7 @@ export function MaintenanceDailyReportView({
                   <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full border flex items-center gap-1 ${
                     status === 'reviewed' 
                       ? 'bg-emerald-100 text-emerald-800 border-emerald-300' 
-                      : 'bg-indigo-100 text-indigo-800 border-indigo-200'
+                      : 'bg-amber-100 text-amber-900 border-amber-300'
                   }`}>
                     {status === 'reviewed' ? (
                       <>
@@ -1774,8 +1808,8 @@ export function MaintenanceDailyReportView({
                       </>
                     ) : (
                       <>
-                        <UserCheck className="w-3.5 h-3.5" />
-                        <span>提出済（承認回覧中）</span>
+                        <Clock className="w-3.5 h-3.5 text-amber-600" />
+                        <span>{isAuthor ? '提出中' : '提出済（承認回覧中）'}</span>
                       </>
                     )}
                   </span>
@@ -1813,7 +1847,7 @@ export function MaintenanceDailyReportView({
               </div>
               <p className="text-xs text-slate-500 hidden sm:block">
                 {isSubmittedMode 
-                  ? '多段階承認フロー（支店長最終承認）による日報確認画面です。内容確認の上、上長への回覧提出または差し戻しを行えます。'
+                  ? (isAuthor ? '現在提出中の保守日報です。内容を修正したい場合は「取り下げ・編集」を行ってください。' : '多段階承認フロー（支店長最終承認）による日報確認画面です。内容確認の上、上長への回覧提出または差し戻しを行えます。')
                   : '当日のスケジュールから作業・点検・取替内容を自動算出し、日報を簡単に作成・保存します'}
               </p>
             </div>
@@ -1823,38 +1857,50 @@ export function MaintenanceDailyReportView({
           {isSubmittedMode ? (
             <div className="flex items-center gap-2">
               {status === 'submitted' ? (
-                <>
+                isAuthor ? (
                   <button
-                    onClick={handleRemand}
+                    onClick={handleWithdraw}
                     disabled={isSubmitting}
-                    className="px-3.5 py-1.5 bg-white border border-rose-300 text-rose-700 hover:bg-rose-50 rounded-lg text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                    title="日報を作成者に差し戻します（下書きに戻す）"
+                    className="px-4 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold transition-all shadow-sm shadow-amber-200 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    title="日報の提出を取り下げて下書きに戻し、編集可能にします"
                   >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                    差し戻し
+                    <Undo2 className="w-3.5 h-3.5" />
+                    <span>取り下げ・編集</span>
                   </button>
-                  {isFinalApprover ? (
+                ) : (
+                  <>
                     <button
-                      onClick={handleForwardOrApprove}
+                      onClick={handleRemand}
                       disabled={isSubmitting}
-                      className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm shadow-emerald-200 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                      title="支店長としての最終承認（確認完了）を行います"
+                      className="px-3.5 py-1.5 bg-white border border-rose-300 text-rose-700 hover:bg-rose-50 rounded-lg text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                      title="日報を作成者に差し戻します（下書きに戻す）"
                     >
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      支店長 承認完了（最終確認）
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      差し戻し
                     </button>
-                  ) : (
-                    <button
-                      onClick={handleForwardOrApprove}
-                      disabled={isSubmitting}
-                      className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm shadow-indigo-200 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                      title={nextSupervisor ? `${nextSupervisor.name}さんへ回覧します` : '上長へ提出します'}
-                    >
-                      <Send className="w-3.5 h-3.5" />
-                      <span>上長（{nextSupervisor?.name || '次上長'}）へ提出</span>
-                    </button>
-                  )}
-                </>
+                    {isFinalApprover ? (
+                      <button
+                        onClick={handleForwardOrApprove}
+                        disabled={isSubmitting}
+                        className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm shadow-emerald-200 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        title="支店長としての最終承認（確認完了）を行います"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        支店長 承認完了（最終確認）
+                      </button>
+                    ) : (
+                      <button
+                        onClick={handleForwardOrApprove}
+                        disabled={isSubmitting}
+                        className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm shadow-indigo-200 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        title={nextSupervisor ? `${nextSupervisor.name}さんへ回覧します` : '上長へ提出します'}
+                      >
+                        <Send className="w-3.5 h-3.5" />
+                        <span>上長（{nextSupervisor?.name || '次上長'}）へ提出</span>
+                      </button>
+                    )}
+                  </>
+                )
               ) : (
                 <span className="px-3 py-1.5 bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-lg text-xs font-bold flex items-center gap-1.5">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600" />
@@ -1897,10 +1943,38 @@ export function MaintenanceDailyReportView({
       </div>
 
       <div className="max-w-7xl mx-auto px-2 sm:px-6 pt-4 space-y-4">
+        {/* 本人提出中時の取り下げ案内バナー */}
+        {isSubmittedMode && status === 'submitted' && isAuthor && (
+          <div className="bg-amber-50/95 border-2 border-amber-300 rounded-xl p-4 shadow-xs flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-200/90 flex items-center justify-center text-amber-800 shrink-0">
+                <Clock className="w-5 h-5 text-amber-700" />
+              </div>
+              <div>
+                <h3 className="font-bold text-amber-950 text-sm flex items-center gap-2">
+                  この保守日報は現在【提出中（上長確認待ち）】です
+                </h3>
+                <p className="text-xs text-amber-800/90 mt-0.5">
+                  内容を修正したい場合は「取り下げ・編集」を行ってください。下書き状態に戻り再編集が可能になります。
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleWithdraw}
+              disabled={isSubmitting}
+              className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+            >
+              <Undo2 className="w-4 h-4" />
+              <span>取り下げて編集する</span>
+            </button>
+          </div>
+        )}
+
         {/* ---------------- 提出された日報用 上長確認・多段階承認ステッパー＆コメントパネル ---------------- */}
         {isSubmittedMode && (
           <div className="bg-white border-2 border-indigo-300 rounded-xl p-4 shadow-sm space-y-4">
-            {/* 上部ヘッダー & アクションボタン */}
+            {/* 上部ヘッダー & アクションボタン (上長閲覧時のみ表示) */}
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-indigo-100 pb-3">
               <div className="flex items-center gap-2 text-indigo-950 font-bold text-sm">
                 <MessageSquare className="w-4 h-4 text-indigo-600" />
@@ -1909,7 +1983,7 @@ export function MaintenanceDailyReportView({
                   ※上長がいる限り順次回覧され、支店長で最終確定します
                 </span>
               </div>
-              {status === 'submitted' && (
+              {!isAuthor && status === 'submitted' && (
                 <div className="flex items-center gap-2">
                   <button
                     onClick={handleRemand}
@@ -2060,8 +2134,8 @@ export function MaintenanceDailyReportView({
               </div>
             )}
 
-            {/* コメント入力テキストエリア (提出中モード時のみ入力可) */}
-            {status === 'submitted' ? (
+            {/* コメント入力テキストエリア (上長閲覧時かつ提出中モード時のみ入力可) */}
+            {!isAuthor && status === 'submitted' ? (
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
                   コメント入力 <span className="text-slate-400 font-normal">（空白のまま上長提出・承認または差し戻し可能です）</span>:
@@ -2078,12 +2152,12 @@ export function MaintenanceDailyReportView({
                   className="w-full p-2.5 border border-indigo-200 rounded-lg text-xs bg-indigo-50/20 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-colors"
                 />
               </div>
-            ) : (
+            ) : status === 'reviewed' ? (
               <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200 flex items-center gap-2 text-xs font-bold text-emerald-900">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                 <span>この日報は支店長により最終承認（確認完了）されています。</span>
               </div>
-            )}
+            ) : null}
           </div>
         )}
 
@@ -3743,8 +3817,27 @@ export function MaintenanceDailyReportView({
           </div>
         </div>
 
+        {/* ---------------- 本人提出中: 最下部取り下げバー ---------------- */}
+        {isSubmittedMode && status === 'submitted' && isAuthor && (
+          <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 shadow-sm flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-amber-900 text-xs font-bold">
+              <Clock className="w-4 h-4 text-amber-700 shrink-0" />
+              <span>この保守日報は現在【提出中（上長確認待ち）】です。内容を修正したい場合は取り下げを行ってください。</span>
+            </div>
+            <button
+              type="button"
+              onClick={handleWithdraw}
+              disabled={isSubmitting}
+              className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+            >
+              <Undo2 className="w-4 h-4" />
+              <span>取り下げて編集する</span>
+            </button>
+          </div>
+        )}
+
         {/* ---------------- 提出後: 多段階承認（上長回覧 / 支店長最終承認）・差し戻しエリア ---------------- */}
-        {isSubmittedMode && (
+        {isSubmittedMode && status === 'submitted' && !isAuthor && (
           <div className="bg-gradient-to-r from-indigo-50/80 via-slate-50 to-indigo-50/80 border border-indigo-200 rounded-xl p-4 shadow-sm space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-indigo-100 pb-2">
               <div className="flex items-center gap-2 text-indigo-950 font-bold text-xs">
