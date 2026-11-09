@@ -28,6 +28,7 @@ import { SchedulePoll, SchedulePollAnswer, ScheduleCandidate, FreeSlotSuggestion
 import { User, OfficeMaster, DivisionMaster } from '../types';
 import { API_BASE_URL } from '../config/api';
 import { MemberSelector } from './MemberSelector';
+import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { triggerPushNotification } from '../utils/pushNotifications';
 import { dispatchNotificationEmail } from '../utils/emailNotificationDispatcher';
 import { getLocalDateStr, formatTimeJST, formatDateJST, getJstDateParts } from '../utils/dateUtils';
@@ -63,6 +64,7 @@ export function SchedulePollModal({
   const [selectedPoll, setSelectedPoll] = useState<SchedulePoll | null>(null);
   const [answers, setAnswers] = useState<SchedulePollAnswer[]>([]);
   const [loadingDetail, setLoadingDetail] = useState<boolean>(false);
+  const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
 
   // ウィザード作成用State
   const [formTitle, setFormTitle] = useState<string>('');
@@ -466,73 +468,81 @@ export function SchedulePollModal({
   // ----------------------------------------------------
   const handleConfirmSchedule = async (candidateId: string) => {
     if (!selectedPoll) return;
-    if (!confirm('この候補日時で日程を確定し、カレンダーへ本登録しますか？')) return;
-
-    setConfirming(true);
-    try {
-      const res = await fetch(`${API_BASE_URL}/schedule-polls/${selectedPoll.id}/confirm`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          selectedCandidateId: candidateId,
-          finalTitle: selectedPoll.title,
-          finalLocation: selectedPoll.location,
-        }),
-      });
-
-      if (res.ok) {
-        alert('日程を確定し、カレンダーに登録しました！');
-        if (onEventCreated) onEventCreated();
-        if (onPollChange) onPollChange();
-        await fetchPollDetail(selectedPoll.id);
-        fetchPolls();
-
-        // 参加メンバー全員へ日程確定通知（Web Push & メール）を自動配信
-        const candidate = selectedPoll.candidates.find(c => c.id === candidateId);
-        const candText = candidate ? (candidate.text || `${candidate.startAt}〜${candidate.endAt}`) : '確定日程';
-        const targetIds = (selectedPoll.targetUserIds || []).filter(id => id && id !== currentUser.id);
-
-        if (targetIds.length > 0) {
-          triggerPushNotification({
-            targetUserIds: targetIds,
-            excludeUserId: currentUser.id,
-            title: `📅 日程確定: ${selectedPoll.title}`,
-            body: `「${selectedPoll.title}」の日程が【${candText}】に確定し、カレンダーに登録されました。`,
-            url: `/?tab=calendar`,
-            tag: `poll-confirmed-${selectedPoll.id}`,
+    setConfirmModal({
+      isOpen: true,
+      title: '日程の確定＆カレンダー登録',
+      message: 'この候補日時で日程を確定し、カレンダーへ本登録しますか？',
+      confirmText: '確定して登録',
+      cancelText: 'キャンセル',
+      type: 'info',
+      onConfirm: async () => {
+        setConfirming(true);
+        try {
+          const res = await fetch(`${API_BASE_URL}/schedule-polls/${selectedPoll.id}/confirm`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              selectedCandidateId: candidateId,
+              finalTitle: selectedPoll.title,
+              finalLocation: selectedPoll.location,
+            }),
           });
 
-          const targetUsers = targetIds
-            .map(id => users.find(u => u.id === id))
-            .filter((u): u is User => !!u && u.id !== currentUser.id);
+          if (res.ok) {
+            alert('日程を確定し、カレンダーに登録しました！');
+            if (onEventCreated) onEventCreated();
+            if (onPollChange) onPollChange();
+            await fetchPollDetail(selectedPoll.id);
+            fetchPolls();
 
-          if (targetUsers.length > 0) {
-            dispatchNotificationEmail(targetUsers, {
-              category: 'schedule',
-              categoryLabel: '日程確定',
-              title: `日程確定: ${selectedPoll.title}`,
-              actorName: currentUser.name,
-              details: [
-                { label: '案件名', value: selectedPoll.title },
-                { label: '確定日時', value: candText },
-                { label: '場所', value: selectedPoll.location || 'なし' },
-                { label: '主催者', value: selectedPoll.organizerName },
-              ],
-              mainContent: selectedPoll.description ? `【詳細・メモ】\n${selectedPoll.description}` : undefined,
-              pathParams: `tab=calendar`,
-            }, currentUser);
+            // 参加メンバー全員へ日程確定通知（Web Push & メール）を自動配信
+            const candidate = selectedPoll.candidates.find(c => c.id === candidateId);
+            const candText = candidate ? (candidate.text || `${candidate.startAt}〜${candidate.endAt}`) : '確定日程';
+            const targetIds = (selectedPoll.targetUserIds || []).filter(id => id && id !== currentUser.id);
+
+            if (targetIds.length > 0) {
+              triggerPushNotification({
+                targetUserIds: targetIds,
+                excludeUserId: currentUser.id,
+                title: `📅 日程確定: ${selectedPoll.title}`,
+                body: `「${selectedPoll.title}」の日程が【${candText}】に確定し、カレンダーに登録されました。`,
+                url: `/?tab=calendar`,
+                tag: `poll-confirmed-${selectedPoll.id}`,
+              });
+
+              const targetUsers = targetIds
+                .map(id => users.find(u => u.id === id))
+                .filter((u): u is User => !!u && u.id !== currentUser.id);
+
+              if (targetUsers.length > 0) {
+                dispatchNotificationEmail(targetUsers, {
+                  category: 'schedule',
+                  categoryLabel: '日程確定',
+                  title: `日程確定: ${selectedPoll.title}`,
+                  actorName: currentUser.name,
+                  details: [
+                    { label: '案件名', value: selectedPoll.title },
+                    { label: '確定日時', value: candText },
+                    { label: '場所', value: selectedPoll.location || 'なし' },
+                    { label: '主催者', value: selectedPoll.organizerName },
+                  ],
+                  mainContent: selectedPoll.description ? `【詳細・メモ】\n${selectedPoll.description}` : undefined,
+                  pathParams: `tab=calendar`,
+                }, currentUser);
+              }
+            }
+          } else {
+            const err = await res.json();
+            alert(err.error || '日程確定に失敗しました');
           }
+        } catch (err) {
+          console.error('日程確定エラー:', err);
+          alert('通信エラーが発生しました');
+        } finally {
+          setConfirming(false);
         }
-      } else {
-        const err = await res.json();
-        alert(err.error || '日程確定に失敗しました');
       }
-    } catch (err) {
-      console.error('日程確定エラー:', err);
-      alert('通信エラーが発生しました');
-    } finally {
-      setConfirming(false);
-    }
+    });
   };
 
   // ----------------------------------------------------
@@ -1627,6 +1637,11 @@ export function SchedulePollModal({
         </div>
 
       </div>
+
+      <ConfirmModal
+        {...confirmModal}
+        onClose={() => setConfirmModal((prev) => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 }

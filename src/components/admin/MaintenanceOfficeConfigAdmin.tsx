@@ -7,6 +7,7 @@ import {
   MaintenanceReportScheduleMapping 
 } from '../../types';
 import { API_BASE_URL } from '../../config/api';
+import { ConfirmModal, ConfirmModalState } from '../ConfirmModal';
 import { 
   Building2, 
   Check, 
@@ -92,6 +93,7 @@ export function MaintenanceOfficeConfigAdmin({ offices }: MaintenanceOfficeConfi
   // 拠点間コピー用モーダル状態
   const [isCopyModalOpen, setIsCopyModalOpen] = useState(false);
   const [sourceOfficeForCopy, setSourceOfficeForCopy] = useState<string>('');
+  const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
 
   // 初回データ取得
   useEffect(() => {
@@ -180,9 +182,17 @@ export function MaintenanceOfficeConfigAdmin({ offices }: MaintenanceOfficeConfi
 
   // デフォルト値にリセット
   const handleResetToDefault = () => {
-    if (window.confirm(`「${selectedOfficeName}」の設定を標準デフォルト値にリセットしますか？`)) {
-      setCurrentConfig(createDefaultOfficeConfig(selectedOfficeName));
-    }
+    setConfirmModal({
+      isOpen: true,
+      title: '標準デフォルト値へのリセット',
+      message: `「${selectedOfficeName}」の設定を標準デフォルト値にリセットしますか？`,
+      confirmText: 'リセットする',
+      cancelText: 'キャンセル',
+      type: 'warning',
+      onConfirm: () => {
+        setCurrentConfig(createDefaultOfficeConfig(selectedOfficeName));
+      }
+    });
   };
 
   // 拠点間コピーの実行
@@ -202,16 +212,24 @@ export function MaintenanceOfficeConfigAdmin({ offices }: MaintenanceOfficeConfi
       return;
     }
 
-    if (window.confirm(`「${sourceOfficeForCopy}」の設定を「${selectedOfficeName}」にコピーしますか？\n（現在の入力内容は上書きされます）`)) {
-      setCurrentConfig({
-        ...sourceConfig,
-        id: currentConfig.id || `cfg-office-${selectedOfficeName}`,
-        officeName: selectedOfficeName,
-        updatedAt: new Date().toISOString(),
-      });
-      setIsCopyModalOpen(false);
-      setSaveMessage({ text: `「${sourceOfficeForCopy}」からのコピーを適用しました。「設定を保存」ボタンを押すと確定されます。`, type: 'success' });
-    }
+    setConfirmModal({
+      isOpen: true,
+      title: '拠点設定のコピー適用',
+      message: `「${sourceOfficeForCopy}」の設定を「${selectedOfficeName}」にコピーしますか？\n（現在の入力内容は上書きされます）`,
+      confirmText: 'コピーを適用',
+      cancelText: 'キャンセル',
+      type: 'warning',
+      onConfirm: () => {
+        setCurrentConfig({
+          ...sourceConfig,
+          id: currentConfig.id || `cfg-office-${selectedOfficeName}`,
+          officeName: selectedOfficeName,
+          updatedAt: new Date().toISOString(),
+        });
+        setIsCopyModalOpen(false);
+        setSaveMessage({ text: `「${sourceOfficeForCopy}」からのコピーを適用しました。「設定を保存」ボタンを押すと確定されます。`, type: 'success' });
+      }
+    });
   };
 
   // 保存処理
@@ -983,6 +1001,11 @@ export function MaintenanceOfficeConfigAdmin({ offices }: MaintenanceOfficeConfi
           </div>
         </div>
       )}
+
+      <ConfirmModal
+        {...confirmModal}
+        onClose={() => setConfirmModal((prev) => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 }

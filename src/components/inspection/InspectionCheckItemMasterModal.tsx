@@ -13,6 +13,7 @@ import {
   DEFAULT_CATEGORIES,
   DEFAULT_ITEMS
 } from '../../utils/inspectionMasterStorage';
+import { ConfirmModal, ConfirmModalState } from '../ConfirmModal';
 import { 
   X, 
   Settings, 
@@ -57,6 +58,7 @@ export const InspectionCheckItemMasterModal: React.FC<InspectionCheckItemMasterM
   const [editingCategory, setEditingCategory] = useState<InspectionCheckCategoryDef | null>(null);
   const [isCategoryEditorOpen, setIsCategoryEditorOpen] = useState(false);
   const [isNewCategory, setIsNewCategory] = useState(false);
+  const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
 
   // 通知メッセージ
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -115,11 +117,18 @@ export const InspectionCheckItemMasterModal: React.FC<InspectionCheckItemMasterM
 
   // 項目削除
   const handleDeleteItem = (key: string, label: string) => {
-    if (!window.confirm(`点検項目「${label}」を削除しますか？\n（非表示にしたいだけの場合は「目のアイコン」をクリックして無効化することをお勧めします）`)) {
-      return;
-    }
-    setItems(items.filter(it => it.key !== key));
-    showToast(`項目「${label}」を削除しました`);
+    setConfirmModal({
+      isOpen: true,
+      title: '点検項目の削除',
+      message: `点検項目「${label}」を削除しますか？\n（非表示にしたいだけの場合は「目のアイコン」をクリックして無効化することをお勧めします）`,
+      confirmText: '削除する',
+      cancelText: 'キャンセル',
+      type: 'danger',
+      onConfirm: () => {
+        setItems(items.filter(it => it.key !== key));
+        showToast(`項目「${label}」を削除しました`);
+      }
+    });
   };
 
   // 項目の表示/非表示（有効/無効）トグル
@@ -190,11 +199,18 @@ export const InspectionCheckItemMasterModal: React.FC<InspectionCheckItemMasterM
       return;
     }
 
-    if (!window.confirm(`カテゴリ「${name}」を削除しますか？`)) {
-      return;
-    }
-    setCategories(categories.filter(c => c.id !== id));
-    showToast(`カテゴリ「${name}」を削除しました`);
+    setConfirmModal({
+      isOpen: true,
+      title: 'カテゴリの削除',
+      message: `カテゴリ「${name}」を削除しますか？`,
+      confirmText: '削除する',
+      cancelText: 'キャンセル',
+      type: 'danger',
+      onConfirm: () => {
+        setCategories(categories.filter(c => c.id !== id));
+        showToast(`カテゴリ「${name}」を削除しました`);
+      }
+    });
   };
 
   // カテゴリの並び替え
@@ -227,14 +243,21 @@ export const InspectionCheckItemMasterModal: React.FC<InspectionCheckItemMasterM
 
   // 初期標準リセット
   const handleResetToDefault = () => {
-    if (!window.confirm('点検項目およびカテゴリを、初期のJADA標準（20項目）にリセットしますか？\n（追加したカスタム項目や並び順の変更は元に戻ります）')) {
-      return;
-    }
-    resetInspectionMasterToDefault();
-    setCategories(DEFAULT_CATEGORIES);
-    setItems(DEFAULT_ITEMS);
-    showToast('初期標準設定にリセットしました');
-    if (onSaved) onSaved();
+    setConfirmModal({
+      isOpen: true,
+      title: 'JADA標準設定への初期リセット',
+      message: '点検項目およびカテゴリを、初期のJADA標準（20項目）にリセットしますか？\n（追加したカスタム項目や並び順の変更は元に戻ります）',
+      confirmText: '初期化リセット',
+      cancelText: 'キャンセル',
+      type: 'warning',
+      onConfirm: () => {
+        resetInspectionMasterToDefault();
+        setCategories(DEFAULT_CATEGORIES);
+        setItems(DEFAULT_ITEMS);
+        showToast('初期標準設定にリセットしました');
+        if (onSaved) onSaved();
+      }
+    });
   };
 
   // フィルタ後の項目
@@ -831,6 +854,12 @@ export const InspectionCheckItemMasterModal: React.FC<InspectionCheckItemMasterM
           </div>
         </div>
       )}
+
+      {/* ConfirmModal */}
+      <ConfirmModal
+        {...confirmModal}
+        onClose={() => setConfirmModal((prev) => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 };

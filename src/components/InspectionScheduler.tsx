@@ -57,6 +57,7 @@ import {
   Copy
 } from 'lucide-react';
 import { User, CalendarEvent, OfficeMaster } from '../types';
+import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import {
   InspectionItem,
   InspectionMetaA,
@@ -107,6 +108,7 @@ export function InspectionScheduler({
   onNavigateToCalendar
 }: InspectionSchedulerProps) {
   const [currentStep, setCurrentStep] = useState<StepType>('import');
+  const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
 
   // Excel / アイテム状態 (前回記憶 または 当月 YYYY-MM を初期値とする)
   const [targetYearMonth, setTargetYearMonth] = useState<string>(() => {
@@ -693,25 +695,33 @@ export function InspectionScheduler({
     const draftKey = getDraftKey(targetYearMonth, selectedOfficeFilter);
     const officeLabel = selectedOfficeFilter !== 'all' ? ` [${selectedOfficeFilter}]` : '';
 
-    if (confirm(`${targetYearMonth}${officeLabel} の下書き作業データを初期化しますか？\n（配置・未配置・繰越状態がクリアされます）`)) {
-      try {
-        await fetch(`${API_BASE_URL}/inspection/drafts?targetYearMonth=${encodeURIComponent(draftKey)}`, {
-          method: 'DELETE',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ targetYearMonth: draftKey })
-        });
-        localStorage.removeItem(`inspection_draft_${draftKey}`);
-        setItems([]);
-        lastSavedJsonRef.current = JSON.stringify([]);
-        setSaveStatus('idle');
-        setLastSavedTime(null);
-        setCarriedOverBanner(null);
-      } catch (e) {
-        console.error('Failed to clear draft:', e);
+    setConfirmModal({
+      isOpen: true,
+      title: '下書き作業データの初期化',
+      message: `${targetYearMonth}${officeLabel} の下書き作業データを初期化しますか？\n（配置・未配置・繰越状態がクリアされます）`,
+      confirmText: '初期化する',
+      cancelText: 'キャンセル',
+      type: 'danger',
+      onConfirm: async () => {
+        try {
+          await fetch(`${API_BASE_URL}/inspection/drafts?targetYearMonth=${encodeURIComponent(draftKey)}`, {
+            method: 'DELETE',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ targetYearMonth: draftKey })
+          });
+          localStorage.removeItem(`inspection_draft_${draftKey}`);
+          setItems([]);
+          lastSavedJsonRef.current = JSON.stringify([]);
+          setSaveStatus('idle');
+          setLastSavedTime(null);
+          setCarriedOverBanner(null);
+        } catch (e) {
+          console.error('Failed to clear draft:', e);
+        }
       }
-    }
+    });
   };
 
   // ローカル保存データ（localStorage）の完全消去・クリア
@@ -723,31 +733,39 @@ export function InspectionScheduler({
       ? 'このブラウザ（PC）内に保存されている【すべての年月・拠点】の点検下書きローカルデータを全削除（クリア）しますか？\n\n※サーバー上のデータには影響しませんが、ブラウザに一時保存されていた未同期のデータは消去されます。'
       : `${targetYearMonth}${officeLabel} のブラウザ内（ローカル）保存データを削除してリセットしますか？\n\n※サーバーデータとの不整合を解消したい場合や、ブラウザのキャッシュを初期化したい場合に実行してください。`;
 
-    if (confirm(message)) {
-      if (clearAll) {
-        const keysToRemove: string[] = [];
-        for (let i = 0; i < localStorage.length; i++) {
-          const key = localStorage.key(i);
-          if (key && (key.startsWith('inspection_draft_') || key === 'inspection_drafts')) {
-            keysToRemove.push(key);
+    setConfirmModal({
+      isOpen: true,
+      title: 'ローカルデータの削除・リセット',
+      message,
+      confirmText: '削除・リセット',
+      cancelText: 'キャンセル',
+      type: 'warning',
+      onConfirm: () => {
+        if (clearAll) {
+          const keysToRemove: string[] = [];
+          for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && (key.startsWith('inspection_draft_') || key === 'inspection_drafts')) {
+              keysToRemove.push(key);
+            }
           }
+          keysToRemove.forEach((k) => localStorage.removeItem(k));
+        } else {
+          localStorage.removeItem(`inspection_draft_${draftKey}`);
+          localStorage.removeItem(`inspection_draft_${targetYearMonth}`);
         }
-        keysToRemove.forEach((k) => localStorage.removeItem(k));
-      } else {
-        localStorage.removeItem(`inspection_draft_${draftKey}`);
-        localStorage.removeItem(`inspection_draft_${targetYearMonth}`);
+
+        setItems([]);
+        lastSavedJsonRef.current = JSON.stringify([]);
+        setSaveStatus('idle');
+        setLastSavedTime(null);
+        setCarriedOverBanner(null);
+        setMigratedBanner(null);
+
+        // サーバーからの再取得を試行
+        loadDraftAndCarryOver(targetYearMonth, selectedOfficeFilter, true);
       }
-
-      setItems([]);
-      lastSavedJsonRef.current = JSON.stringify([]);
-      setSaveStatus('idle');
-      setLastSavedTime(null);
-      setCarriedOverBanner(null);
-      setMigratedBanner(null);
-
-      // サーバーからの再取得を試行
-      loadDraftAndCarryOver(targetYearMonth, selectedOfficeFilter, true);
-    }
+    });
   };
 
   // 手動同期
@@ -1429,43 +1447,49 @@ export function InspectionScheduler({
       return;
     }
 
-    if (!confirm(`「${targetItem.siteName}」の確定を取り消し、仮配置（日程・メンバー再調整可能）に戻しますか？\n\n※カレンダーの確定予定は取り消され、再度メンバー登録や日程調整が行えるようになります。`)) {
-      return;
-    }
-
-    // カレンダーイベントの連動削除
-    if (targetItem.eventId && onDeleteEvent) {
-      onDeleteEvent(targetItem.eventId);
-    } else {
-      const matched = events.find((ev) => 
-        (targetItem.eventId && ev.id === targetItem.eventId) ||
-        (targetItem.jobNo && ev.memo && ev.memo.includes(`【作業No】${targetItem.jobNo}`)) ||
-        ev.title === targetItem.siteName
-      );
-      if (matched && onDeleteEvent) {
-        onDeleteEvent(matched.id);
-      }
-    }
-
-    if (targetItem.eventId) {
-      fetch(`${API_BASE_URL}/events/${targetItem.eventId}`, {
-        method: 'DELETE',
-      }).catch(() => {});
-    }
-
-    setItems((prev) =>
-      prev.map((i) => {
-        if (i.id === itemId) {
-          return {
-            ...i,
-            status: 'placed' as const,
-            isConfirmed: false,
-            eventId: undefined,
-          };
+    setConfirmModal({
+      isOpen: true,
+      title: '確定予定の仮配置戻し',
+      message: `「${targetItem.siteName}」の確定を取り消し、仮配置（日程・メンバー再調整可能）に戻しますか？\n\n※カレンダーの確定予定は取り消され、再度メンバー登録や日程調整が行えるようになります。`,
+      confirmText: '仮配置に戻す',
+      cancelText: 'キャンセル',
+      type: 'warning',
+      onConfirm: () => {
+        // カレンダーイベントの連動削除
+        if (targetItem.eventId && onDeleteEvent) {
+          onDeleteEvent(targetItem.eventId);
+        } else {
+          const matched = events.find((ev) => 
+            (targetItem.eventId && ev.id === targetItem.eventId) ||
+            (targetItem.jobNo && ev.memo && ev.memo.includes(`【作業No】${targetItem.jobNo}`)) ||
+            ev.title === targetItem.siteName
+          );
+          if (matched && onDeleteEvent) {
+            onDeleteEvent(matched.id);
+          }
         }
-        return i;
-      })
-    );
+
+        if (targetItem.eventId) {
+          fetch(`${API_BASE_URL}/events/${targetItem.eventId}`, {
+            method: 'DELETE',
+          }).catch(() => {});
+        }
+
+        setItems((prev) =>
+          prev.map((i) => {
+            if (i.id === itemId) {
+              return {
+                ...i,
+                status: 'placed' as const,
+                isConfirmed: false,
+                eventId: undefined,
+              };
+            }
+            return i;
+          })
+        );
+      }
+    });
 
     setCopySuccessToast(`「${targetItem.siteName}」を仮配置に戻しました。日程やメンバーを再調整できます。`);
     setTimeout(() => setCopySuccessToast(null), 3500);
@@ -1700,21 +1724,37 @@ export function InspectionScheduler({
   // 一括翌月繰り越し
   const handleBatchCarryOver = () => {
     if (!pendingItems.length) return;
-    if (confirm(`未配置の ${pendingItems.length} 件をすべて「翌月繰り越し」に移動しますか？`)) {
-      setItems((prev) =>
-        prev.map((i) => (i.status === 'pending' ? { ...i, status: 'carried_over' } : i))
-      );
-    }
+    setConfirmModal({
+      isOpen: true,
+      title: '一括翌月繰り越し',
+      message: `未配置の ${pendingItems.length} 件をすべて「翌月繰り越し」に移動しますか？`,
+      confirmText: '繰り越す',
+      cancelText: 'キャンセル',
+      type: 'info',
+      onConfirm: () => {
+        setItems((prev) =>
+          prev.map((i) => (i.status === 'pending' ? { ...i, status: 'carried_over' } : i))
+        );
+      }
+    });
   };
 
   // 一括一時削除
   const handleBatchHide = () => {
     if (!pendingItems.length) return;
-    if (confirm(`未配置の ${pendingItems.length} 件をすべて「一時削除（非表示）」に移動しますか？`)) {
-      setItems((prev) =>
-        prev.map((i) => (i.status === 'pending' ? { ...i, status: 'hidden' } : i))
-      );
-    }
+    setConfirmModal({
+      isOpen: true,
+      title: '一括一時削除（非表示）',
+      message: `未配置の ${pendingItems.length} 件をすべて「一時削除（非表示）」に移動しますか？`,
+      confirmText: '非表示にする',
+      cancelText: 'キャンセル',
+      type: 'warning',
+      onConfirm: () => {
+        setItems((prev) =>
+          prev.map((i) => (i.status === 'pending' ? { ...i, status: 'hidden' } : i))
+        );
+      }
+    });
   };
 
   // ------------------------------------------
@@ -6055,6 +6095,11 @@ export function InspectionScheduler({
           </div>
         </div>
       )}
+
+      <ConfirmModal
+        {...confirmModal}
+        onClose={() => setConfirmModal((prev) => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 }

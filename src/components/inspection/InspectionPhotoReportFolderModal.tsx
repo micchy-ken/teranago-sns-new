@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { InspectionPhotoReport } from '../../types/photoReport';
 import { InspectionReportRecord } from '../../types/inspectionReport';
+import { ConfirmModal, ConfirmModalState } from '../ConfirmModal';
 import { User } from '../../types';
 import { API_BASE_URL } from '../../config/api';
 import { resolveFileUrl } from '../../utils/fileUpload';
@@ -55,6 +56,7 @@ export const InspectionPhotoReportFolderModal: React.FC<InspectionPhotoReportFol
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [filterTab, setFilterTab] = useState<'all' | 'unlinked' | 'linked' | 'draft' | 'completed'>('all');
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
 
   // フィルタリング計算
   const filteredReports = useMemo(() => {
@@ -104,28 +106,35 @@ export const InspectionPhotoReportFolderModal: React.FC<InspectionPhotoReportFol
   }, [allReports]);
 
   // 削除ハンドラー
-  const handleDelete = async (reportId: string, e: React.MouseEvent) => {
+  const handleDelete = (reportId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!window.confirm('この写真報告書を削除してもよろしいですか？（削除すると復元できません）')) {
-      return;
-    }
-    try {
-      setDeletingId(reportId);
-      const res = await fetch(`${API_BASE_URL}/photo-reports/${reportId}`, {
-        method: 'DELETE',
-      });
-      if (res.ok) {
-        onDeleteReport(reportId);
-        onRefresh();
-      } else {
-        alert('写真報告書の削除に失敗しました');
+    setConfirmModal({
+      isOpen: true,
+      title: '写真報告書の削除',
+      message: 'この写真報告書を削除してもよろしいですか？（削除すると復元できません）',
+      confirmText: '削除する',
+      cancelText: 'キャンセル',
+      type: 'danger',
+      onConfirm: async () => {
+        try {
+          setDeletingId(reportId);
+          const res = await fetch(`${API_BASE_URL}/photo-reports/${reportId}`, {
+            method: 'DELETE',
+          });
+          if (res.ok) {
+            onDeleteReport(reportId);
+            onRefresh();
+          } else {
+            alert('写真報告書の削除に失敗しました');
+          }
+        } catch (err) {
+          console.error('写真報告書削除エラー:', err);
+          alert('写真報告書の削除中に通信エラーが発生しました');
+        } finally {
+          setDeletingId(null);
+        }
       }
-    } catch (err) {
-      console.error('写真報告書削除エラー:', err);
-      alert('写真報告書の削除中に通信エラーが発生しました');
-    } finally {
-      setDeletingId(null);
-    }
+    });
   };
 
   if (!isOpen) return null;
@@ -449,6 +458,11 @@ export const InspectionPhotoReportFolderModal: React.FC<InspectionPhotoReportFol
           )}
         </div>
       </div>
+
+      <ConfirmModal
+        {...confirmModal}
+        onClose={() => setConfirmModal((prev) => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 };

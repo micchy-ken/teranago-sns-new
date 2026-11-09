@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { DailyReport, User, WorkReportStatus, CalendarEvent, OfficeMaster } from '../types';
+import { DailyReport, User, WorkReportStatus, CalendarEvent, OfficeMaster, MaintenanceDailyReportData } from '../types';
 import { 
   FileText, 
   Plus, 
@@ -29,12 +29,14 @@ import {
   ChevronRight,
   ExternalLink,
   Eye,
-  Undo2
+  Undo2,
+  RotateCcw
 } from 'lucide-react';
 import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
 import { MaintenanceDailyReportView } from './MaintenanceDailyReport';
 import { markReportAsRead } from '../utils/notifications';
 import { getLocalDateStr } from '../utils/dateUtils';
+import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 
 interface DailyReportProps {
   reports: DailyReport[];
@@ -135,6 +137,7 @@ export function DailyReportView({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingReportId, setEditingReportId] = useState<string | null>(null);
   const [viewingReport, setViewingReport] = useState<DailyReport | null>(null);
+  const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
 
   // フォームステート (週報専用)
   const [formWeekStart, setFormWeekStart] = useState<string>('2026-08-17');
@@ -412,6 +415,46 @@ export function DailyReportView({
     } finally {
       setIsSubmittingReview(false);
     }
+  };
+
+  // 週報の差し戻し実行
+  const handleExecuteWeeklyRemand = async () => {
+    if (!reviewingReport || !onUpdateReport) return;
+    setConfirmModal({
+      isOpen: true,
+      title: '週報の差し戻し',
+      message: `この週報を作成者（${reviewingReport.author?.name || '作成者'}さん）に差し戻しますか？`,
+      confirmText: '差し戻す',
+      cancelText: 'キャンセル',
+      type: 'warning',
+      onConfirm: async () => {
+        setIsSubmittingReview(true);
+        try {
+          const nowIso = new Date().toISOString();
+          const feedback = reviewFeedback.trim() 
+            ? `[差し戻し: ${currentUser.name} (${currentUser.position || '上長'})] ${reviewFeedback.trim()}`
+            : `[差し戻し: ${currentUser.name} (${currentUser.position || '上長'})] コメントなしで差し戻されました。内容を修正して再提出してください。`;
+          await onUpdateReport(reviewingReport.id, {
+            status: 'draft',
+            feedbackComment: feedback,
+            isRemanded: true,
+            remandedAt: nowIso,
+            remandedBy: `${currentUser.name} (${currentUser.position || '上長'})`,
+            author: reviewingReport.author,
+            authorId: reviewingReport.author?.id || (reviewingReport as any).authorId,
+            author_id: reviewingReport.author?.id || (reviewingReport as any).authorId,
+          });
+          alert('週報を作成者に差し戻しました。');
+          setReviewingReport(null);
+          setReviewFeedback('');
+        } catch (err) {
+          console.error('Remand error:', err);
+          alert('差し戻し処理に失敗しました。');
+        } finally {
+          setIsSubmittingReview(false);
+        }
+      }
+    });
   };
 
   // 保守日報の編集画面表示ハンドラ
@@ -716,6 +759,20 @@ export function DailyReportView({
                 const authorName = mReport.author?.name || '作成者未設定';
                 const isAuthor = Boolean(authorId && authorId === currentUser.id);
 
+                const isRemanded = mReport.status === 'draft' && Boolean(
+                  mReport.isRemanded ||
+                  (mReport as any)?.remandedAt ||
+                  mReport.feedbackComment?.includes('差し戻し') ||
+                  mData?.approvalHistory?.some((r: any) => r.action === 'remanded')
+                );
+
+                const remandMatch = mReport.feedbackComment?.match(/\[差し戻し:\s*([^\]]+)\]/);
+                const remandApprover = (mReport as any)?.remandedBy || (remandMatch ? remandMatch[1] : '上長');
+                const rawRemandComment = mReport.feedbackComment
+                  ? mReport.feedbackComment.replace(/^\[差し戻し:[^\]]*\]\s*/, '')
+                  : '';
+                const hasSpecificComment = rawRemandComment && !rawRemandComment.includes('コメントなし');
+
                 return (
                   <div
                     key={mReport.id}
@@ -741,14 +798,23 @@ export function DailyReportView({
                                   ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
                                   : mReport.status === 'submitted'
                                   ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                                  : isRemanded
+                                  ? 'bg-rose-100 text-rose-800 border border-rose-300 flex items-center gap-1 animate-pulse'
                                   : 'bg-slate-100 text-slate-700 border border-slate-200'
                               }`}
                             >
-                              {mReport.status === 'reviewed'
-                                ? '確認済'
-                                : mReport.status === 'submitted'
-                                ? (isAuthor ? '提出中' : '提出済（確認待ち）')
-                                : '下書き'}
+                              {mReport.status === 'reviewed' ? (
+                                '確認済'
+                              ) : mReport.status === 'submitted' ? (
+                                isAuthor ? '提出中' : '提出済（確認待ち）'
+                              ) : isRemanded ? (
+                                <>
+                                  <RotateCcw className="w-3 h-3 text-rose-600" />
+                                  <span>差し戻し</span>
+                                </>
+                              ) : (
+                                '下書き'
+                              )}
                             </span>
                           </div>
                           <p className="text-xs text-slate-500 mt-0.5">
@@ -761,23 +827,39 @@ export function DailyReportView({
                         {mReport.status === 'submitted' ? (
                           isAuthor ? (
                             <button
-                              onClick={async () => {
-                                if (confirm(`提出中の保守日報（${mReport.date || ''}）を取り下げて編集しますか？\n取り下げると下書き状態に戻り、再編集できるようになります。`)) {
-                                  if (onUpdateReport) {
-                                    await onUpdateReport(mReport.id, {
-                                      status: 'draft',
-                                      reportType: 'maintenance_daily',
-                                      author: mReport.author,
-                                      authorId: authorId,
-                                      author_id: authorId,
-                                    });
+                              onClick={() => {
+                                setConfirmModal({
+                                  isOpen: true,
+                                  title: '保守日報の提出取り下げ',
+                                  message: `提出中の保守日報（${mReport.date || ''}）を取り下げて編集しますか？\n取り下げると承認印欄の押印は消去され、下書き状態に戻り再編集できるようになります。`,
+                                  confirmText: '取り下げる',
+                                  cancelText: 'キャンセル',
+                                  type: 'warning',
+                                  onConfirm: async () => {
+                                    const updatedMData: MaintenanceDailyReportData | undefined = mReport.maintenanceData ? {
+                                      ...mReport.maintenanceData,
+                                      approvalHistory: [],
+                                      submittedAt: undefined,
+                                      isRemanded: false,
+                                    } : undefined;
+                                    if (onUpdateReport) {
+                                      await onUpdateReport(mReport.id, {
+                                        status: 'draft',
+                                        reportType: 'maintenance_daily',
+                                        author: mReport.author,
+                                        authorId: authorId,
+                                        author_id: authorId,
+                                        isRemanded: false,
+                                        maintenanceData: updatedMData,
+                                      });
+                                    }
+                                    setActiveMaintenanceReport({ ...mReport, status: 'draft', isRemanded: false, maintenanceData: updatedMData });
+                                    setIsEditingMaintenance(true);
                                   }
-                                  setActiveMaintenanceReport({ ...mReport, status: 'draft' });
-                                  setIsEditingMaintenance(true);
-                                }
+                                });
                               }}
                               className="px-3 py-1.5 bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs"
-                              title="提出を取り下げて編集します"
+                              title="提出を取り下げて編集します（承認印は消去されます）"
                             >
                               <Undo2 className="w-3.5 h-3.5 text-amber-600" />
                               取り下げ・編集
@@ -801,10 +883,22 @@ export function DailyReportView({
                               setActiveMaintenanceReport(mReport);
                               setIsEditingMaintenance(true);
                             }}
-                            className="px-3 py-1.5 bg-emerald-50 text-emerald-800 border border-emerald-300 hover:bg-emerald-100 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
+                            className="px-3.5 py-1.5 bg-emerald-50 text-emerald-800 border border-emerald-300 hover:bg-emerald-100 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
                           >
                             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                             確認・閲覧
+                          </button>
+                        ) : isRemanded ? (
+                          <button
+                            onClick={() => {
+                              setActiveMaintenanceReport(mReport);
+                              setIsEditingMaintenance(true);
+                            }}
+                            className="px-3.5 py-1.5 bg-rose-50 text-rose-900 border border-rose-300 hover:bg-rose-100 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                            title="差し戻された保守日報を修正して再提出します"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5 text-rose-600" />
+                            修正・再提出
                           </button>
                         ) : (
                           <button
@@ -812,7 +906,7 @@ export function DailyReportView({
                               setActiveMaintenanceReport(mReport);
                               setIsEditingMaintenance(true);
                             }}
-                            className="px-3 py-1.5 bg-slate-100 text-slate-700 border border-slate-300 hover:bg-slate-200 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
+                            className="px-3.5 py-1.5 bg-slate-100 text-slate-700 border border-slate-300 hover:bg-slate-200 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
                           >
                             <Edit3 className="w-3.5 h-3.5" />
                             開く・編集
@@ -829,6 +923,28 @@ export function DailyReportView({
                         )}
                       </div>
                     </div>
+
+                    {/* 差し戻し時の専用目立つコールアウト（コメント有無に関わらず明示） */}
+                    {isRemanded && (
+                      <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 flex items-start gap-2.5">
+                        <RotateCcw className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                        <div className="text-xs flex-1">
+                          <div className="font-bold text-rose-900 flex items-center gap-2">
+                            <span>上長（{remandApprover}）より差し戻されました</span>
+                          </div>
+                          {hasSpecificComment ? (
+                            <p className="text-rose-800 mt-1 font-medium bg-white/90 p-2.5 rounded-lg border border-rose-200 whitespace-pre-wrap">
+                              <strong className="block text-[11px] text-rose-700 font-bold mb-0.5">指示コメント:</strong>
+                              {rawRemandComment}
+                            </p>
+                          ) : (
+                            <p className="text-rose-700/90 mt-1 italic bg-white/60 p-2 rounded border border-rose-100">
+                              ※上長からの個別コメントはありません。内容を確認・修正のうえ「修正・再提出」を行ってください。
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    )}
 
                     {/* 日報サマリー数値 */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-amber-50/50 p-3 rounded-xl border border-amber-100 text-xs">
@@ -894,6 +1010,11 @@ export function DailyReportView({
               const isAuthor = (report.author?.id || (report as any).authorId) === currentUser.id;
               const isAssignedSupervisor = (report.supervisorId || report.supervisor?.id) === currentUser.id;
               const isPendingMyReview = isAssignedSupervisor && report.status === 'submitted';
+              const weeklyFeedback = report.feedbackComment || (report as any).review_feedback || '';
+              const isWeeklyRemanded = report.isRemanded || (report.status === 'draft' && weeklyFeedback.startsWith('[差し戻し]'));
+              const weeklyRemandApprover = report.remandedBy || (report.supervisor?.name || (report as any).supervisorName) || '上長';
+              const rawWeeklyRemandComment = weeklyFeedback.replace(/^\[差し戻し[^\]]*\]\s*/, '').trim();
+              const hasSpecificWeeklyComment = rawWeeklyRemandComment.length > 0 && !rawWeeklyRemandComment.includes('※上長からの個別コメントはありません');
 
               return (
                 <div 
@@ -964,29 +1085,43 @@ export function DailyReportView({
                           <Clock className="w-3.5 h-3.5 text-amber-500" />
                           {isAuthor ? '提出中' : '確認待ち'}
                         </span>
+                      ) : isWeeklyRemanded ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-800 border border-rose-300 animate-pulse">
+                          <RotateCcw className="w-3.5 h-3.5 text-rose-600" />
+                          差し戻し
+                        </span>
                       ) : (
                         <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600 border border-slate-200">
                           下書き
                         </span>
                       )}
 
-                      {/* 週報ステータス連動ボタン: 本人提出中は「取り下げ・編集」、上長は「確認・承認」、確認済は「確認・閲覧」、下書きは「開く・編集」 */}
+                      {/* 週報ステータス連動ボタン: 本人提出中は「取り下げ・編集」、上長は「確認・承認」、確認済は「確認・閲覧」、差し戻しは「修正・再提出」、下書きは「開く・編集」 */}
                       {report.status === 'submitted' ? (
                         isAuthor ? (
                           <button
-                            onClick={async () => {
-                              if (confirm(`提出中の週報（${report.weekLabel || report.weekStartDate || ''}）を取り下げて編集しますか？\n取り下げると下書き状態に戻り、再編集できるようになります。`)) {
-                                if (onUpdateReport) {
-                                  await onUpdateReport(report.id, {
-                                    status: 'draft',
-                                    reportType: 'weekly',
-                                    author: report.author,
-                                    authorId: report.author?.id || (report as any).authorId,
-                                    author_id: report.author?.id || (report as any).authorId,
-                                  });
+                            onClick={() => {
+                              setConfirmModal({
+                                isOpen: true,
+                                title: '週報の提出取り下げ',
+                                message: `提出中の週報（${report.weekLabel || report.weekStartDate || ''}）を取り下げて編集しますか？\n取り下げると下書き状態に戻り、再編集できるようになります。`,
+                                confirmText: '取り下げる',
+                                cancelText: 'キャンセル',
+                                type: 'warning',
+                                onConfirm: async () => {
+                                  if (onUpdateReport) {
+                                    await onUpdateReport(report.id, {
+                                      status: 'draft',
+                                      reportType: 'weekly',
+                                      author: report.author,
+                                      authorId: report.author?.id || (report as any).authorId,
+                                      author_id: report.author?.id || (report as any).authorId,
+                                      isRemanded: false,
+                                    });
+                                  }
+                                  handleOpenEditModal({ ...report, status: 'draft', isRemanded: false });
                                 }
-                                handleOpenEditModal({ ...report, status: 'draft' });
-                              }
+                              });
                             }}
                             className="px-3 py-1.5 bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs"
                             title="提出を取り下げて編集します"
@@ -1017,6 +1152,15 @@ export function DailyReportView({
                         >
                           <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                           確認・閲覧
+                        </button>
+                      ) : isWeeklyRemanded ? (
+                        <button
+                          onClick={() => handleOpenEditModal(report)}
+                          className="px-3.5 py-1.5 bg-rose-50 text-rose-900 border border-rose-300 hover:bg-rose-100 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                          title="差し戻された週報を修正して再提出します"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5 text-rose-600" />
+                          修正・再提出
                         </button>
                       ) : (
                         <button
@@ -1056,6 +1200,28 @@ export function DailyReportView({
                       )}
                     </div>
                   </div>
+
+                  {/* 差し戻し時の専用目立つコールアウト（コメント有無に関わらず明示） */}
+                  {isWeeklyRemanded && (
+                    <div className="mx-5 sm:mx-6 mt-3 bg-rose-50 border border-rose-200 rounded-xl p-3 flex items-start gap-2.5">
+                      <RotateCcw className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                      <div className="text-xs flex-1">
+                        <div className="font-bold text-rose-900 flex items-center gap-2">
+                          <span>上長（{weeklyRemandApprover}）より差し戻されました</span>
+                        </div>
+                        {hasSpecificWeeklyComment ? (
+                          <p className="text-rose-800 mt-1 font-medium bg-white/90 p-2.5 rounded-lg border border-rose-200 whitespace-pre-wrap">
+                            <strong className="block text-[11px] text-rose-700 font-bold mb-0.5">指示コメント:</strong>
+                            {rawWeeklyRemandComment}
+                          </p>
+                        ) : (
+                          <p className="text-rose-700/90 mt-1 italic bg-white/60 p-2 rounded border border-rose-100">
+                            ※上長からの個別コメントはありません。内容を確認・修正のうえ「修正・再提出」を行ってください。
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Card Content Grid */}
                   <div className="p-5 sm:p-6 space-y-5">
@@ -1723,23 +1889,35 @@ export function DailyReportView({
               </div>
             </div>
 
-            <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-3 shrink-0">
-              <button 
-                type="button" 
-                onClick={() => setReviewingReport(null)} 
-                className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-100 cursor-pointer"
-              >
-                キャンセル
-              </button>
-              <button 
-                type="button" 
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 shrink-0">
+              <button
+                type="button"
                 disabled={isSubmittingReview}
-                onClick={handleExecuteReview}
-                className="flex items-center gap-1.5 px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-colors shadow-xs cursor-pointer"
+                onClick={handleExecuteWeeklyRemand}
+                className="flex items-center gap-1.5 px-4 py-2 bg-white border border-rose-300 text-rose-700 hover:bg-rose-50 rounded-lg text-xs font-bold transition-colors shadow-2xs cursor-pointer disabled:opacity-50"
+                title="週報を作成者に差し戻します（下書きに戻る）"
               >
-                <CheckCircle2 className="w-4 h-4" />
-                {isSubmittingReview ? '送信中...' : '確認済にして返信する'}
+                <RotateCcw className="w-3.5 h-3.5 text-rose-600" />
+                <span>差し戻し</span>
               </button>
+              <div className="flex items-center gap-2">
+                <button 
+                  type="button" 
+                  onClick={() => setReviewingReport(null)} 
+                  className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-100 cursor-pointer"
+                >
+                  キャンセル
+                </button>
+                <button 
+                  type="button" 
+                  disabled={isSubmittingReview}
+                  onClick={handleExecuteReview}
+                  className="flex items-center gap-1.5 px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-colors shadow-xs cursor-pointer disabled:opacity-50"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  {isSubmittingReview ? '送信中...' : '確認済にして返信する'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1812,6 +1990,11 @@ export function DailyReportView({
           </div>
         </div>
       )}
+
+      <ConfirmModal
+        {...confirmModal}
+        onClose={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 }

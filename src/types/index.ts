@@ -569,6 +569,8 @@ export interface MaintenanceWorkRow {
   replacementValue: number;  // 取替数値
   buildingMaterialValue: number; // 建材数値 (※手入力 - 緑色)
   workHours?: string;      // 算出作業時間 (e.g. "2:00")
+  jobNo?: string;          // 作業No / 受付番号 (スケジュール・点検報告書連動用)
+  eventId?: string;        // カレンダー予定ID
 }
 
 export interface MaintenanceOfficeWorkRow {
@@ -608,8 +610,13 @@ export interface MaintenanceDailyReportData {
   dailyTotalValue?: number;     // 当日数値合計 (自動計算)
   monthlyTotalValue?: number;   // 当月数値合計 (自動計算/累計)
 
-  // 多段階承認履歴
+  // 多段階承認・差し戻し・提出情報
   approvalHistory?: ReportApprovalRecord[];
+  submittedAt?: string;
+  isRemanded?: boolean;
+  remandedAt?: string;
+  remandedBy?: string;
+  feedbackComment?: string;
 }
 
 // 保守日報 多段階承認履歴レコード
@@ -619,7 +626,7 @@ export interface ReportApprovalRecord {
   approverName: string;
   approverPosition?: string;
   comment?: string;
-  action: 'forwarded' | 'final_approved' | 'remanded';
+  action: 'forwarded' | 'final_approved' | 'remanded' | 'submitted';
   approvedAt: string; // ISO string
 }
 
@@ -706,6 +713,9 @@ export interface DailyReport {
   reviewedAt?: string; // 上長確認日時
   feedbackComment?: string; // 上長コメント・フィードバック (互換用)
   review_feedback?: string; // 上長コメント・フィードバック (新カラム)
+  isRemanded?: boolean; // 差し戻し状態フラグ
+  remandedAt?: string; // 差し戻し日時
+  remandedBy?: string; // 差し戻し実行者
   approvalHistory?: ReportApprovalRecord[]; // 多段階承認履歴
   maintenanceData?: MaintenanceDailyReportData; // 保守日報専用構造データ
   constructionData?: Record<string, any>; // 工務日報専用拡張データ (JSON)

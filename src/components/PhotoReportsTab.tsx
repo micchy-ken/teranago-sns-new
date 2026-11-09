@@ -28,6 +28,7 @@ import {
 import { User, CalendarEvent } from '../types';
 import { InspectionPhotoReport, PhotoReportItem } from '../types/photoReport';
 import { InspectionReportRecord } from '../types/inspectionReport';
+import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { API_BASE_URL } from '../config/api';
 import { InspectionPhotoReportModal } from './inspection/InspectionPhotoReportModal';
 
@@ -64,6 +65,7 @@ export const PhotoReportsTab: React.FC<PhotoReportsTabProps> = ({
   const [modalMode, setModalMode] = useState<'edit' | 'preview'>('edit');
   const [selectedReport, setSelectedReport] = useState<InspectionPhotoReport | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
 
   // トースト通知
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -173,29 +175,35 @@ export const PhotoReportsTab: React.FC<PhotoReportsTabProps> = ({
   };
 
   // 削除ハンドラー
-  const handleDelete = async (reportId: string, title: string, e: React.MouseEvent) => {
+  const handleDelete = (reportId: string, title: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!window.confirm(`「${title || '写真報告書'}」を削除してもよろしいですか？\n※この操作は取り消せません。`)) {
-      return;
-    }
-
-    try {
-      setDeletingId(reportId);
-      const res = await fetch(`${API_BASE_URL}/photo-reports/${reportId}`, {
-        method: 'DELETE',
-      });
-      if (res.ok) {
-        setReports(prev => prev.filter(r => r.id !== reportId));
-        showToast('写真報告書を削除しました');
-      } else {
-        alert('写真報告書の削除に失敗しました');
+    setConfirmModal({
+      isOpen: true,
+      title: '写真報告書の削除',
+      message: `「${title || '写真報告書'}」を削除してもよろしいですか？\n※この操作は取り消せません。`,
+      confirmText: '削除する',
+      cancelText: 'キャンセル',
+      type: 'danger',
+      onConfirm: async () => {
+        try {
+          setDeletingId(reportId);
+          const res = await fetch(`${API_BASE_URL}/photo-reports/${reportId}`, {
+            method: 'DELETE',
+          });
+          if (res.ok) {
+            setReports(prev => prev.filter(r => r.id !== reportId));
+            showToast('写真報告書を削除しました');
+          } else {
+            alert('写真報告書の削除に失敗しました');
+          }
+        } catch (err) {
+          console.error('写真報告書削除エラー:', err);
+          alert('通信エラーにより削除できませんでした');
+        } finally {
+          setDeletingId(null);
+        }
       }
-    } catch (err) {
-      console.error('写真報告書削除エラー:', err);
-      alert('通信エラーにより削除できませんでした');
-    } finally {
-      setDeletingId(null);
-    }
+    });
   };
 
   // 統計カウンター計算
@@ -850,6 +858,11 @@ export const PhotoReportsTab: React.FC<PhotoReportsTabProps> = ({
         inspectionReportsList={inspectionReports}
         onSaved={handleSaved}
         initialTab={modalMode}
+      />
+
+      <ConfirmModal
+        {...confirmModal}
+        onClose={() => setConfirmModal((prev) => ({ ...prev, isOpen: false }))}
       />
     </div>
   );

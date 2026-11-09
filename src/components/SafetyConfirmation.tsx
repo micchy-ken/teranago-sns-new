@@ -42,6 +42,7 @@ import { User, OfficeMaster, DivisionMaster, DisasterType } from '../types';
 import { API_BASE_URL } from '../config/api';
 import { getAvatarUrl } from '../utils/avatar';
 import { markSafetyEventAsResponded } from '../utils/notifications';
+import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 
 export interface SafetyConfirmationEvent {
   id: string;
@@ -135,6 +136,7 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
   const [activeTab, setActiveTab] = useState<'dashboard' | 'targets' | 'trigger' | 'jma_auto'>(
     initialTab && initialTab !== 'respond' ? (initialTab as any) : 'dashboard'
   );
+  const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
 
   // JMA Auto-Trigger State
   const [jmaSettings, setJmaSettings] = useState<{
@@ -451,9 +453,15 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
         onConfirm: doClose,
       });
     } else {
-      if (window.confirm('この安否確認イベントを終了（アーカイブ）にしますか？')) {
-        await doClose();
-      }
+      setConfirmModal({
+        isOpen: true,
+        title: '安否確認の終了（アーカイブ）',
+        message: 'この安否確認イベントを終了（ステータス完了）にしますか？終了後も集計結果の閲覧やCSV出力は可能です。',
+        confirmText: '終了する',
+        cancelText: 'キャンセル',
+        type: 'info',
+        onConfirm: doClose,
+      });
     }
   };
 
@@ -494,9 +502,15 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
         onConfirm: doDelete,
       });
     } else {
-      if (window.confirm(`安否確認イベント「${evTitle}」およびすべての回答データを完全に削除しますか？`)) {
-        await doDelete();
-      }
+      setConfirmModal({
+        isOpen: true,
+        title: '安否確認イベントの削除',
+        message: `安否確認イベント「${evTitle}」およびすべての回答データを完全に削除しますか？`,
+        confirmText: '削除する',
+        cancelText: 'キャンセル',
+        type: 'danger',
+        onConfirm: doDelete,
+      });
     }
   };
 
@@ -528,9 +542,15 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
         onConfirm: doDelete,
       });
     } else {
-      if (window.confirm(`${userName} さんの安否回答データを削除しますか？`)) {
-        await doDelete();
-      }
+      setConfirmModal({
+        isOpen: true,
+        title: '安否回答の個別削除・取消',
+        message: `${userName} さんの安否回答データを削除しますか？`,
+        confirmText: '削除する',
+        cancelText: 'キャンセル',
+        type: 'danger',
+        onConfirm: doDelete,
+      });
     }
   };
 
@@ -777,9 +797,17 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
         },
       });
     } else {
-      if (window.confirm(confirmText)) {
-        await executeTrigger(payload);
-      }
+      setConfirmModal({
+        isOpen: true,
+        title: isTestMode ? '安否確認テスト発動' : '⚠️ 緊急安否確認の一斉発動',
+        message: confirmText,
+        confirmText: '発動して一斉送信',
+        cancelText: 'キャンセル',
+        type: isTestMode ? 'info' : 'danger',
+        onConfirm: async () => {
+          await executeTrigger(payload);
+        },
+      });
     }
   };
 
@@ -879,27 +907,48 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
   const handleSendReminder = async () => {
     if (!activeEvent) return;
     const confirmMsg = `未回答の対象者全員にリマインド通知（WebPush & メール）を一斉再送します。よろしいですか？`;
-    if (!window.confirm(confirmMsg)) return;
-
-    setIsSending(true);
-    setActionMessage(null);
-    try {
-      const res = await fetch(`${API_BASE_URL}/safety-events/${activeEvent.id}/remind`, {
-        method: 'POST',
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setActionMessage({
-          type: 'success',
-          text: `未回答者 ${data.remindedCount || 0}名 にリマインド通知を再送しました。`,
+    
+    const executeRemind = async () => {
+      setIsSending(true);
+      setActionMessage(null);
+      try {
+        const res = await fetch(`${API_BASE_URL}/safety-events/${activeEvent.id}/remind`, {
+          method: 'POST',
         });
-      } else {
-        setActionMessage({ type: 'error', text: data.error || 'リマインド送信に失敗しました。' });
+        const data = await res.json();
+        if (res.ok) {
+          setActionMessage({
+            type: 'success',
+            text: `未回答者 ${data.remindedCount || 0}名 にリマインド通知を再送しました。`,
+          });
+        } else {
+          setActionMessage({ type: 'error', text: data.error || 'リマインド送信に失敗しました。' });
+        }
+      } catch (err: any) {
+        setActionMessage({ type: 'error', text: 'エラー: ' + err.message });
+      } finally {
+        setIsSending(false);
       }
-    } catch (err: any) {
-      setActionMessage({ type: 'error', text: 'エラー: ' + err.message });
-    } finally {
-      setIsSending(false);
+    };
+
+    if (onOpenConfirmModal) {
+      onOpenConfirmModal({
+        title: 'リマインド一斉再送',
+        message: confirmMsg,
+        confirmLabel: '一斉再送する',
+        isDangerous: false,
+        onConfirm: executeRemind,
+      });
+    } else {
+      setConfirmModal({
+        isOpen: true,
+        title: 'リマインド一斉再送',
+        message: confirmMsg,
+        confirmText: '一斉再送する',
+        cancelText: 'キャンセル',
+        type: 'info',
+        onConfirm: executeRemind,
+      });
     }
   };
 
@@ -3836,6 +3885,11 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
           </div>
         </div>
       )}
+
+      <ConfirmModal
+        {...confirmModal}
+        onClose={() => setConfirmModal((prev) => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 };

@@ -55,8 +55,12 @@ import { getAvatarUrl } from '../utils/avatar';
 import { getLocalDateStr } from '../utils/dateUtils';
 import { expandRecurringEvents } from '../utils/recurrenceUtils';
 import { ApplicationModal } from './ApplicationModal';
+import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { API_BASE_URL } from '../config/api';
 import { createDefaultOfficeConfig } from './admin/MaintenanceOfficeConfigAdmin';
+import { InspectionReportRecord } from '../types/inspectionReport';
+import { InspectionReportPrintView } from './inspection/InspectionReportPrintView';
+import { fetchInspectionReportsApi, getAllInspectionReports, extractJobNoFromEvent } from '../utils/inspectionReportStorage';
 import { 
   isBranchManager, 
   resolveSupervisorChain, 
@@ -535,6 +539,92 @@ export function MaintenanceDailyReportView({
     return report?.feedbackComment || (report as any)?.review_feedback || '';
   });
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
+
+  // 点検報告書データ & プレビュー表示用
+  const [inspectionReports, setInspectionReports] = useState<InspectionReportRecord[]>(() => getAllInspectionReports());
+  const [previewInspectionReport, setPreviewInspectionReport] = useState<InspectionReportRecord | null>(null);
+
+  // 日報日付変更時やマウント時にクラウドDBおよびローカルキャッシュから点検報告書を最新フェッチ
+  useEffect(() => {
+    let isMounted = true;
+    fetchInspectionReportsApi().then(reports => {
+      if (isMounted && reports && Array.isArray(reports)) {
+        setInspectionReports(reports);
+      }
+    }).catch(err => {
+      console.warn('Failed to fetch inspection reports for daily report:', err);
+    });
+    return () => { isMounted = false; };
+  }, [reportDate]);
+
+  // 行に紐づく点検報告書を作業No最優先で照合（ハイブリッド照合）
+  const getInspectionReportForRow = (row: MaintenanceWorkRow): InspectionReportRecord | undefined => {
+    if (!inspectionReports || inspectionReports.length === 0) return undefined;
+
+    // 1. row.jobNo による完全一致（最優先）
+    if (row.jobNo && row.jobNo.trim()) {
+      const trimmed = row.jobNo.trim();
+      const match = inspectionReports.find(r => r.jobNo && r.jobNo.trim() === trimmed);
+      if (match) return match;
+    }
+
+    // 2. row.eventId による scheduleEventId 一致
+    if (row.eventId && row.eventId.trim()) {
+      const match = inspectionReports.find(r => r.scheduleEventId === row.eventId);
+      if (match) return match;
+    }
+
+    // 3. 現場名や作業内容に含まれる【作業No】... または 作業No: ... の抽出照合
+    const fullRowText = `${row.siteName || ''} ${row.workDescription || ''}`;
+    const jobNoMatch = fullRowText.match(/【作業No】\s*([^\s\r\n】]+)/) || fullRowText.match(/作業No[：:]\s*([^\s\r\n]+)/);
+    if (jobNoMatch && jobNoMatch[1] && jobNoMatch[1].trim() !== '未設定') {
+      const extractedNo = jobNoMatch[1].trim();
+      const match = inspectionReports.find(r => r.jobNo && r.jobNo.trim() === extractedNo);
+      if (match) return match;
+    }
+
+    // 4. カレンダーイベントからの逆引き（同日・同現場名のイベントから jobNo / eventId を探索）
+    if (calendarEvents && calendarEvents.length > 0 && row.siteName?.trim()) {
+      const cleanSiteName = row.siteName.trim().replace(/^[●\s]+/, '').toLowerCase();
+      const matchedEv = calendarEvents.find(ev => {
+        const evDate = getEventDateStrJST(ev.start);
+        if (evDate !== reportDate) return false;
+        const evTitleClean = (ev.title || '').replace(/【.*?】/, '').replace(/^[●\s]+/, '').trim().toLowerCase();
+        const evLocClean = (ev.location || '').trim().toLowerCase();
+        return (evTitleClean && (evTitleClean.includes(cleanSiteName) || cleanSiteName.includes(evTitleClean))) ||
+               (evLocClean && (evLocClean.includes(cleanSiteName) || cleanSiteName.includes(evLocClean)));
+      });
+
+      if (matchedEv) {
+        const evJobNo = (matchedEv as any).jobNo || extractJobNoFromEvent(matchedEv);
+        if (evJobNo && evJobNo.trim()) {
+          const match = inspectionReports.find(r => r.jobNo && r.jobNo.trim() === evJobNo.trim());
+          if (match) return match;
+        }
+        if (matchedEv.id) {
+          const match = inspectionReports.find(r => r.scheduleEventId === matchedEv.id);
+          if (match) return match;
+        }
+      }
+    }
+
+    // 5. 現場名（customerName）と日付（inspectionDate）によるフォールバック照合
+    if (row.siteName && row.siteName.trim()) {
+      const cleanSiteName = row.siteName.trim().replace(/^[●\s]+/, '').toLowerCase();
+      const match = inspectionReports.find(r => {
+        const isDateMatch = r.inspectionDate === reportDate;
+        if (!isDateMatch) return false;
+        const reportCust = (r.customerName || '').replace(/^[●\s]+/, '').trim().toLowerCase();
+        const reportAddr = (r.address || '').trim().toLowerCase();
+        return (reportCust && (reportCust.includes(cleanSiteName) || cleanSiteName.includes(reportCust))) ||
+               (reportAddr && (reportAddr.includes(cleanSiteName) || cleanSiteName.includes(reportAddr)));
+      });
+      if (match) return match;
+    }
+
+    return undefined;
+  };
 
   // report または maintenanceData 変更時の状態復元同期
   useEffect(() => {
@@ -749,74 +839,175 @@ export function MaintenanceDailyReportView({
     return Boolean(reportAuthor.id === currentUser.id);
   }, [reportAuthor.id, currentUser.id]);
 
-  // 承認印欄（支店長・課長・係長）の押印情報判定
-  const stampBoxInfo = useMemo(() => {
-    // 係長枠レコード
-    const rawChief = approvalHistory.find(
-      r => (r.approverPosition || '').includes('係長') || r.step === 1
-    );
-    // 課長枠レコード
-    const rawSection = approvalHistory.find(
-      r => (r.approverPosition || '').includes('課長') || (r.step === 2 && r.action !== 'final_approved')
-    );
-    // 支店長枠 (最終承認) レコード
-    const rawBranch = approvalHistory.find(
-      r => r.action === 'final_approved' || isBranchManager({ position: r.approverPosition } as User)
-    );
+  // 差し戻し状態の検知・情報抽出
+  const remandInfo = useMemo(() => {
+    if (status !== 'draft') return null;
 
-    const formatRecord = (rec?: ReportApprovalRecord) => {
-      if (!rec) return null;
+    // 1. report.isRemanded または report.remandedAt
+    if (report?.isRemanded || (report as any)?.remandedAt) {
+      return {
+        approverName: (report as any)?.remandedBy || '上長',
+        comment: report.feedbackComment ? report.feedbackComment.replace(/^\[差し戻し:[^\]]*\]\s*/, '') : '',
+        approvedAt: (report as any)?.remandedAt || report.updatedAt,
+      };
+    }
+
+    // 2. approvalHistory 内の remanded レコード
+    const lastRemand = [...approvalHistory].reverse().find(r => r.action === 'remanded');
+    if (lastRemand) {
+      return {
+        approverName: `${lastRemand.approverName}${lastRemand.approverPosition ? ` (${lastRemand.approverPosition})` : ''}`,
+        comment: lastRemand.comment || '',
+        approvedAt: lastRemand.approvedAt,
+      };
+    }
+
+    // 3. feedbackComment 内の [差し戻し] 表記
+    if (report?.feedbackComment?.includes('差し戻し')) {
+      const m = report.feedbackComment.match(/\[差し戻し:\s*([^\]]+)\]/);
+      const c = report.feedbackComment.replace(/\[差し戻し:[^\]]*\]\s*/, '');
+      return {
+        approverName: m ? m[1] : '上長',
+        comment: c || '',
+        approvedAt: (report as any)?.updatedAt || (report as any)?.updated_at,
+      };
+    }
+
+    return null;
+  }, [report, status, approvalHistory]);
+
+  const isRemanded = Boolean(remandInfo);
+
+  // 承認印欄（支店長・課長・係長/担当）の押印情報判定
+  const stampBoxInfo = useMemo(() => {
+    // 下書き（draft）状態（差し戻し中・取り下げ後を含む）の場合は、一切の押印・確認中を表示せず全消去（印）とする
+    if (status === 'draft') {
+      return {
+        chief: { title: '係長 / 担当', record: null, isCurrentTarget: false, user: null, stampLabel: '提出' },
+        section: { title: '課長', record: null, isCurrentTarget: false, user: null, stampLabel: '確認' },
+        branch: { title: '支店長', record: null, isCurrentTarget: false, user: null, stampLabel: '承認' },
+      };
+    }
+
+    const formatRecord = (rec?: Partial<ReportApprovalRecord> | null, defaultLabel: string = '確認') => {
+      if (!rec || !rec.approverName) return null;
       const { surname, dateStr } = formatStampNameAndDate(rec.approverName, rec.approvedAt);
       return {
         ...rec,
         stampName: surname,
         stampDate: dateStr,
+        stampLabel: defaultLabel,
       };
     };
 
-    const chiefRecord = formatRecord(rawChief);
-    const sectionRecord = formatRecord(rawSection);
-    const branchRecord = formatRecord(rawBranch);
+    // 有効な承認履歴（差し戻し以前のものは除外）
+    const validHistory = approvalHistory.filter(r => r.action !== 'remanded');
 
-    // 承認チェーンから各スロットの該当候補者を抽出
-    const chainChiefUser = supervisorChain.find(u => (u.position || '').includes('係長')) || supervisorChain[0];
-    const chainSectionUser = supervisorChain.find(u => (u.position || '').includes('課長')) || supervisorChain[1];
+    // 1. 支店長 (最終承認) レコード
+    const rawBranch = validHistory.find(
+      r => r.action === 'final_approved' || (status === 'reviewed' && isBranchManager({ position: r.approverPosition } as User))
+    );
+
+    // 2. 課長 (第2承認 / 上長) レコード
+    const rawSection = validHistory.find(
+      r => r.action === 'forwarded' && (
+        (r.approverPosition || '').includes('課長') ||
+        (r.step === 2 && !isBranchManager({ position: r.approverPosition } as User))
+      )
+    );
+
+    // 3. 係長 (第1承認 / 係長) レコード
+    const rawChief = validHistory.find(
+      r => r.action === 'forwarded' && (
+        (r.approverPosition || '').includes('係長') ||
+        (r.step === 1 && !isBranchManager({ position: r.approverPosition } as User) && !(r.approverPosition || '').includes('課長'))
+      )
+    );
+
+    // 4. 提出担当 (作成者) の提出印レコード
+    const rawSubmission = validHistory.find(r => r.action === 'submitted') || (
+      // 提出済みだが履歴に submitted レコードがまだない場合の自動フォールバック（作成者の提出印）
+      (status === 'submitted' || status === 'reviewed') ? {
+        step: 0,
+        approverId: reportAuthor.id,
+        approverName: reportAuthor.name,
+        approverPosition: reportAuthor.position || '担当',
+        action: 'submitted' as const,
+        approvedAt: report?.submittedAt || maintenanceData?.submittedAt || report?.date || new Date().toISOString(),
+      } : null
+    );
+
+    const branchRecord = formatRecord(rawBranch, '承認');
+    const sectionRecord = formatRecord(rawSection, '確認');
+
+    // 右枠の印鑑判定: 係長が確認していれば係長印(確認)、それ以前で日報が提出中/確認済なら作成者(担当)の提出印(提出)
+    let chiefBoxRecord: any = null;
+    let chiefBoxTitle = '係長 / 担当';
+    let chiefBoxLabel = '提出';
+
+    if (rawChief) {
+      chiefBoxRecord = formatRecord(rawChief, '確認');
+      chiefBoxTitle = '係長';
+      chiefBoxLabel = '確認';
+    } else if (rawSubmission) {
+      chiefBoxRecord = formatRecord(rawSubmission, '提出');
+      chiefBoxTitle = (reportAuthor.position && reportAuthor.position.includes('係長')) ? '係長' : '担当';
+      chiefBoxLabel = '提出';
+    }
+
+    // 各スロットの候補ユーザー
     const chainBranchUser = supervisorChain.find(u => isBranchManager(u)) || supervisorChain[supervisorChain.length - 1];
+    const chainSectionUser = supervisorChain.find(u => (u.position || '').includes('課長')) || supervisorChain.find(u => u.id !== chainBranchUser?.id && !isBranchManager(u));
+    const chainChiefUser = supervisorChain.find(u => (u.position || '').includes('係長')) || (supervisorChain[0]?.id !== chainSectionUser?.id ? supervisorChain[0] : null);
 
-    // 現在どの段階で待機中か判定
-    const isSubmitted = report?.status === 'submitted';
+    // 現在どの段階で待機中か判定 (提出中のみ「確認中」を表示)
+    const isSubmitted = status === 'submitted';
+
+    // 支店長待機中: 課長承認済み、または担当/係長から直接支店長へ回覧された場合
     const isCurrentBranch = isSubmitted && !branchRecord && (
       (currentAssignedSupervisor && isBranchManager(currentAssignedSupervisor)) ||
       (!currentAssignedSupervisor && !nextSupervisor) ||
-      (!!sectionRecord || supervisorChain.length <= 1)
+      (!!sectionRecord)
     );
+
+    // 課長待機中: 支店長待機中でなく、課長印がなく、現在の担当上長が課長または係長承認後
     const isCurrentSection = isSubmitted && !sectionRecord && !branchRecord && !isCurrentBranch && (
-      (currentAssignedSupervisor && (currentAssignedSupervisor.position || '').includes('課長')) ||
-      (!!chiefRecord && supervisorChain.length >= 2)
+      (currentAssignedSupervisor && (
+        (currentAssignedSupervisor.position || '').includes('課長') ||
+        (!isBranchManager(currentAssignedSupervisor) && !(currentAssignedSupervisor.position || '').includes('係長'))
+      )) ||
+      (!!rawChief && supervisorChain.length >= 2)
     );
-    const isCurrentChief = isSubmitted && !chiefRecord && !sectionRecord && !branchRecord && !isCurrentBranch && !isCurrentSection;
+
+    // 係長待機中: 上記以外で係長枠が未確認かつ現在の担当が係長の場合
+    const isCurrentChief = isSubmitted && !rawChief && !sectionRecord && !branchRecord && !isCurrentBranch && !isCurrentSection && (
+      Boolean(currentAssignedSupervisor && (currentAssignedSupervisor.position || '').includes('係長'))
+    );
 
     return {
       chief: {
-        title: '係長',
-        record: chiefRecord,
+        title: chiefBoxTitle,
+        record: chiefBoxRecord,
         isCurrentTarget: isCurrentChief,
         user: chainChiefUser,
+        stampLabel: chiefBoxLabel,
       },
       section: {
-        title: '課長',
+        title: (chainSectionUser?.position && chainSectionUser.position.includes('課長')) ? chainSectionUser.position : '課長',
         record: sectionRecord,
         isCurrentTarget: isCurrentSection,
         user: chainSectionUser,
+        stampLabel: '確認',
       },
       branch: {
-        title: '支店長',
+        title: (chainBranchUser?.position && chainBranchUser.position.includes('所長')) ? '所長' : '支店長',
         record: branchRecord,
         isCurrentTarget: isCurrentBranch,
         user: chainBranchUser,
+        stampLabel: '承認',
       },
     };
-  }, [approvalHistory, currentAssignedSupervisor, nextSupervisor, report?.status, supervisorChain]);
+  }, [approvalHistory, currentAssignedSupervisor, nextSupervisor, reportAuthor, status, supervisorChain, maintenanceData, report]);
 
   // 提出済み日報表示用（入力のある有効行のみ抽出）
   const displayedMainRows = useMemo(() => {
@@ -1498,6 +1689,8 @@ export function MaintenanceDailyReportView({
           : '';
       }
 
+      const eventJobNo = (ev as any).jobNo || extractJobNoFromEvent(ev) || '';
+
       newRows[idx] = {
         id: `row-${idx + 1}`,
         directGo: isDirectGo,
@@ -1519,6 +1712,8 @@ export function MaintenanceDailyReportView({
         replacementValue,
         buildingMaterialValue: 0,
         workHours: calculateTimeDiff(startT, endT),
+        jobNo: eventJobNo || undefined,
+        eventId: ev.id,
       };
     });
 
@@ -1532,9 +1727,25 @@ export function MaintenanceDailyReportView({
     setIsSubmitting(true);
 
     try {
-      const maintenanceData: MaintenanceDailyReportData = {
+      // 提出時は作成者（担当）の提出印レコードを新規生成
+      const submissionRecord: ReportApprovalRecord = {
+        step: 0,
+        approverId: reportAuthor.id,
+        approverName: reportAuthor.name,
+        approverPosition: reportAuthor.position || '担当',
+        comment: '',
+        action: 'submitted',
+        approvedAt: new Date().toISOString(),
+      };
+
+      const nowIso = new Date().toISOString();
+
+      const updatedMaintenanceData: MaintenanceDailyReportData = {
         date: reportDate,
-        userName: currentUser.name,
+        userName: reportAuthor.name,
+        submittedAt: submitStatus === 'submitted' ? nowIso : undefined,
+        // 提出時は提出者押印で履歴を初期化、下書き時は空
+        approvalHistory: submitStatus === 'submitted' ? [submissionRecord] : [],
         mainWorkRows,
         officeWorkRows,
         otherOfficeWork,
@@ -1570,11 +1781,20 @@ export function MaintenanceDailyReportView({
         tasks: summaryTasks || '保守日報作業報告',
         supervisorId: supervisorId || undefined,
         status: submitStatus,
-        maintenanceData,
+        submittedAt: submitStatus === 'submitted' ? nowIso : undefined,
+        isRemanded: false,
+        remandedAt: undefined,
+        remandedBy: undefined,
+        maintenanceData: updatedMaintenanceData,
       };
 
       await onSaveReport(payload);
       setStatus(submitStatus);
+      if (submitStatus === 'submitted') {
+        alert('保守日報を提出しました。\n担当（提出者）の押印が承認印欄に反映されました。');
+      } else {
+        alert('保守日報を下書き保存しました。');
+      }
     } catch (e) {
       console.error('Failed to save maintenance report:', e);
       alert('保存処理に失敗しました。');
@@ -1583,7 +1803,7 @@ export function MaintenanceDailyReportView({
     }
   };
 
-  // 上長レビュー確認（旧）
+  // 上長レビュー確認（旧互換）
   const handleReview = async () => {
     if (!report?.id || !onReviewReport) return;
     setIsSubmitting(true);
@@ -1600,54 +1820,67 @@ export function MaintenanceDailyReportView({
   // 提出された日報の差し戻し処理
   const handleRemand = async () => {
     if (!report?.id) return;
-    const ok = window.confirm(`この日報を作成者（${reportAuthorName}さん）に差し戻しますか？\n（ステータスが下書きに戻り、再編集・再提出が可能になります）`);
-    if (!ok) return;
+    setConfirmModal({
+      isOpen: true,
+      title: '日報の差し戻し',
+      message: `この日報を作成者（${reportAuthorName}さん）に差し戻しますか？\n（ステータスが下書きに戻り、承認印欄の押印はすべて消去され、再編集・再提出が可能になります）`,
+      confirmText: '差し戻す',
+      cancelText: 'キャンセル',
+      type: 'warning',
+      onConfirm: async () => {
+        setIsSubmitting(true);
+        try {
+          const nowIso = new Date().toISOString();
+          const remandRecord: ReportApprovalRecord = {
+            step: approvalHistory.length + 1,
+            approverId: currentUser.id,
+            approverName: currentUser.name,
+            approverPosition: currentUser.position || '上長',
+            comment: reviewComment?.trim() || '',
+            action: 'remanded',
+            approvedAt: nowIso,
+          };
 
-    setIsSubmitting(true);
-    try {
-      const remandRecord: ReportApprovalRecord = {
-        step: approvalHistory.length + 1,
-        approverId: currentUser.id,
-        approverName: currentUser.name,
-        approverPosition: currentUser.position || '上長',
-        comment: reviewComment || '差し戻し',
-        action: 'remanded',
-        approvedAt: new Date().toISOString(),
-      };
+          const updatedMaintenanceData: MaintenanceDailyReportData = {
+            ...(maintenanceData || {
+              date: reportDate,
+              mainWorkRows,
+              officeWorkRows,
+            }),
+            // 差し戻し時は過去の押印を完全消去（履歴には差し戻し記録のみ保持）
+            approvalHistory: [remandRecord],
+          };
 
-      const updatedMaintenanceData: MaintenanceDailyReportData = {
-        ...(maintenanceData || {
-          date: reportDate,
-          mainWorkRows,
-          officeWorkRows,
-        }),
-        approvalHistory: [...approvalHistory, remandRecord],
-      };
-
-      if (onSaveReport) {
-        await onSaveReport({
-          id: report.id,
-          author: reportAuthor,
-          authorId: reportAuthor.id,
-          author_id: reportAuthor.id,
-          reportType: 'maintenance_daily',
-          status: 'draft',
-          supervisorId: reportAuthor.supervisorId || supervisorId,
-          feedbackComment: reviewComment 
-            ? `[差し戻し: ${currentUser.name} (${currentUser.position || '上長'})] ${reviewComment}`
-            : `[差し戻し: ${currentUser.name}]`,
-          tasks: report.tasks,
-          maintenanceData: updatedMaintenanceData,
-        });
+          if (onSaveReport) {
+            await onSaveReport({
+              id: report.id,
+              author: reportAuthor,
+              authorId: reportAuthor.id,
+              author_id: reportAuthor.id,
+              reportType: 'maintenance_daily',
+              status: 'draft',
+              isRemanded: true,
+              remandedAt: nowIso,
+              remandedBy: `${currentUser.name} (${currentUser.position || '上長'})`,
+              supervisorId: reportAuthor.supervisorId || supervisorId,
+              feedbackComment: reviewComment?.trim() 
+                ? `[差し戻し: ${currentUser.name} (${currentUser.position || '上長'})] ${reviewComment.trim()}`
+                : `[差し戻し: ${currentUser.name} (${currentUser.position || '上長'})] コメントなしで差し戻されました。内容を修正して再提出してください。`,
+              tasks: report.tasks,
+              maintenanceData: updatedMaintenanceData,
+            });
+          }
+          setStatus('draft');
+          alert(`日報を作成者（${reportAuthorName}さん）に差し戻しました。\n承認印欄の押印は消去されました。`);
+          if (onBack) onBack();
+        } catch (err) {
+          console.error('Failed to remand report:', err);
+          alert('差し戻し処理に失敗しました。');
+        } finally {
+          setIsSubmitting(false);
+        }
       }
-      alert(`日報を作成者（${reportAuthorName}さん）に差し戻しました。`);
-      if (onBack) onBack();
-    } catch (err) {
-      console.error('Failed to remand report:', err);
-      alert('差し戻し処理に失敗しました。');
-    } finally {
-      setIsSubmitting(false);
-    }
+    });
   };
 
   // 提出された日報の上長提出・確認完了処理（多段階承認：上長がいる限り回覧、支店長が最終承認）
@@ -1655,16 +1888,20 @@ export function MaintenanceDailyReportView({
     if (!report?.id) return;
     setIsSubmitting(true);
     try {
+      const nowIso = new Date().toISOString();
+      // 差し戻しレコードを除外した有効な履歴に今回のアクションを追加
+      const validHistory = approvalHistory.filter(r => r.action !== 'remanded');
+
       if (isFinalApprover) {
         // 支店長 / 最終承認
         const finalRecord: ReportApprovalRecord = {
-          step: approvalHistory.length + 1,
+          step: validHistory.length + 1,
           approverId: currentUser.id,
           approverName: currentUser.name,
           approverPosition: currentUser.position || '支店長',
           comment: reviewComment || '',
           action: 'final_approved',
-          approvedAt: new Date().toISOString(),
+          approvedAt: nowIso,
         };
 
         const updatedMaintenanceData: MaintenanceDailyReportData = {
@@ -1673,7 +1910,7 @@ export function MaintenanceDailyReportView({
             mainWorkRows,
             officeWorkRows,
           }),
-          approvalHistory: [...approvalHistory, finalRecord],
+          approvalHistory: [...validHistory, finalRecord],
         };
 
         if (onReviewReport) {
@@ -1687,24 +1924,26 @@ export function MaintenanceDailyReportView({
             author_id: reportAuthor.id,
             reportType: 'maintenance_daily',
             status: 'reviewed',
+            isRemanded: false,
             feedbackComment: reviewComment || '',
             tasks: report.tasks,
             maintenanceData: updatedMaintenanceData,
-            reviewedAt: new Date().toISOString(),
+            reviewedAt: nowIso,
           });
         }
-        alert('日報の支店長最終承認（確認完了）を行いました。');
+        setStatus('reviewed');
+        alert('日報の支店長最終承認（確認完了）を行いました。\n承認印欄に支店長の押印が反映されました。');
       } else {
         // 次の上長へ回覧・提出
         const nextTarget = nextSupervisor!;
         const forwardRecord: ReportApprovalRecord = {
-          step: approvalHistory.length + 1,
+          step: validHistory.length + 1,
           approverId: currentUser.id,
           approverName: currentUser.name,
           approverPosition: currentUser.position || '上長',
           comment: reviewComment || '',
           action: 'forwarded',
-          approvedAt: new Date().toISOString(),
+          approvedAt: nowIso,
         };
 
         const updatedMaintenanceData: MaintenanceDailyReportData = {
@@ -1713,7 +1952,7 @@ export function MaintenanceDailyReportView({
             mainWorkRows,
             officeWorkRows,
           }),
-          approvalHistory: [...approvalHistory, forwardRecord],
+          approvalHistory: [...validHistory, forwardRecord],
         };
 
         if (onSaveReport) {
@@ -1725,12 +1964,13 @@ export function MaintenanceDailyReportView({
             reportType: 'maintenance_daily',
             status: 'submitted', // 提出中（次の上長の承認待ち）
             supervisorId: nextTarget.id,
+            isRemanded: false,
             feedbackComment: reviewComment || '',
             tasks: report.tasks,
             maintenanceData: updatedMaintenanceData,
           });
         }
-        alert(`日報を上長（${nextTarget.name} ${nextTarget.position || '上長'}）へ提出（回覧）しました。`);
+        alert(`日報を上長（${nextTarget.name} ${nextTarget.position || '上長'}）へ提出（回覧）しました。\n確認印欄に押印が反映されました。`);
       }
 
       if (onBack) onBack();
@@ -1745,29 +1985,49 @@ export function MaintenanceDailyReportView({
   // 提出の取り下げ処理（作成者本人が下書きに戻して編集可能にする）
   const handleWithdraw = async () => {
     if (!report?.id || !onSaveReport) return;
-    if (!confirm('日報の提出を取り下げて下書き（編集可能）に戻しますか？\n取り下げると入力内容を修正して再提出できるようになります。')) {
-      return;
-    }
-    setIsSubmitting(true);
-    try {
-      await onSaveReport({
-        id: report.id,
-        author: reportAuthor,
-        authorId: reportAuthor.id,
-        author_id: reportAuthor.id,
-        reportType: 'maintenance_daily',
-        status: 'draft',
-        tasks: report.tasks,
-        maintenanceData,
-      });
-      setStatus('draft');
-      alert('日報の提出を取り下げました。編集して再提出してください。');
-    } catch (err) {
-      console.error('Failed to withdraw report:', err);
-      alert('提出の取り下げに失敗しました。');
-    } finally {
-      setIsSubmitting(false);
-    }
+    setConfirmModal({
+      isOpen: true,
+      title: '日報提出の取り下げ',
+      message: '日報の提出を取り下げて下書き（編集可能）に戻しますか？\n取り下げると承認印欄の押印は消去され、入力内容を修正して再提出できるようになります。',
+      confirmText: '取り下げる',
+      cancelText: 'キャンセル',
+      type: 'warning',
+      onConfirm: async () => {
+        setIsSubmitting(true);
+        try {
+          const updatedMaintenanceData: MaintenanceDailyReportData = {
+            ...(maintenanceData || {
+              date: reportDate,
+              mainWorkRows,
+              officeWorkRows,
+            }),
+            // 取り下げ時は押印履歴を完全消去
+            approvalHistory: [],
+            submittedAt: undefined,
+          };
+
+          await onSaveReport({
+            id: report.id,
+            author: reportAuthor,
+            authorId: reportAuthor.id,
+            author_id: reportAuthor.id,
+            reportType: 'maintenance_daily',
+            status: 'draft',
+            isRemanded: false,
+            submittedAt: undefined,
+            tasks: report.tasks,
+            maintenanceData: updatedMaintenanceData,
+          });
+          setStatus('draft');
+          alert('日報の提出を取り下げました。承認印欄の押印は消去されました。編集して再提出してください。');
+        } catch (err) {
+          console.error('Failed to withdraw report:', err);
+          alert('提出の取り下げに失敗しました。');
+        } finally {
+          setIsSubmitting(false);
+        }
+      }
+    });
   };
 
   return (
@@ -1812,6 +2072,11 @@ export function MaintenanceDailyReportView({
                         <span>{isAuthor ? '提出中' : '提出済（承認回覧中）'}</span>
                       </>
                     )}
+                  </span>
+                ) : isRemanded ? (
+                  <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-300 flex items-center gap-1 animate-pulse">
+                    <RotateCcw className="w-3.5 h-3.5 text-rose-600" />
+                    <span>差し戻し（修正中）</span>
                   </span>
                 ) : (
                   <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
@@ -1932,10 +2197,14 @@ export function MaintenanceDailyReportView({
               <button
                 onClick={() => handleSave('submitted')}
                 disabled={isSubmitting}
-                className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm shadow-indigo-200 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                className={`px-4 py-1.5 text-white rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer disabled:opacity-50 ${
+                  isRemanded 
+                    ? 'bg-rose-600 hover:bg-rose-700 shadow-rose-200' 
+                    : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200'
+                }`}
               >
                 <Send className="w-4 h-4" />
-                日報を提出
+                {isRemanded ? '日報を再提出' : '日報を提出'}
               </button>
             </div>
           )}
@@ -1943,6 +2212,53 @@ export function MaintenanceDailyReportView({
       </div>
 
       <div className="max-w-7xl mx-auto px-2 sm:px-6 pt-4 space-y-4">
+        {/* 差し戻し時の専用アラートバナー（コメント有無にかかわらず理由・状況を明確表示） */}
+        {isRemanded && status === 'draft' && (
+          <div className="bg-rose-50 border-2 border-rose-300 rounded-xl p-4 shadow-sm flex flex-wrap items-start justify-between gap-3 animate-in fade-in">
+            <div className="flex items-start gap-3 flex-1 min-w-[280px]">
+              <div className="w-10 h-10 rounded-xl bg-rose-200 flex items-center justify-center text-rose-800 shrink-0 mt-0.5">
+                <RotateCcw className="w-5 h-5 text-rose-700" />
+              </div>
+              <div className="flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="px-2 py-0.5 bg-rose-600 text-white text-[11px] font-bold rounded">
+                    差し戻し
+                  </span>
+                  <h3 className="font-bold text-rose-950 text-sm">
+                    この保守日報は上長（{remandInfo?.approverName || '上長'}）より差し戻されました
+                  </h3>
+                  {remandInfo?.approvedAt && (
+                    <span className="text-xs text-rose-500 font-mono">
+                      {new Date(remandInfo.approvedAt).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}
+                    </span>
+                  )}
+                </div>
+                <div className="mt-2 text-xs">
+                  {remandInfo?.comment ? (
+                    <div className="bg-white/90 border border-rose-200 rounded-lg p-2.5 text-rose-900 shadow-2xs">
+                      <strong className="block text-[11px] text-rose-700 font-bold mb-0.5">差し戻し理由・指示事項:</strong>
+                      <p className="whitespace-pre-wrap">{remandInfo.comment}</p>
+                    </div>
+                  ) : (
+                    <p className="text-rose-800 bg-rose-100/70 p-2.5 rounded-lg border border-rose-200 font-medium">
+                      ※上長からの個別コメントはありません。作業内容・時間・集計等の必要箇所を修正し、右上の「日報を再提出」ボタンを押してください。
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleSave('submitted')}
+              disabled={isSubmitting}
+              className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50 self-start shrink-0"
+            >
+              <Send className="w-4 h-4" />
+              <span>日報を再提出</span>
+            </button>
+          </div>
+        )}
+
         {/* 本人提出中時の取り下げ案内バナー */}
         {isSubmittedMode && status === 'submitted' && isAuthor && (
           <div className="bg-amber-50/95 border-2 border-amber-300 rounded-xl p-4 shadow-xs flex flex-wrap items-center justify-between gap-3">
@@ -2422,17 +2738,49 @@ export function MaintenanceDailyReportView({
 
                     {/* 現場名 */}
                     <td className="p-2 border-r border-slate-200 font-semibold text-slate-900">
-                      {isSubmittedMode ? (
-                        <span>{row.siteName || <span className="text-slate-400 font-normal">-</span>}</span>
-                      ) : (
-                        <input
-                          type="text"
-                          value={row.siteName}
-                          onChange={e => updateMainRow(idx, { siteName: e.target.value })}
-                          placeholder="現場名"
-                          className="w-full px-2 py-1 border border-slate-200 rounded text-xs focus:ring-1 focus:ring-amber-500 bg-white"
-                        />
-                      )}
+                      <div className="space-y-1">
+                        {isSubmittedMode ? (
+                          <div className="font-bold text-slate-900">{row.siteName || <span className="text-slate-400 font-normal">-</span>}</div>
+                        ) : (
+                          <input
+                            type="text"
+                            value={row.siteName}
+                            onChange={e => updateMainRow(idx, { siteName: e.target.value })}
+                            placeholder="現場名"
+                            className="w-full px-2 py-1 border border-slate-200 rounded text-xs focus:ring-1 focus:ring-amber-500 bg-white"
+                          />
+                        )}
+                        {(() => {
+                          const matchedReport = getInspectionReportForRow(row);
+                          const effectiveJobNo = row.jobNo || matchedReport?.jobNo;
+                          if (!matchedReport && !effectiveJobNo) return null;
+
+                          return (
+                            <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                              {effectiveJobNo && (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-mono text-slate-600 bg-slate-100 border border-slate-200 font-medium">
+                                  No.{effectiveJobNo}
+                                </span>
+                              )}
+                              {matchedReport && (
+                                <button
+                                  type="button"
+                                  onClick={() => setPreviewInspectionReport(matchedReport)}
+                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border transition-colors shadow-2xs cursor-pointer ${
+                                    matchedReport.status === 'signed'
+                                      ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
+                                      : 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'
+                                  }`}
+                                  title={`点検報告書を確認 (作業No: ${matchedReport.jobNo || '未設定'} / ${matchedReport.status === 'signed' ? 'お客様サイン受領済' : '下書き'})`}
+                                >
+                                  <FileText className="w-3 h-3 text-emerald-600 shrink-0" />
+                                  <span>点検報告書 ({matchedReport.status === 'signed' ? 'サイン済' : '下書き'})</span>
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })()}
+                      </div>
                     </td>
 
                     {/* 作業内容 */}
@@ -2893,6 +3241,28 @@ export function MaintenanceDailyReportView({
                         {row.contentType}
                       </span>
                     )}
+                    {(() => {
+                      const matchedReport = getInspectionReportForRow(row);
+                      if (!matchedReport) return null;
+                      return (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPreviewInspectionReport(matchedReport);
+                          }}
+                          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold border shrink-0 transition-colors shadow-2xs cursor-pointer ${
+                            matchedReport.status === 'signed'
+                              ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
+                              : 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'
+                          }`}
+                          title={`点検報告書を確認 (${matchedReport.status === 'signed' ? 'サイン済' : '下書き'})`}
+                        >
+                          <FileText className="w-3 h-3 text-emerald-600" />
+                          <span>報告書 ({matchedReport.status === 'signed' ? '済' : '下書き'})</span>
+                        </button>
+                      );
+                    })()}
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
                     {row.workHours && row.workHours !== '0:00' && (
@@ -2971,10 +3341,44 @@ export function MaintenanceDailyReportView({
                     {/* 現場名 & 作業内容 */}
                     <div className="grid grid-cols-1 gap-2">
                       <div>
-                        <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center justify-between mb-1 gap-1.5 flex-wrap">
                           <label className="text-[11px] font-bold text-slate-600">現場名</label>
-                          {(() => {
-                            const existingApp = getSupplyApplicationForSite(row.siteName);
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {(() => {
+                              const matchedReport = getInspectionReportForRow(row);
+                              const effectiveJobNo = row.jobNo || matchedReport?.jobNo;
+                              if (!matchedReport && !effectiveJobNo) return null;
+
+                              return (
+                                <>
+                                  {effectiveJobNo && (
+                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono text-slate-600 bg-slate-100 border border-slate-200 font-medium">
+                                      No.{effectiveJobNo}
+                                    </span>
+                                  )}
+                                  {matchedReport && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setPreviewInspectionReport(matchedReport);
+                                      }}
+                                      className={`px-2 py-0.5 text-[10px] font-bold rounded border flex items-center gap-1 shadow-2xs cursor-pointer ${
+                                        matchedReport.status === 'signed'
+                                          ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
+                                          : 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'
+                                      }`}
+                                      title="点検報告書を確認"
+                                    >
+                                      <FileText className="w-3 h-3 text-emerald-600" />
+                                      <span>点検報告書 ({matchedReport.status === 'signed' ? 'サイン済' : '下書き'})</span>
+                                    </button>
+                                  )}
+                                </>
+                              );
+                            })()}
+                            {(() => {
+                              const existingApp = getSupplyApplicationForSite(row.siteName);
                             const isSiteEmpty = !row.siteName || !row.siteName.trim();
                             if (existingApp) {
                               let badgeColor = 'bg-amber-100 text-amber-900 border-amber-300';
@@ -3026,6 +3430,7 @@ export function MaintenanceDailyReportView({
                               </button>
                             );
                           })()}
+                          </div>
                         </div>
                         {isSubmittedMode ? (
                           <div className="p-2 bg-slate-50 border border-slate-200 rounded text-xs font-bold text-slate-900">
@@ -3742,7 +4147,7 @@ export function MaintenanceDailyReportView({
                   <div className="my-auto py-1 flex items-center justify-center">
                     {stampBoxInfo.branch.record ? (
                       <div className="w-12 h-12 rounded-full border-2 border-red-600 bg-white/90 text-red-600 flex flex-col items-center justify-center shadow-xs -rotate-3 select-none leading-none">
-                        <span className="text-[9px] font-bold scale-90 tracking-tighter">承認</span>
+                        <span className="text-[9px] font-bold scale-90 tracking-tighter">{stampBoxInfo.branch.stampLabel || '承認'}</span>
                         <span className="text-[11px] font-black tracking-tight">{stampBoxInfo.branch.record.stampName}</span>
                         <span className="text-[8px] font-bold scale-85 text-red-500">{stampBoxInfo.branch.record.stampDate}</span>
                       </div>
@@ -3769,7 +4174,7 @@ export function MaintenanceDailyReportView({
                   <div className="my-auto py-1 flex items-center justify-center">
                     {stampBoxInfo.section.record ? (
                       <div className="w-12 h-12 rounded-full border-2 border-red-600 bg-white/90 text-red-600 flex flex-col items-center justify-center shadow-xs -rotate-3 select-none leading-none">
-                        <span className="text-[9px] font-bold scale-90 tracking-tighter">確認</span>
+                        <span className="text-[9px] font-bold scale-90 tracking-tighter">{stampBoxInfo.section.stampLabel || '確認'}</span>
                         <span className="text-[11px] font-black tracking-tight">{stampBoxInfo.section.record.stampName}</span>
                         <span className="text-[8px] font-bold scale-85 text-red-500">{stampBoxInfo.section.record.stampDate}</span>
                       </div>
@@ -3796,7 +4201,7 @@ export function MaintenanceDailyReportView({
                   <div className="my-auto py-1 flex items-center justify-center">
                     {stampBoxInfo.chief.record ? (
                       <div className="w-12 h-12 rounded-full border-2 border-red-600 bg-white/90 text-red-600 flex flex-col items-center justify-center shadow-xs -rotate-3 select-none leading-none">
-                        <span className="text-[9px] font-bold scale-90 tracking-tighter">確認</span>
+                        <span className="text-[9px] font-bold scale-90 tracking-tighter">{stampBoxInfo.chief.stampLabel || '提出'}</span>
                         <span className="text-[11px] font-black tracking-tight">{stampBoxInfo.chief.record.stampName}</span>
                         <span className="text-[8px] font-bold scale-85 text-red-500">{stampBoxInfo.chief.record.stampDate}</span>
                       </div>
@@ -3957,6 +4362,19 @@ export function MaintenanceDailyReportView({
             initialType="inventory_issue"
             initialTitle={`[${supplyModalState.targetSiteName || '現場'}] 補充申請`}
             initialDescription={`保守日報 (${reportDate}) の現場 [${supplyModalState.targetSiteName || '未入力'}] における資材・部品の補充依頼です。`}
+          />
+        )}
+
+        <ConfirmModal
+          {...confirmModal}
+          onClose={() => setConfirmModal((prev) => ({ ...prev, isOpen: false }))}
+        />
+
+        {/* ---------------- 点検報告書 プレビュー・印刷モーダル ---------------- */}
+        {previewInspectionReport && (
+          <InspectionReportPrintView
+            report={previewInspectionReport}
+            onClose={() => setPreviewInspectionReport(null)}
           />
         )}
       </div>

@@ -34,6 +34,7 @@ import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
 import { markWorkflowAsRead } from '../utils/notifications';
 import { triggerOpenUserModal } from '../utils/userModal';
 import { FilePreviewModal } from './FilePreviewModal';
+import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { isUserCurrentApprover, resolveApproverForStepDetails, isDuplicateApproverStep } from '../utils/workflowHelpers';
 
 export interface GlobalWorkflowDetailModalProps {
@@ -101,6 +102,7 @@ export const GlobalWorkflowDetailModal: React.FC<GlobalWorkflowDetailModalProps>
   const [isRejecting, setIsRejecting] = useState(false);
   const [rejectComment, setRejectComment] = useState('');
   const [isSubmittingAction, setIsSubmittingAction] = useState(false);
+  const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
 
   useEffect(() => {
     if (application && currentUser?.id) {
@@ -188,19 +190,28 @@ export const GlobalWorkflowDetailModal: React.FC<GlobalWorkflowDetailModalProps>
   // 取り下げ実行（下書きに戻す）
   const handleWithdraw = async () => {
     if (!onUpdateApplication) return;
-    if (!window.confirm('この申請を取り下げて下書きに戻しますか？')) return;
-    setIsSubmittingAction(true);
-    try {
-      await onUpdateApplication({
-        ...application,
-        status: 'draft',
-      });
-      onClose();
-    } catch (e) {
-      console.error('Withdraw failed:', e);
-    } finally {
-      setIsSubmittingAction(false);
-    }
+    setConfirmModal({
+      isOpen: true,
+      title: '申請の取り下げ',
+      message: 'この申請を取り下げて下書きに戻しますか？',
+      confirmText: '取り下げる',
+      cancelText: 'キャンセル',
+      type: 'warning',
+      onConfirm: async () => {
+        setIsSubmittingAction(true);
+        try {
+          await onUpdateApplication({
+            ...application,
+            status: 'draft',
+          });
+          onClose();
+        } catch (e) {
+          console.error('Withdraw failed:', e);
+        } finally {
+          setIsSubmittingAction(false);
+        }
+      }
+    });
   };
 
   return (
@@ -795,6 +806,11 @@ export const GlobalWorkflowDetailModal: React.FC<GlobalWorkflowDetailModalProps>
           file={previewFile}
         />
       )}
+
+      <ConfirmModal
+        {...confirmModal}
+        onClose={() => setConfirmModal((prev) => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 };

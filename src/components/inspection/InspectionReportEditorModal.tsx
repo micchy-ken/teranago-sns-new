@@ -18,6 +18,7 @@ import {
 } from '../../utils/inspectionMasterStorage';
 import { SignaturePad } from './SignaturePad';
 import { InspectionReportPrintView } from './InspectionReportPrintView';
+import { ConfirmModal, ConfirmModalState } from '../ConfirmModal';
 import { 
   X, 
   Save, 
@@ -49,6 +50,7 @@ export const InspectionReportEditorModal: React.FC<InspectionReportEditorModalPr
   const [isSignatureOpen, setIsSignatureOpen] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [saveToast, setSaveToast] = useState<string | null>(null);
+  const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
 
   // 動的マスター（カテゴリと項目）
   const [masterCategories, setMasterCategories] = useState<InspectionCheckCategoryDef[]>(() => getInspectionMasterCategories());
@@ -110,15 +112,23 @@ export const InspectionReportEditorModal: React.FC<InspectionReportEditorModalPr
       alert('最低1台の扉データが必要です。');
       return;
     }
-    if (confirm(`扉 ${index + 1} を削除してもよろしいですか？`)) {
-      const filtered = doors.filter((_, i) => i !== index).map((d, i) => ({ ...d, doorIndex: i + 1 }));
-      setReport({
-        ...report,
-        doors: filtered,
-        totalDoorsCount: filtered.length,
-      });
-      setSelectedDoorIndex(Math.max(0, index - 1));
-    }
+    setConfirmModal({
+      isOpen: true,
+      title: '扉データの削除',
+      message: `扉 ${index + 1} を削除してもよろしいですか？`,
+      confirmText: '削除する',
+      cancelText: 'キャンセル',
+      type: 'danger',
+      onConfirm: () => {
+        const filtered = doors.filter((_, i) => i !== index).map((d, i) => ({ ...d, doorIndex: i + 1 }));
+        setReport({
+          ...report,
+          doors: filtered,
+          totalDoorsCount: filtered.length,
+        });
+        setSelectedDoorIndex(Math.max(0, index - 1));
+      }
+    });
   };
 
   const showToast = (msg: string) => {
@@ -697,6 +707,11 @@ export const InspectionReportEditorModal: React.FC<InspectionReportEditorModalPr
           onClose={() => setIsPreviewOpen(false)}
         />
       )}
+
+      <ConfirmModal
+        {...confirmModal}
+        onClose={() => setConfirmModal((prev) => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 };

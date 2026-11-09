@@ -15,12 +15,12 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.11.09.5',
+  version: '2026.11.09.8',
   date: '2026-11-09',
-  releaseNumber: 5,
-  display: 'v2026.11.09 #5 (JST)',
+  releaseNumber: 8,
+  display: 'v2026.11.09 #8 (JST)',
   timeZone: '日本標準時 (JST / UTC+09:00)',
-  description: '提出した保守日報・週報における作成者本人の表示を「提出中」および「取り下げ・編集」に最適化し、上長閲覧時のみ「確認・承認」フローを表示する役割分離の徹底',
+  description: '保守日報の各現場行から作業No連動による点検報告書（お客様サイン受領済/下書き・A4印刷レイアウト対応）確認機能の実装',
 };
 
 /**

@@ -658,32 +658,41 @@ export function MyPage({
 
   const handleRemovePersonalEmail = async () => {
     if (!user?.id) return;
-    if (!window.confirm('登録中の個人メールアドレスを解除（削除）しますか？\n解除すると災害発生時の個人宛て緊急メール通知は届かなくなります。')) return;
-    setPersonalEmailSaving(true);
-    setPersonalEmailResult(null);
-    try {
-      const res = await fetch(`${API_BASE_URL}/users/${user.id}/personal-email`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ personalEmail: '' }),
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setPersonalEmailResult({ type: 'success', message: '個人メールアドレスの登録を解除しました。' });
-        const updatedUser = {
-          ...settingsForm,
-          personalEmailMasked: undefined,
-        };
-        setSettingsForm(updatedUser);
-        if (onUpdateUser) onUpdateUser(updatedUser);
-      } else {
-        setPersonalEmailResult({ type: 'error', message: data.error || '解除に失敗しました。' });
+    setConfirmModal({
+      isOpen: true,
+      title: '個人メールアドレスの解除',
+      message: '登録中の個人メールアドレスを解除（削除）しますか？\n解除すると災害発生時の個人宛て緊急メール通知は届かなくなります。',
+      confirmText: '解除（削除）する',
+      cancelText: 'キャンセル',
+      type: 'warning',
+      onConfirm: async () => {
+        setPersonalEmailSaving(true);
+        setPersonalEmailResult(null);
+        try {
+          const res = await fetch(`${API_BASE_URL}/users/${user.id}/personal-email`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ personalEmail: '' }),
+          });
+          const data = await res.json();
+          if (res.ok && data.success) {
+            setPersonalEmailResult({ type: 'success', message: '個人メールアドレスの登録を解除しました。' });
+            const updatedUser = {
+              ...settingsForm,
+              personalEmailMasked: undefined,
+            };
+            setSettingsForm(updatedUser);
+            if (onUpdateUser) onUpdateUser(updatedUser);
+          } else {
+            setPersonalEmailResult({ type: 'error', message: data.error || '解除に失敗しました。' });
+          }
+        } catch (err: any) {
+          setPersonalEmailResult({ type: 'error', message: '通信エラー: ' + err.message });
+        } finally {
+          setPersonalEmailSaving(false);
+        }
       }
-    } catch (err: any) {
-      setPersonalEmailResult({ type: 'error', message: '通信エラー: ' + err.message });
-    } finally {
-      setPersonalEmailSaving(false);
-    }
+    });
   };
 
   const handleTestPersonalEmail = async () => {

@@ -10,6 +10,7 @@ import { User, AttachmentFile, CalendarEvent } from '../../types';
 import { getAvatarUrl, handleAvatarError } from '../../utils/avatar';
 import { API_BASE_URL } from '../../config/api';
 import { FilePreviewModal } from '../FilePreviewModal';
+import { ConfirmModal, ConfirmModalState } from '../ConfirmModal';
 import { getFittingLabel, cleanPartName } from '../../utils/siteUtils';
 import { uploadFile, resolveFileUrl } from '../../utils/fileUpload';
 
@@ -157,6 +158,7 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
 
   // 編集用ローカルステート
   const [currentSite, setCurrentSite] = useState<Site | null>(site);
+  const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
 
   // 該当現場に紐づく施工スケジュール・実績を抽出
   const siteEvents = useMemo(() => {
@@ -449,24 +451,40 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
     if (!currentSite) return;
     const targetAtt = (currentSite.attachments || []).find(a => a.id === attachmentId);
     const confirmName = targetAtt ? `「${targetAtt.name}」` : 'この添付ファイル';
-    if (!window.confirm(`${confirmName}を削除してもよろしいですか？`)) return;
-
-    const updatedAttachments = (currentSite.attachments || []).filter(a => a.id !== attachmentId);
-    const updated: Site = {
-      ...currentSite,
-      attachments: updatedAttachments
-    };
-    setCurrentSite(updated);
-    await saveSiteChanges(updated);
+    setConfirmModal({
+      isOpen: true,
+      title: '添付ファイルの削除',
+      message: `${confirmName}を削除してもよろしいですか？`,
+      confirmText: '削除する',
+      cancelText: 'キャンセル',
+      type: 'danger',
+      onConfirm: async () => {
+        const updatedAttachments = (currentSite.attachments || []).filter(a => a.id !== attachmentId);
+        const updated: Site = {
+          ...currentSite,
+          attachments: updatedAttachments
+        };
+        setCurrentSite(updated);
+        await saveSiteChanges(updated);
+      }
+    });
   };
 
   // 現場削除
   const handleDelete = () => {
     if (!currentSite) return;
-    if (window.confirm(`現場「${currentSite.siteName}」を完全に削除してもよろしいですか？`)) {
-      onDeleteSite(currentSite.id);
-      onClose();
-    }
+    setConfirmModal({
+      isOpen: true,
+      title: '現場情報の完全削除',
+      message: `現場「${currentSite.siteName}」を完全に削除してもよろしいですか？`,
+      confirmText: '削除する',
+      cancelText: 'キャンセル',
+      type: 'danger',
+      onConfirm: () => {
+        onDeleteSite(currentSite.id);
+        onClose();
+      }
+    });
   };
 
   // 簡易エクスポート（CRM用データプレビュー & CSV出力）
@@ -2065,6 +2083,11 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
           file={previewFile}
         />
       )}
+
+      <ConfirmModal
+        {...confirmModal}
+        onClose={() => setConfirmModal((prev) => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 };
