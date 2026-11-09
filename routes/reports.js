@@ -220,9 +220,13 @@ router.post(['/work-reports', '/daily-reports', '/reports'], async (req, res) =>
     const pool = await getPool();
     const id = data.id && !data.id.startsWith('r-temp-') ? data.id : ('rep_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6));
     
-    const author_id = String(data.author_id || data.authorId || (data.author && data.author.id) || 'u1');
-    const authorName = data.authorName || (data.author && data.author.name) || '社員';
-    const authorDepartment = data.authorDepartment || data.department || (data.author && data.author.department) || '';
+    // 既存レポートがある場合は author_id / report_type を保護・引き継ぎ
+    const fileReports = loadWorkReportsFromFile();
+    const existingIdx = fileReports.findIndex(r => r.id === id);
+    const existingAuthorId = existingIdx >= 0 ? (fileReports[existingIdx].author_id || fileReports[existingIdx].authorId || (fileReports[existingIdx].author && fileReports[existingIdx].author.id)) : null;
+    const author_id = String(existingAuthorId || data.author_id || data.authorId || (data.author && data.author.id) || 'u1');
+    const authorName = (existingIdx >= 0 && fileReports[existingIdx].authorName) ? fileReports[existingIdx].authorName : (data.authorName || (data.author && data.author.name) || '社員');
+    const authorDepartment = (existingIdx >= 0 && fileReports[existingIdx].authorDepartment) ? fileReports[existingIdx].authorDepartment : (data.authorDepartment || data.department || (data.author && data.author.department) || '');
     const supervisor_id = data.supervisor_id || data.supervisorId || (data.supervisor && data.supervisor.id) || null;
     const rawWeekDate = data.week_start_date || data.weekStartDate || data.date || data.reportDate || new Date().toISOString().slice(0, 10);
     const formattedWeekDate = rawWeekDate ? new Date(rawWeekDate) : new Date();
@@ -236,9 +240,6 @@ router.post(['/work-reports', '/daily-reports', '/reports'], async (req, res) =>
     const repStatus = data.status || (data.isSubmitting ? 'submitted' : 'draft');
     const review_feedback = data.review_feedback !== undefined ? data.review_feedback : (data.feedbackComment || '');
 
-    // 既存レポートがある場合は report_type を引き継ぎ、なければデータ構造から安全に自動判別
-    const fileReports = loadWorkReportsFromFile();
-    const existingIdx = fileReports.findIndex(r => r.id === id);
     const existingReportType = existingIdx >= 0 ? (fileReports[existingIdx].reportType || fileReports[existingIdx].report_type) : null;
 
     const report_type = data.report_type || data.reportType || existingReportType || (data.maintenance_data || data.maintenanceData ? 'maintenance_daily' : (data.construction_data || data.constructionData ? 'construction_daily' : (data.sales_data || data.salesData ? 'sales_daily' : (data.week_start_date || data.weekStartDate ? 'weekly' : 'daily'))));
@@ -274,7 +275,7 @@ router.post(['/work-reports', '/daily-reports', '/reports'], async (req, res) =>
             MERGE dbo.WorkReports AS target 
             USING (SELECT @id AS id) AS source ON (target.id = source.id) 
             WHEN MATCHED THEN 
-              UPDATE SET author_id = @author_id, supervisor_id = @supervisor_id, report_type = @report_type, 
+              UPDATE SET author_id = COALESCE(target.author_id, @author_id), supervisor_id = @supervisor_id, report_type = @report_type, 
                          report_date = @report_date, department = @department, week_start_date = @week_start_date, 
                          week_label = @week_label, tasks = @tasks, achievements = @achievements, issues = @issues, 
                          continued_items = @continued_items, next_week_plans = @next_week_plans, status = @status, 

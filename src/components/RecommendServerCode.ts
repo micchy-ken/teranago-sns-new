@@ -1,16 +1,17 @@
 /**
  * Synology NAS (Docker / Node.js) 用 推奨サーバーコード
  * 
- * 最終更新日時 (最終アップデート): 2026年11月9日 (保守日報・日報・週報の報告種別判定の堅牢化・多段階承認時の週報誤判定修正・通知タイトル動的対応版)
+ * 最終更新日時 (最終アップデート): 2026年11月9日 (日報・週報の上長承認・回覧・更新時における作成者(author_id)の厳格保持・上書き防止、多段階承認・動的通知対応版)
  * 
  * 概要:
  * 本コードは TERANAGO 社内SNS のバックエンドAPIサーバー (Express + MS SQL Server / JSONファイルDB) の完全版です。
  * 
  * [最新の主な変更・新機能]
- * 1. 保守日報の多段階承認回覧・提出・差し戻し・承認時に週報として誤判定・上書きされる不具合の完全防止
- * 2. 報告種別（保守日報/日報/週報）に応じたプッシュ通知・アプリ内通知タイトル・本文の動的生成
- * 3. WorkReports のデータ正規化（normalizeWorkReport）における maintenanceData/constructionData/salesData の完全永続化
- * 4. 保守日報の拠点別カスタム様式・ポイント設定・スケジュール転記マッピングAPI (/api/masters/maintenance-configs)
+ * 1. 日報・週報の上長承認（最終承認）・回覧・更新時に原本作成者(author_id / author)が上長ですり替わる不具合の完全防止・保護
+ * 2. 保守日報の多段階承認回覧・提出・差し戻し・承認時に週報として誤判定・上書きされる不具合の完全防止
+ * 3. 報告種別（保守日報/日報/週報）に応じたプッシュ通知・アプリ内通知タイトル・本文の動的生成
+ * 4. WorkReports のデータ正規化（normalizeWorkReport）における maintenanceData/constructionData/salesData の完全永続化
+ * 5. 保守日報の拠点別カスタム様式・ポイント設定・スケジュール転記マッピングAPI (/api/masters/maintenance-configs)
  */
 
 export const RECOMMEND_SERVER_JS = `import express from 'express';
@@ -6618,6 +6619,11 @@ async function startServer() {
       const nextStatus = data.status || prevStatus;
       const nowIso = new Date().toISOString();
 
+      // 作成者（author_id / author）の厳格な保護: 既存日報の原本作成者を最優先し、承認者等による書き換えを防止
+      const originalAuthorId = reports[idx].author_id || reports[idx].authorId || (reports[idx].author && reports[idx].author.id);
+      const resolvedAuthorId = originalAuthorId || data.author_id || data.authorId || (data.author && data.author.id);
+      const resolvedAuthor = reports[idx].author || data.author;
+
       const merged = {
         ...reports[idx],
         ...data,
@@ -6627,7 +6633,9 @@ async function startServer() {
         continued_items: data.continued_items !== undefined ? data.continued_items : (data.ongoingProjects !== undefined ? data.ongoingProjects : reports[idx].continued_items),
         next_week_plans: data.next_week_plans !== undefined ? data.next_week_plans : (data.tomorrowPlan !== undefined ? data.tomorrowPlan : reports[idx].next_week_plans),
         review_feedback: data.review_feedback !== undefined ? data.review_feedback : (data.feedbackComment !== undefined ? data.feedbackComment : reports[idx].review_feedback),
-        author_id: data.author_id || data.authorId || reports[idx].author_id,
+        author_id: resolvedAuthorId,
+        authorId: resolvedAuthorId,
+        author: resolvedAuthor,
         supervisor_id: data.supervisor_id !== undefined ? data.supervisor_id : (data.supervisorId !== undefined ? data.supervisorId : reports[idx].supervisor_id),
         week_start_date: data.week_start_date || data.weekStartDate || reports[idx].week_start_date,
         week_label: data.week_label || data.weekLabel || reports[idx].week_label,

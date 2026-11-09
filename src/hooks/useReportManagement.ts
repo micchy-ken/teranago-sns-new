@@ -299,13 +299,25 @@ export function useReportManagement({
     const oldReport = reports.find(r => r.id === id);
     const resolvedReportType = reportData.reportType || oldReport?.reportType || ((reportData as any).maintenanceData || (reportData as any).maintenance_data || oldReport?.maintenanceData ? 'maintenance_daily' : (reportData.weekStartDate || oldReport?.weekStartDate ? 'weekly' : 'daily'));
 
-    setReports(prev => prev.map(r => r.id === id ? { ...r, ...reportData, reportType: resolvedReportType } : r));
+    // 作成者（author / author_id）の厳格な保護: 既存日報の作成者を最優先し、上長承認・回覧時に上長へすり替わらないよう防御
+    const originalAuthorId = (oldReport?.author && oldReport.author.id) || oldReport?.authorId || (oldReport as any)?.author_id;
+    const resolvedAuthorId = originalAuthorId || (reportData.author && reportData.author.id) || reportData.authorId || (reportData as any)?.author_id || currentUser.id;
+    const resolvedAuthor = oldReport?.author || (originalAuthorId ? usersList.find(u => u.id === originalAuthorId) : undefined) || reportData.author || currentUser;
+
+    setReports(prev => prev.map(r => r.id === id ? {
+      ...r,
+      ...reportData,
+      author: resolvedAuthor,
+      authorId: resolvedAuthorId,
+      author_id: resolvedAuthorId,
+      reportType: resolvedReportType
+    } : r));
 
     // 多段階承認通知のトリガー
     try {
       const typeLabel = getReportTypeLabel(resolvedReportType);
-      const authorId = (oldReport?.author && oldReport.author.id) || oldReport?.authorId || (reportData.author && reportData.author.id) || reportData.authorId;
-      const authorUser = usersList.find(u => u.id === authorId) || oldReport?.author;
+      const authorId = resolvedAuthorId;
+      const authorUser = usersList.find(u => u.id === authorId) || resolvedAuthor;
       const authorName = authorUser?.name || '担当者';
       const dateLabel = oldReport?.date || reportData.date || '';
 
@@ -410,7 +422,9 @@ export function useReportManagement({
         id,
         reportType: resolvedReportType,
         report_type: resolvedReportType,
-        author_id: (reportData.author && reportData.author.id) || currentUser.id,
+        author_id: resolvedAuthorId,
+        authorId: resolvedAuthorId,
+        author: resolvedAuthor,
         supervisor_id: reportData.supervisorId || (reportData.supervisor && reportData.supervisor.id),
         week_start_date: reportData.weekStartDate,
         week_label: reportData.weekLabel,

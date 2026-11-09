@@ -1555,9 +1555,12 @@ export function MaintenanceDailyReportView({
 
       const payload: Partial<DailyReport> = {
         id: report?.id,
+        author: reportAuthor,
+        authorId: reportAuthor.id,
+        author_id: reportAuthor.id,
         reportType: 'maintenance_daily',
         date: reportDate,
-        department: currentUser.department || currentUser.division || '保守',
+        department: reportAuthor.department || (reportAuthor as any).division || currentUser.department || '保守',
         tasks: summaryTasks || '保守日報作業報告',
         supervisorId: supervisorId || undefined,
         status: submitStatus,
@@ -1618,6 +1621,9 @@ export function MaintenanceDailyReportView({
       if (onSaveReport) {
         await onSaveReport({
           id: report.id,
+          author: reportAuthor,
+          authorId: reportAuthor.id,
+          author_id: reportAuthor.id,
           reportType: 'maintenance_daily',
           status: 'draft',
           supervisorId: reportAuthor.supervisorId || supervisorId,
@@ -1670,6 +1676,9 @@ export function MaintenanceDailyReportView({
         if (onSaveReport) {
           await onSaveReport({
             id: report.id,
+            author: reportAuthor,
+            authorId: reportAuthor.id,
+            author_id: reportAuthor.id,
             reportType: 'maintenance_daily',
             status: 'reviewed',
             feedbackComment: reviewComment || '',
@@ -1704,6 +1713,9 @@ export function MaintenanceDailyReportView({
         if (onSaveReport) {
           await onSaveReport({
             id: report.id,
+            author: reportAuthor,
+            authorId: reportAuthor.id,
+            author_id: reportAuthor.id,
             reportType: 'maintenance_daily',
             status: 'submitted', // 提出中（次の上長の承認待ち）
             supervisorId: nextTarget.id,

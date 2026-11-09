@@ -15,12 +15,12 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.11.09.3',
+  version: '2026.11.09.4',
   date: '2026-11-09',
-  releaseNumber: 3,
-  display: 'v2026.11.09 #3 (JST)',
+  releaseNumber: 4,
+  display: 'v2026.11.09 #4 (JST)',
   timeZone: '日本標準時 (JST / UTC+09:00)',
-  description: '提出済みの週報・日報におけるカードおよびモーダルのアクションボタンを「開く・編集」から「確認・承認」（確認済は「確認・閲覧」、下書きは「開く・編集」）に変更し、ステータスに応じた適切な導線へ最適化',
+  description: '保守日報・週報の上長承認（最終承認・回覧・差し戻し）時に作成者(author / author_id)が上長ですり替わってしまう不具合を完全修正。フロントエンド・サーバー側（API/SQL Server/ファイルDB）両面で原本作成者の厳格保持を徹底',
 };
 
 /**

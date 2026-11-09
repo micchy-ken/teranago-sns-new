@@ -6603,6 +6603,11 @@ async function startServer() {
       const nextStatus = data.status || prevStatus;
       const nowIso = new Date().toISOString();
 
+      // 作成者（author_id / author）の厳格な保護: 既存日報の原本作成者を最優先し、承認者等による書き換えを防止
+      const originalAuthorId = reports[idx].author_id || reports[idx].authorId || (reports[idx].author && reports[idx].author.id);
+      const resolvedAuthorId = originalAuthorId || data.author_id || data.authorId || (data.author && data.author.id);
+      const resolvedAuthor = reports[idx].author || data.author;
+
       const merged = {
         ...reports[idx],
         ...data,
@@ -6612,7 +6617,9 @@ async function startServer() {
         continued_items: data.continued_items !== undefined ? data.continued_items : (data.ongoingProjects !== undefined ? data.ongoingProjects : reports[idx].continued_items),
         next_week_plans: data.next_week_plans !== undefined ? data.next_week_plans : (data.tomorrowPlan !== undefined ? data.tomorrowPlan : reports[idx].next_week_plans),
         review_feedback: data.review_feedback !== undefined ? data.review_feedback : (data.feedbackComment !== undefined ? data.feedbackComment : reports[idx].review_feedback),
-        author_id: data.author_id || data.authorId || reports[idx].author_id,
+        author_id: resolvedAuthorId,
+        authorId: resolvedAuthorId,
+        author: resolvedAuthor,
         supervisor_id: data.supervisor_id !== undefined ? data.supervisor_id : (data.supervisorId !== undefined ? data.supervisorId : reports[idx].supervisor_id),
         week_start_date: data.week_start_date || data.weekStartDate || reports[idx].week_start_date,
         week_label: data.week_label || data.weekLabel || reports[idx].week_label,
