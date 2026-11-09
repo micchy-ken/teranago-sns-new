@@ -12,7 +12,8 @@ import {
   ItemMaster,
   ApplicationStatus,
   OfficeMaster,
-  MaintenanceReportOfficeConfig
+  MaintenanceReportOfficeConfig,
+  ReportApprovalRecord
 } from '../types';
 import { 
   Calendar as CalendarIcon, 
@@ -45,7 +46,9 @@ import {
   ArrowUp,
   ArrowDown,
   RotateCcw,
-  MessageSquare
+  MessageSquare,
+  ArrowRight,
+  ShieldCheck
 } from 'lucide-react';
 import { getAvatarUrl } from '../utils/avatar';
 import { getLocalDateStr } from '../utils/dateUtils';
@@ -53,6 +56,12 @@ import { expandRecurringEvents } from '../utils/recurrenceUtils';
 import { ApplicationModal } from './ApplicationModal';
 import { API_BASE_URL } from '../config/api';
 import { createDefaultOfficeConfig } from './admin/MaintenanceOfficeConfigAdmin';
+import { 
+  isBranchManager, 
+  resolveSupervisorChain, 
+  getNextSupervisor, 
+  formatStampNameAndDate 
+} from '../utils/supervisorChain';
 
 // JST (日本標準時) 基準で YYYY-MM-DD を判定
 function getEventDateStrJST(dateInput: string | Date | undefined): string {
@@ -97,6 +106,7 @@ interface MaintenanceDailyReportProps {
   report?: DailyReport | null;
   currentUser: User;
   allUsers?: User[];
+  allReports?: DailyReport[];
   calendarEvents?: CalendarEvent[];
   onSaveReport?: (data: Partial<DailyReport>) => Promise<void> | void;
   onReviewReport?: (id: string, comment: string) => Promise<void> | void;
@@ -289,6 +299,7 @@ export function MaintenanceDailyReportView({
   report,
   currentUser,
   allUsers = [],
+  allReports = [],
   calendarEvents = [],
   onSaveReport,
   onReviewReport,
@@ -637,8 +648,44 @@ export function MaintenanceDailyReportView({
   // アコーディオン表示用（スマホビューで展開する行ID）
   const [expandedMobileRow, setExpandedMobileRow] = useState<string | null>('row-1');
 
-  // 当月累計（ダミー標準値 + 入力値）
-  const baseMonthlyTotal = 24391;
+  // メンバー別集計用: 選択メンバーID（初期値: レポート作成者または閲覧者）
+  const [selectedMemberId, setSelectedMemberId] = useState<string>(() => {
+    return report?.author?.id || report?.authorId || (report as any)?.author_id || currentUser.id;
+  });
+
+  // レポート変更時に選択メンバーIDを作成者に同期
+  useEffect(() => {
+    const aid = report?.author?.id || report?.authorId || (report as any)?.author_id || currentUser.id;
+    setSelectedMemberId(aid);
+  }, [report?.id, report?.author?.id, report?.authorId, (report as any)?.author_id, currentUser.id]);
+
+  // allReports が渡されていない場合の補完フェッチ
+  const [fetchedReports, setFetchedReports] = useState<DailyReport[]>([]);
+  useEffect(() => {
+    if (allReports && allReports.length > 0) return;
+    let isMounted = true;
+    fetch(`${API_BASE_URL}/work-reports`)
+      .then(res => res.json())
+      .then(data => {
+        if (!isMounted) return;
+        if (Array.isArray(data)) {
+          setFetchedReports(data);
+        }
+      })
+      .catch(() => {});
+    return () => { isMounted = false; };
+  }, [allReports]);
+
+  // 有効な日報全件リスト
+  const effectiveAllReports = useMemo(() => {
+    return (allReports && allReports.length > 0) ? allReports : fetchedReports;
+  }, [allReports, fetchedReports]);
+
+  // 対象年月 (YYYY-MM)
+  const targetYearMonth = useMemo(() => {
+    const dateStr = reportDate || (report as any)?.date || getLocalDateStr(new Date());
+    return dateStr.slice(0, 7);
+  }, [reportDate, report]);
 
   // 上長候補リスト
   const supervisorCandidates = useMemo(() => {
@@ -652,6 +699,118 @@ export function MaintenanceDailyReportView({
     if (report?.supervisor?.name) return `${report.supervisor.name} (${report.supervisor.department || '上長'})`;
     return '未指定';
   }, [supervisorId, report, allUsers]);
+
+  // 作成者ユーザーの解決
+  const reportAuthor = useMemo<User>(() => {
+    const aid = report?.author?.id || report?.authorId || (report as any)?.author_id;
+    if (aid) {
+      const found = allUsers.find(u => u.id === aid);
+      if (found) return found;
+    }
+    return report?.author || currentUser;
+  }, [report, allUsers, currentUser]);
+
+  // 承認履歴 (approvalHistory)
+  const approvalHistory = useMemo<ReportApprovalRecord[]>(() => {
+    return (
+      maintenanceData?.approvalHistory ||
+      (report as any)?.approvalHistory ||
+      (report as any)?.maintenance_data?.approvalHistory ||
+      []
+    );
+  }, [maintenanceData, report]);
+
+  // 作成者から支店長までの多段階承認チェーン
+  const supervisorChain = useMemo(() => {
+    return resolveSupervisorChain(reportAuthor, allUsers);
+  }, [reportAuthor, allUsers]);
+
+  // 現在の承認担当上長 (report.supervisorId で指定されている上長)
+  const currentAssignedSupervisor = useMemo(() => {
+    const sid = report?.supervisorId || supervisorId;
+    return allUsers.find(u => u.id === sid) || report?.supervisor || null;
+  }, [report, supervisorId, allUsers]);
+
+  // 現在の操作ユーザーから見た「次の上長（回覧先）」
+  const nextSupervisor = useMemo(() => {
+    return getNextSupervisor(currentUser, reportAuthor, allUsers);
+  }, [currentUser, reportAuthor, allUsers]);
+
+  // 現在のユーザーが支店長（または最終承認者）か判定
+  const isFinalApprover = useMemo(() => {
+    if (isBranchManager(currentUser)) return true;
+    if (!nextSupervisor) return true;
+    return false;
+  }, [currentUser, nextSupervisor]);
+
+  // 承認印欄（支店長・課長・係長）の押印情報判定
+  const stampBoxInfo = useMemo(() => {
+    // 係長枠レコード
+    const rawChief = approvalHistory.find(
+      r => (r.approverPosition || '').includes('係長') || r.step === 1
+    );
+    // 課長枠レコード
+    const rawSection = approvalHistory.find(
+      r => (r.approverPosition || '').includes('課長') || (r.step === 2 && r.action !== 'final_approved')
+    );
+    // 支店長枠 (最終承認) レコード
+    const rawBranch = approvalHistory.find(
+      r => r.action === 'final_approved' || isBranchManager({ position: r.approverPosition } as User)
+    );
+
+    const formatRecord = (rec?: ReportApprovalRecord) => {
+      if (!rec) return null;
+      const { surname, dateStr } = formatStampNameAndDate(rec.approverName, rec.approvedAt);
+      return {
+        ...rec,
+        stampName: surname,
+        stampDate: dateStr,
+      };
+    };
+
+    const chiefRecord = formatRecord(rawChief);
+    const sectionRecord = formatRecord(rawSection);
+    const branchRecord = formatRecord(rawBranch);
+
+    // 承認チェーンから各スロットの該当候補者を抽出
+    const chainChiefUser = supervisorChain.find(u => (u.position || '').includes('係長')) || supervisorChain[0];
+    const chainSectionUser = supervisorChain.find(u => (u.position || '').includes('課長')) || supervisorChain[1];
+    const chainBranchUser = supervisorChain.find(u => isBranchManager(u)) || supervisorChain[supervisorChain.length - 1];
+
+    // 現在どの段階で待機中か判定
+    const isSubmitted = report?.status === 'submitted';
+    const isCurrentBranch = isSubmitted && !branchRecord && (
+      (currentAssignedSupervisor && isBranchManager(currentAssignedSupervisor)) ||
+      (!currentAssignedSupervisor && !nextSupervisor) ||
+      (!!sectionRecord || supervisorChain.length <= 1)
+    );
+    const isCurrentSection = isSubmitted && !sectionRecord && !branchRecord && !isCurrentBranch && (
+      (currentAssignedSupervisor && (currentAssignedSupervisor.position || '').includes('課長')) ||
+      (!!chiefRecord && supervisorChain.length >= 2)
+    );
+    const isCurrentChief = isSubmitted && !chiefRecord && !sectionRecord && !branchRecord && !isCurrentBranch && !isCurrentSection;
+
+    return {
+      chief: {
+        title: '係長',
+        record: chiefRecord,
+        isCurrentTarget: isCurrentChief,
+        user: chainChiefUser,
+      },
+      section: {
+        title: '課長',
+        record: sectionRecord,
+        isCurrentTarget: isCurrentSection,
+        user: chainSectionUser,
+      },
+      branch: {
+        title: '支店長',
+        record: branchRecord,
+        isCurrentTarget: isCurrentBranch,
+        user: chainBranchUser,
+      },
+    };
+  }, [approvalHistory, currentAssignedSupervisor, nextSupervisor, report?.status, supervisorChain]);
 
   // 提出済み日報表示用（入力のある有効行のみ抽出）
   const displayedMainRows = useMemo(() => {
@@ -880,6 +1039,174 @@ export function MaintenanceDailyReportView({
     const totalMins = calculatedTotalWorkMins + overtimeMins - breakMins;
     return minutesToTimeString(Math.max(0, totalMins));
   }, [calculatedTotalWorkMins, breakHours, overtimeHours, travelHours]);
+
+  // 選択中メンバーオブジェクトの解決
+  const selectedMember = useMemo(() => {
+    return allUsers.find(u => u.id === selectedMemberId) || reportAuthor;
+  }, [allUsers, selectedMemberId, reportAuthor]);
+
+  // ---------------- 当月累計の自動集計 (メンバー別) ----------------
+  // 対象年月・対象メンバーの保存済み保守日報 + 編集中の当日実績を合算
+  const monthlyMemberTotals = useMemo(() => {
+    let inspectionCount = 0;
+    let inspectionValue = 0;
+    let oncallCount = 0;
+    let oncallAmount = 0;
+    let oncallValue = 0;
+    let replacementCount = 0;
+    let replacementAmount = 0;
+    let replacementValue = 0;
+    let constructionCountSum = 0;
+    let constructionPeopleSum = 0;
+    let constructionValueSum = 0;
+    let buildingMaterialValueSum = 0;
+    let distanceValueSum = 0;
+
+    const currentReportId = report?.id;
+    const currentReportDate = reportDate ? reportDate.slice(0, 10) : '';
+    const currentAuthorId = report?.author?.id || report?.authorId || (report as any)?.author_id || currentUser.id;
+
+    effectiveAllReports.forEach(r => {
+      const rAuthorId = r.author?.id || r.authorId || (r as any).author_id;
+      if (rAuthorId !== selectedMemberId) return;
+
+      const rDate = (r.date || (r as any).report_date || '').slice(0, 10);
+      if (!rDate.startsWith(targetYearMonth)) return;
+
+      // 保守日報判定
+      const isMaintenance =
+        r.reportType === 'maintenance_daily' ||
+        (r as any).report_type === 'maintenance_daily' ||
+        (r as any).maintenanceData ||
+        (r as any).report_data?.maintenanceData ||
+        (r as any).tasks?.includes('【保守点検】');
+      if (!isMaintenance) return;
+
+      // 現在画面で開いて編集中の日報と同じ場合はスキップ（リアルタイム手入力値を後で加算）
+      const isCurrentReport =
+        (currentReportId && r.id === currentReportId) ||
+        (!currentReportId && rDate === currentReportDate && selectedMemberId === currentAuthorId);
+      if (isCurrentReport) return;
+
+      // maintenanceData の取り出し
+      let mData: any = r.maintenanceData;
+      if (typeof mData === 'string') {
+        try { mData = JSON.parse(mData); } catch (e) {}
+      }
+      if (!mData && (r as any).report_data?.maintenanceData) {
+        mData = (r as any).report_data.maintenanceData;
+        if (typeof mData === 'string') {
+          try { mData = JSON.parse(mData); } catch (e) {}
+        }
+      }
+
+      let workRows: any[] = [];
+      if (mData && Array.isArray(mData.mainWorkRows)) {
+        workRows = mData.mainWorkRows;
+      } else if (r.tasks) {
+        workRows = parseTasksToMainWorkRows(r.tasks);
+      }
+
+      let rInspCount = 0;
+      let rInspVal = 0;
+      let rOncallCnt = 0;
+      let rOncallAmt = 0;
+      let rOncallVal = 0;
+      let rReplCnt = 0;
+      let rReplAmt = 0;
+      let rReplVal = 0;
+      let rBldMatVal = 0;
+
+      workRows.forEach(row => {
+        rInspCount += Number(row.inspectionCount || 0);
+        rInspVal += Number(row.inspectionValue || 0);
+        if (Number(row.oncallAmount || 0) > 0 || Number(row.oncallValue || 0) > 0) {
+          rOncallCnt += 1;
+        }
+        rOncallAmt += Number(row.oncallAmount || 0);
+        rOncallVal += Number(row.oncallValue || 0);
+        rReplCnt += Number(row.replacementCount || 0);
+        rReplAmt += Number(row.replacementAmount || 0);
+        rReplVal += Number(row.replacementValue || 0);
+        rBldMatVal += Number(row.buildingMaterialValue || 0);
+      });
+
+      const rConstCount = Number(mData?.constructionCount || 0);
+      const rConstPeople = Number(mData?.constructionPeople || 0);
+      const rConstVal = Number(mData?.constructionValue || 0);
+      const rDistVal = Number(mData?.distanceValue || 0);
+
+      inspectionCount += rInspCount;
+      inspectionValue += rInspVal;
+      oncallCount += rOncallCnt;
+      oncallAmount += rOncallAmt;
+      oncallValue += rOncallVal;
+      replacementCount += rReplCnt;
+      replacementAmount += rReplAmt;
+      replacementValue += rReplVal;
+      constructionCountSum += rConstCount;
+      constructionPeopleSum += rConstPeople;
+      constructionValueSum += rConstVal;
+      buildingMaterialValueSum += rBldMatVal;
+      distanceValueSum += rDistVal;
+    });
+
+    // 選択メンバーが現在開いている日報の作成者の場合、現在画面で入力されている最新の当日値をリアルタイム加算
+    if (selectedMemberId === currentAuthorId) {
+      inspectionCount += mainTableTotals.inspectionCount;
+      inspectionValue += mainTableTotals.inspectionValue;
+      oncallCount += mainTableTotals.oncallCount;
+      oncallAmount += mainTableTotals.oncallAmount;
+      oncallValue += mainTableTotals.oncallValue;
+      replacementCount += mainTableTotals.replacementCount;
+      replacementAmount += mainTableTotals.replacementAmount;
+      replacementValue += mainTableTotals.replacementValue;
+      constructionCountSum += Number(constructionCount) || 0;
+      constructionPeopleSum += Number(constructionPeople) || 0;
+      constructionValueSum += Number(constructionValue) || 0;
+      buildingMaterialValueSum += Number(mainTableTotals.buildingMaterialValue) || 0;
+      distanceValueSum += Number(distanceValue) || 0;
+    }
+
+    const totalValue =
+      inspectionValue +
+      oncallValue +
+      replacementValue +
+      constructionValueSum +
+      buildingMaterialValueSum +
+      distanceValueSum;
+
+    return {
+      inspectionCount,
+      inspectionValue,
+      oncallCount,
+      oncallAmount,
+      oncallValue,
+      replacementCount,
+      replacementAmount,
+      replacementValue,
+      constructionCount: constructionCountSum,
+      constructionPeople: constructionPeopleSum,
+      constructionValue: constructionValueSum,
+      buildingMaterialValue: buildingMaterialValueSum,
+      distanceValue: distanceValueSum,
+      totalValue,
+    };
+  }, [
+    effectiveAllReports,
+    selectedMemberId,
+    targetYearMonth,
+    report?.id,
+    reportDate,
+    report?.author?.id,
+    report?.authorId,
+    currentUser.id,
+    mainTableTotals,
+    constructionCount,
+    constructionPeople,
+    constructionValue,
+    distanceValue,
+  ]);
 
   // ---------------- スケジュールからの自動読み込み ----------------
   const handleAutoLoadSchedule = () => {
@@ -1218,7 +1545,7 @@ export function MaintenanceDailyReportView({
         totalHours: calculatedTotalHoursStr,
         estimateSurveyHours,
         dailyTotalValue: calculatedDailyTotalValue,
-        monthlyTotalValue: baseMonthlyTotal + calculatedDailyTotalValue,
+        monthlyTotalValue: monthlyMemberTotals.totalValue,
       };
 
       const summaryTasks = mainWorkRows
@@ -1264,21 +1591,44 @@ export function MaintenanceDailyReportView({
   // 提出された日報の差し戻し処理
   const handleRemand = async () => {
     if (!report?.id) return;
-    const ok = window.confirm('この日報を作成者に差し戻しますか？（下書きに戻ります）');
+    const ok = window.confirm(`この日報を作成者（${reportAuthorName}さん）に差し戻しますか？\n（ステータスが下書きに戻り、再編集・再提出が可能になります）`);
     if (!ok) return;
 
     setIsSubmitting(true);
     try {
+      const remandRecord: ReportApprovalRecord = {
+        step: approvalHistory.length + 1,
+        approverId: currentUser.id,
+        approverName: currentUser.name,
+        approverPosition: currentUser.position || '上長',
+        comment: reviewComment || '差し戻し',
+        action: 'remanded',
+        approvedAt: new Date().toISOString(),
+      };
+
+      const updatedMaintenanceData: MaintenanceDailyReportData = {
+        ...(maintenanceData || {
+          date: reportDate,
+          mainWorkRows,
+          officeWorkRows,
+        }),
+        approvalHistory: [...approvalHistory, remandRecord],
+      };
+
       if (onSaveReport) {
         await onSaveReport({
           id: report.id,
+          reportType: 'maintenance_daily',
           status: 'draft',
-          feedbackComment: reviewComment || '差し戻し',
+          supervisorId: reportAuthor.supervisorId || supervisorId,
+          feedbackComment: reviewComment 
+            ? `[差し戻し: ${currentUser.name} (${currentUser.position || '上長'})] ${reviewComment}`
+            : `[差し戻し: ${currentUser.name}]`,
           tasks: report.tasks,
-          maintenanceData: maintenanceData || undefined,
+          maintenanceData: updatedMaintenanceData,
         });
       }
-      alert('日報を作成者に差し戻しました。');
+      alert(`日報を作成者（${reportAuthorName}さん）に差し戻しました。`);
       if (onBack) onBack();
     } catch (err) {
       console.error('Failed to remand report:', err);
@@ -1288,23 +1638,83 @@ export function MaintenanceDailyReportView({
     }
   };
 
-  // 提出された日報の上長提出・確認完了処理
+  // 提出された日報の上長提出・確認完了処理（多段階承認：上長がいる限り回覧、支店長が最終承認）
   const handleForwardOrApprove = async () => {
     if (!report?.id) return;
     setIsSubmitting(true);
     try {
-      if (onReviewReport) {
-        await onReviewReport(report.id, reviewComment || '');
-      } else if (onSaveReport) {
-        await onSaveReport({
-          id: report.id,
-          status: 'reviewed',
-          feedbackComment: reviewComment || '',
-          tasks: report.tasks,
-          maintenanceData: maintenanceData || undefined,
-        });
+      if (isFinalApprover) {
+        // 支店長 / 最終承認
+        const finalRecord: ReportApprovalRecord = {
+          step: approvalHistory.length + 1,
+          approverId: currentUser.id,
+          approverName: currentUser.name,
+          approverPosition: currentUser.position || '支店長',
+          comment: reviewComment || '',
+          action: 'final_approved',
+          approvedAt: new Date().toISOString(),
+        };
+
+        const updatedMaintenanceData: MaintenanceDailyReportData = {
+          ...(maintenanceData || {
+            date: reportDate,
+            mainWorkRows,
+            officeWorkRows,
+          }),
+          approvalHistory: [...approvalHistory, finalRecord],
+        };
+
+        if (onReviewReport) {
+          await onReviewReport(report.id, reviewComment || '');
+        }
+        if (onSaveReport) {
+          await onSaveReport({
+            id: report.id,
+            reportType: 'maintenance_daily',
+            status: 'reviewed',
+            feedbackComment: reviewComment || '',
+            tasks: report.tasks,
+            maintenanceData: updatedMaintenanceData,
+            reviewedAt: new Date().toISOString(),
+          });
+        }
+        alert('日報の支店長最終承認（確認完了）を行いました。');
+      } else {
+        // 次の上長へ回覧・提出
+        const nextTarget = nextSupervisor!;
+        const forwardRecord: ReportApprovalRecord = {
+          step: approvalHistory.length + 1,
+          approverId: currentUser.id,
+          approverName: currentUser.name,
+          approverPosition: currentUser.position || '上長',
+          comment: reviewComment || '',
+          action: 'forwarded',
+          approvedAt: new Date().toISOString(),
+        };
+
+        const updatedMaintenanceData: MaintenanceDailyReportData = {
+          ...(maintenanceData || {
+            date: reportDate,
+            mainWorkRows,
+            officeWorkRows,
+          }),
+          approvalHistory: [...approvalHistory, forwardRecord],
+        };
+
+        if (onSaveReport) {
+          await onSaveReport({
+            id: report.id,
+            reportType: 'maintenance_daily',
+            status: 'submitted', // 提出中（次の上長の承認待ち）
+            supervisorId: nextTarget.id,
+            feedbackComment: reviewComment || '',
+            tasks: report.tasks,
+            maintenanceData: updatedMaintenanceData,
+          });
+        }
+        alert(`日報を上長（${nextTarget.name} ${nextTarget.position || '上長'}）へ提出（回覧）しました。`);
       }
-      alert('日報を上長に提出（確認完了）しました。');
+
       if (onBack) onBack();
     } catch (err) {
       console.error('Failed to forward/approve report:', err);
@@ -1340,9 +1750,22 @@ export function MaintenanceDailyReportView({
                   平日（月～金）保守日報
                 </h1>
                 {isSubmittedMode ? (
-                  <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-indigo-100 text-indigo-800 border border-indigo-200 flex items-center gap-1">
-                    <UserCheck className="w-3.5 h-3.5" />
-                    {status === 'reviewed' ? '上長確認完了' : '提出済（上長確認中）'}
+                  <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full border flex items-center gap-1 ${
+                    status === 'reviewed' 
+                      ? 'bg-emerald-100 text-emerald-800 border-emerald-300' 
+                      : 'bg-indigo-100 text-indigo-800 border-indigo-200'
+                  }`}>
+                    {status === 'reviewed' ? (
+                      <>
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>支店長 最終承認完了</span>
+                      </>
+                    ) : (
+                      <>
+                        <UserCheck className="w-3.5 h-3.5" />
+                        <span>提出済（承認回覧中）</span>
+                      </>
+                    )}
                   </span>
                 ) : (
                   <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
@@ -1378,7 +1801,7 @@ export function MaintenanceDailyReportView({
               </div>
               <p className="text-xs text-slate-500 hidden sm:block">
                 {isSubmittedMode 
-                  ? '提出された日報の確認画面です。内容確認の上、コメントを入力して上長提出または差し戻しを行えます。'
+                  ? '多段階承認フロー（支店長最終承認）による日報確認画面です。内容確認の上、上長への回覧提出または差し戻しを行えます。'
                   : '当日のスケジュールから作業・点検・取替内容を自動算出し、日報を簡単に作成・保存します'}
               </p>
             </div>
@@ -1387,24 +1810,45 @@ export function MaintenanceDailyReportView({
           {/* 右側アクションボタン */}
           {isSubmittedMode ? (
             <div className="flex items-center gap-2">
-              <button
-                onClick={handleRemand}
-                disabled={isSubmitting}
-                className="px-3.5 py-1.5 bg-white border border-rose-300 text-rose-700 hover:bg-rose-50 rounded-lg text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                title="日報を作成者に差し戻します（下書きに戻す）"
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-                差し戻し
-              </button>
-              <button
-                onClick={handleForwardOrApprove}
-                disabled={isSubmitting}
-                className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm shadow-indigo-200 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                title="コメントを添えて上長に提出（確認完了）します"
-              >
-                <Send className="w-3.5 h-3.5" />
-                上長に提出
-              </button>
+              {status === 'submitted' ? (
+                <>
+                  <button
+                    onClick={handleRemand}
+                    disabled={isSubmitting}
+                    className="px-3.5 py-1.5 bg-white border border-rose-300 text-rose-700 hover:bg-rose-50 rounded-lg text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    title="日報を作成者に差し戻します（下書きに戻す）"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    差し戻し
+                  </button>
+                  {isFinalApprover ? (
+                    <button
+                      onClick={handleForwardOrApprove}
+                      disabled={isSubmitting}
+                      className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm shadow-emerald-200 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                      title="支店長としての最終承認（確認完了）を行います"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      支店長 承認完了（最終確認）
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleForwardOrApprove}
+                      disabled={isSubmitting}
+                      className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm shadow-indigo-200 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                      title={nextSupervisor ? `${nextSupervisor.name}さんへ回覧します` : '上長へ提出します'}
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                      <span>上長（{nextSupervisor?.name || '次上長'}）へ提出</span>
+                    </button>
+                  )}
+                </>
+              ) : (
+                <span className="px-3 py-1.5 bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-lg text-xs font-bold flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  支店長 最終承認済
+                </span>
+              )}
             </div>
           ) : (
             <div className="flex items-center gap-2">
@@ -1441,49 +1885,192 @@ export function MaintenanceDailyReportView({
       </div>
 
       <div className="max-w-7xl mx-auto px-2 sm:px-6 pt-4 space-y-4">
-        {/* ---------------- 提出された日報用 上長確認・コメント・提出/差し戻しパネル ---------------- */}
+        {/* ---------------- 提出された日報用 上長確認・多段階承認ステッパー＆コメントパネル ---------------- */}
         {isSubmittedMode && (
-          <div className="bg-white border-2 border-indigo-300 rounded-xl p-4 shadow-sm space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="bg-white border-2 border-indigo-300 rounded-xl p-4 shadow-sm space-y-4">
+            {/* 上部ヘッダー & アクションボタン */}
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-indigo-100 pb-3">
               <div className="flex items-center gap-2 text-indigo-950 font-bold text-sm">
                 <MessageSquare className="w-4 h-4 text-indigo-600" />
-                <span>上長確認・コメント入力</span>
+                <span>上長確認・多段階承認 (支店長最終承認)</span>
                 <span className="text-[11px] font-normal text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded-full border border-indigo-200">
-                  ※コメントは空白のままでも上長提出・差し戻し可能です
+                  ※上長がいる限り順次回覧され、支店長で最終確定します
                 </span>
               </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleRemand}
-                  disabled={isSubmitting}
-                  className="px-3.5 py-1.5 bg-white border border-rose-300 text-rose-700 hover:bg-rose-50 rounded-lg text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                  title="日報を作成者に差し戻します（下書きに戻す）"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  差し戻し
-                </button>
-                <button
-                  onClick={handleForwardOrApprove}
-                  disabled={isSubmitting}
-                  className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm shadow-indigo-200 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                  title="コメントを添えて上長に提出（確認完了）します"
-                >
-                  <Send className="w-3.5 h-3.5" />
-                  上長に提出
-                </button>
+              {status === 'submitted' && (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleRemand}
+                    disabled={isSubmitting}
+                    className="px-3.5 py-1.5 bg-white border border-rose-300 text-rose-700 hover:bg-rose-50 rounded-lg text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    title="日報を作成者に差し戻します（下書きに戻す）"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    差し戻し
+                  </button>
+                  {isFinalApprover ? (
+                    <button
+                      onClick={handleForwardOrApprove}
+                      disabled={isSubmitting}
+                      className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm shadow-emerald-200 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                      title="支店長としての最終承認（確認完了）を行います"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      支店長 承認完了（最終確認）
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleForwardOrApprove}
+                      disabled={isSubmitting}
+                      className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm shadow-indigo-200 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                      title={nextSupervisor ? `${nextSupervisor.name}さんへ回覧します` : '上長へ提出します'}
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                      <span>上長（{nextSupervisor?.name || '次上長'}）へ提出</span>
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* 承認ルート進捗ステップバー */}
+            <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+              <div className="text-[11px] font-bold text-slate-700 mb-2.5 flex items-center justify-between">
+                <span className="flex items-center gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>承認ルート進捗状況:</span>
+                </span>
+                <span className="text-[11px] font-semibold text-slate-500">
+                  {status === 'reviewed' ? (
+                    <span className="text-emerald-700 font-bold flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      支店長 最終承認完了
+                    </span>
+                  ) : (
+                    <span className="text-amber-700 font-bold">
+                      現在: {currentAssignedSupervisor?.name || '上長'} 確認中
+                    </span>
+                  )}
+                </span>
+              </div>
+
+              <div className="flex items-center flex-wrap gap-2 text-xs">
+                {/* Step 0: 作成者 */}
+                <div className="flex items-center gap-1.5 bg-white px-2.5 py-1.5 rounded-lg border border-slate-200 shadow-2xs">
+                  <span className="w-5 h-5 rounded-full bg-emerald-500 text-white text-[10px] font-bold flex items-center justify-center shrink-0">
+                    ✓
+                  </span>
+                  <div className="leading-tight">
+                    <span className="text-[10px] text-slate-400 block font-normal">作成者</span>
+                    <span className="font-bold text-slate-800">{reportAuthorName}</span>
+                  </div>
+                </div>
+
+                <ArrowRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+
+                {/* チェーン内の各上長ステップ */}
+                {(supervisorChain.length > 0 ? supervisorChain : (currentAssignedSupervisor ? [currentAssignedSupervisor] : [])).map((stepUser, sIdx) => {
+                  const isBm = isBranchManager(stepUser);
+                  const approvedRecord = approvalHistory.find(
+                    r => r.approverId === stepUser.id && (r.action === 'forwarded' || r.action === 'final_approved')
+                  );
+                  const isCurrentlyPending = !approvedRecord && status === 'submitted' && (
+                    (report?.supervisorId === stepUser.id || supervisorId === stepUser.id) ||
+                    (!report?.supervisorId && sIdx === 0)
+                  );
+
+                  return (
+                    <React.Fragment key={stepUser.id}>
+                      <div className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border shadow-2xs transition-all ${
+                        approvedRecord 
+                          ? 'bg-emerald-50/80 border-emerald-300 text-emerald-950' 
+                          : isCurrentlyPending 
+                            ? 'bg-amber-50 border-amber-300 ring-2 ring-amber-400/30 text-amber-950 animate-pulse' 
+                            : 'bg-white border-slate-200 text-slate-600 opacity-75'
+                      }`}>
+                        <span className={`w-5 h-5 rounded-full text-[10px] font-bold flex items-center justify-center shrink-0 ${
+                          approvedRecord 
+                            ? 'bg-emerald-600 text-white' 
+                            : isCurrentlyPending 
+                              ? 'bg-amber-500 text-white' 
+                              : 'bg-slate-200 text-slate-600'
+                        }`}>
+                          {approvedRecord ? '✓' : sIdx + 1}
+                        </span>
+                        <div className="leading-tight">
+                          <div className="flex items-center gap-1">
+                            <span className="text-[10px] font-semibold text-slate-500">
+                              {isBm ? '【最終】支店長' : stepUser.position || `上長${sIdx + 1}`}
+                            </span>
+                            {approvedRecord && <span className="text-[9px] bg-emerald-100 text-emerald-800 px-1 rounded font-bold">承認済</span>}
+                            {isCurrentlyPending && <span className="text-[9px] bg-amber-100 text-amber-800 px-1 rounded font-bold">確認中</span>}
+                          </div>
+                          <span className="font-bold text-slate-800">{stepUser.name}</span>
+                        </div>
+                      </div>
+                      {sIdx < supervisorChain.length - 1 && (
+                        <ArrowRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      )}
+                    </React.Fragment>
+                  );
+                })}
               </div>
             </div>
-            <textarea
-              rows={2}
-              value={reviewComment}
-              onChange={e => setReviewComment(e.target.value)}
-              placeholder="コメントや確認事項、指示があれば入力（空白のまま「上長に提出」または「差し戻し」可能です）..."
-              className="w-full p-2.5 border border-indigo-200 rounded-lg text-xs bg-indigo-50/20 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-colors"
-            />
-            {report?.feedbackComment && report.feedbackComment !== reviewComment && (
-              <p className="text-[11px] text-slate-500">
-                前回のコメント: <span className="text-slate-700 font-semibold">{report.feedbackComment}</span>
-              </p>
+
+            {/* これまでの承認・フィードバックコメント履歴 */}
+            {approvalHistory.length > 0 && (
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-1.5">
+                <span className="text-[11px] font-bold text-slate-700 block">承認・回覧・コメント履歴:</span>
+                <div className="space-y-1.5">
+                  {approvalHistory.map((item, idx) => (
+                    <div key={idx} className="text-xs bg-white p-2.5 rounded-lg border border-slate-200 flex flex-wrap items-center justify-between gap-2 shadow-2xs">
+                      <div className="flex items-center gap-2">
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                          item.action === 'final_approved'
+                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                            : item.action === 'remanded'
+                              ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                              : 'bg-indigo-100 text-indigo-800 border border-indigo-200'
+                        }`}>
+                          {item.action === 'final_approved' ? '支店長最終承認' : item.action === 'remanded' ? '差し戻し' : '上長提出・回覧'}
+                        </span>
+                        <strong className="text-slate-800">{item.approverName} ({item.approverPosition || '上長'}):</strong>
+                        <span className="text-slate-700">{item.comment || <span className="text-slate-400">（コメントなし）</span>}</span>
+                      </div>
+                      {item.approvedAt && (
+                        <span className="text-[10px] text-slate-400 font-mono">
+                          {new Date(item.approvedAt).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* コメント入力テキストエリア (提出中モード時のみ入力可) */}
+            {status === 'submitted' ? (
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  コメント入力 <span className="text-slate-400 font-normal">（空白のまま上長提出・承認または差し戻し可能です）</span>:
+                </label>
+                <textarea
+                  rows={2}
+                  value={reviewComment}
+                  onChange={e => setReviewComment(e.target.value)}
+                  placeholder={
+                    isFinalApprover
+                      ? "支店長承認時のフィードバックや指示事項を入力（空白でも承認可能）..."
+                      : `上長（${nextSupervisor?.name || '次上長'}）への申し送りや確認コメントを入力（空白でも提出可能）...`
+                  }
+                  className="w-full p-2.5 border border-indigo-200 rounded-lg text-xs bg-indigo-50/20 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-colors"
+                />
+              </div>
+            ) : (
+              <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200 flex items-center gap-2 text-xs font-bold text-emerald-900">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>この日報は支店長により最終承認（確認完了）されています。</span>
+              </div>
             )}
           </div>
         )}
@@ -2779,16 +3366,43 @@ export function MaintenanceDailyReportView({
           {/* 左側2カラム: 工事集計サマリー (Excel下部再現) */}
           {visibleColumns.showConstructionSummary && (
             <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 p-4 shadow-xs space-y-3">
-              <h2 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                工事・点検・オンコール・取替 集計サマリー
-              </h2>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  工事・点検・オンコール・取替 集計サマリー
+                </h2>
+                {/* メンバー切り替えセレクター & 対象年月バッジ */}
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="text-[11px] font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                    {targetYearMonth.replace('-', '年')}月度
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] text-slate-500 font-medium">集計対象:</span>
+                    <select
+                      value={selectedMemberId}
+                      onChange={e => setSelectedMemberId(e.target.value)}
+                      className="text-xs px-2 py-0.5 border border-slate-300 rounded-md bg-white font-bold text-slate-800 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 shadow-2xs"
+                    >
+                      <option value={reportAuthor.id}>
+                        {reportAuthor.name} ({reportAuthor.office || reportAuthor.department || '作成者'})
+                      </option>
+                      {allUsers
+                        .filter(u => u.id !== reportAuthor.id)
+                        .map(u => (
+                          <option key={u.id} value={u.id}>
+                            {u.name} ({u.office || u.department || 'メンバー'})
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
 
               <div className="overflow-x-auto">
                 <table className="w-full text-xs border-collapse">
                   <thead>
                     <tr className="bg-slate-100 border-b border-slate-300 font-bold text-slate-700">
-                      <th className="p-2 border-r border-slate-200">工事内容</th>
+                      <th className="p-2 border-r border-slate-200 text-left min-w-[140px]">区分 / 工事内容</th>
                       <th className="p-2 border-r border-slate-200 text-center">台数</th>
                       <th className="p-2 border-r border-slate-200 text-center">人数</th>
                       <th className="p-2 border-r border-slate-200 text-center bg-[#E8F8F0] text-emerald-900 border-emerald-300">
@@ -2804,14 +3418,20 @@ export function MaintenanceDailyReportView({
                         距離数値<br /><span className="text-[9px] font-normal text-emerald-700">※手入力</span>
                       </th>
                       <th className="p-2 text-center bg-[#FAF3E0] font-extrabold text-amber-950">
-                        当日数値合計
+                        数値合計
                       </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 text-center font-bold">
-                    <tr>
+                    {/* 1行目: 当日実績 */}
+                    <tr className="hover:bg-slate-50/50 transition-colors">
                       {/* 工事内容 */}
                       <td className="p-2 border-r border-slate-200 text-left">
+                        <div className="flex items-center gap-1.5 mb-1">
+                          <span className="inline-block px-1.5 py-0.2 rounded text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200 whitespace-nowrap shadow-2xs">
+                            当日
+                          </span>
+                        </div>
                         {isSubmittedMode ? (
                           <span className="font-semibold text-slate-800">{constructionType || <span className="text-slate-400 font-normal">-</span>}</span>
                         ) : (
@@ -2820,6 +3440,7 @@ export function MaintenanceDailyReportView({
                             value={constructionType}
                             onChange={e => setConstructionType(e.target.value)}
                             className="w-full px-1 py-0.5 border border-slate-200 rounded text-xs bg-white"
+                            placeholder="工事内容"
                           />
                         )}
                       </td>
@@ -2900,6 +3521,57 @@ export function MaintenanceDailyReportView({
                         {calculatedDailyTotalValue}
                       </td>
                     </tr>
+
+                    {/* 2行目: 当月累計 (選択メンバーの月間累計値) */}
+                    <tr className="bg-indigo-50/50 text-indigo-950 font-bold border-t-2 border-indigo-200">
+                      {/* 区分 */}
+                      <td className="p-2 border-r border-slate-200 text-left">
+                        <div className="flex items-center gap-1.5">
+                          <span className="inline-block px-1.5 py-0.2 rounded text-[10px] font-bold bg-indigo-600 text-white whitespace-nowrap shadow-2xs">
+                            当月累計
+                          </span>
+                          <span className="text-[11px] font-semibold text-slate-700 truncate max-w-[100px]" title={selectedMember.name}>
+                            {selectedMember.name}
+                          </span>
+                        </div>
+                      </td>
+                      {/* 工事台数累計 */}
+                      <td className="p-2 border-r border-slate-200 text-indigo-900 font-extrabold">
+                        {monthlyMemberTotals.constructionCount} 台
+                      </td>
+                      {/* 工事人数累計 */}
+                      <td className="p-2 border-r border-slate-200 text-indigo-900 font-extrabold">
+                        {monthlyMemberTotals.constructionPeople} 人
+                      </td>
+                      {/* 工事数値累計 */}
+                      <td className="p-2 border-r border-emerald-300 bg-emerald-50/70 text-emerald-950 font-black">
+                        {monthlyMemberTotals.constructionValue.toLocaleString()}
+                      </td>
+                      {/* 点検台数/数値 累計 */}
+                      <td className="p-2 border-r border-slate-200 bg-amber-50/70 text-amber-950 font-black">
+                        {monthlyMemberTotals.inspectionCount}台 / {monthlyMemberTotals.inspectionValue.toLocaleString()}pt
+                      </td>
+                      {/* オンコール件/金額/pt 累計 */}
+                      <td className="p-2 border-r border-slate-200 bg-amber-50/70 text-amber-950 font-black">
+                        {monthlyMemberTotals.oncallCount}件 / ¥{monthlyMemberTotals.oncallAmount.toLocaleString()} ({monthlyMemberTotals.oncallValue.toLocaleString()}pt)
+                      </td>
+                      {/* 取替台/金額/pt 累計 */}
+                      <td className="p-2 border-r border-slate-200 bg-amber-50/70 text-amber-950 font-black">
+                        {monthlyMemberTotals.replacementCount}台 / ¥{monthlyMemberTotals.replacementAmount.toLocaleString()} ({monthlyMemberTotals.replacementValue.toLocaleString()}pt)
+                      </td>
+                      {/* 建材数値 累計 */}
+                      <td className="p-2 border-r border-emerald-300 bg-emerald-50/70 text-emerald-950 font-black">
+                        {monthlyMemberTotals.buildingMaterialValue.toLocaleString()}
+                      </td>
+                      {/* 距離数値 累計 */}
+                      <td className="p-2 border-r border-emerald-300 bg-emerald-50/70 text-emerald-950 font-black">
+                        {monthlyMemberTotals.distanceValue.toLocaleString()}
+                      </td>
+                      {/* 当月数値合計 (月間総合計pt) */}
+                      <td className="p-2 bg-amber-100/90 font-black text-amber-950 text-base">
+                        {monthlyMemberTotals.totalValue.toLocaleString()}
+                      </td>
+                    </tr>
                   </tbody>
                 </table>
               </div>
@@ -2956,44 +3628,120 @@ export function MaintenanceDailyReportView({
 
                 {/* 当月数値合計 (肌色 自動算出) */}
                 <div className="p-3 bg-[#FAF3E0] border border-amber-300 rounded-lg text-center space-y-1">
-                  <span className="text-[11px] font-bold text-amber-900">当月数値合計 (自動集計):</span>
+                  <div className="flex items-center justify-between text-[11px] font-bold text-amber-900">
+                    <span>当月数値合計 ({selectedMember.name}):</span>
+                    <span className="text-[10px] text-amber-700 font-normal">自動集計</span>
+                  </div>
                   <div className="text-xl font-black text-amber-950">
-                    {(baseMonthlyTotal + calculatedDailyTotalValue).toLocaleString()} <span className="text-xs font-normal">pt</span>
+                    {monthlyMemberTotals.totalValue.toLocaleString()} <span className="text-xs font-normal">pt</span>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* 承認印欄 */}
+            {/* 承認印欄（支店長 最終承認・課長・係長） */}
             <div className="border-t border-slate-200 pt-3">
-              <span className="text-[11px] font-bold text-slate-600 block mb-1.5">承認印欄:</span>
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-[11px] font-bold text-slate-700">承認印欄:</span>
+                <span className="text-[10px] text-slate-400">電子承認印 (JST)</span>
+              </div>
               <div className="grid grid-cols-3 gap-2 text-center text-[10px]">
-                <div className="border border-slate-300 rounded p-1">
-                  <span className="text-slate-400 block border-b border-slate-200 pb-0.5">支店長</span>
-                  <span className="text-slate-400 font-bold block pt-1">印</span>
+                {/* 支店長 (最終承認) */}
+                <div className={`border rounded p-1.5 flex flex-col items-center justify-between min-h-[78px] ${
+                  stampBoxInfo.branch.record ? 'border-red-300 bg-red-50/20' : stampBoxInfo.branch.isCurrentTarget ? 'border-indigo-400 bg-indigo-50/30 ring-1 ring-indigo-400' : 'border-slate-300 bg-slate-50/50'
+                }`}>
+                  <span className="text-slate-500 font-bold block border-b border-slate-200 pb-0.5 w-full">
+                    {stampBoxInfo.branch.title}
+                  </span>
+                  <div className="my-auto py-1 flex items-center justify-center">
+                    {stampBoxInfo.branch.record ? (
+                      <div className="w-12 h-12 rounded-full border-2 border-red-600 bg-white/90 text-red-600 flex flex-col items-center justify-center shadow-xs -rotate-3 select-none leading-none">
+                        <span className="text-[9px] font-bold scale-90 tracking-tighter">承認</span>
+                        <span className="text-[11px] font-black tracking-tight">{stampBoxInfo.branch.record.stampName}</span>
+                        <span className="text-[8px] font-bold scale-85 text-red-500">{stampBoxInfo.branch.record.stampDate}</span>
+                      </div>
+                    ) : stampBoxInfo.branch.isCurrentTarget ? (
+                      <div className="text-center">
+                        <span className="inline-block px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded text-[9px] font-bold animate-pulse">
+                          確認中
+                        </span>
+                        <span className="block text-[9px] text-slate-400 mt-0.5">{stampBoxInfo.branch.user?.name || '支店長'}</span>
+                      </div>
+                    ) : (
+                      <span className="text-slate-300 font-bold text-xs">印</span>
+                    )}
+                  </div>
                 </div>
-                <div className="border border-slate-300 rounded p-1">
-                  <span className="text-slate-400 block border-b border-slate-200 pb-0.5">課長</span>
-                  <span className="text-slate-400 font-bold block pt-1">印</span>
+
+                {/* 課長 (上位上長) */}
+                <div className={`border rounded p-1.5 flex flex-col items-center justify-between min-h-[78px] ${
+                  stampBoxInfo.section.record ? 'border-red-300 bg-red-50/20' : stampBoxInfo.section.isCurrentTarget ? 'border-indigo-400 bg-indigo-50/30 ring-1 ring-indigo-400' : 'border-slate-300 bg-slate-50/50'
+                }`}>
+                  <span className="text-slate-500 font-bold block border-b border-slate-200 pb-0.5 w-full">
+                    {stampBoxInfo.section.title}
+                  </span>
+                  <div className="my-auto py-1 flex items-center justify-center">
+                    {stampBoxInfo.section.record ? (
+                      <div className="w-12 h-12 rounded-full border-2 border-red-600 bg-white/90 text-red-600 flex flex-col items-center justify-center shadow-xs -rotate-3 select-none leading-none">
+                        <span className="text-[9px] font-bold scale-90 tracking-tighter">確認</span>
+                        <span className="text-[11px] font-black tracking-tight">{stampBoxInfo.section.record.stampName}</span>
+                        <span className="text-[8px] font-bold scale-85 text-red-500">{stampBoxInfo.section.record.stampDate}</span>
+                      </div>
+                    ) : stampBoxInfo.section.isCurrentTarget ? (
+                      <div className="text-center">
+                        <span className="inline-block px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded text-[9px] font-bold animate-pulse">
+                          確認中
+                        </span>
+                        <span className="block text-[9px] text-slate-400 mt-0.5">{stampBoxInfo.section.user?.name || '課長'}</span>
+                      </div>
+                    ) : (
+                      <span className="text-slate-300 font-bold text-xs">印</span>
+                    )}
+                  </div>
                 </div>
-                <div className="border border-slate-300 rounded p-1">
-                  <span className="text-slate-400 block border-b border-slate-200 pb-0.5">係長</span>
-                  <span className="text-slate-700 font-bold block pt-1">鶴見</span>
+
+                {/* 係長 / 直属上長 (第1承認) */}
+                <div className={`border rounded p-1.5 flex flex-col items-center justify-between min-h-[78px] ${
+                  stampBoxInfo.chief.record ? 'border-red-300 bg-red-50/20' : stampBoxInfo.chief.isCurrentTarget ? 'border-indigo-400 bg-indigo-50/30 ring-1 ring-indigo-400' : 'border-slate-300 bg-slate-50/50'
+                }`}>
+                  <span className="text-slate-500 font-bold block border-b border-slate-200 pb-0.5 w-full">
+                    {stampBoxInfo.chief.title}
+                  </span>
+                  <div className="my-auto py-1 flex items-center justify-center">
+                    {stampBoxInfo.chief.record ? (
+                      <div className="w-12 h-12 rounded-full border-2 border-red-600 bg-white/90 text-red-600 flex flex-col items-center justify-center shadow-xs -rotate-3 select-none leading-none">
+                        <span className="text-[9px] font-bold scale-90 tracking-tighter">確認</span>
+                        <span className="text-[11px] font-black tracking-tight">{stampBoxInfo.chief.record.stampName}</span>
+                        <span className="text-[8px] font-bold scale-85 text-red-500">{stampBoxInfo.chief.record.stampDate}</span>
+                      </div>
+                    ) : stampBoxInfo.chief.isCurrentTarget ? (
+                      <div className="text-center">
+                        <span className="inline-block px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded text-[9px] font-bold animate-pulse">
+                          確認中
+                        </span>
+                        <span className="block text-[9px] text-slate-400 mt-0.5">{stampBoxInfo.chief.user?.name || '係長'}</span>
+                      </div>
+                    ) : (
+                      <span className="text-slate-300 font-bold text-xs">印</span>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         </div>
 
-        {/* ---------------- 提出後: 上長確認・コメント・提出/差し戻しエリア ---------------- */}
+        {/* ---------------- 提出後: 多段階承認（上長回覧 / 支店長最終承認）・差し戻しエリア ---------------- */}
         {isSubmittedMode && (
-          <div className="bg-indigo-50/70 border border-indigo-200 rounded-xl p-4 shadow-xs space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2 text-indigo-900 font-bold text-xs">
+          <div className="bg-gradient-to-r from-indigo-50/80 via-slate-50 to-indigo-50/80 border border-indigo-200 rounded-xl p-4 shadow-sm space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-indigo-100 pb-2">
+              <div className="flex items-center gap-2 text-indigo-950 font-bold text-xs">
                 <MessageSquare className="w-4 h-4 text-indigo-600" />
-                <span>上長確認・コメント入力</span>
-                <span className="text-[11px] font-normal text-indigo-700 bg-white px-2 py-0.5 rounded-full border border-indigo-200">
-                  ※コメントは空白のままでも上長提出・差し戻し可能です
+                <span>
+                  {isFinalApprover ? '支店長 最終承認・決裁' : '上長確認・上位回覧コメント'}
+                </span>
+                <span className="text-[11px] font-normal text-indigo-700 bg-white px-2.5 py-0.5 rounded-full border border-indigo-200 shadow-2xs">
+                  ※コメントは空白のままでも{isFinalApprover ? '最終承認' : '上長提出'}・差し戻し可能です
                 </span>
               </div>
               <div className="flex items-center gap-2">
@@ -3004,32 +3752,81 @@ export function MaintenanceDailyReportView({
                   className="px-4 py-2 bg-white border border-rose-300 text-rose-700 hover:bg-rose-50 rounded-lg text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
                   title="日報を作成者に差し戻します（下書きに戻す）"
                 >
-                  <RotateCcw className="w-4 h-4" />
-                  差し戻し
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>作成者（{reportAuthor?.name || '作成者'}）へ差し戻し</span>
                 </button>
                 <button
                   type="button"
                   onClick={handleForwardOrApprove}
                   disabled={isSubmitting}
-                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                  title="コメントを添えて上長に提出（確認完了）します"
+                  className={`px-5 py-2 text-white rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer disabled:opacity-50 ${
+                    isFinalApprover
+                      ? 'bg-emerald-600 hover:bg-emerald-700'
+                      : 'bg-indigo-600 hover:bg-indigo-700'
+                  }`}
+                  title={
+                    isFinalApprover
+                      ? '支店長として日報を最終承認（確認完了）します'
+                      : `日報を確認し、次の上長（${nextSupervisor?.name || '上位上長'}）へ提出（回覧）します`
+                  }
                 >
-                  <Send className="w-4 h-4" />
-                  上長に提出
+                  {isFinalApprover ? (
+                    <>
+                      <ShieldCheck className="w-4 h-4" />
+                      <span>支店長 承認完了（最終確認）</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-3.5 h-3.5" />
+                      <span>上長（{nextSupervisor?.name || '上位上長'}）へ提出</span>
+                    </>
+                  )}
                 </button>
               </div>
             </div>
+
             <textarea
               rows={2}
               value={reviewComment}
               onChange={e => setReviewComment(e.target.value)}
-              placeholder="コメントや確認事項、指示があれば入力（空白のまま「上長に提出」または「差し戻し」可能です）..."
-              className="w-full p-2.5 border border-indigo-200 rounded-lg text-xs bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-colors"
+              placeholder={
+                isFinalApprover
+                  ? '支店長コメント・指示事項があれば入力（空白のまま「承認完了」可能です）...'
+                  : `上長コメント・確認事項があれば入力（空白のまま「上長（${nextSupervisor?.name || '上位上長'}）へ提出」可能です）...`
+              }
+              className="w-full p-2.5 border border-indigo-200 rounded-lg text-xs bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-colors shadow-inner"
             />
-            {report?.feedbackComment && report.feedbackComment !== reviewComment && (
-              <p className="text-[11px] text-slate-500">
-                前回のコメント: <span className="text-slate-700 font-semibold">{report.feedbackComment}</span>
-              </p>
+
+            {/* 過去の承認・回覧コメント履歴 */}
+            {approvalHistory.length > 0 && (
+              <div className="pt-2 border-t border-indigo-100/80 space-y-1.5">
+                <span className="text-[11px] font-bold text-slate-600 block">承認・回覧コメント履歴:</span>
+                <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                  {approvalHistory.map((rec, idx) => (
+                    <div key={idx} className="bg-white/90 border border-slate-200 rounded-lg p-2 text-xs flex items-start gap-2 shadow-2xs">
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold shrink-0 mt-0.5 ${
+                        rec.action === 'final_approved' ? 'bg-emerald-100 text-emerald-800' :
+                        rec.action === 'remanded' ? 'bg-rose-100 text-rose-800' : 'bg-indigo-100 text-indigo-800'
+                      }`}>
+                        {rec.action === 'final_approved' ? '最終承認' : rec.action === 'remanded' ? '差し戻し' : '回覧提出'}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 text-slate-500 text-[10px]">
+                          <strong className="text-slate-800 font-bold">{rec.approverName}</strong>
+                          {rec.approverPosition && <span>({rec.approverPosition})</span>}
+                          <span>•</span>
+                          <span>{new Date(rec.approvedAt).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}</span>
+                        </div>
+                        {rec.comment ? (
+                          <p className="text-slate-700 mt-0.5 whitespace-pre-wrap">{rec.comment}</p>
+                        ) : (
+                          <p className="text-slate-400 italic text-[11px] mt-0.5">（コメントなし）</p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             )}
           </div>
         )}

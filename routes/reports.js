@@ -236,7 +236,12 @@ router.post(['/work-reports', '/daily-reports', '/reports'], async (req, res) =>
     const repStatus = data.status || (data.isSubmitting ? 'submitted' : 'draft');
     const review_feedback = data.review_feedback !== undefined ? data.review_feedback : (data.feedbackComment || '');
 
-    const report_type = data.report_type || data.reportType || 'weekly';
+    // 既存レポートがある場合は report_type を引き継ぎ、なければデータ構造から安全に自動判別
+    const fileReports = loadWorkReportsFromFile();
+    const existingIdx = fileReports.findIndex(r => r.id === id);
+    const existingReportType = existingIdx >= 0 ? (fileReports[existingIdx].reportType || fileReports[existingIdx].report_type) : null;
+
+    const report_type = data.report_type || data.reportType || existingReportType || (data.maintenance_data || data.maintenanceData ? 'maintenance_daily' : (data.construction_data || data.constructionData ? 'construction_daily' : (data.sales_data || data.salesData ? 'sales_daily' : (data.week_start_date || data.weekStartDate ? 'weekly' : 'daily'))));
     const report_date = data.report_date || data.reportDate || data.date || null;
     const department = data.department || authorDepartment || null;
     const maintenance_data_str = data.maintenance_data ? (typeof data.maintenance_data === 'string' ? data.maintenance_data : JSON.stringify(data.maintenance_data)) : (data.maintenanceData ? JSON.stringify(data.maintenanceData) : null);
@@ -287,13 +292,15 @@ router.post(['/work-reports', '/daily-reports', '/reports'], async (req, res) =>
         if (repStatus === 'submitted' && supervisor_id && supervisor_id !== author_id) {
           try {
             const notifId = 'notif_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+            const typeLabel = report_type === 'maintenance_daily' ? '保守日報' : (report_type === 'daily' ? '日報' : (report_type === 'sales_daily' ? '営業日報' : (report_type === 'construction_daily' ? '工務日報' : '週報')));
+            const dateLabel = report_date || (week_label ? `${week_label}` : '最新');
             await pool.request()
               .input('notifId', sql.NVarChar, notifId)
               .input('user_id', sql.NVarChar, String(supervisor_id))
               .input('sender_id', sql.NVarChar, String(author_id))
               .input('type', sql.NVarChar, 'work_report')
-              .input('title', sql.NVarChar, `【週報】${authorName}さんより提出`)
-              .input('contents', sql.NVarChar, `${week_label || '最新'}の週報が提出されました。確認をお願いします。`)
+              .input('title', sql.NVarChar, `【${typeLabel}】${authorName}さんより提出`)
+              .input('contents', sql.NVarChar, `${dateLabel}の${typeLabel}が提出されました。確認をお願いします。`)
               .input('target_id', sql.NVarChar, String(id))
               .query('INSERT INTO dbo.notifications (id, user_id, sender_id, type, title, contents, target_id, is_read, created_at) VALUES (@notifId, @user_id, @sender_id, @type, @title, @contents, @target_id, 0, SYSDATETIMEOFFSET())');
           } catch (_) {}
@@ -368,6 +375,8 @@ router.post(['/work-reports/:id/review', '/daily-reports/:id/review'], async (re
 
     let author_id = null;
     let week_label = '';
+    let report_type = 'weekly';
+    let report_date = null;
 
     if (pool) {
       const repRes = await pool.request()
@@ -376,6 +385,8 @@ router.post(['/work-reports/:id/review', '/daily-reports/:id/review'], async (re
       const existing = (repRes.recordset && repRes.recordset[0]) || {};
       author_id = existing.author_id || existing.authorId;
       week_label = existing.week_label || existing.weekLabel || '';
+      report_type = existing.report_type || existing.reportType || 'weekly';
+      report_date = existing.report_date || existing.reportDate || existing.date || null;
 
       await pool.request()
         .input('id', sql.NVarChar, reportId)
@@ -385,8 +396,10 @@ router.post(['/work-reports/:id/review', '/daily-reports/:id/review'], async (re
       if (author_id) {
         try {
           const notifId = 'notif_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
-          const titleStr = `【週報】${reviewerName || '上長'}が週報を確認しました`;
-          const contentsStr = `${week_label || ''}の週報が確認されました。${comment ? (`コメント: 「${comment}」`) : ''}`;
+          const typeLabel = report_type === 'maintenance_daily' ? '保守日報' : (report_type === 'daily' ? '日報' : (report_type === 'sales_daily' ? '営業日報' : (report_type === 'construction_daily' ? '工務日報' : '週報')));
+          const dateLabel = report_date ? new Date(report_date).toISOString().slice(0, 10) : (week_label || '');
+          const titleStr = `【${typeLabel}】${reviewerName || '上長'}が${typeLabel}を確認しました`;
+          const contentsStr = `${dateLabel}の${typeLabel}が確認されました。${comment ? (`コメント: 「${comment}」`) : ''}`;
           await pool.request()
             .input('notifId', sql.NVarChar, notifId)
             .input('user_id', sql.NVarChar, String(author_id))

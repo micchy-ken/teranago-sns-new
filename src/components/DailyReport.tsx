@@ -421,6 +421,7 @@ export function DailyReportView({
         report={activeMaintenanceReport}
         currentUser={currentUser}
         allUsers={allUsers}
+        allReports={reports}
         calendarEvents={calendarEvents}
         applications={applications}
         onAddApplication={onAddApplication}
@@ -759,10 +760,30 @@ export function DailyReportView({
                             setActiveMaintenanceReport(mReport);
                             setIsEditingMaintenance(true);
                           }}
-                          className="px-3 py-1.5 bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1"
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                            mReport.status === 'submitted'
+                              ? 'bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100 shadow-2xs'
+                              : mReport.status === 'reviewed'
+                              ? 'bg-emerald-50 text-emerald-800 border border-emerald-300 hover:bg-emerald-100'
+                              : 'bg-slate-100 text-slate-700 border border-slate-300 hover:bg-slate-200'
+                          }`}
                         >
-                          <Edit3 className="w-3.5 h-3.5" />
-                          開く・編集
+                          {mReport.status === 'submitted' ? (
+                            <>
+                              <CheckCircle2 className="w-3.5 h-3.5 text-amber-600" />
+                              確認・承認
+                            </>
+                          ) : mReport.status === 'reviewed' ? (
+                            <>
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                              確認・閲覧
+                            </>
+                          ) : (
+                            <>
+                              <Edit3 className="w-3.5 h-3.5" />
+                              開く・編集
+                            </>
+                          )}
                         </button>
                         {onDeleteReport && (
                           <button
@@ -916,6 +937,40 @@ export function DailyReportView({
                         </span>
                       )}
 
+                      {/* 週報ステータス連動ボタン: 提出済は「確認・承認」、確認済は「確認・閲覧」、下書きは「開く・編集」 */}
+                      {report.status === 'submitted' ? (
+                        <button
+                          onClick={() => {
+                            if (isPendingMyReview) {
+                              setReviewingReport(report);
+                              setReviewFeedback('');
+                            } else {
+                              setViewingReport(report);
+                            }
+                          }}
+                          className="px-3 py-1.5 bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5 text-amber-600" />
+                          確認・承認
+                        </button>
+                      ) : report.status === 'reviewed' ? (
+                        <button
+                          onClick={() => setViewingReport(report)}
+                          className="px-3 py-1.5 bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                          確認・閲覧
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleOpenEditModal(report)}
+                          className="px-3 py-1.5 bg-slate-100 text-slate-700 border border-slate-200 hover:bg-slate-200 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                          開く・編集
+                        </button>
+                      )}
+
                       {/* View details button */}
                       <button
                         onClick={() => setViewingReport(report)}
@@ -924,17 +979,6 @@ export function DailyReportView({
                       >
                         <Eye className="w-4 h-4" />
                       </button>
-
-                      {/* Author Edit/Copy/Delete Actions */}
-                      {isAuthor && report.status !== 'reviewed' && (
-                        <button
-                          onClick={() => handleOpenEditModal(report)}
-                          className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
-                          title="編集する"
-                        >
-                          <Edit3 className="w-4 h-4" />
-                        </button>
-                      )}
                       {isAuthor && (
                         <button
                           onClick={() => handleDuplicateReport(report)}
@@ -1443,7 +1487,7 @@ export function DailyReportView({
               </button>
 
               <div className="flex flex-wrap items-center gap-2.5">
-                {/* 上長確認ボタン */}
+                {/* 上長確認・承認ボタン */}
                 {((viewingReport.supervisorId || viewingReport.supervisor?.id) === currentUser.id || currentUser.isAdmin) && viewingReport.status === 'submitted' && (
                   <button
                     type="button"
@@ -1456,12 +1500,12 @@ export function DailyReportView({
                     className="flex items-center gap-1.5 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs sm:text-sm font-bold transition-colors shadow-xs cursor-pointer"
                   >
                     <CheckCircle2 className="w-4 h-4" />
-                    上長確認・コメントする
+                    確認・承認する
                   </button>
                 )}
 
-                {/* 作成者編集ボタン */}
-                {((viewingReport.author?.id || (viewingReport as any).authorId) === currentUser.id || currentUser.isAdmin) && viewingReport.status !== 'reviewed' && (
+                {/* 作成者編集ボタン（下書き時のみ編集可能） */}
+                {((viewingReport.author?.id || (viewingReport as any).authorId) === currentUser.id || currentUser.isAdmin) && viewingReport.status === 'draft' && (
                   <button
                     type="button"
                     onClick={() => {
@@ -1472,7 +1516,7 @@ export function DailyReportView({
                     className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs sm:text-sm font-bold transition-colors shadow-xs cursor-pointer"
                   >
                     <Edit3 className="w-4 h-4" />
-                    編集する
+                    開く・編集
                   </button>
                 )}
 

@@ -6319,7 +6319,7 @@ async function startServer() {
     authorDepartment?: string;
     authorAvatarUrl?: string;
     author?: any;
-    reportType?: 'daily' | 'weekly';
+    reportType?: string;
     date?: string; // YYYY-MM-DD
     reportDate?: string;
     weekStartDate?: string;
@@ -6335,6 +6335,9 @@ async function startServer() {
     submittedAt?: string;
     reviewedAt?: string;
     updatedAt?: string;
+    maintenanceData?: any;
+    constructionData?: any;
+    salesData?: any;
   }
 
   function loadWorkReports(): StoredWorkReport[] {
@@ -6365,6 +6368,10 @@ async function startServer() {
     const reviewed_at = r.reviewed_at || r.reviewedAt || undefined;
     const createdAt = r.createdAt || r.created_at || new Date().toISOString();
     const updated_at = r.updated_at || r.updatedAt || r.createdAt || new Date().toISOString();
+    const mData = r.maintenanceData || r.maintenance_data;
+    const cData = r.constructionData || r.construction_data;
+    const sData = r.salesData || r.sales_data;
+    const repType = r.reportType || r.report_type || (mData ? 'maintenance_daily' : (cData ? 'construction_daily' : (sData ? 'sales_daily' : (week_start_date ? 'weekly' : 'daily'))));
 
     return {
       id: String(r.id),
@@ -6388,7 +6395,7 @@ async function startServer() {
       authorDepartment: r.authorDepartment || r.department || (r.author && r.author.department) || undefined,
       authorAvatarUrl: r.authorAvatarUrl || (r.author && r.author.avatarUrl) || undefined,
       author: r.author || undefined,
-      reportType: r.reportType || 'weekly',
+      reportType: repType,
       date: r.date || r.reportDate || week_start_date,
       reportDate: r.reportDate || r.date || week_start_date,
       weekStartDate: week_start_date,
@@ -6403,7 +6410,10 @@ async function startServer() {
       feedbackComment: review_feedback,
       submittedAt: r.submittedAt || (status === 'submitted' ? (r.createdAt || createdAt) : undefined),
       reviewedAt: reviewed_at,
-      updatedAt: updated_at
+      updatedAt: updated_at,
+      maintenanceData: mData,
+      constructionData: cData,
+      salesData: sData
     };
   }
 
@@ -6508,7 +6518,7 @@ async function startServer() {
         authorDepartment: data.authorDepartment || data.department || (data.author && data.author.department) || '',
         authorAvatarUrl: data.authorAvatarUrl || (data.author && data.author.avatarUrl) || '',
         author: data.author || undefined,
-        reportType: data.reportType || 'weekly',
+        reportType: data.reportType || data.report_type || (data.maintenanceData || data.maintenance_data ? 'maintenance_daily' : (data.constructionData || data.construction_data ? 'construction_daily' : (data.salesData || data.sales_data ? 'sales_daily' : (week_start_date ? 'weekly' : 'daily')))),
         date: data.date || data.reportDate || week_start_date,
         reportDate: data.reportDate || data.date || week_start_date,
         weekStartDate: week_start_date,
@@ -6523,7 +6533,10 @@ async function startServer() {
         feedbackComment: review_feedback,
         submittedAt: status === 'submitted' ? (data.submittedAt || nowIso) : undefined,
         reviewedAt: reviewed_at,
-        updatedAt: updated_at
+        updatedAt: updated_at,
+        maintenanceData: data.maintenanceData || data.maintenance_data,
+        constructionData: data.constructionData || data.construction_data,
+        salesData: data.salesData || data.sales_data,
       };
 
       if (existingIdx >= 0) {
@@ -6536,13 +6549,16 @@ async function startServer() {
 
       // 上長へ提出された場合は notifications テーブル・JSON へレコード自動作成 & Push通知
       if (status === 'submitted' && supervisor_id && supervisor_id !== author_id) {
+        const repType = newReport.reportType;
+        const typeLabel = repType === 'maintenance_daily' ? '保守日報' : (repType === 'daily' ? '日報' : (repType === 'sales_daily' ? '営業日報' : (repType === 'construction_daily' ? '工務日報' : '週報')));
+        const dateLabel = newReport.date || week_label || week_start_date || '最新';
         try {
           createNotification({
             user_id: supervisor_id,
             sender_id: author_id,
             type: 'work_report',
-            title: `【週報】${authorName}さんより提出`,
-            contents: `${week_label || week_start_date || '最新'}の週報が提出されました。確認をお願いします。`,
+            title: `【${typeLabel}】${authorName}さんより提出`,
+            contents: `${dateLabel}の${typeLabel}が提出されました。確認をお願いします。`,
             target_id: newId,
             sender_name: authorName
           });
@@ -6553,8 +6569,8 @@ async function startServer() {
         try {
           await sendPushNotificationToUser({
             targetUserId: supervisor_id,
-            title: `【週報】${authorName}さんより提出`,
-            body: `${week_label || week_start_date || '最新'}の週報が提出されました。確認をお願いします。`,
+            title: `【${typeLabel}】${authorName}さんより提出`,
+            body: `${dateLabel}の${typeLabel}が提出されました。確認をお願いします。`,
             url: '/?tab=daily_report',
             data: { reportId: newReport.id, tab: 'daily_report' },
             tag: `report_submit_${newReport.id}`
@@ -6610,13 +6626,16 @@ async function startServer() {
       saveWorkReports(reports);
 
       if (nextStatus === 'submitted' && prevStatus !== 'submitted' && updatedReport.supervisor_id) {
+        const repType = updatedReport.reportType;
+        const typeLabel = repType === 'maintenance_daily' ? '保守日報' : (repType === 'daily' ? '日報' : (repType === 'sales_daily' ? '営業日報' : (repType === 'construction_daily' ? '工務日報' : '週報')));
+        const dateLabel = updatedReport.date || updatedReport.week_label || updatedReport.week_start_date || '最新';
         try {
           createNotification({
             user_id: updatedReport.supervisor_id,
             sender_id: updatedReport.author_id,
             type: 'work_report',
-            title: `【週報】${updatedReport.authorName || '社員'}さんより提出`,
-            contents: `${updatedReport.week_label || updatedReport.week_start_date || '最新'}の週報が提出されました。確認をお願いします。`,
+            title: `【${typeLabel}】${updatedReport.authorName || '社員'}さんより提出`,
+            contents: `${dateLabel}の${typeLabel}が提出されました。確認をお願いします。`,
             target_id: updatedReport.id,
             sender_name: updatedReport.authorName
           });
@@ -6625,8 +6644,8 @@ async function startServer() {
         try {
           await sendPushNotificationToUser({
             targetUserId: updatedReport.supervisor_id,
-            title: `【週報】${updatedReport.authorName || '社員'}さんより提出`,
-            body: `${updatedReport.week_label || updatedReport.week_start_date || '最新'}の週報が提出されました。確認をお願いします。`,
+            title: `【${typeLabel}】${updatedReport.authorName || '社員'}さんより提出`,
+            body: `${dateLabel}の${typeLabel}が提出されました。確認をお願いします。`,
             url: '/?tab=daily_report',
             data: { reportId: updatedReport.id, tab: 'daily_report' }
           });
@@ -6667,13 +6686,16 @@ async function startServer() {
       saveWorkReports(reports);
 
       if (targetSupId) {
+        const repType = reports[idx].reportType;
+        const typeLabel = repType === 'maintenance_daily' ? '保守日報' : (repType === 'daily' ? '日報' : (repType === 'sales_daily' ? '営業日報' : (repType === 'construction_daily' ? '工務日報' : '週報')));
+        const dateLabel = reports[idx].date || reports[idx].week_label || reports[idx].week_start_date || '最新';
         try {
           createNotification({
             user_id: targetSupId,
             sender_id: reports[idx].author_id,
             type: 'work_report',
-            title: `【週報】${reports[idx].authorName || '社員'}さんより提出`,
-            contents: `${reports[idx].week_label || reports[idx].week_start_date || '最新'}の週報が提出されました。確認をお願いします。`,
+            title: `【${typeLabel}】${reports[idx].authorName || '社員'}さんより提出`,
+            contents: `${dateLabel}の${typeLabel}が提出されました。確認をお願いします。`,
             target_id: reports[idx].id,
             sender_name: reports[idx].authorName
           });
@@ -6682,8 +6704,8 @@ async function startServer() {
         try {
           await sendPushNotificationToUser({
             targetUserId: targetSupId,
-            title: `【週報】${reports[idx].authorName || '社員'}さんより提出`,
-            body: `${reports[idx].week_label || reports[idx].week_start_date || '最新'}の週報が提出されました。確認をお願いします。`,
+            title: `【${typeLabel}】${reports[idx].authorName || '社員'}さんより提出`,
+            body: `${dateLabel}の${typeLabel}が提出されました。確認をお願いします。`,
             url: '/?tab=daily_report',
             data: { reportId: reports[idx].id, tab: 'daily_report' },
             tag: `report_submit_${reports[idx].id}`
@@ -6724,14 +6746,16 @@ async function startServer() {
 
       // 提出者本人へ確認完了の通知を notifications に作成 & Push通知
       if (reports[idx].author_id) {
-        const periodName = reports[idx].week_label || reports[idx].week_start_date || '';
+        const repType = reports[idx].reportType;
+        const typeLabel = repType === 'maintenance_daily' ? '保守日報' : (repType === 'daily' ? '日報' : (repType === 'sales_daily' ? '営業日報' : (repType === 'construction_daily' ? '工務日報' : '週報')));
+        const periodName = reports[idx].date || reports[idx].week_label || reports[idx].week_start_date || '';
         try {
           createNotification({
             user_id: reports[idx].author_id,
             sender_id: reviewerUserId || reports[idx].supervisor_id,
             type: 'work_report_review',
-            title: `【週報】${reviewerName || '上長'}が週報を確認しました`,
-            contents: `${periodName}の週報が確認されました。${comment ? `コメント: 「${comment}」` : ''}`,
+            title: `【${typeLabel}】${reviewerName || '上長'}が${typeLabel}を確認しました`,
+            contents: `${periodName}の${typeLabel}が確認されました。${comment ? `コメント: 「${comment}」` : ''}`,
             target_id: reports[idx].id,
             sender_name: reviewerName || '上長'
           });
@@ -6742,8 +6766,8 @@ async function startServer() {
         try {
           await sendPushNotificationToUser({
             targetUserId: reports[idx].author_id,
-            title: `【週報】${reviewerName || '上長'}が週報を確認しました`,
-            body: `${periodName}の週報が確認されました。${comment ? `「${comment}」` : ''}`,
+            title: `【${typeLabel}】${reviewerName || '上長'}が${typeLabel}を確認しました`,
+            body: `${periodName}の${typeLabel}が確認されました。${comment ? `「${comment}」` : ''}`,
             url: '/?tab=daily_report',
             data: { reportId: reports[idx].id, tab: 'daily_report' },
             tag: `report_reviewed_${reports[idx].id}`

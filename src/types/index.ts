@@ -607,6 +607,20 @@ export interface MaintenanceDailyReportData {
   // 集計値
   dailyTotalValue?: number;     // 当日数値合計 (自動計算)
   monthlyTotalValue?: number;   // 当月数値合計 (自動計算/累計)
+
+  // 多段階承認履歴
+  approvalHistory?: ReportApprovalRecord[];
+}
+
+// 保守日報 多段階承認履歴レコード
+export interface ReportApprovalRecord {
+  step: number;
+  approverId: string;
+  approverName: string;
+  approverPosition?: string;
+  comment?: string;
+  action: 'forwarded' | 'final_approved' | 'remanded';
+  approvedAt: string; // ISO string
 }
 
 // 保守日報 拠点別カスタム様式（列の表示/非表示・様式A）
@@ -692,6 +706,7 @@ export interface DailyReport {
   reviewedAt?: string; // 上長確認日時
   feedbackComment?: string; // 上長コメント・フィードバック (互換用)
   review_feedback?: string; // 上長コメント・フィードバック (新カラム)
+  approvalHistory?: ReportApprovalRecord[]; // 多段階承認履歴
   maintenanceData?: MaintenanceDailyReportData; // 保守日報専用構造データ
   constructionData?: Record<string, any>; // 工務日報専用拡張データ (JSON)
   salesData?: Record<string, any>; // 営業日報専用拡張データ (JSON)

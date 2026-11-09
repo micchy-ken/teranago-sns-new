@@ -15,12 +15,12 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.11.06.15',
-  date: '2026-11-06',
-  releaseNumber: 15,
-  display: 'v2026.11.06 #15 (JST)',
+  version: '2026.11.09.3',
+  date: '2026-11-09',
+  releaseNumber: 3,
+  display: 'v2026.11.09 #3 (JST)',
   timeZone: '日本標準時 (JST / UTC+09:00)',
-  description: '提出された保守日報の直接表示（全項目読み取り専用表示）・編集保存の排除・コメント入力および上長提出／差し戻しワークフロー機能の実装',
+  description: '提出済みの週報・日報におけるカードおよびモーダルのアクションボタンを「開く・編集」から「確認・承認」（確認済は「確認・閲覧」、下書きは「開く・編集」）に変更し、ステータスに応じた適切な導線へ最適化',
 };
 
 /**
