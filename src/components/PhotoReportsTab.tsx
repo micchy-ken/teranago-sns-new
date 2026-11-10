@@ -288,47 +288,47 @@ export const PhotoReportsTab: React.FC<PhotoReportsTabProps> = ({
   }, [reports, scopeFilter, statusFilter, searchQuery, sortKey, currentUser.id]);
 
   return (
-    <div className="flex-1 space-y-6 max-w-7xl mx-auto pb-16">
+    <div className="flex-1 space-y-4 sm:space-y-6 max-w-7xl mx-auto pb-16">
       {/* トースト通知 */}
       {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 bg-slate-900 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow-xl flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2 duration-200">
+        <div className="fixed bottom-4 right-4 left-4 sm:left-auto sm:bottom-6 sm:right-6 z-50 bg-slate-900 text-white text-xs font-bold px-4 py-3 sm:py-2.5 rounded-xl shadow-xl flex items-center justify-center sm:justify-start gap-2 animate-in fade-in slide-in-from-bottom-2 duration-200">
           <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
           <span>{toastMessage}</span>
         </div>
       )}
 
       {/* ページヘッダー */}
-      <div className="bg-white rounded-2xl border border-slate-200/90 p-5 sm:p-6 shadow-xs">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-start gap-4">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-500 to-indigo-700 text-white flex items-center justify-center shadow-md shrink-0">
-              <Camera className="w-6 h-6" />
+      <div className="bg-white rounded-2xl border border-slate-200/90 p-4 sm:p-6 shadow-xs">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 sm:gap-4">
+          <div className="flex items-start gap-3 sm:gap-4">
+            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-gradient-to-br from-indigo-500 to-indigo-700 text-white flex items-center justify-center shadow-md shrink-0">
+              <Camera className="w-5 h-5 sm:w-6 sm:h-6" />
             </div>
-            <div className="space-y-1">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-200">
+            <div className="space-y-1 min-w-0 flex-1">
+              <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                <span className="text-[10px] sm:text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-200 whitespace-nowrap">
                   ユーティリティー
                 </span>
-                <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-                <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
+                <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0 hidden xs:inline" />
+                <h1 className="text-lg sm:text-2xl font-black text-slate-900 tracking-tight whitespace-nowrap">
                   写真報告書
                 </h1>
-                <span className="text-xs px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 font-extrabold border border-slate-200">
+                <span className="text-[11px] sm:text-xs px-2 sm:px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 font-extrabold border border-slate-200 whitespace-nowrap">
                   {scopeFilter === 'mine' ? `自分の報告書 ${stats.myTotal}件` : `全社 ${stats.total}件`}
                 </span>
               </div>
-              <p className="text-xs text-slate-500 leading-relaxed">
+              <p className="text-[11px] sm:text-xs text-slate-500 leading-relaxed">
                 現場で撮影した写真（2〜4枚構成）を整理・報告書化。点検報告書No連携やA4印刷・PDF出力に対応しています。
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2.5 self-end sm:self-auto shrink-0">
+          <div className="flex items-center gap-2 w-full sm:w-auto shrink-0">
             <button
               type="button"
               onClick={() => fetchReports(true)}
               disabled={isRefreshing}
-              className="p-2.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl border border-slate-200 transition-colors cursor-pointer disabled:opacity-50"
+              className="p-2.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl border border-slate-200 transition-colors cursor-pointer disabled:opacity-50 shrink-0"
               title="最新の一覧に更新"
             >
               <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-indigo-600' : ''}`} />
@@ -337,37 +337,37 @@ export const PhotoReportsTab: React.FC<PhotoReportsTabProps> = ({
             <button
               type="button"
               onClick={handleOpenCreateModal}
-              className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 text-white text-xs font-bold rounded-xl shadow-md hover:shadow-lg transition-all cursor-pointer shrink-0"
+              className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 text-white text-xs font-bold rounded-xl shadow-md hover:shadow-lg transition-all cursor-pointer whitespace-nowrap shrink-0"
             >
-              <Plus className="w-4 h-4" />
+              <Plus className="w-4 h-4 shrink-0" />
               <span>新規写真報告書を作成</span>
             </button>
           </div>
         </div>
 
         {/* クイック統計カード */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5 pt-5 border-t border-slate-100">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mt-4 sm:mt-5 pt-4 sm:pt-5 border-t border-slate-100">
           <div
             onClick={() => {
               setScopeFilter('mine');
               setStatusFilter('all');
             }}
-            className={`p-3 rounded-xl border transition-all cursor-pointer ${
+            className={`p-2.5 sm:p-3 rounded-xl border transition-all cursor-pointer ${
               scopeFilter === 'mine' && statusFilter === 'all'
                 ? 'bg-indigo-50/70 border-indigo-300 ring-1 ring-indigo-200'
                 : 'bg-slate-50/60 border-slate-200/80 hover:bg-slate-100/70'
             }`}
           >
-            <div className="flex items-center justify-between text-slate-500 text-[11px] font-semibold mb-1">
-              <span className="flex items-center gap-1.5">
-                <UserCheck className="w-3.5 h-3.5 text-indigo-600" />
-                自分の報告書
+            <div className="flex items-center justify-between gap-1 text-slate-500 text-[10px] sm:text-[11px] font-semibold mb-1">
+              <span className="flex items-center gap-1 whitespace-nowrap truncate">
+                <UserCheck className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                <span>自分の報告書</span>
               </span>
-              <span className="text-[10px] font-bold text-indigo-600 bg-indigo-100/70 px-1.5 py-0.2 rounded">
+              <span className="text-[9px] sm:text-[10px] font-bold text-indigo-600 bg-indigo-100/70 px-1.5 py-0.5 rounded whitespace-nowrap shrink-0">
                 作成者
               </span>
             </div>
-            <div className="text-xl font-black text-slate-800">
+            <div className="text-lg sm:text-xl font-black text-slate-800 tabular-nums">
               {stats.myTotal}
               <span className="text-xs font-bold text-slate-400 ml-1">件</span>
             </div>
@@ -375,22 +375,22 @@ export const PhotoReportsTab: React.FC<PhotoReportsTabProps> = ({
 
           <div
             onClick={() => setStatusFilter('completed')}
-            className={`p-3 rounded-xl border transition-all cursor-pointer ${
+            className={`p-2.5 sm:p-3 rounded-xl border transition-all cursor-pointer ${
               statusFilter === 'completed'
                 ? 'bg-emerald-50/70 border-emerald-300 ring-1 ring-emerald-200'
                 : 'bg-slate-50/60 border-slate-200/80 hover:bg-slate-100/70'
             }`}
           >
-            <div className="flex items-center justify-between text-slate-500 text-[11px] font-semibold mb-1">
-              <span className="flex items-center gap-1.5">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                確定保存済
+            <div className="flex items-center justify-between gap-1 text-slate-500 text-[10px] sm:text-[11px] font-semibold mb-1">
+              <span className="flex items-center gap-1 whitespace-nowrap truncate">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                <span>確定保存済</span>
               </span>
-              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100/70 px-1.5 py-0.2 rounded">
+              <span className="text-[9px] sm:text-[10px] font-bold text-emerald-700 bg-emerald-100/70 px-1.5 py-0.5 rounded whitespace-nowrap shrink-0">
                 完了
               </span>
             </div>
-            <div className="text-xl font-black text-slate-800">
+            <div className="text-lg sm:text-xl font-black text-slate-800 tabular-nums">
               {stats.completed}
               <span className="text-xs font-bold text-slate-400 ml-1">件</span>
             </div>
@@ -398,22 +398,22 @@ export const PhotoReportsTab: React.FC<PhotoReportsTabProps> = ({
 
           <div
             onClick={() => setStatusFilter('draft')}
-            className={`p-3 rounded-xl border transition-all cursor-pointer ${
+            className={`p-2.5 sm:p-3 rounded-xl border transition-all cursor-pointer ${
               statusFilter === 'draft'
                 ? 'bg-amber-50/70 border-amber-300 ring-1 ring-amber-200'
                 : 'bg-slate-50/60 border-slate-200/80 hover:bg-slate-100/70'
             }`}
           >
-            <div className="flex items-center justify-between text-slate-500 text-[11px] font-semibold mb-1">
-              <span className="flex items-center gap-1.5">
-                <Clock className="w-3.5 h-3.5 text-amber-600" />
-                下書き
+            <div className="flex items-center justify-between gap-1 text-slate-500 text-[10px] sm:text-[11px] font-semibold mb-1">
+              <span className="flex items-center gap-1 whitespace-nowrap truncate">
+                <Clock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                <span>下書き</span>
               </span>
-              <span className="text-[10px] font-bold text-amber-700 bg-amber-100/70 px-1.5 py-0.2 rounded">
+              <span className="text-[9px] sm:text-[10px] font-bold text-amber-700 bg-amber-100/70 px-1.5 py-0.5 rounded whitespace-nowrap shrink-0">
                 編集中
               </span>
             </div>
-            <div className="text-xl font-black text-slate-800">
+            <div className="text-lg sm:text-xl font-black text-slate-800 tabular-nums">
               {stats.draft}
               <span className="text-xs font-bold text-slate-400 ml-1">件</span>
             </div>
@@ -421,22 +421,22 @@ export const PhotoReportsTab: React.FC<PhotoReportsTabProps> = ({
 
           <div
             onClick={() => setStatusFilter('linked')}
-            className={`p-3 rounded-xl border transition-all cursor-pointer ${
+            className={`p-2.5 sm:p-3 rounded-xl border transition-all cursor-pointer ${
               statusFilter === 'linked'
                 ? 'bg-purple-50/70 border-purple-300 ring-1 ring-purple-200'
                 : 'bg-slate-50/60 border-slate-200/80 hover:bg-slate-100/70'
             }`}
           >
-            <div className="flex items-center justify-between text-slate-500 text-[11px] font-semibold mb-1">
-              <span className="flex items-center gap-1.5">
-                <Link2 className="w-3.5 h-3.5 text-purple-600" />
-                点検No連携済
+            <div className="flex items-center justify-between gap-1 text-slate-500 text-[10px] sm:text-[11px] font-semibold mb-1">
+              <span className="flex items-center gap-1 whitespace-nowrap truncate">
+                <Link2 className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+                <span>点検No連携済</span>
               </span>
-              <span className="text-[10px] font-bold text-purple-700 bg-purple-100/70 px-1.5 py-0.2 rounded">
+              <span className="text-[9px] sm:text-[10px] font-bold text-purple-700 bg-purple-100/70 px-1.5 py-0.5 rounded whitespace-nowrap shrink-0">
                 紐づけ
               </span>
             </div>
-            <div className="text-xl font-black text-slate-800">
+            <div className="text-lg sm:text-xl font-black text-slate-800 tabular-nums">
               {stats.linked}
               <span className="text-xs font-bold text-slate-400 ml-1">件</span>
             </div>
@@ -445,22 +445,23 @@ export const PhotoReportsTab: React.FC<PhotoReportsTabProps> = ({
       </div>
 
       {/* コントロール・フィルターバー */}
-      <div className="bg-white rounded-2xl border border-slate-200/90 p-4 space-y-3.5 shadow-xs">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+      <div className="bg-white rounded-2xl border border-slate-200/90 p-3.5 sm:p-4 space-y-3 sm:space-y-3.5 shadow-xs">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-2.5 sm:gap-3">
           {/* スコープ切替 (自分が作成した報告書 / 全社の報告書) */}
-          <div className="flex items-center p-1 bg-slate-100 rounded-xl text-xs font-bold border border-slate-200/80 w-full sm:w-auto">
+          <div className="grid grid-cols-2 sm:flex items-center p-1 bg-slate-100 rounded-xl text-xs font-bold border border-slate-200/80 w-full sm:w-auto">
             <button
               type="button"
               onClick={() => setScopeFilter('mine')}
-              className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg transition-all cursor-pointer ${
+              className={`flex items-center justify-center gap-1.5 px-2.5 sm:px-3.5 py-2 sm:py-1.5 rounded-lg transition-all cursor-pointer whitespace-nowrap ${
                 scopeFilter === 'mine'
                   ? 'bg-white text-indigo-700 shadow-xs font-extrabold'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              <UserCheck className="w-3.5 h-3.5 text-indigo-600" />
-              <span>自分が作成した写真報告書</span>
-              <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${scopeFilter === 'mine' ? 'bg-indigo-100 text-indigo-800' : 'bg-slate-200 text-slate-600'}`}>
+              <UserCheck className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+              <span className="sm:hidden">自分の報告書</span>
+              <span className="hidden sm:inline">自分が作成した写真報告書</span>
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full tabular-nums shrink-0 ${scopeFilter === 'mine' ? 'bg-indigo-100 text-indigo-800' : 'bg-slate-200 text-slate-600'}`}>
                 {stats.myTotal}
               </span>
             </button>
@@ -468,36 +469,37 @@ export const PhotoReportsTab: React.FC<PhotoReportsTabProps> = ({
             <button
               type="button"
               onClick={() => setScopeFilter('all')}
-              className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg transition-all cursor-pointer ${
+              className={`flex items-center justify-center gap-1.5 px-2.5 sm:px-3.5 py-2 sm:py-1.5 rounded-lg transition-all cursor-pointer whitespace-nowrap ${
                 scopeFilter === 'all'
                   ? 'bg-white text-indigo-700 shadow-xs font-extrabold'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              <Users className="w-3.5 h-3.5 text-slate-500" />
-              <span>全社・全メンバーの報告書</span>
-              <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${scopeFilter === 'all' ? 'bg-indigo-100 text-indigo-800' : 'bg-slate-200 text-slate-600'}`}>
+              <Users className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+              <span className="sm:hidden">全社の報告書</span>
+              <span className="hidden sm:inline">全社・全メンバーの報告書</span>
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full tabular-nums shrink-0 ${scopeFilter === 'all' ? 'bg-indigo-100 text-indigo-800' : 'bg-slate-200 text-slate-600'}`}>
                 {stats.total}
               </span>
             </button>
           </div>
 
           {/* 検索ボックス & ソート */}
-          <div className="flex items-center gap-2.5 flex-1 max-w-xl">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-2.5 flex-1 lg:max-w-xl">
             <div className="relative flex-1">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
-                placeholder="現場名・件名・顧客名・取付場所・報告書Noで検索..."
+                placeholder="現場名・件名・顧客名・取付場所・Noで検索..."
                 className="w-full pl-9 pr-8 py-2 bg-slate-50 hover:bg-white focus:bg-white border border-slate-300 rounded-xl text-xs font-medium text-slate-800 placeholder-slate-400 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all"
               />
               {searchQuery && (
                 <button
                   type="button"
                   onClick={() => setSearchQuery('')}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
@@ -519,11 +521,11 @@ export const PhotoReportsTab: React.FC<PhotoReportsTabProps> = ({
         </div>
 
         {/* ステータス絞り込みタブ */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pt-1 pb-0.5 text-xs font-bold">
+        <div className="flex items-center gap-1.5 overflow-x-auto pt-1 pb-1 -mx-1 px-1 text-xs font-bold">
           <button
             type="button"
             onClick={() => setStatusFilter('all')}
-            className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer whitespace-nowrap ${
+            className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer whitespace-nowrap shrink-0 ${
               statusFilter === 'all'
                 ? 'bg-slate-800 text-white shadow-xs'
                 : 'text-slate-600 hover:bg-slate-100'
@@ -534,50 +536,50 @@ export const PhotoReportsTab: React.FC<PhotoReportsTabProps> = ({
           <button
             type="button"
             onClick={() => setStatusFilter('completed')}
-            className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+            className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer whitespace-nowrap shrink-0 flex items-center gap-1.5 ${
               statusFilter === 'completed'
                 ? 'bg-emerald-600 text-white shadow-xs'
                 : 'text-slate-600 hover:bg-slate-100'
             }`}
           >
-            <CheckCircle2 className="w-3.5 h-3.5" />
+            <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
             <span>確定済</span>
           </button>
           <button
             type="button"
             onClick={() => setStatusFilter('draft')}
-            className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+            className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer whitespace-nowrap shrink-0 flex items-center gap-1.5 ${
               statusFilter === 'draft'
                 ? 'bg-amber-500 text-white shadow-xs'
                 : 'text-slate-600 hover:bg-slate-100'
             }`}
           >
-            <Clock className="w-3.5 h-3.5" />
+            <Clock className="w-3.5 h-3.5 shrink-0" />
             <span>下書き</span>
           </button>
           <button
             type="button"
             onClick={() => setStatusFilter('linked')}
-            className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+            className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer whitespace-nowrap shrink-0 flex items-center gap-1.5 ${
               statusFilter === 'linked'
                 ? 'bg-indigo-600 text-white shadow-xs'
                 : 'text-slate-600 hover:bg-slate-100'
             }`}
           >
-            <Link2 className="w-3.5 h-3.5" />
+            <Link2 className="w-3.5 h-3.5 shrink-0" />
             <span>点検No紐づけ済</span>
           </button>
           <button
             type="button"
             onClick={() => setStatusFilter('unlinked')}
-            className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+            className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer whitespace-nowrap shrink-0 flex items-center gap-1.5 ${
               statusFilter === 'unlinked'
                 ? 'bg-slate-600 text-white shadow-xs'
                 : 'text-slate-600 hover:bg-slate-100'
             }`}
           >
-            <AlertCircle className="w-3.5 h-3.5" />
-            <span>親No未設定 (未紐づけ)</span>
+            <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+            <span>親No未設定</span>
           </button>
 
           {(searchQuery || statusFilter !== 'all') && (
@@ -587,7 +589,7 @@ export const PhotoReportsTab: React.FC<PhotoReportsTabProps> = ({
                 setSearchQuery('');
                 setStatusFilter('all');
               }}
-              className="ml-auto text-[11px] text-indigo-600 hover:text-indigo-800 underline font-bold px-2 py-1 shrink-0 cursor-pointer"
+              className="ml-auto text-[11px] text-indigo-600 hover:text-indigo-800 underline font-bold px-2 py-1 whitespace-nowrap shrink-0 cursor-pointer"
             >
               フィルター解除
             </button>
@@ -801,30 +803,30 @@ export const PhotoReportsTab: React.FC<PhotoReportsTabProps> = ({
                       <button
                         type="button"
                         onClick={() => handleOpenEdit(rep)}
-                        className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                        className="px-3 py-2 sm:px-2.5 sm:py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold rounded-lg transition-colors flex items-center gap-1 cursor-pointer whitespace-nowrap"
                         title="報告書を編集"
                       >
-                        <Edit3 className="w-3.5 h-3.5" />
+                        <Edit3 className="w-3.5 h-3.5 shrink-0" />
                         <span>編集</span>
                       </button>
 
                       <button
                         type="button"
                         onClick={() => handleOpenPreview(rep)}
-                        className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                        className="px-3 py-2 sm:px-2.5 sm:py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg transition-colors flex items-center gap-1 cursor-pointer whitespace-nowrap"
                         title="A4プレビュー・印刷画面を開く"
                       >
-                        <Printer className="w-3.5 h-3.5 text-slate-600" />
+                        <Printer className="w-3.5 h-3.5 text-slate-600 shrink-0" />
                         <span>印刷</span>
                       </button>
 
                       <button
                         type="button"
                         onClick={e => handleDuplicate(rep, e)}
-                        className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
+                        className="p-2 sm:p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
                         title="この報告書を複製して新規作成"
                       >
-                        <Copy className="w-3.5 h-3.5" />
+                        <Copy className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
                       </button>
                     </div>
 
@@ -832,10 +834,10 @@ export const PhotoReportsTab: React.FC<PhotoReportsTabProps> = ({
                       type="button"
                       onClick={e => handleDelete(rep.id, rep.title, e)}
                       disabled={deletingId === rep.id}
-                      className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                      className="p-2 sm:p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
                       title="削除"
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
+                      <Trash2 className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
                     </button>
                   </div>
                 </div>

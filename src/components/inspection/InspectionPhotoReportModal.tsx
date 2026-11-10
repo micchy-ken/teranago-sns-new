@@ -728,7 +728,7 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
   if (!isOpen) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/75 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto print:static print:p-0 print:m-0 print:bg-white print:overflow-visible print:z-auto print:block print-modal-overlay print-portal-root">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/75 backdrop-blur-xs p-0 sm:p-4 overflow-y-auto print:static print:p-0 print:m-0 print:bg-white print:overflow-visible print:z-auto print:block print-modal-overlay print-portal-root">
       {/* 印刷用スタイル定義 (2ページ以上の複数ページも確実に印刷出力) */}
       <style>{`
         @media print {
@@ -795,122 +795,153 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
         }
       `}</style>
 
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl max-h-[92vh] flex flex-col overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95 duration-200 print:shadow-none print:border-none print:max-h-none print:h-auto print:overflow-visible print:w-full print:rounded-none print:block print:m-0 print:p-0 print-modal-container">
+      <div className="bg-white rounded-none sm:rounded-2xl shadow-2xl w-full max-w-6xl h-dvh sm:h-auto max-h-dvh sm:max-h-[92vh] flex flex-col overflow-hidden border-0 sm:border border-slate-200 animate-in fade-in zoom-in-95 duration-200 print:shadow-none print:border-none print:max-h-none print:h-auto print:overflow-visible print:w-full print:rounded-none print:block print:m-0 print:p-0 print-modal-container">
         
         {/* ============================================================ */}
         {/* モーダルヘッダー (印刷時は非表示) */}
         {/* ============================================================ */}
-        <div className="px-5 py-3.5 bg-slate-900 text-white flex items-center justify-between shrink-0 border-b border-slate-800 print:hidden photo-report-modal-header">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="p-2 bg-indigo-600/80 rounded-xl text-white shadow-xs">
-              <Camera className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-base font-bold truncate">
-                  {reportId ? '点検・写真報告書の編集' : '点検・写真報告書の新規作成'}
-                </h2>
-                {jobNo && (
-                  <span className="text-xs px-2 py-0.5 rounded bg-indigo-900/90 text-indigo-200 border border-indigo-700 font-mono">
-                    No. {jobNo}
-                  </span>
-                )}
+        <div className="px-3.5 sm:px-5 py-2.5 sm:py-3.5 bg-slate-900 text-white flex flex-col gap-2.5 shrink-0 border-b border-slate-800 print:hidden photo-report-modal-header">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
+              <div className="p-1.5 sm:p-2 bg-indigo-600/80 rounded-xl text-white shadow-xs shrink-0">
+                <Camera className="w-4 h-4 sm:w-5 sm:h-5" />
               </div>
-              <p className="text-[11px] text-slate-400 truncate">
-                A4縦レイアウト（2〜4枚構成）/ 長辺1200px自動圧縮 / PDF印刷対応
-              </p>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                  <h2 className="text-sm sm:text-base font-bold truncate">
+                    {reportId ? '点検・写真報告書の編集' : '点検・写真報告書の新規作成'}
+                  </h2>
+                  {jobNo && (
+                    <span className="text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 rounded bg-indigo-900/90 text-indigo-200 border border-indigo-700 font-mono whitespace-nowrap shrink-0">
+                      No. {jobNo}
+                    </span>
+                  )}
+                </div>
+                <p className="text-[10px] sm:text-[11px] text-slate-400 truncate hidden sm:block">
+                  A4縦レイアウト（2〜4枚構成）/ 長辺1200px自動圧縮 / PDF印刷対応
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+              {/* PC用: 編集 / プレビュー 切り替えタブ */}
+              <div className="hidden lg:flex items-center bg-slate-800 p-1 rounded-xl border border-slate-700">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('edit')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer whitespace-nowrap ${
+                    activeTab === 'edit'
+                      ? 'bg-indigo-600 text-white shadow-xs'
+                      : 'text-slate-300 hover:text-white'
+                  }`}
+                >
+                  <Edit3 className="w-3.5 h-3.5 shrink-0" />
+                  <span>編集入力</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('preview')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer whitespace-nowrap ${
+                    activeTab === 'preview'
+                      ? 'bg-indigo-600 text-white shadow-xs'
+                      : 'text-slate-300 hover:text-white'
+                  }`}
+                >
+                  <Eye className="w-3.5 h-3.5 shrink-0" />
+                  <span>帳票プレビュー</span>
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={handlePrint}
+                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold rounded-xl border border-slate-700 transition-colors shadow-xs cursor-pointer whitespace-nowrap"
+                title="A4サイズで印刷またはPDF出力"
+              >
+                <Printer className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                <span className="hidden sm:inline">印刷 / PDF出力</span>
+                <span className="sm:hidden">印刷</span>
+              </button>
+
+              {/* PC用: 下書き保存ボタン (スマホは下部フッターに集約) */}
+              <button
+                type="button"
+                onClick={() => handleSave('draft')}
+                disabled={isSaving}
+                className="hidden md:flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-amber-300 border border-amber-500/40 text-xs font-bold rounded-xl transition-all shadow-xs cursor-pointer whitespace-nowrap"
+                title="後から再編集・紐付けできるように下書きとして保存します"
+              >
+                {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" /> : <Clock className="w-3.5 h-3.5 shrink-0" />}
+                <span>下書き保存</span>
+              </button>
+
+              {/* PC用: 確定保存ボタン (スマホは下部フッターに集約) */}
+              <button
+                type="button"
+                onClick={() => handleSave('completed')}
+                disabled={isSaving}
+                className="hidden md:flex items-center gap-1.5 px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-400 text-white text-xs font-bold rounded-xl transition-all shadow-md cursor-pointer whitespace-nowrap"
+                title="写真報告書を確定保存します"
+              >
+                {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" /> : <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />}
+                <span>確定保存</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={onClose}
+                className="p-2 sm:p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
+                title="閉じる"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
-            {/* 編集 / プレビュー 切り替えタブ */}
-            <div className="flex items-center bg-slate-800 p-1 rounded-xl border border-slate-700">
-              <button
-                type="button"
-                onClick={() => setActiveTab('edit')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
-                  activeTab === 'edit'
-                    ? 'bg-indigo-600 text-white shadow-xs'
-                    : 'text-slate-300 hover:text-white'
-                }`}
-              >
-                <Edit3 className="w-3.5 h-3.5" />
-                <span>編集入力</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('preview')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
-                  activeTab === 'preview'
-                    ? 'bg-indigo-600 text-white shadow-xs'
-                    : 'text-slate-300 hover:text-white'
-                }`}
-              >
-                <Eye className="w-3.5 h-3.5" />
-                <span>帳票プレビュー</span>
-              </button>
-            </div>
-
+          {/* スマホ・タブレット用: 編集入力 / 帳票プレビュー 2分割切り替えタブ */}
+          <div className="grid grid-cols-2 lg:hidden items-center bg-slate-800 p-1 rounded-xl border border-slate-700">
             <button
               type="button"
-              onClick={handlePrint}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold rounded-xl border border-slate-700 transition-colors shadow-xs cursor-pointer"
-              title="A4サイズで印刷またはPDF出力"
+              onClick={() => setActiveTab('edit')}
+              className={`flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg text-xs font-bold transition-colors cursor-pointer whitespace-nowrap ${
+                activeTab === 'edit'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'text-slate-300 hover:text-white'
+              }`}
             >
-              <Printer className="w-3.5 h-3.5 text-indigo-400" />
-              <span className="hidden sm:inline">印刷 / PDF出力</span>
+              <Edit3 className="w-3.5 h-3.5 shrink-0" />
+              <span>編集入力</span>
             </button>
-
-            {/* 下書き保存ボタン */}
             <button
               type="button"
-              onClick={() => handleSave('draft')}
-              disabled={isSaving}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-amber-300 border border-amber-500/40 text-xs font-bold rounded-xl transition-all shadow-xs cursor-pointer"
-              title="後から再編集・紐付けできるように下書きとして保存します"
+              onClick={() => setActiveTab('preview')}
+              className={`flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg text-xs font-bold transition-colors cursor-pointer whitespace-nowrap ${
+                activeTab === 'preview'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'text-slate-300 hover:text-white'
+              }`}
             >
-              {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Clock className="w-3.5 h-3.5" />}
-              <span>下書き保存</span>
-            </button>
-
-            {/* 確定保存ボタン */}
-            <button
-              type="button"
-              onClick={() => handleSave('completed')}
-              disabled={isSaving}
-              className="flex items-center gap-1.5 px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-400 text-white text-xs font-bold rounded-xl transition-all shadow-md cursor-pointer"
-              title="写真報告書を確定保存します"
-            >
-              {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
-              <span>確定保存</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={onClose}
-              className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition-colors cursor-pointer ml-1"
-              title="閉じる"
-            >
-              <X className="w-5 h-5" />
+              <Eye className="w-3.5 h-3.5 shrink-0" />
+              <span>帳票プレビュー</span>
             </button>
           </div>
         </div>
 
         {/* トースト・アラート */}
         {errorMessage && (
-          <div className="px-5 py-2.5 bg-rose-50 border-b border-rose-200 text-rose-700 text-xs font-bold flex items-center justify-between print:hidden">
-            <div className="flex items-center gap-2">
+          <div className="px-3.5 sm:px-5 py-2.5 bg-rose-50 border-b border-rose-200 text-rose-700 text-xs font-bold flex items-center justify-between gap-2 print:hidden">
+            <div className="flex items-center gap-2 min-w-0">
               <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-              <span>{errorMessage}</span>
+              <span className="leading-snug">{errorMessage}</span>
             </div>
-            <button onClick={() => setErrorMessage(null)} className="text-rose-500 hover:text-rose-700">
-              <X className="w-3.5 h-3.5" />
+            <button onClick={() => setErrorMessage(null)} className="p-1 text-rose-500 hover:text-rose-700 shrink-0">
+              <X className="w-4 h-4" />
             </button>
           </div>
         )}
 
         {successToast && (
-          <div className="px-5 py-2 bg-emerald-50 border-b border-emerald-200 text-emerald-800 text-xs font-bold flex items-center gap-2 print:hidden">
+          <div className="px-3.5 sm:px-5 py-2 bg-emerald-50 border-b border-emerald-200 text-emerald-800 text-xs font-bold flex items-center gap-2 print:hidden">
             <Check className="w-4 h-4 text-emerald-600 shrink-0" />
             <span>{successToast}</span>
           </div>
@@ -919,7 +950,7 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
         {/* ============================================================ */}
         {/* モーダル本体 */}
         {/* ============================================================ */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-100/70 print:p-0 print:m-0 print:bg-white print:overflow-visible print:h-auto print:max-h-none print:block">
+        <div className="flex-1 overflow-y-auto p-3 sm:p-6 bg-slate-100/70 print:p-0 print:m-0 print:bg-white print:overflow-visible print:h-auto print:max-h-none print:block">
           {isLoadingExisting ? (
             <div className="flex flex-col items-center justify-center py-16 gap-3 text-indigo-600 print:hidden">
               <Loader2 className="w-8 h-8 animate-spin" />
@@ -928,23 +959,25 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
           ) : (
             <>
               {/* 編集入力フォーム */}
-              <div className={activeTab === 'edit' ? 'max-w-4xl mx-auto space-y-6 print:hidden photo-report-edit-form' : 'hidden print:hidden photo-report-edit-form'}>
+              <div className={activeTab === 'edit' ? 'max-w-4xl mx-auto space-y-4 sm:space-y-6 print:hidden photo-report-edit-form' : 'hidden print:hidden photo-report-edit-form'}>
 
               {/* 既存の写真報告書が複数ある場合、または作成済みの切り替えバー */}
               {historyReports.length > 0 && (
-                <div className="bg-indigo-50/70 border border-indigo-200 rounded-2xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shadow-2xs">
-                  <div className="flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 text-indigo-600 shrink-0" />
-                    <span className="text-xs font-bold text-indigo-950">
-                      作成済みの写真報告書 ({historyReports.length}件):
-                    </span>
+                <div className="bg-indigo-50/70 border border-indigo-200 rounded-2xl p-3 sm:p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shadow-2xs">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <Sparkles className="w-4 h-4 text-indigo-600 shrink-0" />
+                      <span className="text-xs font-bold text-indigo-950 whitespace-nowrap">
+                        作成済みの写真報告書 ({historyReports.length}件):
+                      </span>
+                    </div>
                     <select
                       value={reportId}
                       onChange={e => {
                         const target = historyReports.find(r => r.id === e.target.value);
                         if (target) applyReportToState(target);
                       }}
-                      className="px-2.5 py-1 rounded-lg border border-indigo-300 bg-white text-xs font-bold text-indigo-900 outline-none focus:ring-2 focus:ring-indigo-500 max-w-[260px] truncate"
+                      className="w-full sm:w-auto sm:max-w-[280px] px-2.5 py-1.5 sm:py-1 rounded-lg border border-indigo-300 bg-white text-xs font-bold text-indigo-900 outline-none focus:ring-2 focus:ring-indigo-500 truncate"
                     >
                       {historyReports.map(hr => (
                         <option key={hr.id} value={hr.id}>
@@ -1012,27 +1045,27 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
                         ]);
                       }
                     }}
-                    className="px-3 py-1 bg-white hover:bg-indigo-100 text-indigo-700 border border-indigo-300 rounded-lg text-xs font-bold transition-colors cursor-pointer shrink-0 inline-flex items-center gap-1 shadow-2xs"
+                    className="w-full sm:w-auto px-3 py-2 sm:py-1 bg-white hover:bg-indigo-100 text-indigo-700 border border-indigo-300 rounded-lg text-xs font-bold transition-colors cursor-pointer shrink-0 inline-flex items-center justify-center gap-1 shadow-2xs whitespace-nowrap"
                   >
-                    <Plus className="w-3.5 h-3.5" />
+                    <Plus className="w-3.5 h-3.5 shrink-0" />
                     <span>新しく別の写真報告書を作成</span>
                   </button>
                 </div>
               )}
               
               {/* 1. 報告書基本情報 */}
-              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="bg-white p-3.5 sm:p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-3.5 sm:space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b border-slate-100 pb-3">
                   <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
-                    <FileText className="w-4 h-4 text-indigo-600" />
-                    報告書の基本情報
+                    <FileText className="w-4 h-4 text-indigo-600 shrink-0" />
+                    <span>報告書の基本情報</span>
                   </h3>
-                  <div className="flex items-center gap-2 text-xs">
-                    <span className="font-bold text-slate-500">レイアウト構成:</span>
+                  <div className="flex items-center justify-between sm:justify-end gap-2 text-xs">
+                    <span className="font-bold text-slate-500 whitespace-nowrap">レイアウト構成:</span>
                     <select
                       value={layoutType}
                       onChange={e => setLayoutType(e.target.value as PhotoReportLayoutType)}
-                      className="px-2.5 py-1 rounded-lg border border-slate-300 bg-white text-slate-700 font-bold outline-none focus:border-indigo-500"
+                      className="flex-1 sm:flex-initial px-2.5 py-1.5 sm:py-1 rounded-lg border border-slate-300 bg-white text-slate-700 font-bold outline-none focus:border-indigo-500"
                     >
                       <option value="3_items">3枚構成 (標準・見本準拠)</option>
                       <option value="2_items">2枚構成 (大きめ表示)</option>
@@ -1042,20 +1075,20 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
                 </div>
 
                 {/* 親点検報告書との紐付けセクション */}
-                <div className="bg-indigo-50/80 border border-indigo-200 rounded-xl p-3.5 space-y-2.5">
-                  <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="bg-indigo-50/80 border border-indigo-200 rounded-xl p-3 sm:p-3.5 space-y-2.5">
+                  <div className="flex items-center justify-between flex-wrap gap-1.5 sm:gap-2">
                     <div className="flex items-center gap-1.5 text-xs font-bold text-indigo-950">
                       <Link2 className="w-4 h-4 text-indigo-600 shrink-0" />
                       <span>親点検報告書との紐付け（報告書No / 管理番号）</span>
                     </div>
                     {jobNo ? (
-                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-indigo-600 text-white font-bold flex items-center gap-1">
-                        <Check className="w-3 h-3" />
+                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-indigo-600 text-white font-bold flex items-center gap-1 whitespace-nowrap">
+                        <Check className="w-3 h-3 shrink-0" />
                         <span>No. {jobNo} に紐付け中</span>
                       </span>
                     ) : (
-                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300 font-bold flex items-center gap-1">
-                        <AlertCircle className="w-3 h-3" />
+                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300 font-bold flex items-center gap-1 whitespace-nowrap">
+                        <AlertCircle className="w-3 h-3 shrink-0" />
                         <span>親No未設定（単独下書き）</span>
                       </span>
                     )}
@@ -1073,9 +1106,9 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
                           const selected = inspectionReportsList.find(r => r.id === e.target.value);
                           handleSelectInspectionReport(selected || null);
                         }}
-                        className="w-full px-2.5 py-1.5 rounded-lg border border-indigo-200 bg-white text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-indigo-400"
+                        className="w-full px-2.5 py-2 sm:py-1.5 rounded-lg border border-indigo-200 bg-white text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-indigo-400"
                       >
-                        <option value="">-- 点検報告書を選択してください ({inspectionReportsList.length}件) --</option>
+                        <option value="">-- 点検報告書を選択 ({inspectionReportsList.length}件) --</option>
                         {inspectionReportsList.map(ir => (
                           <option key={ir.id} value={ir.id}>
                             {ir.jobNo ? `[No.${ir.jobNo}] ` : ''}{ir.customerName} ({ir.inspectionDate})
@@ -1095,7 +1128,7 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
                           value={jobNo}
                           onChange={e => setJobNo(e.target.value)}
                           placeholder="例: 202609-001"
-                          className="w-full px-2.5 py-1.5 rounded-lg border border-indigo-200 bg-white text-xs font-mono font-bold text-indigo-900 outline-none focus:ring-2 focus:ring-indigo-400"
+                          className="w-full px-2.5 py-2 sm:py-1.5 rounded-lg border border-indigo-200 bg-white text-xs font-mono font-bold text-indigo-900 outline-none focus:ring-2 focus:ring-indigo-400"
                         />
                         {jobNo && (
                           <button
@@ -1104,7 +1137,7 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
                               setJobNo('');
                               setInspectionReportId(null);
                             }}
-                            className="p-1.5 text-slate-400 hover:text-rose-600 bg-white rounded-lg border border-slate-200 shrink-0"
+                            className="p-2 sm:p-1.5 text-slate-400 hover:text-rose-600 bg-white rounded-lg border border-slate-200 shrink-0"
                             title="紐付け解除"
                           >
                             <Unlink className="w-3.5 h-3.5" />
@@ -1115,7 +1148,7 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-3.5">
                   <div className="sm:col-span-2">
                     <label className="block text-xs font-bold text-slate-700 mb-1">
                       報告書タイトル <span className="text-rose-500">*</span>
@@ -1195,24 +1228,24 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between pt-2">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-2">
                   <div className="text-[11px] text-slate-400">
                     ※ 1枚目の写真情報にも自動的に適用されます
                   </div>
                   <button
                     type="button"
                     onClick={handleCopyFirstPhotoInfoToAll}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-xs font-bold rounded-xl transition-colors cursor-pointer shadow-2xs"
+                    className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-3 py-2 sm:py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-xs font-bold rounded-xl transition-colors cursor-pointer shadow-2xs whitespace-nowrap"
                   >
-                    <Copy className="w-3.5 h-3.5 text-amber-600" />
+                    <Copy className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                     <span>1枚目の情報を他の全写真にコピー</span>
                   </button>
                 </div>
               </div>
 
               {/* 2. 写真明細リスト */}
-              <div className="space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
+              <div className="space-y-3.5 sm:space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200 shadow-2xs">
                   <div className="flex items-center gap-2">
                     <Camera className="w-4 h-4 text-indigo-600 shrink-0" />
                     <h3 className="text-sm font-bold text-slate-800">
@@ -1223,42 +1256,42 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
                     </span>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 w-full sm:w-auto">
                     {/* 複数写真の一括選択 */}
                     <button
                       type="button"
                       onClick={() => bulkFileInputRef.current?.click()}
                       disabled={isBulkUploading}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-indigo-50 to-purple-50 hover:from-indigo-100 hover:to-purple-100 text-indigo-700 border border-indigo-200 text-xs font-bold rounded-xl transition-colors cursor-pointer shadow-2xs"
+                      className="flex items-center justify-center gap-1.5 px-2.5 sm:px-3 py-2 sm:py-1.5 bg-gradient-to-r from-indigo-50 to-purple-50 hover:from-indigo-100 hover:to-purple-100 text-indigo-700 border border-indigo-200 text-xs font-bold rounded-xl transition-colors cursor-pointer shadow-2xs whitespace-nowrap"
                       title="複数の写真をまとめて選択して順番に自動配置します"
                     >
                       {isBulkUploading ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600" />
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600 shrink-0" />
                       ) : (
-                        <Images className="w-3.5 h-3.5 text-indigo-600" />
+                        <Images className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
                       )}
                       <span>{isBulkUploading ? '一括処理中...' : '複数写真を一括選択'}</span>
-                    </button>
-
-                    {/* クリップボード貼付け */}
-                    <button
-                      type="button"
-                      onClick={handlePasteFromClipboard}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-300 text-xs font-bold rounded-xl transition-colors cursor-pointer shadow-2xs"
-                      title="コピーした画像をクリップボードから貼り付けます (Ctrl+Vも対応)"
-                    >
-                      <Clipboard className="w-3.5 h-3.5 text-slate-600" />
-                      <span>クリップボード貼付け</span>
                     </button>
 
                     {/* 写真枠を追加 */}
                     <button
                       type="button"
                       onClick={handleAddPhotoSlot}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer shadow-2xs"
+                      className="flex items-center justify-center gap-1.5 px-2.5 sm:px-3 py-2 sm:py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer shadow-2xs whitespace-nowrap"
                     >
-                      <Plus className="w-3.5 h-3.5" />
+                      <Plus className="w-3.5 h-3.5 shrink-0" />
                       <span>写真枠を追加</span>
+                    </button>
+
+                    {/* クリップボード貼付け */}
+                    <button
+                      type="button"
+                      onClick={handlePasteFromClipboard}
+                      className="col-span-2 sm:col-span-1 flex items-center justify-center gap-1.5 px-3 py-2 sm:py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-300 text-xs font-bold rounded-xl transition-colors cursor-pointer shadow-2xs whitespace-nowrap"
+                      title="コピーした画像をクリップボードから貼り付けます (Ctrl+Vも対応)"
+                    >
+                      <Clipboard className="w-3.5 h-3.5 text-slate-600 shrink-0" />
+                      <span>クリップボードから画像貼付け</span>
                     </button>
 
                     {/* 隠し一括ファイル選択input */}
@@ -1280,29 +1313,29 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
                 {photos.map((photo, index) => (
                   <div
                     key={photo.id || index}
-                    className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-4"
+                    className="bg-white p-3.5 sm:p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-3.5 sm:space-y-4"
                   >
                     <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
-                      <div className="flex items-center gap-2">
-                        <span className="w-6 h-6 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xs font-bold">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="w-6 h-6 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xs font-bold shrink-0">
                           {index + 1}
                         </span>
-                        <h4 className="font-bold text-slate-800 text-sm">
+                        <h4 className="font-bold text-slate-800 text-sm whitespace-nowrap">
                           写真 {index + 1}
                         </h4>
                         {photo.stageTitle && (
-                          <span className="text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-bold border border-slate-200">
+                          <span className="text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-bold border border-slate-200 truncate">
                             {photo.stageTitle}
                           </span>
                         )}
                       </div>
 
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 shrink-0">
                         {photos.length > 1 && (
                           <button
                             type="button"
                             onClick={() => handleRemovePhotoSlot(index)}
-                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                            className="p-2 sm:p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                             title="この写真枠を削除"
                           >
                             <Trash2 className="w-4 h-4" />
@@ -1311,7 +1344,7 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-4 sm:gap-5">
                       {/* 写真アップロード / プレビュー (md: 5列) */}
                       <div className="md:col-span-5 flex flex-col space-y-2">
                         <div
@@ -1366,15 +1399,15 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
                                   <div>
                                     <p className="text-xs font-bold text-slate-700">写真を登録</p>
                                     <p className="text-[10px] text-slate-400 mt-0.5">
-                                      ドラッグ＆ドロップ または 選択
+                                      タップして写真選択 / 撮影（PCはドロップ可）
                                     </p>
                                   </div>
                                   <button
                                     type="button"
                                     onClick={() => fileInputRefs.current[index]?.click()}
-                                    className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer inline-flex items-center gap-1.5"
+                                    className="px-4 py-2.5 sm:px-3.5 sm:py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer inline-flex items-center gap-1.5 whitespace-nowrap"
                                   >
-                                    <Upload className="w-3.5 h-3.5" />
+                                    <Upload className="w-3.5 h-3.5 shrink-0" />
                                     <span>写真を選択 / 撮影</span>
                                   </button>
                                 </div>
@@ -1401,21 +1434,21 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
                                 type="button"
                                 onClick={() => handleRotatePhoto(index, -90)}
                                 disabled={isRotatingIdx === index}
-                                className="flex items-center gap-1 px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-bold border border-slate-300 shadow-2xs transition-colors cursor-pointer"
+                                className="flex items-center gap-1 px-2.5 py-1.5 sm:py-1 bg-white hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-bold border border-slate-300 shadow-2xs transition-colors cursor-pointer whitespace-nowrap"
                                 title="左に90度回転"
                               >
-                                <RotateCcw className="w-3.5 h-3.5 text-indigo-600" />
-                                <span className="hidden sm:inline">左90°</span>
+                                <RotateCcw className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                                <span>左90°</span>
                               </button>
                               <button
                                 type="button"
                                 onClick={() => handleRotatePhoto(index, 90)}
                                 disabled={isRotatingIdx === index}
-                                className="flex items-center gap-1 px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-bold border border-slate-300 shadow-2xs transition-colors cursor-pointer"
+                                className="flex items-center gap-1 px-2.5 py-1.5 sm:py-1 bg-white hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-bold border border-slate-300 shadow-2xs transition-colors cursor-pointer whitespace-nowrap"
                                 title="右に90度回転"
                               >
-                                <RotateCw className="w-3.5 h-3.5 text-indigo-600" />
-                                <span className="hidden sm:inline">右90°</span>
+                                <RotateCw className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                                <span>右90°</span>
                               </button>
                             </div>
 
@@ -1423,19 +1456,19 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
                               <button
                                 type="button"
                                 onClick={() => fileInputRefs.current[index]?.click()}
-                                className="flex items-center gap-1 px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-bold border border-slate-300 shadow-2xs transition-colors cursor-pointer"
+                                className="flex items-center gap-1 px-2.5 py-1.5 sm:py-1 bg-white hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-bold border border-slate-300 shadow-2xs transition-colors cursor-pointer whitespace-nowrap"
                                 title="写真を撮り直す・別の写真に変更"
                               >
-                                <Camera className="w-3.5 h-3.5 text-slate-600" />
+                                <Camera className="w-3.5 h-3.5 text-slate-600 shrink-0" />
                                 <span>変更</span>
                               </button>
                               <button
                                 type="button"
                                 onClick={() => handleUpdatePhoto(index, { imageUrl: '' })}
-                                className="flex items-center gap-1 p-1 bg-white hover:bg-rose-50 text-rose-600 rounded-lg text-xs font-bold border border-slate-300 shadow-2xs transition-colors cursor-pointer"
+                                className="flex items-center gap-1 p-1.5 sm:p-1 bg-white hover:bg-rose-50 text-rose-600 rounded-lg text-xs font-bold border border-slate-300 shadow-2xs transition-colors cursor-pointer"
                                 title="この写真を削除"
                               >
-                                <Trash2 className="w-3.5 h-3.5" />
+                                <Trash2 className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
                               </button>
                             </div>
                           </div>
@@ -1454,7 +1487,7 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
                               value={photo.buildingName}
                               onChange={e => handleUpdatePhoto(index, { buildingName: e.target.value })}
                               placeholder="例: 名古屋プライムセントラルタワー"
-                              className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 focus:border-indigo-500 outline-none text-xs"
+                              className="w-full px-2.5 py-2 sm:py-1.5 rounded-lg border border-slate-300 focus:border-indigo-500 outline-none text-xs"
                             />
                           </div>
 
@@ -1467,7 +1500,7 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
                               value={photo.location}
                               onChange={e => handleUpdatePhoto(index, { location: e.target.value })}
                               placeholder="例: 1階HUG北側"
-                              className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 focus:border-indigo-500 outline-none text-xs"
+                              className="w-full px-2.5 py-2 sm:py-1.5 rounded-lg border border-slate-300 focus:border-indigo-500 outline-none text-xs"
                             />
                           </div>
 
@@ -1480,7 +1513,7 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
                               value={photo.workSubject}
                               onChange={e => handleUpdatePhoto(index, { workSubject: e.target.value })}
                               placeholder="例: 自動ドア補助センサー修理"
-                              className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 focus:border-indigo-500 outline-none text-xs"
+                              className="w-full px-2.5 py-2 sm:py-1.5 rounded-lg border border-slate-300 focus:border-indigo-500 outline-none text-xs"
                             />
                           </div>
 
@@ -1493,7 +1526,7 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
                               value={photo.workDate}
                               onChange={e => handleUpdatePhoto(index, { workDate: e.target.value })}
                               placeholder="例: 2026年9月18日"
-                              className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 focus:border-indigo-500 outline-none text-xs"
+                              className="w-full px-2.5 py-2 sm:py-1.5 rounded-lg border border-slate-300 focus:border-indigo-500 outline-none text-xs"
                             />
                           </div>
                         </div>
@@ -1508,9 +1541,9 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
                             value={photo.stageTitle}
                             onChange={e => handleUpdatePhoto(index, { stageTitle: e.target.value })}
                             placeholder="例: 補助光線センサー 取替前"
-                            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 focus:border-indigo-500 outline-none text-xs font-bold text-indigo-900 bg-indigo-50/40 mb-1.5"
+                            className="w-full px-2.5 py-2 sm:py-1.5 rounded-lg border border-slate-300 focus:border-indigo-500 outline-none text-xs font-bold text-indigo-900 bg-indigo-50/40 mb-1.5"
                           />
-                          <div className="flex flex-wrap gap-1">
+                          <div className="flex flex-wrap gap-1.5 sm:gap-1">
                             {STAGE_PRESETS.map(preset => (
                               <button
                                 key={preset}
@@ -1531,7 +1564,7 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
                                     }
                                   }
                                 }}
-                                className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 hover:bg-indigo-100 text-slate-700 hover:text-indigo-800 border border-slate-200 transition-colors cursor-pointer"
+                                className="px-2.5 py-1 sm:px-2 sm:py-0.5 rounded-md text-[11px] sm:text-[10px] font-bold bg-slate-100 hover:bg-indigo-100 text-slate-700 hover:text-indigo-800 border border-slate-200 transition-colors cursor-pointer whitespace-nowrap"
                               >
                                 {preset}
                               </button>
@@ -1549,7 +1582,7 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
                             onChange={e => handleUpdatePhoto(index, { comment: e.target.value })}
                             rows={3}
                             placeholder="所見、作業状況、交換理由などを記載してください..."
-                            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 focus:border-indigo-500 outline-none text-xs resize-none"
+                            className="w-full px-2.5 py-2 sm:py-1.5 rounded-lg border border-slate-300 focus:border-indigo-500 outline-none text-xs resize-none"
                           />
                         </div>
                       </div>
@@ -1564,17 +1597,17 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
             {/* activeTabに関わらずDOMに常時マウントし、印刷時は常に最前面で出力 */}
             {/* ============================================================ */}
             <div className={activeTab === 'preview' ? 'flex flex-col items-center w-full print:block' : 'hidden print:block w-full'}>
-              <div className="mb-4 flex items-center justify-between gap-3 w-full max-w-[210mm] print:hidden flex-wrap sm:flex-nowrap">
-                <div className="flex items-center gap-2.5 flex-wrap">
-                  <span className="text-xs font-bold text-slate-700">
+              <div className="mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3 w-full max-w-[210mm] print:hidden">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-bold text-slate-700 whitespace-nowrap">
                     A4縦 印刷プレビュー
                   </span>
-                  <span className="text-xs px-2.5 py-0.5 rounded-full bg-indigo-100 text-indigo-800 font-bold border border-indigo-200">
+                  <span className="text-xs px-2.5 py-0.5 rounded-full bg-indigo-100 text-indigo-800 font-bold border border-indigo-200 whitespace-nowrap">
                     全 {totalPages} ページ ({photos.length}枠登録)
                   </span>
 
                   {/* ヘッダー表示ON/OFF切り替えスイッチ（デフォルトON・印刷前オフ可能） */}
-                  <label className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-700 cursor-pointer hover:bg-slate-50 transition-colors shadow-2xs select-none">
+                  <label className="inline-flex items-center gap-1.5 px-2.5 py-1.5 sm:py-1 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-700 cursor-pointer hover:bg-slate-50 transition-colors shadow-2xs select-none whitespace-nowrap">
                     <input
                       type="checkbox"
                       checked={showPrintHeader}
@@ -1593,9 +1626,9 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
                 <button
                   type="button"
                   onClick={handlePrint}
-                  className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm transition-colors cursor-pointer flex items-center gap-1.5 shrink-0"
+                  className="w-full sm:w-auto px-4 py-2.5 sm:py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm transition-colors cursor-pointer flex items-center justify-center gap-1.5 shrink-0 whitespace-nowrap"
                 >
-                  <Printer className="w-3.5 h-3.5" />
+                  <Printer className="w-3.5 h-3.5 shrink-0" />
                   <span>この内容で全ページ印刷 / PDF保存</span>
                 </button>
               </div>
@@ -1603,7 +1636,7 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
               {/* A4 帳票コンテナ (複数ページ改ページ対応) */}
               <div
                 id="photo-report-print-area"
-                className="w-full flex flex-col items-center gap-8 print:gap-0 print:block"
+                className="w-full flex flex-col items-center gap-6 sm:gap-8 print:gap-0 print:block"
               >
                 {Array.from({ length: totalPages }).map((_, pageIdx) => {
                   const pageNumber = pageIdx + 1;
@@ -1612,23 +1645,22 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
                   return (
                     <div
                       key={`photo_report_page_${pageNumber}`}
-                      className="photo-report-page w-full max-w-[210mm] min-h-[297mm] bg-white p-6 sm:p-8 shadow-xl border border-slate-300 mx-auto text-slate-900 font-sans flex flex-col justify-between relative print:shadow-none print:border-none print:m-0 print:p-0 print:min-h-0"
-                      style={{ minHeight: '297mm' }}
+                      className="photo-report-page w-full max-w-[210mm] min-h-0 sm:min-h-[297mm] bg-white p-3.5 sm:p-8 shadow-xl border border-slate-300 mx-auto text-slate-900 font-sans flex flex-col justify-between relative rounded-xl sm:rounded-none print:rounded-none print:shadow-none print:border-none print:m-0 print:p-0 print:min-h-0"
                     >
                       {/* ページヘッダー（デフォルト表示・印刷前にOFF可能） */}
                       {showPrintHeader && (
-                        <div className="flex items-center justify-between text-[11px] text-slate-500 font-bold border-b border-slate-300 pb-1 mb-2">
+                        <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500 font-bold border-b border-slate-300 pb-1.5 sm:pb-1 mb-3 sm:mb-2">
                           <span className="truncate text-slate-700 font-bold">
                             {title || '点検・写真報告書'}
                           </span>
-                          <span className="font-mono bg-slate-100 px-2 py-0.5 rounded print:bg-transparent text-slate-800">
+                          <span className="font-mono bg-slate-100 px-2 py-0.5 rounded print:bg-transparent text-slate-800 whitespace-nowrap shrink-0">
                             {pageNumber} / {totalPages} ページ
                           </span>
                         </div>
                       )}
 
                       {/* ページ内の写真ブロック (1ページあたり itemsPerPage 枚) */}
-                      <div className="flex-1 flex flex-col justify-around gap-4">
+                      <div className="flex-1 flex flex-col justify-around gap-3.5 sm:gap-4">
                         {Array.from({ length: itemsPerPage }).map((_, slotIdx) => {
                           const photoIndex = startIndex + slotIdx;
                           const photo = photos[photoIndex];
@@ -1639,9 +1671,9 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
                             return (
                               <div
                                 key={`empty_${pageNumber}_${slotIdx}`}
-                                className="flex-1 border border-slate-400 p-2 flex items-center justify-center min-h-[75mm] bg-slate-50/50"
+                                className="flex-1 border border-slate-400 p-4 sm:p-2 flex items-center justify-center min-h-[45mm] sm:min-h-[75mm] print:min-h-[75mm] bg-slate-50/50"
                               >
-                                <div className="text-center text-slate-400 font-bold tracking-[1.5em] text-sm">
+                                <div className="text-center text-slate-400 font-bold tracking-[1.5em] text-xs sm:text-sm">
                                   余　　　　白
                                 </div>
                               </div>
@@ -1651,10 +1683,10 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
                           return (
                             <div
                               key={photo.id || `photo_${photoIndex}`}
-                              className="flex-1 border border-slate-400 p-2.5 flex flex-row gap-4 min-h-[75mm]"
+                              className="flex-1 border border-slate-400 p-2.5 flex flex-col sm:flex-row print:flex-row gap-3 sm:gap-4 print:gap-4 sm:min-h-[75mm] print:min-h-[75mm]"
                             >
-                              {/* 左側: 現場写真 */}
-                              <div className="w-[52%] border border-slate-300 bg-slate-100 flex items-center justify-center overflow-hidden relative">
+                              {/* 左側(スマホでは上段): 現場写真 */}
+                              <div className="w-full aspect-4/3 sm:aspect-auto sm:w-[52%] print:w-[52%] print:aspect-auto border border-slate-300 bg-slate-100 flex items-center justify-center overflow-hidden relative">
                                 {photo.imageUrl ? (
                                   <img
                                     src={resolveFileUrl(photo.imageUrl)}
@@ -1669,22 +1701,22 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
                                 )}
                               </div>
 
-                              {/* 右側: 5行ヘッダー ＋ ノート風横罫線コメント欄 */}
-                              <div className="w-[48%] flex flex-col justify-between">
+                              {/* 右側(スマホでは下段): 5行ヘッダー ＋ ノート風横罫線コメント欄 */}
+                              <div className="w-full sm:w-[48%] print:w-[48%] flex flex-col justify-between">
                                 {/* 5行ヘッダー (中央揃え・下線付き) */}
                                 <div className="space-y-1.5 text-center text-xs">
                                   {/* 1. 現場名 */}
-                                  <div className="border-b border-slate-800 pb-0.5 font-bold tracking-wider text-slate-900 min-h-[1.5em]">
+                                  <div className="border-b border-slate-800 pb-0.5 font-bold tracking-wider text-slate-900 min-h-[1.5em] break-words">
                                     {photo.buildingName || buildingName || '　'}
                                   </div>
 
                                   {/* 2. 取付場所 */}
-                                  <div className="border-b border-slate-800 pb-0.5 font-bold text-slate-800 min-h-[1.5em]">
+                                  <div className="border-b border-slate-800 pb-0.5 font-bold text-slate-800 min-h-[1.5em] break-words">
                                     {photo.location || location || '　'}
                                   </div>
 
                                   {/* 3. 件名 */}
-                                  <div className="border-b border-slate-800 pb-0.5 font-bold text-slate-800 min-h-[1.5em]">
+                                  <div className="border-b border-slate-800 pb-0.5 font-bold text-slate-800 min-h-[1.5em] break-words">
                                     {photo.workSubject || workSubject || '　'}
                                   </div>
 
@@ -1694,13 +1726,13 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
                                   </div>
 
                                   {/* 5. 工程・区分 (強調下線) */}
-                                  <div className="border-b-2 border-slate-900 pb-1 font-extrabold text-sm text-slate-950 min-h-[1.6em] tracking-wide">
+                                  <div className="border-b-2 border-slate-900 pb-1 font-extrabold text-sm text-slate-950 min-h-[1.6em] tracking-wide break-words">
                                     {photo.stageTitle || '　'}
                                   </div>
                                 </div>
 
                                 {/* ノート風横罫線コメントエリア */}
-                                <div className="mt-3 flex-1 flex flex-col justify-between min-h-[30mm] border-t border-slate-300 pt-1">
+                                <div className="mt-3 flex-1 flex flex-col justify-between min-h-[24mm] sm:min-h-[30mm] print:min-h-[30mm] border-t border-slate-300 pt-1">
                                   {photo.comment ? (
                                     <div className="text-xs text-slate-800 whitespace-pre-wrap leading-relaxed px-1">
                                       {photo.comment}
@@ -1724,7 +1756,7 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
 
                       {/* ページフッター（ヘッダー表示連動） */}
                       {showPrintHeader && (
-                        <div className="text-center text-[10px] text-slate-400 font-mono pt-1.5 border-t border-slate-200 mt-2 print:border-slate-300">
+                        <div className="text-center text-[10px] text-slate-400 font-mono pt-1.5 border-t border-slate-200 mt-3 sm:mt-2 print:border-slate-300">
                           - {pageNumber} / {totalPages} -
                         </div>
                       )}
@@ -1740,16 +1772,16 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
         {/* ============================================================ */}
         {/* モーダルフッター */}
         {/* ============================================================ */}
-        <div className="px-5 py-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0 print:hidden photo-report-modal-footer">
-          <div className="text-xs text-slate-500">
+        <div className="px-3.5 sm:px-5 py-2.5 sm:py-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-2 shrink-0 print:hidden photo-report-modal-footer">
+          <div className="hidden sm:block text-xs text-slate-500 truncate">
             作成者: <span className="font-bold text-slate-700">{currentUser.name}</span>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold rounded-xl border border-slate-300 transition-colors cursor-pointer"
+              className="px-3.5 sm:px-4 py-2.5 sm:py-2 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold rounded-xl border border-slate-300 transition-colors cursor-pointer whitespace-nowrap shrink-0"
             >
               閉じる
             </button>
@@ -1757,20 +1789,21 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
               type="button"
               onClick={() => handleSave('draft')}
               disabled={isSaving}
-              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl border border-slate-300 transition-colors cursor-pointer flex items-center gap-1.5"
+              className="flex-1 sm:flex-initial justify-center px-3.5 sm:px-4 py-2.5 sm:py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl border border-slate-300 transition-colors cursor-pointer flex items-center gap-1.5 whitespace-nowrap"
               title="下書き保存"
             >
-              <Clock className="w-4 h-4 text-amber-600" />
+              <Clock className="w-4 h-4 text-amber-600 shrink-0" />
               <span>下書き保存</span>
             </button>
             <button
               type="button"
               onClick={() => handleSave('completed')}
               disabled={isSaving}
-              className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white text-xs font-bold rounded-xl transition-all shadow-sm cursor-pointer flex items-center gap-1.5"
+              className="flex-1 sm:flex-initial justify-center px-4 sm:px-5 py-2.5 sm:py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white text-xs font-bold rounded-xl transition-all shadow-sm cursor-pointer flex items-center gap-1.5 whitespace-nowrap"
             >
-              {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-              <span>確定保存（完了）</span>
+              {isSaving ? <Loader2 className="w-4 h-4 animate-spin shrink-0" /> : <CheckCircle2 className="w-4 h-4 shrink-0" />}
+              <span className="sm:hidden">確定保存</span>
+              <span className="hidden sm:inline">確定保存（完了）</span>
             </button>
           </div>
         </div>
