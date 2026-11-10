@@ -2715,6 +2715,11 @@ export function MyPage({
                     <label className="block text-xs font-bold text-slate-700 mb-1">氏名</label>
                     <input
                       type="text"
+                      id="teranago_mypage_user_name"
+                      name="teranago_mypage_user_name"
+                      autoComplete="off"
+                      autoCorrect="off"
+                      spellCheck={false}
                       required
                       value={settingsForm.name}
                       onChange={(e) => setSettingsForm({ ...settingsForm, name: e.target.value })}
@@ -2726,6 +2731,11 @@ export function MyPage({
                     <label className="block text-xs font-bold text-slate-700 mb-1">フリガナ</label>
                     <input
                       type="text"
+                      id="teranago_mypage_kana_name"
+                      name="teranago_mypage_kana_name"
+                      autoComplete="off"
+                      autoCorrect="off"
+                      spellCheck={false}
                       value={settingsForm.kanaName || ''}
                       onChange={(e) => setSettingsForm({ ...settingsForm, kanaName: e.target.value })}
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
@@ -2790,6 +2800,12 @@ export function MyPage({
                     <label className="block text-xs font-bold text-slate-700 mb-1">メールアドレス</label>
                     <input
                       type="email"
+                      id="teranago_mypage_work_email"
+                      name="teranago_mypage_work_email"
+                      autoComplete="off"
+                      autoCorrect="off"
+                      autoCapitalize="none"
+                      spellCheck={false}
                       value={settingsForm.email || ''}
                       onChange={(e) => setSettingsForm({ ...settingsForm, email: e.target.value })}
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -2800,6 +2816,12 @@ export function MyPage({
                     <label className="block text-xs font-bold text-slate-700 mb-1">携帯メール</label>
                     <input
                       type="email"
+                      id="teranago_mypage_mobile_email"
+                      name="teranago_mypage_mobile_email"
+                      autoComplete="off"
+                      autoCorrect="off"
+                      autoCapitalize="none"
+                      spellCheck={false}
                       value={settingsForm.mobileEmail || ''}
                       onChange={(e) => setSettingsForm({ ...settingsForm, mobileEmail: e.target.value })}
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -2812,6 +2834,11 @@ export function MyPage({
                     <label className="block text-xs font-bold text-slate-700 mb-1">電話 (外線)</label>
                     <input
                       type="text"
+                      id="teranago_mypage_phone_outside"
+                      name="teranago_mypage_phone_outside"
+                      autoComplete="off"
+                      autoCorrect="off"
+                      spellCheck={false}
                       value={settingsForm.phoneOutside || ''}
                       onChange={(e) => setSettingsForm({ ...settingsForm, phoneOutside: e.target.value })}
                       className="w-full px-2 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -2822,6 +2849,11 @@ export function MyPage({
                     <label className="block text-xs font-bold text-slate-700 mb-1">電話 (内線)</label>
                     <input
                       type="text"
+                      id="teranago_mypage_phone_extension"
+                      name="teranago_mypage_phone_extension"
+                      autoComplete="off"
+                      autoCorrect="off"
+                      spellCheck={false}
                       value={settingsForm.phoneExtension || ''}
                       onChange={(e) => setSettingsForm({ ...settingsForm, phoneExtension: e.target.value })}
                       className="w-full px-2 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -2832,6 +2864,11 @@ export function MyPage({
                     <label className="block text-xs font-bold text-slate-700 mb-1">電話 (携帯)</label>
                     <input
                       type="text"
+                      id="teranago_mypage_mobile_phone"
+                      name="teranago_mypage_mobile_phone"
+                      autoComplete="off"
+                      autoCorrect="off"
+                      spellCheck={false}
                       value={settingsForm.mobilePhone || ''}
                       onChange={(e) => setSettingsForm({ ...settingsForm, mobilePhone: e.target.value })}
                       className="w-full px-2 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -3378,6 +3415,12 @@ export function MyPage({
                           <input
                             ref={personalEmailInputRef}
                             type="email"
+                            id="teranago_mypage_personal_email_input"
+                            name="teranago_mypage_personal_email_input"
+                            autoComplete="off"
+                            autoCorrect="off"
+                            autoCapitalize="none"
+                            spellCheck={false}
                             placeholder="例: private.account@gmail.com / icloud.com 等"
                             value={personalEmailInput}
                             onChange={(e) => setPersonalEmailInput(e.target.value)}

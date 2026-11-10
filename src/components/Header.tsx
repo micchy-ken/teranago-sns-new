@@ -922,6 +922,12 @@ export function Header({
             </div>
             <input
               type="text"
+              id="teranago_header_global_search_input"
+              name="teranago_header_global_search_input"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="none"
+              spellCheck={false}
               className="w-full bg-slate-100 border-transparent focus:bg-white focus:ring-2 focus:ring-indigo-500 rounded-full py-2 pl-9 sm:pl-10 pr-9 text-xs sm:text-sm transition-all truncate"
               placeholder="社内データを検索..."
               value={searchQuery}

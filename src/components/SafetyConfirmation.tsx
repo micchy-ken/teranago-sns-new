@@ -1243,81 +1243,81 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
   const targetOverallRate = targetTotalCount > 0 ? Math.round((targetAtLeastOneRegisteredCount / targetTotalCount) * 100) : 0;
 
   return (
-    <div className="flex-1 max-w-7xl mx-auto space-y-6 pb-12">
+    <div className="flex-1 w-full min-w-0 max-w-7xl mx-auto space-y-4 sm:space-y-6 pb-12 overflow-x-hidden">
       {/* Top Header Card */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-center gap-3.5">
-          <div className="w-12 h-12 rounded-2xl bg-rose-600 text-white flex items-center justify-center shadow-md shadow-rose-200 shrink-0">
-            <ShieldAlert className="w-6 h-6" />
+      <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex items-start sm:items-center gap-3 sm:gap-3.5 min-w-0">
+          <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-rose-600 text-white flex items-center justify-center shadow-md shadow-rose-200 shrink-0">
+            <ShieldAlert className="w-5 h-5 sm:w-6 sm:h-6" />
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-black text-slate-800 tracking-tight">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+              <h1 className="text-base sm:text-xl font-black text-slate-800 tracking-tight">
                 安否確認システム (BCP・災害対策)
               </h1>
-              <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-rose-100 text-rose-700 border border-rose-200">
+              <span className="text-[10px] sm:text-xs px-2 sm:px-2.5 py-0.5 rounded-full font-bold bg-rose-100 text-rose-700 border border-rose-200 whitespace-nowrap">
                 ユーティリティ / BCP
               </span>
             </div>
-            <p className="text-xs text-slate-500 mt-1">
+            <p className="text-[11px] sm:text-xs text-slate-500 mt-1 leading-relaxed break-words">
               地震・津波・風水害発生時における全社安否確認の一斉発動、リアルタイム集計、および個人メール暗号化管理を行えます。
             </p>
           </div>
         </div>
 
         {/* Global Action Navigation Tabs */}
-        <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-bold shrink-0">
+        <div className="flex items-center gap-1 sm:gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-bold overflow-x-auto w-full md:w-auto shrink-0 max-w-full">
           <button
             onClick={() => setActiveTab('dashboard')}
-            className={`px-3.5 py-2 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+            className={`px-3 sm:px-3.5 py-2 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0 ${
               activeTab === 'dashboard'
                 ? 'bg-white text-rose-700 shadow-xs'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            <Users className="w-4 h-4" />
-            集計ダッシュボード
+            <Users className="w-4 h-4 shrink-0" />
+            <span>集計ダッシュボード</span>
           </button>
 
           {isAdmin && (
             <>
               <button
                 onClick={() => setActiveTab('targets')}
-                className={`px-3.5 py-2 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+                className={`px-3 sm:px-3.5 py-2 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0 ${
                   activeTab === 'targets'
                     ? 'bg-white text-rose-700 shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                <UserCheck className="w-4 h-4 text-indigo-600" />
-                対象者・登録管理
+                <UserCheck className="w-4 h-4 text-indigo-600 shrink-0" />
+                <span>対象者・登録管理</span>
               </button>
 
               <button
                 onClick={() => setActiveTab('jma_auto')}
-                className={`px-3.5 py-2 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+                className={`px-3 sm:px-3.5 py-2 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0 ${
                   activeTab === 'jma_auto'
                     ? 'bg-white text-amber-700 shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                <Radio className={`w-4 h-4 ${jmaSettings.enabled ? 'text-amber-500 animate-pulse' : 'text-slate-400'}`} />
-                気象庁連動
+                <Radio className={`w-4 h-4 shrink-0 ${jmaSettings.enabled ? 'text-amber-500 animate-pulse' : 'text-slate-400'}`} />
+                <span>気象庁連動</span>
                 {jmaSettings.enabled && (
-                  <span className="w-2 h-2 rounded-full bg-emerald-500" title="気象庁連動: 監視中" />
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" title="気象庁連動: 監視中" />
                 )}
               </button>
 
               <button
                 onClick={() => setActiveTab('trigger')}
-                className={`px-3.5 py-2 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+                className={`px-3 sm:px-3.5 py-2 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0 ${
                   activeTab === 'trigger'
                     ? 'bg-slate-900 text-white shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                <Send className="w-4 h-4" />
-                手動発動
+                <Send className="w-4 h-4 shrink-0" />
+                <span>手動発動</span>
               </button>
             </>
           )}
@@ -1377,13 +1377,13 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
           ) : (
             <>
               {/* Event Selector Header */}
-              <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <span className="text-xs font-bold text-slate-500">対象イベント:</span>
+              <div className="bg-white rounded-2xl border border-slate-200 p-3.5 sm:p-4 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 w-full md:w-auto min-w-0">
+                  <span className="text-xs font-bold text-slate-500 shrink-0">対象イベント:</span>
                   <select
                     value={selectedEventId || ''}
                     onChange={(e) => setSelectedEventId(e.target.value)}
-                    className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-rose-500 cursor-pointer"
+                    className="w-full sm:w-auto px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-rose-500 cursor-pointer min-w-0"
                   >
                     {events.map((ev) => (
                       <option key={ev.id} value={ev.id}>
@@ -1394,13 +1394,13 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
                   </select>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                   <button
                     onClick={handleExportCSV}
-                    className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+                    className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs whitespace-nowrap"
                   >
-                    <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-                    CSV出力
+                    <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span>CSV出力</span>
                   </button>
 
                   {isAdmin && (
@@ -1408,32 +1408,32 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
                       <button
                         onClick={handleSendReminder}
                         disabled={isSending || (totalUsersCount - answeredCount) === 0}
-                        className="px-3.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs disabled:opacity-50"
+                        className="px-3 sm:px-3.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs disabled:opacity-50 whitespace-nowrap"
                         title="未回答者に対してプッシュ通知・メール通知を再送します"
                       >
-                        <Bell className="w-3.5 h-3.5" />
-                        未回答者へ再通知 ({totalUsersCount - answeredCount}名)
+                        <Bell className="w-3.5 h-3.5 shrink-0" />
+                        <span>未回答者へ再通知 ({totalUsersCount - answeredCount}名)</span>
                       </button>
 
                       {activeEvent && activeEvent.status === 'active' && (
                         <button
                           onClick={() => handleCloseEvent(activeEvent.id)}
-                          className="px-3 py-1.5 rounded-lg border border-slate-300 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+                          className="px-3 py-1.5 rounded-lg border border-slate-300 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs whitespace-nowrap"
                           title="安否確認イベントを終了（アーカイブ）します"
                         >
-                          <CheckCircle2 className="w-3.5 h-3.5 text-slate-600" />
-                          終了・完了
+                          <CheckCircle2 className="w-3.5 h-3.5 text-slate-600 shrink-0" />
+                          <span>終了・完了</span>
                         </button>
                       )}
 
                       {activeEvent && (
                         <button
                           onClick={() => handleDeleteEvent(activeEvent.id)}
-                          className="px-3 py-1.5 rounded-lg border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+                          className="px-3 py-1.5 rounded-lg border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs whitespace-nowrap"
                           title="この安否確認イベントおよび全集計データを完全に削除します"
                         >
-                          <Trash2 className="w-3.5 h-3.5 text-rose-600" />
-                          イベント削除
+                          <Trash2 className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                          <span>イベント削除</span>
                         </button>
                       )}
                     </>
@@ -1443,7 +1443,7 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
                     onClick={() => {
                       if (activeEvent) fetchResponses(activeEvent.id);
                     }}
-                    className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 text-slate-600 cursor-pointer"
+                    className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 text-slate-600 cursor-pointer shrink-0"
                     title="再読み込み"
                   >
                     <RefreshCw className="w-4 h-4" />
@@ -1453,36 +1453,36 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
 
               {/* Current User Response Status Card / Action Banner */}
               {activeEvent && (
-                <div className={`p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm transition-all ${
+                <div className={`p-3.5 sm:p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 sm:gap-4 shadow-sm transition-all ${
                   currentUserResponse
                     ? 'bg-gradient-to-r from-emerald-50/80 via-white to-teal-50/50 border-emerald-200'
                     : 'bg-gradient-to-r from-rose-50 via-white to-amber-50/60 border-rose-200 ring-2 ring-rose-500/10'
                 }`}>
-                  <div className="flex items-start sm:items-center gap-3.5">
+                  <div className="flex items-start sm:items-center gap-3 sm:gap-3.5 min-w-0">
                     <div className={`p-2.5 rounded-xl shrink-0 ${
                       currentUserResponse ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white animate-pulse'
                     }`}>
                       <HeartHandshake className="w-5 h-5" />
                     </div>
-                    <div>
-                      <div className="flex items-center gap-2 flex-wrap">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
                         <span className="text-xs font-bold text-slate-500">あなたの安否回答状況:</span>
                         {currentUserResponse ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
-                            <Check className="w-3 h-3" />
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 border border-emerald-300 whitespace-nowrap">
+                            <Check className="w-3 h-3 shrink-0" />
                             回答済み ({currentUserResponse.safetyStatus === 'safe' ? '無事' : currentUserResponse.safetyStatus === 'minor_injury' ? '軽傷' : '重傷・要救助'})
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-black bg-rose-100 text-rose-800 border border-rose-300 animate-pulse">
-                            <AlertCircle className="w-3 h-3" />
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-black bg-rose-100 text-rose-800 border border-rose-300 animate-pulse whitespace-nowrap">
+                            <AlertCircle className="w-3 h-3 shrink-0" />
                             未回答 (要回答)
                           </span>
                         )}
-                        <span className="text-xs font-bold text-slate-700">
+                        <span className="text-xs font-bold text-slate-700 truncate">
                           {currentUser.name} さん ({currentUser.office || '本社'} / {currentUser.division || '所属'})
                         </span>
                       </div>
-                      <p className="text-xs text-slate-500 mt-1">
+                      <p className="text-xs text-slate-500 mt-1 leading-relaxed break-words">
                         {currentUserResponse
                           ? `出社可否: ${currentUserResponse.workAvailability === 'available' ? '通常出社可' : currentUserResponse.workAvailability === 'remote_only' ? '在宅勤務可' : '出社不可'} | 現在地: ${currentUserResponse.locationStatus || '未記入'} (最終回答: ${new Date(currentUserResponse.respondedAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })})`
                           : '災害発生時の速やかな状況把握のため、現在の安全状況・出社可否をご回答ください。'}
@@ -1490,82 +1490,82 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto">
                     <button
                       type="button"
                       onClick={() => setIsMyAnswerModalOpen(true)}
-                      className={`px-4 py-2.5 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all shadow-xs cursor-pointer ${
+                      className={`w-full sm:w-auto px-4 py-2.5 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer whitespace-nowrap ${
                         currentUserResponse
                           ? 'bg-white border border-emerald-300 text-emerald-800 hover:bg-emerald-50 hover:shadow-sm'
                           : 'bg-rose-600 hover:bg-rose-700 text-white shadow-rose-200 shadow-md animate-bounce'
                       }`}
                     >
-                      <HeartHandshake className="w-4 h-4" />
-                      {currentUserResponse ? '回答内容を変更・更新する' : '今すぐ安否を回答する'}
+                      <HeartHandshake className="w-4 h-4 shrink-0" />
+                      <span>{currentUserResponse ? '回答内容を変更・更新する' : '今すぐ安否を回答する'}</span>
                     </button>
                   </div>
                 </div>
               )}
 
               {/* Statistics Bento Grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3.5">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 sm:gap-3.5">
                 {/* 1. 回答率 */}
-                <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm flex flex-col justify-between">
-                  <span className="text-[11px] font-bold text-slate-500">回答率</span>
-                  <div className="my-2 flex items-baseline gap-2">
-                    <span className="text-2xl font-black text-rose-600">{responseRate}%</span>
-                    <span className="text-xs text-slate-400 font-bold">{answeredCount}/{totalUsersCount}名</span>
+                <div className="bg-white rounded-2xl border border-slate-200 p-3 sm:p-4 shadow-sm flex flex-col justify-between">
+                  <span className="text-[10px] sm:text-[11px] font-bold text-slate-500">回答率</span>
+                  <div className="my-1.5 sm:my-2 flex items-baseline gap-1.5 sm:gap-2">
+                    <span className="text-xl sm:text-2xl font-black text-rose-600 tabular-nums">{responseRate}%</span>
+                    <span className="text-[11px] sm:text-xs text-slate-400 font-bold tabular-nums">{answeredCount}/{totalUsersCount}名</span>
                   </div>
-                  <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                  <div className="w-full bg-slate-100 h-1.5 sm:h-2 rounded-full overflow-hidden">
                     <div className="bg-rose-600 h-full transition-all duration-500" style={{ width: `${responseRate}%` }} />
                   </div>
                 </div>
 
                 {/* 2. 無事 */}
-                <div className="bg-white rounded-2xl border border-emerald-200 p-4 shadow-sm bg-emerald-50/20">
-                  <span className="text-[11px] font-bold text-emerald-700">無事・軽微</span>
-                  <div className="my-2">
-                    <span className="text-2xl font-black text-emerald-600">{safeCount}</span>
+                <div className="bg-white rounded-2xl border border-emerald-200 p-3 sm:p-4 shadow-sm bg-emerald-50/20">
+                  <span className="text-[10px] sm:text-[11px] font-bold text-emerald-700">無事・軽微</span>
+                  <div className="my-1.5 sm:my-2">
+                    <span className="text-xl sm:text-2xl font-black text-emerald-600 tabular-nums">{safeCount}</span>
                     <span className="text-xs text-emerald-600/70 font-bold ml-1">名</span>
                   </div>
                   <span className="text-[10px] text-emerald-600 font-semibold">支障なし</span>
                 </div>
 
                 {/* 3. 軽傷・被害あり */}
-                <div className="bg-white rounded-2xl border border-amber-200 p-4 shadow-sm bg-amber-50/20">
-                  <span className="text-[11px] font-bold text-amber-700">軽傷・対応中</span>
-                  <div className="my-2">
-                    <span className="text-2xl font-black text-amber-600">{minorInjuryCount}</span>
+                <div className="bg-white rounded-2xl border border-amber-200 p-3 sm:p-4 shadow-sm bg-amber-50/20">
+                  <span className="text-[10px] sm:text-[11px] font-bold text-amber-700">軽傷・対応中</span>
+                  <div className="my-1.5 sm:my-2">
+                    <span className="text-xl sm:text-2xl font-black text-amber-600 tabular-nums">{minorInjuryCount}</span>
                     <span className="text-xs text-amber-600/70 font-bold ml-1">名</span>
                   </div>
                   <span className="text-[10px] text-amber-600 font-semibold">自力対応中</span>
                 </div>
 
                 {/* 4. 重傷・要救助 */}
-                <div className="bg-white rounded-2xl border border-rose-200 p-4 shadow-sm bg-rose-50/30">
-                  <span className="text-[11px] font-bold text-rose-700">重傷・救助要請</span>
-                  <div className="my-2">
-                    <span className="text-2xl font-black text-rose-600">{severeInjuryCount}</span>
+                <div className="bg-white rounded-2xl border border-rose-200 p-3 sm:p-4 shadow-sm bg-rose-50/30">
+                  <span className="text-[10px] sm:text-[11px] font-bold text-rose-700">重傷・救助要請</span>
+                  <div className="my-1.5 sm:my-2">
+                    <span className="text-xl sm:text-2xl font-black text-rose-600 tabular-nums">{severeInjuryCount}</span>
                     <span className="text-xs text-rose-600/70 font-bold ml-1">名</span>
                   </div>
                   <span className="text-[10px] text-rose-600 font-semibold">最優先支援</span>
                 </div>
 
                 {/* 5. 出社可 */}
-                <div className="bg-white rounded-2xl border border-indigo-200 p-4 shadow-sm bg-indigo-50/20">
-                  <span className="text-[11px] font-bold text-indigo-700">通常出社可</span>
-                  <div className="my-2">
-                    <span className="text-2xl font-black text-indigo-600">{canWorkCount}</span>
+                <div className="bg-white rounded-2xl border border-indigo-200 p-3 sm:p-4 shadow-sm bg-indigo-50/20">
+                  <span className="text-[10px] sm:text-[11px] font-bold text-indigo-700">通常出社可</span>
+                  <div className="my-1.5 sm:my-2">
+                    <span className="text-xl sm:text-2xl font-black text-indigo-600 tabular-nums">{canWorkCount}</span>
                     <span className="text-xs text-indigo-600/70 font-bold ml-1">名</span>
                   </div>
                   <span className="text-[10px] text-indigo-600 font-semibold">稼働可能</span>
                 </div>
 
                 {/* 6. 在宅/出社不可 */}
-                <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
-                  <span className="text-[11px] font-bold text-slate-600">在宅 / 出社不可</span>
-                  <div className="my-2 flex items-baseline gap-2">
-                    <span className="text-2xl font-black text-slate-800">{remoteWorkCount + cannotWorkCount}</span>
+                <div className="bg-white rounded-2xl border border-slate-200 p-3 sm:p-4 shadow-sm">
+                  <span className="text-[10px] sm:text-[11px] font-bold text-slate-600">在宅 / 出社不可</span>
+                  <div className="my-1.5 sm:my-2 flex items-baseline gap-2">
+                    <span className="text-xl sm:text-2xl font-black text-slate-800 tabular-nums">{remoteWorkCount + cannotWorkCount}</span>
                     <span className="text-xs text-slate-400 font-bold">名</span>
                   </div>
                   <span className="text-[10px] text-slate-500 font-medium">出社不可: {cannotWorkCount}名</span>
@@ -1574,79 +1574,81 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
 
               {/* Members Status Filter & List */}
               <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                <div className="p-4 bg-slate-50 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div className="p-3.5 sm:p-4 bg-slate-50 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
-                    <Users className="w-4 h-4 text-slate-700" />
+                    <Users className="w-4 h-4 text-slate-700 shrink-0" />
                     <span className="text-xs font-bold text-slate-800">
                       社員安否状況一覧 ({filteredMembers.length}名)
                     </span>
                   </div>
 
-                  <div className="flex items-center gap-2 flex-wrap text-xs">
-                    {/* Status filter buttons */}
-                    <div className="flex items-center bg-white rounded-lg border border-slate-200 p-0.5">
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 text-xs">
+                    {/* Status filter buttons (horizontal scrolling on mobile) */}
+                    <div className="flex items-center gap-0.5 overflow-x-auto bg-white rounded-lg border border-slate-200 p-0.5 shrink-0">
                       <button
                         onClick={() => setStatusFilter('all')}
-                        className={`px-2.5 py-1 rounded text-xs font-bold ${
-                          statusFilter === 'all' ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-100'
+                        className={`px-2.5 py-1 rounded text-xs font-bold whitespace-nowrap cursor-pointer transition-colors ${
+                          statusFilter === 'all' ? 'bg-slate-800 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
                         }`}
                       >
                         全員
                       </button>
                       <button
                         onClick={() => setStatusFilter('unanswered')}
-                        className={`px-2.5 py-1 rounded text-xs font-bold ${
-                          statusFilter === 'unanswered' ? 'bg-amber-500 text-white' : 'text-slate-600 hover:bg-slate-100'
+                        className={`px-2.5 py-1 rounded text-xs font-bold whitespace-nowrap cursor-pointer transition-colors ${
+                          statusFilter === 'unanswered' ? 'bg-amber-500 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
                         }`}
                       >
                         未回答のみ
                       </button>
                       <button
                         onClick={() => setStatusFilter('danger')}
-                        className={`px-2.5 py-1 rounded text-xs font-bold ${
-                          statusFilter === 'danger' ? 'bg-rose-600 text-white' : 'text-slate-600 hover:bg-slate-100'
+                        className={`px-2.5 py-1 rounded text-xs font-bold whitespace-nowrap cursor-pointer transition-colors ${
+                          statusFilter === 'danger' ? 'bg-rose-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
                         }`}
                       >
                         被害・要救助
                       </button>
                       <button
                         onClick={() => setStatusFilter('safe')}
-                        className={`px-2.5 py-1 rounded text-xs font-bold ${
-                          statusFilter === 'safe' ? 'bg-emerald-600 text-white' : 'text-slate-600 hover:bg-slate-100'
+                        className={`px-2.5 py-1 rounded text-xs font-bold whitespace-nowrap cursor-pointer transition-colors ${
+                          statusFilter === 'safe' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
                         }`}
                       >
                         無事
                       </button>
                     </div>
 
-                    {/* Office selector */}
-                    <select
-                      value={selectedOfficeFilter}
-                      onChange={(e) => setSelectedOfficeFilter(e.target.value)}
-                      className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700"
-                    >
-                      <option value="all">全拠点</option>
-                      {offices.map(off => (
-                        <option key={off.id} value={off.name}>{off.name}</option>
-                      ))}
-                    </select>
+                    <div className="flex items-center gap-2">
+                      {/* Office selector */}
+                      <select
+                        value={selectedOfficeFilter}
+                        onChange={(e) => setSelectedOfficeFilter(e.target.value)}
+                        className="px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 cursor-pointer flex-1 sm:flex-initial"
+                      >
+                        <option value="all">全拠点</option>
+                        {offices.map(off => (
+                          <option key={off.id} value={off.name}>{off.name}</option>
+                        ))}
+                      </select>
 
-                    {/* Search bar */}
-                    <div className="relative">
-                      <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                      <input
-                        type="text"
-                        placeholder="氏名・部署で検索..."
-                        value={searchKeyword}
-                        onChange={(e) => setSearchKeyword(e.target.value)}
-                        className="pl-8 pr-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-rose-500"
-                      />
+                      {/* Search bar */}
+                      <div className="relative flex-1 sm:w-44">
+                        <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input
+                          type="text"
+                          placeholder="氏名・部署で検索..."
+                          value={searchKeyword}
+                          onChange={(e) => setSearchKeyword(e.target.value)}
+                          className="w-full pl-8 pr-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-rose-500"
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
 
-                {/* Table */}
-                <div className="divide-y divide-slate-100 overflow-x-auto">
+                {/* Desktop View: Full Data Table (PC画面そのまま) */}
+                <div className="hidden md:block divide-y divide-slate-100 overflow-x-auto">
                   <table className="w-full text-left text-xs">
                     <thead className="bg-slate-50/50 text-slate-500 font-bold border-b border-slate-100">
                       <tr>
@@ -1820,6 +1822,164 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
                     </tbody>
                   </table>
                 </div>
+
+                {/* Mobile View: Responsive Card List (スマホ最適化カード表示) */}
+                <div className="md:hidden divide-y divide-slate-100">
+                  {filteredMembers.map((member) => {
+                    const resp = responses.find(r => r.userId === member.id);
+                    const isMe = currentUser.id === member.id;
+                    return (
+                      <div
+                        key={member.id}
+                        onClick={() => {
+                          if (isMe) {
+                            setIsMyAnswerModalOpen(true);
+                          } else {
+                            setViewingResponseData({ user: member, response: resp });
+                          }
+                        }}
+                        className={`p-3.5 transition-colors cursor-pointer space-y-2.5 ${
+                          isMe ? 'bg-rose-50/40 hover:bg-rose-50/70' : 'hover:bg-slate-50'
+                        }`}
+                      >
+                        {/* Member Row: Name + Badge */}
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-bold text-sm text-slate-900">{member.name}</span>
+                              {isMe && (
+                                <span className="text-[10px] font-black px-1.5 py-0.2 rounded bg-rose-100 text-rose-700 border border-rose-200 whitespace-nowrap">
+                                  あなた
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[11px] text-slate-400 truncate mt-0.5">
+                              {[member.office, member.division, member.position].filter(Boolean).join(' / ')}
+                            </p>
+                          </div>
+
+                          <div className="shrink-0">
+                            {resp ? (
+                              resp.safetyStatus === 'safe' ? (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs whitespace-nowrap">
+                                  <Check className="w-3 h-3 text-emerald-600 shrink-0" />
+                                  無事
+                                </span>
+                              ) : resp.safetyStatus === 'minor_injury' ? (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200 shadow-2xs whitespace-nowrap">
+                                  <AlertTriangle className="w-3 h-3 text-amber-600 shrink-0" />
+                                  軽傷
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-rose-50 text-rose-700 border border-rose-200 animate-pulse shadow-2xs whitespace-nowrap">
+                                  <AlertOctagon className="w-3 h-3 text-rose-600 shrink-0" />
+                                  要救助
+                                </span>
+                              )
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-400 border border-slate-200 whitespace-nowrap">
+                                <Clock className="w-3 h-3 shrink-0" />
+                                未回答
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Response Details (if answered) */}
+                        {resp ? (
+                          <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 space-y-1.5 text-xs">
+                            <div className="grid grid-cols-2 gap-2 text-[11px]">
+                              <div>
+                                <span className="text-slate-400 block text-[10px]">出社・就業</span>
+                                <span className="font-bold text-slate-800">
+                                  {resp.workAvailability === 'available' ? '通常出社可' : resp.workAvailability === 'remote_only' ? '在宅勤務可' : '出社不可'}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-slate-400 block text-[10px]">現在地</span>
+                                <span className="text-slate-700 truncate block">{resp.locationStatus || '自宅'}</span>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-2 text-[11px] pt-1 border-t border-slate-200/60">
+                              <div>
+                                <span className="text-slate-400 text-[10px]">家族: </span>
+                                <span className="text-slate-700">{resp.familyStatus === 'all_safe' ? '全員無事' : resp.familyStatus === 'injured' ? '負傷者あり' : '未定'}</span>
+                              </div>
+                              <div>
+                                <span className="text-slate-400 text-[10px]">家屋: </span>
+                                <span className="text-slate-700">{resp.houseStatus === 'no_damage' ? '被害なし' : resp.houseStatus === 'partial_damage' ? '一部破損' : '倒壊・避難'}</span>
+                              </div>
+                            </div>
+
+                            {resp.message && (
+                              <div className="pt-1 border-t border-slate-200/60 text-[11px] text-slate-700 bg-white p-2 rounded-lg border border-slate-100">
+                                <span className="text-[10px] text-slate-400 block font-bold">コメント:</span>
+                                <p className="line-clamp-2 mt-0.5">{resp.message}</p>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-between text-[11px] text-slate-400 bg-slate-50/60 px-2.5 py-1.5 rounded-lg border border-slate-100">
+                            <span>安否回答待ち</span>
+                            {member.personalEmailMasked ? (
+                              <span className="text-emerald-700 font-mono text-[10px] flex items-center gap-1">
+                                <Lock className="w-2.5 h-2.5 text-emerald-600" />
+                                個人メール登録済
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 text-[10px]">個人メール未登録</span>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Action Row */}
+                        <div className="flex items-center justify-between pt-1 text-[11px] text-slate-400" onClick={(e) => e.stopPropagation()}>
+                          <div>
+                            {resp?.respondedAt && (
+                              <span className="tabular-nums">
+                                回答: {new Date(resp.respondedAt).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-1.5">
+                            {isMe ? (
+                              <button
+                                type="button"
+                                onClick={() => setIsMyAnswerModalOpen(true)}
+                                className="px-3 py-1.5 rounded-lg text-xs font-bold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 flex items-center gap-1 cursor-pointer whitespace-nowrap"
+                              >
+                                <HeartHandshake className="w-3.5 h-3.5" />
+                                <span>{resp ? '回答変更' : '今すぐ回答'}</span>
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setViewingResponseData({ user: member, response: resp })}
+                                className="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center gap-1 cursor-pointer whitespace-nowrap"
+                              >
+                                <Eye className="w-3.5 h-3.5 text-slate-500" />
+                                <span>詳細を見る</span>
+                              </button>
+                            )}
+
+                            {resp && (isAdmin || isMe) && (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteResponse(activeEvent.id, member.id, member.name)}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                                title="回答をリセット"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </>
           )}
@@ -1914,16 +2074,16 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2.5">
+                <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-2 sm:gap-2.5">
                   {/* Search Keyword */}
-                  <div className="relative">
+                  <div className="relative flex-1 sm:flex-initial">
                     <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                     <input
                       type="text"
                       value={targetSearchKeyword}
                       onChange={(e) => setTargetSearchKeyword(e.target.value)}
                       placeholder="氏名・部署・アドレス検索..."
-                      className="pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white w-48"
+                      className="pl-8 pr-3 py-2 sm:py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white w-full sm:w-48"
                     />
                     {targetSearchKeyword && (
                       <button
@@ -1939,7 +2099,7 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
                   <select
                     value={targetOfficeFilter}
                     onChange={(e) => setTargetOfficeFilter(e.target.value)}
-                    className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                    className="px-3 py-2 sm:py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer w-full sm:w-auto"
                   >
                     <option value="all">全拠点・営業所</option>
                     {offices.map((o) => (
@@ -1953,7 +2113,7 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
                   <select
                     value={targetDivisionFilter}
                     onChange={(e) => setTargetDivisionFilter(e.target.value)}
-                    className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                    className="px-3 py-2 sm:py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer w-full sm:w-auto"
                   >
                     <option value="all">全部署</option>
                     {divisions.map((d) => (
@@ -1967,7 +2127,7 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
                   <select
                     value={targetRegistrationFilter}
                     onChange={(e) => setTargetRegistrationFilter(e.target.value as any)}
-                    className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                    className="px-3 py-2 sm:py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer w-full sm:w-auto"
                   >
                     <option value="all">全登録状況 ({allUsers.length})</option>
                     <option value="both">両方登録済 ({targetBothRegisteredCount})</option>
@@ -1979,7 +2139,7 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
                   {/* CSV Export Button */}
                   <button
                     onClick={handleExportTargetsCSV}
-                    className="px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs shrink-0"
+                    className="px-3 py-2 sm:py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-2xs shrink-0 w-full sm:w-auto"
                   >
                     <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
                     CSV出力
@@ -1988,7 +2148,7 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
               </div>
 
               {/* Action Bar for Registration Request & Selection */}
-              <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3 bg-slate-50/60 p-3 rounded-xl">
+              <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-slate-50/60 p-3 rounded-xl">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-xs font-bold text-slate-600">
                     選択中: <strong className="text-indigo-600 text-sm font-black">{selectedTargetUserIds.length}</strong> / {filteredTargets.length} 名
@@ -2031,7 +2191,7 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
                       setIsRequestModalOpen(true);
                     }}
                     disabled={selectedTargetUserIds.length === 0}
-                    className={`px-4 py-2 rounded-xl text-xs font-black flex items-center gap-2 shadow-sm transition-all ${
+                    className={`w-full sm:w-auto justify-center px-4 py-2 rounded-xl text-xs font-black flex items-center gap-2 shadow-sm transition-all ${
                       selectedTargetUserIds.length > 0
                         ? 'bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer hover:shadow-md'
                         : 'bg-slate-200 text-slate-400 cursor-not-allowed'
@@ -2049,8 +2209,8 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
               </div>
             </div>
 
-            {/* Target Members Table */}
-            <div className="overflow-x-auto">
+            {/* Target Members Table (Desktop View - 100% Unchanged) */}
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="bg-slate-50/80 text-slate-600 font-bold border-b border-slate-200 select-none">
@@ -2280,12 +2440,131 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
               </table>
             </div>
 
+            {/* Target Members Card List (Mobile Optimized View) */}
+            <div className="md:hidden divide-y divide-slate-100">
+              {filteredTargets.length === 0 ? (
+                <div className="py-10 text-center text-slate-400 font-bold text-xs">
+                  条件に一致する対象者は見つかりませんでした
+                </div>
+              ) : (
+                filteredTargets.map((user) => {
+                  const hasMobile = !!(user.mobileEmail && user.mobileEmail.trim());
+                  const hasPersonal = !!(user.personalEmailMasked || user.personalEmailEncrypted);
+                  const isBoth = hasMobile && hasPersonal;
+                  const isSelected = selectedTargetUserIds.includes(user.id);
+
+                  return (
+                    <div
+                      key={user.id}
+                      onClick={() => handleToggleTargetSelect(user.id)}
+                      className={`p-3.5 transition-colors cursor-pointer space-y-2.5 ${
+                        isSelected ? 'bg-indigo-50/50' : 'bg-white active:bg-slate-50'
+                      }`}
+                    >
+                      {/* Row 1: Checkbox + Avatar + Name + Registration Badge */}
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={(e) => {
+                              e.stopPropagation();
+                              handleToggleTargetSelect(user.id);
+                            }}
+                            className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer shrink-0"
+                          />
+                          <img
+                            src={getAvatarUrl(user.avatarUrl)}
+                            alt={user.name}
+                            className="w-7 h-7 rounded-full object-cover border border-slate-200 shrink-0"
+                          />
+                          <div className="min-w-0">
+                            <div className="font-extrabold text-slate-800 text-xs truncate">
+                              {user.name}
+                            </div>
+                            <div className="text-[10px] text-slate-500 flex items-center gap-1.5 truncate mt-0.5">
+                              <span className="px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 font-bold shrink-0">
+                                {user.office || '本社'}
+                              </span>
+                              <span className="truncate">{user.division || '-'}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Registration Badge */}
+                        <div className="shrink-0">
+                          {isBoth ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                              <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" />
+                              両方済
+                            </span>
+                          ) : hasPersonal ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-200">
+                              <Lock className="w-2.5 h-2.5 text-indigo-600" />
+                              個人済
+                            </span>
+                          ) : hasMobile ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200">
+                              <Smartphone className="w-2.5 h-2.5 text-blue-600" />
+                              携帯済
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-700 border border-rose-200">
+                              <AlertTriangle className="w-2.5 h-2.5 text-rose-500" />
+                              未登録
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Row 2: Contact detail tags */}
+                      <div className="grid grid-cols-1 gap-1.5 text-[11px] font-mono pl-6 sm:pl-0">
+                        {/* Company Email */}
+                        <div className="flex items-center gap-1.5 text-slate-600 truncate">
+                          <Mail className="w-3 h-3 text-slate-400 shrink-0" />
+                          <span className="text-[10px] text-slate-400 font-sans shrink-0">社内:</span>
+                          <span className="truncate text-[10px]">{user.email || '-'}</span>
+                        </div>
+
+                        {/* Mobile & Personal Emails */}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <div className="flex items-center gap-1 text-[10px]">
+                            <Smartphone className="w-3 h-3 text-slate-400 shrink-0" />
+                            <span className="text-slate-400 font-sans">携帯:</span>
+                            {hasMobile ? (
+                              <span className="font-bold text-indigo-700 bg-indigo-50/70 px-1.5 py-0.2 rounded border border-indigo-100 truncate max-w-[150px]">
+                                {user.mobileEmail}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 italic">未登録</span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-1 text-[10px]">
+                            <Lock className="w-3 h-3 text-slate-400 shrink-0" />
+                            <span className="text-slate-400 font-sans">個人:</span>
+                            {hasPersonal ? (
+                              <span className="font-bold text-emerald-800 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200 truncate max-w-[150px]">
+                                {user.personalEmailMasked || '暗号化済'}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 italic">未登録</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
             {/* Table Footer */}
-            <div className="p-3.5 bg-slate-50/50 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+            <div className="p-3.5 bg-slate-50/50 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs text-slate-500">
               <span>
                 表示中: <strong className="text-slate-800">{filteredTargets.length}</strong> 名 / 全体 {allUsers.length} 名
               </span>
-              <div className="flex items-center gap-4 text-[11px]">
+              <div className="flex flex-wrap items-center gap-3 text-[11px]">
                 <span className="flex items-center gap-1">
                   <span className="w-2 h-2 rounded-full bg-emerald-500" />
                   両方登録: {targetBothRegisteredCount}名
@@ -2312,17 +2591,17 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
           {/* Top Status & Settings Grid */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Left 2 Cols: Master Settings */}
-            <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-6">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+            <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 p-4 sm:p-6 shadow-sm space-y-5 sm:space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 border border-amber-200 flex items-center justify-center">
+                  <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 border border-amber-200 flex items-center justify-center shrink-0">
                     <Radio className="w-5 h-5 animate-pulse" />
                   </div>
                   <div>
                     <h2 className="text-base font-extrabold text-slate-800">
                       気象庁・地震速報連動 自動発動設定
                     </h2>
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs text-slate-500 mt-0.5">
                       気象庁および防災地震情報APIを1分周期で自動監視し、指定震度以上の地震発生時に安否確認を自動起票・一斉配信します。
                     </p>
                   </div>
@@ -2331,7 +2610,7 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
                 {/* Main Switch */}
                 <button
                   onClick={() => setJmaSettings(prev => ({ ...prev, enabled: !prev.enabled }))}
-                  className={`relative inline-flex h-7 w-14 items-center rounded-full transition-colors cursor-pointer shrink-0 ${
+                  className={`relative inline-flex h-7 w-14 items-center rounded-full transition-colors cursor-pointer shrink-0 self-end sm:self-center ${
                     jmaSettings.enabled ? 'bg-emerald-600' : 'bg-slate-300'
                   }`}
                 >
@@ -2344,21 +2623,21 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
               </div>
 
               {/* Status Banner */}
-              <div className={`p-4 rounded-xl border flex items-center justify-between text-xs font-bold ${
+              <div className={`p-3.5 sm:p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs font-bold ${
                 jmaSettings.enabled 
                   ? 'bg-emerald-50 text-emerald-900 border-emerald-200'
                   : 'bg-slate-50 text-slate-600 border-slate-200'
               }`}>
                 <div className="flex items-center gap-2">
-                  <span className={`w-2.5 h-2.5 rounded-full ${jmaSettings.enabled ? 'bg-emerald-500 animate-ping' : 'bg-slate-400'}`} />
+                  <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${jmaSettings.enabled ? 'bg-emerald-500 animate-ping' : 'bg-slate-400'}`} />
                   <span>
                     {jmaSettings.enabled 
-                      ? '気象庁連動エンジン：稼働中（1分周期で地震情報を自動ポーリング監視中）' 
+                      ? '気象庁連動エンジン：稼働中（1分周期で地震情報を自動監視中）' 
                       : '気象庁連動エンジン：現在無効（自動発動は停止しています）'}
                   </span>
                 </div>
                 {jmaSettings.lastCheckedAt && (
-                  <span className="text-[11px] font-mono text-slate-500">
+                  <span className="text-[11px] font-mono text-slate-500 shrink-0">
                     最終確認: {new Date(jmaSettings.lastCheckedAt).toLocaleTimeString('ja-JP')}
                   </span>
                 )}
@@ -2384,7 +2663,7 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
                         key={item.id}
                         type="button"
                         onClick={() => setJmaSettings(prev => ({ ...prev, minIntensity: item.id }))}
-                        className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                        className={`p-2.5 sm:p-3 rounded-xl border text-left transition-all cursor-pointer ${
                           jmaSettings.minIntensity === item.id
                             ? 'bg-rose-50 border-rose-400 ring-2 ring-rose-200 text-rose-900'
                             : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
@@ -2406,7 +2685,7 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
                     <button
                       type="button"
                       onClick={() => setJmaSettings(prev => ({ ...prev, targetScope: 'all' }))}
-                      className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between ${
+                      className={`p-3 sm:p-3.5 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between ${
                         jmaSettings.targetScope === 'all'
                           ? 'bg-indigo-50 border-indigo-300 ring-2 ring-indigo-100 text-indigo-900'
                           : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
@@ -2422,7 +2701,7 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
                     <button
                       type="button"
                       onClick={() => setJmaSettings(prev => ({ ...prev, targetScope: 'affected_offices' }))}
-                      className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between ${
+                      className={`p-3 sm:p-3.5 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between ${
                         jmaSettings.targetScope === 'affected_offices'
                           ? 'bg-indigo-50 border-indigo-300 ring-2 ring-indigo-100 text-indigo-900'
                           : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
@@ -2517,7 +2796,7 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
                   <button
                     onClick={handleSaveJmaSettings}
                     disabled={isSavingJmaSettings}
-                    className="px-6 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-sm transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                    className="w-full sm:w-auto justify-center px-6 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-sm transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
                   >
                     {isSavingJmaSettings ? (
                       <RefreshCw className="w-4 h-4 animate-spin" />
@@ -3130,19 +3409,19 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
       {/* MODAL 1: 自分の安否を回答・変更するポップアップモーダル */}
       {/* ========================================================================= */}
       {isMyAnswerModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150">
-          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-2xl w-full overflow-hidden flex flex-col max-h-[92vh] animate-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-0 sm:p-4 animate-in fade-in duration-150">
+          <div className="bg-white sm:rounded-3xl border-0 sm:border border-slate-200 shadow-2xl max-w-2xl w-full overflow-hidden flex flex-col h-dvh sm:h-auto max-h-dvh sm:max-h-[92vh] rounded-none animate-in zoom-in-95 duration-150">
             {/* Modal Header */}
-            <div className="p-5 bg-gradient-to-r from-rose-600 to-rose-700 text-white flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-white/20 flex items-center justify-center text-white shrink-0">
+            <div className="p-4 sm:p-5 bg-gradient-to-r from-rose-600 to-rose-700 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl bg-white/20 flex items-center justify-center text-white shrink-0">
                   <HeartHandshake className="w-5 h-5" />
                 </div>
-                <div>
-                  <h2 className="text-base font-extrabold text-white flex items-center gap-2">
+                <div className="min-w-0">
+                  <h2 className="text-sm sm:text-base font-extrabold text-white flex items-center gap-2 truncate">
                     安否状況の回答・変更
                   </h2>
-                  <p className="text-xs text-rose-100 mt-0.5">
+                  <p className="text-[11px] sm:text-xs text-rose-100 mt-0.5 truncate">
                     回答者: <strong className="text-white font-bold">{currentUser.name}</strong> ({currentUser.office || '本社'} / {currentUser.division || '所属'})
                     {activeEvent && ` | 対象: ${activeEvent.title}`}
                   </p>
@@ -3151,7 +3430,7 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
               <button
                 type="button"
                 onClick={() => setIsMyAnswerModalOpen(false)}
-                className="p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                className="p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/10 transition-colors cursor-pointer shrink-0"
                 title="閉じる"
               >
                 <X className="w-5 h-5" />
@@ -3159,7 +3438,7 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
             </div>
 
             {/* Modal Body */}
-            <div className="p-5 sm:p-6 overflow-y-auto space-y-6 flex-1">
+            <div className="p-4 sm:p-6 overflow-y-auto space-y-5 sm:space-y-6 flex-1">
               {/* 個人メール設定案内バナー */}
               <div className="p-3 bg-indigo-50/80 rounded-2xl border border-indigo-100 flex items-center justify-between gap-3 text-xs text-indigo-900">
                 <div className="flex items-center gap-2">
@@ -3436,19 +3715,19 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
             </div>
 
             {/* Modal Footer */}
-            <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-3 shrink-0">
+            <div className="p-3.5 sm:p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-2 sm:gap-3 shrink-0">
               <button
                 type="button"
                 onClick={() => setIsMyAnswerModalOpen(false)}
-                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-200/70 transition-colors cursor-pointer"
+                className="px-3 sm:px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-200/70 transition-colors cursor-pointer shrink-0"
               >
-                キャンセル・閉じる
+                閉じる
               </button>
               <button
                 type="submit"
                 form="my-safety-response-form"
                 disabled={isSubmittingResponse}
-                className="px-6 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold rounded-xl shadow-md shadow-rose-200 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                className="flex-1 sm:flex-initial px-4 sm:px-6 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold rounded-xl shadow-md shadow-rose-200 transition-all flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer disabled:opacity-50"
               >
                 <CheckCircle2 className="w-4 h-4" />
                 {isSubmittingResponse ? '送信中...' : '安否状況を回答・登録する'}
@@ -3462,19 +3741,19 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
       {/* MODAL 2: 社員の回答詳細ポップアップ（閲覧専用・編集不可） */}
       {/* ========================================================================= */}
       {viewingResponseData && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150">
-          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-lg w-full overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-0 sm:p-4 animate-in fade-in duration-150">
+          <div className="bg-white sm:rounded-3xl border-0 sm:border border-slate-200 shadow-2xl max-w-lg w-full overflow-hidden flex flex-col h-dvh sm:h-auto max-h-dvh sm:max-h-[90vh] rounded-none animate-in zoom-in-95 duration-150">
             {/* Modal Header */}
-            <div className="p-5 bg-gradient-to-r from-slate-800 to-slate-900 text-white flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-white/10 flex items-center justify-center text-white shrink-0 font-black text-sm">
+            <div className="p-4 sm:p-5 bg-gradient-to-r from-slate-800 to-slate-900 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl bg-white/10 flex items-center justify-center text-white shrink-0 font-black text-sm">
                   {viewingResponseData.user.name.slice(0, 1)}
                 </div>
-                <div>
-                  <h3 className="text-base font-extrabold text-white flex items-center gap-2">
+                <div className="min-w-0">
+                  <h3 className="text-sm sm:text-base font-extrabold text-white flex items-center gap-2 truncate">
                     {viewingResponseData.user.name} さんの安否詳細
                   </h3>
-                  <p className="text-xs text-slate-300 mt-0.5">
+                  <p className="text-[11px] sm:text-xs text-slate-300 mt-0.5 truncate">
                     {[viewingResponseData.user.office, viewingResponseData.user.division, viewingResponseData.user.position].filter(Boolean).join(' / ')}
                   </p>
                 </div>
@@ -3482,7 +3761,7 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
               <button
                 type="button"
                 onClick={() => setViewingResponseData(null)}
-                className="p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                className="p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/10 transition-colors cursor-pointer shrink-0"
                 title="閉じる"
               >
                 <X className="w-5 h-5" />
@@ -3490,7 +3769,7 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
             </div>
 
             {/* Modal Body */}
-            <div className="p-6 overflow-y-auto space-y-5 flex-1 text-xs">
+            <div className="p-4 sm:p-6 overflow-y-auto space-y-4 sm:space-y-5 flex-1 text-xs">
               {/* 安否ステータス 大バッジ */}
               <div className="p-4 rounded-2xl border flex items-center justify-between gap-3 bg-slate-50 border-slate-200">
                 <span className="font-bold text-slate-600">本人の安否状況:</span>
@@ -3607,7 +3886,7 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
             </div>
 
             {/* Modal Footer */}
-            <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-3 shrink-0">
+            <div className="p-3.5 sm:p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-2 sm:gap-3 shrink-0">
               {viewingResponseData.response && (isAdmin || currentUser.id === viewingResponseData.user.id) ? (
                 <button
                   type="button"
@@ -3617,10 +3896,11 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
                       setViewingResponseData(null);
                     }
                   }}
-                  className="px-3 py-1.5 rounded-lg text-xs font-bold text-rose-600 hover:bg-rose-50 border border-rose-200 transition-colors cursor-pointer flex items-center gap-1.5"
+                  className="px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold text-rose-600 hover:bg-rose-50 border border-rose-200 transition-colors cursor-pointer flex items-center gap-1.5 shrink-0"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
-                  回答を削除（未回答にリセット）
+                  <span className="hidden sm:inline">回答を削除（未回答にリセット）</span>
+                  <span className="sm:hidden">削除</span>
                 </button>
               ) : (
                 <div />
@@ -3629,7 +3909,7 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
               <button
                 type="button"
                 onClick={() => setViewingResponseData(null)}
-                className="px-5 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                className="px-4 sm:px-5 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer shrink-0"
               >
                 閉じる
               </button>
@@ -3642,33 +3922,33 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
       {/* MODAL: 個人メール登録依頼メール送信モーダル */}
       {/* ========================================================================= */}
       {isRequestModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-xl w-full overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-0 sm:p-4 animate-in fade-in duration-150">
+          <div className="bg-white sm:rounded-3xl border-0 sm:border border-slate-200 shadow-2xl max-w-xl w-full overflow-hidden flex flex-col h-dvh sm:h-auto max-h-dvh sm:max-h-[90vh] rounded-none animate-in zoom-in-95 duration-150">
             {/* Modal Header */}
-            <div className="p-5 bg-gradient-to-r from-indigo-600 to-indigo-700 text-white flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center text-white">
+            <div className="p-4 sm:p-5 bg-gradient-to-r from-indigo-600 to-indigo-700 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/20 flex items-center justify-center text-white shrink-0">
                   <Mail className="w-5 h-5" />
                 </div>
-                <div>
-                  <h3 className="text-base font-black">
+                <div className="min-w-0">
+                  <h3 className="text-sm sm:text-base font-black truncate">
                     個人メール登録の依頼メールを送信
                   </h3>
-                  <p className="text-xs text-indigo-100 mt-0.5">
-                    選択した対象者へ、緊急連絡先（個人メール）の登録を促す案内メールを一斉配信します
+                  <p className="text-[11px] sm:text-xs text-indigo-100 mt-0.5 truncate">
+                    選択した対象者へ、緊急連絡先（個人メール）登録案内を一斉配信
                   </p>
                 </div>
               </div>
               <button
                 onClick={() => setIsRequestModalOpen(false)}
-                className="p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                className="p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/10 transition-colors cursor-pointer shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             {/* Modal Body */}
-            <div className="p-6 space-y-5 overflow-y-auto flex-1 text-xs">
+            <div className="p-4 sm:p-6 space-y-4 sm:space-y-5 overflow-y-auto flex-1 text-xs">
               {/* Target Count & List Preview */}
               <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-2.5">
                 <div className="flex items-center justify-between">
@@ -3781,12 +4061,12 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
             </div>
 
             {/* Modal Footer */}
-            <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-3">
+            <div className="p-3.5 sm:p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-2 sm:gap-3 shrink-0">
               <button
                 type="button"
                 onClick={() => setIsRequestModalOpen(false)}
                 disabled={isSendingRequest}
-                className="px-4 py-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 font-bold transition-colors cursor-pointer"
+                className="px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold transition-colors cursor-pointer shrink-0"
               >
                 キャンセル
               </button>
@@ -3795,7 +4075,7 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
                 type="button"
                 onClick={handleSendRegistrationRequest}
                 disabled={isSendingRequest || selectedTargetUserIds.length === 0}
-                className="px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold flex items-center gap-2 shadow-md shadow-indigo-200 transition-all cursor-pointer disabled:opacity-50"
+                className="flex-1 sm:flex-initial px-4 sm:px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold flex items-center justify-center gap-1.5 sm:gap-2 shadow-md shadow-indigo-200 transition-all cursor-pointer disabled:opacity-50"
               >
                 {isSendingRequest ? (
                   <>
@@ -3805,7 +4085,7 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
                 ) : (
                   <>
                     <Send className="w-4 h-4" />
-                    <span>登録依頼メールを送信する ({selectedTargetUserIds.length}名)</span>
+                    <span>依頼メール送信 ({selectedTargetUserIds.length}名)</span>
                   </>
                 )}
               </button>
@@ -3818,9 +4098,9 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
       {/* MODAL: 登録依頼送信結果モーダル */}
       {/* ========================================================================= */}
       {requestResultModal && requestResultModal.open && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
           <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-md w-full overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-            <div className={`p-5 flex items-center gap-3 text-white ${
+            <div className={`p-4 sm:p-5 flex items-center gap-3 text-white ${
               requestResultModal.success ? 'bg-emerald-600' : 'bg-rose-600'
             }`}>
               <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center text-white shrink-0">

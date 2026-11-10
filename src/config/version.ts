@@ -15,12 +15,12 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.11.10.5',
+  version: '2026.11.10.8',
   date: '2026-11-10',
-  releaseNumber: 5,
-  display: 'v2026.11.10 #5 (JST)',
+  releaseNumber: 8,
+  display: 'v2026.11.10 #8 (JST)',
   timeZone: '日本標準時 (JST / UTC+09:00)',
-  description: '写真報告書メイン画面のスマホ表示時における右端見切れ（Flexbox横幅膨張）を解消し省スペース化',
+  description: 'マイページおよび文書管理画面・ヘッダー検索欄の各入力フォームへの属性名（id/name）明記およびオートコンプリート抑止処理（支払い・カード候補誤出没の対応）',
 };
 
 /**
