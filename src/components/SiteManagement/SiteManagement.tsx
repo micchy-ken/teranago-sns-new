@@ -325,9 +325,23 @@ export const SiteManagement: React.FC<SiteManagementProps> = ({
                     <div>
                       {/* コード & ステータス */}
                       <div className="flex items-center justify-between gap-2 mb-2">
-                        <span className="font-extrabold text-xs text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded shadow-2xs">
-                          {site.siteCode}
-                        </span>
+                        {site.siteCode ? (
+                          <a
+                            href={`https://sql.teranago.synology.me/genba?code=${encodeURIComponent(site.siteCode.trim())}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="inline-flex items-center gap-1 font-extrabold text-xs text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100/90 border border-indigo-200 hover:border-indigo-300 px-2 py-0.5 rounded shadow-2xs transition-all cursor-pointer group/code"
+                            title={`現場コード「${site.siteCode}」の外部データを新規ウインドウで開く`}
+                          >
+                            <span>{site.siteCode}</span>
+                            <ExternalLink className="w-3 h-3 text-indigo-500 group-hover/code:text-indigo-800 transition-colors" />
+                          </a>
+                        ) : (
+                          <span className="font-extrabold text-xs text-slate-400 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded shadow-2xs">
+                            コード未設定
+                          </span>
+                        )}
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                           site.status === 'completed' ? 'bg-emerald-100 text-emerald-800' :
                           site.status === 'in_progress' ? 'bg-blue-100 text-blue-800' :

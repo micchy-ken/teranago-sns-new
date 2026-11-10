@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Search, Database, Layers, Calendar, User as UserIcon, Plus, Trash2, CheckCircle2, AlertCircle, RefreshCw, MapPin, Building, FileText } from 'lucide-react';
+import { X, Search, Database, Layers, Calendar, User as UserIcon, Plus, Trash2, CheckCircle2, AlertCircle, RefreshCw, MapPin, Building, FileText, ExternalLink } from 'lucide-react';
 import { Site, SiteMainPart, SiteSubPart, ExternalSiteLookupResult } from '../../types/site';
 import { User } from '../../types';
 import { API_BASE_URL } from '../../config/api';
@@ -464,9 +464,23 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({
                       className="p-2.5 hover:bg-indigo-50/70 rounded-lg cursor-pointer flex items-center justify-between text-xs transition-colors border border-slate-100 hover:border-indigo-200"
                     >
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded font-mono">
-                          {displayCode || '(コードなし)'}
-                        </span>
+                        {displayCode ? (
+                          <a
+                            href={`https://sql.teranago.synology.me/genba?code=${encodeURIComponent(displayCode.trim())}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="inline-flex items-center gap-1 font-bold text-indigo-700 hover:text-indigo-950 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-2 py-0.5 rounded font-mono transition-all cursor-pointer group/candcode"
+                            title={`現場コード「${displayCode}」の外部データを新規ウインドウで開く`}
+                          >
+                            <span>{displayCode}</span>
+                            <ExternalLink className="w-2.5 h-2.5 text-indigo-500 group-hover/candcode:text-indigo-800" />
+                          </a>
+                        ) : (
+                          <span className="font-mono text-slate-400 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded text-xs">
+                            (コードなし)
+                          </span>
+                        )}
                         <strong className="text-slate-800">{displayName}</strong>
                         {res.egCount !== undefined && res.egCount > 0 && (
                           <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-semibold">
@@ -499,9 +513,23 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">
-                  現場コード <span className="text-rose-500">*</span>
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-slate-600">
+                    現場コード <span className="text-rose-500">*</span>
+                  </label>
+                  {siteCode.trim() && (
+                    <a
+                      href={`https://sql.teranago.synology.me/genba?code=${encodeURIComponent(siteCode.trim())}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-0.5 text-[11px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline"
+                      title={`現場コード「${siteCode}」の外部データを確認`}
+                    >
+                      <span>外部確認</span>
+                      <ExternalLink className="w-2.5 h-2.5" />
+                    </a>
+                  )}
+                </div>
                 <input
                   type="text"
                   required

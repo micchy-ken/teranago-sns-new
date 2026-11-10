@@ -534,9 +534,22 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
         {/* モーダルヘッダー */}
         <div className="p-5 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 bg-slate-50/80 rounded-t-2xl">
           <div className="flex items-center gap-3">
-            <span className="font-extrabold text-sm text-indigo-700 bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-lg shadow-2xs">
-              {currentSite.siteCode}
-            </span>
+            {currentSite.siteCode ? (
+              <a
+                href={`https://sql.teranago.synology.me/genba?code=${encodeURIComponent(currentSite.siteCode.trim())}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 font-extrabold text-sm text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100/90 border border-indigo-200 hover:border-indigo-300 px-2.5 py-1 rounded-lg shadow-2xs transition-all cursor-pointer group/code"
+                title={`現場コード「${currentSite.siteCode}」の外部データを新規ウインドウで開く`}
+              >
+                <span>{currentSite.siteCode}</span>
+                <ExternalLink className="w-3.5 h-3.5 text-indigo-500 group-hover/code:text-indigo-800 transition-colors" />
+              </a>
+            ) : (
+              <span className="font-extrabold text-sm text-slate-400 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-lg shadow-2xs">
+                コード未設定
+              </span>
+            )}
             <div>
               <h3 className="font-bold text-lg text-slate-900 flex items-center gap-2">
                 <span>{currentSite.siteName}</span>
@@ -1379,7 +1392,23 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
 
                 {!isEditingInfo ? (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                    <div><strong>現場コード:</strong> <span className="font-mono bg-indigo-50 text-indigo-800 px-1.5 py-0.5 rounded border border-indigo-200 font-bold ml-1">{currentSite.siteCode}</span></div>
+                    <div>
+                      <strong>現場コード:</strong>
+                      {currentSite.siteCode ? (
+                        <a
+                          href={`https://sql.teranago.synology.me/genba?code=${encodeURIComponent(currentSite.siteCode.trim())}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 font-mono bg-indigo-50 hover:bg-indigo-100 text-indigo-800 hover:text-indigo-950 px-1.5 py-0.5 rounded border border-indigo-200 hover:border-indigo-300 font-bold ml-1 transition-all cursor-pointer group/infocode"
+                          title={`現場コード「${currentSite.siteCode}」の外部データを新規ウインドウで開く`}
+                        >
+                          <span>{currentSite.siteCode}</span>
+                          <ExternalLink className="w-3 h-3 text-indigo-500 group-hover/infocode:text-indigo-800" />
+                        </a>
+                      ) : (
+                        <span className="text-slate-400 font-normal ml-1">未設定</span>
+                      )}
+                    </div>
                     <div><strong>現場名:</strong> <span className="font-bold text-slate-900 ml-1">{currentSite.siteName}</span></div>
                     <div><strong>元請 / 取引先:</strong> <span className="ml-1 text-slate-800">{currentSite.customerName || '未設定'}</span></div>
                     <div><strong>発注No:</strong> <span className="ml-1 text-slate-800">{currentSite.orderNo || '未設定'}</span></div>
@@ -1404,7 +1433,21 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
                   <div className="space-y-3 text-xs">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <div>
-                        <label className="block text-[11px] font-bold text-slate-700 mb-0.5">現場コード</label>
+                        <div className="flex items-center justify-between mb-0.5">
+                          <label className="block text-[11px] font-bold text-slate-700">現場コード</label>
+                          {(infoForm.siteCode || currentSite.siteCode) && (
+                            <a
+                              href={`https://sql.teranago.synology.me/genba?code=${encodeURIComponent(((infoForm.siteCode || currentSite.siteCode) || '').trim())}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-0.5 text-[10px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline"
+                              title="現場データの外部確認画面を開く"
+                            >
+                              <span>外部確認</span>
+                              <ExternalLink className="w-2.5 h-2.5" />
+                            </a>
+                          )}
+                        </div>
                         <input
                           type="text"
                           value={infoForm.siteCode || ''}

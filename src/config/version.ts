@@ -15,12 +15,12 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.11.10.8',
+  version: '2026.11.10.9',
   date: '2026-11-10',
-  releaseNumber: 8,
-  display: 'v2026.11.10 #8 (JST)',
+  releaseNumber: 9,
+  display: 'v2026.11.10 #9 (JST)',
   timeZone: '日本標準時 (JST / UTC+09:00)',
-  description: 'マイページおよび文書管理画面・ヘッダー検索欄の各入力フォームへの属性名（id/name）明記およびオートコンプリート抑止処理（支払い・カード候補誤出没の対応）',
+  description: '現場管理の各画面（現場一覧カード・詳細モーダル・ガントチャート・施工者別工程表等）における現場コードクリック時の外部現場データ確認（sql.teranago.synology.me/genba?code=）新規ウインドウ連携',
 };
 
 /**

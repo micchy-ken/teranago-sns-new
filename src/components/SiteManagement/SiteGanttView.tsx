@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Calendar, ChevronLeft, ChevronRight, Layers, Clock, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, Layers, Clock, CheckCircle2, AlertCircle, ExternalLink } from 'lucide-react';
 import { Site, SiteMainPart } from '../../types/site';
 
 interface SiteGanttViewProps {
@@ -255,9 +255,23 @@ export const SiteGanttView: React.FC<SiteGanttViewProps> = ({ sites, onSelectSit
                     >
                       <div className="min-w-0 pr-1">
                         <div className="flex items-center gap-1.5">
-                          <span className="font-bold text-xs text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200/60 shrink-0">
-                            {site.siteCode}
-                          </span>
+                          {site.siteCode ? (
+                            <a
+                              href={`https://sql.teranago.synology.me/genba?code=${encodeURIComponent(site.siteCode.trim())}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="inline-flex items-center gap-0.5 font-bold text-xs text-indigo-700 hover:text-indigo-950 bg-indigo-50 hover:bg-indigo-100 px-1.5 py-0.5 rounded border border-indigo-200/60 hover:border-indigo-300 shrink-0 transition-all cursor-pointer group/gcode"
+                              title={`現場コード「${site.siteCode}」の外部データを新規ウインドウで開く`}
+                            >
+                              <span>{site.siteCode}</span>
+                              <ExternalLink className="w-2.5 h-2.5 text-indigo-500 group-hover/gcode:text-indigo-800" />
+                            </a>
+                          ) : (
+                            <span className="font-bold text-xs text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200 shrink-0">
+                              -
+                            </span>
+                          )}
                           <span className="font-bold text-xs text-slate-800 truncate group-hover:text-indigo-600">
                             {site.siteName}
                           </span>

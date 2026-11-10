@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { User as UserIcon, Calendar, MapPin, Building, Wrench, CheckCircle2, Clock, ChevronLeft, ChevronRight, Layers, Phone } from 'lucide-react';
+import { User as UserIcon, Calendar, MapPin, Building, Wrench, CheckCircle2, Clock, ChevronLeft, ChevronRight, Layers, Phone, ExternalLink } from 'lucide-react';
 import { Site, SiteMainPart } from '../../types/site';
 import { User } from '../../types';
 import { getLocalDateStr } from '../../utils/dateUtils';
@@ -222,9 +222,23 @@ export const WorkerScheduleView: React.FC<WorkerScheduleViewProps> = ({
 
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded">
-                          {site.siteCode}
-                        </span>
+                        {site.siteCode ? (
+                          <a
+                            href={`https://sql.teranago.synology.me/genba?code=${encodeURIComponent(site.siteCode.trim())}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="inline-flex items-center gap-1 text-xs font-bold text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 hover:border-indigo-300 px-1.5 py-0.5 rounded transition-all cursor-pointer group/wcode"
+                            title={`現場コード「${site.siteCode}」の外部データを新規ウインドウで開く`}
+                          >
+                            <span>{site.siteCode}</span>
+                            <ExternalLink className="w-2.5 h-2.5 text-indigo-500 group-hover/wcode:text-indigo-800" />
+                          </a>
+                        ) : (
+                          <span className="text-xs font-bold text-slate-400 bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded">
+                            未設定
+                          </span>
+                        )}
                         <h4 className="font-bold text-sm text-slate-900 group-hover:text-indigo-600 truncate">
                           {site.siteName}
                         </h4>
@@ -369,7 +383,20 @@ export const WorkerScheduleView: React.FC<WorkerScheduleViewProps> = ({
                         className="text-[10px] p-1 rounded bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 text-indigo-900 font-medium cursor-pointer truncate transition-colors shadow-2xs"
                         title={`${asg.site.siteName} (${asg.part ? asg.part.partCode : '全体施工'})`}
                       >
-                        <span className="font-bold text-indigo-700">[{asg.site.siteCode}]</span> {asg.site.siteName}
+                        {asg.site.siteCode ? (
+                          <a
+                            href={`https://sql.teranago.synology.me/genba?code=${encodeURIComponent(asg.site.siteCode.trim())}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="font-bold text-indigo-700 hover:text-indigo-950 hover:underline mr-0.5 inline-flex items-center gap-0.5 cursor-pointer"
+                            title={`現場コード「${asg.site.siteCode}」の外部データを新規ウインドウで開く`}
+                          >
+                            <span>[{asg.site.siteCode}]</span>
+                            <ExternalLink className="w-2 h-2 text-indigo-500" />
+                          </a>
+                        ) : null}
+                        <span>{asg.site.siteName}</span>
                         {asg.part && <span className="block text-slate-500 truncate text-[9px]">{asg.part.partCode}</span>}
                       </div>
                     ))}
