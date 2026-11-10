@@ -15,12 +15,12 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.11.10.4',
+  version: '2026.11.10.5',
   date: '2026-11-10',
-  releaseNumber: 4,
-  display: 'v2026.11.10 #4 (JST)',
+  releaseNumber: 5,
+  display: 'v2026.11.10 #5 (JST)',
   timeZone: '日本標準時 (JST / UTC+09:00)',
-  description: '写真報告書画面（一覧・作成編集モーダル・A4プレビュー・フォルダモーダル）のスマートフォン向けレスポンシブデザイン最適化',
+  description: '写真報告書メイン画面のスマホ表示時における右端見切れ（Flexbox横幅膨張）を解消し省スペース化',
 };
 
 /**
