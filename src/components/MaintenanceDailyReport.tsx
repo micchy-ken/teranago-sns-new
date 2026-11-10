@@ -60,7 +60,14 @@ import { API_BASE_URL } from '../config/api';
 import { createDefaultOfficeConfig } from './admin/MaintenanceOfficeConfigAdmin';
 import { InspectionReportRecord } from '../types/inspectionReport';
 import { InspectionReportPrintView } from './inspection/InspectionReportPrintView';
-import { fetchInspectionReportsApi, getAllInspectionReports, extractJobNoFromEvent } from '../utils/inspectionReportStorage';
+import { InspectionReportEditorModal } from './inspection/InspectionReportEditorModal';
+import { 
+  fetchInspectionReportsApi, 
+  getAllInspectionReports, 
+  extractJobNoFromEvent,
+  saveInspectionReport,
+  createDefaultDoorReport
+} from '../utils/inspectionReportStorage';
 import { 
   isBranchManager, 
   resolveSupervisorChain, 
@@ -320,7 +327,36 @@ export function MaintenanceDailyReportView({
   const [selectedOfficeName, setSelectedOfficeName] = useState<string>(() => {
     return currentUser.office || (offices[0]?.name) || '名古屋支店';
   });
-  const [officeConfigs, setOfficeConfigs] = useState<MaintenanceReportOfficeConfig[]>([]);
+
+  // キャッシュから即時同期初期化（初回描画時から非表示設定を完全反映しチラつき・表示切り替えを根絶）
+  const [officeConfigs, setOfficeConfigs] = useState<MaintenanceReportOfficeConfig[]>(() => {
+    try {
+      const cached = localStorage.getItem('teranago_maintenance_office_configs_cache');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to parse cached office configs:', e);
+    }
+    return [];
+  });
+
+  // 設定ロード完了状態（キャッシュが存在すれば初回からtrue、未キャッシュ時のみ初回フェッチ完了まで描画を保留）
+  const [isConfigReady, setIsConfigReady] = useState<boolean>(() => {
+    try {
+      const cached = localStorage.getItem('teranago_maintenance_office_configs_cache');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return true;
+        }
+      }
+    } catch (e) {}
+    return false;
+  });
 
   useEffect(() => {
     let isMounted = true;
@@ -328,11 +364,17 @@ export function MaintenanceDailyReportView({
       .then(res => res.json())
       .then(data => {
         if (!isMounted) return;
-        if (Array.isArray(data)) {
+        if (Array.isArray(data) && data.length > 0) {
           setOfficeConfigs(data);
+          try {
+            localStorage.setItem('teranago_maintenance_office_configs_cache', JSON.stringify(data));
+          } catch (e) {}
         }
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        if (isMounted) setIsConfigReady(true);
+      });
     return () => { isMounted = false; };
   }, []);
 
@@ -541,9 +583,98 @@ export function MaintenanceDailyReportView({
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
 
-  // 点検報告書データ & プレビュー表示用
+  // 点検報告書データ & プレビュー・作成編集モーダル用
   const [inspectionReports, setInspectionReports] = useState<InspectionReportRecord[]>(() => getAllInspectionReports());
   const [previewInspectionReport, setPreviewInspectionReport] = useState<InspectionReportRecord | null>(null);
+  const [editingInspectionReport, setEditingInspectionReport] = useState<InspectionReportRecord | null>(null);
+
+  // 行に紐づく有効な作業No（連携用No）を判定・取得
+  const getJobNoForRow = (row: MaintenanceWorkRow): string | undefined => {
+    // 1. row.jobNo が明示的にある場合
+    if (row.jobNo && row.jobNo.trim() && row.jobNo.trim() !== '未設定') {
+      return row.jobNo.trim();
+    }
+
+    // 2. row.eventId から紐づくカレンダーイベントの jobNo
+    if (row.eventId && calendarEvents && calendarEvents.length > 0) {
+      const ev = calendarEvents.find(e => e.id === row.eventId);
+      if (ev) {
+        const no = (ev as any).jobNo || extractJobNoFromEvent(ev);
+        if (no && no.trim() && no.trim() !== '未設定') return no.trim();
+      }
+    }
+
+    // 3. 現場名や作業内容に含まれる【作業No】... または 作業No: ... の抽出
+    const fullRowText = `${row.siteName || ''} ${row.workDescription || ''}`;
+    const jobNoMatch = fullRowText.match(/【作業No】\s*([^\s\r\n】]+)/) || fullRowText.match(/作業No[：:]\s*([^\s\r\n]+)/);
+    if (jobNoMatch && jobNoMatch[1] && jobNoMatch[1].trim() !== '未設定') {
+      return jobNoMatch[1].trim();
+    }
+
+    // 4. 同日・同現場名のカレンダーイベントからの逆引き
+    if (calendarEvents && calendarEvents.length > 0 && row.siteName?.trim()) {
+      const cleanSiteName = row.siteName.trim().replace(/^[●\s]+/, '').toLowerCase();
+      const matchedEv = calendarEvents.find(ev => {
+        const evDate = getEventDateStrJST(ev.start);
+        if (evDate !== reportDate) return false;
+        const evTitleClean = (ev.title || '').replace(/【.*?】/, '').replace(/^[●\s]+/, '').trim().toLowerCase();
+        const evLocClean = (ev.location || '').trim().toLowerCase();
+        return (evTitleClean && (evTitleClean.includes(cleanSiteName) || cleanSiteName.includes(evTitleClean))) ||
+               (evLocClean && (evLocClean.includes(cleanSiteName) || cleanSiteName.includes(evLocClean)));
+      });
+
+      if (matchedEv) {
+        const evJobNo = (matchedEv as any).jobNo || extractJobNoFromEvent(matchedEv);
+        if (evJobNo && evJobNo.trim() && evJobNo.trim() !== '未設定') {
+          return evJobNo.trim();
+        }
+      }
+    }
+
+    return undefined;
+  };
+
+  // 点検報告書の新規作成ハンドラー（未作成バッジ押下時）
+  const handleOpenCreateReport = (row: MaintenanceWorkRow) => {
+    if (!row.siteName || !row.siteName.trim()) return;
+
+    // 同日のイベントまたは現場名一致イベントから情報を補完
+    const matchedEv = calendarEvents.find(ev => {
+      if (row.eventId && ev.id === row.eventId) return true;
+      const evDate = getEventDateStrJST(ev.start);
+      if (evDate !== reportDate) return false;
+      const evTitle = (ev.title || '').replace(/【.*?】/, '').trim().toLowerCase();
+      const sName = row.siteName.trim().toLowerCase();
+      return (evTitle && (evTitle.includes(sName) || sName.includes(evTitle)));
+    });
+
+    const determinedJobNo = getJobNoForRow(row) || '';
+
+    const newReport: InspectionReportRecord = {
+      id: `rep_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      jobNo: determinedJobNo,
+      yearMonth: reportDate ? reportDate.substring(0, 7).replace('-', '') : '',
+      scheduleEventId: row.eventId || matchedEv?.id,
+      customerName: row.siteName.trim(),
+      address: matchedEv?.location || '',
+      phone: '',
+      contractType: 'ST',
+      category: 'maintenance',
+      inspectionDate: reportDate,
+      startTime: row.startTime || (matchedEv?.start ? getEventTimeStrJST(matchedEv.start) : '10:00'),
+      endTime: row.endTime || (matchedEv?.end ? getEventTimeStrJST(matchedEv.end) : '11:00'),
+      inspectorId: reportAuthor?.id || currentUser.id,
+      inspectorName: reportAuthor?.name || currentUser.name,
+      isCrmImported: false,
+      totalDoorsCount: 1,
+      doors: [createDefaultDoorReport(1, '', '正面玄関', '')],
+      overallRemarks: '',
+      status: 'draft',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    setEditingInspectionReport(newReport);
+  };
 
   // 日報日付変更時やマウント時にクラウドDBおよびローカルキャッシュから点検報告書を最新フェッチ
   useEffect(() => {
@@ -1439,121 +1570,7 @@ export function MaintenanceDailyReportView({
     });
 
     if (dayEvents.length === 0) {
-      alert(`${targetDateStr} のスケジュールが見つかりませんでした。\nダミーの保守スケジュールで初期入力を行います。`);
-      // ダミーデータのロード（PDFサンプルデータ再現）
-      setMainWorkRows([
-        {
-          id: 'row-1',
-          directGo: true,
-          directReturn: false,
-          siteName: 'ＨＣバロー領下',
-          workDescription: '定期点検・取替作業',
-          district: '岐阜',
-          peopleCount: 2,
-          coworkers: '山田',
-          startTime: '07:00',
-          endTime: '09:00',
-          contentType: 'EG取替',
-          inspectionCount: 0,
-          inspectionValue: 0,
-          oncallAmount: 0,
-          oncallValue: 0,
-          replacementCount: 1,
-          replacementAmount: 291500,
-          replacementValue: 480,
-          buildingMaterialValue: 0,
-          workHours: '2:00',
-        },
-        {
-          id: 'row-2',
-          directGo: false,
-          directReturn: false,
-          siteName: 'イチ×ビル',
-          workDescription: 'エレベーター保守',
-          district: '一宮',
-          peopleCount: 2,
-          coworkers: '山田',
-          startTime: '09:30',
-          endTime: '12:00',
-          contentType: 'EG取替',
-          inspectionCount: 0,
-          inspectionValue: 0,
-          oncallAmount: 0,
-          oncallValue: 0,
-          replacementCount: 1,
-          replacementAmount: 0,
-          replacementValue: 0,
-          buildingMaterialValue: 0,
-          workHours: '2:30',
-        },
-        {
-          id: 'row-3',
-          directGo: false,
-          directReturn: false,
-          siteName: 'バロー碧南',
-          workDescription: '現調・見積',
-          district: '碧南',
-          peopleCount: 1,
-          coworkers: '',
-          startTime: '15:00',
-          endTime: '15:30',
-          contentType: '見積',
-          inspectionCount: 0,
-          inspectionValue: 0,
-          oncallAmount: 0,
-          oncallValue: 0,
-          replacementCount: 0,
-          replacementAmount: 0,
-          replacementValue: 0,
-          buildingMaterialValue: 0,
-          workHours: '0:30',
-        },
-        {
-          id: 'row-4',
-          directGo: false,
-          directReturn: false,
-          siteName: 'バロー刈谷',
-          workDescription: '障害修理・オンコール対応',
-          district: '刈谷',
-          peopleCount: 1,
-          coworkers: '',
-          startTime: '16:00',
-          endTime: '17:00',
-          contentType: '修理',
-          inspectionCount: 0,
-          inspectionValue: 0,
-          oncallAmount: 34500,
-          oncallValue: 115,
-          replacementCount: 0,
-          replacementAmount: 0,
-          replacementValue: 0,
-          buildingMaterialValue: 0,
-          workHours: '1:00',
-        },
-        {
-          id: 'row-5',
-          directGo: false,
-          directReturn: true,
-          siteName: 'ミュープラット大曽根',
-          workDescription: '単体取替作業',
-          district: '東区',
-          peopleCount: 3,
-          coworkers: '鈴木, 高橋',
-          startTime: '20:30',
-          endTime: '23:30',
-          contentType: '単体取替',
-          inspectionCount: 0,
-          inspectionValue: 0,
-          oncallAmount: 0,
-          oncallValue: 0,
-          replacementCount: 0,
-          replacementAmount: 0,
-          replacementValue: 0,
-          buildingMaterialValue: 0,
-          workHours: '3:00',
-        },
-        ...createEmptyMainRows().slice(5),
-      ]);
+      alert(`${targetDateStr} のスケジュール（参加・担当予定）が見つかりませんでした。`);
       return;
     }
 
@@ -2606,7 +2623,14 @@ export function MaintenanceDailyReportView({
           </div>
         </div>
 
-        {/* ---------------- 2. メイン作業一覧（10行） PC向け Excel風グリッド ---------------- */}
+        {!isConfigReady ? (
+          <div className="bg-white rounded-xl border border-slate-200 p-12 shadow-xs flex flex-col items-center justify-center space-y-3 my-4">
+            <div className="w-8 h-8 border-3 border-amber-500 border-t-transparent rounded-full animate-spin" />
+            <span className="text-xs font-bold text-slate-600">様式設定（{selectedOfficeName}）を読み込んでいます...</span>
+          </div>
+        ) : (
+          <>
+            {/* ---------------- 2. メイン作業一覧（10行） PC向け Excel風グリッド ---------------- */}
         <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden hidden md:block">
           <div className="bg-slate-800 text-white px-4 py-2.5 flex items-center justify-between">
             <h2 className="text-xs font-bold tracking-wider uppercase flex items-center gap-2">
@@ -2752,29 +2776,60 @@ export function MaintenanceDailyReportView({
                         )}
                         {(() => {
                           const matchedReport = getInspectionReportForRow(row);
-                          const effectiveJobNo = row.jobNo || matchedReport?.jobNo;
-                          if (!matchedReport && !effectiveJobNo) return null;
+                          const effectiveJobNo = getJobNoForRow(row) || matchedReport?.jobNo;
 
-                          return (
-                            <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
-                              {effectiveJobNo && (
-                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-mono text-slate-600 bg-slate-100 border border-slate-200 font-medium">
-                                  No.{effectiveJobNo}
-                                </span>
-                              )}
-                              {matchedReport && (
+                          // 1. 作成済みの点検報告書がある場合は「確定」または「下書き」を表示
+                          if (matchedReport) {
+                            const isSigned = matchedReport.status === 'signed';
+                            return (
+                              <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
                                 <button
                                   type="button"
-                                  onClick={() => setPreviewInspectionReport(matchedReport)}
+                                  onClick={() => {
+                                    if (!isSigned && !isSubmittedMode) {
+                                      setEditingInspectionReport(matchedReport);
+                                    } else {
+                                      setPreviewInspectionReport(matchedReport);
+                                    }
+                                  }}
                                   className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border transition-colors shadow-2xs cursor-pointer ${
-                                    matchedReport.status === 'signed'
+                                    isSigned
                                       ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
                                       : 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'
                                   }`}
-                                  title={`点検報告書を確認 (作業No: ${matchedReport.jobNo || '未設定'} / ${matchedReport.status === 'signed' ? 'お客様サイン受領済' : '下書き'})`}
+                                  title={`点検報告書: ${isSigned ? '確定 (サイン済)' : '下書き'}`}
                                 >
-                                  <FileText className="w-3 h-3 text-emerald-600 shrink-0" />
-                                  <span>点検報告書 ({matchedReport.status === 'signed' ? 'サイン済' : '下書き'})</span>
+                                  <FileText className={`w-3 h-3 ${isSigned ? 'text-emerald-600' : 'text-amber-600'} shrink-0`} />
+                                  <span>{isSigned ? '確定' : '下書き'}</span>
+                                </button>
+                              </div>
+                            );
+                          }
+
+                          // 2. 報告書未作成の場合: 作業Noで連携できる状況にあるもののみ「未作成」を表示、そもそも作業Noがないものは非表示
+                          if (!effectiveJobNo) {
+                            return null;
+                          }
+
+                          return (
+                            <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                              {isSubmittedMode ? (
+                                <span
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border border-slate-200 bg-slate-50 text-slate-400 cursor-default"
+                                  title="点検報告書: 未作成"
+                                >
+                                  <FileText className="w-3 h-3 text-slate-400 shrink-0" />
+                                  <span>未作成</span>
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenCreateReport(row)}
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100 transition-colors shadow-2xs cursor-pointer"
+                                  title="点検報告書: 未作成 (クリックで作成)"
+                                >
+                                  <FileText className="w-3 h-3 text-slate-400 shrink-0" />
+                                  <span>未作成</span>
                                 </button>
                               )}
                             </div>
@@ -3243,23 +3298,51 @@ export function MaintenanceDailyReportView({
                     )}
                     {(() => {
                       const matchedReport = getInspectionReportForRow(row);
-                      if (!matchedReport) return null;
+                      const effectiveJobNo = getJobNoForRow(row) || matchedReport?.jobNo;
+
+                      if (matchedReport) {
+                        const isSigned = matchedReport.status === 'signed';
+                        return (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (!isSigned && !isSubmittedMode) {
+                                setEditingInspectionReport(matchedReport);
+                              } else {
+                                setPreviewInspectionReport(matchedReport);
+                              }
+                            }}
+                            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold border shrink-0 transition-colors shadow-2xs cursor-pointer ${
+                              isSigned
+                                ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
+                                : 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'
+                            }`}
+                            title={`点検報告書: ${isSigned ? '確定 (サイン済)' : '下書き'}`}
+                          >
+                            <FileText className={`w-3 h-3 ${isSigned ? 'text-emerald-600' : 'text-amber-600'}`} />
+                            <span>{isSigned ? '確定' : '下書き'}</span>
+                          </button>
+                        );
+                      }
+
+                      // 報告書未作成の場合: 作業Noで連携できる状況にあるもののみ「未作成」を表示、そもそも作業Noがないものは非表示
+                      if (!effectiveJobNo) return null;
+
                       return (
                         <button
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            setPreviewInspectionReport(matchedReport);
+                            if (!isSubmittedMode) handleOpenCreateReport(row);
                           }}
-                          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold border shrink-0 transition-colors shadow-2xs cursor-pointer ${
-                            matchedReport.status === 'signed'
-                              ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
-                              : 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'
+                          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium border shrink-0 border-slate-200 bg-slate-50 text-slate-400 ${
+                            !isSubmittedMode ? 'cursor-pointer hover:bg-slate-100' : 'cursor-default'
                           }`}
-                          title={`点検報告書を確認 (${matchedReport.status === 'signed' ? 'サイン済' : '下書き'})`}
+                          title="点検報告書: 未作成"
                         >
-                          <FileText className="w-3 h-3 text-emerald-600" />
-                          <span>報告書 ({matchedReport.status === 'signed' ? '済' : '下書き'})</span>
+                          <FileText className="w-3 h-3 text-slate-400" />
+                          <span>未作成</span>
                         </button>
                       );
                     })()}
@@ -3346,35 +3429,52 @@ export function MaintenanceDailyReportView({
                           <div className="flex items-center gap-1.5 flex-wrap">
                             {(() => {
                               const matchedReport = getInspectionReportForRow(row);
-                              const effectiveJobNo = row.jobNo || matchedReport?.jobNo;
-                              if (!matchedReport && !effectiveJobNo) return null;
+                              const effectiveJobNo = getJobNoForRow(row) || matchedReport?.jobNo;
+
+                              if (matchedReport) {
+                                const isSigned = matchedReport.status === 'signed';
+                                return (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (!isSigned && !isSubmittedMode) {
+                                        setEditingInspectionReport(matchedReport);
+                                      } else {
+                                        setPreviewInspectionReport(matchedReport);
+                                      }
+                                    }}
+                                    className={`px-2 py-0.5 text-[10px] font-bold rounded-full border flex items-center gap-1 shadow-2xs cursor-pointer ${
+                                      isSigned
+                                        ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
+                                        : 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'
+                                    }`}
+                                    title={`点検報告書: ${isSigned ? '確定 (サイン済)' : '下書き'}`}
+                                  >
+                                    <FileText className={`w-3 h-3 ${isSigned ? 'text-emerald-600' : 'text-amber-600'}`} />
+                                    <span>{isSigned ? '確定' : '下書き'}</span>
+                                  </button>
+                                );
+                              }
+
+                              // 報告書未作成の場合: 作業Noで連携できる状況にあるもののみ「未作成」を表示、そもそも作業Noがないものは非表示
+                              if (!effectiveJobNo) return null;
 
                               return (
-                                <>
-                                  {effectiveJobNo && (
-                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono text-slate-600 bg-slate-100 border border-slate-200 font-medium">
-                                      No.{effectiveJobNo}
-                                    </span>
-                                  )}
-                                  {matchedReport && (
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setPreviewInspectionReport(matchedReport);
-                                      }}
-                                      className={`px-2 py-0.5 text-[10px] font-bold rounded border flex items-center gap-1 shadow-2xs cursor-pointer ${
-                                        matchedReport.status === 'signed'
-                                          ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
-                                          : 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'
-                                      }`}
-                                      title="点検報告書を確認"
-                                    >
-                                      <FileText className="w-3 h-3 text-emerald-600" />
-                                      <span>点検報告書 ({matchedReport.status === 'signed' ? 'サイン済' : '下書き'})</span>
-                                    </button>
-                                  )}
-                                </>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (!isSubmittedMode) handleOpenCreateReport(row);
+                                  }}
+                                  className={`px-2 py-0.5 text-[10px] font-medium rounded-full border border-slate-200 bg-slate-50 text-slate-400 flex items-center gap-1 shadow-2xs ${
+                                    !isSubmittedMode ? 'cursor-pointer hover:bg-slate-100' : 'cursor-default'
+                                  }`}
+                                  title="点検報告書: 未作成"
+                                >
+                                  <FileText className="w-3 h-3 text-slate-400" />
+                                  <span>未作成</span>
+                                </button>
                               );
                             })()}
                             {(() => {
@@ -4221,6 +4321,8 @@ export function MaintenanceDailyReportView({
             </div>
           </div>
         </div>
+        </>
+      )}
 
         {/* ---------------- 本人提出中: 最下部取り下げバー ---------------- */}
         {isSubmittedMode && status === 'submitted' && isAuthor && (
@@ -4375,6 +4477,19 @@ export function MaintenanceDailyReportView({
           <InspectionReportPrintView
             report={previewInspectionReport}
             onClose={() => setPreviewInspectionReport(null)}
+          />
+        )}
+
+        {/* ---------------- 点検報告書 作成・編集モーダル ---------------- */}
+        {editingInspectionReport && (
+          <InspectionReportEditorModal
+            initialReport={editingInspectionReport}
+            onSave={(saved) => {
+              saveInspectionReport(saved);
+              setInspectionReports((prev) => [saved, ...prev.filter((r) => r.id !== saved.id)]);
+              setEditingInspectionReport(null);
+            }}
+            onClose={() => setEditingInspectionReport(null)}
           />
         )}
       </div>

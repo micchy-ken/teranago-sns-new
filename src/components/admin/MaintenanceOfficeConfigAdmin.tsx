@@ -79,12 +79,32 @@ export function createDefaultOfficeConfig(officeName: string): MaintenanceReport
 }
 
 export function MaintenanceOfficeConfigAdmin({ offices }: MaintenanceOfficeConfigAdminProps) {
-  const [configs, setConfigs] = useState<MaintenanceReportOfficeConfig[]>([]);
+  const [configs, setConfigs] = useState<MaintenanceReportOfficeConfig[]>(() => {
+    try {
+      const cached = localStorage.getItem('teranago_maintenance_office_configs_cache');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {}
+    return [];
+  });
   const [selectedOfficeName, setSelectedOfficeName] = useState<string>(() => {
     return offices[0]?.name || '名古屋支店';
   });
   const [currentConfig, setCurrentConfig] = useState<MaintenanceReportOfficeConfig>(() => {
-    return createDefaultOfficeConfig(offices[0]?.name || '名古屋支店');
+    const targetOffice = offices[0]?.name || '名古屋支店';
+    try {
+      const cached = localStorage.getItem('teranago_maintenance_office_configs_cache');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed)) {
+          const found = parsed.find((c: any) => c.officeName === targetOffice);
+          if (found) return found;
+        }
+      }
+    } catch (e) {}
+    return createDefaultOfficeConfig(targetOffice);
   });
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -105,6 +125,9 @@ export function MaintenanceOfficeConfigAdmin({ offices }: MaintenanceOfficeConfi
         if (!isMounted) return;
         if (Array.isArray(data)) {
           setConfigs(data);
+          try {
+            localStorage.setItem('teranago_maintenance_office_configs_cache', JSON.stringify(data));
+          } catch (e) {}
           // 選択中拠点の設定があれば反映
           const existing = data.find((c: MaintenanceReportOfficeConfig) => c.officeName === selectedOfficeName);
           if (existing) {
@@ -254,12 +277,14 @@ export function MaintenanceOfficeConfigAdmin({ offices }: MaintenanceOfficeConfi
       if (res.ok && data.success) {
         setConfigs((prev) => {
           const idx = prev.findIndex((c) => c.officeName === selectedOfficeName);
+          const next = idx >= 0 ? [...prev] : [...prev, payload];
           if (idx >= 0) {
-            const next = [...prev];
             next[idx] = payload;
-            return next;
           }
-          return [...prev, payload];
+          try {
+            localStorage.setItem('teranago_maintenance_office_configs_cache', JSON.stringify(next));
+          } catch (e) {}
+          return next;
         });
         setSaveMessage({ text: `「${selectedOfficeName}」の保守日報様式設定を保存しました。`, type: 'success' });
         setTimeout(() => setSaveMessage(null), 4000);

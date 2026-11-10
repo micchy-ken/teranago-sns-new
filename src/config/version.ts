@@ -15,12 +15,12 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.11.09.8',
-  date: '2026-11-09',
-  releaseNumber: 8,
-  display: 'v2026.11.09 #8 (JST)',
+  version: '2026.11.10.3',
+  date: '2026-11-10',
+  releaseNumber: 3,
+  display: 'v2026.11.10 #3 (JST)',
   timeZone: '日本標準時 (JST / UTC+09:00)',
-  description: '保守日報の各現場行から作業No連動による点検報告書（お客様サイン受領済/下書き・A4印刷レイアウト対応）確認機能の実装',
+  description: '写真報告書モーダルでスマホから端末内写真（ライブラリ）の選択とカメラ撮影を自由に選べるようファイル選択属性（capture）を最適化',
 };
 
 /**

@@ -1388,7 +1388,6 @@ export const InspectionPhotoReportModal: React.FC<InspectionPhotoReportModalProp
                             }}
                             type="file"
                             accept="image/*"
-                            capture="environment"
                             onChange={e => handleFileChange(index, e)}
                             className="hidden"
                           />
