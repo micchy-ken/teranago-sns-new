@@ -15,12 +15,12 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.11.11.3',
+  version: '2026.11.11.4',
   date: '2026-11-11',
-  releaseNumber: 3,
-  display: 'v2026.11.11 #3 (JST)',
+  releaseNumber: 4,
+  display: 'v2026.11.11 #4 (JST)',
   timeZone: '日本標準時 (JST / UTC+09:00)',
-  description: 'Step 3 伝言メモ・日報・週報・写真報告書 ページネーション＆非同期I/O化：未対応・未確認優先抽出・OFFSET/FETCH NEXTページネーション・fs.promises非同期I/O＆メモリキャッシュ・段階的DOM描画・O(1)ユーザー照合対応版',
+  description: 'Step 3 ルーティング競合修正：app.use(\'/api\')共通マウント時に後続ルーター(/api/posts, /api/work-reports等)を横取りしていた裸の\'/:id\'パスを排除・baseUrl自動正規化対応版',
 };
 
 /**

@@ -2,13 +2,22 @@
  * routes/memos.js (本番環境・MS SQL Server & 伝言メモ & 受領者別対応ステータス管理 & コメント機能[公開・非公開] 完全修正版)
  * 寺岡オートドアSNS / 寺子屋SNS 伝言メモ管理モジュール
  * 
- * 最終更新: 2026年11月11日 (Step 3 パフォーマンス改善：未対応優先ページネーション取得・DB非クラスター化インデックス自動生成・スキーマチェック1回化対応版)
+ * 最終更新: 2026年11月11日 (Step 3 パフォーマンス改善 ＆ ルーティング競合修正：app.use('/api')マウント時に後続ルーター[/api/posts, /api/work-reports等]を横取りしないよう裸の'/:id'を排除・baseUrl自動正規化対応版)
  */
 import { Router } from 'express';
 import sql from 'mssql';
 import { getPool } from '../db.js';
 
 const router = Router();
+
+// app.use('/api/memos', memosRouter) でマウントされた場合も内部で /memos プレフィックスに正規化
+// これにより app.use('/api', memosRouter) マウント時に他ルーター (/api/posts, /api/work-reports 等) を横取りしない
+router.use((req, res, next) => {
+  if (req.baseUrl && /\/memos\/?$/i.test(req.baseUrl) && !/^\/(memos|read-statuses)(\/|\?|$)/i.test(req.url)) {
+    req.url = '/memos' + (req.url.startsWith('/') ? req.url : '/' + req.url);
+  }
+  next();
+});
 
 // 安全なJSONパースヘルパー
 function safeParseJSON(str, fallback = null) {
@@ -96,9 +105,9 @@ async function ensureMemosSchema(pool) {
 
 // ==========================================
 // 1. 伝言メモ一覧取得 API (未対応メモ優先 + ページネーション対応)
-// 対応URL: GET /api/memos, /memos, /
+// 対応URL: GET /api/memos, /memos
 // ==========================================
-router.get(['/memos', '/memos/', '/'], async (req, res) => {
+router.get(['/memos', '/memos/'], async (req, res) => {
   try {
     const pool = await getPool();
     if (pool) {
@@ -249,7 +258,7 @@ router.get(['/memos', '/memos/', '/'], async (req, res) => {
 // 2. 伝言メモ単一取得 API
 // 対応URL: GET /api/memos/:id, /memos/:id
 // ==========================================
-router.get(['/memos/:id', '/memos/:id/', '/:id'], async (req, res, next) => {
+router.get(['/memos/:id', '/memos/:id/'], async (req, res, next) => {
   const { id } = req.params;
   // 他の固定パス（read-statuses 等）への誤マッチ防止
   if (id === 'read-statuses' || id === 'comments' || id === 'health') {
@@ -322,9 +331,9 @@ router.get(['/memos/:id', '/memos/:id/', '/:id'], async (req, res, next) => {
 
 // ==========================================
 // 3. 伝言メモ新規作成 API
-// 対応URL: POST /api/memos, /memos, /
+// 対応URL: POST /api/memos, /memos
 // ==========================================
-router.post(['/memos', '/memos/', '/'], async (req, res) => {
+router.post(['/memos', '/memos/'], async (req, res) => {
   try {
     const {
       senderId,
@@ -632,8 +641,8 @@ async function handleUpdateMemo(req, res) {
   }
 }
 
-router.put(['/memos/:id', '/memos/:id/', '/:id'], handleUpdateMemo);
-router.patch(['/memos/:id', '/memos/:id/', '/:id'], handleUpdateMemo);
+router.put(['/memos/:id', '/memos/:id/'], handleUpdateMemo);
+router.patch(['/memos/:id', '/memos/:id/'], handleUpdateMemo);
 
 // ==========================================
 // 5. 伝言メモ既読・簡易対応完了 API
@@ -710,8 +719,8 @@ async function handleMarkRead(req, res) {
   }
 }
 
-router.put(['/memos/:id/read', '/memos/:id/read/', '/:id/read'], handleMarkRead);
-router.post(['/memos/:id/read', '/memos/:id/read/', '/:id/read'], handleMarkRead);
+router.put(['/memos/:id/read', '/memos/:id/read/'], handleMarkRead);
+router.post(['/memos/:id/read', '/memos/:id/read/'], handleMarkRead);
 
 // ==========================================
 // 6. 伝言メモコメント追加 API (公開・非公開対応)
@@ -719,9 +728,7 @@ router.post(['/memos/:id/read', '/memos/:id/read/', '/:id/read'], handleMarkRead
 // ==========================================
 router.post([
   '/memos/:id/comments',
-  '/memos/:id/comments/',
-  '/:id/comments',
-  '/:id/comments/'
+  '/memos/:id/comments/'
 ], async (req, res) => {
   try {
     const { id } = req.params;
@@ -857,14 +864,12 @@ async function handleDeleteComment(req, res) {
 
 router.delete([
   '/memos/:id/comments/:commentId',
-  '/memos/:id/comments/:commentId/',
-  '/:id/comments/:commentId'
+  '/memos/:id/comments/:commentId/'
 ], handleDeleteComment);
 
 router.post([
   '/memos/:id/comments/:commentId/delete',
-  '/memos/:id/comments/:commentId/delete/',
-  '/:id/comments/:commentId/delete'
+  '/memos/:id/comments/:commentId/delete/'
 ], handleDeleteComment);
 
 // ==========================================
@@ -888,8 +893,8 @@ async function handleDeleteMemo(req, res) {
   }
 }
 
-router.delete(['/memos/:id', '/memos/:id/', '/:id'], handleDeleteMemo);
-router.post(['/memos/:id/delete', '/memos/:id/delete/', '/:id/delete'], handleDeleteMemo);
+router.delete(['/memos/:id', '/memos/:id/'], handleDeleteMemo);
+router.post(['/memos/:id/delete', '/memos/:id/delete/'], handleDeleteMemo);
 
 // ==========================================
 // 9. 既読・未読ステータス管理 API (UserReadStatuses)

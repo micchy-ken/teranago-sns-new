@@ -1,6 +1,6 @@
 /**
  * routes/reports.js - 日報・週報・保守日報管理モジュール
- * 最終更新: 2026年11月11日 (Step 3 パフォーマンス改善：SQLレベルソート＆ページネーション・非同期ファイルI/O化・DB非クラスター化インデックス自動生成対応版)
+ * 最終更新: 2026年11月11日 (Step 3 パフォーマンス改善 ＆ ルーティング競合修正：SQLレベルソート＆ページネーション・非同期ファイルI/O化・DB非クラスター化インデックス自動生成・baseUrl正規化対応版)
  */
 import { Router } from 'express';
 import sql from 'mssql';
@@ -11,6 +11,14 @@ import { dataDir } from '../config.js';
 
 const router = Router();
 const workReportsPath = path.join(dataDir, 'work_reports.json');
+
+// app.use('/api/reports', reportsRouter) 等でマウントされた場合も内部で /work-reports プレフィックスに正規化
+router.use((req, res, next) => {
+  if (req.baseUrl && /\/(work-reports|daily-reports|reports)\/?$/i.test(req.baseUrl) && !/^\/(work-reports|daily-reports|reports)(\/|\?|$)/i.test(req.url)) {
+    req.url = '/work-reports' + (req.url.startsWith('/') ? req.url : '/' + req.url);
+  }
+  next();
+});
 
 // メモリキャッシュ & 非同期ファイルI/O（イベントループのブロッキングを完全排除）
 let cachedWorkReports = null;
@@ -69,7 +77,7 @@ async function ensureReportsSchemaOnce(pool) {
 }
 
 // 日報・週報一覧取得 API (Users テーブルと完全マージ + 未確認/下書き優先ページネーション対応)
-router.get(['/work-reports', '/daily-reports', '/reports', '/'], async (req, res) => {
+router.get(['/work-reports', '/work-reports/', '/daily-reports', '/daily-reports/', '/reports', '/reports/'], async (req, res) => {
   try {
     const pool = await getPool();
     let reports = [];
@@ -277,7 +285,7 @@ router.get(['/work-reports', '/daily-reports', '/reports', '/'], async (req, res
 });
 
 // 日報・週報 作成 / 登録 API
-router.post(['/work-reports', '/daily-reports', '/reports', '/'], async (req, res) => {
+router.post(['/work-reports', '/work-reports/', '/daily-reports', '/daily-reports/', '/reports', '/reports/'], async (req, res) => {
   try {
     const data = req.body || {};
     const pool = await getPool();
@@ -425,13 +433,13 @@ router.post(['/work-reports', '/daily-reports', '/reports', '/'], async (req, re
   }
 });
 
-router.put(['/work-reports/:id', '/daily-reports/:id', '/reports/:id', '/:id'], async (req, res) => {
+router.put(['/work-reports/:id', '/work-reports/:id/', '/daily-reports/:id', '/daily-reports/:id/', '/reports/:id', '/reports/:id/'], async (req, res) => {
   req.body.id = req.params.id;
   return router.handle({ ...req, method: 'POST', url: '/work-reports' }, res);
 });
 
 // 上長レビュー・確認 API
-router.post(['/work-reports/:id/review', '/daily-reports/:id/review', '/reports/:id/review', '/:id/review'], async (req, res) => {
+router.post(['/work-reports/:id/review', '/work-reports/:id/review/', '/daily-reports/:id/review', '/daily-reports/:id/review/', '/reports/:id/review', '/reports/:id/review/'], async (req, res) => {
   try {
     const { feedbackComment, review_feedback, reviewerUserId, reviewerName } = req.body || {};
     const pool = await getPool();
@@ -486,7 +494,7 @@ router.post(['/work-reports/:id/review', '/daily-reports/:id/review', '/reports/
 });
 
 // 削除 API
-router.delete(['/work-reports/:id', '/daily-reports/:id', '/reports/:id', '/:id'], async (req, res) => {
+router.delete(['/work-reports/:id', '/work-reports/:id/', '/daily-reports/:id', '/daily-reports/:id/', '/reports/:id', '/reports/:id/'], async (req, res) => {
   try {
     const pool = await getPool();
     if (pool) {

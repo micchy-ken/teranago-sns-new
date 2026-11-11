@@ -1,7 +1,7 @@
 /**
  * =====================================================================
  * routes/photoReports.js - 点検・写真報告書 API ルーター (完全版)
- * 最終更新日時: 2026年11月11日 (Step 3 パフォーマンス改善：initTablesの初回1回実行キャッシュ化・非同期ファイルI/O化・一覧ページネーション対応版)
+ * 最終更新日時: 2026年11月11日 (Step 3 パフォーマンス改善 ＆ ルーティング競合修正：initTablesの初回1回実行キャッシュ化・非同期ファイルI/O化・一覧ページネーション・baseUrl正規化対応版)
  * 機能: 写真報告書(2〜4枚構成)の作成・更新・一覧取得・下書き保存・No手動紐付け・画像アップロード・写真画像直接配信(/api/photo-reports/image/:filename)・MS SQL Server連携
  * =====================================================================
  */
@@ -14,6 +14,14 @@ import { getPool } from '../db.js';
 import { safeParseJSON, dataDir } from '../config.js';
 
 const router = Router();
+
+// app.use('/api/photo-reports', photoReportsRouter) マウント時にも内部で /photo-reports プレフィックスへ正規化
+router.use((req, res, next) => {
+  if (req.baseUrl && /\/(photo-reports|inspection-photo-reports)\/?$/i.test(req.baseUrl) && !/^\/(photo-reports|api\/photo-reports|inspection-photo-reports)(\/|\?|$)/i.test(req.url)) {
+    req.url = '/photo-reports' + (req.url.startsWith('/') ? req.url : '/' + req.url);
+  }
+  next();
+});
 
 // データ保存用ファイル & アップロード先
 const PHOTO_REPORTS_FILE = path.join(dataDir, 'inspectionPhotoReports.json');
@@ -126,7 +134,7 @@ async function initTables(pool) {
 // ==========================================
 // 1. 写真報告書一覧取得 (GET /api/photo-reports)
 // ==========================================
-router.get(['/photo-reports', '/api/photo-reports', '/inspection-photo-reports', '/'], async (req, res) => {
+router.get(['/photo-reports', '/photo-reports/', '/api/photo-reports', '/inspection-photo-reports'], async (req, res) => {
   try {
     const { inspectionReportId, jobNo, userId, status } = req.query;
     const fetchAll = req.query.all === 'true';
@@ -218,7 +226,7 @@ router.get(['/photo-reports', '/api/photo-reports', '/inspection-photo-reports',
 // ==========================================
 // 2. 写真報告書詳細取得 (GET /api/photo-reports/:id)
 // ==========================================
-router.get(['/photo-reports/:id', '/api/photo-reports/:id', '/inspection-photo-reports/:id', '/:id'], async (req, res, next) => {
+router.get(['/photo-reports/:id', '/photo-reports/:id/', '/api/photo-reports/:id', '/inspection-photo-reports/:id'], async (req, res, next) => {
   try {
     const { id } = req.params;
     if (id === 'upload' || id === 'image' || id === 'file') {
@@ -334,7 +342,7 @@ router.get(
 // ==========================================
 // 4. 新規写真報告書作成 (POST /api/photo-reports)
 // ==========================================
-router.post(['/photo-reports', '/api/photo-reports', '/inspection-photo-reports', '/'], async (req, res) => {
+router.post(['/photo-reports', '/photo-reports/', '/api/photo-reports', '/inspection-photo-reports'], async (req, res) => {
   try {
     const {
       inspectionReportId = null,
@@ -423,7 +431,7 @@ router.post(['/photo-reports', '/api/photo-reports', '/inspection-photo-reports'
 // ==========================================
 // 5. 写真報告書更新 (PUT /api/photo-reports/:id)
 // ==========================================
-router.put(['/photo-reports/:id', '/api/photo-reports/:id', '/inspection-photo-reports/:id', '/:id'], async (req, res) => {
+router.put(['/photo-reports/:id', '/photo-reports/:id/', '/api/photo-reports/:id', '/inspection-photo-reports/:id'], async (req, res) => {
   try {
     const { id } = req.params;
     const {
@@ -507,7 +515,7 @@ router.put(['/photo-reports/:id', '/api/photo-reports/:id', '/inspection-photo-r
 // ==========================================
 // 6. 写真報告書削除 (DELETE /api/photo-reports/:id)
 // ==========================================
-router.delete(['/photo-reports/:id', '/api/photo-reports/:id', '/inspection-photo-reports/:id', '/:id'], async (req, res) => {
+router.delete(['/photo-reports/:id', '/photo-reports/:id/', '/api/photo-reports/:id', '/inspection-photo-reports/:id'], async (req, res) => {
   try {
     const { id } = req.params;
     const pool = await getPool();

@@ -5,6 +5,14 @@ import { safeParseJSON as configSafeParse } from '../config.js';
 
 const router = Router();
 
+// app.use('/api/chats', chatsRouter) マウント時にも内部で /chats プレフィックスへ正規化
+router.use((req, res, next) => {
+  if (req.baseUrl && /\/chats\/?$/i.test(req.baseUrl) && !/^\/chats(\/|\?|$)/i.test(req.url)) {
+    req.url = '/chats' + (req.url.startsWith('/') ? req.url : '/' + req.url);
+  }
+  next();
+});
+
 // 安全なJSONパースヘルパー
 function safeParseJSON(str, fallback = null) {
   if (typeof configSafeParse === 'function') {
@@ -87,7 +95,7 @@ function mapMessageRow(m) {
 }
 
 // チャットルーム一覧 & 各ルームの最新N件メッセージ高速取得 (O(M) Map集計)
-router.get(['/chats', '/chats/rooms', '/', '/rooms'], async (req, res) => {
+router.get(['/chats', '/chats/', '/chats/rooms', '/chats/rooms/'], async (req, res) => {
   try {
     const pool = await getPool();
     if (!pool) return res.json([]);
@@ -289,7 +297,7 @@ router.post(['/chats/rooms', '/chats/room', '/rooms', '/room'], async (req, res)
 });
 
 // メッセージ送信
-router.post(['/chats', '/chats/message', '/', '/message'], async (req, res) => {
+router.post(['/chats', '/chats/', '/chats/message', '/chats/message/'], async (req, res) => {
   try {
     const { senderId, roomId, message, content, attachments, roomName, roomType, participants, type, imageUrl, thumbnailUrl, images, stampId, stampText, stampCategory, adminIds } = req.body;
     const msgContent = message || content || '';
@@ -510,7 +518,7 @@ router.post(['/chats/messages/:messageId/viewers', '/messages/:messageId/viewers
 });
 
 // チャットルーム更新
-router.put(['/chats/:roomId', '/:roomId'], async (req, res) => {
+router.put(['/chats/:roomId', '/chats/:roomId/', '/chats/rooms/:roomId'], async (req, res) => {
   const { roomId } = req.params;
   const { name, participants, adminIds } = req.body;
   try {
@@ -552,7 +560,7 @@ router.put(['/chats/:roomId', '/:roomId'], async (req, res) => {
 });
 
 // チャットルーム削除
-router.delete(['/chats/:roomId', '/:roomId'], async (req, res) => {
+router.delete(['/chats/:roomId', '/chats/:roomId/', '/chats/rooms/:roomId'], async (req, res) => {
   const { roomId } = req.params;
   try {
     const pool = await getPool(); 

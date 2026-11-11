@@ -8,6 +8,14 @@ import { bulletinsFilesDir, safeParseJSON } from '../config.js';
 
 const router = Router();
 
+// app.use('/api/bulletins', bulletinsRouter) マウント時にも内部で /bulletins プレフィックスへ正規化
+router.use((req, res, next) => {
+  if (req.baseUrl && /\/(bulletins|board)\/?$/i.test(req.baseUrl) && !/^\/(bulletins|board|bulletinsfiles|topics|comments)(\/|\?|$)/i.test(req.url)) {
+    req.url = '/bulletins' + (req.url.startsWith('/') ? req.url : '/' + req.url);
+  }
+  next();
+});
+
 // ==========================================
 // 添付ファイル ストレージ設定 & アップロード
 // ==========================================
@@ -1065,7 +1073,7 @@ router.post(['/bulletins/:id/viewers', '/topics/:id/viewers', '/board/:id/viewer
 // ==========================================
 // 掲示板トピック削除 API (DELETE /api/bulletins/:id)
 // ==========================================
-router.delete(['/bulletins/:id', '/board/:id', '/:id'], async (req, res) => {
+router.delete(['/bulletins/:id', '/bulletins/:id/', '/board/:id', '/board/:id/'], async (req, res) => {
   try {
     const id = req.params.id;
     const pool = await getPool();
