@@ -1185,7 +1185,10 @@ export function Chat({
     // 2. メモリ内の先頭（visibleStartIndex === 0）に達しており、サーバー側にさらに古い履歴がある場合
     const currentMsgs = activeRoom.messages || [];
     const oldestMsg = currentMsgs[0];
-    const beforeParam = oldestMsg?.createdAt ? `?before=${encodeURIComponent(oldestMsg.createdAt)}&limit=50` : '?limit=50';
+    const userParam = currentUser?.id ? `&userId=${encodeURIComponent(String(currentUser.id))}` : '';
+    const beforeParam = oldestMsg?.createdAt
+      ? `?before=${encodeURIComponent(oldestMsg.createdAt)}&limit=50${userParam}`
+      : `?limit=50${userParam}`;
     const targetRoomId = activeRoom.id;
 
     try {

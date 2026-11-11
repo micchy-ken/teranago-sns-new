@@ -15,12 +15,12 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.11.11.6',
+  version: '2026.11.11.7',
   date: '2026-11-11',
-  releaseNumber: 6,
-  display: 'v2026.11.11 #6 (JST)',
+  releaseNumber: 7,
+  display: 'v2026.11.11 #7 (JST)',
   timeZone: '日本標準時 (JST / UTC+09:00)',
-  description: 'Step 5 全体ポーリング最適化・ピンポイント差分更新・ワークフロー/タイムライン段階的DOM描画＆React.memo化完了版',
+  description: 'チャット内クイズ(@quiz)のサーバー一括同梱＆初回1フレーム目からのサイズ確定描画（既読・未読スクロール位置ズレ完全防止）対応版',
 };
 
 /**

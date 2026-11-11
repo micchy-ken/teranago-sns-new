@@ -24,21 +24,64 @@ interface ChatQuizCardProps {
   onAnswerUpdated?: (quizData: ChatQuizData) => void;
 }
 
+// ルーム切替・スクロール再マウント時にも0ミリ秒で最終サイズを描画するためのインメモリキャッシュ
+const quizMemoryCache = new Map<string, ChatQuizData>();
+
+function setCachedQuiz(quizId: string | undefined, userId: string | undefined, data: ChatQuizData) {
+  if (!data) return;
+  const uid = String(userId || data.viewerUserId || '');
+  if (data.id) {
+    quizMemoryCache.set(`${data.id}_${uid}`, data);
+    quizMemoryCache.set(String(data.id), data);
+  }
+  if (data.messageId) {
+    quizMemoryCache.set(`${data.messageId}_${uid}`, data);
+    quizMemoryCache.set(String(data.messageId), data);
+  }
+  if (quizId) {
+    quizMemoryCache.set(`${quizId}_${uid}`, data);
+    quizMemoryCache.set(String(quizId), data);
+  }
+}
+
+function getInitialQuizData(msg: ChatMessage, currentUserId: string): ChatQuizData | null {
+  const qId = msg.quizId || msg.quiz?.id || msg.id;
+  const uid = String(currentUserId || '');
+  if (msg.quiz) {
+    setCachedQuiz(qId, uid, msg.quiz);
+    return msg.quiz;
+  }
+  if (qId) {
+    return quizMemoryCache.get(`${qId}_${uid}`) || quizMemoryCache.get(String(qId)) || null;
+  }
+  return null;
+}
+
 export function ChatQuizCard({
   msg,
   currentUser,
-  activeRoom,
+  activeRoom: _activeRoom,
   onAnswerUpdated,
 }: ChatQuizCardProps) {
-  const [quiz, setQuiz] = useState<ChatQuizData | null>(msg.quiz || null);
-  const [loading, setLoading] = useState<boolean>(!msg.quiz);
+  const quizId = msg.quizId || msg.quiz?.id || msg.id;
+  const initialQuiz = getInitialQuizData(msg, currentUser.id);
+
+  const [quiz, setQuiz] = useState<ChatQuizData | null>(initialQuiz);
+  const [loading, setLoading] = useState<boolean>(!initialQuiz);
   const [submittingOptionId, setSubmittingOptionId] = useState<string | null>(null);
   const [showVoters, setShowVoters] = useState<Record<string, boolean>>({});
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  const quizId = msg.quizId || msg.quiz?.id || msg.id;
+  // 親コンポーネント（GET /api/chats ポーリング等）から最新の msg.quiz が届いた場合は即座に同期
+  useEffect(() => {
+    if (msg.quiz) {
+      setCachedQuiz(quizId, currentUser.id, msg.quiz);
+      setQuiz(msg.quiz);
+      setLoading(false);
+    }
+  }, [msg.quiz, quizId, currentUser.id]);
 
-  // 最新のクイズ状態（回答状況・集計結果）を取得
+  // 最新のクイズ状態（回答状況・集計結果）を取得（サーバー側で同梱されていない場合またはユーザー固有判定が未確定時のフォールバック）
   const fetchQuizData = async () => {
     if (!quizId) {
       setLoading(false);
@@ -48,8 +91,11 @@ export function ChatQuizCard({
       const res = await fetch(`${API_BASE_URL}/chats/quizzes/${quizId}?userId=${encodeURIComponent(currentUser.id)}`);
       if (res.ok) {
         const data: ChatQuizData = await res.json();
-        setQuiz(data);
-        onAnswerUpdated?.(data);
+        const enriched: ChatQuizData = { ...data, viewerUserId: String(currentUser.id) };
+        setCachedQuiz(quizId, currentUser.id, enriched);
+        msg.quiz = enriched;
+        setQuiz(enriched);
+        onAnswerUpdated?.(enriched);
       } else {
         setLoading(false);
       }
@@ -61,6 +107,13 @@ export function ChatQuizCard({
   };
 
   useEffect(() => {
+    const currentData = msg.quiz || (quizId ? quizMemoryCache.get(`${quizId}_${currentUser.id}`) : undefined);
+    // すでにサーバーまたはキャッシュで現在のログインユーザー向けに解決済みの場合は初回通信・再描画をスキップ
+    if (currentData && String(currentData.viewerUserId || '') === String(currentUser.id)) {
+      setQuiz(currentData);
+      setLoading(false);
+      return;
+    }
     fetchQuizData();
   }, [quizId, currentUser.id]);
 
@@ -89,8 +142,11 @@ export function ChatQuizCard({
 
       const data = await res.json();
       if (data.quiz) {
-        setQuiz(data.quiz);
-        onAnswerUpdated?.(data.quiz);
+        const enriched: ChatQuizData = { ...data.quiz, viewerUserId: String(currentUser.id) };
+        setCachedQuiz(quizId, currentUser.id, enriched);
+        msg.quiz = enriched;
+        setQuiz(enriched);
+        onAnswerUpdated?.(enriched);
       }
 
       if (!quiz.isSurvey) {
@@ -109,7 +165,7 @@ export function ChatQuizCard({
 
   if (loading && !quiz) {
     return (
-      <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-sm w-72 sm:w-80 flex items-center justify-center gap-2 text-xs text-slate-500">
+      <div className="p-4 bg-white rounded-2xl border-2 border-indigo-100/90 shadow-md w-72 sm:w-96 max-w-[88vw] min-h-[280px] flex items-center justify-center gap-2 text-xs text-slate-500">
         <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
         <span>クイズを読み込み中...</span>
       </div>

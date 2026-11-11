@@ -1626,6 +1626,9 @@ async function startServer() {
   // チャット機能 API (ローカルJSON永続化)
   // ==========================================
   const chatRoomsPath = path.join(dataDir, 'chat-rooms.json');
+  const chatQuizzesPath = path.join(dataDir, 'chat-quizzes.json');
+  const chatQuizAnswersPath = path.join(dataDir, 'chat-quiz-answers.json');
+
   function loadChatRooms(): any[] {
     if (!fs.existsSync(chatRoomsPath)) return [];
     try {
@@ -1642,8 +1645,108 @@ async function startServer() {
     }
   }
 
+  function enrichLocalMessagesWithQuizzes(messages: any[], viewerUserId: string): any[] {
+    if (!Array.isArray(messages) || messages.length === 0) return messages;
+    const hasQuizMsg = messages.some(
+      (m) => m && (m.type === 'quiz' || m.quizId || (typeof m.id === 'string' && m.id.startsWith('m_quiz_')))
+    );
+    if (!hasQuizMsg) return messages;
+
+    let localQuizzes: any[] = [];
+    let localAnswers: any[] = [];
+    try {
+      if (fs.existsSync(chatQuizzesPath)) {
+        localQuizzes = JSON.parse(fs.readFileSync(chatQuizzesPath, 'utf8'));
+      }
+      if (fs.existsSync(chatQuizAnswersPath)) {
+        localAnswers = JSON.parse(fs.readFileSync(chatQuizAnswersPath, 'utf8'));
+      }
+    } catch (_) {}
+
+    const quizByIdMap = new Map<string, any>();
+    const quizByMsgIdMap = new Map<string, any>();
+    for (const q of (Array.isArray(localQuizzes) ? localQuizzes : [])) {
+      if (q && q.id) {
+        quizByIdMap.set(String(q.id), q);
+        if (q.messageId) quizByMsgIdMap.set(String(q.messageId), q);
+      }
+    }
+
+    const viewerIdStr = viewerUserId ? String(viewerUserId) : '';
+
+    return messages.map((m) => {
+      if (!m || !(m.type === 'quiz' || m.quizId || (typeof m.id === 'string' && m.id.startsWith('m_quiz_')))) {
+        return m;
+      }
+      const quiz =
+        (m.quizId && quizByIdMap.get(String(m.quizId))) ||
+        quizByMsgIdMap.get(String(m.id)) ||
+        quizByIdMap.get(String(m.id)) ||
+        m.quiz;
+      if (!quiz) return m;
+
+      const qId = String(quiz.id);
+      const answers = (Array.isArray(localAnswers) ? localAnswers : []).filter(
+        (a) => a && String(a.quizId) === qId
+      );
+      const options = Array.isArray(quiz.options) ? quiz.options : [];
+      const myAnswer = viewerIdStr ? answers.find((a) => String(a.userId) === viewerIdStr) : null;
+      const hasAnswered = Boolean(myAnswer);
+      const isAuthor = Boolean(viewerIdStr && String(quiz.createdById) === viewerIdStr);
+      const canSeeAnswers = hasAnswered || isAuthor;
+      const totalAnswers = answers.length;
+
+      const results = options.map((opt: any) => {
+        const optAnswers = answers.filter((a) => String(a.selectedOptionId) === String(opt.id));
+        const count = optAnswers.length;
+        const percent = totalAnswers > 0 ? Math.round((count / totalAnswers) * 100) : 0;
+        const voters = optAnswers.map((a) => ({
+          userId: String(a.userId),
+          userName: a.userName || 'メンバー',
+          userAvatar: a.userAvatar || '',
+          userDepartment: a.userDepartment || '',
+          answeredAt: String(a.answeredAt || ''),
+        }));
+        return {
+          id: opt.id,
+          text: opt.text,
+          count: canSeeAnswers ? count : 0,
+          percent: canSeeAnswers ? percent : 0,
+          voters: canSeeAnswers ? voters : [],
+        };
+      });
+
+      return {
+        ...m,
+        type: 'quiz',
+        quizId: qId,
+        quiz: {
+          id: qId,
+          messageId: String(quiz.messageId || m.id || ''),
+          roomId: String(quiz.roomId || m.roomId || ''),
+          question: quiz.question || '',
+          options,
+          correctOptionId: canSeeAnswers ? (quiz.correctOptionId || null) : null,
+          isSurvey: Boolean(quiz.isSurvey),
+          explanation: canSeeAnswers ? (quiz.explanation || '') : null,
+          createdById: String(quiz.createdById || ''),
+          createdByName: quiz.createdByName || '出題者',
+          createdAt: String(quiz.createdAt || m.createdAt || ''),
+          hasAnswered,
+          myAnswerOptionId: myAnswer ? String(myAnswer.selectedOptionId) : null,
+          totalAnswers,
+          results: canSeeAnswers
+            ? results
+            : results.map((r: any) => ({ id: r.id, text: r.text, count: 0, percent: 0, voters: [] })),
+          viewerUserId: viewerIdStr,
+        },
+      };
+    });
+  }
+
   app.get(['/api/chats', '/api/chats/rooms'], (req, res) => {
     try {
+      const viewerUserId = req.query.userId ? String(req.query.userId) : '';
       const allMessages = req.query.allMessages === 'true';
       const parsedLimit = parseInt(String(req.query.msgLimit || '50'), 10);
       const msgLimit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(parsedLimit, 500) : 50;
@@ -1652,9 +1755,10 @@ async function startServer() {
         const allMsgs = Array.isArray(r.messages) ? r.messages : [];
         const totalMessagesCount = allMsgs.length;
         const slicedMsgs = allMessages ? allMsgs : allMsgs.slice(-msgLimit);
+        const enrichedMsgs = enrichLocalMessagesWithQuizzes(slicedMsgs, viewerUserId);
         return {
           ...r,
-          messages: slicedMsgs,
+          messages: enrichedMsgs,
           totalMessagesCount,
           hasMoreMessages: totalMessagesCount > slicedMsgs.length
         };
@@ -1669,6 +1773,7 @@ async function startServer() {
     try {
       const { roomId } = req.params;
       const beforeStr = req.query.before ? String(req.query.before) : null;
+      const viewerUserId = req.query.userId ? String(req.query.userId) : '';
       const parsedLimit = parseInt(String(req.query.limit || '50'), 10);
       const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(parsedLimit, 200) : 50;
 
@@ -1684,7 +1789,8 @@ async function startServer() {
         : room.messages;
 
       const hasMore = filtered.length > limit;
-      const messages = hasMore ? filtered.slice(filtered.length - limit) : filtered;
+      const sliced = hasMore ? filtered.slice(filtered.length - limit) : filtered;
+      const messages = enrichLocalMessagesWithQuizzes(sliced, viewerUserId);
 
       res.json({
         roomId: String(roomId),

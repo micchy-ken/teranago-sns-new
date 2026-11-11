@@ -1342,7 +1342,17 @@ export default function App() {
     isChatRefetchingRef.current = true;
 
     try {
-      const response = await fetchWithRetry(`${API_BASE_URL}/chats`, {
+      const viewerId = userState?.id || (() => {
+        try {
+          return JSON.parse(localStorage.getItem('teranago_CurrentUser') || '{}')?.id || '';
+        } catch {
+          return '';
+        }
+      })();
+      const chatsUrl = viewerId
+        ? `${API_BASE_URL}/chats?userId=${encodeURIComponent(String(viewerId))}`
+        : `${API_BASE_URL}/chats`;
+      const response = await fetchWithRetry(chatsUrl, {
         headers: { 'Accept': 'application/json' }
       });
       if (!response.ok) {
@@ -1470,7 +1480,18 @@ export default function App() {
             const prevRoom = prevRoomMap.get(String(serverRoom.id));
             if (!prevRoom) return serverRoom;
 
-            const serverMsgs = serverRoom.messages || [];
+            const prevMsgByIdMap = new Map(
+              (prevRoom.messages || []).filter(Boolean).map((pm: any) => [String(pm.id), pm])
+            );
+
+            const serverMsgs = (serverRoom.messages || []).map((sm: any) => {
+              if (!sm) return sm;
+              const prevMsg = prevMsgByIdMap.get(String(sm.id));
+              if (!sm.quiz && prevMsg?.quiz) {
+                return { ...sm, quiz: prevMsg.quiz };
+              }
+              return sm;
+            });
             const serverMsgIdSet = new Set(serverMsgs.map((sm: any) => String(sm.id)));
             const oldestServerTime = serverMsgs.length > 0
               ? new Date(serverMsgs[0].createdAt || 0).getTime()

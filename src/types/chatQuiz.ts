@@ -41,4 +41,5 @@ export interface ChatQuizData {
   myAnswerOptionId?: string | null;
   totalAnswers: number;
   results?: ChatQuizAggregatedOption[];
+  viewerUserId?: string;
 }

@@ -1,7 +1,9 @@
 import { Router } from 'express';
 import sql from 'mssql';
+import fs from 'fs';
+import path from 'path';
 import { getPool } from '../db.js';
-import { safeParseJSON as configSafeParse } from '../config.js';
+import * as configModule from '../config.js';
 
 const router = Router();
 
@@ -15,8 +17,8 @@ router.use((req, res, next) => {
 
 // 安全なJSONパースヘルパー
 function safeParseJSON(str, fallback = null) {
-  if (typeof configSafeParse === 'function') {
-    return configSafeParse(str, fallback);
+  if (typeof configModule.safeParseJSON === 'function') {
+    return configModule.safeParseJSON(str, fallback);
   }
   if (!str) return fallback;
   if (typeof str === 'object') return str;
@@ -25,6 +27,216 @@ function safeParseJSON(str, fallback = null) {
   } catch (_) {
     return fallback;
   }
+}
+
+const baseDataDir = configModule.dataDir || path.join(process.cwd(), 'data');
+const QUIZZES_FILE = path.join(baseDataDir, 'chat-quizzes.json');
+const ANSWERS_FILE = path.join(baseDataDir, 'chat-quiz-answers.json');
+
+// クイズ集計レスポンス生成ヘルパー（未回答者向けマスク＆割合計算・初回描画用）
+function buildQuizResponse(quiz, answers, viewerUserId) {
+  const options = Array.isArray(quiz.options) ? quiz.options : safeParseJSON(quiz.options, []);
+  const viewerIdStr = viewerUserId ? String(viewerUserId) : '';
+  const myAnswer = viewerIdStr
+    ? answers.find((a) => String(a.userId) === viewerIdStr)
+    : null;
+  const hasAnswered = Boolean(myAnswer);
+  const isAuthor = Boolean(viewerIdStr && String(quiz.createdById) === viewerIdStr);
+  const canSeeAnswers = hasAnswered || isAuthor;
+
+  const totalAnswers = answers.length;
+
+  const results = options.map((opt) => {
+    const optAnswers = answers.filter((a) => String(a.selectedOptionId) === String(opt.id));
+    const count = optAnswers.length;
+    const percent = totalAnswers > 0 ? Math.round((count / totalAnswers) * 100) : 0;
+    const voters = optAnswers.map((a) => ({
+      userId: String(a.userId),
+      userName: a.userName || 'メンバー',
+      userAvatar: a.userAvatar || '',
+      userDepartment: a.userDepartment || '',
+      answeredAt: a.answeredAt instanceof Date ? a.answeredAt.toISOString() : String(a.answeredAt || ''),
+    }));
+
+    return {
+      id: opt.id,
+      text: opt.text,
+      count: canSeeAnswers ? count : 0,
+      percent: canSeeAnswers ? percent : 0,
+      voters: canSeeAnswers ? voters : [],
+    };
+  });
+
+  return {
+    id: String(quiz.id),
+    messageId: String(quiz.messageId || ''),
+    roomId: String(quiz.roomId || ''),
+    question: quiz.question || '',
+    options,
+    correctOptionId: canSeeAnswers ? (quiz.correctOptionId || null) : null,
+    isSurvey: Boolean(quiz.isSurvey),
+    explanation: canSeeAnswers ? (quiz.explanation || '') : null,
+    createdById: String(quiz.createdById || ''),
+    createdByName: quiz.createdByName || '出題者',
+    createdAt: quiz.createdAt instanceof Date ? quiz.createdAt.toISOString() : String(quiz.createdAt || ''),
+    hasAnswered,
+    myAnswerOptionId: myAnswer ? String(myAnswer.selectedOptionId) : null,
+    totalAnswers,
+    results: canSeeAnswers
+      ? results
+      : results.map((r) => ({ id: r.id, text: r.text, count: 0, percent: 0, voters: [] })),
+    viewerUserId: viewerIdStr,
+  };
+}
+
+// メッセージ配列内の全クイズに対して一括（バッチ）でクイズ本体＆回答状況を付与するヘルパー
+async function attachQuizzesToMessages(pool, messages, viewerUserId) {
+  if (!Array.isArray(messages) || messages.length === 0) return messages;
+
+  const quizMsgs = messages.filter(
+    (m) => m && (m.type === 'quiz' || m.quizId || (typeof m.id === 'string' && m.id.startsWith('m_quiz_')))
+  );
+  if (quizMsgs.length === 0) return messages;
+
+  const lookupSet = new Set();
+  for (const m of quizMsgs) {
+    if (m.quizId) lookupSet.add(String(m.quizId));
+    if (m.id) lookupSet.add(String(m.id));
+  }
+  const lookupIds = Array.from(lookupSet).filter(Boolean).slice(0, 200);
+  if (lookupIds.length === 0) return messages;
+
+  const quizByIdMap = new Map();
+  const quizByMsgIdMap = new Map();
+  const answersByQuizIdMap = new Map();
+
+  // 1. MS SQL Server (dbo.ChatQuizzes & dbo.ChatQuizAnswers) から一括取得
+  if (pool) {
+    try {
+      const qReq = pool.request();
+      const paramNames = lookupIds.map((id, idx) => {
+        const pName = `qid${idx}`;
+        qReq.input(pName, sql.NVarChar(64), id);
+        return `@${pName}`;
+      });
+      const inClause = paramNames.join(', ');
+
+      const quizRes = await qReq.query(`
+        IF OBJECT_ID('dbo.ChatQuizzes', 'U') IS NOT NULL
+        BEGIN
+          SELECT * FROM dbo.ChatQuizzes
+          WHERE id IN (${inClause}) OR messageId IN (${inClause})
+        END
+      `);
+
+      const quizRows = (quizRes && quizRes.recordset) ? quizRes.recordset : [];
+      const actualQuizIds = [];
+
+      for (const row of quizRows) {
+        const qObj = {
+          id: String(row.id),
+          messageId: String(row.messageId || ''),
+          roomId: String(row.roomId || ''),
+          question: row.question || '',
+          options: safeParseJSON(row.options, []),
+          correctOptionId: row.correctOptionId ? String(row.correctOptionId) : null,
+          isSurvey: Boolean(row.isSurvey),
+          explanation: row.explanation || '',
+          createdById: String(row.createdById || ''),
+          createdByName: row.createdByName || '出題者',
+          createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : String(row.createdAt || ''),
+        };
+        quizByIdMap.set(qObj.id, qObj);
+        if (qObj.messageId) quizByMsgIdMap.set(qObj.messageId, qObj);
+        actualQuizIds.push(qObj.id);
+      }
+
+      if (actualQuizIds.length > 0) {
+        const aReq = pool.request();
+        const aParamNames = actualQuizIds.slice(0, 200).map((id, idx) => {
+          const pName = `aqid${idx}`;
+          aReq.input(pName, sql.NVarChar(64), id);
+          return `@${pName}`;
+        });
+        const ansRes = await aReq.query(`
+          IF OBJECT_ID('dbo.ChatQuizAnswers', 'U') IS NOT NULL
+          BEGIN
+            SELECT * FROM dbo.ChatQuizAnswers
+            WHERE quizId IN (${aParamNames.join(', ')})
+            ORDER BY answeredAt ASC
+          END
+        `);
+        const ansRows = (ansRes && ansRes.recordset) ? ansRes.recordset : [];
+        for (const a of ansRows) {
+          const qId = String(a.quizId);
+          if (!answersByQuizIdMap.has(qId)) {
+            answersByQuizIdMap.set(qId, []);
+          }
+          answersByQuizIdMap.get(qId).push({
+            id: String(a.id),
+            quizId: qId,
+            userId: String(a.userId),
+            userName: a.userName || 'メンバー',
+            userAvatar: a.userAvatar || '',
+            userDepartment: a.userDepartment || '',
+            selectedOptionId: String(a.selectedOptionId),
+            answeredAt: a.answeredAt instanceof Date ? a.answeredAt.toISOString() : String(a.answeredAt || ''),
+          });
+        }
+      }
+    } catch (dbQuizErr) {
+      console.warn('[Chats] Batch quiz load notice:', dbQuizErr.message);
+    }
+  }
+
+  // 2. ローカルJSONフォールバック (DBに未登録のクイズがある場合のみ補完)
+  const hasUnresolved = quizMsgs.some((m) => {
+    const q = (m.quizId && quizByIdMap.get(String(m.quizId))) || quizByMsgIdMap.get(String(m.id)) || quizByIdMap.get(String(m.id));
+    return !q;
+  });
+
+  if (hasUnresolved) {
+    try {
+      if (fs.existsSync(QUIZZES_FILE)) {
+        const rawQuizzes = await fs.promises.readFile(QUIZZES_FILE, 'utf8');
+        const localQuizzes = safeParseJSON(rawQuizzes, []);
+        let localAnswers = [];
+        if (fs.existsSync(ANSWERS_FILE)) {
+          const rawAnswers = await fs.promises.readFile(ANSWERS_FILE, 'utf8');
+          localAnswers = safeParseJSON(rawAnswers, []);
+        }
+        for (const lq of (Array.isArray(localQuizzes) ? localQuizzes : [])) {
+          if (!lq || !lq.id) continue;
+          const qId = String(lq.id);
+          if (!quizByIdMap.has(qId)) {
+            quizByIdMap.set(qId, lq);
+            if (lq.messageId) quizByMsgIdMap.set(String(lq.messageId), lq);
+            const ansForLq = (Array.isArray(localAnswers) ? localAnswers : []).filter(
+              (a) => a && String(a.quizId) === qId
+            );
+            answersByQuizIdMap.set(qId, ansForLq);
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  // 3. 各クイズメッセージへ msg.quiz を同期付与
+  for (const m of quizMsgs) {
+    const matchedQuiz =
+      (m.quizId && quizByIdMap.get(String(m.quizId))) ||
+      quizByMsgIdMap.get(String(m.id)) ||
+      quizByIdMap.get(String(m.id));
+
+    if (matchedQuiz) {
+      const answers = answersByQuizIdMap.get(String(matchedQuiz.id)) || [];
+      m.type = 'quiz';
+      m.quizId = String(matchedQuiz.id);
+      m.quiz = buildQuizResponse(matchedQuiz, answers, viewerUserId);
+    }
+  }
+
+  return messages;
 }
 
 // スキーマ拡張・インデックス作成・カラム一覧キャッシュ（プロセス起動後1回のみ実行）
@@ -94,7 +306,7 @@ function mapMessageRow(m) {
   };
 }
 
-// チャットルーム一覧 & 各ルームの最新N件メッセージ高速取得 (O(M) Map集計)
+// チャットルーム一覧 & 各ルームの最新N件メッセージ高速取得 (O(M) Map集計 + クイズ一括同梱)
 router.get(['/chats', '/chats/', '/chats/rooms', '/chats/rooms/'], async (req, res) => {
   try {
     const pool = await getPool();
@@ -102,6 +314,7 @@ router.get(['/chats', '/chats/', '/chats/rooms', '/chats/rooms/'], async (req, r
 
     await ensureChatSchemaOnce(pool);
 
+    const viewerUserId = req.query.userId ? String(req.query.userId) : '';
     const allMessages = req.query.allMessages === 'true';
     const parsedLimit = parseInt(String(req.query.msgLimit || '50'), 10);
     const msgLimit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(parsedLimit, 500) : 50;
@@ -146,17 +359,23 @@ router.get(['/chats', '/chats/', '/chats/rooms', '/chats/rooms/'], async (req, r
     // O(M) でルームごとにメッセージをグループ化
     const messagesByRoomMap = new Map();
     const totalCountByRoomMap = new Map();
+    const allMappedMessages = [];
 
     for (const m of (msgsResult.recordset || [])) {
       const rId = String(m.roomId);
       if (!messagesByRoomMap.has(rId)) {
         messagesByRoomMap.set(rId, []);
       }
-      messagesByRoomMap.get(rId).push(mapMessageRow(m));
+      const mappedMsg = mapMessageRow(m);
+      messagesByRoomMap.get(rId).push(mappedMsg);
+      allMappedMessages.push(mappedMsg);
       if (m.totalRoomMsgs !== undefined && m.totalRoomMsgs !== null) {
         totalCountByRoomMap.set(rId, Number(m.totalRoomMsgs));
       }
     }
+
+    // クイズメッセージが含まれる場合、一括でクイズ本体・回答状況を同梱（初回描画時のサイズ確定用）
+    await attachQuizzesToMessages(pool, allMappedMessages, viewerUserId);
 
     const rooms = (roomsResult.recordset || []).map(r => {
       const rId = String(r.id);
@@ -188,10 +407,11 @@ router.get(['/chats', '/chats/', '/chats/rooms', '/chats/rooms/'], async (req, r
   }
 });
 
-// 特定ルームの過去メッセージ履歴ページネーション取得 API (上スクロール時の遅延読み込み用)
+// 特定ルームの過去メッセージ履歴ページネーション取得 API (上スクロール時の遅延読み込み用 + クイズ一括同梱)
 router.get(['/chats/:roomId/messages', '/chats/rooms/:roomId/messages', '/rooms/:roomId/messages', '/:roomId/messages'], async (req, res) => {
   const { roomId } = req.params;
   const beforeStr = req.query.before ? String(req.query.before) : null;
+  const viewerUserId = req.query.userId ? String(req.query.userId) : '';
   const parsedLimit = parseInt(String(req.query.limit || '50'), 10);
   const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(parsedLimit, 200) : 50;
 
@@ -231,6 +451,9 @@ router.get(['/chats/:roomId/messages', '/chats/rooms/:roomId/messages', '/rooms/
     const slicedRows = hasMore ? rows.slice(0, limit) : rows;
     // 時系列順（古い順 -> 新しい順）に並び替えて返却
     const messages = slicedRows.reverse().map(mapMessageRow);
+
+    // 過去履歴内のクイズメッセージにも一括でクイズ本体・回答状況を同梱
+    await attachQuizzesToMessages(pool, messages, viewerUserId);
 
     res.json({
       roomId: String(roomId),

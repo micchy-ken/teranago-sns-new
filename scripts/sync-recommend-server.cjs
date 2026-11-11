@@ -15,7 +15,7 @@ const escapedContent = serverContent
 const header = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年11月11日 (Step 4 カレンダー・予定管理 期間ウィンドウ取得＆インデックス最適化：過去180日基準ウィンドウ取得・繰り返し予定＆現場施工予定の完全保持・ワンタイムスキーマ＆インデックス自動生成・非同期ファイルI/Oキャッシュ対応版)
+ * 最終更新日時 (最終アップデート): 2026年11月11日 (チャット内クイズ(@quiz)一括同梱＆初回描画サイズ確定対応：GET /api/chats・/api/chats/:roomId/messages でのクイズ・回答状況バッチ付与により初回1フレーム目から未回答/回答済みサイズで描画し既読スクロール位置ズレを防止)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -43,6 +43,11 @@ export interface ServerCodeHistoryItem {
 }
 
 export const SERVER_CODE_HISTORY: ServerCodeHistoryItem[] = [
+  {
+    version: 'v2026.11.11.7',
+    date: '2026-11-11',
+    summary: 'チャット内クイズ(@quiz)一括同梱＆初回描画サイズ確定対応：GET /api/chats・/api/chats/:roomId/messages でのクイズ・回答状況バッチ付与により初回1フレーム目から未回答/回答済みサイズで描画し既読スクロール位置ズレを防止',
+  },
   {
     version: 'v2026.11.11.5',
     date: '2026-11-11',
