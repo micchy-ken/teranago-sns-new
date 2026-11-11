@@ -4,13 +4,13 @@ import { Post, User } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
 
 // Helper to map and sanitize API posts to match frontend types safely
-export const mapPostFromApi = (apiPost: any, allUsers: User[]): Post => {
+export const mapPostFromApi = (apiPost: any, allUsers: User[], userMap?: Map<string, User>): Post => {
   let authorUser: User | undefined = undefined;
 
   if (apiPost.author && typeof apiPost.author === 'object') {
     authorUser = apiPost.author;
   } else if (apiPost.authorId) {
-    authorUser = allUsers.find(u => u.id === apiPost.authorId);
+    authorUser = userMap ? userMap.get(String(apiPost.authorId)) : allUsers.find(u => u.id === apiPost.authorId);
   }
 
   if (!authorUser) {
@@ -81,7 +81,11 @@ export function usePostManagement({
       }
       const data = await response.json();
       if (Array.isArray(data)) {
-        const mapped = data.map(p => mapPostFromApi(p, currentUsers));
+        const userMap = new Map<string, User>();
+        for (const u of currentUsers) {
+          if (u.id) userMap.set(String(u.id), u);
+        }
+        const mapped = data.map(p => mapPostFromApi(p, currentUsers, userMap));
         setPosts(mapped);
         setPostsError(null);
         onClearError?.('posts');
@@ -134,21 +138,13 @@ export function usePostManagement({
         throw new Error(`Failed to create post: HTTP status ${response.status}`);
       }
 
-      // Refetch posts to get the actual server-saved posts with correct IDs
-      if (refetchAll) {
-        await refetchAll();
-      } else {
-        await refetchPosts();
-      }
+      // Refetch posts only (avoid full 10-endpoint refetchAll)
+      await refetchPosts();
     } catch (err) {
       console.error('Error creating post on API:', err);
-      if (refetchAll) {
-        await refetchAll();
-      } else {
-        await refetchPosts();
-      }
+      await refetchPosts();
     }
-  }, [currentUser, refetchAll, refetchPosts]);
+  }, [currentUser, refetchPosts]);
 
   // Handle like toggle with API
   const handleToggleLike = useCallback(async (postId: string) => {
@@ -178,21 +174,19 @@ export function usePostManagement({
       }
       
       const updatedPostData = await response.json();
-      setPosts(prev => prev.map(post => {
-        if (post.id === postId) {
-          return mapPostFromApi(updatedPostData, usersList);
-        }
-        return post;
-      }));
+      if (updatedPostData && updatedPostData.id) {
+        setPosts(prev => prev.map(post => {
+          if (post.id === postId) {
+            return mapPostFromApi(updatedPostData, usersList);
+          }
+          return post;
+        }));
+      }
     } catch (err) {
       console.error('Error liking post on API:', err);
-      if (refetchAll) {
-        await refetchAll();
-      } else {
-        await refetchPosts();
-      }
+      await refetchPosts();
     }
-  }, [usersList, refetchAll, refetchPosts]);
+  }, [usersList, refetchPosts]);
 
   // Handle delete post with API
   const handleDeletePost = useCallback(async (postId: string) => {
@@ -213,19 +207,9 @@ export function usePostManagement({
         if (!response.ok) {
           throw new Error(`Failed to delete: HTTP status ${response.status}`);
         }
-
-        if (refetchAll) {
-          await refetchAll();
-        } else {
-          await refetchPosts();
-        }
       } catch (err) {
         console.error('Error deleting post on API:', err);
-        if (refetchAll) {
-          await refetchAll();
-        } else {
-          await refetchPosts();
-        }
+        await refetchPosts();
       }
     };
 

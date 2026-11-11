@@ -49,10 +49,23 @@ const getStatusConfig = (status?: string) => {
   return statusConfig.pending;
 };
 
-export function Workflow({ applications, onAddApplication, onUpdateApplication, onDeleteApplication, allUsers, currentUser, approvalFlows, onWorkflowAction, itemMasters = [], initialAppId, offices = [] }: WorkflowProps) {
+export const Workflow = React.memo(function Workflow({ applications, onAddApplication, onUpdateApplication, onDeleteApplication, allUsers, currentUser, approvalFlows, onWorkflowAction, itemMasters = [], initialAppId, offices = [] }: WorkflowProps) {
   const [filter, setFilter] = useState<'my_applications' | 'pending_approval' | 'approved' | 'draft'>('my_applications');
+  const [visibleAppCount, setVisibleAppCount] = useState<number>(20);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [highlightedAppId, setHighlightedAppId] = useState<string | null>(null);
+
+  const userByIdMap = React.useMemo(() => {
+    const map = new Map<string, UserType>();
+    for (const u of allUsers) {
+      if (u && u.id) map.set(u.id, u);
+    }
+    return map;
+  }, [allUsers]);
+
+  React.useEffect(() => {
+    setVisibleAppCount(20);
+  }, [filter]);
 
   const processedInitialAppIdRef = React.useRef<string | null>(null);
 
@@ -97,6 +110,7 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
           }
         }
         setHighlightedAppId(initialAppId);
+        setVisibleAppCount(prev => Math.max(prev, applications.length));
         setTimeout(() => {
           const el = document.getElementById(`workflow-card-${initialAppId}`);
           if (el) {
@@ -307,12 +321,12 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
   };
 
   // 申請者から N 階層目の上長IDを取得するヘルパー
-  const getSupervisorIdAtLevel = (applicantId: string | undefined, level: number, users: UserType[]): string | undefined => {
+  const getSupervisorIdAtLevel = (applicantId: string | undefined, level: number, _users?: UserType[]): string | undefined => {
     if (!applicantId) return undefined;
-    let curr = users.find(u => u.id === applicantId);
+    let curr = userByIdMap.get(applicantId);
     for (let i = 0; i < level; i++) {
       if (!curr || !curr.supervisorId) break;
-      curr = users.find(u => u.id === curr.supervisorId);
+      curr = userByIdMap.get(curr.supervisorId);
     }
     return (curr && curr.id !== applicantId) ? curr.id : undefined;
   };
@@ -335,7 +349,7 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
 
     // 特定ユーザー直接指定
     if (stepConfig.approverType === 'specific_user' && stepConfig.specificUserId) {
-      const specUser = allUsers.find(u => u.id === stepConfig.specificUserId);
+      const specUser = userByIdMap.get(stepConfig.specificUserId);
       if (specUser) {
         return { name: specUser.name, avatarUrl: specUser.avatarUrl, roleLabel: '個人指定' };
       }
@@ -343,8 +357,8 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
 
     // 階層上長
     const lvl = stepConfig.supervisorLevel || (stepConfig.approverType === 'supervisor_2' ? 2 : stepConfig.approverType === 'supervisor_1' ? 1 : stepIdx + 1);
-    const supId = getSupervisorIdAtLevel(app.applicant?.id, lvl, allUsers);
-    const supUser = supId ? allUsers.find(u => u.id === supId) : null;
+    const supId = getSupervisorIdAtLevel(app.applicant?.id, lvl);
+    const supUser = supId ? userByIdMap.get(supId) : null;
 
     if (supUser) {
       return {
@@ -478,7 +492,8 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
       <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-50/30">
         <div className="w-full space-y-4">
           {filteredApps.length > 0 ? (
-            filteredApps.map(app => {
+            <>
+              {filteredApps.slice(0, visibleAppCount).map(app => {
               const isHighlighted = highlightedAppId === app.id;
               return (
                 <div
@@ -1177,7 +1192,19 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
                 </div>
               </div>
             );
-          })
+          })}
+              {filteredApps.length > visibleAppCount && (
+                <div className="pt-2 pb-4 flex justify-center">
+                  <button
+                    type="button"
+                    onClick={() => setVisibleAppCount(prev => prev + 20)}
+                    className="px-5 py-2.5 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs rounded-xl border border-slate-200 shadow-xs transition-all cursor-pointer"
+                  >
+                    さらに表示する（残り {filteredApps.length - visibleAppCount} 件）
+                  </button>
+                </div>
+              )}
+            </>
           ) : (
             <div className="text-center py-16 bg-white rounded-xl border border-slate-200">
               <FileText className="w-12 h-12 text-slate-300 mx-auto mb-4" />
@@ -1444,4 +1471,4 @@ export function Workflow({ applications, onAddApplication, onUpdateApplication, 
       />
     </div>
   );
-}
+});

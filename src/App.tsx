@@ -786,7 +786,7 @@ export default function App() {
       }
     }
     // チャットの未読管理は Chat コンポーネント側でアクティブな部屋ごとに個別に既読処理
-  }, [activeTab, userState, isAuthenticated, memos, topics, applications, events, reports, chatRooms]);
+  }, [activeTab, userState, isAuthenticated, memos, topics, applications, events, reports]);
 
   // 通知更新イベントリスナー（既読・未読変更の即時反映）
   const [notificationSyncTick, setNotificationSyncTick] = useState(0);
@@ -972,13 +972,24 @@ export default function App() {
       }
       const data = await response.json();
       if (Array.isArray(data)) {
+        // 高速化：O(1) ユーザーハッシュマップを事前構築し、申請ごとの find ループを排除
+        const userByIdMap = new Map<string, User>();
+        for (const u of currentUsers) {
+          if (u.id) userByIdMap.set(String(u.id), u);
+        }
+        if (userState?.id) {
+          userByIdMap.set(String(userState.id), userState);
+        }
+
         const mapped = data.map((app: any) => {
           let detailsObj: any = {};
           if (app.details && typeof app.details === 'string' && app.details.startsWith('{')) {
             try { detailsObj = JSON.parse(app.details); } catch (_) {}
           }
-          const applicantUser = currentUsers.find(u => u.id === app.applicantId || u.id === detailsObj.applicantId || u.id === detailsObj.applicant?.id) || app.applicant || detailsObj.applicant || userState;
-          let approverUserObj = currentUsers.find(u => u.id === app.approverId || u.id === detailsObj.approverId || u.id === detailsObj.approver?.id) || app.approver || detailsObj.approver;
+          const rawAppUserId = app.applicantId || detailsObj.applicantId || detailsObj.applicant?.id;
+          const applicantUser = (rawAppUserId ? userByIdMap.get(String(rawAppUserId)) : undefined) || app.applicant || detailsObj.applicant || userState;
+          const rawApproverId = app.approverId || detailsObj.approverId || detailsObj.approver?.id;
+          let approverUserObj = (rawApproverId ? userByIdMap.get(String(rawApproverId)) : undefined) || app.approver || detailsObj.approver;
           
           let rawStatus = app.status || detailsObj.status || 'pending';
           if (rawStatus.includes('approved') || rawStatus.includes('承認済')) rawStatus = 'approved';
@@ -1012,7 +1023,7 @@ export default function App() {
           const rawConstDate = app.constructionDate || detailsObj.constructionDate || undefined;
           const rawLinkedInv = app.linkedInventoryIssueId || detailsObj.linkedInventoryIssueId || undefined;
           const rawDelegateUserId = app.purchaserDelegateUserId || detailsObj.purchaserDelegateUserId || undefined;
-          const rawDelegateUser = rawDelegateUserId ? currentUsers.find(u => u.id === rawDelegateUserId) : (detailsObj.purchaserDelegateUser || undefined);
+          const rawDelegateUser = rawDelegateUserId ? userByIdMap.get(String(rawDelegateUserId)) : (detailsObj.purchaserDelegateUser || undefined);
 
           const rawOfficeId = app.officeId || detailsObj.officeId || undefined;
           const rawLocation = app.location || detailsObj.location || undefined;
@@ -1735,10 +1746,14 @@ export default function App() {
 
     scheduleNextPoll();
 
-    // ウィンドウ復帰時・タブアクティブ時の即時同期イベント（他画面閲覧時でも即時更新）
+    // ウィンドウ復帰時・タブアクティブ時の即時同期イベント（3秒クールダウンで過剰発火を抑制）
     const handleVisibilityOrFocus = () => {
       if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
-        refetchChatRooms(usersList, true);
+        const now = Date.now();
+        if (now - lastChatFocusSyncAtRef.current >= 3000) {
+          lastChatFocusSyncAtRef.current = now;
+          refetchChatRooms(usersList, true);
+        }
       }
     };
 
@@ -1753,6 +1768,11 @@ export default function App() {
     };
   }, [isAuthenticated, activeTab, usersList]);
 
+  // フォーカス時・タブ切替時の重複バースト通信を抑止するための最終取得タイムスタンプRef
+  const lastChatFocusSyncAtRef = useRef<number>(0);
+  const lastOverallSyncAtRef = useRef<number>(0);
+  const lastResourceFetchAtRef = useRef<Record<string, number>>({});
+
   // 全体データ自動同期ポーリング (Unified Background & Active Polling)
   // 伝言メモ、ワークフロー申請、掲示板、カレンダー予定、日報・週報、安否確認
   useEffect(() => {
@@ -1765,15 +1785,28 @@ export default function App() {
       if (isCancelled || isSyncing) return;
       try {
         isSyncing = true;
+        const now = Date.now();
+        lastOverallSyncAtRef.current = now;
         const isMyPageFastLoad = activeTab === 'mypage' && topics.length === 0;
+        // 掲示板タブ・タイムラインタブ以外を閲覧中のバックグラウンド巡回では軽量サマリーAPIを活用
+        const useTopicSummary = isMyPageFastLoad || (activeTab !== 'board' && activeTab !== 'timeline');
         await Promise.allSettled([
           refetchMemos(usersList),
           refetchApplications(usersList),
-          refetchTopics(usersList, { summary: isMyPageFastLoad }),
+          refetchTopics(usersList, { summary: useTopicSummary }),
           refetchEvents(usersList),
           refetchReports(usersList),
           refetchSafetyEvents(),
         ]);
+        const stamp = Date.now();
+        lastResourceFetchAtRef.current = {
+          board: useTopicSummary ? (lastResourceFetchAtRef.current.board || 0) : stamp,
+          safety: stamp,
+          workflow: stamp,
+          memo: stamp,
+          calendar: stamp,
+          report: stamp,
+        };
         if (isMyPageFastLoad) {
           setTimeout(() => {
             if (!isCancelled) refetchTopics(usersList);
@@ -1789,8 +1822,8 @@ export default function App() {
     const scheduleNextOverallPoll = () => {
       if (isCancelled) return;
       const isDocumentHidden = typeof document !== 'undefined' && document.hidden;
-      // 画面表示中は20秒おき、バックグラウンド時は60秒おきに全体巡回
-      const delay = isDocumentHidden ? 60000 : 20000;
+      // 画面表示中は25秒おき、バックグラウンド時は60秒おきに全体巡回
+      const delay = isDocumentHidden ? 60000 : 25000;
 
       timeoutId = setTimeout(async () => {
         if (isCancelled) return;
@@ -1801,52 +1834,84 @@ export default function App() {
 
     scheduleNextOverallPoll();
 
-    // タブ切り替え時の即時再取得
-    if (activeTab === 'board') {
+    // タブ切り替え時の即時再取得（直近5秒以内に取得済みの場合はスキップして連続クリック負荷を排除）
+    const now = Date.now();
+    const shouldFetch = (key: string, cooldownMs = 5000) => {
+      const last = lastResourceFetchAtRef.current[key] || 0;
+      if (now - last < cooldownMs) return false;
+      lastResourceFetchAtRef.current[key] = now;
+      return true;
+    };
+
+    if (activeTab === 'board' && shouldFetch('board')) {
       refetchTopics(usersList);
-    } else if (activeTab === 'safety_confirmation') {
+    } else if (activeTab === 'safety_confirmation' && shouldFetch('safety')) {
       refetchSafetyEvents();
-    } else if (activeTab === 'workflow' || activeTab === 'mypage') {
+    } else if ((activeTab === 'workflow' || activeTab === 'mypage') && shouldFetch('workflow')) {
       refetchApplications(usersList);
-    } else if (activeTab === 'memo') {
+    } else if (activeTab === 'memo' && shouldFetch('memo')) {
       refetchMemos(usersList);
-    } else if (activeTab === 'calendar' || activeTab === 'inspection_scheduler') {
+    } else if ((activeTab === 'calendar' || activeTab === 'inspection_scheduler') && shouldFetch('calendar')) {
       refetchEvents(usersList);
-    } else if (activeTab === 'daily_report') {
+    } else if (activeTab === 'daily_report' && shouldFetch('report')) {
       refetchReports(usersList);
     }
 
-    // ウィンドウ復帰時・タブ復帰時の即時同期
+    // ウィンドウ復帰時・タブ復帰時の即時同期（10秒クールダウンで過剰バーストを防止）
     const handleVisibilityOrFocus = () => {
       if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
-        runOverallSync();
+        if (Date.now() - lastOverallSyncAtRef.current >= 10000) {
+          runOverallSync();
+        }
       }
     };
 
-    const handleCustomEventUpdate = () => {
-      runOverallSync();
+    // 各カスタム更新イベントは対象リソースのみをピンポイント再取得（無関係な他5APIの無駄な全件再取得を排除）
+    const handleBulletinsUpdated = () => {
+      lastResourceFetchAtRef.current.board = Date.now();
+      refetchTopics(usersList);
+    };
+    const handleSafetyUpdated = () => {
+      lastResourceFetchAtRef.current.safety = Date.now();
+      refetchSafetyEvents();
+    };
+    const handleMemosUpdated = () => {
+      lastResourceFetchAtRef.current.memo = Date.now();
+      refetchMemos(usersList);
+    };
+    const handleWorkflowsUpdated = () => {
+      lastResourceFetchAtRef.current.workflow = Date.now();
+      refetchApplications(usersList);
+    };
+    const handleEventsUpdated = () => {
+      lastResourceFetchAtRef.current.calendar = Date.now();
+      refetchEvents(usersList);
+    };
+    const handleReportsUpdated = () => {
+      lastResourceFetchAtRef.current.report = Date.now();
+      refetchReports(usersList);
     };
 
     window.addEventListener('focus', handleVisibilityOrFocus);
     document.addEventListener('visibilitychange', handleVisibilityOrFocus);
-    window.addEventListener('bulletins_updated', handleCustomEventUpdate);
-    window.addEventListener('safety_updated', handleCustomEventUpdate);
-    window.addEventListener('memos_updated', handleCustomEventUpdate);
-    window.addEventListener('workflows_updated', handleCustomEventUpdate);
-    window.addEventListener('events_updated', handleCustomEventUpdate);
-    window.addEventListener('reports_updated', handleCustomEventUpdate);
+    window.addEventListener('bulletins_updated', handleBulletinsUpdated);
+    window.addEventListener('safety_updated', handleSafetyUpdated);
+    window.addEventListener('memos_updated', handleMemosUpdated);
+    window.addEventListener('workflows_updated', handleWorkflowsUpdated);
+    window.addEventListener('events_updated', handleEventsUpdated);
+    window.addEventListener('reports_updated', handleReportsUpdated);
 
     return () => {
       isCancelled = true;
       if (timeoutId) clearTimeout(timeoutId);
       window.removeEventListener('focus', handleVisibilityOrFocus);
       document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
-      window.removeEventListener('bulletins_updated', handleCustomEventUpdate);
-      window.removeEventListener('safety_updated', handleCustomEventUpdate);
-      window.removeEventListener('memos_updated', handleCustomEventUpdate);
-      window.removeEventListener('workflows_updated', handleCustomEventUpdate);
-      window.removeEventListener('events_updated', handleCustomEventUpdate);
-      window.removeEventListener('reports_updated', handleCustomEventUpdate);
+      window.removeEventListener('bulletins_updated', handleBulletinsUpdated);
+      window.removeEventListener('safety_updated', handleSafetyUpdated);
+      window.removeEventListener('memos_updated', handleMemosUpdated);
+      window.removeEventListener('workflows_updated', handleWorkflowsUpdated);
+      window.removeEventListener('events_updated', handleEventsUpdated);
+      window.removeEventListener('reports_updated', handleReportsUpdated);
     };
   }, [isAuthenticated, activeTab, usersList]);
 

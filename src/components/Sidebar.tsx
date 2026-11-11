@@ -33,7 +33,7 @@ interface SidebarProps {
   pendingPollCount?: number;
 }
 
-export function Sidebar({
+export const Sidebar = React.memo(function Sidebar({
   posts = [],
   topics = [],
   selectedTag,
@@ -67,29 +67,31 @@ export function Sidebar({
       localStorage.setItem('is_utility_open', String(nextVal));
     }
   };
-  // Extract and count tags from topics and posts
-  const tagCounts: Record<string, number> = {};
+  // タイムラインタブ表示時のみハッシュタグ集計を計算・メモ化（他タブ表示時の不要な全件ループを排除）
+  const sortedTags = React.useMemo(() => {
+    if (activeTab !== 'timeline') return [];
+    const tagCounts: Record<string, number> = {};
 
-  (topics || []).forEach((topic) => {
-    if (topic && topic.tags && Array.isArray(topic.tags)) {
-      topic.tags.forEach((tag) => {
-        tagCounts[tag] = (tagCounts[tag] || 0) + 1;
-      });
-    }
-  });
+    (topics || []).forEach((topic) => {
+      if (topic && topic.tags && Array.isArray(topic.tags)) {
+        topic.tags.forEach((tag) => {
+          tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+        });
+      }
+    });
 
-  (posts || []).forEach((post) => {
-    if (post && post.tags && Array.isArray(post.tags)) {
-      post.tags.forEach((tag) => {
-        tagCounts[tag] = (tagCounts[tag] || 0) + 1;
-      });
-    }
-  });
+    (posts || []).forEach((post) => {
+      if (post && post.tags && Array.isArray(post.tags)) {
+        post.tags.forEach((tag) => {
+          tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+        });
+      }
+    });
 
-  // Sort tags by frequency
-  const sortedTags = Object.entries(tagCounts)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 10); // Show top 10
+    return Object.entries(tagCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10);
+  }, [topics, posts, activeTab]);
 
   const containerClassName = `relative ${className || "bg-white rounded-xl border border-slate-200 p-6 flex flex-col gap-8 shrink-0 shadow-sm ring-1 ring-slate-900/5 sticky top-24"}`;
 
@@ -541,4 +543,4 @@ export function Sidebar({
       )}
     </div>
   );
-}
+});

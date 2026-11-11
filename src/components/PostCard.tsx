@@ -15,7 +15,7 @@ interface PostCardProps {
   currentUser?: User;
 }
 
-export const PostCard: React.FC<PostCardProps> = ({ 
+export const PostCard: React.FC<PostCardProps> = React.memo(({ 
   post, 
   onLike, 
   onTagClick, 
@@ -152,4 +152,4 @@ export const PostCard: React.FC<PostCardProps> = ({
       </div>
     </article>
   );
-}
+});

@@ -19,6 +19,7 @@ import {
   Loader2,
   AlertTriangle,
   ChevronRight,
+  ChevronDown,
   Share2,
   UserCheck,
   MessageSquare,
@@ -56,7 +57,7 @@ type TimelineFeedItem =
   | { type: 'event'; id: string; date: string; data: CalendarEvent }
   | { type: 'topic'; id: string; date: string; data: BoardTopic };
 
-export function Timeline({
+export const Timeline = React.memo(function Timeline({
   events = [],
   topics = [],
   offices = [],
@@ -76,6 +77,12 @@ export function Timeline({
   // 拠点・部門フィルター
   const [selectedOffice, setSelectedOffice] = useState<string>('all');
   const [selectedDivision, setSelectedDivision] = useState<string>('all');
+
+  // 段階的DOM描画件数（フィルタ・検索変更時に30件へリセット）
+  const [visibleFeedCount, setVisibleFeedCount] = useState<number>(30);
+  React.useEffect(() => {
+    setVisibleFeedCount(30);
+  }, [showEvents, showTopics, selectedOffice, selectedDivision, selectedTag, searchQuery]);
 
   // 選択詳細アイテム
   const [selectedDetailItem, setSelectedDetailItem] = useState<TimelineFeedItem | null>(null);
@@ -455,7 +462,7 @@ export function Timeline({
 
         {combinedFeed.length > 0 ? (
           <div className="space-y-2">
-            {combinedFeed.map((item) => {
+            {combinedFeed.slice(0, visibleFeedCount).map((item) => {
               if (item.type === 'event') {
                 const event = item.data;
                 const isInspectionEvent = !!(event.createdViaInspection || (event.createdBy && event.createdBy.name === '点検登録') || (event.type === 'inspection' && event.targetYearMonth));
@@ -570,6 +577,18 @@ export function Timeline({
 
               return null;
             })}
+            {combinedFeed.length > visibleFeedCount && (
+              <div className="pt-2 flex justify-center">
+                <button
+                  type="button"
+                  onClick={() => setVisibleFeedCount((prev) => prev + 30)}
+                  className="px-5 py-2.5 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs sm:text-sm rounded-xl border border-slate-200 shadow-2xs transition-all flex items-center gap-2 cursor-pointer"
+                >
+                  <ChevronDown className="w-4 h-4 text-slate-400" />
+                  <span>さらに表示する（残り {combinedFeed.length - visibleFeedCount} 件）</span>
+                </button>
+              </div>
+            )}
           </div>
         ) : (
           <div className="text-center py-12 bg-white rounded-2xl border border-slate-200 p-5 shadow-sm ring-1 ring-slate-900/5">
@@ -844,6 +863,6 @@ export function Timeline({
       />
     </div>
   );
-}
+});
 
 

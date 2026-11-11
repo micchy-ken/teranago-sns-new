@@ -15,12 +15,12 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.11.11.5',
+  version: '2026.11.11.6',
   date: '2026-11-11',
-  releaseNumber: 5,
-  display: 'v2026.11.11 #5 (JST)',
+  releaseNumber: 6,
+  display: 'v2026.11.11 #6 (JST)',
   timeZone: '日本標準時 (JST / UTC+09:00)',
-  description: 'Step 4 カレンダー・予定管理の期間ウィンドウ取得・O(1)ユーザー照合・JST辞書クランプ・非同期I/O化対応版',
+  description: 'Step 5 全体ポーリング最適化・ピンポイント差分更新・ワークフロー/タイムライン段階的DOM描画＆React.memo化完了版',
 };
 
 /**
