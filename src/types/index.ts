@@ -453,6 +453,8 @@ export interface ChatRoom {
   lastUpdated: string;
   readStatus?: Record<string, string>;
   adminIds?: string[];
+  totalMessagesCount?: number;
+  hasMoreMessages?: boolean;
 }
 
 export type RequirementType = 

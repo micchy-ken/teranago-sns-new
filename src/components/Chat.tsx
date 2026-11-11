@@ -876,7 +876,8 @@ export function Chat({
     }
   }, [activeRoom?.id, currentUser?.id]);
 
-  // 未読メッセージを自動で既読にする
+  // 未読メッセージを自動で既読にする（一括バッチAPI + ローカル即時反映でN件並列POSTと全件再取得を排除）
+  const markingIdsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!activeRoom || !currentUser) return;
 
@@ -884,12 +885,14 @@ export function Chat({
     markChatRoomAsRead(currentUser.id, activeRoom.id);
 
     const messages = activeRoom.messages || [];
-
-    // 自分以外のメッセージで、自分がまだ既読になっていないメッセージ
     const currentUserIdStr = String(currentUser.id);
+
+    // 自分以外のメッセージで、自分がまだ既読になっておらず、現在送信処理中でもないメッセージ
     const unreadMsgs = messages.filter(msg => {
+      if (!msg || !msg.id) return false;
       const isMine = String(msg.sender?.id ?? '') === currentUserIdStr;
       if (isMine) return false;
+      if (markingIdsRef.current.has(String(msg.id))) return false;
       const viewers = msg.viewers || [];
       const alreadyRead = viewers.some((v: any) => String(v?.user?.id ?? v?.userId ?? v?.id ?? '') === currentUserIdStr);
       return !alreadyRead;
@@ -897,36 +900,76 @@ export function Chat({
 
     if (unreadMsgs.length === 0) return;
 
-    const markAsRead = async () => {
-      try {
-        const effectiveUser = (currentUser?.name && currentUser.name !== 'ユーザー情報取得中...')
-          ? currentUser
-          : (users.find(u => String(u.id) === String(currentUser?.id)) || currentUser);
+    const effectiveUser = (currentUser?.name && currentUser.name !== 'ユーザー情報取得中...')
+      ? currentUser
+      : (users.find(u => String(u.id) === currentUserIdStr) || currentUser);
 
-        const payloadUser = {
-          ...effectiveUser,
-          name: (!effectiveUser?.name || effectiveUser.name === 'ユーザー情報取得中...') ? 'メンバー' : effectiveUser.name
+    const payloadUser = {
+      ...effectiveUser,
+      id: currentUserIdStr,
+      name: (!effectiveUser?.name || effectiveUser.name === 'ユーザー情報取得中...') ? 'メンバー' : effectiveUser.name
+    };
+
+    const unreadIdSet = new Set(unreadMsgs.map(m => String(m.id)));
+    unreadIdSet.forEach(id => markingIdsRef.current.add(id));
+    const nowIso = new Date().toISOString();
+
+    // ローカルStateを即時更新（全件refetchRoomsを待たずに未読バッジ・既読数を即座に反映）
+    onUpdateRooms(
+      rooms.map(r => {
+        if (String(r.id) !== String(activeRoom.id)) return r;
+        return {
+          ...r,
+          messages: (r.messages || []).map(m => {
+            if (!unreadIdSet.has(String(m.id))) return m;
+            const currentViewers = Array.isArray(m.viewers) ? m.viewers : [];
+            if (currentViewers.some((v: any) => String(v?.user?.id ?? v?.userId ?? v?.id ?? '') === currentUserIdStr)) {
+              return m;
+            }
+            return {
+              ...m,
+              viewers: [...currentViewers, { id: currentUserIdStr, user: payloadUser, viewedAt: nowIso }]
+            };
+          })
         };
+      })
+    );
 
-        const promises = unreadMsgs.map(async (msg) => {
-          await fetch(`${API_BASE_URL}/chats/messages/${msg.id}/viewers`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user: payloadUser })
-          });
+    const targetRoomId = activeRoom.id;
+    const targetMsgIds = Array.from(unreadIdSet);
+
+    const markAsReadBatch = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/chats/${encodeURIComponent(targetRoomId)}/viewers/batch`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            roomId: targetRoomId,
+            messageIds: targetMsgIds,
+            user: payloadUser
+          })
         });
-        await Promise.all(promises);
 
-        if (refetchRooms) {
-          refetchRooms();
+        // 旧サーバー環境向けに 404 の場合のみ個別エンドポイントへフォールバック
+        if (res.status === 404) {
+          await Promise.all(
+            targetMsgIds.map(msgId =>
+              fetch(`${API_BASE_URL}/chats/messages/${encodeURIComponent(msgId)}/viewers`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user: payloadUser })
+              })
+            )
+          );
         }
       } catch (err) {
         console.error('Failed to mark messages as read:', err);
+        targetMsgIds.forEach(id => markingIdsRef.current.delete(id));
       }
     };
 
-    markAsRead();
-  }, [activeRoom?.id, activeRoom?.messages?.length, currentUser]);
+    markAsReadBatch();
+  }, [activeRoom?.id, activeRoom?.messages?.length, currentUser?.id]);
 
   const handleDeleteRoomClick = (roomId: string) => {
     setConfirmModal({
@@ -1101,6 +1144,12 @@ export function Chat({
     }
   }, [activeRoom?.id, currentUser?.id]);
 
+  const hasMoreServerMessages = Boolean(
+    activeRoom?.hasMoreMessages ||
+    ((activeRoom?.totalMessagesCount || 0) > (activeRoom?.messages?.length || 0))
+  );
+  const canLoadMorePrevious = visibleStartIndex > 0 || hasMoreServerMessages;
+
   // 過去メッセージ追加時のスクロール位置補正（位置跳躍の完全防止）
   useLayoutEffect(() => {
     if (isPrependingRef.current && chatContainerRef.current) {
@@ -1111,11 +1160,11 @@ export function Chat({
       }
       isPrependingRef.current = false;
     }
-  }, [visibleStartIndex]);
+  }, [visibleStartIndex, activeRoom?.messages?.length]);
 
-  // 上スクロールによる過去ログの自動追加読み込み
-  const loadMorePreviousMessages = () => {
-    if (visibleStartIndex <= 0 || isLoadingMorePrevious) return;
+  // 上スクロールによる過去ログの自動追加読み込み（メモリ内スライス展開 + サーバー過去履歴APIページネーション取得）
+  const loadMorePreviousMessages = async () => {
+    if (!canLoadMorePrevious || isLoadingMorePrevious || !activeRoom) return;
     const container = chatContainerRef.current;
     if (!container) return;
 
@@ -1124,11 +1173,93 @@ export function Chat({
     prevScrollTopRef.current = container.scrollTop;
     isPrependingRef.current = true;
 
-    // 読み込みの演出とレンダリング安定化
-    setTimeout(() => {
-      setVisibleStartIndex(prev => Math.max(0, prev - 25));
+    // 1. まずメモリ内に未表示の過去メッセージがある場合は25件ずつ展開
+    if (visibleStartIndex > 0) {
+      setTimeout(() => {
+        setVisibleStartIndex(prev => Math.max(0, prev - 25));
+        setIsLoadingMorePrevious(false);
+      }, 150);
+      return;
+    }
+
+    // 2. メモリ内の先頭（visibleStartIndex === 0）に達しており、サーバー側にさらに古い履歴がある場合
+    const currentMsgs = activeRoom.messages || [];
+    const oldestMsg = currentMsgs[0];
+    const beforeParam = oldestMsg?.createdAt ? `?before=${encodeURIComponent(oldestMsg.createdAt)}&limit=50` : '?limit=50';
+    const targetRoomId = activeRoom.id;
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/chats/${encodeURIComponent(targetRoomId)}/messages${beforeParam}`, {
+        headers: { 'Accept': 'application/json' }
+      });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      const fetchedRaw: any[] = Array.isArray(data?.messages) ? data.messages : [];
+      const serverHasMore = Boolean(data?.hasMore);
+
+      if (fetchedRaw.length === 0) {
+        isPrependingRef.current = false;
+        onUpdateRooms(
+          rooms.map(r => String(r.id) === String(targetRoomId) ? { ...r, hasMoreMessages: false } : r)
+        );
+        setIsLoadingMorePrevious(false);
+        return;
+      }
+
+      // O(1) ユーザーMapで送信者・既読者情報を補正
+      const userMap = new Map<string, User>();
+      for (const u of users) {
+        if (u?.id) userMap.set(String(u.id), u);
+        if (u?.loginId) userMap.set(String(u.loginId), u);
+      }
+
+      const normalizedOlder: ChatMessage[] = fetchedRaw.map((m: any) => {
+        const sId = String(m.sender?.id ?? '');
+        const matchedSender = sId ? userMap.get(sId) : undefined;
+        const resolvedViewers = Array.isArray(m.viewers)
+          ? m.viewers.map((v: any) => {
+              const vId = String(v?.user?.id ?? v?.userId ?? v?.id ?? '');
+              const matchedViewer = vId ? userMap.get(vId) : undefined;
+              return {
+                ...v,
+                id: v.id || vId,
+                user: matchedViewer ? { ...(v.user || {}), ...matchedViewer } : (v.user || { id: vId, name: 'メンバー' }),
+                viewedAt: v.viewedAt || new Date().toISOString()
+              };
+            })
+          : [];
+
+        return {
+          ...m,
+          _persisted: true,
+          sender: matchedSender ? { ...m.sender, ...matchedSender } : m.sender,
+          viewers: resolvedViewers
+        };
+      });
+
+      onUpdateRooms(
+        rooms.map(r => {
+          if (String(r.id) !== String(targetRoomId)) return r;
+          const existingIds = new Set((r.messages || []).map(em => String(em.id)));
+          const uniqueOlder = normalizedOlder.filter(om => !existingIds.has(String(om.id)));
+          const mergedMsgs = [...uniqueOlder, ...(r.messages || [])];
+          return {
+            ...r,
+            messages: mergedMsgs,
+            hasMoreMessages: serverHasMore,
+            totalMessagesCount: Math.max(r.totalMessagesCount || 0, mergedMsgs.length)
+          };
+        })
+      );
+      setVisibleStartIndex(0);
+    } catch (err) {
+      console.warn('Failed to load older chat messages:', err);
+      isPrependingRef.current = false;
+    } finally {
       setIsLoadingMorePrevious(false);
-    }, 180);
+    }
   };
 
   // スクロール位置および新着メッセージ到着通知バッジ
@@ -1149,7 +1280,7 @@ export function Chat({
   const handleTimelineScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const container = e.currentTarget;
     // 上部付近（60px以内）にスクロールした際に過去メッセージを自動読み込み
-    if (container.scrollTop < 60 && visibleStartIndex > 0 && !isLoadingMorePrevious) {
+    if (container.scrollTop < 60 && canLoadMorePrevious && !isLoadingMorePrevious) {
       loadMorePreviousMessages();
     }
     checkScrollBottom();
@@ -2534,7 +2665,7 @@ export function Chat({
               className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-3 sm:space-y-4 bg-[#e2e8f0]/40"
             >
               {/* 過去ログ読み込みインジケーター */}
-              {visibleStartIndex > 0 && (
+              {canLoadMorePrevious && (
                 <div className="flex justify-center py-2 select-none">
                   {isLoadingMorePrevious ? (
                     <div className="flex items-center gap-2 px-3.5 py-1.5 bg-white/90 backdrop-blur-xs rounded-full shadow-2xs text-xs font-semibold text-indigo-600 border border-indigo-100 animate-in fade-in duration-150">
@@ -2546,7 +2677,15 @@ export function Chat({
                       onClick={loadMorePreviousMessages}
                       className="text-[11px] text-slate-500 hover:text-indigo-600 bg-white/60 hover:bg-white/90 px-3 py-1 rounded-full border border-slate-200/80 transition-colors font-medium shadow-2xs cursor-pointer"
                     >
-                      ↑ 過去のメッセージをさらに表示（残り {visibleStartIndex} 件）
+                      {(() => {
+                        const loadedLen = activeRoom?.messages?.length || 0;
+                        const totalLen = Math.max(activeRoom?.totalMessagesCount || 0, loadedLen);
+                        const displayedLen = Math.max(0, loadedLen - visibleStartIndex);
+                        const remaining = Math.max(visibleStartIndex, totalLen - displayedLen);
+                        return remaining > 0
+                          ? `↑ 過去のメッセージをさらに表示（残り ${remaining} 件）`
+                          : '↑ 過去のメッセージをさらに表示';
+                      })()}
                     </button>
                   )}
                 </div>

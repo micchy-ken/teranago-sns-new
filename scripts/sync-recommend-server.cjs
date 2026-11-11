@@ -15,7 +15,7 @@ const escapedContent = serverContent
 const header = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年11月11日 (Step 1 パフォーマンス抜本改善：掲示板トピック一覧のO(1) Map集計化・コメント＆足跡のオンデマンド詳細取得API(/api/bulletins/:id/detail)追加・SQL非クラスター化インデックス自動生成・添付ファイル一覧の非同期I/O化対応版)
+ * 最終更新日時 (最終アップデート): 2026年11月11日 (Step 2 チャット高速化・過去履歴ページネーション対応：ルーム一覧の最新50件抽出[ROW_NUMBER() + O(M) Map集計]・過去メッセージ遅延取得API[/api/chats/:roomId/messages]・一括既読更新API[/api/chats/:roomId/viewers/batch]・スキーマ検証キャッシュ化対応版)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -43,6 +43,11 @@ export interface ServerCodeHistoryItem {
 }
 
 export const SERVER_CODE_HISTORY: ServerCodeHistoryItem[] = [
+  {
+    version: 'v2026.11.11.2',
+    date: '2026-11-11',
+    summary: 'Step 2 チャット高速化・過去履歴ページネーション対応：ルーム一覧の最新50件抽出(ROW_NUMBER() + O(M) Map集計)・過去メッセージ遅延取得API(/api/chats/:roomId/messages)・一括既読更新API(/api/chats/:roomId/viewers/batch)・スキーマ検証キャッシュ化対応版',
+  },
   {
     version: 'v2026.11.11.1',
     date: '2026-11-11',

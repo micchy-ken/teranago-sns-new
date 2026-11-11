@@ -1644,8 +1644,53 @@ async function startServer() {
 
   app.get(['/api/chats', '/api/chats/rooms'], (req, res) => {
     try {
-      const rooms = loadChatRooms();
+      const allMessages = req.query.allMessages === 'true';
+      const parsedLimit = parseInt(String(req.query.msgLimit || '50'), 10);
+      const msgLimit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(parsedLimit, 500) : 50;
+
+      const rooms = loadChatRooms().map((r: any) => {
+        const allMsgs = Array.isArray(r.messages) ? r.messages : [];
+        const totalMessagesCount = allMsgs.length;
+        const slicedMsgs = allMessages ? allMsgs : allMsgs.slice(-msgLimit);
+        return {
+          ...r,
+          messages: slicedMsgs,
+          totalMessagesCount,
+          hasMoreMessages: totalMessagesCount > slicedMsgs.length
+        };
+      });
       res.json(rooms);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get(['/api/chats/:roomId/messages', '/api/chats/rooms/:roomId/messages'], (req, res) => {
+    try {
+      const { roomId } = req.params;
+      const beforeStr = req.query.before ? String(req.query.before) : null;
+      const parsedLimit = parseInt(String(req.query.limit || '50'), 10);
+      const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(parsedLimit, 200) : 50;
+
+      const rooms = loadChatRooms();
+      const room = rooms.find((r: any) => String(r.id) === String(roomId));
+      if (!room || !Array.isArray(room.messages)) {
+        return res.json({ roomId: String(roomId), messages: [], hasMore: false });
+      }
+
+      const beforeTime = beforeStr ? new Date(beforeStr).getTime() : NaN;
+      const filtered = !isNaN(beforeTime)
+        ? room.messages.filter((m: any) => new Date(m.createdAt || 0).getTime() < beforeTime)
+        : room.messages;
+
+      const hasMore = filtered.length > limit;
+      const messages = hasMore ? filtered.slice(filtered.length - limit) : filtered;
+
+      res.json({
+        roomId: String(roomId),
+        messages,
+        hasMore
+      });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -1736,6 +1781,43 @@ async function startServer() {
       res.status(201).json({ id: msgId, message: 'メッセージ送信完了' });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post(['/api/chats/:roomId/viewers/batch', '/api/chats/messages/viewers/batch'], (req, res) => {
+    try {
+      const roomId = req.params.roomId || req.body.roomId;
+      const { messageIds, user } = req.body;
+      if (!user || !user.id) return res.status(400).json({ success: false, error: 'User is required' });
+
+      const rooms = loadChatRooms();
+      const targetIdSet = Array.isArray(messageIds) && messageIds.length > 0
+        ? new Set(messageIds.map((id: any) => String(id)))
+        : null;
+      const userIdStr = String(user.id);
+      const nowIso = new Date().toISOString();
+      let updatedCount = 0;
+
+      for (const room of rooms) {
+        if (roomId && String(room.id) !== String(roomId)) continue;
+        if (!Array.isArray(room.messages)) continue;
+        for (const msg of room.messages) {
+          if (targetIdSet && !targetIdSet.has(String(msg.id))) continue;
+          if (!Array.isArray(msg.viewers)) msg.viewers = [];
+          const exists = msg.viewers.some((v: any) => String(v?.user?.id || v?.userId || v?.id || '') === userIdStr);
+          if (!exists) {
+            msg.viewers.push({ user: { ...user, id: userIdStr }, viewedAt: nowIso });
+            updatedCount++;
+          }
+        }
+      }
+
+      if (updatedCount > 0) {
+        saveChatRooms(rooms);
+      }
+      res.json({ success: true, updatedCount, viewedAt: nowIso });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
     }
   });
 

@@ -15,12 +15,12 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.11.11.1',
+  version: '2026.11.11.2',
   date: '2026-11-11',
-  releaseNumber: 1,
-  display: 'v2026.11.11 #1 (JST)',
+  releaseNumber: 2,
+  display: 'v2026.11.11 #2 (JST)',
   timeZone: '日本標準時 (JST / UTC+09:00)',
-  description: 'Step 1 パフォーマンス抜本改善：DB非クラスター化インデックス自動生成・掲示板一覧のO(1) Map集計化・コメント＆足跡のオンデマンド遅延取得(/api/bulletins/:id/detail)・段階的DOM描画・不要な全件再取得排除',
+  description: 'Step 2 チャット高速化・過去履歴ページネーション対応：ルーム一覧取得時の最新50件抽出(ROW_NUMBER() + O(M) Map集計)・上スクロール時の過去メッセージ遅延取得API(/api/chats/:roomId/messages)・一括既読更新API(/api/chats/:roomId/viewers/batch)・App.tsxユーザー照合O(1) Map化',
 };
 
 /**

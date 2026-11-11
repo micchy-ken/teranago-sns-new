@@ -1306,6 +1306,21 @@ export default function App() {
           if (stored) deletedIds = JSON.parse(stored);
         } catch (_) {}
 
+        // O(1) ユーザー高速照合用 Map の構築（ネストループ内の .find() による O(R*M*V*U) 計算を排除）
+        const userByIdMap = new Map<string, User>();
+        const userByNameMap = new Map<string, User>();
+        if (userState) {
+          if (userState.id) userByIdMap.set(String(userState.id), userState);
+          if (userState.loginId) userByIdMap.set(String(userState.loginId), userState);
+          if (userState.name) userByNameMap.set(userState.name, userState);
+        }
+        for (const u of currentUsers) {
+          if (!u) continue;
+          if (u.id) userByIdMap.set(String(u.id), u);
+          if (u.loginId) userByIdMap.set(String(u.loginId), u);
+          if (u.name && !userByNameMap.has(u.name)) userByNameMap.set(u.name, u);
+        }
+
         const mapped = data
           .filter((room: any) => !deletedIds.includes(String(room.id)))
           .map((room: any) => {
@@ -1328,15 +1343,15 @@ export default function App() {
             const rawMessages = Array.isArray(room.messages) ? room.messages : [];
             const resolvedMessages = rawMessages.map((msg: any) => {
               if (!msg) return msg;
-              // 送信者(sender)のユーザー情報補正
+              // 送信者(sender)のユーザー情報補正 (O(1) Map 検索)
               let resolvedSender = msg.sender;
               if (resolvedSender) {
                 const sId = String(resolvedSender.id ?? '');
                 const sName = resolvedSender.name;
-                const matchedSender = currentUsers.find(u =>
-                  (sId && (String(u.id) === sId || String(u.loginId) === sId)) ||
-                  (sName && sName !== 'ユーザー情報取得中...' && u.name === sName)
-                );
+                const matchedSender =
+                  (sId ? userByIdMap.get(sId) : undefined) ||
+                  (sName && sName !== 'ユーザー情報取得中...' ? userByNameMap.get(sName) : undefined);
+
                 if (matchedSender) {
                   resolvedSender = { ...resolvedSender, ...matchedSender };
                 } else if (resolvedSender.name === 'ユーザー情報取得中...') {
@@ -1344,7 +1359,7 @@ export default function App() {
                 }
               }
 
-              // 既読者(viewers)のユーザー情報補正
+              // 既読者(viewers)のユーザー情報補正 (O(1) Map 検索)
               let resolvedViewers = msg.viewers;
               if (Array.isArray(msg.viewers)) {
                 resolvedViewers = msg.viewers.map((v: any) => {
@@ -1354,14 +1369,10 @@ export default function App() {
                   const vUserName = vUserObj.name || v.name;
                   const vLoginId = vUserObj.loginId || v.loginId;
 
-                  const matched = currentUsers.find(u =>
-                    (vUserId && (String(u.id) === vUserId || String(u.loginId) === vUserId)) ||
-                    (vLoginId && (String(u.loginId) === String(vLoginId) || String(u.id) === String(vLoginId))) ||
-                    (vUserName && vUserName !== 'ユーザー情報取得中...' && u.name === vUserName)
-                  ) || (userState && (
-                    (vUserId && (String(userState.id) === vUserId || String(userState.loginId) === vUserId)) ||
-                    (vUserName && vUserName !== 'ユーザー情報取得中...' && userState.name === vUserName)
-                  ) ? userState : null);
+                  const matched =
+                    (vUserId ? userByIdMap.get(vUserId) : undefined) ||
+                    (vLoginId ? userByIdMap.get(String(vLoginId)) : undefined) ||
+                    (vUserName && vUserName !== 'ユーザー情報取得中...' ? userByNameMap.get(vUserName) : undefined);
 
                   let resolvedUser = matched ? { ...vUserObj, ...matched } : vUserObj;
                   if (!resolvedUser.name || resolvedUser.name === 'ユーザー情報取得中...') {
@@ -1389,29 +1400,54 @@ export default function App() {
               ...room,
               id: String(room.id),
               participants: resolvedParticipants,
-              messages: resolvedMessages
+              messages: resolvedMessages,
+              totalMessagesCount: typeof room.totalMessagesCount === 'number' ? room.totalMessagesCount : resolvedMessages.length,
+              hasMoreMessages: Boolean(room.hasMoreMessages)
             };
           })
           .filter((room: any) => {
             if (!userState?.id) return true;
             return room.participants.some((p: any) => String(p.id) === String(userState.id));
           });
-        // サーバーからの取得結果（mapped）に対し、まだサーバーDBに反映されていないローカルの未確定仮メッセージ（m_, stamp_, img_, album_等）を保持マージする
+
+        // サーバーからの取得結果（mapped）に対し、以下を保持マージする:
+        // 1. 上スクロールで既に読み込んだ古い履歴メッセージ（oldestServerTime より前の確定メッセージ）
+        // 2. まだサーバーDBに反映されていないローカルの未確定仮メッセージ（m_, stamp_, img_, album_等）
         setChatRooms(prevRooms => {
+          const prevRoomMap = new Map(prevRooms.map(pr => [String(pr.id), pr]));
+
           const mergedMapped = mapped.map(serverRoom => {
-            const prevRoom = prevRooms.find(pr => String(pr.id) === String(serverRoom.id));
+            const prevRoom = prevRoomMap.get(String(serverRoom.id));
             if (!prevRoom) return serverRoom;
 
-            // ローカルにのみ存在する仮メッセージ（送信中・未確定データ）を抽出
-            const localTempMsgs = (prevRoom.messages || []).filter(pm => {
+            const serverMsgs = serverRoom.messages || [];
+            const serverMsgIdSet = new Set(serverMsgs.map((sm: any) => String(sm.id)));
+            const oldestServerTime = serverMsgs.length > 0
+              ? new Date(serverMsgs[0].createdAt || 0).getTime()
+              : Infinity;
+
+            // 1. 既にページネーションで遡って取得済みの過去履歴メッセージを保持
+            const olderPersistedMsgs = (prevRoom.messages || []).filter((pm: any) => {
+              if (!pm || !pm.id || serverMsgIdSet.has(String(pm.id))) return false;
+              const isTempId =
+                typeof pm.id === 'string' &&
+                !pm._persisted &&
+                (pm.id.startsWith('m_') || pm.id.startsWith('stamp_') || pm.id.startsWith('img_') || pm.id.startsWith('album_') || pm.id.startsWith('c_'));
+              if (isTempId) return false;
+              const pmTime = new Date(pm.createdAt || 0).getTime();
+              return pmTime < oldestServerTime;
+            });
+
+            // 2. ローカルにのみ存在する仮メッセージ（送信中・未確定データ）を抽出
+            const localTempMsgs = (prevRoom.messages || []).filter((pm: any) => {
               if (!pm || !pm.id) return false;
               const isTempId =
                 typeof pm.id === 'string' &&
+                !pm._persisted &&
                 (pm.id.startsWith('m_') || pm.id.startsWith('stamp_') || pm.id.startsWith('img_') || pm.id.startsWith('album_') || pm.id.startsWith('c_'));
               if (!isTempId) return false;
 
-              // 既にサーバーメッセージに同じIDまたは同等のメッセージ（同じ送信者・同じテキスト内容・近い作成日時）が存在するか確認
-              const existsOnServer = (serverRoom.messages || []).some(sm => {
+              const existsOnServer = serverMsgs.some((sm: any) => {
                 if (String(sm.id) === String(pm.id)) return true;
                 if (
                   String(sm.sender?.id ?? '') === String(pm.sender?.id ?? '') &&
@@ -1426,21 +1462,39 @@ export default function App() {
               return !existsOnServer;
             });
 
-            if (localTempMsgs.length === 0) return serverRoom;
+            const combinedMessages = [
+              ...olderPersistedMsgs,
+              ...serverMsgs,
+              ...localTempMsgs
+            ];
+            const persistedCount = olderPersistedMsgs.length + serverMsgs.length;
+            const totalCount = Math.max(serverRoom.totalMessagesCount || 0, persistedCount);
+            const hasMore = olderPersistedMsgs.length > 0
+              ? (prevRoom.hasMoreMessages ?? (totalCount > persistedCount))
+              : Boolean(serverRoom.hasMoreMessages || totalCount > persistedCount);
 
             return {
               ...serverRoom,
-              messages: [...(serverRoom.messages || []), ...localTempMsgs]
+              messages: combinedMessages,
+              totalMessagesCount: totalCount,
+              hasMoreMessages: hasMore
             };
           });
 
-          // 差分比較を行い、データに変更がない場合は不要なState更新（2.5秒ごとの全画面再レンダリング）を抑制
+          // 差分比較を行い、データに変更がない場合は不要なState更新（全画面再レンダリング）を抑制
           if (prevRooms.length !== mergedMapped.length) return mergedMapped;
           let isChanged = false;
           for (let i = 0; i < mergedMapped.length; i++) {
             const m = mergedMapped[i];
             const p = prevRooms[i];
-            if (!p || p.id !== m.id || p.name !== m.name || p.lastUpdated !== m.lastUpdated) {
+            if (
+              !p ||
+              p.id !== m.id ||
+              p.name !== m.name ||
+              p.lastUpdated !== m.lastUpdated ||
+              p.hasMoreMessages !== m.hasMoreMessages ||
+              p.totalMessagesCount !== m.totalMessagesCount
+            ) {
               isChanged = true;
               break;
             }
@@ -1458,8 +1512,8 @@ export default function App() {
                 break;
               }
               // 既読状態の件数差分チェック
-              const pViewersCount = pMsgs.reduce((sum, msg) => sum + (msg.viewers?.length || 0), 0);
-              const mViewersCount = mMsgs.reduce((sum, msg) => sum + (msg.viewers?.length || 0), 0);
+              const pViewersCount = pMsgs.reduce((sum: number, msg: any) => sum + (msg.viewers?.length || 0), 0);
+              const mViewersCount = mMsgs.reduce((sum: number, msg: any) => sum + (msg.viewers?.length || 0), 0);
               if (pViewersCount !== mViewersCount) {
                 isChanged = true;
                 break;
