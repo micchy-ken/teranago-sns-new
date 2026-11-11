@@ -2,6 +2,7 @@ import { User, Memo, WorkflowApplication, BoardTopic, CalendarEvent, ChatRoom, D
 import { API_BASE_URL } from '../config/api';
 import { isEventVisibleToUser } from './eventVisibility';
 import { getSupervisorAtLevel } from './workflowHelpers';
+import { doesUserMatchOffice, doesUserMatchDivision } from './masterResolver';
 
 export interface NotificationItem {
   id: string;
@@ -438,24 +439,17 @@ export function isTopicUnread(t: BoardTopic, user: User, readTopicIds: string[] 
 
   if (readTopicIds.includes(t.id)) return false;
 
-  const userOffice = user?.office || '';
-  const userDivision = user?.division || '';
-  const userDept = user?.department || '';
-
   const matchOffice =
     !t.office ||
     t.office === '全社' ||
-    t.office === userOffice ||
-    (userOffice && t.office.includes(userOffice)) ||
-    (userDept && t.office && userDept.includes(t.office));
+    t.officeId === 'all' ||
+    doesUserMatchOffice(user, t.officeId || t.office);
 
   const matchDivision =
     !t.division ||
     t.division === '全部署' ||
-    t.division === userDivision ||
-    (userDivision && t.division.includes(userDivision)) ||
-    (userDept && t.division && userDept.includes(t.division)) ||
-    (t.division && userDept && t.division.includes(userDept));
+    t.divisionId === 'all' ||
+    doesUserMatchDivision(user, t.divisionId || t.division);
 
   if (!matchOffice || !matchDivision) return false;
 
@@ -505,10 +499,10 @@ export function isMemoUnhandled(m: Memo, user: User): boolean {
     return !!isExplicitMatch;
   }
 
-  // 宛先個別指定がない全体・拠点向け伝言の場合のみ拠点・部署で判定
+  // 宛先個別指定がない全体・拠点向け伝言の場合のみ拠点・部署で判定（マスターID・表記ゆれ対応）
   const isToUser =
-    (m.targetOffices && user.office && m.targetOffices.includes(user.office)) ||
-    (m.targetDivisions && user.division && m.targetDivisions.includes(user.division));
+    (m.targetOffices && m.targetOffices.some((off) => doesUserMatchOffice(user, off))) ||
+    (m.targetDivisions && m.targetDivisions.some((div) => doesUserMatchDivision(user, div)));
 
   return !!isToUser;
 }
@@ -554,20 +548,16 @@ export function isMemoVisibleToUser(m: Memo, user: User): boolean {
 
   if (isCreator) return true;
 
-  // 3. 宛先個人が未指定で、自分の所属拠点・部署が対象に含まれているか
+  // 3. 宛先個人が未指定で、自分の所属拠点・部署が対象に含まれているか（マスターID・厳密区別対応）
   const hasNoSpecificToUser = (!m.toUsers || m.toUsers.length === 0) && !m.toUser;
   if (hasNoSpecificToUser) {
-    const userOffice = user.office || '';
-    const userDivision = user.division || '';
-    const userDept = user.department || '';
-
     const matchOffice =
       m.targetOffices &&
-      m.targetOffices.some((off) => off === '全社' || off === userOffice || (userOffice && off.includes(userOffice)) || (userDept && userDept.includes(off)));
+      m.targetOffices.some((off) => doesUserMatchOffice(user, off));
 
     const matchDivision =
       m.targetDivisions &&
-      m.targetDivisions.some((div) => div === '全部署' || div === userDivision || (userDivision && div.includes(userDivision)) || (userDept && userDept.includes(div)));
+      m.targetDivisions.some((div) => doesUserMatchDivision(user, div));
 
     if (matchOffice || matchDivision) return true;
   }
@@ -857,9 +847,10 @@ export function getAllNotifications({
       isToUser = !!isDirectRecipient;
     } else {
       // 宛先個別指定がない全体・拠点向け伝言の場合のみ拠点・部署で判定
-      isToUser =
-        (m.targetOffices && user.office && m.targetOffices.includes(user.office)) ||
-        (m.targetDivisions && user.division && m.targetDivisions.includes(user.division));
+      isToUser = Boolean(
+        (m.targetOffices && m.targetOffices.some((off) => doesUserMatchOffice(user, off))) ||
+        (m.targetDivisions && m.targetDivisions.some((div) => doesUserMatchDivision(user, div)))
+      );
     }
 
     if (!isToUser) return;
@@ -944,24 +935,17 @@ export function getAllNotifications({
     if (t.author && (t.author.id === user.id || t.author.name === user.name)) {
       return;
     }
-    const userOffice = user?.office || '';
-    const userDivision = user?.division || '';
-    const userDept = user?.department || '';
-
     const matchOffice =
       !t.office ||
       t.office === '全社' ||
-      t.office === userOffice ||
-      (userOffice && t.office.includes(userOffice)) ||
-      (userDept && t.office && userDept.includes(t.office));
+      t.officeId === 'all' ||
+      doesUserMatchOffice(user, t.officeId || t.office);
 
     const matchDivision =
       !t.division ||
       t.division === '全部署' ||
-      t.division === userDivision ||
-      (userDivision && t.division.includes(userDivision)) ||
-      (userDept && t.division && userDept.includes(t.division)) ||
-      (t.division && userDept && t.division.includes(userDept));
+      t.divisionId === 'all' ||
+      doesUserMatchDivision(user, t.divisionId || t.division);
 
     if (!matchOffice || !matchDivision) return;
 

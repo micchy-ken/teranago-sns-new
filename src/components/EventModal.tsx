@@ -11,6 +11,7 @@ import { calculateWeekOfMonth, isRecurringEvent, getRecurrenceLabel, safeParseRe
 import { RecurrenceActionModal, RecurrenceActionScope } from './RecurrenceActionModal';
 import { UrlPastePopup, useUrlPasteHandler } from './common/UrlPastePopup';
 import { MemberSelector } from './MemberSelector';
+import { resolveOffice, resolveOfficeName, resolveDivision, resolveDivisionName } from '../utils/masterResolver';
 
 export interface EventModalProps {
   isOpen: boolean;
@@ -290,8 +291,8 @@ export function EventModal({
           setCurrentEditingEvent(editingEvent);
         }
         setType(editingEvent.type);
-        setOffice(editingEvent.office || '全社');
-        setDivision(editingEvent.division || '全部署');
+        setOffice(resolveOfficeName(editingEvent.officeId || editingEvent.office, offices) || '全社');
+        setDivision(resolveDivisionName(editingEvent.divisionId || editingEvent.division, divisions) || '全部署');
 
         const isAllDayEv = !!editingEvent.isAllDay;
         const startDateStr = extractLocalDateStr(editingEvent.start);
@@ -752,6 +753,8 @@ export function EventModal({
     }
 
     const recurrenceObj = buildRecurrenceRule();
+    const matchedOffice = office !== '全社' ? resolveOffice(office, offices) : undefined;
+    const matchedDivision = division !== '全部署' ? resolveDivision(division, divisions) : undefined;
 
     const eventPayload: Omit<CalendarEvent, 'id'> = {
       title: (title || '').trim(),
@@ -760,8 +763,10 @@ export function EventModal({
       end: endIso,
       isAllDay,
       isPrivate,
-      office,
-      division,
+      officeId: office === '全社' ? 'all' : matchedOffice?.id,
+      office: office === '全社' ? '全社' : (matchedOffice?.name || office),
+      divisionId: division === '全部署' ? 'all' : matchedDivision?.id,
+      division: division === '全部署' ? '全部署' : (matchedDivision?.name || division),
       location,
       memo,
       isGoogleSynced: false,

@@ -9,6 +9,16 @@ import { TopicDetailModal } from './TopicDetailModal';
 import { ConfirmModal } from './ConfirmModal';
 import { buildAppUrl, copyTextToClipboard } from '../utils/urlParams';
 import { isTopicCurrentlyPinned, formatPinnedUntilBadge } from '../utils/boardHelpers';
+import {
+  doesUserMatchOffice,
+  doesUserMatchDivision,
+  isSameOffice,
+  isSameDivision,
+  resolveOfficeName,
+  resolveDivisionName,
+  getUserOfficeName,
+  getUserDivisionName,
+} from '../utils/masterResolver';
 
 interface BoardProps {
   topics: BoardTopic[];
@@ -38,23 +48,27 @@ export function Board({
   onUpdateUser,
 }: BoardProps) {
   const [selectedTag, setSelectedTag] = useState<string>('ALL');
-  const [selectedOffice, setSelectedOffice] = useState<string>(() => currentUser?.office || '全社');
-  const [selectedDivision, setSelectedDivision] = useState<string>(() => currentUser?.division || '全部署');
+  const [selectedOffice, setSelectedOffice] = useState<string>(() => getUserOfficeName(currentUser, offices) || '全社');
+  const [selectedDivision, setSelectedDivision] = useState<string>(() => getUserDivisionName(currentUser, divisions) || '全部署');
   const [searchQuery, setSearchQuery] = useState('');
 
-  // currentUserの所属拠点・所属部署情報を初期フィルターとして自動適用
+  // currentUserの所属拠点・所属部署情報を初期フィルターとして自動適用（マスター正規名に解決）
   const hasInitializedFilters = React.useRef(false);
   React.useEffect(() => {
-    if (currentUser && !hasInitializedFilters.current) {
-      if (currentUser.office) {
-        setSelectedOffice(currentUser.office);
+    if (currentUser && !hasInitializedFilters.current && (offices.length > 0 || divisions.length > 0 || currentUser.office || currentUser.division)) {
+      const resolvedOff = getUserOfficeName(currentUser, offices);
+      if (resolvedOff) {
+        setSelectedOffice(resolvedOff);
       }
-      if (currentUser.division) {
-        setSelectedDivision(currentUser.division);
+      const resolvedDiv = getUserDivisionName(currentUser, divisions);
+      if (resolvedDiv) {
+        setSelectedDivision(resolvedDiv);
       }
-      hasInitializedFilters.current = true;
+      if (offices.length > 0 || divisions.length > 0) {
+        hasInitializedFilters.current = true;
+      }
     }
-  }, [currentUser?.office, currentUser?.division]);
+  }, [currentUser, offices, divisions]);
 
   // お気に入り管理
   const favoriteTopicIds: string[] = useMemo(() => {
@@ -183,24 +197,12 @@ export function Board({
           const isAdmin = currentUser.role === 'admin' || currentUser.isAdmin;
 
           if (!isAuthor && !isAdmin) {
-            const userOffice = currentUser.office || '';
-            const userDivision = currentUser.division || '';
-            const userDept = currentUser.department || '';
-
-            if (t.office && t.office !== '全社') {
-              const matchOffice =
-                t.office === userOffice ||
-                (userOffice && t.office.includes(userOffice)) ||
-                (userDept && userDept.includes(t.office));
-              if (!matchOffice) return false;
+            if ((t.officeId || t.office) && t.office !== '全社' && t.officeId !== 'all') {
+              if (!doesUserMatchOffice(currentUser, t.officeId || t.office, offices)) return false;
             }
 
-            if (t.division && t.division !== '全部署') {
-              const matchDivision =
-                t.division === userDivision ||
-                (userDivision && t.division.includes(userDivision)) ||
-                (userDept && userDept.includes(t.division));
-              if (!matchDivision) return false;
+            if ((t.divisionId || t.division) && t.division !== '全部署' && t.divisionId !== 'all') {
+              if (!doesUserMatchDivision(currentUser, t.divisionId || t.division, divisions)) return false;
             }
           }
         }
@@ -210,16 +212,16 @@ export function Board({
           if (!t.tags || !t.tags.includes(selectedTag)) return false;
         }
 
-        // 拠点フィルタ
+        // 拠点フィルタ（マスターID・表記ゆれ吸収対応）
         if (selectedOffice !== '全社') {
           const tOffice = t.office || '全社';
-          if (tOffice !== '全社' && tOffice !== selectedOffice) return false;
+          if (tOffice !== '全社' && t.officeId !== 'all' && !isSameOffice(t.officeId || tOffice, selectedOffice, offices)) return false;
         }
 
-        // 部署フィルタ
+        // 部署フィルタ（マスターID対応・「営業」と「保守営業」の厳密区別）
         if (selectedDivision !== '全部署') {
           const tDivision = t.division || '全部署';
-          if (tDivision !== '全部署' && tDivision !== selectedDivision) return false;
+          if (tDivision !== '全部署' && t.divisionId !== 'all' && !isSameDivision(t.divisionId || tDivision, selectedDivision, divisions)) return false;
         }
 
         // お気に入り絞り込み
@@ -253,7 +255,7 @@ export function Board({
         // 日付降順
         return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
       });
-  }, [topics, currentUser, selectedTag, selectedOffice, selectedDivision, searchQuery, onlyFavorites, favoriteSet, onlyPolls]);
+  }, [topics, currentUser, selectedTag, selectedOffice, selectedDivision, searchQuery, onlyFavorites, favoriteSet, onlyPolls, offices, divisions]);
 
   // 段階的DOM描画（大量トピック時のスクロール・検索レスポンス高速化）
   const BOARD_PAGE_SIZE = 30;
@@ -501,7 +503,7 @@ export function Board({
                           )}
 
                           <span className="text-[10px] sm:text-[11px] font-semibold px-1.5 sm:px-2 py-0.5 bg-slate-100 text-slate-700 rounded-md shrink-0">
-                            {topic.office || '全社'} / {topic.division || '全部署'}
+                            {resolveOfficeName(topic.officeId || topic.office, offices) || '全社'} / {resolveDivisionName(topic.divisionId || topic.division, divisions) || '全部署'}
                           </span>
 
                           {topic.hasPeriod && topic.startDate && topic.endDate && (

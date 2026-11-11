@@ -11,7 +11,8 @@ import {
   Sparkles,
   Filter
 } from 'lucide-react';
-import { User, CalendarMemberGroup, EventType } from '../types';
+import { User, CalendarMemberGroup, EventType, OfficeMaster, DivisionMaster } from '../types';
+import { doesUserMatchOffice, doesUserMatchDivision } from '../utils/masterResolver';
 
 export interface MobileTeamSettingsModalProps {
   isOpen: boolean;
@@ -26,6 +27,8 @@ export interface MobileTeamSettingsModalProps {
   divisionNames: string[];
   memberGroups: CalendarMemberGroup[];
   allUsers?: User[];
+  offices?: OfficeMaster[];
+  divisions?: DivisionMaster[];
   teamMembersCount: number;
   selectedTypeFilter: string;
   onSelectTypeFilter: (type: string) => void;
@@ -46,6 +49,8 @@ export const MobileTeamSettingsModal: React.FC<MobileTeamSettingsModalProps> = (
   divisionNames,
   memberGroups,
   allUsers = [],
+  offices = [],
+  divisions = [],
   teamMembersCount,
   selectedTypeFilter,
   onSelectTypeFilter,
@@ -60,11 +65,11 @@ export const MobileTeamSettingsModal: React.FC<MobileTeamSettingsModalProps> = (
   // 現在選択中のマイグループオブジェクト
   const activeGroup = !isOrgMode ? memberGroups.find(g => g.id === selectedGroupId) : null;
 
-  // 所属（拠点・部署）での対象ユーザー名プレビュー
+  // 所属（拠点・部署マスターID照合）での対象ユーザー名プレビュー
   const orgMatchingUsers = isOrgMode
     ? allUsers.filter(u => {
-        const matchOffice = !selectedOffice || selectedOffice === '全社' || selectedOffice === '全拠点' || u.office === selectedOffice;
-        const matchDiv = !selectedDivision || selectedDivision === '全部署' || u.division === selectedDivision;
+        const matchOffice = !selectedOffice || selectedOffice === '全社' || selectedOffice === '全拠点' || doesUserMatchOffice(u, selectedOffice, offices);
+        const matchDiv = !selectedDivision || selectedDivision === '全部署' || doesUserMatchDivision(u, selectedDivision, divisions);
         return matchOffice && matchDiv;
       })
     : [];

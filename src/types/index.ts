@@ -18,7 +18,9 @@ export interface CalendarPreset {
   createdAt: string;
   mode: 'personal' | 'team';
   view: 'month' | 'week' | 'day' | 'list';
+  officeId?: string;
   office?: string;
+  divisionId?: string;
   division?: string;
   typeFilter?: string;
   groupId?: string; // マイグループID
@@ -200,8 +202,10 @@ export interface CalendarEvent {
   isPrivate?: boolean; // 他人から隠す（非公開）フラグ
   isSecret?: boolean;  // 互換用非公開フラグ
   type: EventType;
-  office?: string;    // 対象拠点 (例: 全社, 名古屋支店, 本社)
-  division?: string;  // 対象部署 (例: 全部署, 営業, 設計)
+  officeId?: string;  // 対象拠点マスターID (例: off-1)
+  office?: string;    // 対象拠点表示名スナップショット (例: 全社, 名古屋支店, 本社)
+  divisionId?: string;// 対象部署マスターID (例: div-1)
+  division?: string;  // 対象部署表示名スナップショット (例: 全部署, 営業, 設計)
   location?: string;
   url?: string;
   attendees: User[];
@@ -416,8 +420,10 @@ export interface BoardTopic {
   commentsCount: number;
   
   // 拡張項目
-  office?: string;    // 公開範囲（拠点: 全社、本社、名古屋支店など）
-  division?: string;  // 公開範囲（部署: 全部署、営業、設計など）
+  officeId?: string;  // 公開範囲マスターID（拠点: off-1など、全社時は未設定または'all'）
+  office?: string;    // 公開範囲表示名（拠点: 全社、本社、名古屋支店など）
+  divisionId?: string;// 公開範囲マスターID（部署: div-1など、全部署時は未設定または'all'）
+  division?: string;  // 公開範囲表示名（部署: 全部署、営業、設計など）
   scope?: string;     // 公開範囲のスコープ
   isStrictScope?: boolean; // 公開範囲のみ表示フラグ（指定拠点・部署以外のユーザーには限定非表示）
   tags: string[];     // タグ配列

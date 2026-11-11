@@ -12,6 +12,7 @@ import { triggerOpenUserModal } from '../utils/userModal';
 import { buildAppUrl, copyTextToClipboard } from '../utils/urlParams';
 import { API_BASE_URL } from '../config/api';
 import { isTopicCurrentlyPinned, formatPinnedUntilBadge, getPollDeadlineMs } from '../utils/boardHelpers';
+import { resolveOffice, resolveOfficeName, resolveDivision, resolveDivisionName } from '../utils/masterResolver';
 
 export const getRestoredPollOptions = (poll: BoardPoll | undefined | null): Array<{ id: string; text: string; requireComment: boolean }> => {
   if (!poll) {
@@ -180,19 +181,21 @@ export function TopicDetailModal({
 
   const officeNames = React.useMemo(() => {
     const list = Array.from(new Set(offices.map(o => o.name).filter(Boolean)));
-    if (topic?.office && topic.office !== '全社' && !list.includes(topic.office)) {
-      list.push(topic.office);
+    const resolvedCurrent = resolveOfficeName(topic?.officeId || topic?.office, offices);
+    if (resolvedCurrent && resolvedCurrent !== '全社' && !list.includes(resolvedCurrent)) {
+      list.push(resolvedCurrent);
     }
     return list;
-  }, [offices, topic?.office]);
+  }, [offices, topic?.officeId, topic?.office]);
 
   const divisionNames = React.useMemo(() => {
     const list = Array.from(new Set(divisions.map(d => d.name).filter(Boolean)));
-    if (topic?.division && topic.division !== '全部署' && !list.includes(topic.division)) {
-      list.push(topic.division);
+    const resolvedCurrent = resolveDivisionName(topic?.divisionId || topic?.division, divisions);
+    if (resolvedCurrent && resolvedCurrent !== '全部署' && !list.includes(resolvedCurrent)) {
+      list.push(resolvedCurrent);
     }
     return list;
-  }, [divisions, topic?.division]);
+  }, [divisions, topic?.divisionId, topic?.division]);
 
   const viewersList = useMemo(() => {
     const list = (topic?.viewers || [])
@@ -265,8 +268,8 @@ export function TopicDetailModal({
         if (!isEditing) {
           setEditTitle(topic.title || '');
           setEditContent(topic.content || '');
-          setEditOffice(topic.office || '全社');
-          setEditDivision(topic.division || '全部署');
+          setEditOffice(resolveOfficeName(topic.officeId || topic.office, offices) || '全社');
+          setEditDivision(resolveDivisionName(topic.divisionId || topic.division, divisions) || '全部署');
           setEditIsStrictScope(!!topic.isStrictScope);
           setEditIsPinned(!!topic.isPinned);
           if (topic.isPinned) {
@@ -645,12 +648,17 @@ export function TopicDetailModal({
       }
     }
 
+    const matchedOffice = editOffice !== '全社' ? resolveOffice(editOffice, offices) : undefined;
+    const matchedDivision = editDivision !== '全部署' ? resolveDivision(editDivision, divisions) : undefined;
+
     const updatedTopic: BoardTopic = {
       ...topic,
       title: (editTitle || '').trim(),
       content: (editContent || '').trim(),
-      office: editOffice,
-      division: editDivision,
+      officeId: editOffice === '全社' ? 'all' : matchedOffice?.id,
+      office: editOffice === '全社' ? '全社' : (matchedOffice?.name || editOffice),
+      divisionId: editDivision === '全部署' ? 'all' : matchedDivision?.id,
+      division: editDivision === '全部署' ? '全部署' : (matchedDivision?.name || editDivision),
       isStrictScope: editIsStrictScope,
       isPinned: finalIsPinned,
       pinnedUntil: finalPinnedUntil,
@@ -1532,11 +1540,11 @@ export function TopicDetailModal({
               <div className="flex flex-wrap items-center gap-2">
                 <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 bg-slate-100 text-slate-700 rounded-lg">
                   <Building2 className="w-3.5 h-3.5 text-slate-500" />
-                  拠点: {topic.office || '全社'}
+                  拠点: {resolveOfficeName(topic.officeId || topic.office, offices) || '全社'}
                 </span>
                 <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 bg-slate-100 text-slate-700 rounded-lg">
                   <Users className="w-3.5 h-3.5 text-slate-500" />
-                  部署: {topic.division || '全部署'}
+                  部署: {resolveDivisionName(topic.divisionId || topic.division, divisions) || '全部署'}
                 </span>
 
                 {topic.isStrictScope && (

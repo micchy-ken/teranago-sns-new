@@ -7,10 +7,10 @@
  * - 機能追加・バグ修正・仕様変更のたびに必ず更新すること
  */
 export const APP_VERSION = {
-  version: '2026.11.11.9',
+  version: '2026.11.11.10',
   date: '2026.11.11',
-  releaseNumber: 9,
-  display: 'v2026.11.11 #9 (JST)',
+  releaseNumber: 10,
+  display: 'v2026.11.11 #10 (JST)',
   timeZone: 'Asia/Tokyo (JST)',
-  description: 'マスターID/コード主軸化 Step1: 共通マスター解決ヘルパー(masterResolver.ts)新設、User型・dbo.UsersへのofficeId/divisionId/positionId追加と自動マイグレーション、AdminPanel・MemberSelector・userSortのIDベース照合対応'
+  description: 'マスターID/コード主軸化 Step2: 掲示板(Board/TopicCreateModal/TopicDetailModal)・スケジュール管理(Calendar/MobileTeamSettingsModal/EventModal)・通知判定(notifications.ts)のマスターID照合＆「営業」と「保守営業」の厳密区別対応'
 };

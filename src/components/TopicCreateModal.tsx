@@ -3,6 +3,7 @@ import { X, Paperclip, Pin, Calendar as CalendarIcon, Building2, Users, Tag, Plu
 import { BoardTopic, User, OfficeMaster, DivisionMaster, AttachmentFile, BoardPoll } from '../types';
 import { uploadMultipleFiles } from '../utils/fileUpload';
 import { UrlPastePopup, useUrlPasteHandler } from './common/UrlPastePopup';
+import { resolveOffice, resolveDivision, getUserOfficeName, getUserDivisionName } from '../utils/masterResolver';
 
 interface TopicCreateModalProps {
   isOpen: boolean;
@@ -35,8 +36,8 @@ export function TopicCreateModal({
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const pasteHandler = useUrlPasteHandler(content, setContent);
-  const [selectedOffice, setSelectedOffice] = useState(() => currentUser?.office || '全社');
-  const [selectedDivision, setSelectedDivision] = useState(() => currentUser?.division || '全部署');
+  const [selectedOffice, setSelectedOffice] = useState(() => getUserOfficeName(currentUser, offices) || '全社');
+  const [selectedDivision, setSelectedDivision] = useState(() => getUserDivisionName(currentUser, divisions) || '全部署');
   const [isStrictScope, setIsStrictScope] = useState(false);
   
   // タグ関連
@@ -77,8 +78,8 @@ export function TopicCreateModal({
     if (isOpen) {
       setTitle('');
       setContent('');
-      setSelectedOffice(currentUser?.office || '全社');
-      setSelectedDivision(currentUser?.division || '全部署');
+      setSelectedOffice(getUserOfficeName(currentUser, offices) || '全社');
+      setSelectedDivision(getUserDivisionName(currentUser, divisions) || '全部署');
       setIsStrictScope(false);
       setTags([]);
       setTagInput('');
@@ -286,12 +287,17 @@ export function TopicCreateModal({
       }
     }
 
+    const matchedOffice = selectedOffice !== '全社' ? resolveOffice(selectedOffice, offices) : undefined;
+    const matchedDivision = selectedDivision !== '全部署' ? resolveDivision(selectedDivision, divisions) : undefined;
+
     onSubmit({
       title: (title || '').trim(),
       content: (content || '').trim(),
       author: currentUser,
-      office: selectedOffice,
-      division: selectedDivision,
+      officeId: selectedOffice === '全社' ? 'all' : matchedOffice?.id,
+      office: selectedOffice === '全社' ? '全社' : (matchedOffice?.name || selectedOffice),
+      divisionId: selectedDivision === '全部署' ? 'all' : matchedDivision?.id,
+      division: selectedDivision === '全部署' ? '全部署' : (matchedDivision?.name || selectedDivision),
       isStrictScope,
       tags,
       attachments,

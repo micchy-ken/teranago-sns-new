@@ -23,6 +23,16 @@ import { TeamWeekMemberRow } from './TeamWeekMemberRow';
 import { TeamLocationMap } from './TeamLocationMap';
 import { isEventVisibleToUser } from '../utils/eventVisibility';
 import { SchedulePoll } from '../types/schedulePoll';
+import {
+  doesUserMatchOffice,
+  doesUserMatchDivision,
+  resolveOffice,
+  resolveOfficeName,
+  resolveDivision,
+  resolveDivisionName,
+  getUserOfficeName,
+  getUserDivisionName,
+} from '../utils/masterResolver';
 
 interface CalendarProps {
   events: CalendarEvent[];
@@ -299,21 +309,21 @@ export function Calendar({
   
   // 拠点・部署のプルダウンフィルター状態（初期値はお気に入りプリセット、指定パラメータ、またはログインユーザーの所属拠点・所属部署）
   const [selectedOffice, setSelectedOffice] = useState<string>(() => {
-    if (initialOffice) return initialOffice;
+    if (initialOffice) return resolveOfficeName(initialOffice, offices) || initialOffice;
     const presetInfo = getInitialPresetInfo(currentUser, { initialOffice, initialDivision, initialMode, initialView, initialTypeFilter });
-    if (presetInfo?.preset && presetInfo.preset.mode === 'team' && presetInfo.groupId === 'org' && presetInfo.preset.office) {
-      return presetInfo.preset.office;
+    if (presetInfo?.preset && presetInfo.preset.mode === 'team' && presetInfo.groupId === 'org' && (presetInfo.preset.officeId || presetInfo.preset.office)) {
+      return resolveOfficeName(presetInfo.preset.officeId || presetInfo.preset.office, offices) || presetInfo.preset.office || '全社';
     }
-    return currentUser?.office || '全社';
+    return getUserOfficeName(currentUser, offices) || '全社';
   });
 
   const [selectedDivision, setSelectedDivision] = useState<string>(() => {
-    if (initialDivision) return initialDivision;
+    if (initialDivision) return resolveDivisionName(initialDivision, divisions) || initialDivision;
     const presetInfo = getInitialPresetInfo(currentUser, { initialOffice, initialDivision, initialMode, initialView, initialTypeFilter });
-    if (presetInfo?.preset && presetInfo.preset.mode === 'team' && presetInfo.groupId === 'org' && presetInfo.preset.division) {
-      return presetInfo.preset.division;
+    if (presetInfo?.preset && presetInfo.preset.mode === 'team' && presetInfo.groupId === 'org' && (presetInfo.preset.divisionId || presetInfo.preset.division)) {
+      return resolveDivisionName(presetInfo.preset.divisionId || presetInfo.preset.division, divisions) || presetInfo.preset.division || '全部署';
     }
-    return currentUser?.division || '全部署';
+    return getUserDivisionName(currentUser, divisions) || '全部署';
   });
 
   const [selectedTypeFilter, setSelectedTypeFilter] = useState<string>(() => {
@@ -326,19 +336,30 @@ export function Calendar({
   // currentUserの所属拠点・所属部署の初期反映（initialOffice/initialDivisionがなく、プリセットもない場合のみ）
   const userInitRef = React.useRef(false);
   useEffect(() => {
-    if (currentUser && !userInitRef.current) {
+    if (currentUser && !userInitRef.current && (offices.length > 0 || divisions.length > 0 || currentUser.office || currentUser.division)) {
       const presetInfo = getInitialPresetInfo(currentUser, { initialOffice, initialDivision, initialMode, initialView, initialTypeFilter });
       if (!presetInfo) {
-        if (!initialOffice && currentUser.office) {
-          setSelectedOffice(currentUser.office);
+        const resolvedOff = getUserOfficeName(currentUser, offices);
+        if (!initialOffice && resolvedOff) {
+          setSelectedOffice(resolvedOff);
         }
-        if (!initialDivision && currentUser.division) {
-          setSelectedDivision(currentUser.division);
+        const resolvedDiv = getUserDivisionName(currentUser, divisions);
+        if (!initialDivision && resolvedDiv) {
+          setSelectedDivision(resolvedDiv);
+        }
+      } else if (presetInfo.preset.mode === 'team' && presetInfo.groupId === 'org') {
+        if (presetInfo.preset.officeId || presetInfo.preset.office) {
+          setSelectedOffice(resolveOfficeName(presetInfo.preset.officeId || presetInfo.preset.office, offices) || presetInfo.preset.office || '全社');
+        }
+        if (presetInfo.preset.divisionId || presetInfo.preset.division) {
+          setSelectedDivision(resolveDivisionName(presetInfo.preset.divisionId || presetInfo.preset.division, divisions) || presetInfo.preset.division || '全部署');
         }
       }
-      userInitRef.current = true;
+      if (offices.length > 0 || divisions.length > 0) {
+        userInitRef.current = true;
+      }
     }
-  }, [currentUser, initialOffice, initialDivision, initialMode, initialView, initialTypeFilter]);
+  }, [currentUser, initialOffice, initialDivision, initialMode, initialView, initialTypeFilter, offices, divisions]);
 
   // カレンダーモード：'personal' (個人表示) or 'team' (チーム表示)
   const [calendarMode, setCalendarMode] = useState<'personal' | 'team'>(() => {
@@ -661,8 +682,10 @@ export function Calendar({
         setSelectedGroupId(preset.groupId);
       } else {
         setSelectedGroupId('org');
-        if (preset.office) setSelectedOffice(preset.office);
-        if (preset.division) setSelectedDivision(preset.division);
+        const resolvedOff = resolveOfficeName(preset.officeId || preset.office, offices);
+        if (resolvedOff) setSelectedOffice(resolvedOff);
+        const resolvedDiv = resolveDivisionName(preset.divisionId || preset.division, divisions);
+        if (resolvedDiv) setSelectedDivision(resolvedDiv);
       }
     }
     setSelectedTypeFilter(preset.typeFilter || 'all');
@@ -676,6 +699,9 @@ export function Calendar({
     if (e) e.preventDefault();
     if (!currentUser || !onUpdateUser) return;
     const name = customPresetName.trim() || getDefaultPresetName();
+    const isTeamOrg = calendarMode === 'team' && selectedGroupId === 'org';
+    const matchedOff = isTeamOrg && selectedOffice !== '全社' && selectedOffice !== '全拠点' ? resolveOffice(selectedOffice, offices) : undefined;
+    const matchedDiv = isTeamOrg && selectedDivision !== '全部署' ? resolveDivision(selectedDivision, divisions) : undefined;
 
     const newPreset: CalendarPreset = {
       id: `cal-preset-${Date.now()}`,
@@ -684,8 +710,10 @@ export function Calendar({
       mode: calendarMode,
       view: view,
       groupId: calendarMode === 'team' && selectedGroupId !== 'org' ? selectedGroupId : undefined,
-      office: calendarMode === 'team' && selectedGroupId === 'org' ? (selectedOffice !== '全社' && selectedOffice !== '全拠点' ? selectedOffice : undefined) : undefined,
-      division: calendarMode === 'team' && selectedGroupId === 'org' ? (selectedDivision !== '全部署' ? selectedDivision : undefined) : undefined,
+      officeId: matchedOff?.id,
+      office: isTeamOrg ? (selectedOffice !== '全社' && selectedOffice !== '全拠点' ? (matchedOff?.name || selectedOffice) : undefined) : undefined,
+      divisionId: matchedDiv?.id,
+      division: isTeamOrg ? (selectedDivision !== '全部署' ? (matchedDiv?.name || selectedDivision) : undefined) : undefined,
       typeFilter: selectedTypeFilter !== 'all' ? selectedTypeFilter : undefined,
     };
 
@@ -1116,9 +1144,9 @@ export function Calendar({
   const officeNames = useMemo(() => {
     const list = [
       ...offices.map(o => o.name),
-      ...((allUsers || []).map(u => u.office).filter(Boolean) as string[]),
-      ...(initialOffice ? [initialOffice] : []),
-      ...(selectedOffice ? [selectedOffice] : []),
+      ...((allUsers || []).map(u => resolveOfficeName(u.officeId || u.office, offices)).filter(Boolean)),
+      ...(initialOffice ? [resolveOfficeName(initialOffice, offices) || initialOffice] : []),
+      ...(selectedOffice ? [resolveOfficeName(selectedOffice, offices) || selectedOffice] : []),
     ];
     return Array.from(new Set(list));
   }, [offices, allUsers, initialOffice, selectedOffice]);
@@ -1126,9 +1154,9 @@ export function Calendar({
   const divisionNames = useMemo(() => {
     const list = [
       ...divisions.map(d => d.name),
-      ...((allUsers || []).map(u => u.division).filter(Boolean) as string[]),
-      ...(initialDivision ? [initialDivision] : []),
-      ...(selectedDivision ? [selectedDivision] : []),
+      ...((allUsers || []).map(u => resolveDivisionName(u.divisionId || u.division, divisions)).filter(Boolean)),
+      ...(initialDivision ? [resolveDivisionName(initialDivision, divisions) || initialDivision] : []),
+      ...(selectedDivision ? [resolveDivisionName(selectedDivision, divisions) || selectedDivision] : []),
     ];
     return Array.from(new Set(list));
   }, [divisions, allUsers, initialDivision, selectedDivision]);
@@ -1267,7 +1295,7 @@ export function Calendar({
     return list;
   }, [expandedEvents, selectedTypeFilter, currentUser, calendarMode, openSchedulePolls, allUsers]);
 
-  // チーム表示用の所属メンバー抽出をメモ化 (マイグループ選択時はそのメンバー、未選択時は拠点・部署)
+  // チーム表示用の所属メンバー抽出をメモ化 (マイグループ選択時はそのメンバー、未選択時は拠点・部署マスターID照合)
   const teamMembers = React.useMemo(() => {
     if (activeSelectedGroup) {
       const userMap = new Map((allUsers || []).map(u => [String(u.id), u]));
@@ -1279,16 +1307,16 @@ export function Calendar({
       if (selectedOffice === '全社' || selectedOffice === '全拠点' || selectedDivision === '全部署') {
         return false;
       }
-      return u.office === selectedOffice && u.division === selectedDivision;
+      return doesUserMatchOffice(u, selectedOffice, offices) && doesUserMatchDivision(u, selectedDivision, divisions);
     });
-  }, [allUsers, selectedOffice, selectedDivision, activeSelectedGroup]);
+  }, [allUsers, selectedOffice, selectedDivision, activeSelectedGroup, offices, divisions]);
 
   const handleToggleMode = (mode: 'personal' | 'team') => {
     setCalendarMode(mode);
     if (mode === 'team') {
       let nextOffice = selectedOffice;
       if (selectedOffice === '全社' || selectedOffice === '全拠点') {
-        const targetOffice = currentUser?.office || officeNames.find(o => o !== '全社' && o !== '全拠点') || officeNames[0] || '';
+        const targetOffice = getUserOfficeName(currentUser, offices) || officeNames.find(o => o !== '全社' && o !== '全拠点') || officeNames[0] || '';
         if (targetOffice) {
           setSelectedOffice(targetOffice);
           nextOffice = targetOffice;
@@ -1296,7 +1324,7 @@ export function Calendar({
       }
       let nextDivision = selectedDivision;
       if (selectedDivision === '全部署') {
-        const targetDivision = currentUser?.division || divisionNames.find(d => d !== '全部署') || divisionNames[0] || '';
+        const targetDivision = getUserDivisionName(currentUser, divisions) || divisionNames.find(d => d !== '全部署') || divisionNames[0] || '';
         if (targetDivision) {
           setSelectedDivision(targetDivision);
           nextDivision = targetDivision;
@@ -4970,6 +4998,8 @@ export function Calendar({
         divisionNames={divisionNames}
         memberGroups={memberGroups}
         allUsers={allUsers}
+        offices={offices}
+        divisions={divisions}
         teamMembersCount={teamMembers.length}
         selectedTypeFilter={selectedTypeFilter}
         onSelectTypeFilter={setSelectedTypeFilter}
