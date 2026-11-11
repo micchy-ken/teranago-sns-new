@@ -4535,9 +4535,9 @@ export function Calendar({
             setIsCopyMode(true);
             setIsModalOpen(true);
           }}
-          onDelete={(event) => {
+          onDelete={(event, scope, instanceDate) => {
             if (onDeleteEvent) {
-              onDeleteEvent(event.id);
+              onDeleteEvent(event.id, scope || 'all', instanceDate || event.instanceDate);
             }
             setSelectedDetailEvent(null);
             if (onClearInitialEventId) onClearInitialEventId();

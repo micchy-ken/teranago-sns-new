@@ -111,14 +111,21 @@ const mapUserFromApi = (apiUser: any): User => {
     }
   };
 
+  const officeId = apiUser.officeId || mergedPreferences?.officeId || undefined;
+  const divisionId = apiUser.divisionId || mergedPreferences?.divisionId || undefined;
+  const positionId = apiUser.positionId || mergedPreferences?.positionId || undefined;
+
   return {
     ...apiUser,
     id: String(apiUser.id),
     name: apiUser.name || '名前未設定',
     avatarUrl: getAvatarUrl(apiUser.avatarUrl),
     department,
+    officeId,
     office,
+    divisionId,
     division,
+    positionId,
     position,
     role: isAdmin ? 'admin' : 'user',
     isAdmin: isAdmin,
@@ -2719,10 +2726,12 @@ export default function App() {
     } else {
       setConfirmModal({
         isOpen: true,
-        title: '予定の削除',
-        message: 'この予定を削除してもよろしいですか？',
+        title: hasRecurrence ? '定期予定（全期間）の削除' : '予定の削除',
+        message: hasRecurrence
+          ? 'この予定は繰り返し予定です。シリーズに含まれる【すべての予定（全期間）】が完全に削除されますが、本当によろしいですか？'
+          : 'この予定を削除してもよろしいですか？',
         type: 'danger',
-        confirmText: '削除する',
+        confirmText: hasRecurrence ? 'すべての予定を削除' : '削除する',
         cancelText: 'キャンセル',
         onConfirm: performDelete
       });
@@ -3943,12 +3952,17 @@ export default function App() {
         <GlobalEventDetailModal
           isOpen={!!globalSelectedEvent}
           event={globalSelectedEvent}
+          currentUser={userState}
           onNavigateToSite={handleNavigateToSite}
           onClose={() => setGlobalSelectedEvent(null)}
           onEditInCalendar={(eventId) => {
             // カレンダータブへ遷移して指定イベントを展開
             setActiveTab('calendar');
             setTargetEventId(eventId);
+          }}
+          onDelete={(evt, scope, instanceDate) => {
+            handleDeleteEvent(evt.id, scope || 'all', instanceDate || evt.instanceDate);
+            setGlobalSelectedEvent(null);
           }}
         />
       )}

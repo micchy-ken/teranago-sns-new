@@ -15,6 +15,16 @@ import {
 } from 'lucide-react';
 import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
 import { sortUsersByDivision } from '../utils/userSort';
+import {
+  resolveOffice,
+  resolveOfficeId,
+  resolveOfficeName,
+  doesUserMatchOffice,
+  resolveDivision,
+  resolveDivisionId,
+  resolveDivisionName,
+  doesUserMatchDivision,
+} from '../utils/masterResolver';
 
 export interface MemberSelectorProps {
   allUsers: User[];
@@ -40,7 +50,7 @@ export const MemberSelector: React.FC<MemberSelectorProps> = ({
   className = '',
   defaultExpanded = false
 }) => {
-  // 絞り込みフィルター状態
+  // 絞り込みフィルター状態（マスターIDまたは未登録文字列 / 'all'）
   const [selectedOffice, setSelectedOffice] = useState<string>('all');
   const [selectedDivision, setSelectedDivision] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -48,48 +58,58 @@ export const MemberSelector: React.FC<MemberSelectorProps> = ({
   // 全拠点以下のメンバー選択エリアのトグル状態
   const [isExpanded, setIsExpanded] = useState<boolean>(defaultExpanded);
 
-  // 利用可能な拠点リストの抽出 (Master＋allUsersからの集約)
+  // 利用可能な拠点リストの抽出 (Master ID主軸＋未登録拠点フォールバック)
   const officeOptions = useMemo(() => {
-    const list = new Set<string>();
-    offices.forEach(o => { if (o.name) list.add(o.name); });
+    const map = new Map<string, string>();
+    offices.forEach(o => {
+      if (o.id && o.name) map.set(String(o.id), o.name);
+    });
     allUsers.forEach(u => {
-      if (u.office) list.add(u.office);
-      // department から拠点を抽出する代替ロジック (例: "名古屋 営業" -> "名古屋")
-      else if (u.department) {
-        const parts = u.department.split(/\s+/);
-        if (parts.length > 0 && parts[0]) list.add(parts[0]);
+      const resolved = resolveOffice(u.officeId || u.office || u.department?.split(/\s+/)[0], offices);
+      if (resolved) {
+        map.set(String(resolved.id), resolved.name);
+      } else {
+        const raw = u.office || (u.department ? u.department.split(/\s+/)[0] : '');
+        if (raw && raw !== '未設定' && !map.has(raw)) {
+          map.set(raw, raw);
+        }
       }
     });
-    return Array.from(list);
+    return Array.from(map.entries()).map(([id, label]) => ({ id, label }));
   }, [offices, allUsers]);
 
-  // 利用可能な部署リストの抽出
+  // 利用可能な部署リストの抽出 (Master ID主軸＋未登録部署フォールバック)
   const divisionOptions = useMemo(() => {
-    const list = new Set<string>();
-    divisions.forEach(d => { if (d.name) list.add(d.name); });
+    const map = new Map<string, string>();
+    divisions.forEach(d => {
+      if (d.id && d.name) map.set(String(d.id), d.name);
+    });
     allUsers.forEach(u => {
-      if (u.division) list.add(u.division);
-      else if (u.department) {
-        const parts = u.department.split(/\s+/);
-        if (parts.length > 1 && parts[1]) list.add(parts[1]);
+      const deptPart = u.department ? u.department.split(/\s+/)[1] : '';
+      const resolved = resolveDivision(u.divisionId || u.division || deptPart, divisions);
+      if (resolved) {
+        map.set(String(resolved.id), resolved.name);
+      } else {
+        const raw = u.division || deptPart || '';
+        if (raw && raw !== '未設定' && !map.has(raw)) {
+          map.set(raw, raw);
+        }
       }
     });
-    return Array.from(list);
+    return Array.from(map.entries()).map(([id, label]) => ({ id, label }));
   }, [divisions, allUsers]);
 
-  // 条件によるユーザーの絞り込み
+  // 条件によるユーザーの絞り込み（マスターID照合＋後方互換）
   const filteredUsers = useMemo(() => {
     const list = allUsers.filter(u => {
-      // 拠点での絞り込み
+      // 拠点での絞り込み（マスターID正規化照合）
       if (selectedOffice !== 'all') {
-        const userOffice = u.office || u.department?.split(/\s+/)[0] || '';
-        if (userOffice !== selectedOffice) return false;
+        if (!doesUserMatchOffice(u, selectedOffice, offices)) return false;
       }
 
-      // 部署での絞り込み
+      // 部署での絞り込み（マスターID正規化照合）
       if (selectedDivision !== 'all') {
-        const userDivision = u.division || u.department?.split(/\s+/)[1] || u.department || '';
-        if (!userDivision.includes(selectedDivision)) return false;
+        if (!doesUserMatchDivision(u, selectedDivision, divisions)) return false;
       }
 
       // 検索ワードでの絞り込み (名前、フリガナ、メール等)
@@ -108,7 +128,7 @@ export const MemberSelector: React.FC<MemberSelectorProps> = ({
     });
 
     return sortUsersByDivision(list, divisions);
-  }, [allUsers, divisions, selectedOffice, selectedDivision, searchQuery]);
+  }, [allUsers, offices, divisions, selectedOffice, selectedDivision, searchQuery]);
 
   // 選択中ユーザーオブジェクト一覧
   const selectedUsers = useMemo(() => {
@@ -156,12 +176,12 @@ export const MemberSelector: React.FC<MemberSelectorProps> = ({
   // 絞り込み条件の表示用テキスト
   const filterLabel = useMemo(() => {
     const parts: string[] = [];
-    if (selectedOffice !== 'all') parts.push(`拠点「${selectedOffice}」`);
-    if (selectedDivision !== 'all') parts.push(`部署「${selectedDivision}」`);
+    if (selectedOffice !== 'all') parts.push(`拠点「${resolveOfficeName(selectedOffice, offices)}」`);
+    if (selectedDivision !== 'all') parts.push(`部署「${resolveDivisionName(selectedDivision, divisions)}」`);
     if (searchQuery) parts.push(`検索「${searchQuery}」`);
     if (parts.length === 0) return '全員';
     return parts.join(' / ');
-  }, [selectedOffice, selectedDivision, searchQuery]);
+  }, [selectedOffice, selectedDivision, searchQuery, offices, divisions]);
 
   return (
     <div className={`space-y-3 bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs ${className}`}>
@@ -273,7 +293,7 @@ export const MemberSelector: React.FC<MemberSelectorProps> = ({
               >
                 <option value="all">全拠点</option>
                 {officeOptions.map(off => (
-                  <option key={off} value={off}>{off}</option>
+                  <option key={off.id} value={off.id}>{off.label}</option>
                 ))}
               </select>
             </div>
@@ -289,7 +309,7 @@ export const MemberSelector: React.FC<MemberSelectorProps> = ({
               >
                 <option value="all">全部署</option>
                 {divisionOptions.map(div => (
-                  <option key={div} value={div}>{div}</option>
+                  <option key={div.id} value={div.id}>{div.label}</option>
                 ))}
               </select>
             </div>

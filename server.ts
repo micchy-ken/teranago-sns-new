@@ -3028,8 +3028,11 @@ async function startServer() {
       const {
         emails,
         role = 'user',
+        officeId = '',
         office = '',
+        divisionId = '',
         division = '',
+        positionId = '',
         position = '',
         department = '',
         expiresInDays = 7,
@@ -3069,8 +3072,11 @@ async function startServer() {
           email,
           token,
           role: role === 'admin' ? 'admin' : 'user',
+          officeId: officeId || undefined,
           office: office || '',
+          divisionId: divisionId || undefined,
           division: division || '',
+          positionId: positionId || undefined,
           position: position || '',
           department: deptString,
           expiresAt,
@@ -3279,8 +3285,11 @@ async function startServer() {
           id: target.id,
           email: target.email,
           role: target.role || 'user',
+          officeId: target.officeId || undefined,
           office: target.office || '',
+          divisionId: target.divisionId || undefined,
           division: target.division || '',
+          positionId: target.positionId || undefined,
           position: target.position || '',
           department: target.department || '',
           expiresAt: target.expiresAt
@@ -3300,8 +3309,11 @@ async function startServer() {
         kanaName,
         loginId,
         password,
+        officeId,
         office,
+        divisionId,
         division,
+        positionId,
         position,
         avatarUrl,
         mobileEmail,
@@ -3326,8 +3338,11 @@ async function startServer() {
       const users = loadUsers();
       const newUserId = `u-${Date.now()}`;
       const finalLoginId = (loginId || '').trim() || inv.email.split('@')[0] || `user_${Date.now().toString().slice(-4)}`;
+      const finalOfficeId = officeId || inv.officeId || undefined;
       const finalOffice = office || inv.office || '';
+      const finalDivisionId = divisionId || inv.divisionId || undefined;
       const finalDivision = division || inv.division || '';
+      const finalPositionId = positionId || inv.positionId || undefined;
       const finalPosition = position || inv.position || '';
       const deptString = [finalOffice, finalDivision, finalPosition].filter(Boolean).join(' ') || inv.department || '未設定';
       const finalRole = inv.role || 'user';
@@ -3340,8 +3355,11 @@ async function startServer() {
         name: name.trim(),
         kanaName: (kanaName || '').trim(),
         department: deptString,
+        officeId: finalOfficeId,
         office: finalOffice,
+        divisionId: finalDivisionId,
         division: finalDivision,
+        positionId: finalPositionId,
         position: finalPosition,
         role: finalRole,
         isAdmin,

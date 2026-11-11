@@ -1,7 +1,7 @@
 /**
  * routes/users.js (本番環境・MS SQL Server 連携 メンバー管理 & 認証モジュール)
  * 寺岡オートドアSNS ユーザー管理・所属・表示順・アバター・設定・サーバーサイド認証
- * 最終更新: 2026年10月30日 (パスワードソルト付きscryptハッシュ化・POST /auth/login サーバー認証・平文排除・メールプレフィックス柔軟照合版)
+ * 最終更新: 2026年11月11日 (マスターID主軸化 Step1: officeId / divisionId / positionId カラム自動マイグレーション＆後方互換ハイブリッド保存版)
  */
 import { Router } from 'express';
 import path from 'path';
@@ -139,11 +139,31 @@ function saveUserPrefs(userId, prefs) {
   }
 }
 
-// dbo.Users の実在カラム一覧のキャッシュと動的検出
+// dbo.Users の実在カラム一覧のキャッシュと動的検出（＋マスターIDカラム自動マイグレーション）
 let userTableColumnsCache = null;
+let masterIdColumnsChecked = false;
+
+async function ensureUserMasterIdColumns(pool) {
+  if (masterIdColumnsChecked || !pool) return;
+  masterIdColumnsChecked = true;
+  try {
+    await pool.request().query(`
+      IF COL_LENGTH('dbo.Users', 'officeId') IS NULL
+        ALTER TABLE dbo.Users ADD officeId NVARCHAR(64) NULL;
+      IF COL_LENGTH('dbo.Users', 'divisionId') IS NULL
+        ALTER TABLE dbo.Users ADD divisionId NVARCHAR(64) NULL;
+      IF COL_LENGTH('dbo.Users', 'positionId') IS NULL
+        ALTER TABLE dbo.Users ADD positionId NVARCHAR(64) NULL;
+    `);
+  } catch (err) {
+    console.warn('[Users] Master ID columns auto-migration skipped (using preferences fallback):', err.message);
+  }
+}
 
 async function getUserTableColumns(pool) {
-  if (userTableColumnsCache || !pool) return userTableColumnsCache;
+  if (!pool) return null;
+  await ensureUserMasterIdColumns(pool);
+  if (userTableColumnsCache) return userTableColumnsCache;
   try {
     const res = await pool.request().query("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Users'");
     if (res.recordset && res.recordset.length > 0) {
@@ -240,6 +260,9 @@ router.post(loginPaths, async (req, res) => {
 
         return {
           ...row,
+          officeId: row.officeId || prefs.officeId || undefined,
+          divisionId: row.divisionId || prefs.divisionId || undefined,
+          positionId: row.positionId || prefs.positionId || undefined,
           sortOrder: row.sortOrder !== undefined && row.sortOrder !== null ? Number(row.sortOrder) : undefined,
           roles: resolvedRoles,
           preferences: prefs,
@@ -444,6 +467,9 @@ router.get(['/users', '/users/', '/api/users', '/api/users/'], async (req, res) 
 
       const userObj = {
         ...row,
+        officeId: row.officeId || prefs.officeId || undefined,
+        divisionId: row.divisionId || prefs.divisionId || undefined,
+        positionId: row.positionId || prefs.positionId || undefined,
         sortOrder: row.sortOrder !== undefined && row.sortOrder !== null ? Number(row.sortOrder) : undefined,
         roles: resolvedRoles,
         preferences: prefs,
@@ -512,6 +538,9 @@ router.get(['/users/:id', '/api/users/:id'], async (req, res, next) => {
 
     const userObj = {
       ...row,
+      officeId: row.officeId || prefs.officeId || undefined,
+      divisionId: row.divisionId || prefs.divisionId || undefined,
+      positionId: row.positionId || prefs.positionId || undefined,
       sortOrder: row.sortOrder !== undefined && row.sortOrder !== null ? Number(row.sortOrder) : undefined,
       roles: resolvedRoles,
       preferences: prefs,
@@ -589,6 +618,9 @@ async function saveOrUpdateUser(req, res, targetUserId = null, next = null) {
       incomingPrefs = {};
     }
 
+    if (u.officeId !== undefined) incomingPrefs.officeId = u.officeId || undefined;
+    if (u.divisionId !== undefined) incomingPrefs.divisionId = u.divisionId || undefined;
+    if (u.positionId !== undefined) incomingPrefs.positionId = u.positionId || undefined;
     if (!hasRolesCol) {
       incomingPrefs.roles = rolesArr;
     }
@@ -611,6 +643,10 @@ async function saveOrUpdateUser(req, res, targetUserId = null, next = null) {
     }
     const prefStr = JSON.stringify(mergedPrefs);
 
+    const resolvedOfficeId = u.officeId !== undefined ? (u.officeId || null) : (mergedPrefs.officeId || null);
+    const resolvedDivisionId = u.divisionId !== undefined ? (u.divisionId || null) : (mergedPrefs.divisionId || null);
+    const resolvedPositionId = u.positionId !== undefined ? (u.positionId || null) : (mergedPrefs.positionId || null);
+
     const fallbackLoginId = (u.loginId && String(u.loginId).trim()) 
       ? String(u.loginId).trim() 
       : (u.email && u.email.includes('@') ? u.email.split('@')[0] : userId);
@@ -622,8 +658,11 @@ async function saveOrUpdateUser(req, res, targetUserId = null, next = null) {
       .input('name', sql.NVarChar, u.name || '')
       .input('kanaName', sql.NVarChar, u.kanaName || '')
       .input('department', sql.NVarChar, u.department || '')
+      .input('officeId', sql.NVarChar, resolvedOfficeId)
       .input('office', sql.NVarChar, u.office || '')
+      .input('divisionId', sql.NVarChar, resolvedDivisionId)
       .input('division', sql.NVarChar, u.division || '')
+      .input('positionId', sql.NVarChar, resolvedPositionId)
       .input('position', sql.NVarChar, u.position || '')
       .input('role', sql.VarChar, u.role || 'user')
       .input('isAdmin', sql.Bit, u.isAdmin ? 1 : 0)
@@ -656,8 +695,11 @@ async function saveOrUpdateUser(req, res, targetUserId = null, next = null) {
       { col: 'name', set: 'name = @name' },
       { col: 'kanaName', set: 'kanaName = @kanaName' },
       { col: 'department', set: 'department = @department' },
+      { col: 'officeId', set: 'officeId = @officeId' },
       { col: 'office', set: 'office = @office' },
+      { col: 'divisionId', set: 'divisionId = @divisionId' },
       { col: 'division', set: 'division = @division' },
+      { col: 'positionId', set: 'positionId = @positionId' },
       { col: 'position', set: 'position = @position' },
       { col: 'role', set: 'role = @role' },
       { col: 'isAdmin', set: 'isAdmin = @isAdmin' },
@@ -712,6 +754,9 @@ async function saveOrUpdateUser(req, res, targetUserId = null, next = null) {
         id: userId,
         loginId: fallbackLoginId,
         password: finalPassword,
+        officeId: resolvedOfficeId || undefined,
+        divisionId: resolvedDivisionId || undefined,
+        positionId: resolvedPositionId || undefined,
         sortOrder: parsedSortOrder,
         preferences: mergedPrefs,
         roles: rolesArr
@@ -724,7 +769,18 @@ async function saveOrUpdateUser(req, res, targetUserId = null, next = null) {
       saveUsers(fileUsers);
     } catch (_) {}
 
-    res.json({ id: userId, loginId: fallbackLoginId, sortOrder: parsedSortOrder, preferences: mergedPrefs, roles: rolesArr, success: true, message: 'ユーザー保存成功' });
+    res.json({
+      id: userId,
+      loginId: fallbackLoginId,
+      officeId: resolvedOfficeId || undefined,
+      divisionId: resolvedDivisionId || undefined,
+      positionId: resolvedPositionId || undefined,
+      sortOrder: parsedSortOrder,
+      preferences: mergedPrefs,
+      roles: rolesArr,
+      success: true,
+      message: 'ユーザー保存成功'
+    });
   } catch (err) { 
     console.error('[Users] saveOrUpdateUser error:', err);
     res.status(500).json({ error: err.message }); 

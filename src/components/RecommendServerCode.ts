@@ -1,7 +1,7 @@
 export const RECOMMEND_SERVER_JS = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年11月11日 (チャット内クイズ(@quiz)一括同梱＆初回描画サイズ確定対応：GET /api/chats・/api/chats/:roomId/messages でのクイズ・回答状況バッチ付与により初回1フレーム目から未回答/回答済みサイズで描画し既読スクロール位置ズレを防止)
+ * 最終更新日時 (最終アップデート): 2026年11月11日 (マスターID/コード主軸化 Step1：dbo.UsersへのofficeId/divisionId/positionId自動マイグレーション＆後方互換ハイブリッド保存、招待APIのID対応版)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -3049,8 +3049,11 @@ async function startServer() {
       const {
         emails,
         role = 'user',
+        officeId = '',
         office = '',
+        divisionId = '',
         division = '',
+        positionId = '',
         position = '',
         department = '',
         expiresInDays = 7,
@@ -3090,8 +3093,11 @@ async function startServer() {
           email,
           token,
           role: role === 'admin' ? 'admin' : 'user',
+          officeId: officeId || undefined,
           office: office || '',
+          divisionId: divisionId || undefined,
           division: division || '',
+          positionId: positionId || undefined,
           position: position || '',
           department: deptString,
           expiresAt,
@@ -3300,8 +3306,11 @@ async function startServer() {
           id: target.id,
           email: target.email,
           role: target.role || 'user',
+          officeId: target.officeId || undefined,
           office: target.office || '',
+          divisionId: target.divisionId || undefined,
           division: target.division || '',
+          positionId: target.positionId || undefined,
           position: target.position || '',
           department: target.department || '',
           expiresAt: target.expiresAt
@@ -3321,8 +3330,11 @@ async function startServer() {
         kanaName,
         loginId,
         password,
+        officeId,
         office,
+        divisionId,
         division,
+        positionId,
         position,
         avatarUrl,
         mobileEmail,
@@ -3347,8 +3359,11 @@ async function startServer() {
       const users = loadUsers();
       const newUserId = \`u-\${Date.now()}\`;
       const finalLoginId = (loginId || '').trim() || inv.email.split('@')[0] || \`user_\${Date.now().toString().slice(-4)}\`;
+      const finalOfficeId = officeId || inv.officeId || undefined;
       const finalOffice = office || inv.office || '';
+      const finalDivisionId = divisionId || inv.divisionId || undefined;
       const finalDivision = division || inv.division || '';
+      const finalPositionId = positionId || inv.positionId || undefined;
       const finalPosition = position || inv.position || '';
       const deptString = [finalOffice, finalDivision, finalPosition].filter(Boolean).join(' ') || inv.department || '未設定';
       const finalRole = inv.role || 'user';
@@ -3361,8 +3376,11 @@ async function startServer() {
         name: name.trim(),
         kanaName: (kanaName || '').trim(),
         department: deptString,
+        officeId: finalOfficeId,
         office: finalOffice,
+        divisionId: finalDivisionId,
         division: finalDivision,
+        positionId: finalPositionId,
         position: finalPosition,
         role: finalRole,
         isAdmin,
@@ -8427,6 +8445,11 @@ export interface ServerCodeHistoryItem {
 }
 
 export const SERVER_CODE_HISTORY: ServerCodeHistoryItem[] = [
+  {
+    version: 'v2026.11.11.9',
+    date: '2026-11-11',
+    summary: 'マスターID/コード主軸化 Step1：dbo.UsersへのofficeId/divisionId/positionId自動マイグレーション＆後方互換ハイブリッド保存、招待APIのID対応版',
+  },
   {
     version: 'v2026.11.11.7',
     date: '2026-11-11',

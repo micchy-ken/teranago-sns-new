@@ -1,4 +1,5 @@
 import { User, DivisionMaster } from '../types';
+import { getUserDivisionId, getUserDivisionName } from './masterResolver';
 
 /**
  * ユーザーのソート関数
@@ -24,7 +25,7 @@ export function sortUsers(users: User[]): User[] {
 /**
  * 部署ごとにソートしたユーザー配列
  * 優先順位:
- * 1. 部署マスタの順序 (指定がある場合)
+ * 1. 部署マスタの順序 (divisionId / code / name から解決)
  * 2. 部署名
  * 3. 部署内での sortOrder (昇順)
  * 4. 氏名/かな順
@@ -32,22 +33,32 @@ export function sortUsers(users: User[]): User[] {
 export function sortUsersByDivision(users: User[], divisions: DivisionMaster[] = []): User[] {
   const divisionOrderMap = new Map<string, number>();
   divisions.forEach((d, idx) => {
-    if (d.name) {
-      divisionOrderMap.set(d.name, idx);
-    }
+    if (d.id) divisionOrderMap.set(String(d.id), idx);
+    if (d.code) divisionOrderMap.set(String(d.code), idx);
+    if (d.name) divisionOrderMap.set(d.name, idx);
   });
 
   return [...users].sort((a, b) => {
-    const divA = a.division || a.department || '未設定';
-    const divB = b.division || b.department || '未設定';
+    const divIdA = getUserDivisionId(a, divisions) || a.division || a.department || '未設定';
+    const divIdB = getUserDivisionId(b, divisions) || b.division || b.department || '未設定';
 
-    if (divA !== divB) {
-      const idxA = divisionOrderMap.has(divA) ? divisionOrderMap.get(divA)! : 9999;
-      const idxB = divisionOrderMap.has(divB) ? divisionOrderMap.get(divB)! : 9999;
+    if (divIdA !== divIdB) {
+      const idxA = divisionOrderMap.has(divIdA)
+        ? divisionOrderMap.get(divIdA)!
+        : a.division && divisionOrderMap.has(a.division)
+        ? divisionOrderMap.get(a.division)!
+        : 9999;
+      const idxB = divisionOrderMap.has(divIdB)
+        ? divisionOrderMap.get(divIdB)!
+        : b.division && divisionOrderMap.has(b.division)
+        ? divisionOrderMap.get(b.division)!
+        : 9999;
       if (idxA !== idxB) {
         return idxA - idxB;
       }
-      return divA.localeCompare(divB, 'ja');
+      const nameA = getUserDivisionName(a, divisions) || divIdA;
+      const nameB = getUserDivisionName(b, divisions) || divIdB;
+      return nameA.localeCompare(nameB, 'ja');
     }
 
     const orderA = typeof a.sortOrder === 'number' ? a.sortOrder : 999999;

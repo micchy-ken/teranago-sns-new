@@ -86,9 +86,12 @@ export interface User {
   name: string;
   kanaName?: string;     // 名前（フリガナ）
   department: string;    // 表示用（例: 名古屋 営業）
-  office?: string;       // 所属拠点（例: 名古屋）
-  division?: string;     // 所属部署（例: 総務）
-  position?: string;     // 役職（例: 課長補佐）
+  officeId?: string;     // 所属拠点マスターID（例: off-1）
+  office?: string;       // 所属拠点表示名スナップショット（例: 名古屋）
+  divisionId?: string;   // 所属部署マスターID（例: div-1）
+  division?: string;     // 所属部署表示名スナップショット（例: 総務）
+  positionId?: string;   // 役職マスターID（例: pos-1）
+  position?: string;     // 役職表示名スナップショット（例: 課長補佐）
   avatarUrl: string;
   isAdmin?: boolean;
   role?: 'admin' | 'user';
@@ -117,8 +120,11 @@ export interface UserInvitation {
   email: string;
   token: string;
   role?: 'admin' | 'user';
+  officeId?: string;
   office?: string;
+  divisionId?: string;
   division?: string;
+  positionId?: string;
   position?: string;
   department?: string;
   expiresAt: string;
@@ -151,6 +157,7 @@ export interface PositionMaster {
   id: string;
   name: string; // 代表取締役, 部長, 課長, 課長補佐, 主任など（未選択時は役職なし/空欄）
   code: string;
+  level?: number; // 権限レベル（80: 支店長・役員級, 50: 課長級, 30: 主任・係長級, 10: 一般）
   description?: string;
 }
 

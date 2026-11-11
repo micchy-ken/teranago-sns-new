@@ -58,6 +58,26 @@ import {
 } from 'lucide-react';
 import { User, OfficeMaster, DivisionMaster, PositionMaster, OfficeType, ApprovalFlowRule, ApprovalStepConfig, ApplicationType, ApproverType, ItemMaster, WorkflowApplication, ApplicationStatus, UserInvitation } from '../types';
 import { sortUsers, sortUsersByDivision } from '../utils/userSort';
+import {
+  resolveOffice,
+  resolveOfficeId,
+  resolveOfficeName,
+  getUserOfficeId,
+  getUserOfficeName,
+  doesUserMatchOffice,
+  resolveDivision,
+  resolveDivisionId,
+  resolveDivisionName,
+  getUserDivisionId,
+  getUserDivisionName,
+  doesUserMatchDivision,
+  resolvePosition,
+  resolvePositionId,
+  resolvePositionName,
+  getUserPositionId,
+  getUserPositionName,
+  doesUserMatchPosition,
+} from '../utils/masterResolver';
 import { StampAdmin } from './StampAdmin';
 import { AdminLogs } from './AdminLogs';
 import { APP_VERSION } from '../config/version';
@@ -436,8 +456,11 @@ export function AdminPanel({
     kanaName: '',
     loginId: '',
     password: 'test',
+    officeId: '',
     office: '',
+    divisionId: '',
     division: '',
+    positionId: '',
     position: '',
     avatarUrl: '',
     email: '',
@@ -575,8 +598,11 @@ export function AdminPanel({
       kanaName: '',
       loginId: '',
       password: '',
+      officeId: '',
       office: '',
+      divisionId: '',
       division: '',
+      positionId: '',
       position: '',
       avatarUrl: '',
       email: '',
@@ -598,14 +624,20 @@ export function AdminPanel({
   const handleOpenEditUserModal = (user: User) => {
     setEditingUser(user);
     setShowUserPassword(false);
+    const resolvedOff = resolveOffice(user.officeId || user.office || user.department?.split(/\s+/)[0], offices);
+    const resolvedDiv = resolveDivision(user.divisionId || user.division || user.department?.split(/\s+/)[1], divisions);
+    const resolvedPos = resolvePosition(user.positionId || user.position, positions);
     setUserFormData({
       name: user.name,
       kanaName: user.kanaName || '',
       loginId: user.loginId || '',
       password: '', // パスワード変更時のみ入力（未変更時は空欄のまま保持）
-      office: user.office || '',
-      division: user.division || '',
-      position: user.position || '',
+      officeId: resolvedOff ? String(resolvedOff.id) : (user.officeId || ''),
+      office: resolvedOff ? resolvedOff.name : (user.office || ''),
+      divisionId: resolvedDiv ? String(resolvedDiv.id) : (user.divisionId || ''),
+      division: resolvedDiv ? resolvedDiv.name : (user.division || ''),
+      positionId: resolvedPos ? String(resolvedPos.id) : (user.positionId || ''),
+      position: resolvedPos ? resolvedPos.name : (user.position || ''),
       avatarUrl: user.avatarUrl || '',
       email: user.email || '',
       mobileEmail: user.mobileEmail || '',
@@ -629,16 +661,28 @@ export function AdminPanel({
       setUserFormError('氏名を入力してください。');
       return;
     }
-    if (!userFormData.office) {
+
+    const resolvedOff = resolveOffice(userFormData.officeId || userFormData.office, offices);
+    const resolvedDiv = resolveDivision(userFormData.divisionId || userFormData.division, divisions);
+    const resolvedPos = resolvePosition(userFormData.positionId || userFormData.position, positions);
+
+    const finalOfficeId = resolvedOff ? String(resolvedOff.id) : (userFormData.officeId || undefined);
+    const finalOfficeName = resolvedOff ? resolvedOff.name : (userFormData.office || '');
+    const finalDivisionId = resolvedDiv ? String(resolvedDiv.id) : (userFormData.divisionId || undefined);
+    const finalDivisionName = resolvedDiv ? resolvedDiv.name : (userFormData.division || '');
+    const finalPositionId = resolvedPos ? String(resolvedPos.id) : (userFormData.positionId || undefined);
+    const finalPositionName = resolvedPos ? resolvedPos.name : (userFormData.position || '');
+
+    if (!finalOfficeName) {
       setUserFormError('拠点を選択してください。');
       return;
     }
-    if (!userFormData.division) {
+    if (!finalDivisionName) {
       setUserFormError('部署を選択してください。');
       return;
     }
 
-    const deptString = [userFormData.office, userFormData.division, userFormData.position].filter(Boolean).join(' ');
+    const deptString = [finalOfficeName, finalDivisionName, finalPositionName].filter(Boolean).join(' ');
     const finalLoginId = (userFormData.loginId || '').trim() || `user_${Date.now().toString().slice(-4)}`;
 
     if (editingUser) {
@@ -652,9 +696,12 @@ export function AdminPanel({
         kanaName: (userFormData.kanaName || '').trim(),
         loginId: finalLoginId,
         password: effectivePassword,
-        office: userFormData.office,
-        division: userFormData.division,
-        position: userFormData.position,
+        officeId: finalOfficeId,
+        office: finalOfficeName,
+        divisionId: finalDivisionId,
+        division: finalDivisionName,
+        positionId: finalPositionId,
+        position: finalPositionName,
         department: deptString,
         avatarUrl: userFormData.avatarUrl,
         email: (userFormData.email || '').trim(),
@@ -669,6 +716,9 @@ export function AdminPanel({
         mustChangePassword: userFormData.mustChangePassword,
         preferences: {
           ...(editingUser.preferences || {}),
+          officeId: finalOfficeId,
+          divisionId: finalDivisionId,
+          positionId: finalPositionId,
           mustChangePassword: userFormData.mustChangePassword,
           showInspectionScheduler: userFormData.showInspectionScheduler,
           showSharedFiles: userFormData.showSharedFiles,
@@ -676,7 +726,7 @@ export function AdminPanel({
           hideInspectionScheduler: !userFormData.showInspectionScheduler,
           hideSharedFiles: !userFormData.showSharedFiles,
           hideSafetyConfirmation: !userFormData.showSafetyConfirmation,
-        },
+        } as any,
       });
     } else {
       const inputPw = userFormData.password.trim();
@@ -687,9 +737,12 @@ export function AdminPanel({
         kanaName: (userFormData.kanaName || '').trim(),
         loginId: finalLoginId,
         password: effectivePassword,
-        office: userFormData.office,
-        division: userFormData.division,
-        position: userFormData.position,
+        officeId: finalOfficeId,
+        office: finalOfficeName,
+        divisionId: finalDivisionId,
+        division: finalDivisionName,
+        positionId: finalPositionId,
+        position: finalPositionName,
         department: deptString,
         avatarUrl: userFormData.avatarUrl || '',
         email: (userFormData.email || '').trim(),
@@ -703,6 +756,9 @@ export function AdminPanel({
         supervisorId: userFormData.supervisorId || undefined,
         mustChangePassword: userFormData.mustChangePassword,
         preferences: {
+          officeId: finalOfficeId,
+          divisionId: finalDivisionId,
+          positionId: finalPositionId,
           mustChangePassword: userFormData.mustChangePassword,
           showInspectionScheduler: userFormData.showInspectionScheduler,
           showSharedFiles: userFormData.showSharedFiles,
@@ -710,7 +766,7 @@ export function AdminPanel({
           hideInspectionScheduler: !userFormData.showInspectionScheduler,
           hideSharedFiles: !userFormData.showSharedFiles,
           hideSafetyConfirmation: !userFormData.showSafetyConfirmation,
-        },
+        } as any,
       });
     }
 
@@ -742,8 +798,8 @@ export function AdminPanel({
   const handleOpenInviteModal = () => {
     setInviteEmails('');
     setInviteRole('user');
-    setInviteOffice(offices[0]?.name || '');
-    setInviteDivision(divisions[0]?.name || '');
+    setInviteOffice(offices[0]?.id || offices[0]?.name || '');
+    setInviteDivision(divisions[0]?.id || divisions[0]?.name || '');
     setInvitePosition('');
     setInviteExpiresDays(7);
     setInviteStatusMessage(null);
@@ -764,6 +820,10 @@ export function AdminPanel({
       return;
     }
 
+    const resolvedInviteOff = resolveOffice(inviteOffice, offices);
+    const resolvedInviteDiv = resolveDivision(inviteDivision, divisions);
+    const resolvedInvitePos = resolvePosition(invitePosition, positions);
+
     setIsSendingInvites(true);
     try {
       const res = await fetch(`${API_BASE_URL}/invitations`, {
@@ -772,9 +832,12 @@ export function AdminPanel({
         body: JSON.stringify({
           emails: emailList,
           role: inviteRole,
-          office: inviteOffice,
-          division: inviteDivision,
-          position: invitePosition,
+          officeId: resolvedInviteOff ? String(resolvedInviteOff.id) : undefined,
+          office: resolvedInviteOff ? resolvedInviteOff.name : inviteOffice,
+          divisionId: resolvedInviteDiv ? String(resolvedInviteDiv.id) : undefined,
+          division: resolvedInviteDiv ? resolvedInviteDiv.name : inviteDivision,
+          positionId: resolvedInvitePos ? String(resolvedInvitePos.id) : undefined,
+          position: resolvedInvitePos ? resolvedInvitePos.name : invitePosition,
           expiresInDays: inviteExpiresDays,
           createdByName: currentUser.name || '管理者'
         })
@@ -1662,7 +1725,7 @@ export function AdminPanel({
     setIsFlowModalOpen(false);
   };
 
-  // Filter and sort Users for List View
+  // Filter and sort Users for List View (Master ID canonical comparison)
   const filteredUsers = useMemo(() => {
     const list = allUsers.filter((u) => {
       const matchesSearch = 
@@ -1671,25 +1734,25 @@ export function AdminPanel({
         (u.kanaName && u.kanaName.toLowerCase().includes(searchQuery.toLowerCase())) ||
         (u.email && u.email.toLowerCase().includes(searchQuery.toLowerCase()));
 
-      const matchesOffice = selectedOfficeFilter === 'all' || u.office === selectedOfficeFilter;
-      const matchesDivision = selectedDivisionFilter === 'all' || u.division === selectedDivisionFilter;
+      const matchesOffice = doesUserMatchOffice(u, selectedOfficeFilter, offices);
+      const matchesDivision = doesUserMatchDivision(u, selectedDivisionFilter, divisions);
 
       return matchesSearch && matchesOffice && matchesDivision;
     });
 
     return sortUsersByDivision(list, divisions);
-  }, [allUsers, divisions, searchQuery, selectedOfficeFilter, selectedDivisionFilter]);
+  }, [allUsers, offices, divisions, searchQuery, selectedOfficeFilter, selectedDivisionFilter]);
 
   // 並び替え対象ユーザーリストの初期化・同期
   useEffect(() => {
     if (activeSubTab !== 'users') return;
     const targetUsers = allUsers.filter((u) => {
-      const matchOff = reorderOffice === 'all' || u.office === reorderOffice;
-      const matchDiv = reorderDivision === 'all' || u.division === reorderDivision;
+      const matchOff = doesUserMatchOffice(u, reorderOffice, offices);
+      const matchDiv = doesUserMatchDivision(u, reorderDivision, divisions);
       return matchOff && matchDiv;
     });
     setReorderList(sortUsersByDivision(targetUsers, divisions));
-  }, [activeSubTab, allUsers, reorderOffice, reorderDivision, divisions]);
+  }, [activeSubTab, allUsers, reorderOffice, reorderDivision, offices, divisions]);
 
   // 並び替え操作: 上下移動
   const moveUserInReorder = (index: number, direction: 'up' | 'down') => {
@@ -2113,8 +2176,8 @@ export function AdminPanel({
                 >
                   <option value="all">すべての拠点 ({allUsers.length}名)</option>
                   {offices.map((off) => (
-                    <option key={off.id} value={off.name}>
-                      {off.name} ({allUsers.filter((u) => u.office === off.name).length}名)
+                    <option key={off.id} value={off.id}>
+                      {off.name} ({allUsers.filter((u) => doesUserMatchOffice(u, off.id, offices)).length}名)
                     </option>
                   ))}
                 </select>
@@ -2126,8 +2189,8 @@ export function AdminPanel({
                 >
                   <option value="all">すべての部署</option>
                   {divisions.map((div) => (
-                    <option key={div.id} value={div.name}>
-                      {div.name} ({allUsers.filter((u) => u.division === div.name).length}名)
+                    <option key={div.id} value={div.id}>
+                      {div.name} ({allUsers.filter((u) => doesUserMatchDivision(u, div.id, divisions)).length}名)
                     </option>
                   ))}
                 </select>
@@ -2235,8 +2298,8 @@ export function AdminPanel({
                   >
                     <option value="all">すべての部署 ({allUsers.length}名)</option>
                     {divisions.map((d) => (
-                      <option key={d.id} value={d.name}>
-                        {d.name} ({allUsers.filter((u) => u.division === d.name).length}名)
+                      <option key={d.id} value={d.id}>
+                        {d.name} ({allUsers.filter((u) => doesUserMatchDivision(u, d.id, divisions)).length}名)
                       </option>
                     ))}
                   </select>
@@ -2252,7 +2315,7 @@ export function AdminPanel({
                   >
                     <option value="all">すべての拠点</option>
                     {offices.map((o) => (
-                      <option key={o.id} value={o.name}>
+                      <option key={o.id} value={o.id}>
                         {o.name}
                       </option>
                     ))}
@@ -2812,7 +2875,7 @@ export function AdminPanel({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {offices.map((off) => {
                 const badge = officeTypeLabels[off.type] || officeTypeLabels.branch;
-                const memberCount = allUsers.filter((u) => u.office === off.name).length;
+                const memberCount = allUsers.filter((u) => doesUserMatchOffice(u, off.id, offices)).length;
 
                 return (
                   <div key={off.id} className="p-5 bg-white border border-slate-200 rounded-xl shadow-xs space-y-3 relative hover:border-indigo-300 transition-colors">
@@ -2920,7 +2983,7 @@ export function AdminPanel({
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {divisions.map((div) => {
-                const memberCount = allUsers.filter((u) => u.division === div.name).length;
+                const memberCount = allUsers.filter((u) => doesUserMatchDivision(u, div.id, divisions)).length;
 
                 return (
                   <div key={div.id} className="p-4 bg-white border border-slate-200 rounded-xl shadow-xs space-y-2 relative hover:border-purple-300 transition-colors">
@@ -3008,7 +3071,7 @@ export function AdminPanel({
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {positions.map((pos) => {
-                const memberCount = allUsers.filter((u) => u.position === pos.name).length;
+                const memberCount = allUsers.filter((u) => doesUserMatchPosition(u, pos.id, positions)).length;
 
                 return (
                   <div key={pos.id} className="p-4 bg-white border border-slate-200 rounded-xl shadow-xs space-y-2 relative hover:border-indigo-300 transition-colors">
@@ -4516,20 +4579,28 @@ END;`}
                 </div>
               </div>
 
-              {/* Office, Division, Position */}
+              {/* Office, Division, Position (Master ID Canonical Selection) */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
                     拠点マスター <span className="text-red-500">*</span>
                   </label>
                   <select
-                    value={userFormData.office}
-                    onChange={(e) => setUserFormData({ ...userFormData, office: e.target.value })}
+                    value={userFormData.officeId || resolveOfficeId(userFormData.office, offices) || ''}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      const found = resolveOffice(val, offices);
+                      setUserFormData({
+                        ...userFormData,
+                        officeId: found ? String(found.id) : val,
+                        office: found ? found.name : val,
+                      });
+                    }}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
                   >
                     <option value="">-- 選択してください --</option>
                     {offices.map((off) => (
-                      <option key={off.id} value={off.name}>
+                      <option key={off.id} value={off.id}>
                         {off.name}
                       </option>
                     ))}
@@ -4541,13 +4612,21 @@ END;`}
                     部署マスター <span className="text-red-500">*</span>
                   </label>
                   <select
-                    value={userFormData.division}
-                    onChange={(e) => setUserFormData({ ...userFormData, division: e.target.value })}
+                    value={userFormData.divisionId || resolveDivisionId(userFormData.division, divisions) || ''}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      const found = resolveDivision(val, divisions);
+                      setUserFormData({
+                        ...userFormData,
+                        divisionId: found ? String(found.id) : val,
+                        division: found ? found.name : val,
+                      });
+                    }}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-purple-900 focus:outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer"
                   >
                     <option value="">-- 選択してください --</option>
                     {divisions.map((div) => (
-                      <option key={div.id} value={div.name}>
+                      <option key={div.id} value={div.id}>
                         {div.name}
                       </option>
                     ))}
@@ -4559,13 +4638,21 @@ END;`}
                     役職マスター <span className="text-slate-400 font-normal text-[10px]">（任意 / 未設定時は空欄）</span>
                   </label>
                   <select
-                    value={userFormData.position || ''}
-                    onChange={(e) => setUserFormData({ ...userFormData, position: e.target.value })}
+                    value={userFormData.positionId || resolvePositionId(userFormData.position, positions) || ''}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      const found = resolvePosition(val, positions);
+                      setUserFormData({
+                        ...userFormData,
+                        positionId: found ? String(found.id) : val,
+                        position: found ? found.name : val,
+                      });
+                    }}
                     className="w-full px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-lg text-xs font-bold text-indigo-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
                   >
                     <option value="">（役職なし / 空欄）</option>
                     {positions.filter(pos => pos.name !== '一般').map((pos) => (
-                      <option key={pos.id} value={pos.name}>
+                      <option key={pos.id} value={pos.id}>
                         {pos.name}
                       </option>
                     ))}
@@ -4577,7 +4664,11 @@ END;`}
               <div className="p-3 bg-indigo-50 rounded-xl border border-indigo-100 flex items-center justify-between text-xs">
                 <span className="text-slate-600 font-medium">登録表記プレビュー:</span>
                 <span className="font-extrabold text-indigo-900 text-xs bg-white px-3 py-1 rounded-lg border border-indigo-200 shadow-2xs">
-                  {[userFormData.office || '拠点未設定', userFormData.division || '部署未設定', userFormData.position].filter(Boolean).join(' / ')}
+                  {[
+                    resolveOfficeName(userFormData.officeId || userFormData.office, offices) || '拠点未設定',
+                    resolveDivisionName(userFormData.divisionId || userFormData.division, divisions) || '部署未設定',
+                    resolvePositionName(userFormData.positionId || userFormData.position, positions),
+                  ].filter(Boolean).join(' / ')}
                 </span>
               </div>
 
@@ -5681,7 +5772,7 @@ END;`}
                     >
                       <option value="">未指定</option>
                       {offices.map(o => (
-                        <option key={o.id} value={o.name}>{o.name}</option>
+                        <option key={o.id} value={o.id}>{o.name}</option>
                       ))}
                     </select>
                   </div>
@@ -5694,7 +5785,7 @@ END;`}
                     >
                       <option value="">未指定</option>
                       {divisions.map(d => (
-                        <option key={d.id} value={d.name}>{d.name}</option>
+                        <option key={d.id} value={d.id}>{d.name}</option>
                       ))}
                     </select>
                   </div>
@@ -5707,7 +5798,7 @@ END;`}
                     >
                       <option value="">未指定</option>
                       {positions.map(p => (
-                        <option key={p.id} value={p.name}>{p.name}</option>
+                        <option key={p.id} value={p.id}>{p.name}</option>
                       ))}
                     </select>
                   </div>

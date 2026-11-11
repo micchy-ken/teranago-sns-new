@@ -22,13 +22,15 @@ import {
 } from 'lucide-react';
 import { CalendarEvent, EventType, User, AttachmentFile } from '../types';
 import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
-import { getRecurrenceLabel, isRecurringEvent } from '../utils/recurrenceUtils';
+import { getRecurrenceLabel, isRecurringEvent, isExpandedRecurrenceId, extractDateFromInstanceId } from '../utils/recurrenceUtils';
 import { renderContentWithLinks } from '../utils/renderContentWithLinks';
 import { markEventAsRead } from '../utils/notifications';
 import { triggerOpenUserModal } from '../utils/userModal';
 import { FilePreviewModal } from './FilePreviewModal';
 import { isPreviewable } from '../utils/fileUpload';
 import { formatTimeJST, getLocalDateStr } from '../utils/dateUtils';
+import { RecurrenceActionModal, RecurrenceActionScope } from './RecurrenceActionModal';
+import { ConfirmModal } from './ConfirmModal';
 
 export interface GlobalEventDetailModalProps {
   isOpen: boolean;
@@ -36,7 +38,7 @@ export interface GlobalEventDetailModalProps {
   onClose: () => void;
   onEdit?: (event: CalendarEvent) => void;
   onCopyAndAdd?: (event: CalendarEvent) => void;
-  onDelete?: (event: CalendarEvent) => void;
+  onDelete?: (event: CalendarEvent, scope?: RecurrenceActionScope, instanceDate?: string) => void;
   onEditInCalendar?: (eventId: string) => void;
   onNavigateToSite?: (siteIdOrCode: string) => void;
   currentUser?: User;
@@ -77,6 +79,8 @@ export function GlobalEventDetailModal({
 }: GlobalEventDetailModalProps) {
   const [previewFile, setPreviewFile] = useState<AttachmentFile | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [isRecurrenceModalOpen, setIsRecurrenceModalOpen] = useState(false);
+  const [isConfirmDeleteOpen, setIsConfirmDeleteOpen] = useState(false);
 
   useEffect(() => {
     if (isOpen && event && currentUser?.id) {
@@ -88,6 +92,45 @@ export function GlobalEventDetailModal({
   }, [isOpen, event, currentUser?.id]);
 
   if (!isOpen || !event) return null;
+
+  const isRecurring = Boolean(
+    isRecurringEvent(event) ||
+    isExpandedRecurrenceId(event.id) ||
+    event.recurrenceParentId ||
+    event.instanceDate ||
+    (event.recurrence && event.recurrence.frequency && event.recurrence.frequency !== 'none')
+  );
+
+  const currentInstanceDate = event.instanceDate || (
+    isExpandedRecurrenceId(event.id)
+      ? extractDateFromInstanceId(event.id)
+      : (event.start ? getLocalDateStr(new Date(event.start)) : undefined)
+  );
+
+  const handleDeleteClick = () => {
+    if (!event || !onDelete) return;
+    if (isRecurring) {
+      setIsRecurrenceModalOpen(true);
+    } else {
+      setIsConfirmDeleteOpen(true);
+    }
+  };
+
+  const handleConfirmRecurrenceDelete = (scope: RecurrenceActionScope) => {
+    setIsRecurrenceModalOpen(false);
+    if (event && onDelete) {
+      onDelete(event, scope, currentInstanceDate);
+      onClose();
+    }
+  };
+
+  const handleConfirmSingleDelete = () => {
+    setIsConfirmDeleteOpen(false);
+    if (event && onDelete) {
+      onDelete(event, 'all', currentInstanceDate);
+      onClose();
+    }
+  };
 
   const formatDateWithDay = (isoStr?: string, includeTime = true) => {
     if (!isoStr) return '';
@@ -451,9 +494,7 @@ export function GlobalEventDetailModal({
             {onDelete && !isIcal && (
               <button
                 type="button"
-                onClick={() => {
-                  onDelete(event);
-                }}
+                onClick={handleDeleteClick}
                 className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-rose-600 hover:text-rose-700 hover:bg-rose-50 border border-rose-200 rounded-xl transition-all cursor-pointer"
                 title="予定を削除します"
               >
@@ -522,6 +563,32 @@ export function GlobalEventDetailModal({
         onClose={() => setIsPreviewOpen(false)}
         file={previewFile}
       />
+
+      {/* 定期予定の削除範囲確認モーダル */}
+      {isRecurrenceModalOpen && (
+        <RecurrenceActionModal
+          isOpen={isRecurrenceModalOpen}
+          mode="delete"
+          title="定期予定の削除範囲を選択"
+          instanceDate={currentInstanceDate}
+          onClose={() => setIsRecurrenceModalOpen(false)}
+          onConfirm={handleConfirmRecurrenceDelete}
+        />
+      )}
+
+      {/* 単発予定の削除確認モーダル */}
+      {isConfirmDeleteOpen && (
+        <ConfirmModal
+          isOpen={isConfirmDeleteOpen}
+          title="予定の削除"
+          message={`「${event.title || 'この予定'}」を削除してもよろしいですか？`}
+          confirmText="削除する"
+          cancelText="キャンセル"
+          type="danger"
+          onConfirm={handleConfirmSingleDelete}
+          onClose={() => setIsConfirmDeleteOpen(false)}
+        />
+      )}
     </div>
   );
 }

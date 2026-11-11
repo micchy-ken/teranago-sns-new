@@ -108,6 +108,7 @@ import { MyPageDisplaySettingsModal, DEFAULT_SECTION_COUNTS, DEFAULT_ENV_SETTING
 import { isTopicCurrentlyPinned, formatPinnedUntilBadge, getPollDeadlineMs } from '../utils/boardHelpers';
 import { ApprovalFlowRule, ItemMaster, ApplicationStatus, MyPageSectionCounts, MyPageEnvSettings } from '../types';
 import { SchedulePoll } from '../types/schedulePoll';
+import { RecurrenceActionScope } from './RecurrenceActionModal';
 
 interface MyPageProps {
   user: User;
@@ -132,13 +133,14 @@ interface MyPageProps {
     reportId?: string;
     openCreateMemo?: boolean;
   }) => void;
+  onSelectTag?: (tag: string) => void;
   onUpdateUser?: (updatedUser: User) => void;
   onUpdateMemo?: (updatedMemos: Memo[]) => void;
   onUpdateTopic?: (updatedTopic: BoardTopic) => void;
   onUpdateApplication?: (updatedApp: WorkflowApplication) => void;
   onAddEvent?: (eventData: Omit<CalendarEvent, 'id'>) => Promise<void> | void;
   onUpdateEvent?: (event: CalendarEvent) => Promise<void> | void;
-  onDeleteEvent?: (eventId: string) => Promise<void> | void;
+  onDeleteEvent?: (eventId: string, scope?: RecurrenceActionScope, instanceDate?: string) => Promise<void> | void;
   onAddTopic?: (topicData: Omit<BoardTopic, 'id' | 'createdAt' | 'views' | 'commentsCount'>) => Promise<void> | void;
   onAddApplication?: (application: Omit<WorkflowApplication, 'id' | 'createdAt' | 'status'> & { status?: ApplicationStatus }) => Promise<void> | void;
   approvalFlows?: ApprovalFlowRule[];
@@ -2526,9 +2528,9 @@ export function MyPage({
             setIsCopyMode(true);
             setIsEventModalOpen(true);
           }}
-          onDelete={(evt) => {
+          onDelete={(evt, scope, instanceDate) => {
             if (onDeleteEvent) {
-              onDeleteEvent(evt.id);
+              onDeleteEvent(evt.id, scope || 'all', instanceDate || evt.instanceDate);
             }
             setSelectedEvent(null);
           }}
