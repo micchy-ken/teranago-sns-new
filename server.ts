@@ -7372,15 +7372,25 @@ async function startServer() {
   const saveMaintenanceConfigHandler = (req: any, res: any) => {
     let list = loadJsonMaster(maintenanceConfigsFilePath, []);
     const body = req.body || {};
+    const normBase = (raw?: string) => (raw || '').trim().replace(/(支店|営業所|本社|出張所|事務所|センター)$/, '').trim();
     if (Array.isArray(body)) {
       list = body;
-    } else if (body && (body.officeName || body.id)) {
+    } else if (body && (body.officeId || body.officeName || body.id)) {
       const officeName = body.officeName || req.params.officeName || body.id;
-      const index = list.findIndex((c: any) => c.officeName === officeName || c.id === body.id);
+      const officeId = body.officeId || undefined;
+      const targetNorm = normBase(officeName);
+      const index = list.findIndex((c: any) =>
+        (officeId && c.officeId && String(c.officeId) === String(officeId)) ||
+        (body.id && c.id === body.id) ||
+        c.officeName === officeName ||
+        (targetNorm && normBase(c.officeName) === targetNorm)
+      );
       const newConfig = {
+        ...(index >= 0 ? list[index] : {}),
         ...body,
+        officeId: officeId || (index >= 0 ? list[index].officeId : undefined),
         officeName,
-        id: body.id || `cfg-office-${officeName}`,
+        id: body.id || (officeId ? `cfg-office-${officeId}` : `cfg-office-${officeName}`),
         updatedAt: new Date().toISOString()
       };
       if (index >= 0) {

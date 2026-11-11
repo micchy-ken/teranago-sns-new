@@ -639,6 +639,7 @@ export interface ReportApprovalRecord {
   step: number;
   approverId: string;
   approverName: string;
+  approverPositionId?: string;
   approverPosition?: string;
   comment?: string;
   action: 'forwarded' | 'final_approved' | 'remanded' | 'submitted';
@@ -689,8 +690,9 @@ export interface MaintenanceReportScheduleMapping {
 
 // 保守日報 拠点別設定マスター
 export interface MaintenanceReportOfficeConfig {
-  id: string;                       // 例: 'cfg-office-名古屋'
-  officeName: string;               // 拠点名 (例: '名古屋')
+  id: string;                       // 例: 'cfg-office-off-1' または 'cfg-office-名古屋'
+  officeId?: string;                // 拠点マスターID (例: 'off-1')
+  officeName: string;               // 拠点表示名スナップショット (例: '名古屋')
   visibleColumns: MaintenanceReportVisibleColumns;
   pointSettings: MaintenanceReportPointSettings;
   scheduleMapping: MaintenanceReportScheduleMapping;
@@ -710,7 +712,9 @@ export interface DailyReport {
   weekStartDate?: string; // e.g. '2026-08-17'
   week_label?: string; // e.g. '2026年8月17日週'
   weekLabel?: string; // e.g. '2026年8月17日週'
-  department?: string; // 部署 (例: '営業', '工務', '保守', '汎用')
+  officeId?: string; // 拠点マスターID
+  divisionId?: string; // 部署マスターID
+  department?: string; // 部署表示名 (例: '営業', '工務', '保守', '汎用')
   tasks: string; // 今週の業務内容 / 本日の業務内容
   results?: string; // 成果・気づき (互換用)
   achievements?: string; // 成果・気づき (新カラム)

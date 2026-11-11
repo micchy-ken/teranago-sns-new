@@ -542,3 +542,65 @@ export function getPositionRoleType(
 
   return 'staff';
 }
+
+/**
+ * ユーザーが保守系部署に所属しているか判定する（マスターID / コード / 名称両対応）
+ */
+export function isUserInMaintenanceDivision(
+  user: Partial<User> | undefined | null,
+  divisions: DivisionMaster[] = []
+): boolean {
+  if (!user) return false;
+  const divMaster = getUserDivision(user, divisions);
+  if (divMaster) {
+    const code = (divMaster.code || '').trim().toUpperCase();
+    const id = String(divMaster.id || '').trim().toLowerCase();
+    if (
+      id === 'div-5' ||
+      code === 'DIV-005' ||
+      code.startsWith('MAINT') ||
+      code.includes('SERVICE') ||
+      (divMaster.name && divMaster.name.includes('保守'))
+    ) {
+      return true;
+    }
+  }
+  return Boolean(
+    (user.division && user.division.includes('保守')) ||
+    (user.department && user.department.includes('保守'))
+  );
+}
+
+/**
+ * 拠点別設定リストから、拠点IDまたは名称（「名古屋」⇔「名古屋支店」等の表記ゆれ含む）で設定を解決する
+ */
+export function findOfficeConfig<T extends { id?: string; officeId?: string; officeName?: string }>(
+  configs: T[] | undefined | null,
+  officeIdOrName: string | undefined | null,
+  offices: OfficeMaster[] = []
+): T | undefined {
+  if (!configs || !Array.isArray(configs) || configs.length === 0 || !officeIdOrName) {
+    return undefined;
+  }
+  const target = String(officeIdOrName).trim();
+  if (!target) return undefined;
+
+  const resolvedOffice = resolveOffice(target, offices);
+  const targetId = resolvedOffice ? String(resolvedOffice.id) : '';
+
+  // 1. officeId 完全一致
+  if (targetId) {
+    const byOfficeId = configs.find(
+      (c) => c.officeId && String(c.officeId).trim().toLowerCase() === targetId.toLowerCase()
+    );
+    if (byOfficeId) return byOfficeId;
+  }
+
+  // 2. officeName 完全一致
+  const byExactName = configs.find((c) => c.officeName === target);
+  if (byExactName) return byExactName;
+
+  // 3. isSameOffice による正規化・マスター横断一致（例: "名古屋" <-> "名古屋支店" <-> "off-1"）
+  return configs.find((c) => isSameOffice(c.officeId || c.officeName || c.id?.replace(/^cfg-office-/, ''), target, offices));
+}
+

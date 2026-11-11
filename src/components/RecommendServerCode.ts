@@ -1,7 +1,7 @@
 export const RECOMMEND_SERVER_JS = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年11月11日 (マスターID/コード主軸化 Step1：dbo.UsersへのofficeId/divisionId/positionId自動マイグレーション＆後方互換ハイブリッド保存、招待APIのID対応版)
+ * 最終更新日時 (最終アップデート): 2026年11月11日 (マスターID/コード主軸化 Step3：保守日報拠点設定(maintenance-configs)のofficeId主軸照合＆拠点名表記ゆれ吸収・Positionsマスターcode/level保存対応版)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -7393,15 +7393,25 @@ async function startServer() {
   const saveMaintenanceConfigHandler = (req: any, res: any) => {
     let list = loadJsonMaster(maintenanceConfigsFilePath, []);
     const body = req.body || {};
+    const normBase = (raw?: string) => (raw || '').trim().replace(/(支店|営業所|本社|出張所|事務所|センター)$/, '').trim();
     if (Array.isArray(body)) {
       list = body;
-    } else if (body && (body.officeName || body.id)) {
+    } else if (body && (body.officeId || body.officeName || body.id)) {
       const officeName = body.officeName || req.params.officeName || body.id;
-      const index = list.findIndex((c: any) => c.officeName === officeName || c.id === body.id);
+      const officeId = body.officeId || undefined;
+      const targetNorm = normBase(officeName);
+      const index = list.findIndex((c: any) =>
+        (officeId && c.officeId && String(c.officeId) === String(officeId)) ||
+        (body.id && c.id === body.id) ||
+        c.officeName === officeName ||
+        (targetNorm && normBase(c.officeName) === targetNorm)
+      );
       const newConfig = {
+        ...(index >= 0 ? list[index] : {}),
         ...body,
+        officeId: officeId || (index >= 0 ? list[index].officeId : undefined),
         officeName,
-        id: body.id || \`cfg-office-\${officeName}\`,
+        id: body.id || (officeId ? \`cfg-office-\${officeId}\` : \`cfg-office-\${officeName}\`),
         updatedAt: new Date().toISOString()
       };
       if (index >= 0) {
@@ -8445,6 +8455,11 @@ export interface ServerCodeHistoryItem {
 }
 
 export const SERVER_CODE_HISTORY: ServerCodeHistoryItem[] = [
+  {
+    version: 'v2026.11.11.11',
+    date: '2026-11-11',
+    summary: 'マスターID/コード主軸化 Step3：保守日報拠点設定(maintenance-configs)のofficeId主軸照合＆拠点名表記ゆれ吸収・Positionsマスターcode/level保存対応版',
+  },
   {
     version: 'v2026.11.11.9',
     date: '2026-11-11',

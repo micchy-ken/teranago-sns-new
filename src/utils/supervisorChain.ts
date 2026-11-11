@@ -1,11 +1,18 @@
-import { User, ReportApprovalRecord } from '../types';
+import { User, ReportApprovalRecord, PositionMaster, OfficeMaster } from '../types';
+import { getPositionRoleType, isSameOffice } from './masterResolver';
 
 /**
  * 支店長（または最終承認権限者）かどうかを判定する
- * 役職(position)または部署(department)に「支店長」「所長」「代表取締役」「社長」「役員」「支部長」が含まれるか判定
+ * 役職マスターの level (>= 80) / code を最優先し、フォールバックとして役職名・部署名を判定
  */
-export function isBranchManager(user: User | null | undefined): boolean {
+export function isBranchManager(
+  user: Partial<User> | null | undefined,
+  positions: PositionMaster[] = []
+): boolean {
   if (!user) return false;
+  if (getPositionRoleType(user, positions) === 'branch_manager') {
+    return true;
+  }
   const pos = (user.position || '').toLowerCase();
   const dept = (user.department || '').toLowerCase();
   const div = (user.division || '').toLowerCase();
@@ -24,12 +31,46 @@ export function isBranchManager(user: User | null | undefined): boolean {
 }
 
 /**
+ * 課長（または第2承認権限者）かどうかを判定する
+ * 役職マスターの level (50〜79) / code を優先し、フォールバックとして役職名を判定
+ */
+export function isSectionManager(
+  user: Partial<User> | null | undefined,
+  positions: PositionMaster[] = []
+): boolean {
+  if (!user) return false;
+  if (getPositionRoleType(user, positions) === 'section_manager') {
+    return true;
+  }
+  const pos = (user.position || '').toLowerCase();
+  return pos.includes('課長') || pos.includes('次長') || pos.includes('マネージャー');
+}
+
+/**
+ * 係長・主任（または第1承認権限者）かどうかを判定する
+ * 役職マスターの level (30〜49) / code を優先し、フォールバックとして役職名を判定
+ */
+export function isChiefOrAssistant(
+  user: Partial<User> | null | undefined,
+  positions: PositionMaster[] = []
+): boolean {
+  if (!user) return false;
+  if (getPositionRoleType(user, positions) === 'chief') {
+    return true;
+  }
+  const pos = (user.position || '').toLowerCase();
+  return pos.includes('係長') || pos.includes('主任') || pos.includes('リーダー') || pos.includes('チーフ');
+}
+
+/**
  * 作成者から支店長（最終承認者）までの多段階上長チェーンを動的解決する
  * 例: [係長 水野] -> [課長 山道] -> [支店長 寺岡]
  */
 export function resolveSupervisorChain(
   author: User | null | undefined,
-  allUsers: User[] = []
+  allUsers: User[] = [],
+  positions: PositionMaster[] = [],
+  offices: OfficeMaster[] = []
 ): User[] {
   if (!author || !Array.isArray(allUsers) || allUsers.length === 0) return [];
 
@@ -50,21 +91,21 @@ export function resolveSupervisorChain(
     current = nextSup;
 
     // 支店長（最終承認者）に到達した場合はチェーン終了
-    if (isBranchManager(nextSup)) {
+    if (isBranchManager(nextSup, positions)) {
       break;
     }
   }
 
   // もしチェーン末尾が支店長で終わっておらず、拠点内に支店長/所長が存在する場合は最終承認者として補完
   const lastApprover = chain.length > 0 ? chain[chain.length - 1] : author;
-  if (!isBranchManager(lastApprover)) {
-    const targetOffice = author.office || lastApprover?.office;
+  if (!isBranchManager(lastApprover, positions)) {
+    const targetOffice = author.officeId || author.office || lastApprover?.officeId || lastApprover?.office;
     const branchManager = allUsers.find(
       u =>
         u.id !== author.id &&
         !visited.has(u.id) &&
-        (isBranchManager(u) || (u.position || '').includes('支店長') || (u.position || '').includes('所長')) &&
-        (!targetOffice || !u.office || u.office === targetOffice)
+        isBranchManager(u, positions) &&
+        (!targetOffice || !(u.officeId || u.office) || isSameOffice(u.officeId || u.office, targetOffice, offices))
     );
     if (branchManager) {
       chain.push(branchManager);
@@ -81,12 +122,14 @@ export function resolveSupervisorChain(
 export function getNextSupervisor(
   currentApprover: User | null | undefined,
   author: User | null | undefined,
-  allUsers: User[] = []
+  allUsers: User[] = [],
+  positions: PositionMaster[] = [],
+  offices: OfficeMaster[] = []
 ): User | null {
   if (!currentApprover || !Array.isArray(allUsers) || allUsers.length === 0) return null;
 
   // 既に支店長（最終承認者）の場合は次の上長はいない（自身が最終承認）
-  if (isBranchManager(currentApprover)) {
+  if (isBranchManager(currentApprover, positions)) {
     return null;
   }
 
@@ -100,7 +143,7 @@ export function getNextSupervisor(
 
   // 2. 作成者からの承認チェーンに基づいて、次のステップの承認者を取得
   if (author) {
-    const chain = resolveSupervisorChain(author, allUsers);
+    const chain = resolveSupervisorChain(author, allUsers, positions, offices);
     const currIdx = chain.findIndex(u => u.id === currentApprover.id);
     if (currIdx >= 0 && currIdx < chain.length - 1) {
       return chain[currIdx + 1];
@@ -115,12 +158,12 @@ export function getNextSupervisor(
   }
 
   // 3. 拠点の支店長/所長を探す（フォールバック）
-  const officeName = currentApprover.office || author?.office;
+  const targetOffice = currentApprover.officeId || currentApprover.office || author?.officeId || author?.office;
   const branchManager = allUsers.find(
     u =>
       u.id !== currentApprover.id &&
-      isBranchManager(u) &&
-      (!officeName || !u.office || u.office === officeName)
+      isBranchManager(u, positions) &&
+      (!targetOffice || !(u.officeId || u.office) || isSameOffice(u.officeId || u.office, targetOffice, offices))
   );
 
   return branchManager || null;

@@ -8,6 +8,7 @@ import {
 } from '../../types';
 import { API_BASE_URL } from '../../config/api';
 import { ConfirmModal, ConfirmModalState } from '../ConfirmModal';
+import { findOfficeConfig, resolveOffice, isSameOffice } from '../../utils/masterResolver';
 import { 
   Building2, 
   Check, 
@@ -34,9 +35,10 @@ interface MaintenanceOfficeConfigAdminProps {
 }
 
 // デフォルト設定生成関数
-export function createDefaultOfficeConfig(officeName: string): MaintenanceReportOfficeConfig {
+export function createDefaultOfficeConfig(officeName: string, officeId?: string): MaintenanceReportOfficeConfig {
   return {
-    id: `cfg-office-${officeName}`,
+    id: officeId ? `cfg-office-${officeId}` : `cfg-office-${officeName}`,
+    officeId,
     officeName,
     visibleColumns: {
       directGoReturn: true,
@@ -92,19 +94,20 @@ export function MaintenanceOfficeConfigAdmin({ offices }: MaintenanceOfficeConfi
   const [selectedOfficeName, setSelectedOfficeName] = useState<string>(() => {
     return offices[0]?.name || '名古屋支店';
   });
-  const [currentConfig, setCurrentConfig] = useState<MaintenanceReportOfficeConfig>(() => {
+  const [ currentConfig, setCurrentConfig ] = useState<MaintenanceReportOfficeConfig>(() => {
     const targetOffice = offices[0]?.name || '名古屋支店';
+    const targetOfficeId = offices[0]?.id;
     try {
       const cached = localStorage.getItem('teranago_maintenance_office_configs_cache');
       if (cached) {
         const parsed = JSON.parse(cached);
         if (Array.isArray(parsed)) {
-          const found = parsed.find((c: any) => c.officeName === targetOffice);
+          const found = findOfficeConfig(parsed, targetOfficeId || targetOffice, offices);
           if (found) return found;
         }
       }
     } catch (e) {}
-    return createDefaultOfficeConfig(targetOffice);
+    return createDefaultOfficeConfig(targetOffice, targetOfficeId);
   });
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -128,12 +131,13 @@ export function MaintenanceOfficeConfigAdmin({ offices }: MaintenanceOfficeConfi
           try {
             localStorage.setItem('teranago_maintenance_office_configs_cache', JSON.stringify(data));
           } catch (e) {}
-          // 選択中拠点の設定があれば反映
-          const existing = data.find((c: MaintenanceReportOfficeConfig) => c.officeName === selectedOfficeName);
+          // 選択中拠点の設定があれば反映（マスターID・表記ゆれ吸収対応）
+          const matchedOffice = resolveOffice(selectedOfficeName, offices);
+          const existing = findOfficeConfig(data, matchedOffice?.id || selectedOfficeName, offices);
           if (existing) {
             setCurrentConfig(existing);
           } else {
-            setCurrentConfig(createDefaultOfficeConfig(selectedOfficeName));
+            setCurrentConfig(createDefaultOfficeConfig(selectedOfficeName, matchedOffice?.id));
           }
         }
       })
@@ -150,11 +154,12 @@ export function MaintenanceOfficeConfigAdmin({ offices }: MaintenanceOfficeConfi
   // 選択拠点変更時
   const handleSelectOffice = (officeName: string) => {
     setSelectedOfficeName(officeName);
-    const existing = configs.find((c) => c.officeName === officeName);
+    const matchedOffice = resolveOffice(officeName, offices);
+    const existing = findOfficeConfig(configs, matchedOffice?.id || officeName, offices);
     if (existing) {
       setCurrentConfig(existing);
     } else {
-      setCurrentConfig(createDefaultOfficeConfig(officeName));
+      setCurrentConfig(createDefaultOfficeConfig(officeName, matchedOffice?.id));
     }
     setSaveMessage(null);
   };
@@ -229,7 +234,7 @@ export function MaintenanceOfficeConfigAdmin({ offices }: MaintenanceOfficeConfi
       return;
     }
 
-    const sourceConfig = configs.find((c) => c.officeName === sourceOfficeForCopy);
+    const sourceConfig = findOfficeConfig(configs, sourceOfficeForCopy, offices);
     if (!sourceConfig) {
       alert(`「${sourceOfficeForCopy}」の設定データが見つかりません。`);
       return;
@@ -243,9 +248,11 @@ export function MaintenanceOfficeConfigAdmin({ offices }: MaintenanceOfficeConfi
       cancelText: 'キャンセル',
       type: 'warning',
       onConfirm: () => {
+        const matchedOffice = resolveOffice(selectedOfficeName, offices);
         setCurrentConfig({
           ...sourceConfig,
-          id: currentConfig.id || `cfg-office-${selectedOfficeName}`,
+          id: currentConfig.id || (matchedOffice?.id ? `cfg-office-${matchedOffice.id}` : `cfg-office-${selectedOfficeName}`),
+          officeId: matchedOffice?.id,
           officeName: selectedOfficeName,
           updatedAt: new Date().toISOString(),
         });
@@ -260,10 +267,12 @@ export function MaintenanceOfficeConfigAdmin({ offices }: MaintenanceOfficeConfi
     setIsSaving(true);
     setSaveMessage(null);
     try {
-      const payload = {
+      const matchedOffice = resolveOffice(selectedOfficeName, offices);
+      const payload: MaintenanceReportOfficeConfig = {
         ...currentConfig,
-        officeName: selectedOfficeName,
-        id: currentConfig.id || `cfg-office-${selectedOfficeName}`,
+        officeId: matchedOffice?.id || currentConfig.officeId,
+        officeName: matchedOffice?.name || selectedOfficeName,
+        id: currentConfig.id || (matchedOffice?.id ? `cfg-office-${matchedOffice.id}` : `cfg-office-${selectedOfficeName}`),
         updatedAt: new Date().toISOString(),
       };
 
@@ -276,7 +285,7 @@ export function MaintenanceOfficeConfigAdmin({ offices }: MaintenanceOfficeConfi
       const data = await res.json();
       if (res.ok && data.success) {
         setConfigs((prev) => {
-          const idx = prev.findIndex((c) => c.officeName === selectedOfficeName);
+          const idx = prev.findIndex((c) => isSameOffice(c.officeId || c.officeName, payload.officeId || payload.officeName, offices) || c.id === payload.id);
           const next = idx >= 0 ? [...prev] : [...prev, payload];
           if (idx >= 0) {
             next[idx] = payload;
@@ -376,8 +385,8 @@ export function MaintenanceOfficeConfigAdmin({ offices }: MaintenanceOfficeConfi
         </div>
         <div className="flex flex-wrap gap-2">
           {officeList.map((offName) => {
-            const isSelected = offName === selectedOfficeName;
-            const hasCustomConfig = configs.some((c) => c.officeName === offName);
+            const isSelected = isSameOffice(offName, selectedOfficeName, offices) || offName === selectedOfficeName;
+            const hasCustomConfig = Boolean(findOfficeConfig(configs, offName, offices));
             return (
               <button
                 key={offName}

@@ -48,7 +48,7 @@ const configs = {
   },
   positions: {
     t1: 'dbo.PositionMaster', t2: 'dbo.Positions', prefix: 'pos',
-    cols: (b) => ({ name: b.name, level: b.level ?? 1 })
+    cols: (b) => ({ name: b.name, code: b.code || '', level: b.level ?? 1, description: b.description || '' })
   },
   'item-masters': {
     t1: 'dbo.ItemMasters', t2: 'dbo.ItemMasters', prefix: 'itm',
@@ -224,21 +224,53 @@ router.get(maintConfigPaths, async (req, res) => {
   }
 });
 
+const normalizeOfficeBase = (raw) => {
+  if (!raw) return '';
+  return String(raw).trim().replace(/(支店|営業所|本社|出張所|事務所|センター)$/, '').trim();
+};
+
 const saveMaintConfigHandler = async (req, res) => {
   try {
     const body = req.body;
     let list = loadLocalMaintenanceConfigs();
     if (!Array.isArray(list)) list = [];
 
+    // SQL Server dbo.SystemSettings に既存リストがあれば優先取得してマージ元とする
+    try {
+      const pool = await getPool();
+      if (pool) {
+        const queryRes = await pool.request()
+          .input('key', sql.NVarChar(100), 'maintenance_office_configs')
+          .query(`SELECT settingValue FROM dbo.SystemSettings WHERE settingKey = @key`);
+        if (queryRes.recordset && queryRes.recordset.length > 0) {
+          const dbVal = safeParseJSON(queryRes.recordset[0].settingValue, null);
+          if (Array.isArray(dbVal) && dbVal.length > 0) {
+            list = dbVal;
+          }
+        }
+      }
+    } catch (_) {}
+
     if (Array.isArray(body)) {
       list = body;
-    } else if (body && (body.officeName || body.id)) {
+    } else if (body && (body.officeId || body.officeName || body.id)) {
       const officeName = body.officeName || req.params.officeName || body.id;
-      const index = list.findIndex(c => c.officeName === officeName || c.id === body.id);
+      const officeId = body.officeId || undefined;
+      const normName = normalizeOfficeBase(officeName);
+
+      const index = list.findIndex(c =>
+        (officeId && c.officeId && String(c.officeId) === String(officeId)) ||
+        (body.id && c.id === body.id) ||
+        c.officeName === officeName ||
+        (normName && normalizeOfficeBase(c.officeName) === normName)
+      );
+
       const newConfig = {
+        ...(index >= 0 ? list[index] : {}),
         ...body,
+        officeId: officeId || (index >= 0 ? list[index].officeId : undefined),
         officeName,
-        id: body.id || `cfg-office-${officeName}`,
+        id: body.id || (officeId ? `cfg-office-${officeId}` : `cfg-office-${officeName}`),
         updatedAt: new Date().toISOString()
       };
       if (index >= 0) {

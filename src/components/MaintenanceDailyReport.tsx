@@ -12,6 +12,7 @@ import {
   ItemMaster,
   ApplicationStatus,
   OfficeMaster,
+  PositionMaster,
   MaintenanceReportOfficeConfig,
   ReportApprovalRecord
 } from '../types';
@@ -70,10 +71,18 @@ import {
 } from '../utils/inspectionReportStorage';
 import { 
   isBranchManager, 
+  isSectionManager,
+  isChiefOrAssistant,
   resolveSupervisorChain, 
   getNextSupervisor, 
   formatStampNameAndDate 
 } from '../utils/supervisorChain';
+import {
+  findOfficeConfig,
+  resolveOffice,
+  resolveOfficeId,
+  getUserOfficeName,
+} from '../utils/masterResolver';
 
 // JST (日本標準時) 基準で YYYY-MM-DD を判定
 function getEventDateStrJST(dateInput: string | Date | undefined): string {
@@ -129,6 +138,7 @@ interface MaintenanceDailyReportProps {
   approvalFlows?: ApprovalFlowRule[];
   itemMasters?: ItemMaster[];
   offices?: OfficeMaster[];
+  positions?: PositionMaster[];
 }
 
 // 曜日漢字ヘルパー
@@ -322,10 +332,11 @@ export function MaintenanceDailyReportView({
   approvalFlows = [],
   itemMasters = [],
   offices = [],
+  positions = [],
 }: MaintenanceDailyReportProps) {
-  // 拠点別様式設定（所属拠点を初期選択）
+  // 拠点別様式設定（所属拠点をマスター正規名で初期選択）
   const [selectedOfficeName, setSelectedOfficeName] = useState<string>(() => {
-    return currentUser.office || (offices[0]?.name) || '名古屋支店';
+    return getUserOfficeName(report?.author || currentUser, offices) || (offices[0]?.name) || '名古屋支店';
   });
 
   // キャッシュから即時同期初期化（初回描画時から非表示設定を完全反映しチラつき・表示切り替えを根絶）
@@ -378,11 +389,11 @@ export function MaintenanceDailyReportView({
     return () => { isMounted = false; };
   }, []);
 
-  // 現在適用中の拠点様式設定
+  // 現在適用中の拠点様式設定（マスターID・表記ゆれ吸収対応）
   const currentOfficeConfig = useMemo<MaintenanceReportOfficeConfig>(() => {
-    const found = officeConfigs.find(c => c.officeName === selectedOfficeName);
-    return found || createDefaultOfficeConfig(selectedOfficeName);
-  }, [officeConfigs, selectedOfficeName]);
+    const found = findOfficeConfig(officeConfigs, selectedOfficeName, offices);
+    return found || createDefaultOfficeConfig(selectedOfficeName, resolveOfficeId(selectedOfficeName, offices));
+  }, [officeConfigs, selectedOfficeName, offices]);
 
   const visibleColumns = currentOfficeConfig.visibleColumns;
 
@@ -942,10 +953,10 @@ export function MaintenanceDailyReportView({
     );
   }, [maintenanceData, report]);
 
-  // 作成者から支店長までの多段階承認チェーン
+  // 作成者から支店長までの多段階承認チェーン（マスターID・レベル照合）
   const supervisorChain = useMemo(() => {
-    return resolveSupervisorChain(reportAuthor, allUsers);
-  }, [reportAuthor, allUsers]);
+    return resolveSupervisorChain(reportAuthor, allUsers, positions, offices);
+  }, [reportAuthor, allUsers, positions, offices]);
 
   // 現在の承認担当上長 (report.supervisorId で指定されている上長)
   const currentAssignedSupervisor = useMemo(() => {
@@ -955,15 +966,15 @@ export function MaintenanceDailyReportView({
 
   // 現在の操作ユーザーから見た「次の上長（回覧先）」
   const nextSupervisor = useMemo(() => {
-    return getNextSupervisor(currentUser, reportAuthor, allUsers);
-  }, [currentUser, reportAuthor, allUsers]);
+    return getNextSupervisor(currentUser, reportAuthor, allUsers, positions, offices);
+  }, [currentUser, reportAuthor, allUsers, positions, offices]);
 
   // 現在のユーザーが支店長（または最終承認者）か判定
   const isFinalApprover = useMemo(() => {
-    if (isBranchManager(currentUser)) return true;
+    if (isBranchManager(currentUser, positions)) return true;
     if (!nextSupervisor) return true;
     return false;
-  }, [currentUser, nextSupervisor]);
+  }, [currentUser, nextSupervisor, positions]);
 
   // 現在の操作ユーザーが日報の作成者本人か判定
   const isAuthor = useMemo(() => {
@@ -1034,24 +1045,24 @@ export function MaintenanceDailyReportView({
     // 有効な承認履歴（差し戻し以前のものは除外）
     const validHistory = approvalHistory.filter(r => r.action !== 'remanded');
 
-    // 1. 支店長 (最終承認) レコード
+    // 1. 支店長 (最終承認) レコード（役職マスターID/コード/レベル＋名称フォールバック）
     const rawBranch = validHistory.find(
-      r => r.action === 'final_approved' || (status === 'reviewed' && isBranchManager({ position: r.approverPosition } as User))
+      r => r.action === 'final_approved' || (status === 'reviewed' && isBranchManager({ positionId: r.approverPositionId, position: r.approverPosition }, positions))
     );
 
     // 2. 課長 (第2承認 / 上長) レコード
     const rawSection = validHistory.find(
       r => r.action === 'forwarded' && (
-        (r.approverPosition || '').includes('課長') ||
-        (r.step === 2 && !isBranchManager({ position: r.approverPosition } as User))
+        isSectionManager({ positionId: r.approverPositionId, position: r.approverPosition }, positions) ||
+        (r.step === 2 && !isBranchManager({ positionId: r.approverPositionId, position: r.approverPosition }, positions))
       )
     );
 
     // 3. 係長 (第1承認 / 係長) レコード
     const rawChief = validHistory.find(
       r => r.action === 'forwarded' && (
-        (r.approverPosition || '').includes('係長') ||
-        (r.step === 1 && !isBranchManager({ position: r.approverPosition } as User) && !(r.approverPosition || '').includes('課長'))
+        isChiefOrAssistant({ positionId: r.approverPositionId, position: r.approverPosition }, positions) ||
+        (r.step === 1 && !isBranchManager({ positionId: r.approverPositionId, position: r.approverPosition }, positions) && !isSectionManager({ positionId: r.approverPositionId, position: r.approverPosition }, positions))
       )
     );
 
@@ -1062,6 +1073,7 @@ export function MaintenanceDailyReportView({
         step: 0,
         approverId: reportAuthor.id,
         approverName: reportAuthor.name,
+        approverPositionId: reportAuthor.positionId,
         approverPosition: reportAuthor.position || '担当',
         action: 'submitted' as const,
         approvedAt: report?.submittedAt || maintenanceData?.submittedAt || report?.date || new Date().toISOString(),
@@ -1082,21 +1094,21 @@ export function MaintenanceDailyReportView({
       chiefBoxLabel = '確認';
     } else if (rawSubmission) {
       chiefBoxRecord = formatRecord(rawSubmission, '提出');
-      chiefBoxTitle = (reportAuthor.position && reportAuthor.position.includes('係長')) ? '係長' : '担当';
+      chiefBoxTitle = isChiefOrAssistant(reportAuthor, positions) ? (reportAuthor.position || '係長') : '担当';
       chiefBoxLabel = '提出';
     }
 
     // 各スロットの候補ユーザー
-    const chainBranchUser = supervisorChain.find(u => isBranchManager(u)) || supervisorChain[supervisorChain.length - 1];
-    const chainSectionUser = supervisorChain.find(u => (u.position || '').includes('課長')) || supervisorChain.find(u => u.id !== chainBranchUser?.id && !isBranchManager(u));
-    const chainChiefUser = supervisorChain.find(u => (u.position || '').includes('係長')) || (supervisorChain[0]?.id !== chainSectionUser?.id ? supervisorChain[0] : null);
+    const chainBranchUser = supervisorChain.find(u => isBranchManager(u, positions)) || supervisorChain[supervisorChain.length - 1];
+    const chainSectionUser = supervisorChain.find(u => isSectionManager(u, positions)) || supervisorChain.find(u => u.id !== chainBranchUser?.id && !isBranchManager(u, positions));
+    const chainChiefUser = supervisorChain.find(u => isChiefOrAssistant(u, positions)) || (supervisorChain[0]?.id !== chainSectionUser?.id ? supervisorChain[0] : null);
 
     // 現在どの段階で待機中か判定 (提出中のみ「確認中」を表示)
     const isSubmitted = status === 'submitted';
 
     // 支店長待機中: 課長承認済み、または担当/係長から直接支店長へ回覧された場合
     const isCurrentBranch = isSubmitted && !branchRecord && (
-      (currentAssignedSupervisor && isBranchManager(currentAssignedSupervisor)) ||
+      (currentAssignedSupervisor && isBranchManager(currentAssignedSupervisor, positions)) ||
       (!currentAssignedSupervisor && !nextSupervisor) ||
       (!!sectionRecord)
     );
@@ -1104,15 +1116,15 @@ export function MaintenanceDailyReportView({
     // 課長待機中: 支店長待機中でなく、課長印がなく、現在の担当上長が課長または係長承認後
     const isCurrentSection = isSubmitted && !sectionRecord && !branchRecord && !isCurrentBranch && (
       (currentAssignedSupervisor && (
-        (currentAssignedSupervisor.position || '').includes('課長') ||
-        (!isBranchManager(currentAssignedSupervisor) && !(currentAssignedSupervisor.position || '').includes('係長'))
+        isSectionManager(currentAssignedSupervisor, positions) ||
+        (!isBranchManager(currentAssignedSupervisor, positions) && !isChiefOrAssistant(currentAssignedSupervisor, positions))
       )) ||
       (!!rawChief && supervisorChain.length >= 2)
     );
 
     // 係長待機中: 上記以外で係長枠が未確認かつ現在の担当が係長の場合
     const isCurrentChief = isSubmitted && !rawChief && !sectionRecord && !branchRecord && !isCurrentBranch && !isCurrentSection && (
-      Boolean(currentAssignedSupervisor && (currentAssignedSupervisor.position || '').includes('係長'))
+      Boolean(currentAssignedSupervisor && isChiefOrAssistant(currentAssignedSupervisor, positions))
     );
 
     return {
@@ -1124,7 +1136,7 @@ export function MaintenanceDailyReportView({
         stampLabel: chiefBoxLabel,
       },
       section: {
-        title: (chainSectionUser?.position && chainSectionUser.position.includes('課長')) ? chainSectionUser.position : '課長',
+        title: (chainSectionUser?.position && isSectionManager(chainSectionUser, positions)) ? chainSectionUser.position : '課長',
         record: sectionRecord,
         isCurrentTarget: isCurrentSection,
         user: chainSectionUser,
@@ -1138,7 +1150,7 @@ export function MaintenanceDailyReportView({
         stampLabel: '承認',
       },
     };
-  }, [approvalHistory, currentAssignedSupervisor, nextSupervisor, reportAuthor, status, supervisorChain, maintenanceData, report]);
+  }, [approvalHistory, currentAssignedSupervisor, nextSupervisor, reportAuthor, status, supervisorChain, maintenanceData, report, positions]);
 
   // 提出済み日報表示用（入力のある有効行のみ抽出）
   const displayedMainRows = useMemo(() => {
@@ -1749,6 +1761,7 @@ export function MaintenanceDailyReportView({
         step: 0,
         approverId: reportAuthor.id,
         approverName: reportAuthor.name,
+        approverPositionId: reportAuthor.positionId,
         approverPosition: reportAuthor.position || '担当',
         comment: '',
         action: 'submitted',
@@ -1787,6 +1800,8 @@ export function MaintenanceDailyReportView({
         .map(r => `・[${r.startTime}〜${r.endTime}] ${r.siteName} (${r.contentType}): ${r.workDescription}`)
         .join('\n');
 
+      const matchedOffice = resolveOffice(selectedOfficeName, offices);
+
       const payload: Partial<DailyReport> = {
         id: report?.id,
         author: reportAuthor,
@@ -1794,6 +1809,8 @@ export function MaintenanceDailyReportView({
         author_id: reportAuthor.id,
         reportType: 'maintenance_daily',
         date: reportDate,
+        officeId: matchedOffice?.id || reportAuthor.officeId,
+        divisionId: reportAuthor.divisionId,
         department: reportAuthor.department || (reportAuthor as any).division || currentUser.department || '保守',
         tasks: summaryTasks || '保守日報作業報告',
         supervisorId: supervisorId || undefined,
@@ -1852,6 +1869,7 @@ export function MaintenanceDailyReportView({
             step: approvalHistory.length + 1,
             approverId: currentUser.id,
             approverName: currentUser.name,
+            approverPositionId: currentUser.positionId,
             approverPosition: currentUser.position || '上長',
             comment: reviewComment?.trim() || '',
             action: 'remanded',
@@ -1915,6 +1933,7 @@ export function MaintenanceDailyReportView({
           step: validHistory.length + 1,
           approverId: currentUser.id,
           approverName: currentUser.name,
+          approverPositionId: currentUser.positionId,
           approverPosition: currentUser.position || '支店長',
           comment: reviewComment || '',
           action: 'final_approved',
@@ -1957,6 +1976,7 @@ export function MaintenanceDailyReportView({
           step: validHistory.length + 1,
           approverId: currentUser.id,
           approverName: currentUser.name,
+          approverPositionId: currentUser.positionId,
           approverPosition: currentUser.position || '上長',
           comment: reviewComment || '',
           action: 'forwarded',

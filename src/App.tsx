@@ -3830,6 +3830,7 @@ export default function App() {
               approvalFlows={approvalFlows}
               itemMasters={itemMasters}
               offices={offices}
+              positions={positions}
             />
           )}
           {activeTab === 'files' && (

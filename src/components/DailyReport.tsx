@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { DailyReport, User, WorkReportStatus, CalendarEvent, OfficeMaster, MaintenanceDailyReportData } from '../types';
+import { DailyReport, User, WorkReportStatus, CalendarEvent, OfficeMaster, DivisionMaster, PositionMaster, MaintenanceDailyReportData } from '../types';
 import { 
   FileText, 
   Plus, 
@@ -37,6 +37,7 @@ import { MaintenanceDailyReportView } from './MaintenanceDailyReport';
 import { markReportAsRead } from '../utils/notifications';
 import { getLocalDateStr } from '../utils/dateUtils';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
+import { isUserInMaintenanceDivision, resolveDivision } from '../utils/masterResolver';
 
 interface DailyReportProps {
   reports: DailyReport[];
@@ -47,8 +48,9 @@ interface DailyReportProps {
   onDeleteReport?: (id: string) => Promise<void> | void;
   currentUser: User;
   allUsers?: User[];
-  divisions?: { id: string; name: string }[];
+  divisions?: DivisionMaster[];
   offices?: OfficeMaster[];
+  positions?: PositionMaster[];
   refetchReports?: () => Promise<void> | void;
   initialReportId?: string;
   applications?: any[];
@@ -108,6 +110,7 @@ export function DailyReportView({
   allUsers = [],
   divisions = [],
   offices = [],
+  positions = [],
   initialReportId,
   applications = [],
   onAddApplication,
@@ -115,12 +118,9 @@ export function DailyReportView({
   approvalFlows = [],
   itemMasters = [],
 }: DailyReportProps) {
-  // モード切り替え: 'weekly' (週報) | 'maintenance' (保守日報)
+  // モード切り替え: 'weekly' (週報) | 'maintenance' (保守日報)（マスターID/コード/名称対応）
   const [reportMode, setReportMode] = useState<'weekly' | 'maintenance'>(() => {
-    const isMaintenanceUser = 
-      (currentUser.department && currentUser.department.includes('保守')) || 
-      (currentUser.division && currentUser.division.includes('保守'));
-    return isMaintenanceUser ? 'maintenance' : 'weekly';
+    return isUserInMaintenanceDivision(currentUser, divisions) ? 'maintenance' : 'weekly';
   });
 
   // 保守日報編集・表示用ステート
@@ -232,7 +232,7 @@ export function DailyReportView({
       const supervisorId = report.supervisorId || report.supervisor?.id || (report.author as any)?.supervisorId;
       const isMine = authorId === currentUser.id;
       const isMySubordinate = supervisorId === currentUser.id;
-      const isMaintenanceDept = (currentUser.department || currentUser.division || '').includes('保守');
+      const isMaintenanceDept = isUserInMaintenanceDivision(currentUser, divisions);
 
       // 自分以外（部下等）の保守日報で「下書き (draft)」のものは非開示
       if (!isMine && report.status === 'draft') {
@@ -241,7 +241,7 @@ export function DailyReportView({
 
       return isMine || isMySubordinate || isMaintenanceDept;
     });
-  }, [reports, currentUser.id, currentUser.department, currentUser.division]);
+  }, [reports, currentUser, divisions]);
 
   // フィルタリング適用後の保守日報リスト
   const filteredMaintenanceReports = useMemo(() => {
@@ -382,10 +382,13 @@ export function DailyReportView({
       return;
     }
 
+    const matchedDiv = resolveDivision(formDepartment, divisions);
     const payload = {
       reportType: 'weekly' as const,
       weekStartDate: formWeekStart,
       weekLabel: formatWeekLabel(formWeekStart),
+      officeId: currentUser.officeId,
+      divisionId: matchedDiv?.id || currentUser.divisionId,
       department: formDepartment,
       tasks: formTasks,
       results: formResults,
@@ -478,6 +481,7 @@ export function DailyReportView({
         approvalFlows={approvalFlows}
         itemMasters={itemMasters}
         offices={offices}
+        positions={positions}
         onSaveReport={async (reportData) => {
           const targetId = reportData.id || activeMaintenanceReport?.id;
           if (targetId && onUpdateReport) {
