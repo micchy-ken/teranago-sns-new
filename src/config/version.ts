@@ -7,10 +7,10 @@
  * - 機能追加・バグ修正・仕様変更のたびに必ず更新すること
  */
 export const APP_VERSION = {
-  version: '2026.11.11.11',
+  version: '2026.11.11.12',
   date: '2026.11.11',
-  releaseNumber: 11,
-  display: 'v2026.11.11 #11 (JST)',
+  releaseNumber: 12,
+  display: 'v2026.11.11 #12 (JST)',
   timeZone: 'Asia/Tokyo (JST)',
-  description: 'マスターID/コード主軸化 Step3: 日報・週報(DailyReport)・保守日報(MaintenanceDailyReport)・上長承認チェーン(supervisorChain.ts)・保守拠点設定(MaintenanceOfficeConfigAdmin/masters.js)のマスターID/役職level照合対応'
+  description: 'マスターID/コード主軸化 Step4(完了): 点検予定表(InspectionScheduler.tsx)・安否確認(SafetyConfirmation.tsx)の拠点・事業部マスターID主軸照合＆兼務部署対応'
 };

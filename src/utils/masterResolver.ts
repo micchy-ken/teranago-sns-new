@@ -324,7 +324,7 @@ export function getUserDivisionName(
 }
 
 /**
- * 2つの部署識別子（ID/コード/名称）が同じ部署を指しているか判定する
+ * 2つの部署識別子（ID/コード/名称、または複数部署のセミコロン/カンマ区切り）が同じ部署を指しているか判定する
  */
 export function isSameDivision(
   a: string | undefined | null,
@@ -332,14 +332,14 @@ export function isSameDivision(
   divisions: DivisionMaster[] = []
 ): boolean {
   if (!a || !b) return false;
-  const idA = resolveDivisionId(a, divisions);
-  const idB = resolveDivisionId(b, divisions);
-  if (!idA || !idB) return false;
-  return idA === idB;
+  const tokensA = String(a).split(/[;,]/).map((s) => resolveDivisionId(s.trim(), divisions)).filter(Boolean);
+  const tokensB = String(b).split(/[;,]/).map((s) => resolveDivisionId(s.trim(), divisions)).filter(Boolean);
+  if (tokensA.length === 0 || tokensB.length === 0) return false;
+  return tokensA.some((idA) => tokensB.includes(idA));
 }
 
 /**
- * ユーザーが指定された部署フィルター（ID / コード / 名称 / 'all'）に一致するか判定する
+ * ユーザーが指定された部署フィルター（ID / コード / 名称 / 'all'）に一致するか判定する（兼務・複数部署対応）
  */
 export function doesUserMatchDivision(
   user: Partial<User> | undefined | null,
@@ -350,10 +350,13 @@ export function doesUserMatchDivision(
     return true;
   }
   if (!user) return false;
-  const targetDivisionId = resolveDivisionId(filterValue, divisions);
-  const userDivisionId = getUserDivisionId(user, divisions);
-  if (!targetDivisionId || !userDivisionId) return false;
-  return userDivisionId === targetDivisionId;
+  const rawUserDiv =
+    user.divisionId ||
+    (user.preferences as any)?.divisionId ||
+    user.division ||
+    (user.department ? user.department.trim().split(/\s+/).slice(1).join(' ') : '');
+  if (!rawUserDiv) return false;
+  return isSameDivision(rawUserDiv, filterValue, divisions);
 }
 
 // ============================================================================

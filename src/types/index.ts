@@ -759,6 +759,8 @@ export interface SafetyConfirmationTargetFilter {
   offices?: string[]; // 対象拠点 (例: ['名古屋', '浜松'])
   allDivisions?: boolean;
   divisions?: string[]; // 対象部署 (例: ['営業', '工務'])
+  officeIds?: string[]; // 対象拠点マスターID一覧
+  divisionIds?: string[]; // 対象部署マスターID一覧
   targetUserIds?: string[]; // 対象ユーザーID一覧 (任意指定)
 }
 
@@ -790,6 +792,8 @@ export interface SafetyConfirmationEvent {
   severity?: 'normal' | 'urgent' | 'critical'; // 緊急度
   status: 'active' | 'closed'; // 状況 (active: 回答受付中, closed: 終了・締め切り)
   targetFilter: SafetyConfirmationTargetFilter; // 対象範囲
+  targetOfficeIds?: string[];
+  targetDivisionIds?: string[];
   channels: SafetyConfirmationChannelOption; // 通知手段
   createdById: string;
   createdByName: string;
@@ -804,7 +808,9 @@ export interface SafetyConfirmationResponse {
   userId: string;
   userName: string;
   office?: string;
+  officeId?: string;
   division?: string;
+  divisionId?: string;
   safetyStatus: SafetyStatus;         // 安否状況 (safe / minor_injury / severe_injury)
   workAvailability: WorkAvailability; // 出社可否 (available / remote / standby / unavailable)
   locationStatus: LocationStatus;     // 現在地 (home / office / traveling / shelter / other)

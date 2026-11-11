@@ -56,8 +56,13 @@ import {
   Edit3,
   Copy
 } from 'lucide-react';
-import { User, CalendarEvent, OfficeMaster } from '../types';
+import { User, CalendarEvent, OfficeMaster, DivisionMaster } from '../types';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
+import {
+  resolveOffice,
+  isSameOffice,
+  isUserInMaintenanceDivision,
+} from '../utils/masterResolver';
 import {
   InspectionItem,
   InspectionMetaA,
@@ -88,6 +93,7 @@ interface InspectionSchedulerProps {
   allUsers: User[];
   currentUser: User;
   offices?: OfficeMaster[];
+  divisions?: DivisionMaster[];
   events?: CalendarEvent[];
   onAddEvents: (events: CalendarEvent[]) => void;
   onUpdateEvent?: (event: CalendarEvent) => void;
@@ -100,7 +106,8 @@ type StepType = 'import' | 'assign_date' | 'assign_member' | 'completed' | 'over
 export function InspectionScheduler({
   allUsers,
   currentUser,
-  offices,
+  offices = [],
+  divisions = [],
   events = [],
   onAddEvents,
   onUpdateEvent,
@@ -217,8 +224,12 @@ export function InspectionScheduler({
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'placed' | 'registered' | 'hidden' | 'carried_over'>('pending');
 
-  // 拠点自動フィルタリング (デフォルト: ログインユーザーの自拠点)
-  const userOffice = currentUser.office || (currentUser.department ? currentUser.department.split(/\s+/)[0] : '') || '';
+  // 拠点自動フィルタリング (デフォルト: ログインユーザーの自拠点・マスター解決優先)
+  const resolvedUserOfficeMaster = useMemo(
+    () => resolveOffice(currentUser.officeId || currentUser.office || (currentUser.department ? currentUser.department.split(/\s+/)[0] : ''), offices),
+    [currentUser.officeId, currentUser.office, currentUser.department, offices]
+  );
+  const userOffice = resolvedUserOfficeMaster?.name || currentUser.office || (currentUser.department ? currentUser.department.split(/\s+/)[0] : '') || '';
 
   const [selectedOfficeFilter, setSelectedOfficeFilter] = useState<string>(() => {
     return userOffice || '本社';
@@ -234,29 +245,49 @@ export function InspectionScheduler({
   }, [targetYearMonth, selectedOfficeFilter, getDraftKey]);
 
   const availableOffices = useMemo(() => {
-    const set = new Set<string>();
+    const list: string[] = [];
+    const addUniqueOffice = (nameOrId?: string) => {
+      if (!nameOrId) return;
+      const resolved = resolveOffice(nameOrId, offices);
+      const canonicalName = resolved?.name || nameOrId;
+      if (!list.some((existing) => isSameOffice(existing, canonicalName, offices))) {
+        list.push(canonicalName);
+      }
+    };
 
     // 1. 管理者メニューの拠点マスターからアクティブな拠点を追加
     if (offices && offices.length > 0) {
-      offices.filter((o) => (o as any).isActive !== false).forEach((o) => set.add(o.name));
+      offices.filter((o) => (o as any).isActive !== false).forEach((o) => addUniqueOffice(o.name));
     } else {
       // マスター未登録・ロード前のフォールバック
-      if (userOffice) set.add(userOffice);
+      if (userOffice) addUniqueOffice(userOffice);
       allUsers.forEach((u) => {
-        if (u.office) set.add(u.office);
+        if (u.officeId || u.office) addUniqueOffice(u.officeId || u.office);
       });
     }
 
     // ログインユーザーの自拠点も選択肢に確実に含める
-    if (userOffice) set.add(userOffice);
+    if (userOffice) addUniqueOffice(userOffice);
 
-    return Array.from(set).filter(Boolean);
+    return list.filter(Boolean);
   }, [offices, allUsers, userOffice]);
 
   const isItemInOffice = useCallback((item: InspectionItem, filter: string) => {
     if (!filter || filter === 'all') return true;
 
-    const f = filter.trim().toLowerCase();
+    // 1. マスターID / コード / 正規化拠点名による厳密照合
+    if (item.officeId && isSameOffice(item.officeId, filter, offices)) {
+      return true;
+    }
+    if ((item as any).office && isSameOffice((item as any).office, filter, offices)) {
+      return true;
+    }
+    if (item.department && isSameOffice(item.department, filter, offices)) {
+      return true;
+    }
+
+    const resolvedFilter = resolveOffice(filter, offices);
+    const f = (resolvedFilter?.name || filter).trim().toLowerCase();
     const fCore = f.replace(/(支店|営業所|本社|事業所|拠点)$/, '');
 
     if ((item as any).office) {
@@ -284,12 +315,12 @@ export function InspectionScheduler({
     }
 
     // 拠点情報が存在しないデータの場合は隠さず表示する
-    if (!item.department && !(item as any).office && !item.area) {
+    if (!item.department && !(item as any).office && !item.officeId && !item.area) {
       return true;
     }
 
     return false;
-  }, []);
+  }, [offices]);
 
   const officeFilteredItems = useMemo(() => {
     if (selectedOfficeFilter === 'all') return items;
@@ -774,13 +805,9 @@ export function InspectionScheduler({
   };
 
   // ==========================================
-  // 保守メンバーのフィルタリング
+  // 保守メンバーのフィルタリング（事業部マスターID / コード主軸）
   // ==========================================
-  const maintenanceUsers = allUsers.filter((u) => {
-    const div = (u.division || '').trim();
-    const dept = (u.department || '').trim();
-    return div.includes('保守') || dept.includes('保守');
-  });
+  const maintenanceUsers = allUsers.filter((u) => isUserInMaintenanceDivision(u, divisions));
 
   // メンバー登録画面で表示するユーザー一覧
   const selectableUsers = onlyMaintenanceMembers && maintenanceUsers.length > 0
@@ -1235,12 +1262,17 @@ export function InspectionScheduler({
     const targetOffice = selectedOfficeFilter && selectedOfficeFilter !== 'all'
       ? selectedOfficeFilter
       : (userOffice || '本社');
+    const resolvedTargetOffice = resolveOffice(targetOffice, offices);
 
-    const importedItems = pendingExcelImport.items.map(item => ({
-      ...item,
-      targetYearMonth: chosenYm,
-      office: item.office || targetOffice,
-    }));
+    const importedItems = pendingExcelImport.items.map(item => {
+      const resolvedItemOffice = resolveOffice(item.officeId || item.office || item.department || targetOffice, offices) || resolvedTargetOffice;
+      return {
+        ...item,
+        targetYearMonth: chosenYm,
+        officeId: item.officeId || resolvedItemOffice?.id,
+        office: item.office || resolvedItemOffice?.name || targetOffice,
+      };
+    });
 
     let nextItems: InspectionItem[] = [];
 
@@ -2075,7 +2107,7 @@ export function InspectionScheduler({
                     </option>
                   )}
                   {availableOffices
-                    .filter((o) => o !== userOffice)
+                    .filter((o) => !isSameOffice(o, userOffice, offices))
                     .map((off) => (
                       <option key={off} value={off}>
                         {off}
@@ -2083,7 +2115,7 @@ export function InspectionScheduler({
                     ))}
                 </select>
               </div>
-              {selectedOfficeFilter !== 'all' && userOffice && selectedOfficeFilter === userOffice && (
+              {selectedOfficeFilter !== 'all' && userOffice && isSameOffice(selectedOfficeFilter, currentUser.officeId || userOffice, offices) && (
                 <span className="text-[10px] font-bold px-1.5 py-0.5 mr-1 rounded bg-indigo-100 text-indigo-800 border border-indigo-200 shrink-0">
                   自拠点フィルター適用中
                 </span>

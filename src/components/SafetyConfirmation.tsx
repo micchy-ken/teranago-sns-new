@@ -43,6 +43,13 @@ import { API_BASE_URL } from '../config/api';
 import { getAvatarUrl } from '../utils/avatar';
 import { markSafetyEventAsResponded } from '../utils/notifications';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
+import {
+  resolveOffice,
+  resolveDivision,
+  isSameOffice,
+  doesUserMatchOffice,
+  doesUserMatchDivision,
+} from '../utils/masterResolver';
 
 export interface SafetyConfirmationEvent {
   id: string;
@@ -52,7 +59,9 @@ export interface SafetyConfirmationEvent {
   message: string;
   targetScope: 'all' | 'offices' | 'divisions' | 'custom';
   targetOffices?: string[];
+  targetOfficeIds?: string[];
   targetDivisions?: string[];
+  targetDivisionIds?: string[];
   targetUserIds?: string[];
   channels: {
     webPush: boolean;
@@ -86,7 +95,9 @@ export interface SafetyConfirmationResponse {
   userId: string;
   userName: string;
   office?: string;
+  officeId?: string;
   division?: string;
+  divisionId?: string;
   safetyStatus: 'safe' | 'minor_injury' | 'severe_injury' | 'need_rescue';
   familyStatus?: 'all_safe' | 'injured' | 'unreachable' | 'none';
   houseStatus?: 'no_damage' | 'partial_damage' | 'severe_damage' | 'evacuated';
@@ -752,6 +763,30 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
       return;
     }
 
+    const resolvedOfficeIds = selectedOffices.map((o) => resolveOffice(o, offices)?.id || o);
+    const resolvedOfficeNames = selectedOffices.map((o) => resolveOffice(o, offices)?.name || o);
+    const expandedTargetOffices = Array.from(
+      new Set([
+        ...resolvedOfficeNames,
+        ...allUsers
+          .filter((u) => selectedOffices.some((s) => doesUserMatchOffice(u, s, offices)))
+          .map((u) => u.office || '')
+          .filter(Boolean),
+      ])
+    );
+
+    const resolvedDivisionIds = selectedDivisions.map((d) => resolveDivision(d, divisions)?.id || d);
+    const resolvedDivisionNames = selectedDivisions.map((d) => resolveDivision(d, divisions)?.name || d);
+    const expandedTargetDivisions = Array.from(
+      new Set([
+        ...resolvedDivisionNames,
+        ...allUsers
+          .filter((u) => selectedDivisions.some((s) => doesUserMatchDivision(u, s, divisions)))
+          .map((u) => u.division || (u as any).department || '')
+          .filter(Boolean),
+      ])
+    );
+
     const payload = {
       title: triggerTitle.trim(),
       type: disasterType,
@@ -759,11 +794,13 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
       severity: triggerLevel || 'warning',
       level: triggerLevel,
       message: triggerMessage.trim(),
-      targetOffice: targetScope === 'offices' && selectedOffices.length > 0 ? selectedOffices[0] : '全社',
-      targetDivision: targetScope === 'divisions' && selectedDivisions.length > 0 ? selectedDivisions[0] : '全部署',
+      targetOffice: targetScope === 'offices' && resolvedOfficeNames.length > 0 ? resolvedOfficeNames[0] : '全社',
+      targetDivision: targetScope === 'divisions' && resolvedDivisionNames.length > 0 ? resolvedDivisionNames[0] : '全部署',
       targetScope,
-      targetOffices: targetScope === 'offices' ? selectedOffices : undefined,
-      targetDivisions: targetScope === 'divisions' ? selectedDivisions : undefined,
+      targetOffices: targetScope === 'offices' ? expandedTargetOffices : undefined,
+      targetOfficeIds: targetScope === 'offices' ? resolvedOfficeIds : undefined,
+      targetDivisions: targetScope === 'divisions' ? expandedTargetDivisions : undefined,
+      targetDivisionIds: targetScope === 'divisions' ? resolvedDivisionIds : undefined,
       notifyWebPush: useWebPush,
       notifyCompanyEmail: useCompanyEmail,
       notifyPersonalEmail: usePersonalEmail,
@@ -858,13 +895,17 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
     setIsSubmittingResponse(true);
     setActionMessage(null);
     try {
+      const resolvedMyOffice = resolveOffice(currentUser.officeId || currentUser.office, offices);
+      const resolvedMyDivision = resolveDivision(currentUser.divisionId || currentUser.division, divisions);
       const payload = {
         userId: currentUser.id,
         userName: currentUser.name,
-        office: currentUser.office,
-        division: currentUser.division,
-        userOffice: currentUser.office,
-        userDivision: currentUser.division,
+        office: resolvedMyOffice?.name || currentUser.office,
+        officeId: currentUser.officeId || resolvedMyOffice?.id,
+        division: resolvedMyDivision?.name || currentUser.division,
+        divisionId: currentUser.divisionId || resolvedMyDivision?.id,
+        userOffice: resolvedMyOffice?.name || currentUser.office,
+        userDivision: resolvedMyDivision?.name || currentUser.division,
         safetyStatus: mySafetyStatus,
         status: mySafetyStatus,
         familyStatus: myFamilyStatus,
@@ -1156,9 +1197,9 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
   const remoteWorkCount = responses.filter(r => r.workAvailability === 'remote_only').length;
   const cannotWorkCount = responses.filter(r => r.workAvailability === 'unavailable').length;
 
-  // Filtered members list for dashboard
+  // Filtered members list for dashboard (拠点マスターID / 表記ゆれ吸収照合)
   const filteredMembers = allUsers.filter(u => {
-    if (selectedOfficeFilter !== 'all' && u.office !== selectedOfficeFilter) return false;
+    if (selectedOfficeFilter !== 'all' && !doesUserMatchOffice(u, selectedOfficeFilter, offices)) return false;
     if (searchKeyword.trim()) {
       const kw = searchKeyword.toLowerCase();
       const matchName = u.name.toLowerCase().includes(kw);
@@ -1174,10 +1215,10 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
     return true;
   });
 
-  // Filtered & Sorted targets list for Target Members Roster (対象者一覧タブ)
+  // Filtered & Sorted targets list for Target Members Roster (対象者一覧タブ: 拠点・部署マスターID照合＆兼務対応)
   const filteredTargets = allUsers.filter(u => {
-    if (targetOfficeFilter !== 'all' && u.office !== targetOfficeFilter) return false;
-    if (targetDivisionFilter !== 'all' && u.division !== targetDivisionFilter) return false;
+    if (targetOfficeFilter !== 'all' && !doesUserMatchOffice(u, targetOfficeFilter, offices)) return false;
+    if (targetDivisionFilter !== 'all' && !doesUserMatchDivision(u, targetDivisionFilter, divisions)) return false;
     
     const hasMobile = !!(u.mobileEmail && u.mobileEmail.trim());
     const hasPersonal = !!(u.personalEmailMasked || u.personalEmailEncrypted);
@@ -1208,12 +1249,12 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
       const bVal = (b.kanaName || b.name || '').toLowerCase();
       comp = aVal.localeCompare(bVal, 'ja');
     } else if (targetSortField === 'office') {
-      const aVal = (a.office || '').toLowerCase();
-      const bVal = (b.office || '').toLowerCase();
+      const aVal = (resolveOffice(a.officeId || a.office, offices)?.name || a.office || '').toLowerCase();
+      const bVal = (resolveOffice(b.officeId || b.office, offices)?.name || b.office || '').toLowerCase();
       comp = aVal.localeCompare(bVal, 'ja');
     } else if (targetSortField === 'division') {
-      const aVal = (a.division || '').toLowerCase();
-      const bVal = (b.division || '').toLowerCase();
+      const aVal = (resolveDivision(a.divisionId || a.division, divisions)?.name || a.division || '').toLowerCase();
+      const bVal = (resolveDivision(b.divisionId || b.division, divisions)?.name || b.division || '').toLowerCase();
       comp = aVal.localeCompare(bVal, 'ja');
     } else if (targetSortField === 'mobileEmail') {
       const aVal = (a.mobileEmail || '').toLowerCase();
@@ -3199,17 +3240,17 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
                     <label key={off.id} className="flex items-center gap-1.5 text-xs font-bold cursor-pointer bg-white px-2.5 py-1.5 rounded-lg border border-slate-200">
                       <input
                         type="checkbox"
-                        checked={selectedOffices.includes(off.name)}
+                        checked={selectedOffices.some(s => isSameOffice(s, off.id || off.name, offices))}
                         onChange={(e) => {
                           if (e.target.checked) {
                             setSelectedOffices([...selectedOffices, off.name]);
                           } else {
-                            setSelectedOffices(selectedOffices.filter(o => o !== off.name));
+                            setSelectedOffices(selectedOffices.filter(o => !isSameOffice(o, off.id || off.name, offices)));
                           }
                         }}
                         className="text-rose-600 rounded focus:ring-rose-500"
                       />
-                      {off.name} ({allUsers.filter(u => u.office === off.name).length}名)
+                      {off.name} ({allUsers.filter(u => doesUserMatchOffice(u, off.id || off.name, offices)).length}名)
                     </label>
                   ))}
                 </div>

@@ -285,6 +285,7 @@ export interface InspectionItem {
   area?: string;           // 地区 (岐阜県岐阜市など)
   department?: string;     // 部門 (名古屋支店など)
   office?: string;         // 担当拠点
+  officeId?: string;       // 担当拠点マスターID
   excelPersonName?: string; // エクセル内の「担当者名」 (鶴見茂樹など)
   conditions?: string;     // 指定条件・警告内容など
 

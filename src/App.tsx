@@ -3690,6 +3690,7 @@ export default function App() {
               allUsers={usersList}
               currentUser={userState}
               offices={offices}
+              divisions={divisions}
               events={events}
               onAddEvents={(newEvents) => {
                 newEvents.forEach((evt) => {
