@@ -38,6 +38,7 @@ import { SchedulePoll } from './types/schedulePoll';
 import { Post, CalendarEvent, WorkflowApplication, User, OfficeMaster, DivisionMaster, PositionMaster, BoardTopic, ChatRoom, ApprovalFlowRule, ApprovalStepConfig, ItemMaster, ApplicationStatus, DailyReport, Memo, SafetyConfirmationEvent, SafetyConfirmationResponse } from './types';
 import { 
   syncUserReadStatusesFromServer, 
+  isUserReadStatusSynced,
   isMemoUnread, 
   isTopicUnread, 
   isWorkflowUnread, 
@@ -762,9 +763,19 @@ export default function App() {
     }
   }, [targetApplicationId, applications]);
 
-  // 対象画面（タブ）を開いたタイミングで、その機能に関連する未読通知を自動既読化してベルマークのバッジ数を即座に更新
+  // 通知更新イベントリスナー（既読・未読変更の即時反映）
+  const [notificationSyncTick, setNotificationSyncTick] = useState(0);
+
   useEffect(() => {
-    if (!userState?.id || !isAuthenticated) return;
+    const handleSync = () => setNotificationSyncTick((t) => t + 1);
+    window.addEventListener('notifications_updated', handleSync);
+    return () => window.removeEventListener('notifications_updated', handleSync);
+  }, []);
+
+  // 対象画面（タブ）を開いたタイミングで、その機能に関連する未読通知を自動既読化してベルマークのバッジ数を即座に更新
+  // ※ サーバーからの既読データ取得(isUserReadStatusSynced)が完了するまで待機し、過去データの誤既読POST送信とチラつきを防止
+  useEffect(() => {
+    if (!userState?.id || !isAuthenticated || !isUserReadStatusSynced(userState.id)) return;
 
     if (activeTab === 'memo') {
       const unreadMemos = memos.filter((m) => isMemoUnread(m, userState));
@@ -793,20 +804,11 @@ export default function App() {
       }
     }
     // チャットの未読管理は Chat コンポーネント側でアクティブな部屋ごとに個別に既読処理
-  }, [activeTab, userState, isAuthenticated, memos, topics, applications, events, reports]);
+  }, [activeTab, userState, isAuthenticated, memos, topics, applications, events, reports, notificationSyncTick]);
 
-  // 通知更新イベントリスナー（既読・未読変更の即時反映）
-  const [notificationSyncTick, setNotificationSyncTick] = useState(0);
-
-  useEffect(() => {
-    const handleSync = () => setNotificationSyncTick((t) => t + 1);
-    window.addEventListener('notifications_updated', handleSync);
-    return () => window.removeEventListener('notifications_updated', handleSync);
-  }, []);
-
-  // サイドバー用の未読バッジ集計
+  // サイドバー用の未読バッジ集計（既読データ同期完了後に確定表示し、現在開いている自動既読対象タブの1フレーム点滅を防止）
   const sidebarUnreadCounts = useMemo(() => {
-    if (!userState) return {};
+    if (!userState || !isUserReadStatusSynced(userState.id)) return {};
     const notifs = getUnreadNotifications({
       user: userState,
       memos,
@@ -820,14 +822,14 @@ export default function App() {
     });
     return {
       chat: notifs.filter((n) => n.type === 'chat').length,
-      memo: notifs.filter((n) => n.type === 'memo').length,
-      workflow: notifs.filter((n) => n.type === 'workflow').length,
-      board: notifs.filter((n) => n.type === 'board').length,
-      event: notifs.filter((n) => n.type === 'event').length,
-      report: notifs.filter((n) => n.type === 'report').length,
+      memo: activeTab === 'memo' ? 0 : notifs.filter((n) => n.type === 'memo').length,
+      workflow: activeTab === 'workflow' ? 0 : notifs.filter((n) => n.type === 'workflow').length,
+      board: activeTab === 'board' ? 0 : notifs.filter((n) => n.type === 'board').length,
+      event: (activeTab === 'calendar' || activeTab === 'inspection_scheduler') ? 0 : notifs.filter((n) => n.type === 'event').length,
+      report: activeTab === 'daily_report' ? 0 : notifs.filter((n) => n.type === 'report').length,
       safety: notifs.filter((n) => n.type === 'safety').length,
     };
-  }, [userState, memos, applications, topics, events, chatRooms, reports, safetyEvents, safetyResponses, notificationSyncTick]);
+  }, [userState, activeTab, memos, applications, topics, events, chatRooms, reports, safetyEvents, safetyResponses, notificationSyncTick]);
 
   // カレンダー予定の更新処理実行中フラグ（更新処理中のポーリングによる古いデータ上書きを防止）
   const isUpdatingCalendarEventsRef = useRef(false);

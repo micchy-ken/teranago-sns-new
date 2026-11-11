@@ -7,10 +7,10 @@
  * - 機能追加・バグ修正・仕様変更のたびに必ず更新すること
  */
 export const APP_VERSION = {
-  version: '2026.11.11.12',
-  date: '2026.11.11',
-  releaseNumber: 12,
-  display: 'v2026.11.11 #12 (JST)',
+  version: '2026.11.12.1',
+  date: '2026.11.12',
+  releaseNumber: 1,
+  display: 'v2026.11.12 #1 (JST)',
   timeZone: 'Asia/Tokyo (JST)',
-  description: 'マスターID/コード主軸化 Step4(完了): 点検予定表(InspectionScheduler.tsx)・安否確認(SafetyConfirmation.tsx)の拠点・事業部マスターID主軸照合＆兼務部署対応'
+  description: '未読バッジの一瞬点滅(チラつき)解消＆既読ステータス同期完了待機(isUserReadStatusSynced)・LocalStorageハイブリッド保持・自動既読の不要POST抑止対応'
 };
