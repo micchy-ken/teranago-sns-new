@@ -4954,11 +4954,37 @@ async function startServer() {
     return !isNaN(dJst.getTime()) ? dJst.toISOString() : new Date(s).toISOString();
   }
 
-  // カレンダー予定一覧取得
+  // カレンダー予定一覧取得（期間ウィンドウ指定対応 + 繰り返し予定・現場予定常時保持）
   app.get(['/api/events', '/api/events/', '/events', '/events/'], (req, res) => {
     try {
       const list = loadEvents();
-      res.json(list);
+      const fetchAll = req.query.all === 'true' || req.query.all === '1';
+      if (fetchAll) {
+        return res.json(list);
+      }
+
+      const defaultFromMs = Date.now() - 180 * 24 * 60 * 60 * 1000;
+      const fromMs = req.query.from ? new Date(parseEventIsoJst(req.query.from)).getTime() : defaultFromMs;
+      const toMs = req.query.to ? new Date(parseEventIsoJst(req.query.to)).getTime() : null;
+
+      const filtered = list.filter((ev: any) => {
+        const rec = ev.recurrence;
+        if (rec && typeof rec === 'object' && rec.frequency && rec.frequency !== 'none') return true;
+        if (typeof rec === 'string' && rec.trim() !== '' && rec.trim() !== 'null' && !rec.includes('"frequency":"none"')) return true;
+        if (ev.recurrenceParentId) return true;
+        if (ev.siteId || ev.siteCode) return true;
+
+        const rawStart = ev.startAt || ev.start;
+        const rawEnd = ev.endAt || ev.end || rawStart;
+        const startMs = rawStart ? new Date(parseEventIsoJst(rawStart)).getTime() : 0;
+        const endMs = rawEnd ? new Date(parseEventIsoJst(rawEnd)).getTime() : startMs;
+
+        if (!isNaN(fromMs) && endMs < fromMs) return false;
+        if (toMs !== null && !isNaN(toMs) && startMs > toMs) return false;
+        return true;
+      });
+
+      res.json(filtered);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

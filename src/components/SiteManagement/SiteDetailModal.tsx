@@ -145,10 +145,13 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
   useEffect(() => {
     if (events && events.length > 0) return;
     let isMounted = true;
-    fetch(`${API_BASE_URL}/events`)
+    fetch(`${API_BASE_URL}/events?all=true`)
       .then(res => res.ok ? res.json() : null)
       .then(data => {
-        if (isMounted && data && Array.isArray(data.events)) {
+        if (!isMounted || !data) return;
+        if (Array.isArray(data)) {
+          setFetchedEvents(data);
+        } else if (Array.isArray(data.events)) {
           setFetchedEvents(data.events);
         }
       })

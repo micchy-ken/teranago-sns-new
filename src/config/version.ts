@@ -15,12 +15,12 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.11.11.4',
+  version: '2026.11.11.5',
   date: '2026-11-11',
-  releaseNumber: 4,
-  display: 'v2026.11.11 #4 (JST)',
+  releaseNumber: 5,
+  display: 'v2026.11.11 #5 (JST)',
   timeZone: '日本標準時 (JST / UTC+09:00)',
-  description: 'Step 3 ルーティング競合修正：app.use(\'/api\')共通マウント時に後続ルーター(/api/posts, /api/work-reports等)を横取りしていた裸の\'/:id\'パスを排除・baseUrl自動正規化対応版',
+  description: 'Step 4 カレンダー・予定管理の期間ウィンドウ取得・O(1)ユーザー照合・JST辞書クランプ・非同期I/O化対応版',
 };
 
 /**

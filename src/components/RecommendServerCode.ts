@@ -1,7 +1,7 @@
 export const RECOMMEND_SERVER_JS = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年11月11日 (Step 3 伝言メモ・日報・週報・写真報告書 ページネーション＆非同期I/O化：未対応・未確認優先抽出・OFFSET/FETCH NEXTページネーション・fs.promises非同期I/O＆メモリキャッシュ・非クラスター化インデックス自動生成対応版)
+ * 最終更新日時 (最終アップデート): 2026年11月11日 (Step 4 カレンダー・予定管理 期間ウィンドウ取得＆インデックス最適化：過去180日基準ウィンドウ取得・繰り返し予定＆現場施工予定の完全保持・ワンタイムスキーマ＆インデックス自動生成・非同期ファイルI/Oキャッシュ対応版)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -4975,11 +4975,37 @@ async function startServer() {
     return !isNaN(dJst.getTime()) ? dJst.toISOString() : new Date(s).toISOString();
   }
 
-  // カレンダー予定一覧取得
+  // カレンダー予定一覧取得（期間ウィンドウ指定対応 + 繰り返し予定・現場予定常時保持）
   app.get(['/api/events', '/api/events/', '/events', '/events/'], (req, res) => {
     try {
       const list = loadEvents();
-      res.json(list);
+      const fetchAll = req.query.all === 'true' || req.query.all === '1';
+      if (fetchAll) {
+        return res.json(list);
+      }
+
+      const defaultFromMs = Date.now() - 180 * 24 * 60 * 60 * 1000;
+      const fromMs = req.query.from ? new Date(parseEventIsoJst(req.query.from)).getTime() : defaultFromMs;
+      const toMs = req.query.to ? new Date(parseEventIsoJst(req.query.to)).getTime() : null;
+
+      const filtered = list.filter((ev: any) => {
+        const rec = ev.recurrence;
+        if (rec && typeof rec === 'object' && rec.frequency && rec.frequency !== 'none') return true;
+        if (typeof rec === 'string' && rec.trim() !== '' && rec.trim() !== 'null' && !rec.includes('"frequency":"none"')) return true;
+        if (ev.recurrenceParentId) return true;
+        if (ev.siteId || ev.siteCode) return true;
+
+        const rawStart = ev.startAt || ev.start;
+        const rawEnd = ev.endAt || ev.end || rawStart;
+        const startMs = rawStart ? new Date(parseEventIsoJst(rawStart)).getTime() : 0;
+        const endMs = rawEnd ? new Date(parseEventIsoJst(rawEnd)).getTime() : startMs;
+
+        if (!isNaN(fromMs) && endMs < fromMs) return false;
+        if (toMs !== null && !isNaN(toMs) && startMs > toMs) return false;
+        return true;
+      });
+
+      res.json(filtered);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -8295,6 +8321,11 @@ export interface ServerCodeHistoryItem {
 }
 
 export const SERVER_CODE_HISTORY: ServerCodeHistoryItem[] = [
+  {
+    version: 'v2026.11.11.5',
+    date: '2026-11-11',
+    summary: 'Step 4 カレンダー・予定管理 期間ウィンドウ取得＆インデックス最適化：過去180日基準ウィンドウ取得・繰り返し予定＆現場施工予定の完全保持・ワンタイムスキーマ＆インデックス自動生成・非同期ファイルI/Oキャッシュ対応版',
+  },
   {
     version: 'v2026.11.11.3',
     date: '2026-11-11',

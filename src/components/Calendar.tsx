@@ -44,7 +44,7 @@ interface CalendarProps {
   initialTypeFilter?: string;
   memos?: Memo[];
   onUpdateMemos?: (updatedMemos: Memo[]) => void;
-  onRefetchEvents?: () => void;
+  onRefetchEvents?: (options?: { from?: string; all?: boolean }) => void;
   onNavigateToInspectionScheduler?: () => void;
   onNavigateToSite?: (siteIdOrCode: string) => void;
   onOpenSchedulePollModal?: (pollId?: string) => void;
@@ -1133,15 +1133,32 @@ export function Calendar({
     return Array.from(new Set(list));
   }, [divisions, allUsers, initialDivision, selectedDivision]);
 
-  // 表示期間の前後を含む展開用日付範囲（前後3ヶ月）
-  const viewRangeStartStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() - 1).padStart(2, '0')}-01`;
-  const viewRangeEndStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 4).padStart(2, '0')}-00`;
+  // 表示期間の前後を含む展開用日付範囲（前後2〜3ヶ月）
+  const viewWindowStart = useMemo(() => new Date(currentDate.getFullYear(), currentDate.getMonth() - 2, 1), [currentDate.getFullYear(), currentDate.getMonth()]);
+  const viewWindowEnd = useMemo(() => new Date(currentDate.getFullYear(), currentDate.getMonth() + 3, 0), [currentDate.getFullYear(), currentDate.getMonth()]);
+  const viewRangeStartStr = useMemo(() => getLocalDateStr(viewWindowStart), [viewWindowStart]);
+  const viewRangeEndStr = useMemo(() => getLocalDateStr(viewWindowEnd), [viewWindowEnd]);
+
+  // 過去月へ遡った際に、未取得の過去期間があればオンデマンドで拡張取得
+  const earliestRequestedFromRef = useRef<string>(
+    getLocalDateStr(new Date(Date.now() - 170 * 24 * 60 * 60 * 1000))
+  );
+  useEffect(() => {
+    if (viewRangeStartStr < earliestRequestedFromRef.current && onRefetchEvents) {
+      earliestRequestedFromRef.current = viewRangeStartStr;
+      onRefetchEvents({ from: viewRangeStartStr });
+    }
+  }, [viewRangeStartStr, onRefetchEvents]);
+
+  // リスト表示の段階的DOM描画件数（月・フィルタ変更時に50件へリセット）
+  const [visibleListCount, setVisibleListCount] = useState<number>(50);
+  useEffect(() => {
+    setVisibleListCount(50);
+  }, [currentDate.getFullYear(), currentDate.getMonth(), selectedTypeFilter, calendarMode, selectedOffice, selectedDivision]);
 
   const expandedEvents = React.useMemo(() => {
-    const start = new Date(currentDate.getFullYear(), currentDate.getMonth() - 2, 1);
-    const end = new Date(currentDate.getFullYear(), currentDate.getMonth() + 3, 0);
-    return expandRecurringEvents(localEvents, start, end);
-  }, [localEvents, viewRangeStartStr, viewRangeEndStr, currentDate.getFullYear(), currentDate.getMonth()]);
+    return expandRecurringEvents(localEvents, viewWindowStart, viewWindowEnd);
+  }, [localEvents, viewWindowStart, viewWindowEnd]);
 
   const processedInitialEventIdRef = React.useRef<string | null>(null);
 
@@ -1342,28 +1359,46 @@ export function Calendar({
   };
 
   // ★ 高速化のためのイベント辞書作成（全画面での O(N) 検索を防止する）
-  // チーム表示や個人表示で、日付・ユーザーごとにイベントを素早く引けるようにする
+  // 表示ウィンドウ範囲 [viewRangeStartStr, viewRangeEndStr] にクランプし、JST明示パースで不要な全期間走査を排除
   const eventDictionary = React.useMemo(() => {
     const map = new Map<string, CalendarEvent[]>();
     
     filteredEvents.forEach(e => {
-      const startStr = getLocalDateStr(e.start);
-      const endStr = e.end ? getLocalDateStr(e.end) : startStr;
+      const rawStartStr = getLocalDateStr(e.start);
+      const rawEndStr = e.end ? getLocalDateStr(e.end) : rawStartStr;
+
+      // 表示ウィンドウ外に完全に外れている予定は辞書展開をスキップ
+      if (rawEndStr < viewRangeStartStr || rawStartStr > viewRangeEndStr) {
+        return;
+      }
+
+      const clampedStartStr = rawStartStr < viewRangeStartStr ? viewRangeStartStr : rawStartStr;
+      const clampedEndStr = rawEndStr > viewRangeEndStr ? viewRangeEndStr : rawEndStr;
       
-      // 対象日付範囲を計算 (開始日から終了日まで)
+      // 対象日付範囲を計算 (JST基準で開始日から終了日まで)
       const dateKeys: string[] = [];
-      let current = new Date(startStr);
-      const end = new Date(endStr);
-      while (current <= end) {
-        dateKeys.push(getLocalDateStr(current));
-        current.setDate(current.getDate() + 1);
+      if (clampedStartStr === clampedEndStr) {
+        dateKeys.push(clampedStartStr);
+      } else {
+        let current = new Date(`${clampedStartStr}T00:00:00+09:00`);
+        const end = new Date(`${clampedEndStr}T00:00:00+09:00`);
+        let guard = 0;
+        while (current <= end && guard < 370) {
+          dateKeys.push(getLocalDateStr(current));
+          current = new Date(current.getTime() + 24 * 60 * 60 * 1000);
+          guard++;
+        }
       }
       
       dateKeys.forEach(dateStr => {
         // 全員用（日付キーのみ）
         const generalKey = `date_${dateStr}`;
-        if (!map.has(generalKey)) map.set(generalKey, []);
-        map.get(generalKey)!.push(e);
+        let genArr = map.get(generalKey);
+        if (!genArr) {
+          genArr = [];
+          map.set(generalKey, genArr);
+        }
+        genArr.push(e);
 
         // 参加者ごと（チーム表示用） O(1) ハッシュ検索キー
         if (e.attendees && e.attendees.length > 0) {
@@ -1371,11 +1406,19 @@ export function Calendar({
             if (a) {
               const key1 = `date_${dateStr}_user_${a.id}`;
               const key2 = `date_${dateStr}_user_${String(a.id)}`;
-              if (!map.has(key1)) map.set(key1, []);
-              map.get(key1)!.push(e);
+              let arr1 = map.get(key1);
+              if (!arr1) {
+                arr1 = [];
+                map.set(key1, arr1);
+              }
+              arr1.push(e);
               if (key1 !== key2) {
-                if (!map.has(key2)) map.set(key2, []);
-                map.get(key2)!.push(e);
+                let arr2 = map.get(key2);
+                if (!arr2) {
+                  arr2 = [];
+                  map.set(key2, arr2);
+                }
+                arr2.push(e);
               }
             }
           });
@@ -1384,7 +1427,7 @@ export function Calendar({
     });
 
     return map;
-  }, [filteredEvents]);
+  }, [filteredEvents, viewRangeStartStr, viewRangeEndStr]);
 
   const isEventOccurringOnDate = (e: CalendarEvent, dateStr: string) => {
     const startStr = getLocalDateStr(e.start);
@@ -4383,61 +4426,78 @@ export function Calendar({
             )}
 
             {/* 4. LIST VIEW */}
-            {view === 'list' && (
+            {view === 'list' && (() => {
+              const sortedListEvents = [...filteredEvents].sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
+              const visibleListEvents = sortedListEvents.slice(0, visibleListCount);
+              return (
               <div className="p-3 sm:p-6 w-full space-y-3 sm:space-y-4">
-                {filteredEvents.length > 0 ? (
-                  [...filteredEvents].sort((a,b) => new Date(a.start).getTime() - new Date(b.start).getTime()).map(e => (
-                    <div
-                      key={e.id}
-                      data-event-card="true"
-                      onMouseDown={(eClick) => eClick.stopPropagation()}
-                      onClick={(eClick) => handleEventClick(eClick, e)}
-                      className="flex flex-col sm:flex-row gap-3 sm:gap-5 p-3.5 sm:p-5 rounded-xl border border-slate-200 hover:border-indigo-300 transition-all bg-white shadow-xs cursor-pointer hover:shadow-md"
-                    >
-                      <div className="sm:w-24 shrink-0 flex sm:flex-col items-center sm:items-center sm:justify-center justify-between pb-2 sm:pb-0 border-b sm:border-b-0 border-slate-100">
-                        <div className="text-xs font-bold text-slate-600 uppercase tracking-wider bg-slate-100 px-2 py-0.5 rounded sm:bg-transparent sm:p-0">
-                          {new Date(e.start).toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo', month: 'short', day: 'numeric' })}
-                        </div>
-                        <div className="text-xs sm:text-sm font-extrabold text-indigo-700 sm:text-slate-800 sm:mt-1">
-                          {formatEventTime(e)}
-                        </div>
-                      </div>
-                      <div className="hidden sm:block w-px bg-slate-100 shrink-0 my-1"></div>
-                      <div className="flex-1 min-w-0 py-0.5">
-                        <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold tracking-wider border ${getEventStyle(e)}`}>
-                            {e.isSchedulePoll ? '日程調整' : typeLabels[e.type]}
-                          </span>
-                          {renderConstructionBadge(e)}
-                          <h3 className="font-bold text-slate-900 truncate text-sm sm:text-base flex-1 min-w-0">{e.title}</h3>
-                        </div>
-                        {e.memo && (
-                          <div className="text-xs text-slate-700 my-2 bg-slate-50 p-2 rounded-lg border border-slate-100">
-                            {renderContentWithLinks(e.memo)}
+                {sortedListEvents.length > 0 ? (
+                  <>
+                    {visibleListEvents.map(e => (
+                      <div
+                        key={e.id}
+                        data-event-card="true"
+                        onMouseDown={(eClick) => eClick.stopPropagation()}
+                        onClick={(eClick) => handleEventClick(eClick, e)}
+                        className="flex flex-col sm:flex-row gap-3 sm:gap-5 p-3.5 sm:p-5 rounded-xl border border-slate-200 hover:border-indigo-300 transition-all bg-white shadow-xs cursor-pointer hover:shadow-md"
+                      >
+                        <div className="sm:w-24 shrink-0 flex sm:flex-col items-center sm:items-center sm:justify-center justify-between pb-2 sm:pb-0 border-b sm:border-b-0 border-slate-100">
+                          <div className="text-xs font-bold text-slate-600 uppercase tracking-wider bg-slate-100 px-2 py-0.5 rounded sm:bg-transparent sm:p-0">
+                            {new Date(e.start).toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo', month: 'short', day: 'numeric' })}
                           </div>
-                        )}
-                        <div className="flex flex-wrap gap-2.5 sm:gap-4 text-xs text-slate-500 mt-2 font-medium items-center">
-                          {e.attendees && e.attendees.length > 0 && (
-                            <div className="flex items-center gap-1.5">
-                              <Users className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                              <div className="flex -space-x-1.5">
-                                {e.attendees.map(u => (
-                                  <img key={u.id} src={getAvatarUrl(u.id === currentUser.id ? (currentUser.avatarUrl || u.avatarUrl) : u.avatarUrl)} onError={handleAvatarError} alt={u.name} title={u.name} className="w-4 h-4 rounded-full border border-white object-cover" />
-                                ))}
+                          <div className="text-xs sm:text-sm font-extrabold text-indigo-700 sm:text-slate-800 sm:mt-1">
+                            {formatEventTime(e)}
+                          </div>
+                        </div>
+                        <div className="hidden sm:block w-px bg-slate-100 shrink-0 my-1"></div>
+                        <div className="flex-1 min-w-0 py-0.5">
+                          <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold tracking-wider border ${getEventStyle(e)}`}>
+                              {e.isSchedulePoll ? '日程調整' : typeLabels[e.type]}
+                            </span>
+                            {renderConstructionBadge(e)}
+                            <h3 className="font-bold text-slate-900 truncate text-sm sm:text-base flex-1 min-w-0">{e.title}</h3>
+                          </div>
+                          {e.memo && (
+                            <div className="text-xs text-slate-700 my-2 bg-slate-50 p-2 rounded-lg border border-slate-100">
+                              {renderContentWithLinks(e.memo)}
+                            </div>
+                          )}
+                          <div className="flex flex-wrap gap-2.5 sm:gap-4 text-xs text-slate-500 mt-2 font-medium items-center">
+                            {e.attendees && e.attendees.length > 0 && (
+                              <div className="flex items-center gap-1.5">
+                                <Users className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                <div className="flex -space-x-1.5">
+                                  {e.attendees.map(u => (
+                                    <img key={u.id} src={getAvatarUrl(u.id === currentUser.id ? (currentUser.avatarUrl || u.avatarUrl) : u.avatarUrl)} onError={handleAvatarError} alt={u.name} title={u.name} className="w-4 h-4 rounded-full border border-white object-cover" />
+                                  ))}
+                                </div>
+                                <span>({e.attendees.length}名)</span>
                               </div>
-                              <span>({e.attendees.length}名)</span>
-                            </div>
-                          )}
-                          {e.attachments && e.attachments.length > 0 && (
-                            <div className="flex items-center gap-1 text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full text-[11px] font-semibold border border-indigo-100">
-                              <Paperclip className="w-3 h-3" />
-                              <span>添付 ({e.attachments.length})</span>
-                            </div>
-                          )}
+                            )}
+                            {e.attachments && e.attachments.length > 0 && (
+                              <div className="flex items-center gap-1 text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full text-[11px] font-semibold border border-indigo-100">
+                                <Paperclip className="w-3 h-3" />
+                                <span>添付 ({e.attachments.length})</span>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))
+                    ))}
+                    {sortedListEvents.length > visibleListCount && (
+                      <div className="pt-2 flex justify-center">
+                        <button
+                          type="button"
+                          onClick={() => setVisibleListCount(prev => prev + 50)}
+                          className="px-5 py-2.5 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs sm:text-sm rounded-xl border border-slate-200 shadow-2xs transition-all flex items-center gap-2"
+                        >
+                          <ChevronDown className="w-4 h-4 text-slate-400" />
+                          <span>さらに表示する（残り {sortedListEvents.length - visibleListCount} 件）</span>
+                        </button>
+                      </div>
+                    )}
+                  </>
                 ) : (
                   <div className="text-center py-12 sm:py-16">
                     <CalendarIcon className="w-10 h-10 sm:w-12 sm:h-12 text-slate-300 mx-auto mb-3 sm:mb-4" />
@@ -4446,7 +4506,8 @@ export function Calendar({
                   </div>
                 )}
               </div>
-            )}
+              );
+            })()}
           </>
         )}
       </div>

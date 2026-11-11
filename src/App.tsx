@@ -824,13 +824,35 @@ export default function App() {
 
   // カレンダー予定の更新処理実行中フラグ（更新処理中のポーリングによる古いデータ上書きを防止）
   const isUpdatingCalendarEventsRef = useRef(false);
+  // 取得済みカレンダー予定の最古基準日（JSTでデフォルト180日前、過去月へ移動時に自動拡張）
+  const loadedEventsFromDateRef = useRef<string>(
+    (() => {
+      const d = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000 + 9 * 60 * 60 * 1000);
+      return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+    })()
+  );
+  const loadedEventsAllRef = useRef(false);
 
-  const refetchEvents = async (currentUsers = usersList, force = false) => {
+  const refetchEvents = async (
+    currentUsers = usersList,
+    force = false,
+    options?: { from?: string; all?: boolean }
+  ) => {
     if (isUpdatingCalendarEventsRef.current && !force) {
       return;
     }
     try {
-      const response = await fetchWithRetry(`${API_BASE_URL}/events`, {
+      if (options?.all) {
+        loadedEventsAllRef.current = true;
+      } else if (options?.from && options.from < loadedEventsFromDateRef.current) {
+        loadedEventsFromDateRef.current = options.from;
+      }
+
+      const queryParam = loadedEventsAllRef.current
+        ? '?all=true'
+        : `?from=${encodeURIComponent(loadedEventsFromDateRef.current)}`;
+
+      const response = await fetchWithRetry(`${API_BASE_URL}/events${queryParam}`, {
         headers: { 'Accept': 'application/json' }
       });
       if (!response.ok) {
@@ -838,7 +860,24 @@ export default function App() {
       }
       const data = await response.json();
       if (Array.isArray(data)) {
-        const activeUsers = currentUsers;
+        // 高速化：O(1) ユーザーハッシュマップを事前構築し、イベント×参加者の O(E*A*U) ループを排除
+        const userByIdMap = new Map<string, User>();
+        const userByKeyMap = new Map<string, User>();
+        for (const u of currentUsers) {
+          if (u.id) {
+            userByIdMap.set(String(u.id), u);
+            userByKeyMap.set(String(u.id), u);
+          }
+          if (u.loginId) userByKeyMap.set(String(u.loginId), u);
+          if (u.name) userByKeyMap.set(u.name, u);
+        }
+        if (userState?.id) {
+          userByIdMap.set(String(userState.id), userState);
+          userByKeyMap.set(String(userState.id), userState);
+          if (userState.loginId) userByKeyMap.set(String(userState.loginId), userState);
+          if (userState.name) userByKeyMap.set(userState.name, userState);
+        }
+
         const mapped = data.map((e: any) => {
           let detailsObj: any = {};
           if (e.description && typeof e.description === 'string' && e.description.startsWith('{')) {
@@ -853,7 +892,7 @@ export default function App() {
           const mappedAttendees = Array.isArray(rawAttendees)
             ? rawAttendees.map((att: any) => {
                 if (typeof att === 'object' && att !== null && att.id) return att;
-                const found = activeUsers.find(u => u.id === att || u.id === String(att));
+                const found = userByIdMap.get(String(att)) || userByKeyMap.get(String(att));
                 return found || { id: String(att), name: String(att), avatarUrl: '', office: '', division: '', department: '', role: 'user' };
               })
             : [];
@@ -867,12 +906,12 @@ export default function App() {
             if (typeof rawCreatedBy === 'object' && rawCreatedBy !== null && rawCreatedBy.id) {
               mappedCreatedBy = rawCreatedBy;
             } else {
-              const found = activeUsers.find(u => u.id === rawCreatedBy || u.id === String(rawCreatedBy) || u.name === rawCreatedBy || u.loginId === rawCreatedBy);
+              const found = userByKeyMap.get(String(rawCreatedBy));
               mappedCreatedBy = found || { id: String(rawCreatedBy), name: String(rawCreatedBy), avatarUrl: '', office: '', division: '', department: '', role: 'user' };
             }
           } else if (e.userId || detailsObj.userId || e.authorId || detailsObj.authorId || (e as any).createdById || detailsObj.createdById) {
             const cId = e.userId || detailsObj.userId || e.authorId || detailsObj.authorId || (e as any).createdById || detailsObj.createdById;
-            const found = activeUsers.find(u => u.id === cId || u.id === String(cId));
+            const found = userByIdMap.get(String(cId));
             if (found) mappedCreatedBy = found;
           }
 
@@ -3539,7 +3578,7 @@ export default function App() {
               initialTypeFilter={calendarParams.type}
               memos={memos}
               onUpdateMemos={handleUpdateMemos}
-              onRefetchEvents={refetchEvents}
+              onRefetchEvents={(opts) => refetchEvents(usersList, false, opts)}
               onNavigateToInspectionScheduler={() => setActiveTab('inspection_scheduler')}
               onNavigateToSite={handleNavigateToSite}
               pendingPollCount={pendingSchedulePolls.length}
