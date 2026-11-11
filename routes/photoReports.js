@@ -1,7 +1,7 @@
 /**
  * =====================================================================
  * routes/photoReports.js - 点検・写真報告書 API ルーター (完全版)
- * 最終更新日時: 2026年11月5日
+ * 最終更新日時: 2026年11月11日 (Step 3 パフォーマンス改善：initTablesの初回1回実行キャッシュ化・非同期ファイルI/O化・一覧ページネーション対応版)
  * 機能: 写真報告書(2〜4枚構成)の作成・更新・一覧取得・下書き保存・No手動紐付け・画像アップロード・写真画像直接配信(/api/photo-reports/image/:filename)・MS SQL Server連携
  * =====================================================================
  */
@@ -30,6 +30,33 @@ function ensureDirsAndFiles() {
 }
 ensureDirsAndFiles();
 
+// 非同期ファイル読み込み・保存ヘルパー（メモリキャッシュ付き）
+let cachedPhotoReports = null;
+async function loadPhotoReportsFromFileAsync() {
+  if (Array.isArray(cachedPhotoReports)) {
+    return cachedPhotoReports;
+  }
+  try {
+    ensureDirsAndFiles();
+    const raw = await fs.promises.readFile(PHOTO_REPORTS_FILE, 'utf8');
+    cachedPhotoReports = safeParseJSON(raw, []);
+    return Array.isArray(cachedPhotoReports) ? cachedPhotoReports : [];
+  } catch (_) {
+    cachedPhotoReports = [];
+    return cachedPhotoReports;
+  }
+}
+
+async function savePhotoReportsToFileAsync(list) {
+  cachedPhotoReports = Array.isArray(list) ? list : [];
+  try {
+    ensureDirsAndFiles();
+    await fs.promises.writeFile(PHOTO_REPORTS_FILE, JSON.stringify(cachedPhotoReports, null, 2), 'utf8');
+  } catch (err) {
+    console.error('[PhotoReports] Async file save error:', err);
+  }
+}
+
 // Multer 設定 (写真アップロード用)
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -47,8 +74,10 @@ const upload = multer({
   limits: { fileSize: 20 * 1024 * 1024 }, // 20MB (フロントエンドで1200px圧縮されるため十分)
 });
 
-// テーブル自動初期化 ＆ マイグレーション
+// テーブル自動初期化 ＆ マイグレーション（プロセス起動後1回のみ実行）
+let isPhotoTablesInitialized = false;
 async function initTables(pool) {
+  if (isPhotoTablesInitialized || !pool) return;
   try {
     await pool.request().query(`
       IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'InspectionPhotoReports' AND schema_id = SCHEMA_ID('dbo'))
@@ -82,8 +111,13 @@ async function initTables(pool) {
         BEGIN
           ALTER TABLE dbo.InspectionPhotoReports ADD status NVARCHAR(32) NOT NULL DEFAULT 'completed';
         END
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_InspectionPhotoReports_createdAt' AND object_id = OBJECT_ID('dbo.InspectionPhotoReports'))
+        BEGIN
+          CREATE INDEX IX_InspectionPhotoReports_createdAt ON dbo.InspectionPhotoReports(createdAt DESC);
+        END
       END
     `);
+    isPhotoTablesInitialized = true;
   } catch (err) {
     console.warn('[PhotoReports] DB table init failed (using fallback if needed):', err.message);
   }
@@ -92,9 +126,15 @@ async function initTables(pool) {
 // ==========================================
 // 1. 写真報告書一覧取得 (GET /api/photo-reports)
 // ==========================================
-router.get(['/photo-reports', '/api/photo-reports', '/inspection-photo-reports'], async (req, res) => {
+router.get(['/photo-reports', '/api/photo-reports', '/inspection-photo-reports', '/'], async (req, res) => {
   try {
     const { inspectionReportId, jobNo, userId, status } = req.query;
+    const fetchAll = req.query.all === 'true';
+    const parsedLimit = parseInt(String(req.query.limit || '200'), 10);
+    const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(parsedLimit, 1000) : 200;
+    const parsedOffset = parseInt(String(req.query.offset || '0'), 10);
+    const offset = Number.isFinite(parsedOffset) && parsedOffset >= 0 ? parsedOffset : 0;
+
     const pool = await getPool();
 
     if (pool) {
@@ -120,6 +160,11 @@ router.get(['/photo-reports', '/api/photo-reports', '/inspection-photo-reports']
       }
 
       queryStr += ` ORDER BY createdAt DESC`;
+      if (!fetchAll) {
+        request.input('offset', sql.Int, offset);
+        request.input('limit', sql.Int, limit);
+        queryStr += ` OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY`;
+      }
 
       const result = await request.query(queryStr);
       const reports = (result.recordset || []).map(row => ({
@@ -143,9 +188,7 @@ router.get(['/photo-reports', '/api/photo-reports', '/inspection-photo-reports']
 
       return res.json(reports);
     } else {
-      ensureDirsAndFiles();
-      const raw = fs.readFileSync(PHOTO_REPORTS_FILE, 'utf8');
-      let reports = safeParseJSON(raw, []);
+      let reports = [...(await loadPhotoReportsFromFileAsync())];
 
       if (inspectionReportId) {
         reports = reports.filter(r => r.inspectionReportId === String(inspectionReportId));
@@ -160,6 +203,10 @@ router.get(['/photo-reports', '/api/photo-reports', '/inspection-photo-reports']
         reports = reports.filter(r => r.status === String(status));
       }
 
+      if (!fetchAll) {
+        reports = reports.slice(offset, offset + limit);
+      }
+
       return res.json(reports);
     }
   } catch (err) {
@@ -171,9 +218,12 @@ router.get(['/photo-reports', '/api/photo-reports', '/inspection-photo-reports']
 // ==========================================
 // 2. 写真報告書詳細取得 (GET /api/photo-reports/:id)
 // ==========================================
-router.get(['/photo-reports/:id', '/api/photo-reports/:id', '/inspection-photo-reports/:id'], async (req, res) => {
+router.get(['/photo-reports/:id', '/api/photo-reports/:id', '/inspection-photo-reports/:id', '/:id'], async (req, res, next) => {
   try {
     const { id } = req.params;
+    if (id === 'upload' || id === 'image' || id === 'file') {
+      return next();
+    }
     const pool = await getPool();
 
     if (pool) {
@@ -208,9 +258,7 @@ router.get(['/photo-reports/:id', '/api/photo-reports/:id', '/inspection-photo-r
 
       return res.json(report);
     } else {
-      ensureDirsAndFiles();
-      const raw = fs.readFileSync(PHOTO_REPORTS_FILE, 'utf8');
-      const reports = safeParseJSON(raw, []);
+      const reports = await loadPhotoReportsFromFileAsync();
       const report = reports.find(r => r.id === id);
 
       if (!report) {
@@ -229,7 +277,7 @@ router.get(['/photo-reports/:id', '/api/photo-reports/:id', '/inspection-photo-r
 // 3. 写真画像ファイルアップロード (POST /api/photo-reports/upload)
 // ==========================================
 router.post(
-  ['/photo-reports/upload', '/api/photo-reports/upload', '/inspection-photo-reports/upload'],
+  ['/photo-reports/upload', '/api/photo-reports/upload', '/inspection-photo-reports/upload', '/upload'],
   upload.single('photo'),
   (req, res) => {
     try {
@@ -286,7 +334,7 @@ router.get(
 // ==========================================
 // 4. 新規写真報告書作成 (POST /api/photo-reports)
 // ==========================================
-router.post(['/photo-reports', '/api/photo-reports', '/inspection-photo-reports'], async (req, res) => {
+router.post(['/photo-reports', '/api/photo-reports', '/inspection-photo-reports', '/'], async (req, res) => {
   try {
     const {
       inspectionReportId = null,
@@ -360,11 +408,9 @@ router.post(['/photo-reports', '/api/photo-reports', '/inspection-photo-reports'
           )
         `;
     } else {
-      ensureDirsAndFiles();
-      const raw = fs.readFileSync(PHOTO_REPORTS_FILE, 'utf8');
-      const list = safeParseJSON(raw, []);
+      const list = [...(await loadPhotoReportsFromFileAsync())];
       list.unshift(newReport);
-      fs.writeFileSync(PHOTO_REPORTS_FILE, JSON.stringify(list, null, 2), 'utf8');
+      await savePhotoReportsToFileAsync(list);
     }
 
     res.status(201).json(newReport);
@@ -377,7 +423,7 @@ router.post(['/photo-reports', '/api/photo-reports', '/inspection-photo-reports'
 // ==========================================
 // 5. 写真報告書更新 (PUT /api/photo-reports/:id)
 // ==========================================
-router.put(['/photo-reports/:id', '/api/photo-reports/:id', '/inspection-photo-reports/:id'], async (req, res) => {
+router.put(['/photo-reports/:id', '/api/photo-reports/:id', '/inspection-photo-reports/:id', '/:id'], async (req, res) => {
   try {
     const { id } = req.params;
     const {
@@ -429,9 +475,7 @@ router.put(['/photo-reports/:id', '/api/photo-reports/:id', '/inspection-photo-r
           WHERE id = @id
         `;
     } else {
-      ensureDirsAndFiles();
-      const raw = fs.readFileSync(PHOTO_REPORTS_FILE, 'utf8');
-      const list = safeParseJSON(raw, []);
+      const list = [...(await loadPhotoReportsFromFileAsync())];
       const idx = list.findIndex(r => r.id === id);
       if (idx >= 0) {
         list[idx] = {
@@ -449,7 +493,7 @@ router.put(['/photo-reports/:id', '/api/photo-reports/:id', '/inspection-photo-r
           status: status !== undefined ? status : list[idx].status,
           updatedAt: nowIso,
         };
-        fs.writeFileSync(PHOTO_REPORTS_FILE, JSON.stringify(list, null, 2), 'utf8');
+        await savePhotoReportsToFileAsync(list);
       }
     }
 
@@ -463,7 +507,7 @@ router.put(['/photo-reports/:id', '/api/photo-reports/:id', '/inspection-photo-r
 // ==========================================
 // 6. 写真報告書削除 (DELETE /api/photo-reports/:id)
 // ==========================================
-router.delete(['/photo-reports/:id', '/api/photo-reports/:id', '/inspection-photo-reports/:id'], async (req, res) => {
+router.delete(['/photo-reports/:id', '/api/photo-reports/:id', '/inspection-photo-reports/:id', '/:id'], async (req, res) => {
   try {
     const { id } = req.params;
     const pool = await getPool();
@@ -474,11 +518,8 @@ router.delete(['/photo-reports/:id', '/api/photo-reports/:id', '/inspection-phot
         .input('id', sql.NVarChar(64), id)
         .query`DELETE FROM dbo.InspectionPhotoReports WHERE id = @id`;
     } else {
-      ensureDirsAndFiles();
-      const raw = fs.readFileSync(PHOTO_REPORTS_FILE, 'utf8');
-      let list = safeParseJSON(raw, []);
-      list = list.filter(r => r.id !== id);
-      fs.writeFileSync(PHOTO_REPORTS_FILE, JSON.stringify(list, null, 2), 'utf8');
+      const list = (await loadPhotoReportsFromFileAsync()).filter(r => r.id !== id);
+      await savePhotoReportsToFileAsync(list);
     }
 
     res.json({ success: true, message: '写真報告書を削除しました' });

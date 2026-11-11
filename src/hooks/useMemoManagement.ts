@@ -18,9 +18,20 @@ export function useMemoManagement({
 }: UseMemoManagementOptions) {
   const [memos, setMemos] = useState<Memo[]>([]);
 
-  const refetchMemos = useCallback(async (currentUsers = usersList) => {
+  const refetchMemos = useCallback(async (
+    currentUsers = usersList,
+    options?: { limit?: number; offset?: number; all?: boolean }
+  ) => {
     try {
-      const response = await fetchWithRetry(`${API_BASE_URL}/memos`, {
+      const params = new URLSearchParams();
+      if (options?.all) {
+        params.set('all', 'true');
+      } else {
+        params.set('limit', String(options?.limit || 300));
+        if (options?.offset) params.set('offset', String(options.offset));
+      }
+      const queryStr = params.toString();
+      const response = await fetchWithRetry(`${API_BASE_URL}/memos${queryStr ? `?${queryStr}` : ''}`, {
         headers: { 'Accept': 'application/json' }
       });
 
@@ -34,9 +45,18 @@ export function useMemoManagement({
           const stored = localStorage.getItem('deleted_memo_ids');
           if (stored) deletedMemoIds = JSON.parse(stored);
         } catch (_) {}
+        const deletedSet = new Set(deletedMemoIds.map(String));
+
+        const activeUsers = currentUsers;
+        const userMap = new Map<string, User>();
+        for (let i = 0; i < activeUsers.length; i++) {
+          const u = activeUsers[i];
+          if (u && u.id) userMap.set(String(u.id), u);
+        }
+        const fallbackUser = activeUsers[0];
 
         const mapped = data
-          .filter((m: any) => !deletedMemoIds.includes(String(m.id)))
+          .filter((m: any) => !deletedSet.has(String(m.id)))
           .map((m: any) => {
             let detailsObj: any = {};
             if (m.details) {
@@ -49,8 +69,8 @@ export function useMemoManagement({
             if (m.content && typeof m.content === 'string' && m.content.startsWith('{')) {
               try { detailsObj = { ...detailsObj, ...JSON.parse(m.content) }; } catch (_) {}
             }
-            const activeUsers = currentUsers;
-            const targetUser = activeUsers.find(u => u.id === m.receiverId || u.id === m.toUserId) || activeUsers[0];
+            const targetUserId = m.receiverId || m.toUserId;
+            const targetUser = (targetUserId ? userMap.get(String(targetUserId)) : undefined) || fallbackUser;
 
             // Determine overall status
             const isHandledStatus = m.status === 'handled' || (detailsObj && detailsObj.status === 'handled');
@@ -78,7 +98,7 @@ export function useMemoManagement({
                 } else if (parsed && typeof parsed === 'object') {
                   // DB stores as { "u3": { "isRead": false, "readAt": null } }
                   parsedRecipientStatuses = Object.entries(parsed).map(([uid, val]: [string, any]) => {
-                    const uObj = activeUsers.find(u => u.id === uid);
+                    const uObj = userMap.get(String(uid));
                     return {
                       userId: uid,
                       userName: uObj?.name || '担当者',
@@ -114,7 +134,7 @@ export function useMemoManagement({
               try {
                 const parsed = typeof toUsersJsonStr === 'string' ? JSON.parse(toUsersJsonStr) : toUsersJsonStr;
                 if (Array.isArray(parsed)) {
-                  parsedToUsers = parsed.map((uid: string) => activeUsers.find(u => u.id === uid)).filter(Boolean);
+                  parsedToUsers = parsed.map((uid: string) => userMap.get(String(uid))).filter(Boolean);
                 }
               } catch (_) {}
             }
@@ -131,6 +151,7 @@ export function useMemoManagement({
               }
             }
 
+            const senderUserId = m.senderId || (detailsObj && detailsObj.senderId);
             return {
               id: String(m.id),
               fromName: m.fromName || (detailsObj && detailsObj.fromName) || '不詳',
@@ -145,7 +166,7 @@ export function useMemoManagement({
               recipientStatuses: mergedRecipientStatuses,
               toUsers: mergedToUsers,
               toUser: targetUser,
-              createdByUser: activeUsers.find(u => u.id === (m.senderId || (detailsObj && detailsObj.senderId))),
+              createdByUser: senderUserId ? userMap.get(String(senderUserId)) : undefined,
               status: m.status ? m.status : ((detailsObj && detailsObj.status) ? detailsObj.status : (isHandledStatus ? 'handled' : (isReadStatus ? 'read' : 'unread'))),
               comments: parsedComments,
             };
@@ -173,12 +194,15 @@ export function useMemoManagement({
 
     setMemos(prevMemos => prevMemos.filter(memo => memo.id !== memoId));
     try {
-      await fetch(`${API_BASE_URL}/memos/${memoId}`, {
+      const res = await fetch(`${API_BASE_URL}/memos/${memoId}`, {
         method: 'DELETE'
       });
-      await refetchMemos();
+      if (!res.ok) {
+        await refetchMemos();
+      }
     } catch (err) {
       console.error('Failed to delete memo via API:', err);
+      await refetchMemos();
     }
   }, [refetchMemos]);
 
@@ -188,8 +212,13 @@ export function useMemoManagement({
     window.dispatchEvent(new CustomEvent('notifications_updated'));
 
     try {
+      const origMap = new Map<string, Memo>();
+      for (let i = 0; i < memos.length; i++) {
+        origMap.set(String(memos[i].id), memos[i]);
+      }
+
       const changedMemos = updatedMemos.filter(updatedMemo => {
-        const originalMemo = memos.find(m => m.id === updatedMemo.id);
+        const originalMemo = origMap.get(String(updatedMemo.id));
         if (!originalMemo) return true; // 新規メモ
 
         const isStatusChanged = originalMemo.status !== updatedMemo.status;
@@ -202,12 +231,13 @@ export function useMemoManagement({
         return;
       }
 
-      const existingIds = new Set(memos.map(m => m.id));
+      let hasCreatedNewMemo = false;
 
       await Promise.all(
         changedMemos.map(async (memo) => {
           const recipientStatusesJsonStr = JSON.stringify(memo.recipientStatuses);
-          if (!existingIds.has(memo.id)) {
+          if (!origMap.has(String(memo.id))) {
+            hasCreatedNewMemo = true;
             // 新規メモ作成
             await fetch(`${API_BASE_URL}/memos`, {
               method: 'POST',
@@ -277,9 +307,13 @@ export function useMemoManagement({
         })
       );
 
-      await refetchMemos();
+      // 新規作成時のみサーバーID同期のため再取得（既存メモの既読・対応済変更時は楽観的UI状態を維持し全件再取得を省略）
+      if (hasCreatedNewMemo) {
+        await refetchMemos();
+      }
     } catch (err) {
       console.warn('Failed to sync memos via API:', err);
+      await refetchMemos();
     } finally {
       window.dispatchEvent(new CustomEvent('notifications_updated'));
     }

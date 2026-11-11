@@ -59,6 +59,11 @@ export const PhotoReportsTab: React.FC<PhotoReportsTabProps> = ({
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [sortKey, setSortKey] = useState<SortKey>('newest');
+  const [visiblePhotoCount, setVisiblePhotoCount] = useState<number>(24);
+
+  useEffect(() => {
+    setVisiblePhotoCount(24);
+  }, [scopeFilter, statusFilter, searchQuery, sortKey]);
 
   // モーダル操作ステート
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
@@ -649,8 +654,9 @@ export const PhotoReportsTab: React.FC<PhotoReportsTabProps> = ({
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5 w-full min-w-0">
-          {filteredReports.map(rep => {
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5 w-full min-w-0">
+            {filteredReports.slice(0, visiblePhotoCount).map(rep => {
             const isMine = String(rep.createdById) === String(currentUser.id);
             const isDraft = rep.status === 'draft';
             const isLinked = !!(rep.inspectionReportId || (rep.jobNo && rep.jobNo.trim()));
@@ -844,6 +850,18 @@ export const PhotoReportsTab: React.FC<PhotoReportsTabProps> = ({
               </div>
             );
           })}
+          </div>
+          {filteredReports.length > visiblePhotoCount && (
+            <div className="pt-2 pb-4 text-center">
+              <button
+                type="button"
+                onClick={() => setVisiblePhotoCount(prev => prev + 24)}
+                className="px-6 py-2.5 bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold shadow-xs transition-all cursor-pointer"
+              >
+                さらに表示する（残り {filteredReports.length - visiblePhotoCount} 件）
+              </button>
+            </div>
+          )}
         </div>
       )}
 

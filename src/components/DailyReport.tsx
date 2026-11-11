@@ -132,6 +132,11 @@ export function DailyReportView({
   const [maintenanceFilter, setMaintenanceFilter] = useState<'my' | 'subordinates' | 'all'>('my');
   const [selectedWeek, setSelectedWeek] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [visibleReportCount, setVisibleReportCount] = useState<number>(20);
+
+  useEffect(() => {
+    setVisibleReportCount(20);
+  }, [reportMode, activeFilter, maintenanceFilter, selectedWeek, searchQuery]);
   
   // モーダル状態
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -753,7 +758,8 @@ export function DailyReportView({
                 </div>
               </div>
             ) : (
-              filteredMaintenanceReports.map(mReport => {
+              <>
+              {filteredMaintenanceReports.slice(0, visibleReportCount).map(mReport => {
                 const mData = mReport.maintenanceData;
                 const authorId = mReport.author?.id || mReport.authorId || (mReport as any).author_id;
                 const authorName = mReport.author?.name || '作成者未設定';
@@ -982,7 +988,19 @@ export function DailyReportView({
                     )}
                   </div>
                 );
-              })
+              })}
+              {filteredMaintenanceReports.length > visibleReportCount && (
+                <div className="pt-2 pb-4 text-center">
+                  <button
+                    type="button"
+                    onClick={() => setVisibleReportCount(prev => prev + 20)}
+                    className="px-6 py-2.5 bg-white hover:bg-amber-50 text-amber-800 border border-amber-300 rounded-xl text-xs font-bold shadow-xs transition-all cursor-pointer"
+                  >
+                    さらに表示する（残り {filteredMaintenanceReports.length - visibleReportCount} 件）
+                  </button>
+                </div>
+              )}
+              </>
             )
           ) : (
             /* ================= 週報リスト表示 ================= */
@@ -1006,7 +1024,8 @@ export function DailyReportView({
               </div>
             </div>
           ) : (
-            filteredReports.map(report => {
+            <>
+            {filteredReports.slice(0, visibleReportCount).map(report => {
               const isAuthor = (report.author?.id || (report as any).authorId) === currentUser.id;
               const isAssignedSupervisor = (report.supervisorId || report.supervisor?.id) === currentUser.id;
               const isPendingMyReview = isAssignedSupervisor && report.status === 'submitted';
@@ -1336,7 +1355,19 @@ export function DailyReportView({
                   </div>
                 </div>
               );
-            })
+            })}
+            {filteredReports.length > visibleReportCount && (
+              <div className="pt-2 pb-4 text-center">
+                <button
+                  type="button"
+                  onClick={() => setVisibleReportCount(prev => prev + 20)}
+                  className="px-6 py-2.5 bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold shadow-xs transition-all cursor-pointer"
+                >
+                  さらに表示する（残り {filteredReports.length - visibleReportCount} 件）
+                </button>
+              </div>
+            )}
+            </>
           ))}
         </div>
       </div>

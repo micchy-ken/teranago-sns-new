@@ -2,7 +2,7 @@
  * routes/memos.js (本番環境・MS SQL Server & 伝言メモ & 受領者別対応ステータス管理 & コメント機能[公開・非公開] 完全修正版)
  * 寺岡オートドアSNS / 寺子屋SNS 伝言メモ管理モジュール
  * 
- * 最終更新: 2026年10月22日 (ロックフリー非閉塞DB接続・コメント機能[公開・非公開/宛先担当者閲覧]・ルーター干渉完全防止版)
+ * 最終更新: 2026年11月11日 (Step 3 パフォーマンス改善：未対応優先ページネーション取得・DB非クラスター化インデックス自動生成・スキーマチェック1回化対応版)
  */
 import { Router } from 'express';
 import sql from 'mssql';
@@ -21,7 +21,7 @@ function safeParseJSON(str, fallback = null) {
   }
 }
 
-// テーブルスキーマ自動補正（ロック防止・個別TRY-CATCH付きSQL実行）
+// テーブルスキーマ＆インデックス自動補正（プロセス起動後1回のみ実行）
 let schemaChecked = false;
 async function ensureMemosSchema(pool) {
   if (schemaChecked || !pool) return;
@@ -72,6 +72,20 @@ async function ensureMemosSchema(pool) {
         BEGIN TRY
           IF COL_LENGTH('dbo.Memos', 'commentsJson') IS NULL ALTER TABLE dbo.Memos ADD commentsJson NVARCHAR(MAX) NULL;
         END TRY BEGIN CATCH END CATCH;
+
+        BEGIN TRY
+          IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Memos_CreatedAt' AND object_id = OBJECT_ID('dbo.Memos'))
+          BEGIN
+            CREATE NONCLUSTERED INDEX IX_Memos_CreatedAt ON dbo.Memos (createdAt DESC);
+          END
+        END TRY BEGIN CATCH END CATCH;
+
+        BEGIN TRY
+          IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Memos_Status_CreatedAt' AND object_id = OBJECT_ID('dbo.Memos'))
+          BEGIN
+            CREATE NONCLUSTERED INDEX IX_Memos_Status_CreatedAt ON dbo.Memos (status ASC, createdAt DESC);
+          END
+        END TRY BEGIN CATCH END CATCH;
       END
     `);
     schemaChecked = true;
@@ -81,7 +95,7 @@ async function ensureMemosSchema(pool) {
 }
 
 // ==========================================
-// 1. 伝言メモ一覧取得 API
+// 1. 伝言メモ一覧取得 API (未対応メモ優先 + ページネーション対応)
 // 対応URL: GET /api/memos, /memos, /
 // ==========================================
 router.get(['/memos', '/memos/', '/'], async (req, res) => {
@@ -90,15 +104,32 @@ router.get(['/memos', '/memos/', '/'], async (req, res) => {
     if (pool) {
       await ensureMemosSchema(pool);
 
-      const result = await pool.request().query(`
+      const fetchAll = req.query.all === 'true';
+      const parsedLimit = parseInt(String(req.query.limit || '300'), 10);
+      const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(parsedLimit, 2000) : 300;
+      const parsedOffset = parseInt(String(req.query.offset || '0'), 10);
+      const offset = Number.isFinite(parsedOffset) && parsedOffset >= 0 ? parsedOffset : 0;
+
+      const request = pool.request();
+      let querySql = `
         SELECT m.*, 
                uSender.name AS senderName, uSender.department AS senderDepartment, uSender.avatarUrl AS senderAvatarUrl,
                uReceiver.name AS receiverName
         FROM dbo.Memos m
         LEFT JOIN dbo.Users uSender ON m.senderId = uSender.id
         LEFT JOIN dbo.Users uReceiver ON m.receiverId = uReceiver.id
-        ORDER BY m.createdAt DESC
-      `);
+        ORDER BY
+          CASE WHEN ISNULL(m.status, 'unread') <> 'handled' THEN 0 ELSE 1 END ASC,
+          m.createdAt DESC
+      `;
+
+      if (!fetchAll) {
+        request.input('offset', sql.Int, offset);
+        request.input('limit', sql.Int, limit);
+        querySql += ` OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY`;
+      }
+
+      const result = await request.query(querySql);
 
       const memos = (result.recordset || []).map(row => {
         let detailsObj = {};
@@ -669,7 +700,7 @@ async function handleMarkRead(req, res) {
     } else {
       await pool.request()
         .input('id', sql.VarChar(100), String(id).trim())
-        .query('UPDATE dbo.Memos SET isRead = 1, status = \'read\' WHERE id = @id');
+        .query("UPDATE dbo.Memos SET isRead = 1, status = 'read' WHERE id = @id");
     }
 
     res.json({ success: true, message: '既読状態更新完了' });
@@ -683,7 +714,7 @@ router.put(['/memos/:id/read', '/memos/:id/read/', '/:id/read'], handleMarkRead)
 router.post(['/memos/:id/read', '/memos/:id/read/', '/:id/read'], handleMarkRead);
 
 // ==========================================
-// 6. 伝言メモコメント追加 API (★新機能: 公開・非公開対応★)
+// 6. 伝言メモコメント追加 API (公開・非公開対応)
 // 対応URL: POST /api/memos/:id/comments, /memos/:id/comments
 // ==========================================
 router.post([

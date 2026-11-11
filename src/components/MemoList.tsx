@@ -99,6 +99,11 @@ export function MemoList({
     setMemos(initialMemos);
   }, [initialMemos]);
   const [selectedOfficeFilter, setSelectedOfficeFilter] = useState<string>('all');
+  const [visibleMemoCount, setVisibleMemoCount] = useState<number>(30);
+
+  React.useEffect(() => {
+    setVisibleMemoCount(30);
+  }, [scope, filter, selectedOfficeFilter]);
 
   // モーダル制御
   const [isCreateOpen, setIsCreateOpen] = useState(initialOpenCreate || !!initialRecipientId);
@@ -684,7 +689,8 @@ export function MemoList({
       <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-50/40">
         <div className="w-full space-y-4">
           {filteredMemos.length > 0 ? (
-            filteredMemos.map((memo) => {
+            <>
+              {filteredMemos.slice(0, visibleMemoCount).map((memo) => {
               const reqBadge = getRequirementLabel(memo);
               const statuses = memo.recipientStatuses || [];
               const isRecipient = statuses.some((st) => String(st.userId) === String(currentUser?.id) || (st.userName && st.userName === currentUser?.name)) ||
@@ -901,7 +907,19 @@ export function MemoList({
                   </div>
                 </div>
               );
-            })
+            })}
+              {filteredMemos.length > visibleMemoCount && (
+                <div className="pt-2 pb-4 text-center">
+                  <button
+                    type="button"
+                    onClick={() => setVisibleMemoCount((prev) => prev + 30)}
+                    className="px-6 py-2.5 bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold shadow-xs transition-all cursor-pointer"
+                  >
+                    さらに表示する（残り {filteredMemos.length - visibleMemoCount} 件）
+                  </button>
+                </div>
+              )}
+            </>
           ) : (
             <div className="text-center py-16 bg-white rounded-2xl border border-slate-200 shadow-2xs">
               <Phone className="w-12 h-12 text-slate-300 mx-auto mb-3" />

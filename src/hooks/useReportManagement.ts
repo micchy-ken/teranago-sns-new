@@ -21,18 +21,30 @@ export function useReportManagement({
 }: UseReportManagementOptions) {
   const [reports, setReports] = useState<DailyReport[]>([]);
 
-  const refetchReports = useCallback(async (currentUsers = usersList) => {
+  const refetchReports = useCallback(async (
+    currentUsers = usersList,
+    options?: { limit?: number; offset?: number; all?: boolean }
+  ) => {
     try {
-      let response = await fetchWithRetry(`${API_BASE_URL}/work-reports`, {
+      const params = new URLSearchParams();
+      if (options?.all) {
+        params.set('all', 'true');
+      } else {
+        params.set('limit', String(options?.limit || 300));
+        if (options?.offset) params.set('offset', String(options.offset));
+      }
+      const querySuffix = params.toString() ? `?${params.toString()}` : '';
+
+      let response = await fetchWithRetry(`${API_BASE_URL}/work-reports${querySuffix}`, {
         headers: { 'Accept': 'application/json' }
       });
       if (!response.ok) {
-        response = await fetchWithRetry(`${API_BASE_URL}/daily-reports`, {
+        response = await fetchWithRetry(`${API_BASE_URL}/daily-reports${querySuffix}`, {
           headers: { 'Accept': 'application/json' }
         });
       }
       if (!response.ok) {
-        response = await fetchWithRetry(`${API_BASE_URL}/reports`, {
+        response = await fetchWithRetry(`${API_BASE_URL}/reports${querySuffix}`, {
           headers: { 'Accept': 'application/json' }
         });
       }
@@ -46,12 +58,19 @@ export function useReportManagement({
           const stored = localStorage.getItem('deleted_report_ids');
           if (stored) deletedReportIds = JSON.parse(stored);
         } catch (_) {}
+        const deletedSet = new Set(deletedReportIds.map(String));
+
+        const userMap = new Map<string, User>();
+        for (let i = 0; i < currentUsers.length; i++) {
+          const u = currentUsers[i];
+          if (u && u.id) userMap.set(String(u.id), u);
+        }
 
         const mapped = data
-          .filter((r: any) => !deletedReportIds.includes(String(r.id)))
+          .filter((r: any) => !deletedSet.has(String(r.id)))
           .map((r: any) => {
-            const authorUser = currentUsers.find(u => u.id === r.authorId) || r.author || currentUser;
-            const supervisorUser = r.supervisorId ? (currentUsers.find(u => u.id === r.supervisorId) || r.supervisor) : undefined;
+            const authorUser = (r.authorId ? userMap.get(String(r.authorId)) : undefined) || r.author || currentUser;
+            const supervisorUser = r.supervisorId ? (userMap.get(String(r.supervisorId)) || r.supervisor) : undefined;
             let parsedTasks = r.tasks || '';
             let parsedResults = r.results || '';
             let parsedIssues = r.issues || '';
@@ -450,11 +469,12 @@ export function useReportManagement({
           body: JSON.stringify(payload)
         });
       }
-      if (response.ok) {
+      if (!response.ok) {
         await refetchReports();
       }
     } catch (err) {
       console.error('Failed to update report via API:', err);
+      await refetchReports();
     }
   }, [currentUser, reports, usersList, refetchReports]);
 
@@ -505,11 +525,12 @@ export function useReportManagement({
           body: JSON.stringify({ feedbackComment })
         });
       }
-      if (response.ok) {
+      if (!response.ok) {
         await refetchReports();
       }
     } catch (err) {
       console.error('Failed to review report via API:', err);
+      await refetchReports();
     }
   }, [currentUser, reports, usersList, refetchReports]);
 
@@ -538,11 +559,12 @@ export function useReportManagement({
           method: 'DELETE'
         });
       }
-      if (response.ok) {
+      if (!response.ok) {
         await refetchReports();
       }
     } catch (err) {
       console.error('Failed to delete report via API:', err);
+      await refetchReports();
     }
   }, [refetchReports]);
 

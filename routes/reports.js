@@ -1,3 +1,7 @@
+/**
+ * routes/reports.js - 日報・週報・保守日報管理モジュール
+ * 最終更新: 2026年11月11日 (Step 3 パフォーマンス改善：SQLレベルソート＆ページネーション・非同期ファイルI/O化・DB非クラスター化インデックス自動生成対応版)
+ */
 import { Router } from 'express';
 import sql from 'mssql';
 import path from 'path';
@@ -8,34 +12,79 @@ import { dataDir } from '../config.js';
 const router = Router();
 const workReportsPath = path.join(dataDir, 'work_reports.json');
 
-function loadWorkReportsFromFile() {
-  if (!fs.existsSync(workReportsPath)) return [];
+// メモリキャッシュ & 非同期ファイルI/O（イベントループのブロッキングを完全排除）
+let cachedWorkReports = null;
+
+async function loadWorkReportsFromFileAsync() {
+  if (Array.isArray(cachedWorkReports)) {
+    return cachedWorkReports;
+  }
   try {
-    const raw = JSON.parse(fs.readFileSync(workReportsPath, 'utf8'));
-    return Array.isArray(raw) ? raw : [];
-  } catch (e) {
-    return [];
+    await fs.promises.access(workReportsPath);
+    const raw = JSON.parse(await fs.promises.readFile(workReportsPath, 'utf8'));
+    cachedWorkReports = Array.isArray(raw) ? raw : [];
+    return cachedWorkReports;
+  } catch (_) {
+    cachedWorkReports = [];
+    return cachedWorkReports;
   }
 }
 
-function saveWorkReportsToFile(items) {
+async function saveWorkReportsToFileAsync(items) {
+  cachedWorkReports = Array.isArray(items) ? items : [];
   try {
-    fs.writeFileSync(workReportsPath, JSON.stringify(items, null, 2), 'utf8');
+    await fs.promises.writeFile(workReportsPath, JSON.stringify(cachedWorkReports, null, 2), 'utf8');
   } catch (e) {
     console.error('Failed to save work reports to file:', e);
   }
 }
 
-// 日報・週報一覧取得 API (Users テーブルと完全マージして author オブジェクトを確実に返却)
-router.get(['/work-reports', '/daily-reports', '/reports'], async (req, res) => {
+// スキーマ＆インデックス初期化（プロセス起動後1回のみ実行）
+let isReportsSchemaEnsured = false;
+async function ensureReportsSchemaOnce(pool) {
+  if (isReportsSchemaEnsured || !pool) return;
+  try {
+    await pool.request().query(`
+      IF OBJECT_ID('dbo.WorkReports', 'U') IS NOT NULL
+      BEGIN
+        BEGIN TRY
+          IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_WorkReports_CreatedAt' AND object_id = OBJECT_ID('dbo.WorkReports'))
+          BEGIN
+            CREATE NONCLUSTERED INDEX IX_WorkReports_CreatedAt ON dbo.WorkReports (createdAt DESC);
+          END
+        END TRY BEGIN CATCH END CATCH;
+
+        BEGIN TRY
+          IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_WorkReports_Status_CreatedAt' AND object_id = OBJECT_ID('dbo.WorkReports'))
+          BEGIN
+            CREATE NONCLUSTERED INDEX IX_WorkReports_Status_CreatedAt ON dbo.WorkReports (status ASC, createdAt DESC);
+          END
+        END TRY BEGIN CATCH END CATCH;
+      END
+    `);
+    isReportsSchemaEnsured = true;
+  } catch (err) {
+    console.warn('[Reports Schema Warning]:', err.message);
+  }
+}
+
+// 日報・週報一覧取得 API (Users テーブルと完全マージ + 未確認/下書き優先ページネーション対応)
+router.get(['/work-reports', '/daily-reports', '/reports', '/'], async (req, res) => {
   try {
     const pool = await getPool();
     let reports = [];
+
+    const fetchAll = req.query.all === 'true';
+    const parsedLimit = parseInt(String(req.query.limit || '300'), 10);
+    const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(parsedLimit, 2000) : 300;
+    const parsedOffset = parseInt(String(req.query.offset || '0'), 10);
+    const offset = Number.isFinite(parsedOffset) && parsedOffset >= 0 ? parsedOffset : 0;
 
     // 1. 全ユーザー情報を取得してマップ化
     const usersMap = new Map();
     try {
       if (pool) {
+        await ensureReportsSchemaOnce(pool);
         const usersRes = await pool.request().query('SELECT id, name, department, office, division, avatarUrl FROM dbo.Users');
         for (const u of (usersRes.recordset || [])) {
           usersMap.set(String(u.id), {
@@ -50,11 +99,25 @@ router.get(['/work-reports', '/daily-reports', '/reports'], async (req, res) => 
       console.warn('Users lookup warning in WorkReports:', uErr.message);
     }
 
-    // 2. SQL Server から WorkReports を取得
+    // 2. SQL Server から WorkReports を取得（未確認・下書きを先頭に優先取得 + OFFSET/FETCH ページネーション）
     let dbSuccess = false;
     try {
       if (pool) {
-        const result = await pool.request().query('SELECT * FROM dbo.WorkReports');
+        const request = pool.request();
+        let querySql = `
+          SELECT *
+          FROM dbo.WorkReports
+          ORDER BY
+            CASE WHEN status IN ('draft', 'submitted') THEN 0 ELSE 1 END ASC,
+            createdAt DESC
+        `;
+        if (!fetchAll) {
+          request.input('offset', sql.Int, offset);
+          request.input('limit', sql.Int, limit);
+          querySql += ` OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY`;
+        }
+
+        const result = await request.query(querySql);
         if (result.recordset) {
           reports = result.recordset.map(row => {
             const authId = String(row.author_id || row.authorId || 'u1');
@@ -142,9 +205,9 @@ router.get(['/work-reports', '/daily-reports', '/reports'], async (req, res) => 
       console.warn('DB WorkReports lookup error, falling back to file:', dbErr.message);
     }
 
-    // 3. DB取得できなかった場合のファイルフォールバック
+    // 3. DB取得できなかった場合の非同期ファイルフォールバック
     if (!dbSuccess || reports.length === 0) {
-      const fileReports = loadWorkReportsFromFile();
+      const fileReports = await loadWorkReportsFromFileAsync();
       if (fileReports.length > 0) {
         reports = fileReports.map(r => {
           const authId = String(r.author_id || r.authorId || 'u1');
@@ -214,14 +277,14 @@ router.get(['/work-reports', '/daily-reports', '/reports'], async (req, res) => 
 });
 
 // 日報・週報 作成 / 登録 API
-router.post(['/work-reports', '/daily-reports', '/reports'], async (req, res) => {
+router.post(['/work-reports', '/daily-reports', '/reports', '/'], async (req, res) => {
   try {
     const data = req.body || {};
     const pool = await getPool();
     const id = data.id && !data.id.startsWith('r-temp-') ? data.id : ('rep_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6));
     
     // 既存レポートがある場合は author_id / report_type を保護・引き継ぎ
-    const fileReports = loadWorkReportsFromFile();
+    const fileReports = await loadWorkReportsFromFileAsync();
     const existingIdx = fileReports.findIndex(r => r.id === id);
     const existingAuthorId = existingIdx >= 0 ? (fileReports[existingIdx].author_id || fileReports[existingIdx].authorId || (fileReports[existingIdx].author && fileReports[existingIdx].author.id)) : null;
     const author_id = String(existingAuthorId || data.author_id || data.authorId || (data.author && data.author.id) || 'u1');
@@ -252,6 +315,7 @@ router.post(['/work-reports', '/daily-reports', '/reports'], async (req, res) =>
     // 1. SQL Server 保存
     try {
       if (pool) {
+        await ensureReportsSchemaOnce(pool);
         await pool.request()
           .input('id', sql.NVarChar, String(id))
           .input('author_id', sql.NVarChar, author_id)
@@ -311,10 +375,10 @@ router.post(['/work-reports', '/daily-reports', '/reports'], async (req, res) =>
       console.warn('SQL Server Report insert warning:', dbErr.message);
     }
 
-    // 2. ファイルキャッシュにもバックアップ
+    // 2. 非同期ファイルキャッシュにもバックアップ
     try {
-      const fileReports = loadWorkReportsFromFile();
-      const existingIdx = fileReports.findIndex(r => r.id === id);
+      const currentFileReports = [...fileReports];
+      const targetIdx = currentFileReports.findIndex(r => r.id === id);
       const reportPayload = {
         id,
         author_id,
@@ -347,12 +411,12 @@ router.post(['/work-reports', '/daily-reports', '/reports'], async (req, res) =>
         updatedAt: new Date().toISOString()
       };
 
-      if (existingIdx >= 0) {
-        fileReports[existingIdx] = { ...fileReports[existingIdx], ...reportPayload };
+      if (targetIdx >= 0) {
+        currentFileReports[targetIdx] = { ...currentFileReports[targetIdx], ...reportPayload };
       } else {
-        fileReports.unshift(reportPayload);
+        currentFileReports.unshift(reportPayload);
       }
-      saveWorkReportsToFile(fileReports);
+      await saveWorkReportsToFileAsync(currentFileReports);
     } catch (_) {}
 
     res.status(201).json({ success: true, id, message: '日報・週報保存完了' });
@@ -361,13 +425,13 @@ router.post(['/work-reports', '/daily-reports', '/reports'], async (req, res) =>
   }
 });
 
-router.put(['/work-reports/:id', '/daily-reports/:id', '/reports/:id'], async (req, res) => {
+router.put(['/work-reports/:id', '/daily-reports/:id', '/reports/:id', '/:id'], async (req, res) => {
   req.body.id = req.params.id;
   return router.handle({ ...req, method: 'POST', url: '/work-reports' }, res);
 });
 
 // 上長レビュー・確認 API
-router.post(['/work-reports/:id/review', '/daily-reports/:id/review'], async (req, res) => {
+router.post(['/work-reports/:id/review', '/daily-reports/:id/review', '/reports/:id/review', '/:id/review'], async (req, res) => {
   try {
     const { feedbackComment, review_feedback, reviewerUserId, reviewerName } = req.body || {};
     const pool = await getPool();
@@ -380,6 +444,7 @@ router.post(['/work-reports/:id/review', '/daily-reports/:id/review'], async (re
     let report_date = null;
 
     if (pool) {
+      await ensureReportsSchemaOnce(pool);
       const repRes = await pool.request()
         .input('id', sql.NVarChar, reportId)
         .query('SELECT * FROM dbo.WorkReports WHERE id = @id');
@@ -421,14 +486,14 @@ router.post(['/work-reports/:id/review', '/daily-reports/:id/review'], async (re
 });
 
 // 削除 API
-router.delete(['/work-reports/:id', '/daily-reports/:id', '/reports/:id'], async (req, res) => {
+router.delete(['/work-reports/:id', '/daily-reports/:id', '/reports/:id', '/:id'], async (req, res) => {
   try {
     const pool = await getPool();
     if (pool) {
       await pool.request().input('id', sql.NVarChar, String(req.params.id)).query('DELETE FROM dbo.WorkReports WHERE id = @id');
     }
-    const fileReports = loadWorkReportsFromFile().filter(r => r.id !== req.params.id);
-    saveWorkReportsToFile(fileReports);
+    const fileReports = (await loadWorkReportsFromFileAsync()).filter(r => r.id !== req.params.id);
+    await saveWorkReportsToFileAsync(fileReports);
     res.json({ success: true, message: '削除完了' });
   } catch (err) {
     res.status(500).json({ error: err.message });

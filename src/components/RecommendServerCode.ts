@@ -1,7 +1,7 @@
 export const RECOMMEND_SERVER_JS = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年11月11日 (Step 2 チャット高速化・過去履歴ページネーション対応：ルーム一覧の最新50件抽出[ROW_NUMBER() + O(M) Map集計]・過去メッセージ遅延取得API[/api/chats/:roomId/messages]・一括既読更新API[/api/chats/:roomId/viewers/batch]・スキーマ検証キャッシュ化対応版)
+ * 最終更新日時 (最終アップデート): 2026年11月11日 (Step 3 伝言メモ・日報・週報・写真報告書 ページネーション＆非同期I/O化：未対応・未確認優先抽出・OFFSET/FETCH NEXTページネーション・fs.promises非同期I/O＆メモリキャッシュ・非クラスター化インデックス自動生成対応版)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -4668,11 +4668,28 @@ async function startServer() {
     }
   }
 
-  // 伝言メモ一覧取得
+  // 伝言メモ一覧取得（未対応優先 ＋ ページネーション対応: ?limit=300&offset=0 または ?all=true）
   app.get(['/api/memos', '/api/memos/'], (req, res) => {
     try {
       const memosList = loadMemos();
-      res.json(memosList);
+      const sorted = [...memosList].sort((a: any, b: any) => {
+        const aHandled = a.status === 'handled' || (a.details && a.details.status === 'handled') ? 1 : 0;
+        const bHandled = b.status === 'handled' || (b.details && b.details.status === 'handled') ? 1 : 0;
+        if (aHandled !== bHandled) return aHandled - bHandled;
+        return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+      });
+
+      const isAll = req.query.all === 'true' || req.query.all === '1';
+      if (isAll) {
+        return res.json(sorted);
+      }
+
+      const rawLimit = parseInt(String(req.query.limit || '300'), 10);
+      const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 2000) : 300;
+      const rawOffset = parseInt(String(req.query.offset || '0'), 10);
+      const offset = Number.isFinite(rawOffset) && rawOffset >= 0 ? rawOffset : 0;
+
+      res.json(sorted.slice(offset, offset + limit));
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -6656,12 +6673,24 @@ async function startServer() {
         reports = reports.filter(r => r.week_start_date === String(targetWeekStart) || r.weekStartDate === String(targetWeekStart));
       }
 
-      // 新しい順にソート (week_start_date or createdAt desc)
+      // 下書き・未確認（submitted / draft）を優先し、新しい順にソート (week_start_date or createdAt desc)
       reports.sort((a, b) => {
+        const aPriority = (a.status === 'draft' || a.status === 'submitted') ? 0 : 1;
+        const bPriority = (b.status === 'draft' || b.status === 'submitted') ? 0 : 1;
+        if (aPriority !== bPriority) return aPriority - bPriority;
         const timeA = new Date(a.week_start_date || a.date || a.createdAt).getTime();
         const timeB = new Date(b.week_start_date || b.date || b.createdAt).getTime();
         return timeB - timeA;
       });
+
+      const isAll = req.query.all === 'true' || req.query.all === '1';
+      if (!isAll) {
+        const rawLimit = parseInt(String(req.query.limit || '300'), 10);
+        const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 2000) : 300;
+        const rawOffset = parseInt(String(req.query.offset || '0'), 10);
+        const offset = Number.isFinite(rawOffset) && rawOffset >= 0 ? rawOffset : 0;
+        reports = reports.slice(offset, offset + limit);
+      }
 
       res.json(reports);
     } catch (err: any) {
@@ -8266,6 +8295,11 @@ export interface ServerCodeHistoryItem {
 }
 
 export const SERVER_CODE_HISTORY: ServerCodeHistoryItem[] = [
+  {
+    version: 'v2026.11.11.3',
+    date: '2026-11-11',
+    summary: 'Step 3 伝言メモ・日報・週報・写真報告書 ページネーション＆非同期I/O化：未対応・未確認優先抽出・OFFSET/FETCH NEXTページネーション・fs.promises非同期I/O＆メモリキャッシュ・非クラスター化インデックス自動生成対応版',
+  },
   {
     version: 'v2026.11.11.2',
     date: '2026-11-11',
