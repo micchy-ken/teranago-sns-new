@@ -1840,7 +1840,10 @@ export default function App() {
     }
   };
 
-  const handleUpdateTopic = async (updatedTopic: BoardTopic) => {
+  const handleUpdateTopic = async (
+    updatedTopic: BoardTopic,
+    options?: { skipServerPut?: boolean; skipRefetch?: boolean }
+  ) => {
     // 既存の状態および投票データからアンケート選択肢(options)を保護・自動復元
     const currentInState = topics.find(t => t.id === updatedTopic.id);
     if (updatedTopic.poll) {
@@ -1885,6 +1888,40 @@ export default function App() {
     // ローカル状態を即座に更新し、UIやモーダルに確実に反映させる
     setTopics(prev => prev.map(t => t.id === updatedTopic.id ? updatedTopic : t));
 
+    // 個別エンドポイント（/viewers, /comments, /poll/vote, /detail等）で同期済みの場合は全体PUT・全件再取得をスキップ
+    if (options?.skipServerPut) {
+      window.dispatchEvent(new CustomEvent('notifications_updated'));
+      return;
+    }
+
+    // 閲覧者（viewers / views）のみの変更（ヘッダー一括既読やマイページクリック等）の場合は軽量な /viewers API のみ呼び出し
+    if (currentInState && userState?.id) {
+      const isOnlyViewerChange =
+        currentInState.title === updatedTopic.title &&
+        currentInState.content === updatedTopic.content &&
+        currentInState.category === updatedTopic.category &&
+        currentInState.office === updatedTopic.office &&
+        currentInState.division === updatedTopic.division &&
+        currentInState.isPinned === updatedTopic.isPinned &&
+        currentInState.pinnedUntil === updatedTopic.pinnedUntil &&
+        currentInState.hasPeriod === updatedTopic.hasPeriod &&
+        currentInState.startDate === updatedTopic.startDate &&
+        currentInState.endDate === updatedTopic.endDate &&
+        currentInState.poll === updatedTopic.poll &&
+        (currentInState.comments?.length || 0) === (updatedTopic.comments?.length || 0) &&
+        (currentInState.attachments?.length || 0) === (updatedTopic.attachments?.length || 0);
+
+      if (isOnlyViewerChange) {
+        fetch(`${API_BASE_URL}/bulletins/${updatedTopic.id}/viewers`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: userState.id, user: userState })
+        }).catch(() => {});
+        window.dispatchEvent(new CustomEvent('notifications_updated'));
+        return;
+      }
+    }
+
     try {
       const response = await fetch(`${API_BASE_URL}/bulletins/${updatedTopic.id}`, {
         method: 'PUT',
@@ -1898,6 +1935,7 @@ export default function App() {
           office: updatedTopic.office || '全社',
           division: updatedTopic.division || '全部署',
           scope: updatedTopic.scope || '全社',
+          isStrictScope: !!updatedTopic.isStrictScope,
           tags: updatedTopic.tags || [],
           isPinned: updatedTopic.isPinned ? 1 : 0,
           pinnedUntil: updatedTopic.pinnedUntil || null,
@@ -1907,12 +1945,11 @@ export default function App() {
           endDate: updatedTopic.endDate || null,
           attachments: updatedTopic.attachments || [],
           poll: updatedTopic.poll !== undefined ? updatedTopic.poll : null,
-          comments: updatedTopic.comments || [],
-          viewers: updatedTopic.viewers || [],
           views: updatedTopic.views,
+          skipChildSync: true,
         })
       });
-      if (response.ok) {
+      if (response.ok && options?.skipRefetch === false) {
         await refetchTopics();
       }
     } catch (err) {
@@ -1925,9 +1962,23 @@ export default function App() {
   const handleDeleteTopic = async (topicId: string) => {
     const targetTopic = topics.find(t => t.id === topicId);
     if (targetTopic) {
+      let commentsForCleanup = targetTopic.comments || [];
+      if (commentsForCleanup.length === 0 && (targetTopic.commentsCount || 0) > 0) {
+        try {
+          const detailRes = await fetch(`${API_BASE_URL}/bulletins/${topicId}/detail`, {
+            headers: { 'Accept': 'application/json' }
+          });
+          if (detailRes.ok) {
+            const detailData = await detailRes.json();
+            if (Array.isArray(detailData?.comments)) {
+              commentsForCleanup = detailData.comments;
+            }
+          }
+        } catch (_) {}
+      }
       const allAttachments = [
         ...(targetTopic.attachments || []),
-        ...(targetTopic.comments || []).flatMap(c => c.attachments || [])
+        ...commentsForCleanup.flatMap((c: any) => c.attachments || [])
       ];
       if (allAttachments.length > 0) {
         await deleteAttachmentFiles(allAttachments);
@@ -1937,12 +1988,9 @@ export default function App() {
     setTopics(prev => prev.filter(t => t.id !== topicId));
 
     try {
-      const response = await fetch(`${API_BASE_URL}/bulletins/${topicId}`, {
+      await fetch(`${API_BASE_URL}/bulletins/${topicId}`, {
         method: 'DELETE'
       });
-      if (response.ok) {
-        await refetchTopics();
-      }
     } catch (err) {
       console.error('Failed to delete bulletin via API:', err);
     }

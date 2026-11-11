@@ -50,7 +50,7 @@ interface TopicDetailModalProps {
   isOpen: boolean;
   onClose: () => void;
   currentUser: User;
-  onUpdateTopic: (updatedTopic: BoardTopic) => void;
+  onUpdateTopic: (updatedTopic: BoardTopic, options?: { skipServerPut?: boolean; skipRefetch?: boolean }) => void;
   onDeleteTopic?: (topicId: string) => void;
   offices?: OfficeMaster[];
   divisions?: DivisionMaster[];
@@ -94,6 +94,7 @@ export function TopicDetailModal({
   // プレビュー関連
   const [previewFile, setPreviewFile] = useState<AttachmentFile | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [isLoadingDetails, setIsLoadingDetails] = useState(false);
 
   // 編集モード関連 (投稿者本人のみ使用)
   const [isEditing, setIsEditing] = useState(false);
@@ -378,12 +379,58 @@ export function TopicDetailModal({
             views: (topic.views || 0) + 1,
             viewers: newViewers,
           };
-          onUpdateTopic(updatedTopic);
+          onUpdateTopic(updatedTopic, { skipServerPut: true });
         }
       }
+
+      // オンデマンド詳細取得（コメント一覧・閲覧者一覧を遅延ロードして高速同期）
+      let isCancelled = false;
+      setIsLoadingDetails(true);
+      fetch(`${API_BASE_URL}/bulletins/${topic.id}/detail`, {
+        headers: { 'Accept': 'application/json' }
+      })
+        .then(res => (res.ok ? res.json() : null))
+        .then(detailData => {
+          if (isCancelled || !detailData || typeof detailData !== 'object') return;
+          const fetchedComments = Array.isArray(detailData.comments) ? detailData.comments : (topic.comments || []);
+          const fetchedViewers = Array.isArray(detailData.viewers) ? detailData.viewers : (topic.viewers || []);
+
+          // 自分の既読がまだ反映されていない場合はマージ
+          let mergedViewers = [...fetchedViewers];
+          if (currentUser?.id) {
+            const hasSelf = mergedViewers.some((v: any) => {
+              const vid = v?.user?.id || v?.userId || v?.id;
+              return String(vid) === String(currentUser.id);
+            });
+            if (!hasSelf) {
+              mergedViewers.push({ user: currentUser, viewedAt: new Date().toISOString() });
+            }
+          }
+
+          onUpdateTopic(
+            {
+              ...topic,
+              comments: fetchedComments,
+              commentsCount: fetchedComments.length,
+              viewers: mergedViewers,
+              views: Math.max(mergedViewers.length, detailData.views || 0, topic.views || 0),
+              poll: detailData.poll || topic.poll,
+            },
+            { skipServerPut: true }
+          );
+        })
+        .catch(() => {})
+        .finally(() => {
+          if (!isCancelled) setIsLoadingDetails(false);
+        });
+
+      return () => {
+        isCancelled = true;
+      };
     } else if (!isOpen) {
       lastInitializedTopicIdRef.current = null;
       setIsEditing(false);
+      setIsLoadingDetails(false);
     }
   }, [isOpen, topic?.id, currentUser?.id]);
 
@@ -457,7 +504,7 @@ export function TopicDetailModal({
         poll: updatedPoll,
       };
 
-      onUpdateTopic(updatedTopic);
+      onUpdateTopic(updatedTopic, { skipServerPut: true });
       setIsChangingVote(false);
       setPollFeedback('投票を受け付けました！');
       setTimeout(() => setPollFeedback(null), 3000);
@@ -737,8 +784,9 @@ export function TopicDetailModal({
     };
 
     // ① 先にコメント作成専用 API を直接呼び出して DB 保存を確実に完了させる
+    let postedDirectly = false;
     try {
-      await fetch(`${API_BASE_URL}/bulletins/${topic.id}/comments`, {
+      const res = await fetch(`${API_BASE_URL}/bulletins/${topic.id}/comments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -750,11 +798,12 @@ export function TopicDetailModal({
           attachments: newComment.attachments,
         })
       });
+      if (res.ok) postedDirectly = true;
     } catch (err) {
       console.warn('Failed to post comment via direct API:', err);
     }
 
-    // ② ローカル状態の更新および onUpdateTopic 呼び出し
+    // ② ローカル状態の更新および onUpdateTopic 呼び出し（直接保存成功時はPUT全件更新をスキップ）
     const updatedComments = [...(topic.comments || []), newComment];
     const updatedTopic: BoardTopic = {
       ...topic,
@@ -762,7 +811,7 @@ export function TopicDetailModal({
       commentsCount: updatedComments.length,
     };
 
-    onUpdateTopic(updatedTopic);
+    onUpdateTopic(updatedTopic, { skipServerPut: postedDirectly });
     setCommentText('');
     setCommentAttachments([]);
   };
@@ -775,10 +824,12 @@ export function TopicDetailModal({
     }
 
     // バックエンドのコメント削除 API を直接呼び出し（DBから確実に消去）
+    let deletedDirectly = false;
     try {
-      await fetch(`${API_BASE_URL}/bulletins/${topic.id}/comments/${commentId}`, {
+      const res = await fetch(`${API_BASE_URL}/bulletins/${topic.id}/comments/${commentId}`, {
         method: 'DELETE'
       });
+      if (res.ok) deletedDirectly = true;
     } catch (err) {
       console.warn('Failed to delete comment via direct API:', err);
     }
@@ -789,7 +840,7 @@ export function TopicDetailModal({
       comments: updatedComments,
       commentsCount: updatedComments.length,
     };
-    onUpdateTopic(updatedTopic);
+    onUpdateTopic(updatedTopic, { skipServerPut: deletedDirectly });
   };
 
   const confirmDeleteComment = (commentId: string) => {
@@ -1973,7 +2024,13 @@ export function TopicDetailModal({
                   <div className="pt-4 border-t border-slate-200 space-y-4">
                     <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
                       <MessageSquare className="w-4 h-4 text-indigo-600" />
-                      コメント ({topic.comments?.length || 0})
+                      <span>コメント ({topic.comments?.length || topic.commentsCount || 0})</span>
+                      {isLoadingDetails && (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-400">
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                          同期中...
+                        </span>
+                      )}
                     </h3>
 
                     {/* Comment List */}

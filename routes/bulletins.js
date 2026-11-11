@@ -38,39 +38,45 @@ router.post(['/upload', '/bulletins/upload'], uploadBulletins.single('file'), (r
   });
 });
 
-router.get(['/bulletinsfiles/list', '/bulletins/files/list'], (req, res) => {
+// 非同期I/O (fs.promises) による添付ファイル一覧取得（イベントループのブロッキングを完全防止）
+router.get(['/bulletinsfiles/list', '/bulletins/files/list'], async (req, res) => {
   try {
     if (!fs.existsSync(bulletinsFilesDir)) return res.json([]);
-    const filenames = fs.readdirSync(bulletinsFilesDir);
-    const result = filenames.map(filename => {
-      const filePath = path.join(bulletinsFilesDir, filename);
-      let stat;
-      try {
-        stat = fs.statSync(filePath);
-      } catch (e) {
-        return null;
-      }
-      if (stat.isDirectory()) return null;
-      const ext = path.extname(filename).toLowerCase().replace('.', '');
-      return {
-        name: filename,
-        rawFilename: filename,
-        path: filename,
-        url: `/bulletinsfiles/${encodeURIComponent(filename)}`,
-        size: stat.size,
-        mtime: stat.mtime.toISOString(),
-        isDirectory: false,
-        extension: ext,
-        source: 'bulletin'
-      };
-    }).filter(Boolean);
+    const filenames = await fs.promises.readdir(bulletinsFilesDir);
+    const items = await Promise.all(
+      filenames.map(async (filename) => {
+        const filePath = path.join(bulletinsFilesDir, filename);
+        try {
+          const stat = await fs.promises.stat(filePath);
+          if (stat.isDirectory()) return null;
+          const ext = path.extname(filename).toLowerCase().replace('.', '');
+          const displayName = filename.includes('_') ? filename.substring(filename.indexOf('_') + 1) : filename;
+          return {
+            name: displayName,
+            rawFilename: filename,
+            path: filename,
+            url: `/bulletinsfiles/${encodeURIComponent(filename)}`,
+            size: stat.size,
+            mtime: stat.mtime.toISOString(),
+            isDirectory: false,
+            extension: ext,
+            source: 'bulletin'
+          };
+        } catch (_) {
+          return null;
+        }
+      })
+    );
+    const result = items.filter(Boolean);
     result.sort((a, b) => new Date(b.mtime).getTime() - new Date(a.mtime).getTime());
     res.json(result);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ==========================================
-// DBテーブル・カラム安全性自動初期化関数
+// DBテーブル・カラム・高速化インデックス自動初期化関数
 // ==========================================
 async function ensureBulletinTables(pool) {
   if (!pool) return;
@@ -90,6 +96,7 @@ async function ensureBulletinTables(pool) {
           office NVARCHAR(100) NULL,
           division NVARCHAR(100) NULL,
           scope NVARCHAR(50) NULL DEFAULT N'全社',
+          isStrictScope BIT NULL DEFAULT 0,
           tags NVARCHAR(500) NULL,
           isPinned BIT NULL DEFAULT 0,
           pinnedUntil VARCHAR(40) NULL,
@@ -146,9 +153,12 @@ async function ensureBulletinTables(pool) {
       IF COL_LENGTH('dbo.BoardComments', 'author_id') IS NULL ALTER TABLE dbo.BoardComments ADD author_id VARCHAR(50) NULL;
       IF COL_LENGTH('dbo.BoardComments', 'attachments') IS NULL ALTER TABLE dbo.BoardComments ADD attachments NVARCHAR(MAX) NULL;
       IF COL_LENGTH('dbo.BoardComments', 'created_at') IS NULL ALTER TABLE dbo.BoardComments ADD created_at DATETIME2 NULL;
+
+      IF COL_LENGTH('dbo.BoardViewers', 'bulletinId') IS NULL ALTER TABLE dbo.BoardViewers ADD bulletinId VARCHAR(50) NULL;
+      IF COL_LENGTH('dbo.BoardViewers', 'topicId') IS NULL ALTER TABLE dbo.BoardViewers ADD topicId VARCHAR(50) NULL;
     `);
 
-    // 旧環境での NOT NULL 制約の緩和（エラー発生時も続行）
+    // 旧環境での NOT NULL 制約の緩和・旧カラムデータの topicId 正規化・インデックス作成
     try {
       await pool.request().query(`
         ALTER TABLE dbo.BoardComments ALTER COLUMN authorId VARCHAR(50) NULL;
@@ -156,6 +166,41 @@ async function ensureBulletinTables(pool) {
         ALTER TABLE dbo.BoardComments ALTER COLUMN topicId VARCHAR(50) NULL;
         ALTER TABLE dbo.BoardComments ALTER COLUMN topic_id VARCHAR(50) NULL;
         ALTER TABLE dbo.BoardComments ALTER COLUMN bulletinId VARCHAR(50) NULL;
+      `);
+    } catch (_) {}
+
+    // 過去データの topicId 統一補正 & 非クラスター化インデックスの自動生成
+    try {
+      await pool.request().query(`
+        UPDATE dbo.BoardComments
+        SET topicId = COALESCE(NULLIF(topic_id, ''), NULLIF(bulletinId, ''))
+        WHERE (topicId IS NULL OR topicId = '')
+          AND COALESCE(NULLIF(topic_id, ''), NULLIF(bulletinId, '')) IS NOT NULL;
+
+        UPDATE dbo.BoardViewers
+        SET topicId = bulletinId
+        WHERE (topicId IS NULL OR topicId = '')
+          AND bulletinId IS NOT NULL AND bulletinId <> '';
+
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Bulletins_Pinned_CreatedAt' AND object_id = OBJECT_ID('dbo.Bulletins'))
+        BEGIN
+          CREATE NONCLUSTERED INDEX IX_Bulletins_Pinned_CreatedAt
+          ON dbo.Bulletins (isPinned DESC, createdAt DESC)
+          INCLUDE (category, office, division, scope, authorId, views, likes);
+        END;
+
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_BoardComments_TopicId_CreatedAt' AND object_id = OBJECT_ID('dbo.BoardComments'))
+        BEGIN
+          CREATE NONCLUSTERED INDEX IX_BoardComments_TopicId_CreatedAt
+          ON dbo.BoardComments (topicId ASC, createdAt ASC);
+        END;
+
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_BoardViewers_TopicId_UserId' AND object_id = OBJECT_ID('dbo.BoardViewers'))
+        BEGIN
+          CREATE NONCLUSTERED INDEX IX_BoardViewers_TopicId_UserId
+          ON dbo.BoardViewers (topicId ASC, userId ASC)
+          INCLUDE (viewedAt);
+        END;
       `);
     } catch (_) {}
   } catch (e) {
@@ -172,6 +217,41 @@ async function ensureBulletinTablesOnce(pool) {
   } catch (e) {
     console.warn('[routes/bulletins] ensureBulletinTables warning:', e.message);
   }
+}
+
+// ピン留め・アンケート整形共通ヘルパー
+function formatPollAndPinState(row, nowMs) {
+  const pollObj = safeParseJSON(row.poll, null);
+  let isPollAutoPinned = false;
+  if (pollObj && pollObj.autoPinUntilDeadline && pollObj.deadline && !pollObj.isClosed) {
+    const trimmed = String(pollObj.deadline).trim();
+    const deadlineMs = /^\d{4}-\d{2}-\d{2}$/.test(trimmed)
+      ? new Date(`${trimmed}T23:59:59.999+09:00`).getTime()
+      : new Date(trimmed).getTime();
+    if (!isNaN(deadlineMs) && deadlineMs > nowMs) {
+      isPollAutoPinned = true;
+    }
+  }
+
+  const isCurrentlyPinned = isPollAutoPinned || (!!row.isPinned && (!row.pinnedUntil || new Date(row.pinnedUntil).getTime() > nowMs));
+
+  let safePoll = null;
+  if (pollObj) {
+    safePoll = {
+      ...pollObj,
+      id: pollObj.id || `poll-${row.id}`,
+      title: pollObj.title || pollObj.question || 'アンケート / 意思決定投票',
+      question: pollObj.question || pollObj.title || 'アンケート / 意思決定投票',
+      deadline: pollObj.deadline || null,
+      autoPinUntilDeadline: !!pollObj.autoPinUntilDeadline,
+      allowMultiple: !!pollObj.allowMultiple,
+      isAnonymous: !!pollObj.isAnonymous,
+      options: Array.isArray(pollObj.options) ? pollObj.options : [],
+      votes: Array.isArray(pollObj.votes) ? pollObj.votes : []
+    };
+  }
+
+  return { pollObj, safePoll, isCurrentlyPinned };
 }
 
 // ==========================================
@@ -191,12 +271,22 @@ router.get([
     if (!pool) {
       return res.status(500).json({ error: 'Database connection failed' });
     }
+    await ensureBulletinTablesOnce(pool);
 
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100);
 
-    // カレンダーや伝言メモと同じ、SQL Server標準の単一テーブル高速1クエリのみ
+    // 最新N件のトピック＋コメント件数集計を高速取得
     const result = await pool.request().query(`
-      SELECT TOP (${limit}) b.*, u.name AS authorName, u.department AS authorDepartment, u.avatarUrl AS authorAvatarUrl
+      SELECT TOP (${limit})
+        b.*,
+        u.name AS authorName,
+        u.department AS authorDepartment,
+        u.avatarUrl AS authorAvatarUrl,
+        (
+          SELECT COUNT(1)
+          FROM dbo.BoardComments c
+          WHERE c.topicId = b.id OR c.topic_id = b.id OR c.bulletinId = b.id
+        ) AS calcCommentsCount
       FROM dbo.Bulletins b
       LEFT JOIN dbo.Users u ON b.authorId = u.id
       ORDER BY b.isPinned DESC, b.createdAt DESC
@@ -205,37 +295,7 @@ router.get([
 
     const nowMs = Date.now();
     const formatted = bulletins.map(row => {
-      const pollObj = safeParseJSON(row.poll, null);
-      let isPollAutoPinned = false;
-      if (pollObj && pollObj.autoPinUntilDeadline && pollObj.deadline) {
-        const trimmed = String(pollObj.deadline).trim();
-        const deadlineMs = /^\d{4}-\d{2}-\d{2}$/.test(trimmed)
-          ? new Date(`${trimmed}T23:59:59.999+09:00`).getTime()
-          : new Date(trimmed).getTime();
-        if (!isNaN(deadlineMs) && deadlineMs > nowMs) {
-          isPollAutoPinned = true;
-        }
-      }
-
-      // ピン留め期限判定
-      const isCurrentlyPinned = isPollAutoPinned || (!!row.isPinned && (!row.pinnedUntil || new Date(row.pinnedUntil).getTime() > nowMs));
-
-      // サマリー用アンケートオブジェクト（選択肢 options・タイトル・締切・投票データを完全に保持）
-      let safePoll = null;
-      if (pollObj) {
-        safePoll = {
-          ...pollObj,
-          id: pollObj.id || `poll-${row.id}`,
-          title: pollObj.title || pollObj.question || 'アンケート / 意思決定投票',
-          question: pollObj.question || pollObj.title || 'アンケート / 意思決定投票',
-          deadline: pollObj.deadline || null,
-          autoPinUntilDeadline: !!pollObj.autoPinUntilDeadline,
-          allowMultiple: !!pollObj.allowMultiple,
-          isAnonymous: !!pollObj.isAnonymous,
-          options: Array.isArray(pollObj.options) ? pollObj.options : [],
-          votes: Array.isArray(pollObj.votes) ? pollObj.votes : []
-        };
-      }
+      const { safePoll, isCurrentlyPinned } = formatPollAndPinState(row, nowMs);
 
       return {
         id: String(row.id),
@@ -267,7 +327,7 @@ router.get([
         poll: safePoll,
         comments: [],
         viewers: [],
-        commentsCount: 0
+        commentsCount: Number(row.calcCommentsCount) || 0
       };
     });
 
@@ -279,6 +339,10 @@ router.get([
 
 // ==========================================
 // 掲示板トピック一覧取得 (GET /api/bulletins & /api/board)
+// 【高速化対応】
+// - コメント本文・添付ファイルの全件取得を廃止し、SQL GROUP BY で件数のみ O(1) マップ集計
+// - 閲覧者（足跡）は Users JOIN を省いた軽量IDリストを Map で O(1) マージ（O(N*M)ループ完全排除）
+// - ?limit=&offset= によるページネーション取得にも対応（省略時は全件返却）
 // ==========================================
 router.get(['/bulletins', '/bulletins/', '/board', '/board/'], async (req, res) => {
   try {
@@ -286,42 +350,63 @@ router.get(['/bulletins', '/bulletins/', '/board', '/board/'], async (req, res) 
     if (!pool) {
       return res.status(500).json({ error: 'Database connection failed' });
     }
+    await ensureBulletinTablesOnce(pool);
 
-    // ① トピック本体（有効なピン留め優先、作成日時降順）
-    const result = await pool.request().query(`
+    const limitParam = parseInt(req.query.limit, 10);
+    const offsetParam = Math.max(parseInt(req.query.offset, 10) || 0, 0);
+    const includeComments = req.query.includeComments === 'true' || req.query.includeComments === '1';
+
+    let bulletinsQuery = `
       SELECT b.*, u.name AS authorName, u.department AS authorDepartment, u.avatarUrl AS authorAvatarUrl
       FROM dbo.Bulletins b
       LEFT JOIN dbo.Users u ON b.authorId = u.id
       ORDER BY b.isPinned DESC, b.createdAt DESC
-    `);
-    const bulletins = result.recordset || [];
+    `;
+    if (!isNaN(limitParam) && limitParam > 0) {
+      const safeLimit = Math.min(limitParam, 500);
+      bulletinsQuery += ` OFFSET ${offsetParam} ROWS FETCH NEXT ${safeLimit} ROWS ONLY`;
+    }
 
-    // ② コメント（新旧カラム互換対応）
-    const commentsResult = await pool.request().query(`
-      SELECT c.*, u.name AS authorName, u.department AS authorDepartment, u.avatarUrl AS authorAvatarUrl
-      FROM dbo.BoardComments c
-      LEFT JOIN dbo.Users u ON COALESCE(NULLIF(c.authorId, ''), NULLIF(c.author_id, '')) = u.id
-      ORDER BY COALESCE(c.createdAt, c.created_at) ASC
-    `);
-    const allComments = commentsResult.recordset || [];
+    // ① トピック本体と ② コメント件数集計と ③ 軽量閲覧者リストを並列取得
+    const [bulletinsRes, commentsAggRes, viewersRes] = await Promise.all([
+      pool.request().query(bulletinsQuery),
+      includeComments
+        ? pool.request().query(`
+            SELECT c.*, u.name AS authorName, u.department AS authorDepartment, u.avatarUrl AS authorAvatarUrl
+            FROM dbo.BoardComments c
+            LEFT JOIN dbo.Users u ON COALESCE(NULLIF(c.authorId, ''), NULLIF(c.author_id, '')) = u.id
+            ORDER BY COALESCE(c.createdAt, c.created_at) ASC
+          `)
+        : pool.request().query(`
+            SELECT COALESCE(NULLIF(topicId, ''), NULLIF(topic_id, ''), NULLIF(bulletinId, '')) AS tid,
+                   COUNT(1) AS cnt
+            FROM dbo.BoardComments
+            GROUP BY COALESCE(NULLIF(topicId, ''), NULLIF(topic_id, ''), NULLIF(bulletinId, ''))
+          `),
+      pool.request().query(`
+        SELECT COALESCE(NULLIF(topicId, ''), NULLIF(bulletinId, '')) AS tid,
+               userId,
+               viewedAt
+        FROM dbo.BoardViewers
+      `)
+    ]);
 
-    // ③ 閲覧者（足跡）
-    const viewersResult = await pool.request().query(`
-      SELECT v.*, u.name AS userName, u.department AS userDepartment, u.avatarUrl AS userAvatarUrl
-      FROM dbo.BoardViewers v
-      LEFT JOIN dbo.Users u ON v.userId = u.id
-    `);
-    const allViewers = viewersResult.recordset || [];
+    const bulletins = bulletinsRes.recordset || [];
 
-    // マージ処理
-    const nowMs = Date.now();
-    const formatted = bulletins.map(row => {
-      const topicComments = allComments
-        .filter(c => {
-          const tid = String(c.topicId || c.topic_id || c.bulletinId || '');
-          return tid === String(row.id);
-        })
-        .map(c => ({
+    // O(1) ルックアップ用 Map 構築（従来の O(Bulletins * Comments) ネストループを完全排除）
+    const commentsCountMap = new Map();
+    const commentsListMap = new Map();
+
+    if (includeComments) {
+      for (const c of (commentsAggRes.recordset || [])) {
+        const tid = String(c.topicId || c.topic_id || c.bulletinId || '');
+        if (!tid) continue;
+        let list = commentsListMap.get(tid);
+        if (!list) {
+          list = [];
+          commentsListMap.set(tid, list);
+        }
+        list.push({
           id: String(c.id),
           content: c.content,
           createdAt: c.createdAt || c.created_at || new Date(),
@@ -332,40 +417,47 @@ router.get(['/bulletins', '/bulletins/', '/board', '/board/'], async (req, res) 
             avatarUrl: c.authorAvatarUrl || ''
           },
           attachments: safeParseJSON(c.attachments || c.attachmentsJson, [])
-        }));
-
-      const topicViewers = allViewers
-        .filter(v => {
-          const vid = String(v.topicId || v.topic_id || v.bulletinId || '');
-          return vid === String(row.id);
-        })
-        .map(v => ({
-          viewedAt: v.viewedAt || v.viewed_at || new Date(),
-          user: {
-            id: v.userId || v.user_id,
-            name: v.userName || '不明',
-            department: v.userDepartment || '',
-            avatarUrl: v.userAvatarUrl || ''
-          }
-        }));
-
-      const pollObj = safeParseJSON(row.poll, null);
-      let isPollAutoPinned = false;
-      if (pollObj && pollObj.autoPinUntilDeadline && pollObj.deadline && !pollObj.isClosed) {
-        const trimmed = String(pollObj.deadline).trim();
-        const deadlineMs = /^\d{4}-\d{2}-\d{2}$/.test(trimmed)
-          ? new Date(`${trimmed}T23:59:59.999+09:00`).getTime()
-          : new Date(trimmed).getTime();
-        if (!isNaN(deadlineMs) && deadlineMs > nowMs) {
-          isPollAutoPinned = true;
+        });
+      }
+    } else {
+      for (const row of (commentsAggRes.recordset || [])) {
+        if (row.tid) {
+          commentsCountMap.set(String(row.tid), Number(row.cnt) || 0);
         }
       }
+    }
 
-      // ピン留め期限判定（期限切れの場合は即座に isPinned = false。アンケート自動固定中はピン留め有効）
-      const isCurrentlyPinned = isPollAutoPinned || (!!row.isPinned && (!row.pinnedUntil || new Date(row.pinnedUntil).getTime() > nowMs));
+    // 閲覧者（足跡）も O(V) の1パスで Map 化（Users JOIN の重複ペイロードも削減）
+    const viewersMap = new Map();
+    for (const v of (viewersRes.recordset || [])) {
+      const tid = String(v.tid || '');
+      const uid = String(v.userId || '');
+      if (!tid || !uid) continue;
+      let list = viewersMap.get(tid);
+      if (!list) {
+        list = [];
+        viewersMap.set(tid, list);
+      }
+      list.push({
+        viewedAt: v.viewedAt || new Date(),
+        userId: uid,
+        user: { id: uid }
+      });
+    }
+
+    const nowMs = Date.now();
+    const formatted = bulletins.map(row => {
+      const topicIdStr = String(row.id);
+      const topicComments = includeComments ? (commentsListMap.get(topicIdStr) || []) : [];
+      const commentsCount = includeComments
+        ? topicComments.length
+        : (commentsCountMap.get(topicIdStr) || 0);
+      const topicViewers = viewersMap.get(topicIdStr) || [];
+
+      const { pollObj, isCurrentlyPinned } = formatPollAndPinState(row, nowMs);
 
       return {
-        id: String(row.id),
+        id: topicIdStr,
         category: row.category,
         title: row.title,
         content: row.content,
@@ -394,12 +486,143 @@ router.get(['/bulletins', '/bulletins/', '/board', '/board/'], async (req, res) 
         poll: pollObj,
         comments: topicComments,
         viewers: topicViewers,
-        commentsCount: topicComments.length
+        commentsCount
       };
     });
 
     res.json(formatted);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==========================================
+// 掲示板トピック単体詳細・コメント・閲覧者取得 API (オンデマンド遅延ロード用)
+// GET /api/bulletins/:id/detail, /api/bulletins/:id, /api/board/:id/detail
+// ==========================================
+router.get([
+  '/bulletins/:id/detail',
+  '/board/:id/detail',
+  '/:id/detail',
+  '/bulletins/:id',
+  '/board/:id'
+], async (req, res, next) => {
+  const topicId = String(req.params.id || '');
+  // 予約語パスの誤マッチ防止
+  if (!topicId || topicId === 'summary' || topicId === 'upload' || topicId === 'files') {
+    return next();
+  }
+
+  try {
+    const pool = await getPool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection failed' });
+    }
+    await ensureBulletinTablesOnce(pool);
+
+    // インデックスを活用して対象トピック1件分のデータ・コメント・閲覧者を並列取得
+    const [topicRes, commentsRes, viewersRes] = await Promise.all([
+      pool.request()
+        .input('id', sql.VarChar, topicId)
+        .query(`
+          SELECT b.*, u.name AS authorName, u.department AS authorDepartment, u.avatarUrl AS authorAvatarUrl
+          FROM dbo.Bulletins b
+          LEFT JOIN dbo.Users u ON b.authorId = u.id
+          WHERE b.id = @id
+        `),
+      pool.request()
+        .input('topicId', sql.VarChar, topicId)
+        .query(`
+          SELECT c.*, u.name AS authorName, u.department AS authorDepartment, u.avatarUrl AS authorAvatarUrl
+          FROM dbo.BoardComments c
+          LEFT JOIN dbo.Users u ON COALESCE(NULLIF(c.authorId, ''), NULLIF(c.author_id, '')) = u.id
+          WHERE c.topicId = @topicId OR c.topic_id = @topicId OR c.bulletinId = @topicId
+          ORDER BY COALESCE(c.createdAt, c.created_at) ASC
+        `),
+      pool.request()
+        .input('topicId', sql.VarChar, topicId)
+        .query(`
+          SELECT v.*, u.name AS userName, u.department AS userDepartment, u.avatarUrl AS userAvatarUrl
+          FROM dbo.BoardViewers v
+          LEFT JOIN dbo.Users u ON v.userId = u.id
+          WHERE v.topicId = @topicId OR v.bulletinId = @topicId
+          ORDER BY v.viewedAt DESC
+        `)
+    ]);
+
+    if (!topicRes.recordset || topicRes.recordset.length === 0) {
+      return res.status(404).json({ error: 'トピックが見つかりません' });
+    }
+
+    const row = topicRes.recordset[0];
+    const topicComments = (commentsRes.recordset || []).map(c => ({
+      id: String(c.id),
+      content: c.content,
+      createdAt: c.createdAt || c.created_at || new Date(),
+      author: {
+        id: c.authorId || c.author_id,
+        name: c.authorName || '不明',
+        department: c.authorDepartment || '',
+        avatarUrl: c.authorAvatarUrl || ''
+      },
+      attachments: safeParseJSON(c.attachments || c.attachmentsJson, [])
+    }));
+
+    // 同一ユーザーの重複足跡を排除しつつ最新閲覧日時を保持
+    const seenViewerUsers = new Set();
+    const topicViewers = [];
+    for (const v of (viewersRes.recordset || [])) {
+      const uid = String(v.userId || v.user_id || '');
+      if (!uid || seenViewerUsers.has(uid)) continue;
+      seenViewerUsers.add(uid);
+      topicViewers.push({
+        viewedAt: v.viewedAt || v.viewed_at || new Date(),
+        user: {
+          id: uid,
+          name: v.userName || '不明',
+          department: v.userDepartment || '',
+          avatarUrl: v.userAvatarUrl || ''
+        }
+      });
+    }
+
+    const { pollObj, isCurrentlyPinned } = formatPollAndPinState(row, Date.now());
+
+    res.json({
+      id: String(row.id),
+      category: row.category,
+      title: row.title,
+      content: row.content,
+      authorId: row.authorId,
+      author: {
+        id: row.authorId,
+        name: row.authorName || '不明',
+        department: row.authorDepartment || '',
+        avatarUrl: row.authorAvatarUrl || ''
+      },
+      createdAt: row.createdAt,
+      views: topicViewers.length || row.views || 0,
+      likes: row.likes || 0,
+      office: row.office || '全社',
+      division: row.division || '全部署',
+      scope: row.scope || '全社',
+      isStrictScope: !!row.isStrictScope,
+      tags: row.tags ? (typeof row.tags === 'string' ? row.tags.split(',').map(t => t.trim()).filter(Boolean) : row.tags) : [],
+      isPinned: isCurrentlyPinned,
+      pinnedUntil: row.pinnedUntil || null,
+      pinnedDuration: row.pinnedDuration || (row.pinnedUntil ? undefined : (isCurrentlyPinned ? 'forever' : undefined)),
+      hasPeriod: !!row.hasPeriod,
+      startDate: row.startDate || '',
+      endDate: row.endDate || '',
+      attachments: safeParseJSON(row.attachments, []),
+      poll: pollObj,
+      comments: topicComments,
+      viewers: topicViewers,
+      commentsCount: topicComments.length
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ==========================================
@@ -451,7 +674,7 @@ router.post(['/bulletins', '/bulletins/', '/board', '/board/'], async (req, res)
 router.put(['/bulletins/:id', '/board/:id'], async (req, res) => {
   try {
     const id = req.params.id;
-    const { title, content, category, isPinned, office, division, scope, isStrictScope, tags, attachments, hasPeriod, startDate, endDate, pinnedUntil, poll } = req.body;
+    const { title, content, category, isPinned, office, division, scope, isStrictScope, tags, attachments, hasPeriod, startDate, endDate, pinnedUntil, poll, skipChildSync } = req.body;
     const pool = await getPool();
 
     if (pool) {
@@ -474,7 +697,6 @@ router.put(['/bulletins/:id', '/board/:id'], async (req, res) => {
             const incomingOptions = Array.isArray(poll.options) ? poll.options : [];
             const existingOptions = Array.isArray(dbPoll.options) ? dbPoll.options : [];
 
-            // リクエスト側でoptionsが欠落または空で、DB側にoptionsが存在する場合、既存optionsを復元・保護
             if (incomingOptions.length === 0 && existingOptions.length > 0) {
               finalPoll = {
                 ...dbPoll,
@@ -535,60 +757,66 @@ router.put(['/bulletins/:id', '/board/:id'], async (req, res) => {
       WHERE id = @id
     `);
 
-    // 閲覧者の更新
-    if (Array.isArray(req.body.viewers) && req.body.viewers.length > 0) {
-      for (const v of req.body.viewers) {
-        const uid = v?.user?.id || v?.userId || v?.user_id || (typeof v?.user === 'string' ? v?.user : null);
-        if (uid) {
-          const dateVal = v.viewedAt || v.viewed_at ? new Date(v.viewedAt || v.viewed_at) : new Date();
-          try {
-            await pool.request()
-              .input('topicId', sql.VarChar, String(id))
-              .input('userId', sql.VarChar, String(uid))
-              .input('viewedAt', sql.DateTime, dateVal)
-              .query(`
-                IF NOT EXISTS (SELECT 1 FROM dbo.BoardViewers WHERE topicId = @topicId AND userId = @userId)
-                BEGIN
-                  INSERT INTO dbo.BoardViewers (topicId, userId, viewedAt)
-                  VALUES (@topicId, @userId, @viewedAt)
-                END
-              `);
-          } catch (_) {}
-        }
-      }
-    }
-
-    // コメント配列のアップサート（PUT経由でも確実に保存）
-    if (Array.isArray(req.body.comments) && req.body.comments.length > 0) {
-      for (const c of req.body.comments) {
-        const cid = c.id || `cm-${Date.now()}`;
-        const aid = c.authorId || c.author?.id || 'u1';
-        const dateVal = c.createdAt ? new Date(c.createdAt) : new Date();
-        const attachStr = c.attachments ? (typeof c.attachments === 'object' ? JSON.stringify(c.attachments) : c.attachments) : null;
+    // skipChildSync 指定時（トピック本文・設定のみの編集時）は N+1 ループを完全スキップ
+    if (!skipChildSync) {
+      // 閲覧者の差分のみ追加（既存IDを1クエリで取得して未登録分のみINSERT）
+      if (Array.isArray(req.body.viewers) && req.body.viewers.length > 0) {
         try {
-          await pool.request()
-            .input('id', sql.VarChar, String(cid))
+          const existingViewersRes = await pool.request()
             .input('topicId', sql.VarChar, String(id))
-            .input('authorId', sql.VarChar, String(aid))
-            .input('content', sql.NVarChar, c.content || '')
-            .input('createdAt', sql.DateTime2, dateVal)
-            .input('attachments', sql.NVarChar, attachStr)
-            .query(`
-              IF EXISTS (SELECT 1 FROM dbo.BoardComments WHERE id = @id)
-              BEGIN
-                UPDATE dbo.BoardComments
-                SET topicId = @topicId, bulletinId = @topicId, topic_id = @topicId,
-                    authorId = @authorId, author_id = @authorId,
-                    content = @content, createdAt = @createdAt, created_at = @createdAt,
-                    attachments = @attachments
-                WHERE id = @id
-              END
-              ELSE
-              BEGIN
-                INSERT INTO dbo.BoardComments (id, topicId, bulletinId, topic_id, authorId, author_id, content, createdAt, created_at, attachments)
-                VALUES (@id, @topicId, @topicId, @topicId, @authorId, @authorId, @content, @createdAt, @createdAt, @attachments)
-              END
-            `);
+            .query('SELECT userId FROM dbo.BoardViewers WHERE topicId = @topicId OR bulletinId = @topicId');
+          const existingUserIds = new Set((existingViewersRes.recordset || []).map(r => String(r.userId)));
+
+          for (const v of req.body.viewers) {
+            const uid = v?.user?.id || v?.userId || v?.user_id || (typeof v?.user === 'string' ? v?.user : null);
+            if (uid && !existingUserIds.has(String(uid))) {
+              existingUserIds.add(String(uid));
+              const dateVal = v.viewedAt || v.viewed_at ? new Date(v.viewedAt || v.viewed_at) : new Date();
+              try {
+                await pool.request()
+                  .input('topicId', sql.VarChar, String(id))
+                  .input('userId', sql.VarChar, String(uid))
+                  .input('viewedAt', sql.DateTime, dateVal)
+                  .query(`
+                    INSERT INTO dbo.BoardViewers (topicId, bulletinId, userId, viewedAt)
+                    VALUES (@topicId, @topicId, @userId, @viewedAt)
+                  `);
+              } catch (_) {}
+            }
+          }
+        } catch (_) {}
+      }
+
+      // コメント配列の差分のみ追加（既存IDを1クエリで取得して新規コメントのみINSERT）
+      if (Array.isArray(req.body.comments) && req.body.comments.length > 0) {
+        try {
+          const existingCommentsRes = await pool.request()
+            .input('topicId', sql.VarChar, String(id))
+            .query('SELECT id FROM dbo.BoardComments WHERE topicId = @topicId OR topic_id = @topicId OR bulletinId = @topicId');
+          const existingCommentIds = new Set((existingCommentsRes.recordset || []).map(r => String(r.id)));
+
+          for (const c of req.body.comments) {
+            const cid = String(c.id || `cm-${Date.now()}`);
+            if (!existingCommentIds.has(cid)) {
+              existingCommentIds.add(cid);
+              const aid = c.authorId || c.author?.id || 'u1';
+              const dateVal = c.createdAt ? new Date(c.createdAt) : new Date();
+              const attachStr = c.attachments ? (typeof c.attachments === 'object' ? JSON.stringify(c.attachments) : c.attachments) : null;
+              try {
+                await pool.request()
+                  .input('id', sql.VarChar, cid)
+                  .input('topicId', sql.VarChar, String(id))
+                  .input('authorId', sql.VarChar, String(aid))
+                  .input('content', sql.NVarChar, c.content || '')
+                  .input('createdAt', sql.DateTime2, dateVal)
+                  .input('attachments', sql.NVarChar, attachStr)
+                  .query(`
+                    INSERT INTO dbo.BoardComments (id, topicId, bulletinId, topic_id, authorId, author_id, content, createdAt, created_at, attachments)
+                    VALUES (@id, @topicId, @topicId, @topicId, @authorId, @authorId, @content, @createdAt, @createdAt, @attachments)
+                  `);
+              } catch (_) {}
+            }
+          }
         } catch (_) {}
       }
     }
@@ -733,7 +961,7 @@ router.post(['/bulletins/:id/poll/close', '/board/:id/poll/close', '/:id/poll/cl
 // ==========================================
 // コメント個別追加 API (POST /api/bulletins/:id/comments)
 // ==========================================
-router.post(['/bulletins/:id/comments', '/board/:id/comments'], async (req, res) => {
+router.post(['/bulletins/:id/comments', '/board/:id/comments', '/:id/comments'], async (req, res) => {
   try {
     const { id: commentId, author, authorId, content, createdAt, attachments } = req.body;
     const topicId = req.params.id;
@@ -781,7 +1009,8 @@ router.delete([
   '/board/:topicId/comments/:commentId',
   '/bulletins/comments/:commentId',
   '/board/comments/:commentId',
-  '/comments/:commentId'
+  '/comments/:commentId',
+  '/:topicId/comments/:commentId'
 ], async (req, res) => {
   try {
     const commentId = req.params.commentId || req.params.id;
@@ -812,15 +1041,20 @@ router.post(['/bulletins/:id/viewers', '/topics/:id/viewers', '/board/:id/viewer
     const dateVal = viewedAt || viewed_at ? new Date(viewedAt || viewed_at) : new Date();
 
     if (pool) {
+      await ensureBulletinTablesOnce(pool);
       await pool.request()
         .input('topicId', sql.VarChar, String(topicId))
         .input('userId', sql.VarChar, String(uid))
         .input('viewedAt', sql.DateTime, dateVal)
         .query(`
-          IF NOT EXISTS (SELECT 1 FROM dbo.BoardViewers WHERE topicId = @topicId AND userId = @userId)
+          IF NOT EXISTS (SELECT 1 FROM dbo.BoardViewers WHERE (topicId = @topicId OR bulletinId = @topicId) AND userId = @userId)
           BEGIN
-            INSERT INTO dbo.BoardViewers (topicId, userId, viewedAt)
-            VALUES (@topicId, @userId, @viewedAt)
+            INSERT INTO dbo.BoardViewers (topicId, bulletinId, userId, viewedAt)
+            VALUES (@topicId, @topicId, @userId, @viewedAt);
+
+            UPDATE dbo.Bulletins
+            SET views = ISNULL(views, 0) + 1
+            WHERE id = @topicId;
           END
         `);
     }
@@ -831,14 +1065,14 @@ router.post(['/bulletins/:id/viewers', '/topics/:id/viewers', '/board/:id/viewer
 // ==========================================
 // 掲示板トピック削除 API (DELETE /api/bulletins/:id)
 // ==========================================
-router.delete(['/bulletins/:id', '/board/:id'], async (req, res) => {
+router.delete(['/bulletins/:id', '/board/:id', '/:id'], async (req, res) => {
   try {
     const id = req.params.id;
     const pool = await getPool();
     if (pool) {
       await pool.request().input('id', sql.VarChar, String(id)).query('DELETE FROM dbo.Bulletins WHERE id = @id');
       await pool.request().input('topicId', sql.VarChar, String(id)).query('DELETE FROM dbo.BoardComments WHERE topicId = @topicId OR topic_id = @topicId OR bulletinId = @topicId');
-      await pool.request().input('topicId', sql.VarChar, String(id)).query('DELETE FROM dbo.BoardViewers WHERE topicId = @topicId OR topic_id = @topicId OR bulletinId = @topicId');
+      await pool.request().input('topicId', sql.VarChar, String(id)).query('DELETE FROM dbo.BoardViewers WHERE topicId = @topicId OR bulletinId = @topicId');
     }
     res.json({ success: true, message: '削除完了' });
   } catch (err) { res.status(500).json({ error: err.message }); }

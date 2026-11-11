@@ -15,7 +15,7 @@ const escapedContent = serverContent
 const header = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年10月23日 (回覧板アンケート・意思決定投票機能：選択肢ごとの理由コメント必須化・回答期限までの自動ピン留め・routes/bulletins.jsによるdbo.Bulletins pollカラム自動マイグレーション・投票API(/api/bulletins/:id/poll/vote)対応版)
+ * 最終更新日時 (最終アップデート): 2026年11月11日 (Step 1 パフォーマンス抜本改善：掲示板トピック一覧のO(1) Map集計化・コメント＆足跡のオンデマンド詳細取得API(/api/bulletins/:id/detail)追加・SQL非クラスター化インデックス自動生成・添付ファイル一覧の非同期I/O化対応版)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -43,6 +43,11 @@ export interface ServerCodeHistoryItem {
 }
 
 export const SERVER_CODE_HISTORY: ServerCodeHistoryItem[] = [
+  {
+    version: 'v2026.11.11.1',
+    date: '2026-11-11',
+    summary: 'Step 1 パフォーマンス抜本改善：掲示板トピック一覧のO(1) Map集計化・コメント＆足跡のオンデマンド詳細取得API(/api/bulletins/:id/detail)追加・SQL非クラスター化インデックス自動生成・添付ファイル一覧の非同期I/O化対応版',
+  },
   {
     version: 'v2026.10.23.9',
     date: '2026-10-23',

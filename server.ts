@@ -926,41 +926,41 @@ async function startServer() {
   app.post('/api/upload', uploadBulletins.single('file'), handleBulletinUpload);
   app.post('/api/bulletins/upload', uploadBulletins.single('file'), handleBulletinUpload);
 
-  // 掲示板添付ファイル一覧取得 API
-  app.get('/api/bulletinsfiles/list', (req, res) => {
+  // 掲示板添付ファイル一覧取得 API（非同期 fs.promises でイベントループのブロッキングを防止）
+  app.get('/api/bulletinsfiles/list', async (req, res) => {
     try {
       if (!fs.existsSync(bulletinsFilesDir)) {
         return res.json([]);
       }
-      const filenames = fs.readdirSync(bulletinsFilesDir);
-      const result = filenames.map(filename => {
-        const filePath = path.join(bulletinsFilesDir, filename);
-        let stat;
-        try {
-          stat = fs.statSync(filePath);
-        } catch (e) {
-          return null;
-        }
-        if (stat.isDirectory()) return null;
+      const filenames = await fs.promises.readdir(bulletinsFilesDir);
+      const items = await Promise.all(
+        filenames.map(async (filename) => {
+          const filePath = path.join(bulletinsFilesDir, filename);
+          try {
+            const stat = await fs.promises.stat(filePath);
+            if (stat.isDirectory()) return null;
 
-        const ext = path.extname(filename).toLowerCase().replace('.', '');
-        // ファイル名からタイムスタンプ接頭辞(例: 172345678_元ファイル名.pdf)を取り除いた表示用ファイル名
-        const displayName = filename.includes('_') ? filename.substring(filename.indexOf('_') + 1) : filename;
+            const ext = path.extname(filename).toLowerCase().replace('.', '');
+            const displayName = filename.includes('_') ? filename.substring(filename.indexOf('_') + 1) : filename;
 
-        return {
-          name: displayName,
-          rawFilename: filename,
-          path: filename,
-          url: `/bulletinsfiles/${encodeURIComponent(filename)}`,
-          size: stat.size,
-          mtime: stat.mtime.toISOString(),
-          isDirectory: false,
-          extension: ext,
-          source: 'bulletin'
-        };
-      }).filter(Boolean);
+            return {
+              name: displayName,
+              rawFilename: filename,
+              path: filename,
+              url: `/bulletinsfiles/${encodeURIComponent(filename)}`,
+              size: stat.size,
+              mtime: stat.mtime.toISOString(),
+              isDirectory: false,
+              extension: ext,
+              source: 'bulletin'
+            };
+          } catch (e) {
+            return null;
+          }
+        })
+      );
 
-      // 新しい順にソート
+      const result = items.filter(Boolean) as any[];
       result.sort((a, b) => new Date(b.mtime).getTime() - new Date(a.mtime).getTime());
 
       res.json(result);
@@ -5030,6 +5030,13 @@ async function startServer() {
       const nowMs = Date.now();
       const sliced = allBulletins.slice(0, limit);
 
+      const allComments = loadBulletinComments();
+      const commentsCountMap = new Map<string, number>();
+      for (const c of allComments) {
+        const tid = String(c.topicId || c.topic_id || c.bulletinId || '');
+        if (tid) commentsCountMap.set(tid, (commentsCountMap.get(tid) || 0) + 1);
+      }
+
       const summaryList = sliced.map((topic: any) => {
         let isPollAutoPinned = false;
         if (topic.poll && topic.poll.autoPinUntilDeadline && topic.poll.deadline) {
@@ -5060,8 +5067,9 @@ async function startServer() {
           };
         }
 
+        const tid = String(topic.id);
         return {
-          id: String(topic.id),
+          id: tid,
           category: topic.category || 'general',
           title: topic.title,
           content: topic.content,
@@ -5083,7 +5091,7 @@ async function startServer() {
           poll: safePoll,
           comments: [],
           viewers: [],
-          commentsCount: topic.commentsCount || 0
+          commentsCount: commentsCountMap.get(tid) || topic.commentsCount || 0
         };
       });
 
@@ -5094,18 +5102,54 @@ async function startServer() {
     }
   });
 
-  // 掲示板トピック一覧取得 (GET /api/bulletins & /api/board)
+  // 掲示板トピック一覧取得 (GET /api/bulletins & /api/board) - O(1) Map突合 & コメント遅延ロード対応
   app.get(['/api/bulletins', '/api/bulletins/', '/api/board', '/api/board/'], (req, res) => {
     try {
       const allBulletins = loadBulletins();
       const allComments = loadBulletinComments();
       const allViewers = loadBulletinViewers();
+      const includeComments = req.query.includeComments === 'true' || req.query.includeComments === '1';
+
+      // O(1) ルックアップ用 Map 構築（O(N*M) ループ排除）
+      const commentsCountMap = new Map<string, number>();
+      const commentsListMap = new Map<string, any[]>();
+      for (const c of allComments) {
+        const tid = String(c.topicId || c.topic_id || c.bulletinId || '');
+        if (!tid) continue;
+        commentsCountMap.set(tid, (commentsCountMap.get(tid) || 0) + 1);
+        if (includeComments) {
+          let list = commentsListMap.get(tid);
+          if (!list) {
+            list = [];
+            commentsListMap.set(tid, list);
+          }
+          list.push(c);
+        }
+      }
+
+      const viewersMap = new Map<string, any[]>();
+      for (const v of allViewers) {
+        const tid = String(v.topicId || v.topic_id || v.bulletinId || '');
+        if (!tid) continue;
+        let list = viewersMap.get(tid);
+        if (!list) {
+          list = [];
+          viewersMap.set(tid, list);
+        }
+        const uid = String(v.user?.id || v.userId || v.id || '');
+        list.push({
+          viewedAt: v.viewedAt,
+          userId: uid,
+          user: { id: uid }
+        });
+      }
 
       const nowMs = Date.now();
-      // 各トピックにコメントと既読者情報をマージ
       const merged = allBulletins.map((topic: any) => {
-        const topicComments = allComments.filter((c: any) => String(c.topicId || c.topic_id) === String(topic.id));
-        const topicViewers = allViewers.filter((v: any) => String(v.topicId || v.topic_id) === String(topic.id));
+        const tid = String(topic.id);
+        const topicComments = includeComments ? (commentsListMap.get(tid) || []) : [];
+        const commentsCount = commentsCountMap.get(tid) || 0;
+        const topicViewers = viewersMap.get(tid) || [];
         
         let isPollAutoPinned = false;
         if (topic.poll && topic.poll.autoPinUntilDeadline && topic.poll.deadline && !topic.poll.isClosed) {
@@ -5125,15 +5169,70 @@ async function startServer() {
           pinnedUntil: topic.pinnedUntil || null,
           pinnedDuration: topic.pinnedDuration || null,
           poll: topic.poll || null,
+          views: topicViewers.length || topic.views || 0,
           comments: topicComments,
-          commentsCount: topicComments.length,
+          commentsCount,
           viewers: topicViewers
         };
       });
 
+      const limitParam = parseInt(req.query.limit as string, 10);
+      const offsetParam = Math.max(parseInt(req.query.offset as string, 10) || 0, 0);
+      if (!isNaN(limitParam) && limitParam > 0) {
+        return res.json(merged.slice(offsetParam, offsetParam + limitParam));
+      }
+
       res.json(merged);
     } catch (err: any) {
       console.error('Failed to get bulletins:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 掲示板トピック単体詳細・コメント・閲覧者取得 API (オンデマンド遅延ロード用)
+  app.get([
+    '/api/bulletins/:id/detail',
+    '/api/board/:id/detail',
+    '/api/bulletins/:id',
+    '/api/board/:id'
+  ], (req, res, next) => {
+    const topicId = String(req.params.id || '');
+    if (!topicId || topicId === 'summary' || topicId === 'upload' || topicId === 'file' || topicId === 'files') {
+      return next();
+    }
+    try {
+      const allBulletins = loadBulletins();
+      const topic = allBulletins.find((t: any) => String(t.id) === topicId);
+      if (!topic) {
+        return res.status(404).json({ error: 'トピックが見つかりません' });
+      }
+      const allComments = loadBulletinComments();
+      const allViewers = loadBulletinViewers();
+      const topicComments = allComments.filter((c: any) => String(c.topicId || c.topic_id || c.bulletinId) === topicId);
+      const topicViewers = allViewers.filter((v: any) => String(v.topicId || v.topic_id || v.bulletinId) === topicId);
+
+      const nowMs = Date.now();
+      let isPollAutoPinned = false;
+      if (topic.poll && topic.poll.autoPinUntilDeadline && topic.poll.deadline && !topic.poll.isClosed) {
+        const trimmed = String(topic.poll.deadline).trim();
+        const deadlineMs = /^\d{4}-\d{2}-\d{2}$/.test(trimmed)
+          ? new Date(`${trimmed}T23:59:59.999+09:00`).getTime()
+          : new Date(trimmed).getTime();
+        if (!isNaN(deadlineMs) && deadlineMs > nowMs) {
+          isPollAutoPinned = true;
+        }
+      }
+      const isCurrentlyPinned = isPollAutoPinned || (!!topic.isPinned && (!topic.pinnedUntil || new Date(topic.pinnedUntil).getTime() > nowMs));
+
+      res.json({
+        ...topic,
+        isPinned: isCurrentlyPinned,
+        views: topicViewers.length || topic.views || 0,
+        comments: topicComments,
+        commentsCount: topicComments.length,
+        viewers: topicViewers
+      });
+    } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });

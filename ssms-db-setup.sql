@@ -899,4 +899,106 @@ BEGIN
 END
 GO
 
+-- ------------------------------------------
+-- Performance Optimization Indexes (Non-Clustered Indexes)
+-- ------------------------------------------
+-- 1. Bulletins: ピン留め優先＋作成日時降順ソート高速化
+IF OBJECT_ID('dbo.Bulletins', 'U') IS NOT NULL
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Bulletins_Pinned_CreatedAt' AND object_id = OBJECT_ID('dbo.Bulletins'))
+    BEGIN
+        CREATE NONCLUSTERED INDEX IX_Bulletins_Pinned_CreatedAt
+        ON dbo.Bulletins (isPinned DESC, createdAt DESC)
+        INCLUDE (category, office, division, scope, authorId, views, likes);
+    END
+END
+GO
+
+-- 2. BoardComments: トピック別コメント検索・集計高速化
+IF OBJECT_ID('dbo.BoardComments', 'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH('dbo.BoardComments', 'topicId') IS NOT NULL AND COL_LENGTH('dbo.BoardComments', 'createdAt') IS NOT NULL
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_BoardComments_TopicId_CreatedAt' AND object_id = OBJECT_ID('dbo.BoardComments'))
+        BEGIN
+            CREATE NONCLUSTERED INDEX IX_BoardComments_TopicId_CreatedAt
+            ON dbo.BoardComments (topicId ASC, createdAt ASC);
+        END
+    END
+END
+GO
+
+-- 3. BoardViewers: トピック別閲覧者（足跡）検索・重複チェック高速化
+IF OBJECT_ID('dbo.BoardViewers', 'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH('dbo.BoardViewers', 'topicId') IS NOT NULL AND COL_LENGTH('dbo.BoardViewers', 'userId') IS NOT NULL
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_BoardViewers_TopicId_UserId' AND object_id = OBJECT_ID('dbo.BoardViewers'))
+        BEGIN
+            CREATE NONCLUSTERED INDEX IX_BoardViewers_TopicId_UserId
+            ON dbo.BoardViewers (topicId ASC, userId ASC)
+            INCLUDE (viewedAt);
+        END
+    END
+END
+GO
+
+-- 4. ChatMessages: ルーム別メッセージ取得・時系列ソート高速化
+IF OBJECT_ID('dbo.ChatMessages', 'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH('dbo.ChatMessages', 'roomId') IS NOT NULL AND COL_LENGTH('dbo.ChatMessages', 'createdAt') IS NOT NULL
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_ChatMessages_RoomId_CreatedAt' AND object_id = OBJECT_ID('dbo.ChatMessages'))
+        BEGIN
+            CREATE NONCLUSTERED INDEX IX_ChatMessages_RoomId_CreatedAt
+            ON dbo.ChatMessages (roomId ASC, createdAt DESC);
+        END
+    END
+END
+GO
+
+-- 5. Events: カレンダー期間検索高速化
+IF OBJECT_ID('dbo.Events', 'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH('dbo.Events', 'startAt') IS NOT NULL AND COL_LENGTH('dbo.Events', 'endAt') IS NOT NULL
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Events_StartAt_EndAt' AND object_id = OBJECT_ID('dbo.Events'))
+        BEGIN
+            CREATE NONCLUSTERED INDEX IX_Events_StartAt_EndAt
+            ON dbo.Events (startAt ASC, endAt ASC);
+        END
+    END
+END
+GO
+
+-- 6. Memos: 伝言メモ作成日時ソート・宛先検索高速化
+IF OBJECT_ID('dbo.Memos', 'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH('dbo.Memos', 'createdAt') IS NOT NULL
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Memos_CreatedAt' AND object_id = OBJECT_ID('dbo.Memos'))
+        BEGIN
+            CREATE NONCLUSTERED INDEX IX_Memos_CreatedAt
+            ON dbo.Memos (createdAt DESC)
+            INCLUDE (senderId, receiverId, isRead);
+        END
+    END
+END
+GO
+
+-- 7. SafetyResponses: 安否確認イベント別回答検索高速化
+IF OBJECT_ID('dbo.SafetyResponses', 'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH('dbo.SafetyResponses', 'eventId') IS NOT NULL AND COL_LENGTH('dbo.SafetyResponses', 'userId') IS NOT NULL
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_SafetyResponses_EventId_UserId' AND object_id = OBJECT_ID('dbo.SafetyResponses'))
+        BEGIN
+            CREATE NONCLUSTERED INDEX IX_SafetyResponses_EventId_UserId
+            ON dbo.SafetyResponses (eventId ASC, userId ASC);
+        END
+    END
+END
+GO
+
 SELECT 'Database successfully setup and aligned with server.js spec without errors!' AS Status;
+

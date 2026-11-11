@@ -13,7 +13,7 @@ import { isTopicCurrentlyPinned, formatPinnedUntilBadge } from '../utils/boardHe
 interface BoardProps {
   topics: BoardTopic[];
   onAddTopic?: (topicData: Omit<BoardTopic, 'id' | 'createdAt' | 'views' | 'commentsCount'>) => void;
-  onUpdateTopic?: (topic: BoardTopic) => void;
+  onUpdateTopic?: (topic: BoardTopic, options?: { skipServerPut?: boolean; skipRefetch?: boolean }) => void;
   onDeleteTopic?: (topicId: string) => void;
   currentUser: User;
   users?: User[];
@@ -113,7 +113,7 @@ export function Board({
     const alreadyViewed = topic.viewers?.some(v => v?.user?.id === currentUser?.id);
     if (!alreadyViewed && onUpdateTopic) {
       const newViewers = [...(topic.viewers || []), { user: currentUser, viewedAt: new Date().toISOString() }];
-      onUpdateTopic({ ...topic, viewers: newViewers, views: (topic.views || 0) + 1 });
+      onUpdateTopic({ ...topic, viewers: newViewers, views: (topic.views || 0) + 1 }, { skipServerPut: true });
     }
     setSelectedTopic(topic);
     setIsDetailModalOpen(true);
@@ -255,15 +255,35 @@ export function Board({
       });
   }, [topics, currentUser, selectedTag, selectedOffice, selectedDivision, searchQuery, onlyFavorites, favoriteSet, onlyPolls]);
 
+  // 段階的DOM描画（大量トピック時のスクロール・検索レスポンス高速化）
+  const BOARD_PAGE_SIZE = 30;
+  const [visibleCount, setVisibleCount] = useState<number>(BOARD_PAGE_SIZE);
+
+  React.useEffect(() => {
+    setVisibleCount(BOARD_PAGE_SIZE);
+  }, [selectedTag, selectedOffice, selectedDivision, searchQuery, onlyFavorites, onlyPolls]);
+
+  const displayedTopics = useMemo(() => {
+    return filteredAndSortedTopics.slice(0, visibleCount);
+  }, [filteredAndSortedTopics, visibleCount]);
+
+  const handleListScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    if (visibleCount >= filteredAndSortedTopics.length) return;
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+    if (scrollHeight - scrollTop - clientHeight < 300) {
+      setVisibleCount(prev => Math.min(prev + BOARD_PAGE_SIZE, filteredAndSortedTopics.length));
+    }
+  };
+
   const handleCreateSubmit = (topicData: Omit<BoardTopic, 'id' | 'createdAt' | 'views' | 'commentsCount'>) => {
     if (onAddTopic) {
       onAddTopic(topicData);
     }
   };
 
-  const handleUpdateTopicInternal = (updatedTopic: BoardTopic) => {
+  const handleUpdateTopicInternal = (updatedTopic: BoardTopic, options?: { skipServerPut?: boolean; skipRefetch?: boolean }) => {
     if (onUpdateTopic) {
-      onUpdateTopic(updatedTopic);
+      onUpdateTopic(updatedTopic, options);
     }
     setSelectedTopic(updatedTopic);
   };
@@ -412,11 +432,15 @@ export function Board({
       </div>
 
       {/* Main Board Topic List */}
-      <div className="flex-1 overflow-y-auto p-2.5 sm:p-5 bg-slate-50/40">
+      <div
+        onScroll={handleListScroll}
+        className="flex-1 overflow-y-auto p-2.5 sm:p-5 bg-slate-50/40"
+      >
         <div className="w-full space-y-2.5 sm:space-y-3">
-          {filteredAndSortedTopics.length > 0 ? (
-            filteredAndSortedTopics.map(topic => {
-              const viewersCount = topic.viewers?.length || 0;
+          {displayedTopics.length > 0 ? (
+            <>
+            {displayedTopics.map(topic => {
+              const viewersCount = topic.viewers?.length || topic.views || 0;
               const hasAttachments = topic.attachments && topic.attachments.length > 0;
 
               return (
@@ -611,7 +635,19 @@ export function Board({
                   </div>
                 </div>
               );
-            })
+            })}
+            {visibleCount < filteredAndSortedTopics.length && (
+              <div className="pt-2 pb-4 flex justify-center">
+                <button
+                  type="button"
+                  onClick={() => setVisibleCount(prev => Math.min(prev + BOARD_PAGE_SIZE, filteredAndSortedTopics.length))}
+                  className="px-5 py-2.5 bg-white hover:bg-indigo-50 text-indigo-600 font-bold text-xs rounded-xl border border-slate-200 shadow-2xs transition-all cursor-pointer"
+                >
+                  さらに表示する（残り {filteredAndSortedTopics.length - visibleCount} 件 / 全 {filteredAndSortedTopics.length} 件）
+                </button>
+              </div>
+            )}
+            </>
           ) : (
             <div className="text-center py-16 bg-white rounded-2xl border border-slate-200">
               {onlyFavorites ? (

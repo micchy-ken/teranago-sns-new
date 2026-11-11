@@ -15,12 +15,12 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION: AppVersionInfo = {
-  version: '2026.11.10.9',
-  date: '2026-11-10',
-  releaseNumber: 9,
-  display: 'v2026.11.10 #9 (JST)',
+  version: '2026.11.11.1',
+  date: '2026-11-11',
+  releaseNumber: 1,
+  display: 'v2026.11.11 #1 (JST)',
   timeZone: '日本標準時 (JST / UTC+09:00)',
-  description: '現場管理の各画面（現場一覧カード・詳細モーダル・ガントチャート・施工者別工程表等）における現場コードクリック時の外部現場データ確認（sql.teranago.synology.me/genba?code=）新規ウインドウ連携',
+  description: 'Step 1 パフォーマンス抜本改善：DB非クラスター化インデックス自動生成・掲示板一覧のO(1) Map集計化・コメント＆足跡のオンデマンド遅延取得(/api/bulletins/:id/detail)・段階的DOM描画・不要な全件再取得排除',
 };
 
 /**
