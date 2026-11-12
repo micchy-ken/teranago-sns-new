@@ -7,11 +7,11 @@
  * - 機能追加・バグ修正・仕様変更のたびに必ず更新すること
  */
 export const APP_VERSION = {
-  version: '2026.11.12.10',
+  version: '2026.11.12.11',
   date: '2026.11.12',
-  releaseNumber: 10,
-  display: 'v2026.11.12 #10 (JST)',
+  releaseNumber: 11,
+  display: 'v2026.11.12 #11 (JST)',
   timeZone: 'Asia/Tokyo (JST)',
-  description: 'カレンダーヘッダーUI改善（表示設定のアイコン化、お気に入り配置を個人・チームの右へ移動、点検予定一括登録アイコン非表示化）'
+  description: 'ブラウザWeb Speech APIによる音声入力ボタン機能の追加（点検報告書特記事項・週報/日報・チャット文字入力欄での音声テキスト変換）'
 };
 

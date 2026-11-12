@@ -19,6 +19,7 @@ import {
 import { SignaturePad } from './SignaturePad';
 import { InspectionReportPrintView } from './InspectionReportPrintView';
 import { ConfirmModal, ConfirmModalState } from '../ConfirmModal';
+import { VoiceInputButton } from '../common/VoiceInputButton';
 import { 
   X, 
   Save, 
@@ -564,9 +565,19 @@ export const InspectionReportEditorModal: React.FC<InspectionReportEditorModalPr
 
             {/* 所見・特記事項 */}
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs space-y-2">
-              <div className="font-bold text-xs text-slate-800 border-b border-slate-100 pb-1.5 flex items-center justify-between">
-                <span>点検結果・所見・総合特記事項</span>
-                <span className="text-[10px] text-slate-400">ワンタップで定型文を挿入</span>
+              <div className="font-bold text-xs text-slate-800 border-b border-slate-100 pb-1.5 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span>点検結果・所見・総合特記事項</span>
+                  <VoiceInputButton
+                    currentValue={report.overallRemarks || ''}
+                    onValueChange={(val) => setReport({ ...report, overallRemarks: val })}
+                    label="音声入力"
+                    size="xs"
+                    variant="outline"
+                    title="点検所見・特記事項を音声で入力（クリックで開始/停止）"
+                  />
+                </div>
+                <span className="text-[10px] text-slate-400">ワンタップで定型文挿入 / マイクで音声入力</span>
               </div>
               
               {/* 定型文クイック挿入チップ */}

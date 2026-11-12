@@ -58,6 +58,7 @@ import { getLocalDateStr } from '../utils/dateUtils';
 import { expandRecurringEvents } from '../utils/recurrenceUtils';
 import { ApplicationModal } from './ApplicationModal';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
+import { VoiceInputButton } from './common/VoiceInputButton';
 import { API_BASE_URL } from '../config/api';
 import { createDefaultOfficeConfig } from './admin/MaintenanceOfficeConfigAdmin';
 import { InspectionReportRecord } from '../types/inspectionReport';
@@ -2507,8 +2508,18 @@ export function MaintenanceDailyReportView({
             {/* コメント入力テキストエリア (上長閲覧時かつ提出中モード時のみ入力可) */}
             {!isAuthor && status === 'submitted' ? (
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  コメント入力 <span className="text-slate-400 font-normal">（空白のまま上長提出・承認または差し戻し可能です）</span>:
+                <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center justify-between">
+                  <span>
+                    コメント入力 <span className="text-slate-400 font-normal">（空白のまま上長提出・承認または差し戻し可能です）</span>:
+                  </span>
+                  <VoiceInputButton
+                    currentValue={reviewComment}
+                    onValueChange={setReviewComment}
+                    size="xs"
+                    label="音声入力"
+                    variant="subtle"
+                    title="確認コメントを音声で入力（クリックで開始/停止）"
+                  />
                 </label>
                 <textarea
                   rows={2}
@@ -3976,7 +3987,19 @@ export function MaintenanceDailyReportView({
 
             {/* その他事務作業 */}
             <div className="pt-2">
-              <label className="block text-xs font-bold text-slate-700 mb-1">その他事務作業:</label>
+              <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center justify-between">
+                <span>その他事務作業:</span>
+                {!isSubmittedMode && (
+                  <VoiceInputButton
+                    currentValue={otherOfficeWork}
+                    onValueChange={setOtherOfficeWork}
+                    size="xs"
+                    label="音声入力"
+                    variant="subtle"
+                    title="事務作業内容を音声で入力（クリックで開始/停止）"
+                  />
+                )}
+              </label>
               {isSubmittedMode ? (
                 <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200 text-xs text-slate-800 whitespace-pre-wrap min-h-[44px]">
                   {otherOfficeWork || <span className="text-slate-400">（記入なし）</span>}

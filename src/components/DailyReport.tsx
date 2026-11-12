@@ -39,6 +39,7 @@ import { markReportAsRead } from '../utils/notifications';
 import { getLocalDateStr } from '../utils/dateUtils';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { isUserInMaintenanceDivision, resolveDivision } from '../utils/masterResolver';
+import { VoiceInputButton } from './common/VoiceInputButton';
 
 interface DailyReportProps {
   reports: DailyReport[];
@@ -1506,8 +1507,18 @@ export function DailyReportView({
 
               {/* 1. 今週の業務内容 */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center justify-between">
-                  <span>今週の業務内容 <span className="text-rose-500">*</span></span>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5 flex flex-wrap items-center justify-between gap-1">
+                  <span className="flex items-center gap-2">
+                    <span>今週の業務内容 <span className="text-rose-500">*</span></span>
+                    <VoiceInputButton
+                      currentValue={formTasks}
+                      onValueChange={setFormTasks}
+                      size="xs"
+                      label="音声入力"
+                      variant="subtle"
+                      title="今週の業務内容を音声で入力（クリックで開始/停止）"
+                    />
+                  </span>
                   <span className="text-[11px] text-slate-400 font-normal">箇条書きで実施事項・進捗を記入</span>
                 </label>
                 <textarea 
@@ -1523,8 +1534,15 @@ export function DailyReportView({
               {/* 2. 成果・気づき & 課題・問題点 */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                    成果・気づき
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center justify-between">
+                    <span>成果・気づき</span>
+                    <VoiceInputButton
+                      currentValue={formResults}
+                      onValueChange={setFormResults}
+                      size="xs"
+                      variant="ghost"
+                      title="成果・気づきを音声入力"
+                    />
                   </label>
                   <textarea 
                     rows={3} 
@@ -1536,8 +1554,15 @@ export function DailyReportView({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                    課題・問題点
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center justify-between">
+                    <span>課題・問題点</span>
+                    <VoiceInputButton
+                      currentValue={formIssues}
+                      onValueChange={setFormIssues}
+                      size="xs"
+                      variant="ghost"
+                      title="課題・問題点を音声入力"
+                    />
                   </label>
                   <textarea 
                     rows={3} 
@@ -1552,8 +1577,15 @@ export function DailyReportView({
               {/* 3. 継続案件 & 来週の予定 */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                    継続案件
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center justify-between">
+                    <span>継続案件</span>
+                    <VoiceInputButton
+                      currentValue={formOngoingProjects}
+                      onValueChange={setFormOngoingProjects}
+                      size="xs"
+                      variant="ghost"
+                      title="継続案件を音声入力"
+                    />
                   </label>
                   <textarea 
                     rows={2} 
@@ -1565,8 +1597,15 @@ export function DailyReportView({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                    来週の予定
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center justify-between">
+                    <span>来週の予定</span>
+                    <VoiceInputButton
+                      currentValue={formTomorrowPlan}
+                      onValueChange={setFormTomorrowPlan}
+                      size="xs"
+                      variant="ghost"
+                      title="来週の予定を音声入力"
+                    />
                   </label>
                   <textarea 
                     rows={2} 
@@ -1972,9 +2011,19 @@ export function DailyReportView({
 
               {/* フィードバックコメント入力 */}
               <div>
-                <label className="block text-xs font-bold text-slate-800 mb-1.5 flex items-center gap-1.5">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                  上長コメント・指示事項 (任意)
+                <label className="block text-xs font-bold text-slate-800 mb-1.5 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    上長コメント・指示事項 (任意)
+                  </span>
+                  <VoiceInputButton
+                    currentValue={reviewFeedback}
+                    onValueChange={setReviewFeedback}
+                    size="xs"
+                    label="音声入力"
+                    variant="subtle"
+                    title="上長コメントを音声で入力（クリックで開始/停止）"
+                  />
                 </label>
                 <textarea
                   rows={4}

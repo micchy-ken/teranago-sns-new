@@ -62,6 +62,7 @@ import { ChatCommandHelpModal } from './chat/ChatCommandHelpModal';
 import { ChatCommandMessageCard, parseChatCommand } from './chat/ChatCommandMessageCard';
 import { parseMessageQuote, extractQuoteSnippet } from './chat/chatQuoteUtils';
 import { ChatQuoteCard } from './chat/ChatQuoteCard';
+import { VoiceInputButton } from './common/VoiceInputButton';
 
 interface ChatProps {
   rooms: ChatRoom[];
@@ -3464,10 +3465,20 @@ export function Chat({
                 style={{ minHeight: '38px', maxHeight: '120px' }}
               />
 
+              {/* 音声入力ボタン (Web Speech API) */}
+              <VoiceInputButton
+                currentValue={messageText}
+                onValueChange={setMessageText}
+                size="md"
+                variant="chat"
+                buttonClassName="w-8 h-8 sm:w-9 sm:h-9 shrink-0 mb-0.5 rounded-full"
+                title="音声でメッセージを入力（クリックで音声入力開始/停止）"
+              />
+
               <button
                 type="submit"
                 disabled={((!messageText || !messageText.trim()) && chatAttachments.length === 0) || isChatUploading}
-                className="p-2 sm:p-2.5 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 disabled:opacity-40 disabled:hover:bg-indigo-600 transition-colors shadow-sm shrink-0 flex items-center justify-center mb-0.5"
+                className="p-2 sm:p-2.5 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 disabled:opacity-40 disabled:hover:bg-indigo-600 transition-colors shadow-sm shrink-0 flex items-center justify-center mb-0.5 cursor-pointer"
               >
                 {isChatUploading ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
