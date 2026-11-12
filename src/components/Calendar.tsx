@@ -2830,6 +2830,107 @@ export function Calendar({
               </button>
             </div>
 
+            {/* お気に入り表示設定 (個人・チームの右に配置) */}
+            <div className="relative" ref={favoritesRef}>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsFavoritesOpen(prev => {
+                    const next = !prev;
+                    if (next && !customPresetName) {
+                      setCustomPresetName(getDefaultPresetName());
+                    }
+                    return next;
+                  });
+                }}
+                className={`flex items-center gap-1 px-2 py-1 rounded-lg border text-xs font-semibold transition-all shadow-2xs cursor-pointer ${
+                  isFavoritesOpen
+                    ? 'bg-amber-50 text-amber-900 border-amber-300 ring-2 ring-amber-200'
+                    : presets.length > 0
+                    ? 'bg-amber-50/50 text-amber-800 border-amber-200 hover:bg-amber-100/60'
+                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                }`}
+                title="表示設定のお気に入り"
+              >
+                <Star className={`w-3.5 h-3.5 ${presets.length > 0 ? 'text-amber-500 fill-amber-400' : 'text-slate-400'}`} />
+                {presets.length > 0 && (
+                  <span className="text-[10px] font-bold text-amber-900">{presets.length}</span>
+                )}
+              </button>
+
+              {isFavoritesOpen && (
+                <div className="absolute left-0 top-full mt-2 w-80 bg-white rounded-xl shadow-2xl border border-slate-200 p-3.5 z-50 text-slate-800">
+                  <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-100">
+                    <span className="font-bold text-xs text-slate-800">表示設定のお気に入り</span>
+                    <button type="button" onClick={() => setIsFavoritesOpen(false)} className="text-slate-400 hover:text-slate-600 p-0.5">
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <div className="bg-amber-50/70 border border-amber-200/80 rounded-lg p-2 mb-2.5">
+                    <div className="text-[10px] font-bold text-amber-900 mb-1 flex items-center gap-1">
+                      <BookmarkCheck className="w-3 h-3 text-amber-600" />
+                      <span>現在の条件を登録: {getCurrentSummary()}</span>
+                    </div>
+                    <form onSubmit={handleSavePreset} className="flex gap-1 items-center">
+                      <input
+                        type="text"
+                        value={customPresetName}
+                        onChange={(e) => setCustomPresetName(e.target.value)}
+                        placeholder="お気に入り名"
+                        className="flex-1 bg-white border border-slate-200 rounded px-2 py-0.5 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-amber-500 min-w-0"
+                      />
+                      <button
+                        type="submit"
+                        disabled={!onUpdateUser}
+                        className="px-2.5 py-0.5 bg-amber-500 hover:bg-amber-600 text-white rounded text-xs font-bold transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+                      >
+                        追加
+                      </button>
+                    </form>
+                  </div>
+                  <div className="max-h-48 overflow-y-auto space-y-1">
+                    {presets.length === 0 ? (
+                      <div className="py-4 text-center text-slate-400 text-xs">お気に入りはまだありません</div>
+                    ) : (
+                      presets.map((preset) => {
+                        const isDefault = defaultPresetId === preset.id;
+                        return (
+                          <div
+                            key={preset.id}
+                            onClick={() => handleApplyPreset(preset)}
+                            className="flex items-center justify-between p-1.5 rounded border border-slate-100 hover:bg-indigo-50/50 cursor-pointer text-xs"
+                          >
+                            <div className="min-w-0 flex-1 mr-1 truncate">
+                              <span className="font-bold text-slate-800 truncate">{preset.name}</span>
+                              {isDefault && <span className="ml-1 text-[9px] px-1 bg-emerald-100 text-emerald-800 rounded font-bold">初期</span>}
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                type="button"
+                                onClick={(e) => handleToggleDefaultPreset(preset.id, e)}
+                                className={`p-1 rounded ${isDefault ? 'text-emerald-700 bg-emerald-100' : 'text-slate-400 hover:text-slate-700'}`}
+                                title={isDefault ? '初期表示解除' : '初期表示に設定'}
+                              >
+                                <Pin className="w-3 h-3" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => handleDeletePreset(preset.id, preset.name, e)}
+                                className="p-1 rounded text-slate-400 hover:text-rose-600"
+                                title="削除"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* View Switcher (Google Calendar Segmented) */}
             <div className="flex items-center bg-white rounded-lg border border-slate-200 p-0.5 shadow-2xs text-xs font-semibold">
               {calendarMode !== 'team' && (
@@ -3047,127 +3148,26 @@ export function Calendar({
               {copiedLink ? <Check className="w-4 h-4 text-emerald-600" /> : <Share2 className="w-4 h-4 text-slate-500" />}
             </button>
 
-            {/* カレンダー表示設定 (平日のみ / 時間帯 / 表示密度) */}
+            {/* カレンダー表示設定 (平日のみ / 時間帯 / 表示密度) - アイコンのみ */}
             <button
               type="button"
               onClick={() => {
                 setSettingsModalTab('display');
                 setIsSettingsModalOpen(true);
               }}
-              className={`flex items-center gap-1 px-2 py-1 rounded-lg border text-xs font-semibold transition-all shadow-2xs cursor-pointer ${
+              className={`p-1.5 rounded-lg border text-xs font-semibold transition-all shadow-2xs cursor-pointer flex items-center justify-center relative ${
                 calendarSettings.hideWeekends || calendarSettings.isTimeFilterActive || calendarSettings.density === 'compact'
                   ? 'bg-indigo-50 text-indigo-700 border-indigo-300 ring-2 ring-indigo-200'
                   : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
               }`}
               title="カレンダー表示設定 (平日のみ / 時間帯 / 表示密度)"
+              aria-label="カレンダー表示設定"
             >
-              <SlidersHorizontal className="w-3.5 h-3.5 text-slate-600" />
-              <span className="hidden xl:inline text-[11px]">表示設定</span>
+              <SlidersHorizontal className="w-4 h-4 text-slate-600" />
               {(calendarSettings.hideWeekends || calendarSettings.isTimeFilterActive || calendarSettings.density === 'compact') && (
-                <span className="w-1.5 h-1.5 rounded-full bg-indigo-600"></span>
+                <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-indigo-600"></span>
               )}
             </button>
-
-            {/* お気に入り表示設定 */}
-            <div className="relative" ref={favoritesRef}>
-              <button
-                type="button"
-                onClick={() => {
-                  setIsFavoritesOpen(prev => {
-                    const next = !prev;
-                    if (next && !customPresetName) {
-                      setCustomPresetName(getDefaultPresetName());
-                    }
-                    return next;
-                  });
-                }}
-                className={`flex items-center gap-1 px-2 py-1 rounded-lg border text-xs font-semibold transition-all shadow-2xs cursor-pointer ${
-                  isFavoritesOpen
-                    ? 'bg-amber-50 text-amber-900 border-amber-300 ring-2 ring-amber-200'
-                    : presets.length > 0
-                    ? 'bg-amber-50/50 text-amber-800 border-amber-200 hover:bg-amber-100/60'
-                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                }`}
-                title="表示設定のお気に入り"
-              >
-                <Star className={`w-3.5 h-3.5 ${presets.length > 0 ? 'text-amber-500 fill-amber-400' : 'text-slate-400'}`} />
-                {presets.length > 0 && (
-                  <span className="text-[10px] font-bold text-amber-900">{presets.length}</span>
-                )}
-              </button>
-
-              {isFavoritesOpen && (
-                <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-xl shadow-2xl border border-slate-200 p-3.5 z-50 text-slate-800">
-                  <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-100">
-                    <span className="font-bold text-xs text-slate-800">表示設定のお気に入り</span>
-                    <button type="button" onClick={() => setIsFavoritesOpen(false)} className="text-slate-400 hover:text-slate-600 p-0.5">
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                  <div className="bg-amber-50/70 border border-amber-200/80 rounded-lg p-2 mb-2.5">
-                    <div className="text-[10px] font-bold text-amber-900 mb-1 flex items-center gap-1">
-                      <BookmarkCheck className="w-3 h-3 text-amber-600" />
-                      <span>現在の条件を登録: {getCurrentSummary()}</span>
-                    </div>
-                    <form onSubmit={handleSavePreset} className="flex gap-1 items-center">
-                      <input
-                        type="text"
-                        value={customPresetName}
-                        onChange={(e) => setCustomPresetName(e.target.value)}
-                        placeholder="お気に入り名"
-                        className="flex-1 bg-white border border-slate-200 rounded px-2 py-0.5 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-amber-500 min-w-0"
-                      />
-                      <button
-                        type="submit"
-                        disabled={!onUpdateUser}
-                        className="px-2.5 py-0.5 bg-amber-500 hover:bg-amber-600 text-white rounded text-xs font-bold transition-colors cursor-pointer shrink-0 disabled:opacity-50"
-                      >
-                        追加
-                      </button>
-                    </form>
-                  </div>
-                  <div className="max-h-48 overflow-y-auto space-y-1">
-                    {presets.length === 0 ? (
-                      <div className="py-4 text-center text-slate-400 text-xs">お気に入りはまだありません</div>
-                    ) : (
-                      presets.map((preset) => {
-                        const isDefault = defaultPresetId === preset.id;
-                        return (
-                          <div
-                            key={preset.id}
-                            onClick={() => handleApplyPreset(preset)}
-                            className="flex items-center justify-between p-1.5 rounded border border-slate-100 hover:bg-indigo-50/50 cursor-pointer text-xs"
-                          >
-                            <div className="min-w-0 flex-1 mr-1 truncate">
-                              <span className="font-bold text-slate-800 truncate">{preset.name}</span>
-                              {isDefault && <span className="ml-1 text-[9px] px-1 bg-emerald-100 text-emerald-800 rounded font-bold">初期</span>}
-                            </div>
-                            <div className="flex items-center gap-1 shrink-0">
-                              <button
-                                type="button"
-                                onClick={(e) => handleToggleDefaultPreset(preset.id, e)}
-                                className={`p-1 rounded ${isDefault ? 'text-emerald-700 bg-emerald-100' : 'text-slate-400 hover:text-slate-700'}`}
-                                title={isDefault ? '初期表示解除' : '初期表示に設定'}
-                              >
-                                <Pin className="w-3 h-3" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={(e) => handleDeletePreset(preset.id, preset.name, e)}
-                                className="p-1 rounded text-slate-400 hover:text-rose-600"
-                                title="削除"
-                              >
-                                <Trash2 className="w-3 h-3" />
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
 
             {/* デジタルサイネージモード */}
             {calendarMode === 'team' && view === 'day' && (
@@ -3180,18 +3180,6 @@ export function Calendar({
                 title="デジタルサイネージ"
               >
                 <Monitor className="w-4 h-4 text-amber-300" />
-              </button>
-            )}
-
-            {/* 点検予定一括登録 */}
-            {onNavigateToInspectionScheduler && (
-              <button
-                type="button"
-                onClick={onNavigateToInspectionScheduler}
-                className="p-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition-colors shadow-2xs cursor-pointer"
-                title="点検予定一括登録"
-              >
-                <FileSpreadsheet className="w-4 h-4 text-indigo-600" />
               </button>
             )}
 

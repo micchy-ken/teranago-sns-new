@@ -7,11 +7,11 @@
  * - 機能追加・バグ修正・仕様変更のたびに必ず更新すること
  */
 export const APP_VERSION = {
-  version: '2026.11.12.9',
+  version: '2026.11.12.10',
   date: '2026.11.12',
-  releaseNumber: 9,
-  display: 'v2026.11.12 #9 (JST)',
+  releaseNumber: 10,
+  display: 'v2026.11.12 #10 (JST)',
   timeZone: 'Asia/Tokyo (JST)',
-  description: 'マイページのチャットルーム一覧UI改善（ルームアイコン/相手アバター表示、ダイレクトトーク相手情報・所属明記、コンパクト＆スッキリ整列レイアウト）'
+  description: 'カレンダーヘッダーUI改善（表示設定のアイコン化、お気に入り配置を個人・チームの右へ移動、点検予定一括登録アイコン非表示化）'
 };
 
