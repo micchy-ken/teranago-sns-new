@@ -54,8 +54,10 @@ import {
   Sparkles,
   FileText,
   Eye,
-  EyeOff
+  EyeOff,
+  ListChecks
 } from 'lucide-react';
+import { InspectionCheckItemMasterModal } from './inspection/InspectionCheckItemMasterModal';
 import { User, OfficeMaster, DivisionMaster, PositionMaster, OfficeType, ApprovalFlowRule, ApprovalStepConfig, ApplicationType, ApproverType, ItemMaster, WorkflowApplication, ApplicationStatus, UserInvitation } from '../types';
 import { sortUsers, sortUsersByDivision } from '../utils/userSort';
 import {
@@ -156,7 +158,8 @@ export function AdminPanel({
   onUpdateItemMaster,
   onDeleteItemMaster,
 }: AdminPanelProps) {
-  const [activeSubTab, setActiveSubTab] = useState<'users' | 'offices' | 'maintenance_report' | 'divisions' | 'positions' | 'items' | 'approval_flows' | 'stamps' | 'logs' | 'system' | 'workflows_cleanup'>('users');
+  const [activeSubTab, setActiveSubTab] = useState<'users' | 'offices' | 'maintenance_report' | 'inspection_items' | 'divisions' | 'positions' | 'items' | 'approval_flows' | 'stamps' | 'logs' | 'system' | 'workflows_cleanup'>('users');
+  const [isInspectionMasterOpen, setIsInspectionMasterOpen] = useState(false);
   const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedOfficeFilter, setSelectedOfficeFilter] = useState<string>('all');
@@ -1946,7 +1949,7 @@ export function AdminPanel({
         )}
       </div>
 
-      {/* Admin Sub Navigation Tabs (マスター系 & その他に分離・整理) */}
+      {/* Admin Sub Navigation Tabs (マスター系 & 様式系 & その他に分離・整理) */}
       <div className="bg-white rounded-2xl border border-slate-200 p-3 shadow-xs space-y-2.5">
         {/* マスター系 */}
         <div className="flex flex-wrap items-center gap-1.5">
@@ -1974,17 +1977,6 @@ export function AdminPanel({
           >
             <Building2 className="w-3.5 h-3.5" />
             拠点マスター
-          </button>
-          <button
-            onClick={() => setActiveSubTab('maintenance_report')}
-            className={`px-3.5 py-2 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer ${
-              activeSubTab === 'maintenance_report'
-                ? 'bg-amber-600 text-white shadow-sm'
-                : 'text-slate-600 hover:text-amber-800 hover:bg-amber-50'
-            }`}
-          >
-            <Sliders className="w-3.5 h-3.5" />
-            保守日報様式（拠点別）
           </button>
           <button
             onClick={() => setActiveSubTab('divisions')}
@@ -2029,6 +2021,41 @@ export function AdminPanel({
           >
             <GitMerge className="w-3.5 h-3.5" />
             承認フロー
+          </button>
+        </div>
+
+        <div className="h-px bg-slate-100" />
+
+        {/* 様式系（マスターの下に新設） */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[11px] font-black text-amber-800 bg-amber-50 border border-amber-200/90 px-2.5 py-1 rounded-lg shrink-0 tracking-wider">
+            様式
+          </span>
+          <button
+            onClick={() => setActiveSubTab('maintenance_report')}
+            className={`px-3.5 py-2 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer ${
+              activeSubTab === 'maintenance_report'
+                ? 'bg-amber-600 text-white shadow-sm'
+                : 'text-slate-600 hover:text-amber-800 hover:bg-amber-50'
+            }`}
+          >
+            <Sliders className="w-3.5 h-3.5" />
+            保守日報様式（拠点別）
+          </button>
+          <button
+            onClick={() => {
+              setActiveSubTab('inspection_items');
+              setIsInspectionMasterOpen(true);
+            }}
+            className={`px-3.5 py-2 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer ${
+              activeSubTab === 'inspection_items'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'text-slate-600 hover:text-indigo-800 hover:bg-indigo-50'
+            }`}
+            title="現場の点検報告書やA4印刷帳票に表示される点検項目および大区分をカスタマイズします"
+          >
+            <ListChecks className="w-3.5 h-3.5" />
+            点検項目マスター設定
           </button>
         </div>
 
@@ -2955,6 +2982,53 @@ export function AdminPanel({
       {/* SUB TAB: MAINTENANCE REPORT OFFICE CONFIGS */}
       {activeSubTab === 'maintenance_report' && (
         <MaintenanceOfficeConfigAdmin offices={offices} />
+      )}
+
+      {/* SUB TAB: INSPECTION ITEMS MASTER CONFIG */}
+      {activeSubTab === 'inspection_items' && (
+        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+            <div>
+              <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
+                <ListChecks className="w-5 h-5 text-indigo-600" />
+                点検項目マスター設定
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                現場の点検報告書エディタおよびA4印刷帳票（定期点検報告書）に表示される点検項目・大区分（ドア部、懸架部、動力部 等）や初期判定値をカスタマイズします。
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsInspectionMasterOpen(true)}
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center gap-1.5 shrink-0 cursor-pointer"
+            >
+              <Settings className="w-4 h-4" />
+              設定モーダルを開く
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+              <h4 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                現場点検画面との即時連動
+              </h4>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                ここで設定した点検項目およびカテゴリ順序は、現場の点検報告書入力画面（スマートフォン・タブレット）およびA4印刷プレビューに即座に反映されます。
+              </p>
+            </div>
+
+            <div className="p-4 bg-indigo-50/60 rounded-xl border border-indigo-100 space-y-2">
+              <h4 className="text-xs font-bold text-indigo-900 flex items-center gap-1.5">
+                <Info className="w-4 h-4 text-indigo-600" />
+                項目の有効・無効化と初期値
+              </h4>
+              <p className="text-xs text-indigo-800 leading-relaxed">
+                項目の削除だけでなく「目のアイコン」による非表示（無効化）や、点検時の初期判定（○・良など）のカスタマイズが可能です。
+              </p>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* SUB TAB 3: DIVISION MASTERS */}
@@ -5843,6 +5917,12 @@ END;`}
       <ConfirmModal
         {...confirmModal}
         onClose={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+      />
+
+      {/* 点検項目マスター設定モーダル */}
+      <InspectionCheckItemMasterModal
+        isOpen={isInspectionMasterOpen}
+        onClose={() => setIsInspectionMasterOpen(false)}
       />
     </div>
   );
