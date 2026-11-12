@@ -5,6 +5,7 @@ import { MemberSelector } from './MemberSelector';
 import { markChatRoomAsRead, getReadChatTimestamps, getChatRoomUnreadCount } from '../utils/notifications';
 import { API_BASE_URL } from '../config/api';
 import { getStampUrl } from '../utils/stampUrl';
+import { triggerOpenUserModal } from '../utils/userModal';
 import { 
   Search, 
   Send, 
@@ -402,7 +403,9 @@ const ChatMessageItem = React.memo(function ChatMessageItem({
                 src={getAvatarUrl(senderAvatar)}
                 alt={senderName}
                 onError={handleAvatarError}
-                className="w-7 h-7 sm:w-8 sm:h-8 rounded-full border border-slate-200 object-cover shadow-2xs"
+                onClick={() => triggerOpenUserModal(senderUser)}
+                title={`${senderName} の社員詳細を表示`}
+                className="w-7 h-7 sm:w-8 sm:h-8 rounded-full border border-slate-200 object-cover shadow-2xs cursor-pointer hover:opacity-80 hover:ring-2 hover:ring-indigo-300 transition-all"
                 loading="lazy"
               />
             ) : (
@@ -413,7 +416,11 @@ const ChatMessageItem = React.memo(function ChatMessageItem({
 
         <div className={`flex flex-col ${isMine ? 'items-end' : 'items-start'} max-w-[85%] sm:max-w-[75%] ${isPending ? 'opacity-70 transition-opacity duration-300' : 'opacity-100 transition-opacity duration-300'}`}>
           {showSenderName && (
-            <span className="text-[10px] sm:text-[11px] font-bold text-slate-600 mb-1 ml-1">
+            <span
+              onClick={() => triggerOpenUserModal(senderUser)}
+              title={`${senderName} の社員詳細を表示`}
+              className="text-[10px] sm:text-[11px] font-bold text-slate-600 hover:text-indigo-600 hover:underline cursor-pointer mb-1 ml-1 transition-colors"
+            >
               {senderName}
             </span>
           )}
@@ -2590,7 +2597,21 @@ export function Chat({
                   <Users className="w-3 h-3 text-slate-400 shrink-0" />
                   <span className="shrink-0">{activeRoom.participants.length}名:</span>
                   <span className="truncate text-slate-600">
-                    {activeRoom.participants.map((p) => p.name).join(', ')}
+                    {activeRoom.participants.map((p, idx) => (
+                      <React.Fragment key={p.id || idx}>
+                        {idx > 0 && ', '}
+                        <span
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            triggerOpenUserModal(p);
+                          }}
+                          title={`${p.name} の社員詳細を表示`}
+                          className="cursor-pointer hover:text-indigo-600 hover:underline transition-colors"
+                        >
+                          {p.name}
+                        </span>
+                      </React.Fragment>
+                    ))}
                   </span>
                 </p>
               </div>
@@ -2797,19 +2818,25 @@ export function Chat({
 
                         return (
                           <div key={member.id} className="flex items-center gap-2.5 p-1.5 rounded-lg hover:bg-slate-50 group/member">
-                            <img
-                              src={getAvatarUrl(memberAvatar)}
-                              alt={memberName}
-                              onError={handleAvatarError}
-                              className="w-8 h-8 rounded-full border border-slate-200 object-cover shrink-0"
-                            />
-                            <div className="min-w-0 flex-1">
-                              <p className="text-xs font-bold text-slate-800 truncate">
-                                {memberName} {member.id === currentUser.id && '(自分)'}
-                              </p>
-                              <p className="text-[10px] text-slate-500 truncate">
-                                {memberOffice} / {memberDivision}
-                              </p>
+                            <div
+                              onClick={() => triggerOpenUserModal(memberUser)}
+                              title={`${memberName} の社員詳細を表示`}
+                              className="flex items-center gap-2.5 min-w-0 flex-1 cursor-pointer group/uinfo"
+                            >
+                              <img
+                                src={getAvatarUrl(memberAvatar)}
+                                alt={memberName}
+                                onError={handleAvatarError}
+                                className="w-8 h-8 rounded-full border border-slate-200 object-cover shrink-0 group-hover/uinfo:ring-2 group-hover/uinfo:ring-indigo-300 transition-all"
+                              />
+                              <div className="min-w-0 flex-1">
+                                <p className="text-xs font-bold text-slate-800 group-hover/uinfo:text-indigo-600 group-hover/uinfo:underline truncate transition-colors">
+                                  {memberName} {member.id === currentUser.id && '(自分)'}
+                                </p>
+                                <p className="text-[10px] text-slate-500 truncate">
+                                  {memberOffice} / {memberDivision}
+                                </p>
+                              </div>
                             </div>
                             {isGroupRoom(activeRoom) && (
                             <div className="flex items-center gap-1 shrink-0">
@@ -3664,18 +3691,20 @@ export function Chat({
                     return (
                       <div
                         key={idx}
-                        className="flex items-center justify-between p-3 bg-slate-50 border border-slate-200/80 rounded-xl text-xs"
+                        onClick={() => triggerOpenUserModal(matchedUser || finalUser || vUserId || vUserName)}
+                        title={`${displayName} の社員詳細を表示`}
+                        className="flex items-center justify-between p-3 bg-slate-50 hover:bg-indigo-50/50 border border-slate-200/80 hover:border-indigo-200 rounded-xl text-xs cursor-pointer transition-colors group/viewer"
                       >
                         <div className="flex items-center gap-2.5">
                           <img
                             src={getAvatarUrl(displayAvatar)}
                             alt={displayName}
                             onError={handleAvatarError}
-                            className="w-8 h-8 rounded-full border border-slate-200 object-cover"
+                            className="w-8 h-8 rounded-full border border-slate-200 object-cover group-hover/viewer:ring-2 group-hover/viewer:ring-indigo-300 transition-all"
                             referrerPolicy="no-referrer"
                           />
                           <div>
-                            <div className="font-bold text-slate-800">{displayName}</div>
+                            <div className="font-bold text-slate-800 group-hover/viewer:text-indigo-600 group-hover/viewer:underline transition-colors">{displayName}</div>
                             {(displayOffice || displayDivision) && (
                               <div className="text-[10px] text-slate-500">
                                 {displayOffice} {displayDivision}

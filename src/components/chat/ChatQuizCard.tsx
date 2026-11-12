@@ -16,6 +16,7 @@ import { ChatMessage, User, ChatRoom } from '../../types';
 import { ChatQuizData, ChatQuizAggregatedOption } from '../../types/chatQuiz';
 import { API_BASE_URL } from '../../config/api';
 import { getAvatarUrl, handleAvatarError } from '../../utils/avatar';
+import { triggerOpenUserModal } from '../../utils/userModal';
 
 interface ChatQuizCardProps {
   msg: ChatMessage;
@@ -206,7 +207,11 @@ export function ChatQuizCard({
                 {quiz.isSurvey ? '正解なし' : '正解判定あり'}
               </span>
             </span>
-            <span className="text-[10px] text-slate-400 font-medium block truncate">
+            <span
+              onClick={() => triggerOpenUserModal(quiz.createdById || quiz.createdByName)}
+              title={`${quiz.createdByName} の社員詳細を表示`}
+              className="text-[10px] text-slate-400 hover:text-indigo-600 hover:underline font-medium block truncate cursor-pointer transition-colors"
+            >
               出題者: {quiz.createdByName}
             </span>
           </div>
@@ -372,8 +377,9 @@ export function ChatQuizCard({
                         {result.voters.map(voter => (
                           <div
                             key={voter.userId}
-                            className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-white rounded-md border border-slate-200 text-[10px] font-semibold text-slate-700 shadow-2xs"
-                            title={`${voter.userName} (${voter.userDepartment || '所属未設定'})`}
+                            onClick={() => triggerOpenUserModal(voter.userId || voter.userName)}
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-white hover:bg-indigo-50 rounded-md border border-slate-200 hover:border-indigo-300 text-[10px] font-semibold text-slate-700 hover:text-indigo-700 shadow-2xs cursor-pointer transition-colors"
+                            title={`${voter.userName} (${voter.userDepartment || '所属未設定'}) - クリックで社員詳細を表示`}
                           >
                             <img
                               src={getAvatarUrl(voter.userAvatar)}

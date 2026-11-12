@@ -24,6 +24,8 @@ export interface CalendarPreset {
   division?: string;
   typeFilter?: string;
   groupId?: string; // マイグループID
+  targetUserId?: string;   // 個人カレンダー表示対象メンバーID
+  targetUserName?: string; // 個人カレンダー表示対象メンバー名スナップショット
 }
 
 export interface MyPageSectionCounts {

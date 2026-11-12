@@ -3,6 +3,7 @@ import { User as UserIcon, Calendar, MapPin, Building, Wrench, CheckCircle2, Clo
 import { Site, SiteMainPart } from '../../types/site';
 import { User } from '../../types';
 import { getLocalDateStr } from '../../utils/dateUtils';
+import { triggerOpenUserModal } from '../../utils/userModal';
 
 interface WorkerScheduleViewProps {
   sites: Site[];
@@ -153,6 +154,16 @@ export const WorkerScheduleView: React.FC<WorkerScheduleViewProps> = ({
               ))}
             </select>
           </div>
+
+          <button
+            type="button"
+            onClick={() => triggerOpenUserModal(selectedUser)}
+            className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer shadow-2xs"
+            title={`${selectedUser.name} さんの社員詳細を表示`}
+          >
+            <UserIcon className="w-3.5 h-3.5 text-indigo-600" />
+            <span>社員詳細</span>
+          </button>
 
           <span className="text-xs text-slate-500">
             乗り込み予定: <strong className="text-indigo-600 text-sm">{myAssignments.length}</strong> 件

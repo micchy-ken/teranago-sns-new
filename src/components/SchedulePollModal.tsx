@@ -32,6 +32,7 @@ import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { triggerPushNotification } from '../utils/pushNotifications';
 import { dispatchNotificationEmail } from '../utils/emailNotificationDispatcher';
 import { getLocalDateStr, formatTimeJST, formatDateJST, getJstDateParts } from '../utils/dateUtils';
+import { triggerOpenUserModal } from '../utils/userModal';
 
 interface SchedulePollModalProps {
   isOpen: boolean;
@@ -733,7 +734,20 @@ export function SchedulePollModal({
                         <div className="space-y-1.5 text-xs text-slate-500 mb-3">
                           <div className="flex items-center gap-1.5">
                             <Users className="w-3.5 h-3.5 text-slate-400" />
-                            <span>主催: {poll.organizerName} / 参加対象: {targetCount}名</span>
+                            <span>
+                              主催:{' '}
+                              <span
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  triggerOpenUserModal(poll.organizerId || poll.organizerName);
+                                }}
+                                title={`${poll.organizerName} の社員詳細を表示`}
+                                className="hover:text-indigo-600 hover:underline cursor-pointer transition-colors font-semibold text-slate-700"
+                              >
+                                {poll.organizerName}
+                              </span>{' '}
+                              / 参加対象: {targetCount}名
+                            </span>
                           </div>
                           <div className="flex items-center gap-1.5">
                             <Clock className="w-3.5 h-3.5 text-slate-400" />
@@ -1285,7 +1299,16 @@ export function SchedulePollModal({
                   <p className="text-xs text-slate-600 whitespace-pre-wrap">{selectedPoll.description}</p>
                 )}
                 <div className="flex flex-wrap items-center gap-4 text-xs text-slate-500 pt-1">
-                  <span className="flex items-center gap-1"><Users className="w-3.5 h-3.5 text-slate-400" /> 主催: {selectedPoll.organizerName}</span>
+                  <span className="flex items-center gap-1">
+                    <Users className="w-3.5 h-3.5 text-slate-400" /> 主催:{' '}
+                    <span
+                      onClick={() => triggerOpenUserModal(selectedPoll.organizerId || selectedPoll.organizerName)}
+                      title={`${selectedPoll.organizerName} の社員詳細を表示`}
+                      className="font-bold text-slate-700 hover:text-indigo-600 hover:underline cursor-pointer transition-colors"
+                    >
+                      {selectedPoll.organizerName}
+                    </span>
+                  </span>
                   <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5 text-slate-400" /> 所要時間: {selectedPoll.durationMinutes}分</span>
                   {selectedPoll.location && (
                     <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5 text-slate-400" /> 場所: {selectedPoll.location}</span>
@@ -1481,7 +1504,11 @@ export function SchedulePollModal({
                         {/* 回答者ヘッダー */}
                         {answers.map(ans => (
                           <th key={ans.userId} className="py-2.5 px-3 text-center min-w-[90px]">
-                            <span className="truncate block max-w-[80px]" title={ans.userName}>
+                            <span
+                              onClick={() => triggerOpenUserModal(ans.userId || ans.userName)}
+                              className="truncate block max-w-[80px] mx-auto cursor-pointer hover:text-indigo-600 hover:underline transition-colors"
+                              title={`${ans.userName} (クリックで社員詳細を表示)`}
+                            >
                               {ans.userName}
                             </span>
                           </th>
@@ -1609,7 +1636,13 @@ export function SchedulePollModal({
                   <div className="space-y-1.5">
                     {answers.filter(a => a.overallComment).map(a => (
                       <div key={a.id} className="text-xs text-slate-600 flex items-start gap-2">
-                        <span className="font-bold text-slate-800 shrink-0">{a.userName}:</span>
+                        <span
+                          onClick={() => triggerOpenUserModal(a.userId || a.userName)}
+                          title={`${a.userName} の社員詳細を表示`}
+                          className="font-bold text-slate-800 hover:text-indigo-600 hover:underline cursor-pointer transition-colors shrink-0"
+                        >
+                          {a.userName}:
+                        </span>
                         <span>{a.overallComment}</span>
                       </div>
                     ))}

@@ -381,10 +381,18 @@ export const GlobalWorkflowDetailModal: React.FC<GlobalWorkflowDetailModalProps>
                   </span>
                 )}
                 {application.purchaseMethod === 'delegate' && (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg font-medium bg-indigo-100 text-indigo-800 border border-indigo-200">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const target = application.purchaserDelegateUser || application.purchaserDelegateUserId;
+                      if (target) triggerOpenUserModal(target);
+                    }}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg font-medium bg-indigo-100 hover:bg-indigo-200 text-indigo-800 border border-indigo-200 transition-colors cursor-pointer"
+                    title="購入依頼先の社員詳細を表示"
+                  >
                     <UserPlus className="w-3.5 h-3.5 text-indigo-600" />
-                    <span>購入依頼先: <strong>{application.purchaserDelegateUser?.name || '指定担当者'}</strong></span>
-                  </span>
+                    <span>購入依頼先: <strong className="underline decoration-indigo-300">{application.purchaserDelegateUser?.name || '指定担当者'}</strong></span>
+                  </button>
                 )}
               </div>
             </div>
@@ -580,16 +588,21 @@ export const GlobalWorkflowDetailModal: React.FC<GlobalWorkflowDetailModalProps>
                               <span className="text-[10px] text-slate-400">（自動承認対象）</span>
                             )}
                           </div>
-                          <div className="text-[11px] text-slate-500 flex items-center gap-1.5 mt-0.5">
+                          <button
+                            type="button"
+                            onClick={() => approverUser && triggerOpenUserModal(approverUser)}
+                            className="text-[11px] text-slate-500 hover:text-indigo-600 flex items-center gap-1.5 mt-0.5 cursor-pointer group/stepusr"
+                            title="承認者の社員詳細を表示"
+                          >
                             <img
                               src={getAvatarUrl(approverUser?.id === currentUser?.id ? (currentUser?.avatarUrl || approverUser?.avatarUrl) : approverUser?.avatarUrl)}
                               alt={approverUser?.name}
                               onError={handleAvatarError}
-                              className="w-4 h-4 rounded-full border border-slate-200 object-cover"
+                              className="w-4 h-4 rounded-full border border-slate-200 object-cover group-hover/stepusr:ring-2 group-hover/stepusr:ring-indigo-400 transition-all"
                             />
-                            <span>{approverUser?.name || '承認者未定'}</span>
+                            <span className="font-semibold group-hover/stepusr:underline">{approverUser?.name || '承認者未定'}</span>
                             <span className="text-slate-400">({label})</span>
-                          </div>
+                          </button>
                         </div>
                       </div>
 
@@ -629,20 +642,25 @@ export const GlobalWorkflowDetailModal: React.FC<GlobalWorkflowDetailModalProps>
             ) : (
               /* 単一承認フローの場合 */
               <div className="p-3 rounded-xl bg-white border border-slate-200 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => application.approver && triggerOpenUserModal(application.approver)}
+                  className="flex items-center gap-2.5 text-left cursor-pointer group/appusr"
+                  title="承認者の社員詳細を表示"
+                >
                   <img
                     src={getAvatarUrl(application.approver?.id === currentUser?.id ? (currentUser?.avatarUrl || application.approver?.avatarUrl) : application.approver?.avatarUrl)}
                     alt={application.approver?.name}
                     onError={handleAvatarError}
-                    className="w-8 h-8 rounded-full border border-slate-200 object-cover"
+                    className="w-8 h-8 rounded-full border border-slate-200 object-cover group-hover/appusr:ring-2 group-hover/appusr:ring-indigo-400 transition-all"
                   />
                   <div>
-                    <span className="text-xs font-bold text-slate-800 block">
+                    <span className="text-xs font-bold text-slate-800 group-hover/appusr:text-indigo-600 transition-colors block">
                       {application.approver?.name || '承認者未設定'}
                     </span>
                     <span className="text-[10px] text-slate-400">担当承認者</span>
                   </div>
-                </div>
+                </button>
                 <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold border ${currentStatus.color}`}>
                   {currentStatus.icon}
                   <span>{currentStatus.label}</span>
@@ -659,7 +677,14 @@ export const GlobalWorkflowDetailModal: React.FC<GlobalWorkflowDetailModalProps>
                     <div key={hIdx} className="p-2.5 rounded-xl bg-white border border-slate-200 text-xs flex items-start justify-between gap-2">
                       <div className="space-y-0.5">
                         <div className="flex items-center gap-2">
-                          <span className="font-bold text-slate-800">{h.approver?.name || '承認者'}</span>
+                          <button
+                            type="button"
+                            onClick={() => h.approver && triggerOpenUserModal(h.approver)}
+                            className="font-bold text-slate-800 hover:text-indigo-600 hover:underline transition-colors cursor-pointer"
+                            title="承認者の社員詳細を表示"
+                          >
+                            {h.approver?.name || '承認者'}
+                          </button>
                           <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
                             h.status === 'approved' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
                           }`}>

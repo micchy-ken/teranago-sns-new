@@ -10,6 +10,7 @@ export interface AppQueryParams {
   date?: string;
   type?: string;
   eventId?: string;
+  targetUserId?: string;
   // Workflow specific
   applicationId?: string;
   // Memo specific
@@ -132,6 +133,9 @@ export function parseAppQueryParams(searchString?: string): AppQueryParams {
   const rawEventId = params.get('eventId') || params.get('event_id') || (result.tab === 'calendar' ? params.get('id') : undefined);
   if (rawEventId) result.eventId = rawEventId;
 
+  const rawTargetUserId = params.get('targetUserId') || params.get('target_user_id');
+  if (rawTargetUserId) result.targetUserId = rawTargetUserId;
+
   // 2.5. Schedule Poll Specific
   const rawPollId = params.get('pollId') || params.get('poll_id') || params.get('schedulePollId');
   if (rawPollId) result.pollId = rawPollId;
@@ -200,8 +204,8 @@ export function parseAppQueryParams(searchString?: string): AppQueryParams {
   if (rawAuthMode === 'invite') result.authMode = 'invite';
   if (rawAuthMode === 'reset-password' || rawAuthMode === 'reset' || rawAuthMode === 'password-reset') result.authMode = 'reset-password';
 
-  // If office/division/mode/view/eventId were specified but no explicit tab, imply tab=calendar
-  if (!result.tab && (result.office || result.division || result.mode || result.view || result.eventId)) {
+  // If office/division/mode/view/eventId/targetUserId were specified but no explicit tab, imply tab=calendar
+  if (!result.tab && (result.office || result.division || result.mode || result.view || result.eventId || result.targetUserId)) {
     result.tab = 'calendar';
   }
   if (!result.tab && result.topicId) {
@@ -355,6 +359,9 @@ export function buildAppUrl(params?: AppQueryParams, baseUrl?: string): string {
   }
   if (params.eventId) {
     searchParams.set('eventId', params.eventId);
+  }
+  if (params.targetUserId) {
+    searchParams.set('targetUserId', params.targetUserId);
   }
   if (params.applicationId) {
     searchParams.set('applicationId', params.applicationId);

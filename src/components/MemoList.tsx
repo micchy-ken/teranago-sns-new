@@ -6,6 +6,7 @@ import { API_BASE_URL } from '../config/api';
 import { markMemoAsRead, isMemoUnhandled } from '../utils/notifications';
 import { triggerPushNotification } from '../utils/pushNotifications';
 import { dispatchNotificationEmail } from '../utils/emailNotificationDispatcher';
+import { triggerOpenUserModal } from '../utils/userModal';
 import { 
   Phone, 
   Check, 
@@ -830,10 +831,15 @@ export function MemoList({
                         statuses.map((st) => (
                           <span
                             key={st.userId}
-                            className={`text-[11px] font-bold px-2 py-0.5 rounded inline-flex items-center gap-1 ${
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              triggerOpenUserModal(st.userId || st.userName);
+                            }}
+                            title={`${st.userName} の社員詳細を表示`}
+                            className={`text-[11px] font-bold px-2 py-0.5 rounded inline-flex items-center gap-1 cursor-pointer hover:opacity-85 transition-opacity ${
                               st.userId === currentUser.id
                                 ? 'bg-indigo-600 text-white'
-                                : 'bg-indigo-50 text-indigo-900 border border-indigo-200'
+                                : 'bg-indigo-50 text-indigo-900 border border-indigo-200 hover:border-indigo-400'
                             }`}
                           >
                             {st.userName}
@@ -842,8 +848,22 @@ export function MemoList({
                         ))
                       ) : (
                         memo.toUsers && memo.toUsers.length > 0 && (
-                          <span className="bg-indigo-100 text-indigo-900 text-[11px] font-bold px-2 py-0.5 rounded">
-                            {memo.toUsers.map((u) => u.name).join(', ')}
+                          <span className="bg-indigo-100 text-indigo-900 text-[11px] font-bold px-2 py-0.5 rounded inline-flex items-center gap-1 flex-wrap">
+                            {memo.toUsers.map((u, idx) => (
+                              <React.Fragment key={u.id || idx}>
+                                {idx > 0 && ', '}
+                                <span
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    triggerOpenUserModal(u);
+                                  }}
+                                  title={`${u.name} の社員詳細を表示`}
+                                  className="cursor-pointer hover:underline"
+                                >
+                                  {u.name}
+                                </span>
+                              </React.Fragment>
+                            ))}
                           </span>
                         )
                       )}
@@ -881,7 +901,23 @@ export function MemoList({
 
                     {/* 閲覧・対応進捗ログサマリー */}
                     <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1 border-t border-slate-100">
-                      <span>受付作成: {memo.createdByUser?.name || 'システム'}</span>
+                      <span>
+                        受付作成:{' '}
+                        {memo.createdByUser ? (
+                          <span
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              triggerOpenUserModal(memo.createdByUser!);
+                            }}
+                            title={`${memo.createdByUser.name} の社員詳細を表示`}
+                            className="hover:text-indigo-600 hover:underline cursor-pointer transition-colors font-semibold text-slate-500"
+                          >
+                            {memo.createdByUser.name}
+                          </span>
+                        ) : (
+                          'システム'
+                        )}
+                      </span>
 
                       <div className="flex items-center gap-3 font-bold flex-wrap">
                         {(() => {
@@ -1252,15 +1288,19 @@ export function MemoList({
                       key={st.userId}
                       className="p-3.5 flex items-center justify-between gap-3 hover:bg-slate-50 transition-colors"
                     >
-                      <div className="flex items-center gap-3">
+                      <div
+                        onClick={() => triggerOpenUserModal(st.userId || st.userName)}
+                        title={`${st.userName} の社員詳細を表示`}
+                        className="flex items-center gap-3 cursor-pointer group/rec"
+                      >
                         <img
                           src={getAvatarUrl(st.userId === currentUser.id ? (currentUser.avatarUrl || st.avatarUrl) : st.avatarUrl)}
                           alt={st.userName}
                           onError={handleAvatarError}
-                          className="w-8 h-8 rounded-full object-cover border border-slate-200 shrink-0"
+                          className="w-8 h-8 rounded-full object-cover border border-slate-200 group-hover/rec:ring-2 group-hover/rec:ring-indigo-300 shrink-0 transition-all"
                         />
                         <div>
-                          <div className="text-xs font-bold text-slate-900 flex items-center gap-2">
+                          <div className="text-xs font-bold text-slate-900 group-hover/rec:text-indigo-600 group-hover/rec:underline flex items-center gap-2 transition-colors">
                             <span>{st.userName}</span>
                             {st.userId === currentUser.id && (
                               <span className="px-1.5 py-0.5 bg-indigo-100 text-indigo-800 text-[10px] font-extrabold rounded">
@@ -1371,15 +1411,21 @@ export function MemoList({
                             >
                               <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
                                 <div className="flex items-center gap-1.5">
-                                  <img
-                                    src={getAvatarUrl(comment.author?.avatarUrl)}
-                                    onError={handleAvatarError}
-                                    className="w-5 h-5 rounded-full object-cover border border-slate-200"
-                                    alt={comment.author?.name || '担当者'}
-                                  />
-                                  <span className="font-bold text-[11px] text-slate-900">
-                                    {comment.author?.name || '担当者'}
-                                  </span>
+                                  <div
+                                    onClick={() => comment.author && triggerOpenUserModal(comment.author)}
+                                    title={`${comment.author?.name || '担当者'} の社員詳細を表示`}
+                                    className="flex items-center gap-1.5 cursor-pointer group/cauthor"
+                                  >
+                                    <img
+                                      src={getAvatarUrl(comment.author?.avatarUrl)}
+                                      onError={handleAvatarError}
+                                      className="w-5 h-5 rounded-full object-cover border border-slate-200 group-hover/cauthor:ring-2 group-hover/cauthor:ring-indigo-300 transition-all"
+                                      alt={comment.author?.name || '担当者'}
+                                    />
+                                    <span className="font-bold text-[11px] text-slate-900 group-hover/cauthor:text-indigo-600 group-hover/cauthor:underline transition-colors">
+                                      {comment.author?.name || '担当者'}
+                                    </span>
+                                  </div>
                                   {comment.author?.department && (
                                     <span className="text-[10px] text-slate-500">
                                       ({comment.author.department})

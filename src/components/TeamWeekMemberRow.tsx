@@ -3,6 +3,7 @@ import { CalendarEvent, User } from '../types';
 import { Clock, Phone } from 'lucide-react';
 import { getAvatarUrl } from '../utils/avatar';
 import { getLocalDateStr } from '../utils/dateUtils';
+import { triggerOpenUserModal } from '../utils/userModal';
 
 export interface TeamWeekMemberRowProps {
   member: User;
@@ -68,15 +69,22 @@ export const TeamWeekMemberRow: React.FC<TeamWeekMemberRowProps> = React.memo(({
     >
       {/* Member Column */}
       <div className="p-2 sm:p-3 border-r border-slate-200 bg-white flex flex-col justify-between shrink-0 sticky left-0 z-10 shadow-xs sm:shadow-none">
-        <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0">
+        <div
+          onClick={(e) => {
+            e.stopPropagation();
+            triggerOpenUserModal(member);
+          }}
+          title={`${member.name} の社員詳細を表示`}
+          className="flex items-center gap-1.5 sm:gap-2.5 min-w-0 cursor-pointer group/user hover:opacity-90 transition-opacity"
+        >
           <img
             src={getAvatarUrl(member.avatarUrl)}
             alt={member.name}
-            className="w-6 h-6 sm:w-8 sm:h-8 rounded-full border border-slate-200 shrink-0"
+            className="w-6 h-6 sm:w-8 sm:h-8 rounded-full border border-slate-200 group-hover/user:ring-2 group-hover/user:ring-indigo-300 shrink-0 transition-all"
             referrerPolicy="no-referrer"
           />
           <div className="min-w-0 flex-1">
-            <p className="font-extrabold text-[11px] sm:text-xs text-slate-800 truncate">{member.name}</p>
+            <p className="font-extrabold text-[11px] sm:text-xs text-slate-800 group-hover/user:text-indigo-600 group-hover/user:underline truncate transition-colors">{member.name}</p>
             <p className="text-[9px] sm:text-[10px] text-slate-500 font-medium mt-0.5 truncate">{member.office}・{member.division}</p>
           </div>
         </div>

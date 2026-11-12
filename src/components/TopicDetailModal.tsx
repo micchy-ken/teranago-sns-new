@@ -1940,8 +1940,9 @@ export function TopicDetailModal({
                                         {opt.voters.map((v, vIdx) => (
                                           <div
                                             key={v.id || `voter-${vIdx}`}
-                                            className="flex items-center gap-1 bg-slate-100 hover:bg-slate-200 px-1.5 py-0.5 rounded-full text-[10px] text-slate-700 font-medium transition-colors"
-                                            title={`${v.userName}${v.comment ? ` : 「${v.comment}」` : ''}`}
+                                            onClick={() => triggerOpenUserModal(v.userId || v.userName)}
+                                            className="flex items-center gap-1 bg-slate-100 hover:bg-indigo-50 border border-transparent hover:border-indigo-200 px-1.5 py-0.5 rounded-full text-[10px] text-slate-700 hover:text-indigo-700 font-medium transition-colors cursor-pointer"
+                                            title={`${v.userName}${v.comment ? ` : 「${v.comment}」` : ''} (クリックで社員詳細を表示)`}
                                           >
                                             <img
                                               src={getAvatarUrl(v.userAvatarUrl)}
@@ -1978,15 +1979,19 @@ export function TopicDetailModal({
                                           <div className="flex items-center justify-between">
                                             <div className="flex items-center gap-1.5 font-bold text-slate-800">
                                               {!poll.isAnonymous ? (
-                                                <>
+                                                <div
+                                                  onClick={() => triggerOpenUserModal(v.userId || v.userName)}
+                                                  title={`${v.userName} の社員詳細を表示`}
+                                                  className="flex items-center gap-1.5 cursor-pointer group/pvoter"
+                                                >
                                                   <img
                                                     src={getAvatarUrl(v.userAvatarUrl)}
                                                     alt={v.userName}
                                                     onError={handleAvatarError}
-                                                    className="w-4 h-4 rounded-full object-cover"
+                                                    className="w-4 h-4 rounded-full object-cover group-hover/pvoter:ring-2 group-hover/pvoter:ring-indigo-300 transition-all"
                                                   />
-                                                  <span>{v.userName}</span>
-                                                </>
+                                                  <span className="group-hover/pvoter:text-indigo-600 group-hover/pvoter:underline transition-colors">{v.userName}</span>
+                                                </div>
                                               ) : (
                                                 <span className="text-slate-500 font-semibold">匿名メンバー</span>
                                               )}

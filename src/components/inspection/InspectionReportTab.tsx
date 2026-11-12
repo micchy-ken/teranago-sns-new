@@ -21,6 +21,7 @@ import {
   fetchCrmInspectionDataApi
 } from '../../utils/inspectionReportStorage';
 import { getLocalDateStr, formatTimeJST } from '../../utils/dateUtils';
+import { triggerOpenUserModal } from '../../utils/userModal';
 import { InspectionReportEditorModal } from './InspectionReportEditorModal';
 import { InspectionReportPrintView } from './InspectionReportPrintView';
 import { InspectionPhotoReportModal } from './InspectionPhotoReportModal';
@@ -822,7 +823,14 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
                           <span className="px-2.5 py-0.5 rounded-lg text-xs font-bold bg-amber-50 text-amber-800 border border-amber-200">
                             台数: {rep.totalDoorsCount || 1}台
                           </span>
-                          <span className="px-2.5 py-0.5 rounded-lg text-xs font-bold bg-slate-100 text-slate-600">
+                          <span
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              triggerOpenUserModal(rep.inspectorId || rep.inspectorName);
+                            }}
+                            className="px-2.5 py-0.5 rounded-lg text-xs font-bold bg-slate-100 hover:bg-indigo-50 text-slate-600 hover:text-indigo-600 cursor-pointer transition-colors"
+                            title="点検員の社員詳細を表示"
+                          >
                             点検員: {rep.inspectorName}
                           </span>
                           <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 flex items-center gap-1 border border-emerald-300">
@@ -830,7 +838,18 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
                             サイン受領済
                           </span>
                           {rep.officeConfirmed ? (
-                            <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-teal-100 text-teal-800 flex items-center gap-1 border border-teal-300">
+                            <span
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (rep.officeConfirmedById || rep.officeConfirmedByName) {
+                                  triggerOpenUserModal(rep.officeConfirmedById || rep.officeConfirmedByName);
+                                }
+                              }}
+                              className={`px-2.5 py-0.5 rounded-full text-xs font-bold bg-teal-100 text-teal-800 flex items-center gap-1 border border-teal-300 ${
+                                rep.officeConfirmedById || rep.officeConfirmedByName ? 'cursor-pointer hover:bg-teal-200 transition-colors' : ''
+                              }`}
+                              title={rep.officeConfirmedByName ? '確認担当者の社員詳細を表示' : undefined}
+                            >
                               <CheckCircle2 className="w-3.5 h-3.5 text-teal-600" />
                               事務確認済 ({rep.officeConfirmedByName || '事務担当'})
                             </span>
@@ -1083,9 +1102,23 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
 
                           {/* 担当者名バッジ */}
                           {event.attendees && event.attendees.length > 0 && (
-                            <span className="px-2.5 py-0.5 rounded-lg text-xs font-bold bg-slate-100 text-slate-600 flex items-center gap-1">
-                              <UserCheck className="w-3 h-3 text-slate-400" />
-                              <span>{event.attendees.map(a => a.name).join(', ')}</span>
+                            <span className="px-2.5 py-0.5 rounded-lg text-xs font-bold bg-slate-100 text-slate-600 flex items-center gap-1 flex-wrap">
+                              <UserCheck className="w-3 h-3 text-slate-400 shrink-0" />
+                              {event.attendees.map((a, idx) => (
+                                <React.Fragment key={a.id || idx}>
+                                  <span
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      triggerOpenUserModal(a);
+                                    }}
+                                    className="hover:text-indigo-600 hover:underline cursor-pointer transition-colors"
+                                    title="担当者の社員詳細を表示"
+                                  >
+                                    {a.name}
+                                  </span>
+                                  {idx < event.attendees.length - 1 && <span>, </span>}
+                                </React.Fragment>
+                              ))}
                             </span>
                           )}
 

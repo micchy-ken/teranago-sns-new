@@ -7,10 +7,11 @@
  * - 機能追加・バグ修正・仕様変更のたびに必ず更新すること
  */
 export const APP_VERSION = {
-  version: '2026.11.12.1',
+  version: '2026.11.12.5',
   date: '2026.11.12',
-  releaseNumber: 1,
-  display: 'v2026.11.12 #1 (JST)',
+  releaseNumber: 5,
+  display: 'v2026.11.12 #5 (JST)',
   timeZone: 'Asia/Tokyo (JST)',
-  description: '未読バッジの一瞬点滅(チラつき)解消＆既読ステータス同期完了待機(isUserReadStatusSynced)・LocalStorageハイブリッド保持・自動既読の不要POST抑止対応'
+  description: '個人カレンダーでの対象メンバー選択機能（所属・拠点・部署・マイグループ・個人名モーダル＆プルダウン）および社員詳細ポップアップの「予定を見る」連動対応'
 };
+

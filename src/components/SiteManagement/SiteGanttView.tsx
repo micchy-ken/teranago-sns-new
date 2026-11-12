@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Calendar, ChevronLeft, ChevronRight, Layers, Clock, CheckCircle2, AlertCircle, ExternalLink } from 'lucide-react';
 import { Site, SiteMainPart } from '../../types/site';
+import { triggerOpenUserModal } from '../../utils/userModal';
 
 interface SiteGanttViewProps {
   sites: Site[];
@@ -285,7 +286,21 @@ export const SiteGanttView: React.FC<SiteGanttViewProps> = ({ sites, onSelectSit
                           {site.egCount}台
                         </span>
                         <div className="text-[10px] text-slate-500 mt-0.5">
-                          {site.primaryWorkerName || '担当未設定'}
+                          {site.primaryWorkerName || site.primaryWorkerId ? (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                triggerOpenUserModal(site.primaryWorkerId || site.primaryWorkerName);
+                              }}
+                              className="hover:text-indigo-600 hover:underline font-medium transition-colors cursor-pointer"
+                              title="担当者の社員詳細を表示"
+                            >
+                              {site.primaryWorkerName}
+                            </button>
+                          ) : (
+                            '担当未設定'
+                          )}
                         </div>
                       </div>
                     </div>
@@ -355,9 +370,21 @@ export const SiteGanttView: React.FC<SiteGanttViewProps> = ({ sites, onSelectSit
                             })()}
                           </div>
                           <div className="text-right shrink-0">
-                            <span className="text-[11px] text-slate-500">
-                              {part.workerName || site.primaryWorkerName || '未割当'}
-                            </span>
+                            {part.workerName || part.workerId || site.primaryWorkerName || site.primaryWorkerId ? (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  triggerOpenUserModal(part.workerId || part.workerName || site.primaryWorkerId || site.primaryWorkerName);
+                                }}
+                                className="text-[11px] text-slate-500 hover:text-indigo-600 hover:underline font-medium transition-colors cursor-pointer"
+                                title="担当者の社員詳細を表示"
+                              >
+                                {part.workerName || site.primaryWorkerName}
+                              </button>
+                            ) : (
+                              <span className="text-[11px] text-slate-500">未割当</span>
+                            )}
                           </div>
                         </div>
 

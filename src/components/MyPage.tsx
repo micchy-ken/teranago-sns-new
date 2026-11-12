@@ -38,6 +38,7 @@ import {
   isReportUnread,
 } from '../utils/notifications';
 import { resolveApproverForStepDetails } from '../utils/workflowHelpers';
+import { triggerOpenUserModal } from '../utils/userModal';
 import { 
   User as UserIcon, 
   Calendar as CalendarIcon, 
@@ -1783,7 +1784,18 @@ export function MyPage({
                           </div>
 
                           <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-100">
-                            <span>受付: {memo.createdByUser?.name || '社内'}</span>
+                            <span
+                              onClick={(e) => {
+                                if (memo.createdByUser) {
+                                  e.stopPropagation();
+                                  triggerOpenUserModal(memo.createdByUser);
+                                }
+                              }}
+                              className={memo.createdByUser ? 'hover:text-rose-600 hover:underline cursor-pointer transition-colors' : ''}
+                              title={memo.createdByUser ? '受付担当者の社員詳細を表示' : undefined}
+                            >
+                              受付: {memo.createdByUser?.name || '社内'}
+                            </span>
                             <span>{new Date(memo.createdAt).toLocaleDateString('ja-JP')}</span>
                           </div>
                         </div>
@@ -1928,8 +1940,30 @@ export function MyPage({
                           <p className="text-xs text-slate-500 line-clamp-1">{app.description}</p>
 
                           <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-100">
-                            <span>申請者: {app.applicant?.name || '不明'}</span>
-                            <span>承認者: {currentApproverName}</span>
+                            <span
+                              onClick={(e) => {
+                                if (app.applicant) {
+                                  e.stopPropagation();
+                                  triggerOpenUserModal(app.applicant);
+                                }
+                              }}
+                              className={app.applicant ? 'hover:text-purple-600 hover:underline cursor-pointer transition-colors' : ''}
+                              title="申請者の社員詳細を表示"
+                            >
+                              申請者: {app.applicant?.name || '不明'}
+                            </span>
+                            <span
+                              onClick={(e) => {
+                                if (currentApproverName && currentApproverName !== '未指定') {
+                                  e.stopPropagation();
+                                  triggerOpenUserModal(currentApproverName);
+                                }
+                              }}
+                              className={currentApproverName && currentApproverName !== '未指定' ? 'hover:text-purple-600 hover:underline cursor-pointer transition-colors' : ''}
+                              title="承認者の社員詳細を表示"
+                            >
+                              承認者: {currentApproverName}
+                            </span>
                             <span>{new Date(app.createdAt).toLocaleDateString('ja-JP')}</span>
                           </div>
                         </div>
@@ -2020,7 +2054,18 @@ export function MyPage({
 
                           {lastMsg ? (
                             <p className="text-xs text-slate-600 line-clamp-2 bg-slate-50/80 p-2 rounded-lg border border-slate-100">
-                              <span className="font-semibold text-slate-800">{lastMsg.sender?.name}: </span>
+                              <span
+                                onClick={(e) => {
+                                  if (lastMsg.sender) {
+                                    e.stopPropagation();
+                                    triggerOpenUserModal(lastMsg.sender);
+                                  }
+                                }}
+                                className="font-semibold text-slate-800 hover:text-blue-600 hover:underline cursor-pointer transition-colors"
+                                title="送信者の社員詳細を表示"
+                              >
+                                {lastMsg.sender?.name}:{' '}
+                              </span>
                               {lastMsg.content}
                             </p>
                           ) : (
@@ -2146,7 +2191,18 @@ export function MyPage({
                           </div>
 
                           <div className="flex items-center justify-between text-xs text-slate-600">
-                            <span className="font-medium">{report.author?.name || '作成者未設定'}</span>
+                            <span
+                              onClick={(e) => {
+                                if (report.author) {
+                                  e.stopPropagation();
+                                  triggerOpenUserModal(report.author);
+                                }
+                              }}
+                              className="font-medium hover:text-teal-600 hover:underline cursor-pointer transition-colors"
+                              title="作成者の社員詳細を表示"
+                            >
+                              {report.author?.name || '作成者未設定'}
+                            </span>
                             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                               report.status === 'reviewed' 
                                 ? 'bg-emerald-100 text-emerald-700' 

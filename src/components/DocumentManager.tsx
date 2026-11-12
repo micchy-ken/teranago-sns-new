@@ -47,6 +47,7 @@ import {
 } from '../types';
 import { MemberSelector } from './MemberSelector';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
+import { triggerOpenUserModal } from '../utils/userModal';
 
 interface DocumentManagerProps {
   currentUser: User;
@@ -1005,7 +1006,16 @@ export default function DocumentManager({
 
                             {/* ③ 作成者 */}
                             <td className="py-3 px-3 align-middle whitespace-nowrap">
-                              <span className="font-semibold text-slate-700 text-xs">{item.createdByName}</span>
+                              <span
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  triggerOpenUserModal(item.createdById || item.createdByName);
+                                }}
+                                className="font-semibold text-slate-700 hover:text-indigo-600 hover:underline text-xs cursor-pointer transition-colors"
+                                title="社員詳細を表示"
+                              >
+                                {item.createdByName}
+                              </span>
                             </td>
 
                             {/* ④ DL (ダウンロードボタン) */}
@@ -1154,7 +1164,16 @@ export default function DocumentManager({
                         {/* 3. Footer: Creator & Batch DL if multi */}
                         <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-[11px] text-slate-400">
                           <div className="flex items-center gap-2 truncate">
-                            <span className="font-bold text-slate-600">{item.createdByName}</span>
+                            <span
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                triggerOpenUserModal(item.createdById || item.createdByName);
+                              }}
+                              className="font-bold text-slate-600 hover:text-indigo-600 hover:underline cursor-pointer transition-colors"
+                              title="社員詳細を表示"
+                            >
+                              {item.createdByName}
+                            </span>
                             <span>•</span>
                             <span>{item.updatedAt ? new Date(item.updatedAt).toLocaleDateString('ja-JP') : '-'}</span>
                           </div>
@@ -1649,7 +1668,13 @@ export default function DocumentManager({
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="p-3 bg-white rounded-xl border border-slate-200">
                   <div className="text-[10px] font-bold text-slate-400">作成者</div>
-                  <div className="text-xs font-bold text-slate-800 mt-0.5">{selectedItemForHistory.createdByName}</div>
+                  <div
+                    onClick={() => triggerOpenUserModal(selectedItemForHistory.createdById || selectedItemForHistory.createdByName)}
+                    className="text-xs font-bold text-slate-800 hover:text-indigo-600 hover:underline mt-0.5 cursor-pointer inline-block transition-colors"
+                    title="社員詳細を表示"
+                  >
+                    {selectedItemForHistory.createdByName}
+                  </div>
                   <div className="text-[10px] text-slate-400 mt-0.5">
                     {selectedItemForHistory.createdAt ? new Date(selectedItemForHistory.createdAt).toLocaleDateString('ja-JP') : '-'}
                   </div>
@@ -1657,7 +1682,13 @@ export default function DocumentManager({
 
                 <div className="p-3 bg-white rounded-xl border border-slate-200">
                   <div className="text-[10px] font-bold text-slate-400">最終更新者</div>
-                  <div className="text-xs font-bold text-slate-800 mt-0.5">{selectedItemForHistory.updatedByName}</div>
+                  <div
+                    onClick={() => triggerOpenUserModal(selectedItemForHistory.updatedById || selectedItemForHistory.updatedByName)}
+                    className="text-xs font-bold text-slate-800 hover:text-indigo-600 hover:underline mt-0.5 cursor-pointer inline-block transition-colors"
+                    title="社員詳細を表示"
+                  >
+                    {selectedItemForHistory.updatedByName}
+                  </div>
                   <div className="text-[10px] text-slate-400 mt-0.5">
                     {selectedItemForHistory.updatedAt ? new Date(selectedItemForHistory.updatedAt).toLocaleDateString('ja-JP') : '-'}
                   </div>
@@ -1721,7 +1752,13 @@ export default function DocumentManager({
                             }`}>
                               第 {ver.versionNumber} 版 {isLatest && '(最新)'}
                             </span>
-                            <span className="text-xs font-bold text-slate-700">{ver.uploadedByName}</span>
+                            <span
+                              onClick={() => triggerOpenUserModal(ver.uploadedById || ver.uploadedByName)}
+                              className="text-xs font-bold text-slate-700 hover:text-indigo-600 hover:underline cursor-pointer transition-colors"
+                              title="社員詳細を表示"
+                            >
+                              {ver.uploadedByName}
+                            </span>
                           </div>
                           <div className="text-[11px] text-slate-400 flex items-center gap-1">
                             <Clock className="w-3.5 h-3.5" />
@@ -1860,7 +1897,13 @@ export default function DocumentManager({
                       {downloadLogs.map(log => (
                         <tr key={log.id} className="hover:bg-slate-50/60">
                           <td className="py-2 px-3">
-                            <div className="font-bold text-slate-800">{log.userName}</div>
+                            <div
+                              onClick={() => triggerOpenUserModal(log.userId || log.userName)}
+                              className="font-bold text-slate-800 hover:text-indigo-600 hover:underline cursor-pointer inline-block transition-colors"
+                              title="社員詳細を表示"
+                            >
+                              {log.userName}
+                            </div>
                             {log.userDepartment && (
                               <div className="text-[10px] text-slate-400">{log.userDepartment}</div>
                             )}

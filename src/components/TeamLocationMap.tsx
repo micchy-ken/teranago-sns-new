@@ -4,6 +4,7 @@ import { User, CalendarEvent, OfficeMaster } from '../types';
 import { MapPin, Navigation, Clock, Building, Send, Search, RefreshCw, UserCheck, Zap, Layers, Moon, Sun, LayoutGrid, Check } from 'lucide-react';
 import { getLocalDateStr, getJstHourAndMinutes, formatTimeJST } from '../utils/dateUtils';
 import { resolveLocationWithFullHierarchy, PRESET_SPECIFIC_SPOTS, MUNICIPALITY_COORDINATES } from '../utils/japanAddressGeocoding';
+import { triggerOpenUserModal } from '../utils/userModal';
 
 interface TeamLocationMapProps {
   currentDate: Date;
@@ -1099,12 +1100,26 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
                           <div className="flex items-center gap-2.5">
                             <img
                               src={st.member.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(st.member.name)}&background=random`}
-                              className="w-9 h-9 rounded-full object-cover border border-slate-200 shrink-0"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                triggerOpenUserModal(st.member);
+                              }}
+                              title={`${st.member.name} の社員詳細を表示`}
+                              className="w-9 h-9 rounded-full object-cover border border-slate-200 shrink-0 hover:ring-2 hover:ring-indigo-400 transition-all cursor-pointer"
                               alt={st.member.name}
                             />
                             <div>
                               <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5 whitespace-nowrap">
-                                <span>{st.member.name}</span>
+                                <span
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    triggerOpenUserModal(st.member);
+                                  }}
+                                  title={`${st.member.name} の社員詳細を表示`}
+                                  className="hover:text-indigo-600 hover:underline transition-colors cursor-pointer"
+                                >
+                                  {st.member.name}
+                                </span>
                                 <span className="text-[10px] text-slate-500 font-normal">
                                   ({st.member.department || '所属未指定'})
                                 </span>
@@ -1211,14 +1226,28 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
                         <div className="flex items-center gap-2">
                           <img
                             src={member.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(member.name)}&background=random`}
-                            className={`w-8 h-8 rounded-full object-cover border shrink-0 ${
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              triggerOpenUserModal(member);
+                            }}
+                            title={`${member.name} の社員詳細を表示`}
+                            className={`w-8 h-8 rounded-full object-cover border shrink-0 hover:ring-2 hover:ring-indigo-400 transition-all cursor-pointer ${
                               isSelected ? 'border-blue-600 ring-2 ring-blue-400' : 'border-slate-200'
                             }`}
                             alt={member.name}
                           />
                           <div>
                             <div className="text-xs font-extrabold flex items-center gap-1.5 whitespace-nowrap">
-                              <span>{member.name}</span>
+                              <span
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  triggerOpenUserModal(member);
+                                }}
+                                title={`${member.name} の社員詳細を表示`}
+                                className="hover:text-indigo-600 hover:underline transition-colors cursor-pointer"
+                              >
+                                {member.name}
+                              </span>
                               <span className="text-[10px] opacity-70 font-normal">
                                 ({member.department || '所属未指定'})
                               </span>

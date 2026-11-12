@@ -7,6 +7,7 @@ import {
 import { Site, SiteStatus } from '../../types/site';
 import { User, CalendarEvent } from '../../types';
 import { API_BASE_URL } from '../../config/api';
+import { triggerOpenUserModal } from '../../utils/userModal';
 import { SiteGanttView } from './SiteGanttView';
 import { WorkerScheduleView } from './WorkerScheduleView';
 import { SiteFormModal } from './SiteFormModal';
@@ -373,7 +374,24 @@ export const SiteManagement: React.FC<SiteManagementProps> = ({
                         )}
                         <div className="flex items-center gap-4 text-[11px] pt-1">
                           <span>EG台数: <strong className="text-slate-800">{site.egCount || site.mainParts.length || 1}台</strong></span>
-                          <span>担当: <strong className="text-slate-800">{site.primaryWorkerName || '未定'}</strong></span>
+                          <span>
+                            担当:{' '}
+                            {site.primaryWorkerName || site.primaryWorkerId ? (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  triggerOpenUserModal(site.primaryWorkerId || site.primaryWorkerName);
+                                }}
+                                className="font-bold text-slate-800 hover:text-indigo-600 hover:underline transition-colors cursor-pointer"
+                                title="担当者の社員詳細を表示"
+                              >
+                                {site.primaryWorkerName || '担当'}
+                              </button>
+                            ) : (
+                              <strong className="text-slate-800">未定</strong>
+                            )}
+                          </span>
                           <span>施工日: <strong className="text-indigo-600">{site.constructionDate || site.startDate || '未定'}</strong></span>
                         </div>
                       </div>

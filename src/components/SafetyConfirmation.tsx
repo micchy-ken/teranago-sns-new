@@ -41,6 +41,7 @@ import {
 import { User, OfficeMaster, DivisionMaster, DisasterType } from '../types';
 import { API_BASE_URL } from '../config/api';
 import { getAvatarUrl } from '../utils/avatar';
+import { triggerOpenUserModal } from '../utils/userModal';
 import { markSafetyEventAsResponded } from '../utils/notifications';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import {
@@ -1726,7 +1727,17 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
                           >
                             <td className="py-3 px-4">
                               <div className="flex items-center gap-1.5 font-bold text-slate-900">
-                                <span>{member.name}</span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    triggerOpenUserModal(member);
+                                  }}
+                                  className="hover:text-indigo-600 hover:underline transition-colors cursor-pointer text-left"
+                                  title={`${member.name} さんの社員詳細を表示`}
+                                >
+                                  {member.name}
+                                </button>
                                 {isMe && (
                                   <span className="text-[10px] font-black px-1.5 py-0.2 rounded bg-rose-100 text-rose-700 border border-rose-200">
                                     あなた
@@ -1887,7 +1898,17 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
                         <div className="flex items-center justify-between gap-2">
                           <div className="min-w-0">
                             <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="font-bold text-sm text-slate-900">{member.name}</span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  triggerOpenUserModal(member);
+                                }}
+                                className="font-bold text-sm text-slate-900 hover:text-indigo-600 hover:underline transition-colors cursor-pointer text-left"
+                                title={`${member.name} さんの社員詳細を表示`}
+                              >
+                                {member.name}
+                              </button>
                               {isMe && (
                                 <span className="text-[10px] font-black px-1.5 py-0.2 rounded bg-rose-100 text-rose-700 border border-rose-200 whitespace-nowrap">
                                   あなた
@@ -2391,14 +2412,22 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
 
                           {/* Name */}
                           <td className="py-2.5 px-4 whitespace-nowrap">
-                            <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                triggerOpenUserModal(user);
+                              }}
+                              className="flex items-center gap-2 hover:opacity-85 transition-opacity cursor-pointer group/tusr"
+                              title={`${user.name} さんの社員詳細を表示`}
+                            >
                               <img
                                 src={getAvatarUrl(user.avatarUrl)}
                                 alt={user.name}
-                                className="w-6 h-6 rounded-full object-cover border border-slate-200 shrink-0"
+                                className="w-6 h-6 rounded-full object-cover border border-slate-200 shrink-0 group-hover/tusr:ring-2 group-hover/tusr:ring-indigo-400 transition-all"
                               />
-                              <span className="font-bold text-slate-800 text-xs">{user.name}</span>
-                            </div>
+                              <span className="font-bold text-slate-800 group-hover/tusr:text-indigo-600 group-hover/tusr:underline text-xs transition-colors">{user.name}</span>
+                            </button>
                           </td>
 
                           {/* Office */}
@@ -2517,12 +2546,25 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
                           <img
                             src={getAvatarUrl(user.avatarUrl)}
                             alt={user.name}
-                            className="w-7 h-7 rounded-full object-cover border border-slate-200 shrink-0"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              triggerOpenUserModal(user);
+                            }}
+                            title={`${user.name} さんの社員詳細を表示`}
+                            className="w-7 h-7 rounded-full object-cover border border-slate-200 shrink-0 hover:ring-2 hover:ring-indigo-400 transition-all cursor-pointer"
                           />
                           <div className="min-w-0">
-                            <div className="font-extrabold text-slate-800 text-xs truncate">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                triggerOpenUserModal(user);
+                              }}
+                              className="font-extrabold text-slate-800 hover:text-indigo-600 hover:underline text-xs truncate block text-left transition-colors cursor-pointer"
+                              title={`${user.name} さんの社員詳細を表示`}
+                            >
                               {user.name}
-                            </div>
+                            </button>
                             <div className="text-[10px] text-slate-500 flex items-center gap-1.5 truncate mt-0.5">
                               <span className="px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 font-bold shrink-0">
                                 {user.office || '本社'}
@@ -3786,19 +3828,24 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
           <div className="bg-white sm:rounded-3xl border-0 sm:border border-slate-200 shadow-2xl max-w-lg w-full overflow-hidden flex flex-col h-dvh sm:h-auto max-h-dvh sm:max-h-[90vh] rounded-none animate-in zoom-in-95 duration-150">
             {/* Modal Header */}
             <div className="p-4 sm:p-5 bg-gradient-to-r from-slate-800 to-slate-900 text-white flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
-                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl bg-white/10 flex items-center justify-center text-white shrink-0 font-black text-sm">
+              <button
+                type="button"
+                onClick={() => triggerOpenUserModal(viewingResponseData.user)}
+                className="flex items-center gap-2.5 sm:gap-3 min-w-0 text-left group/respusr cursor-pointer"
+                title={`${viewingResponseData.user.name} さんの社員詳細を表示`}
+              >
+                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl bg-white/10 group-hover/respusr:bg-indigo-500/40 flex items-center justify-center text-white shrink-0 font-black text-sm transition-colors">
                   {viewingResponseData.user.name.slice(0, 1)}
                 </div>
                 <div className="min-w-0">
-                  <h3 className="text-sm sm:text-base font-extrabold text-white flex items-center gap-2 truncate">
+                  <h3 className="text-sm sm:text-base font-extrabold text-white group-hover/respusr:text-indigo-200 group-hover/respusr:underline flex items-center gap-2 truncate transition-colors">
                     {viewingResponseData.user.name} さんの安否詳細
                   </h3>
                   <p className="text-[11px] sm:text-xs text-slate-300 mt-0.5 truncate">
                     {[viewingResponseData.user.office, viewingResponseData.user.division, viewingResponseData.user.position].filter(Boolean).join(' / ')}
                   </p>
                 </div>
-              </div>
+              </button>
               <button
                 type="button"
                 onClick={() => setViewingResponseData(null)}

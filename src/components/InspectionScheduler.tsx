@@ -58,6 +58,7 @@ import {
 } from 'lucide-react';
 import { User, CalendarEvent, OfficeMaster, DivisionMaster } from '../types';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
+import { triggerOpenUserModal } from '../utils/userModal';
 import {
   resolveOffice,
   isSameOffice,
@@ -3869,8 +3870,27 @@ export function InspectionScheduler({
                                 </div>
 
                                 <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between text-[10px] text-slate-600 gap-1 flex-wrap">
-                                  <div className="truncate max-w-[120px]" title={reg.assignedUsers?.map((u) => u.name).join(', ')}>
-                                    担当: {reg.assignedUsers && reg.assignedUsers.length > 0 ? reg.assignedUsers.map((u) => u.name).join(', ') : '未設定'}
+                                  <div className="truncate max-w-[140px] flex items-center gap-1 flex-wrap" title={reg.assignedUsers?.map((u) => u.name).join(', ')}>
+                                    <span>担当:</span>
+                                    {reg.assignedUsers && reg.assignedUsers.length > 0 ? (
+                                      reg.assignedUsers.map((u, idx) => (
+                                        <React.Fragment key={u.id || idx}>
+                                          <span
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              triggerOpenUserModal(u);
+                                            }}
+                                            className="hover:text-indigo-600 hover:underline cursor-pointer transition-colors font-semibold"
+                                            title="担当メンバーの社員詳細を表示"
+                                          >
+                                            {u.name}
+                                          </span>
+                                          {idx < reg.assignedUsers!.length - 1 && <span>,</span>}
+                                        </React.Fragment>
+                                      ))
+                                    ) : (
+                                      <span>未設定</span>
+                                    )}
                                   </div>
                                   {!isReportLocked && (
                                     <div className="flex items-center gap-2">
@@ -4935,7 +4955,15 @@ export function InspectionScheduler({
                                     <div className="flex items-center gap-1 truncate text-[11px] font-medium text-slate-700">
                                       {item.assignedUsers && item.assignedUsers.length > 0 ? (
                                         item.assignedUsers.map((u) => (
-                                          <span key={u.id} className="inline-flex items-center gap-1 bg-slate-200/80 px-1.5 py-0.5 rounded text-[10px]">
+                                          <span
+                                            key={u.id}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              triggerOpenUserModal(u);
+                                            }}
+                                            className="inline-flex items-center gap-1 bg-slate-200/80 hover:bg-indigo-100 hover:text-indigo-700 px-1.5 py-0.5 rounded text-[10px] cursor-pointer transition-colors"
+                                            title="担当メンバーの社員詳細を表示"
+                                          >
                                             <img src={getAvatarUrl(u.avatarUrl)} alt={u.name} className="w-3 h-3 rounded-full" />
                                             {u.name}
                                           </span>
@@ -5187,7 +5215,12 @@ export function InspectionScheduler({
                   detailModalItem.assignedUsers.map((u) => (
                     <span
                       key={u.id}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 shadow-2xs"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        triggerOpenUserModal(u);
+                      }}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white hover:bg-indigo-50 border border-slate-200 hover:border-indigo-200 rounded-xl text-xs font-bold text-slate-800 hover:text-indigo-700 shadow-2xs cursor-pointer transition-colors"
+                      title="担当メンバーの社員詳細を表示"
                     >
                       <img src={getAvatarUrl(u.avatarUrl)} alt={u.name} className="w-4 h-4 rounded-full" />
                       {u.name} {u.department ? `(${u.department})` : ''}

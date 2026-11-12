@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { getLocalDateStr, getJstHourAndMinutes, formatDateJST } from '../utils/dateUtils';
 import { API_BASE_URL } from '../config/api';
+import { triggerOpenUserModal } from '../utils/userModal';
 
 export interface CalendarConstructionTimelineProps {
   currentDate?: Date;
@@ -611,8 +612,12 @@ export function CalendarConstructionTimeline({
                             {siteRow.workers.slice(0, 3).map((w, idx) => (
                               <div
                                 key={w.id || idx}
-                                className="w-4.5 h-4.5 rounded-full ring-1 ring-white bg-slate-200 overflow-hidden shrink-0"
-                                title={w.name}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  triggerOpenUserModal(w);
+                                }}
+                                className="w-4.5 h-4.5 rounded-full ring-1 ring-white bg-slate-200 overflow-hidden shrink-0 cursor-pointer hover:scale-125 hover:z-10 transition-transform"
+                                title={`${w.name} (クリックで社員詳細を表示)`}
                               >
                                 {w.avatarUrl ? (
                                   <img src={w.avatarUrl} alt={w.name} className="w-full h-full object-cover" />
@@ -625,7 +630,25 @@ export function CalendarConstructionTimeline({
                             ))}
                           </div>
                           <span className="text-[10px] text-slate-600 font-semibold truncate">
-                            {siteRow.workers.length > 0 ? siteRow.workers.map(w => w.name).join('、') : '担当未設定'}
+                            {siteRow.workers.length > 0 ? (
+                              siteRow.workers.map((w, idx) => (
+                                <React.Fragment key={w.id || idx}>
+                                  {idx > 0 && '、'}
+                                  <span
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      triggerOpenUserModal(w);
+                                    }}
+                                    title={`${w.name} の社員詳細を表示`}
+                                    className="cursor-pointer hover:text-indigo-600 hover:underline transition-colors"
+                                  >
+                                    {w.name}
+                                  </span>
+                                </React.Fragment>
+                              ))
+                            ) : (
+                              '担当未設定'
+                            )}
                           </span>
                         </div>
 

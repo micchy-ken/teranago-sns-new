@@ -9,6 +9,7 @@ import { TopicDetailModal } from './TopicDetailModal';
 import { ConfirmModal } from './ConfirmModal';
 import { buildAppUrl, copyTextToClipboard } from '../utils/urlParams';
 import { isTopicCurrentlyPinned, formatPinnedUntilBadge } from '../utils/boardHelpers';
+import { triggerOpenUserModal } from '../utils/userModal';
 import {
   doesUserMatchOffice,
   doesUserMatchDivision,
@@ -461,7 +462,12 @@ export function Board({
                       src={getAvatarUrl(topic.author?.id === currentUser?.id ? (currentUser?.avatarUrl || topic.author?.avatarUrl) : topic.author?.avatarUrl)}
                       alt={topic.author?.name}
                       onError={handleAvatarError}
-                      className="w-10 h-10 rounded-full border border-slate-200 object-cover shrink-0 hidden sm:block"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (topic.author) triggerOpenUserModal(topic.author);
+                      }}
+                      title={`${topic.author?.name || ''} の社員詳細を表示`}
+                      className="w-10 h-10 rounded-full border border-slate-200 object-cover shrink-0 hidden sm:block cursor-pointer hover:ring-2 hover:ring-indigo-300 transition-all"
                     />
 
                     <div className="flex-1 min-w-0">
@@ -603,14 +609,21 @@ export function Board({
 
                       {/* Card Footer Info */}
                       <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-semibold text-slate-500 pt-2 border-t border-slate-100">
-                        <div className="flex items-center gap-1.5 min-w-0">
+                        <div
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (topic.author) triggerOpenUserModal(topic.author);
+                          }}
+                          title={`${topic.author?.name || ''} の社員詳細を表示`}
+                          className="flex items-center gap-1.5 min-w-0 cursor-pointer group/bauthor"
+                        >
                           <img
                             src={getAvatarUrl(topic.author?.id === currentUser?.id ? (currentUser?.avatarUrl || topic.author?.avatarUrl) : topic.author?.avatarUrl)}
                             alt={topic.author?.name}
                             onError={handleAvatarError}
-                            className="w-4 h-4 sm:w-5 sm:h-5 rounded-full sm:hidden border border-slate-200 object-cover shrink-0"
+                            className="w-4 h-4 sm:w-5 sm:h-5 rounded-full sm:hidden border border-slate-200 object-cover shrink-0 group-hover/bauthor:ring-2 group-hover/bauthor:ring-indigo-300 transition-all"
                           />
-                          <span className="text-slate-800 text-[11px] sm:text-xs font-bold truncate max-w-[110px] sm:max-w-none">{topic.author?.name}</span>
+                          <span className="text-slate-800 group-hover/bauthor:text-indigo-600 group-hover/bauthor:underline text-[11px] sm:text-xs font-bold truncate max-w-[110px] sm:max-w-none transition-colors">{topic.author?.name}</span>
                         </div>
 
                         <div className="flex items-center gap-2.5 sm:gap-4 text-[11px] sm:text-xs">

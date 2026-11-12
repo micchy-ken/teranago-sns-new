@@ -31,6 +31,7 @@ import { InspectionReportRecord } from '../types/inspectionReport';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { API_BASE_URL } from '../config/api';
 import { InspectionPhotoReportModal } from './inspection/InspectionPhotoReportModal';
+import { triggerOpenUserModal } from '../utils/userModal';
 
 interface PhotoReportsTabProps {
   currentUser: User;
@@ -798,7 +799,16 @@ export const PhotoReportsTab: React.FC<PhotoReportsTabProps> = ({
                           <Calendar className="w-3 h-3 shrink-0" />
                           実施: {rep.workDate || '未設定'}
                         </span>
-                        <span className="truncate">作成: {rep.createdByName}</span>
+                        <span
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            triggerOpenUserModal(rep.createdById || rep.createdByName);
+                          }}
+                          className="truncate hover:text-indigo-600 hover:underline cursor-pointer transition-colors"
+                          title="作成者の社員詳細を表示"
+                        >
+                          作成: {rep.createdByName}
+                        </span>
                       </div>
                     </div>
                   </div>

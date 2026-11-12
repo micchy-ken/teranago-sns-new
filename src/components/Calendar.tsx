@@ -3,11 +3,12 @@ import { CalendarEvent, EventType, User, OfficeMaster, DivisionMaster, Memo, Req
 import { Site } from '../types/site';
 import { API_BASE_URL } from '../config/api';
 import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
-import { ChevronLeft, ChevronRight, List as ListIcon, Calendar as CalendarIcon, Plus, MapPin, Video, AlignLeft, RefreshCw, Clock, Link as LinkIcon, Loader2, Building2, Users, Paperclip, MessageSquare, Phone, X, Monitor, Maximize2, Minimize2, FileSpreadsheet, Share2, Check, Star, Trash2, Pin, BookmarkCheck, CalendarDays, SlidersHorizontal, Filter, ChevronDown, Navigation, HardHat, Settings } from 'lucide-react';
+import { ChevronLeft, ChevronRight, List as ListIcon, Calendar as CalendarIcon, Plus, MapPin, Video, AlignLeft, RefreshCw, Clock, Link as LinkIcon, Loader2, Building2, Users, User as UserIcon, Paperclip, MessageSquare, Phone, X, Monitor, Maximize2, Minimize2, FileSpreadsheet, Share2, Check, Star, Trash2, Pin, BookmarkCheck, CalendarDays, SlidersHorizontal, Filter, ChevronDown, Navigation, HardHat, Settings } from 'lucide-react';
 import { EventModal } from './EventModal';
 import { GlobalEventDetailModal } from './GlobalEventDetailModal';
 import { CalendarSettingsModal } from './CalendarSettingsModal';
 import { MobileTeamSettingsModal } from './MobileTeamSettingsModal';
+import { PersonalMemberSettingsModal } from './PersonalMemberSettingsModal';
 import { CalendarConstructionTimeline } from './CalendarConstructionTimeline';
 import { renderWithClickableLinks } from '../utils/linkify';
 import { renderContentWithLinks } from '../utils/renderContentWithLinks';
@@ -22,6 +23,7 @@ import { TeamDayMemberRow } from './TeamDayMemberRow';
 import { TeamWeekMemberRow } from './TeamWeekMemberRow';
 import { TeamLocationMap } from './TeamLocationMap';
 import { isEventVisibleToUser } from '../utils/eventVisibility';
+import { triggerOpenUserModal } from '../utils/userModal';
 import { SchedulePoll } from '../types/schedulePoll';
 import {
   doesUserMatchOffice,
@@ -52,6 +54,8 @@ interface CalendarProps {
   initialView?: ViewMode;
   initialDate?: string;
   initialTypeFilter?: string;
+  initialTargetUserId?: string;
+  targetUserRequestKey?: number;
   memos?: Memo[];
   onUpdateMemos?: (updatedMemos: Memo[]) => void;
   onRefetchEvents?: (options?: { from?: string; all?: boolean }) => void;
@@ -96,6 +100,7 @@ function getInitialPresetInfo(
     initialMode?: 'personal' | 'team';
     initialView?: ViewMode;
     initialTypeFilter?: string;
+    initialTargetUserId?: string;
     office?: string;
     division?: string;
     mode?: 'personal' | 'team';
@@ -108,7 +113,8 @@ function getInitialPresetInfo(
     initials?.initialView || initials?.view ||
     initials?.initialOffice || initials?.office ||
     initials?.initialDivision || initials?.division ||
-    initials?.initialTypeFilter || initials?.typeFilter
+    initials?.initialTypeFilter || initials?.typeFilter ||
+    initials?.initialTargetUserId
   );
   if (hasExplicitUrlParams || !user?.preferences) return null;
 
@@ -148,6 +154,8 @@ export function Calendar({
   initialView,
   initialDate,
   initialTypeFilter,
+  initialTargetUserId,
+  targetUserRequestKey,
   memos = [],
   onUpdateMemos,
   onRefetchEvents,
@@ -363,11 +371,44 @@ export function Calendar({
 
   // カレンダーモード：'personal' (個人表示) or 'team' (チーム表示)
   const [calendarMode, setCalendarMode] = useState<'personal' | 'team'>(() => {
+    if (initialTargetUserId) return 'personal';
     if (initialMode) return initialMode;
-    const presetInfo = getInitialPresetInfo(currentUser, { initialOffice, initialDivision, initialMode, initialView, initialTypeFilter });
+    const presetInfo = getInitialPresetInfo(currentUser, { initialOffice, initialDivision, initialMode, initialView, initialTypeFilter, initialTargetUserId });
     if (presetInfo?.preset.mode) return presetInfo.preset.mode;
     return 'personal';
   });
+
+  // 個人カレンダーで表示対象となっているメンバーID（未指定時は自分自身）
+  const [selectedPersonalUserId, setSelectedPersonalUserId] = useState<string>(() => {
+    if (initialTargetUserId) return String(initialTargetUserId);
+    const presetInfo = getInitialPresetInfo(currentUser, { initialOffice, initialDivision, initialMode, initialView, initialTypeFilter, initialTargetUserId });
+    if (presetInfo?.preset && presetInfo.preset.mode === 'personal' && presetInfo.preset.targetUserId) {
+      return String(presetInfo.preset.targetUserId);
+    }
+    return currentUser?.id ? String(currentUser.id) : '';
+  });
+
+  useEffect(() => {
+    if (!selectedPersonalUserId && currentUser?.id) {
+      setSelectedPersonalUserId(String(currentUser.id));
+    }
+  }, [currentUser?.id, selectedPersonalUserId]);
+
+  // 社員詳細ポップアップの「予定を見る」やURLパラメータから対象メンバーが指定された場合の同期
+  useEffect(() => {
+    if (initialTargetUserId) {
+      setCalendarMode('personal');
+      setSelectedPersonalUserId(String(initialTargetUserId));
+      setSelectedGroupId('org');
+      const targetU = (allUsers || []).find(u => String(u.id) === String(initialTargetUserId));
+      if (targetU) {
+        const offName = getUserOfficeName(targetU, offices);
+        if (offName) setSelectedOffice(offName);
+        const divName = getUserDivisionName(targetU, divisions);
+        if (divName) setSelectedDivision(divName);
+      }
+    }
+  }, [initialTargetUserId, targetUserRequestKey, allUsers, offices, divisions]);
 
   // initialPropsの動的変更を反映
   useEffect(() => {
@@ -375,8 +416,8 @@ export function Calendar({
   }, [initialView]);
 
   useEffect(() => {
-    if (initialMode) setCalendarMode(initialMode);
-  }, [initialMode]);
+    if (initialMode && !initialTargetUserId) setCalendarMode(initialMode);
+  }, [initialMode, initialTargetUserId]);
 
   useEffect(() => {
     if (initialOffice) setSelectedOffice(initialOffice);
@@ -406,6 +447,8 @@ export function Calendar({
   const [settingsModalTab, setSettingsModalTab] = useState<'display' | 'groups'>('display');
   // スマホ用チーム表示・マイグループ設定ポップアップ
   const [isMobileTeamModalOpen, setIsMobileTeamModalOpen] = useState(false);
+  // 個人カレンダー表示対象メンバー選択ポップアップ
+  const [isPersonalModalOpen, setIsPersonalModalOpen] = useState(false);
 
   const [calendarSettings, setCalendarSettings] = useState<CalendarViewSettings>(() => {
     const fromUser = currentUser?.preferences?.calendarViewSettings;
@@ -510,13 +553,13 @@ export function Calendar({
   const defaultPresetId = currentUser?.preferences?.defaultCalendarPresetId;
 
   // 初期ロード時：URLパラメータで明示指定がない場合、ユーザーの「初期表示」プリセット（defaultCalendarPresetId）を自動適用
-  const hasAppliedDefaultPresetRef = useRef(Boolean(getInitialPresetInfo(currentUser, { initialOffice, initialDivision, initialMode, initialView, initialTypeFilter })));
+  const hasAppliedDefaultPresetRef = useRef(Boolean(getInitialPresetInfo(currentUser, { initialOffice, initialDivision, initialMode, initialView, initialTypeFilter, initialTargetUserId })));
   useEffect(() => {
     if (hasAppliedDefaultPresetRef.current) return;
     if (!currentUser?.preferences) return;
 
     // URLでの明示的な指定があるかチェック
-    const hasExplicitUrlParams = Boolean(initialMode || initialView || initialOffice || initialDivision || initialTypeFilter);
+    const hasExplicitUrlParams = Boolean(initialMode || initialView || initialOffice || initialDivision || initialTypeFilter || initialTargetUserId);
     if (hasExplicitUrlParams) {
       hasAppliedDefaultPresetRef.current = true;
       return;
@@ -537,12 +580,22 @@ export function Calendar({
             if (defaultPreset.office) setSelectedOffice(defaultPreset.office);
             if (defaultPreset.division) setSelectedDivision(defaultPreset.division);
           }
+        } else {
+          const targetUid = defaultPreset.targetUserId || String(currentUser.id);
+          setSelectedPersonalUserId(targetUid);
+          if (defaultPreset.groupId && (currentUser.preferences.calendarMemberGroups || []).some(g => g.id === defaultPreset.groupId)) {
+            setSelectedGroupId(defaultPreset.groupId);
+          } else {
+            setSelectedGroupId('org');
+            if (defaultPreset.office) setSelectedOffice(defaultPreset.office);
+            if (defaultPreset.division) setSelectedDivision(defaultPreset.division);
+          }
         }
         if (defaultPreset.typeFilter) setSelectedTypeFilter(defaultPreset.typeFilter);
         hasAppliedDefaultPresetRef.current = true;
       }
     }
-  }, [currentUser, initialMode, initialView, initialOffice, initialDivision, initialTypeFilter]);
+  }, [currentUser, initialMode, initialView, initialOffice, initialDivision, initialTypeFilter, initialTargetUserId]);
 
   // お気に入りポップオーバー外クリックで閉じる
   useEffect(() => {
@@ -611,6 +664,118 @@ export function Calendar({
     return memberGroups.find(g => g.id === selectedGroupId) || null;
   }, [memberGroups, selectedGroupId]);
 
+  // 個人カレンダーで現在表示対象となっているメンバー（未選択時はログインユーザー自身）
+  const activePersonalUser = useMemo(() => {
+    if (!selectedPersonalUserId) return currentUser;
+    const found = (allUsers || []).find(u => String(u.id) === String(selectedPersonalUserId));
+    return found || currentUser;
+  }, [selectedPersonalUserId, allUsers, currentUser]);
+
+  // 個人カレンダーでの選択候補メンバー一覧（選択中の所属拠点・部署またはマイグループに属するメンバー）
+  const personalCandidateUsers = useMemo(() => {
+    let list: User[] = [];
+    if (activeSelectedGroup) {
+      const userMap = new Map((allUsers || []).map(u => [String(u.id), u]));
+      list = activeSelectedGroup.memberIds
+        .map(id => userMap.get(String(id)))
+        .filter((u): u is User => Boolean(u));
+    } else {
+      list = (allUsers || []).filter(u => {
+        const matchOff = !selectedOffice || selectedOffice === '全社' || selectedOffice === '全拠点' || doesUserMatchOffice(u, selectedOffice, offices);
+        const matchDiv = !selectedDivision || selectedDivision === '全部署' || doesUserMatchDivision(u, selectedDivision, divisions);
+        return matchOff && matchDiv;
+      });
+    }
+    if (activePersonalUser && !list.some(u => String(u.id) === String(activePersonalUser.id))) {
+      return [activePersonalUser, ...list];
+    }
+    return list;
+  }, [allUsers, activeSelectedGroup, selectedOffice, selectedDivision, offices, divisions, activePersonalUser]);
+
+  // 拠点変更時に個人モード対象メンバーも自動追従させるハンドラー
+  const handleChangeOfficeWithSync = useCallback((nextOffice: string) => {
+    setSelectedOffice(nextOffice);
+    if (calendarMode === 'personal') {
+      const matching = (allUsers || []).filter(u => {
+        const matchOff = !nextOffice || nextOffice === '全社' || nextOffice === '全拠点' || doesUserMatchOffice(u, nextOffice, offices);
+        const matchDiv = !selectedDivision || selectedDivision === '全部署' || doesUserMatchDivision(u, selectedDivision, divisions);
+        return matchOff && matchDiv;
+      });
+      if (matching.length > 0) {
+        if (!matching.some(u => String(u.id) === String(selectedPersonalUserId))) {
+          const preferred = matching.find(u => currentUser && String(u.id) === String(currentUser.id)) || matching[0];
+          setSelectedPersonalUserId(String(preferred.id));
+        }
+      } else {
+        const officeUsers = (allUsers || []).filter(u => doesUserMatchOffice(u, nextOffice, offices));
+        if (officeUsers.length > 0) {
+          const preferred = officeUsers.find(u => currentUser && String(u.id) === String(currentUser.id)) || officeUsers[0];
+          const divName = getUserDivisionName(preferred, divisions);
+          if (divName) setSelectedDivision(divName);
+          setSelectedPersonalUserId(String(preferred.id));
+        }
+      }
+    }
+  }, [calendarMode, allUsers, offices, divisions, selectedDivision, selectedPersonalUserId, currentUser]);
+
+  // 部署変更時に個人モード対象メンバーも自動追従させるハンドラー
+  const handleChangeDivisionWithSync = useCallback((nextDivision: string) => {
+    setSelectedDivision(nextDivision);
+    if (calendarMode === 'personal') {
+      const matching = (allUsers || []).filter(u => {
+        const matchOff = !selectedOffice || selectedOffice === '全社' || selectedOffice === '全拠点' || doesUserMatchOffice(u, selectedOffice, offices);
+        const matchDiv = !nextDivision || nextDivision === '全部署' || doesUserMatchDivision(u, nextDivision, divisions);
+        return matchOff && matchDiv;
+      });
+      if (matching.length > 0 && !matching.some(u => String(u.id) === String(selectedPersonalUserId))) {
+        const preferred = matching.find(u => currentUser && String(u.id) === String(currentUser.id)) || matching[0];
+        setSelectedPersonalUserId(String(preferred.id));
+      }
+    }
+  }, [calendarMode, allUsers, offices, divisions, selectedOffice, selectedPersonalUserId, currentUser]);
+
+  // マイグループ変更時に個人モード対象メンバーも自動追従させるハンドラー
+  const handleChangeGroupWithSync = useCallback((nextGroupId: string) => {
+    if (nextGroupId === 'mygroup_new') {
+      setSettingsModalTab('groups');
+      setIsSettingsModalOpen(true);
+      return;
+    }
+    setSelectedGroupId(nextGroupId);
+    if (calendarMode === 'personal') {
+      if (nextGroupId === 'org') {
+        if (activePersonalUser) {
+          const offName = getUserOfficeName(activePersonalUser, offices);
+          if (offName) setSelectedOffice(offName);
+          const divName = getUserDivisionName(activePersonalUser, divisions);
+          if (divName) setSelectedDivision(divName);
+        }
+      } else {
+        const grp = memberGroups.find(g => g.id === nextGroupId);
+        if (grp && grp.memberIds.length > 0) {
+          if (!grp.memberIds.some(id => String(id) === String(selectedPersonalUserId))) {
+            const preferredId = grp.memberIds.find(id => currentUser && String(id) === String(currentUser.id)) || grp.memberIds[0];
+            setSelectedPersonalUserId(String(preferredId));
+          }
+        }
+      }
+    }
+  }, [calendarMode, activePersonalUser, offices, divisions, memberGroups, selectedPersonalUserId, currentUser]);
+
+  // 個人選択変更時に所属拠点・部署の表示も整合させるハンドラー
+  const handleSelectPersonalUserId = useCallback((userId: string) => {
+    setSelectedPersonalUserId(String(userId));
+    if (selectedGroupId === 'org') {
+      const targetU = (allUsers || []).find(u => String(u.id) === String(userId));
+      if (targetU) {
+        const offName = getUserOfficeName(targetU, offices);
+        if (offName) setSelectedOffice(offName);
+        const divName = getUserDivisionName(targetU, divisions);
+        if (divName) setSelectedDivision(divName);
+      }
+    }
+  }, [selectedGroupId, allUsers, offices, divisions]);
+
   // 現在の設定に合わせたデフォルト名称の生成
   const getDefaultPresetName = useCallback(() => {
     const viewLabel = view === 'month' ? '月' : view === 'week' ? '週' : view === 'day' ? '日' : 'リスト';
@@ -628,9 +793,12 @@ export function Calendar({
       const teamTitle = parts.length > 0 ? parts.join('・') : '全社';
       return `${teamTitle} (${viewLabel})`;
     } else {
+      if (activePersonalUser && currentUser && String(activePersonalUser.id) !== String(currentUser.id)) {
+        return `👤${activePersonalUser.name} (${viewLabel})`;
+      }
       return `個人 (${viewLabel})`;
     }
-  }, [calendarMode, view, selectedOffice, selectedDivision, activeSelectedGroup]);
+  }, [calendarMode, view, selectedOffice, selectedDivision, activeSelectedGroup, activePersonalUser, currentUser]);
 
   // プリセットの要約テキスト生成
   const getPresetSummary = (p: CalendarPreset) => {
@@ -646,6 +814,12 @@ export function Calendar({
         if (p.office && p.office !== '全社' && p.office !== '全拠点') parts.push(p.office);
         if (p.division && p.division !== '全部署') parts.push(p.division);
       }
+    } else {
+      const targetName =
+        p.targetUserName ||
+        ((allUsers || []).find(u => String(u.id) === String(p.targetUserId))?.name) ||
+        currentUser?.name;
+      if (targetName) parts.push(`👤${targetName}`);
     }
     if (p.typeFilter && p.typeFilter !== 'all' && typeLabels[p.typeFilter as EventType]) {
       parts.push(typeLabels[p.typeFilter as EventType]);
@@ -666,6 +840,8 @@ export function Calendar({
         if (selectedOffice && selectedOffice !== '全社' && selectedOffice !== '全拠点') parts.push(selectedOffice);
         if (selectedDivision && selectedDivision !== '全部署') parts.push(selectedDivision);
       }
+    } else if (activePersonalUser) {
+      parts.push(`👤${activePersonalUser.name}`);
     }
     if (selectedTypeFilter && selectedTypeFilter !== 'all' && typeLabels[selectedTypeFilter as EventType]) {
       parts.push(typeLabels[selectedTypeFilter as EventType]);
@@ -687,6 +863,21 @@ export function Calendar({
         const resolvedDiv = resolveDivisionName(preset.divisionId || preset.division, divisions);
         if (resolvedDiv) setSelectedDivision(resolvedDiv);
       }
+    } else {
+      const targetUid = preset.targetUserId || (currentUser ? String(currentUser.id) : '');
+      if (targetUid) {
+        setSelectedPersonalUserId(targetUid);
+      }
+      if (preset.groupId && memberGroups.some(g => g.id === preset.groupId)) {
+        setSelectedGroupId(preset.groupId);
+      } else {
+        setSelectedGroupId('org');
+        const targetUserObj = (allUsers || []).find(u => String(u.id) === String(targetUid)) || currentUser;
+        const resolvedOff = resolveOfficeName(preset.officeId || preset.office, offices) || getUserOfficeName(targetUserObj, offices);
+        if (resolvedOff) setSelectedOffice(resolvedOff);
+        const resolvedDiv = resolveDivisionName(preset.divisionId || preset.division, divisions) || getUserDivisionName(targetUserObj, divisions);
+        if (resolvedDiv) setSelectedDivision(resolvedDiv);
+      }
     }
     setSelectedTypeFilter(preset.typeFilter || 'all');
     setIsFavoritesOpen(false);
@@ -699,9 +890,9 @@ export function Calendar({
     if (e) e.preventDefault();
     if (!currentUser || !onUpdateUser) return;
     const name = customPresetName.trim() || getDefaultPresetName();
-    const isTeamOrg = calendarMode === 'team' && selectedGroupId === 'org';
-    const matchedOff = isTeamOrg && selectedOffice !== '全社' && selectedOffice !== '全拠点' ? resolveOffice(selectedOffice, offices) : undefined;
-    const matchedDiv = isTeamOrg && selectedDivision !== '全部署' ? resolveDivision(selectedDivision, divisions) : undefined;
+    const isOrg = selectedGroupId === 'org';
+    const matchedOff = isOrg && selectedOffice !== '全社' && selectedOffice !== '全拠点' ? resolveOffice(selectedOffice, offices) : undefined;
+    const matchedDiv = isOrg && selectedDivision !== '全部署' ? resolveDivision(selectedDivision, divisions) : undefined;
 
     const newPreset: CalendarPreset = {
       id: `cal-preset-${Date.now()}`,
@@ -709,12 +900,14 @@ export function Calendar({
       createdAt: new Date().toISOString(),
       mode: calendarMode,
       view: view,
-      groupId: calendarMode === 'team' && selectedGroupId !== 'org' ? selectedGroupId : undefined,
+      groupId: selectedGroupId !== 'org' ? selectedGroupId : undefined,
       officeId: matchedOff?.id,
-      office: isTeamOrg ? (selectedOffice !== '全社' && selectedOffice !== '全拠点' ? (matchedOff?.name || selectedOffice) : undefined) : undefined,
+      office: isOrg ? (selectedOffice !== '全社' && selectedOffice !== '全拠点' ? (matchedOff?.name || selectedOffice) : undefined) : undefined,
       divisionId: matchedDiv?.id,
-      division: isTeamOrg ? (selectedDivision !== '全部署' ? (matchedDiv?.name || selectedDivision) : undefined) : undefined,
+      division: isOrg ? (selectedDivision !== '全部署' ? (matchedDiv?.name || selectedDivision) : undefined) : undefined,
       typeFilter: selectedTypeFilter !== 'all' ? selectedTypeFilter : undefined,
+      targetUserId: calendarMode === 'personal' && activePersonalUser ? String(activePersonalUser.id) : undefined,
+      targetUserName: calendarMode === 'personal' && activePersonalUser ? activePersonalUser.name : undefined,
     };
 
     const existingPresets = currentUser.preferences?.calendarPresets || [];
@@ -1226,18 +1419,19 @@ export function Calendar({
       }
 
       // 「他人から隠す」(isPrivate または isSecret) が有効な非公開予定の制御
+      // ※ログイン中のユーザー (currentUser) に閲覧権限があるかどうかで厳密に判定を維持
       if (!isEventVisibleToUser(e, currentUser)) {
         return false;
       }
 
-      // 自分のカレンダー表示（personal mode）の場合：自分が参加者に含まれる予定のみ表示
-      if (calendarMode === 'personal' && currentUser) {
+      // 個人カレンダー表示（personal mode）の場合：選択中の対象メンバー（activePersonalUser）が参加者に含まれる予定のみ表示
+      if (calendarMode === 'personal' && activePersonalUser) {
         const isAttendee = e.attendees ? e.attendees.some(a => {
           if (!a) return false;
-          return a.id === currentUser.id ||
-            String(a.id) === String(currentUser.id) ||
-            a.name === currentUser.name ||
-            (a.email && currentUser.email && a.email === currentUser.email);
+          return a.id === activePersonalUser.id ||
+            String(a.id) === String(activePersonalUser.id) ||
+            a.name === activePersonalUser.name ||
+            (a.email && activePersonalUser.email && a.email === activePersonalUser.email);
         }) : false;
         if (!isAttendee) return false;
       }
@@ -1250,11 +1444,15 @@ export function Calendar({
       openSchedulePolls.forEach(poll => {
         if (poll.status !== 'open') return;
         const myId = String(currentUser?.id || '');
+        const targetPersonalId = String(activePersonalUser?.id || myId);
         const isOrganizer = String(poll.organizerId) === myId;
         const isTarget = Array.isArray(poll.targetUserIds) && poll.targetUserIds.map(String).includes(myId);
+        const isPersonalUserInvolved =
+          String(poll.organizerId) === targetPersonalId ||
+          (Array.isArray(poll.targetUserIds) && poll.targetUserIds.map(String).includes(targetPersonalId));
         
-        // 個人モード時は自身が主催または参加対象のもののみ
-        if (calendarMode === 'personal' && !isOrganizer && !isTarget) return;
+        // 個人モード時は選択中の対象メンバーが主催または参加対象のもののみ
+        if (calendarMode === 'personal' && !isPersonalUserInvolved) return;
 
         const targetCount = poll.targetUserIds?.length || 0;
         const ansCount = poll.answeredCount !== undefined
@@ -1293,7 +1491,7 @@ export function Calendar({
     }
 
     return list;
-  }, [expandedEvents, selectedTypeFilter, currentUser, calendarMode, openSchedulePolls, allUsers]);
+  }, [expandedEvents, selectedTypeFilter, currentUser, activePersonalUser, calendarMode, openSchedulePolls, allUsers]);
 
   // チーム表示用の所属メンバー抽出をメモ化 (マイグループ選択時はそのメンバー、未選択時は拠点・部署マスターID照合)
   const teamMembers = React.useMemo(() => {
@@ -1334,6 +1532,11 @@ export function Calendar({
       if (view !== 'week' && view !== 'day') {
         setView('week');
       }
+    } else if (mode === 'personal' && selectedGroupId === 'org' && activePersonalUser) {
+      const offName = getUserOfficeName(activePersonalUser, offices);
+      if (offName) setSelectedOffice(offName);
+      const divName = getUserDivisionName(activePersonalUser, divisions);
+      if (divName) setSelectedDivision(divName);
     }
   };
 
@@ -1364,7 +1567,13 @@ export function Calendar({
     setSelectedEndDate(calculatedEnd || dateStr);
     const isMultiDay = (dateStr && calculatedEnd && dateStr.split('T')[0] !== calculatedEnd.split('T')[0]);
     setSelectedIsAllDay(isAllDay !== undefined ? isAllDay : (isMultiDay ? true : false));
-    setPreselectedAttendees(initialAttendees);
+    const effectiveAttendees =
+      initialAttendees && initialAttendees.length > 0
+        ? initialAttendees
+        : calendarMode === 'personal' && activePersonalUser
+        ? [activePersonalUser]
+        : undefined;
+    setPreselectedAttendees(effectiveAttendees);
     setIsModalOpen(true);
   };
 
@@ -2660,87 +2869,111 @@ export function Calendar({
 
           {/* Zone 3: Filters, Presets, Actions & Primary CTA */}
           <div className="flex items-center gap-2 shrink-0">
-            {calendarMode === 'team' && (
-              <div className="flex items-center gap-1.5">
-                {/* チーム表示対象セレクター (所属 or マイグループ) */}
-                <select
-                  value={selectedGroupId === 'org' ? 'org' : 'mygroup'}
-                  onChange={e => {
-                    const mode = e.target.value;
-                    if (mode === 'org') {
-                      setSelectedGroupId('org');
-                    } else {
-                      if (memberGroups.length > 0) {
-                        if (selectedGroupId === 'org') {
-                          setSelectedGroupId(memberGroups[0].id);
-                        }
-                      } else {
-                        setSettingsModalTab('groups');
-                        setIsSettingsModalOpen(true);
+            <div className="flex items-center gap-1.5">
+              {/* 表示対象セレクター (所属 or マイグループ) */}
+              <select
+                value={selectedGroupId === 'org' ? 'org' : 'mygroup'}
+                onChange={e => {
+                  const mode = e.target.value;
+                  if (mode === 'org') {
+                    handleChangeGroupWithSync('org');
+                  } else {
+                    if (memberGroups.length > 0) {
+                      if (selectedGroupId === 'org') {
+                        handleChangeGroupWithSync(memberGroups[0].id);
                       }
+                    } else {
+                      setSettingsModalTab('groups');
+                      setIsSettingsModalOpen(true);
+                    }
+                  }
+                }}
+                className={`border rounded px-2 py-1 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-2xs transition-colors ${
+                  selectedGroupId !== 'org'
+                    ? 'bg-indigo-50/80 border-indigo-300 text-indigo-900 ring-1 ring-indigo-200'
+                    : 'bg-white border-slate-200 text-slate-800'
+                }`}
+                title="表示対象の切り替え（所属 / マイグループ）"
+              >
+                <option value="org">🏢 所属</option>
+                <option value="mygroup">👥 マイグループ</option>
+              </select>
+
+              {selectedGroupId === 'org' ? (
+                <>
+                  <select
+                    value={selectedOffice}
+                    onChange={e => handleChangeOfficeWithSync(e.target.value)}
+                    className="bg-white border border-slate-200 rounded px-2 py-1 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-2xs"
+                    title="拠点フィルター"
+                  >
+                    {officeNames.filter(o => o !== '全社' && o !== '全拠点').map(o => (
+                      <option key={o} value={o}>{o}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={selectedDivision}
+                    onChange={e => handleChangeDivisionWithSync(e.target.value)}
+                    className="bg-white border border-slate-200 rounded px-2 py-1 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-2xs"
+                    title="部署フィルター"
+                  >
+                    {divisionNames.filter(d => d !== '全部署').map(d => (
+                      <option key={d} value={d}>{d}</option>
+                    ))}
+                  </select>
+                </>
+              ) : (
+                <select
+                  value={selectedGroupId}
+                  onChange={e => {
+                    const val = e.target.value;
+                    if (val === '__manage__') {
+                      setSettingsModalTab('groups');
+                      setIsSettingsModalOpen(true);
+                    } else {
+                      handleChangeGroupWithSync(val);
                     }
                   }}
-                  className={`border rounded px-2 py-1 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-2xs transition-colors ${
-                    selectedGroupId !== 'org'
-                      ? 'bg-indigo-50/80 border-indigo-300 text-indigo-900 ring-1 ring-indigo-200'
-                      : 'bg-white border-slate-200 text-slate-800'
-                  }`}
-                  title="チーム表示対象の切り替え"
+                  className="bg-indigo-50/80 border border-indigo-300 text-indigo-900 ring-1 ring-indigo-200 rounded px-2 py-1 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-2xs"
+                  title="マイグループ一覧・管理"
                 >
-                  <option value="org">🏢 所属</option>
-                  <option value="mygroup">👥 マイグループ</option>
+                  {memberGroups.length > 0 ? (
+                    memberGroups.map(g => (
+                      <option key={g.id} value={g.id}>👥 {g.name} ({g.memberIds.length}名)</option>
+                    ))
+                  ) : (
+                    <option value="" disabled>登録されているマイグループはありません</option>
+                  )}
+                  <option value="__manage__">⚙️ マイグループの管理・作成...</option>
                 </select>
+              )}
 
-                {selectedGroupId === 'org' ? (
-                  <>
-                    <select
-                      value={selectedOffice}
-                      onChange={e => setSelectedOffice(e.target.value)}
-                      className="bg-white border border-slate-200 rounded px-2 py-1 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-2xs"
-                      title="拠点フィルター"
-                    >
-                      {officeNames.filter(o => o !== '全社' && o !== '全拠点').map(o => (
-                        <option key={o} value={o}>{o}</option>
-                      ))}
-                    </select>
-                    <select
-                      value={selectedDivision}
-                      onChange={e => setSelectedDivision(e.target.value)}
-                      className="bg-white border border-slate-200 rounded px-2 py-1 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-2xs"
-                      title="部署フィルター"
-                    >
-                      {divisionNames.filter(d => d !== '全部署').map(d => (
-                        <option key={d} value={d}>{d}</option>
-                      ))}
-                    </select>
-                  </>
-                ) : (
+              {/* 個人モード時：個人名選択プルダウン＋モーダル起動ボタン */}
+              {calendarMode === 'personal' && (
+                <>
                   <select
-                    value={selectedGroupId}
-                    onChange={e => {
-                      const val = e.target.value;
-                      if (val === '__manage__') {
-                        setSettingsModalTab('groups');
-                        setIsSettingsModalOpen(true);
-                      } else {
-                        setSelectedGroupId(val);
-                      }
-                    }}
-                    className="bg-indigo-50/80 border border-indigo-300 text-indigo-900 ring-1 ring-indigo-200 rounded px-2 py-1 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-2xs"
-                    title="マイグループ一覧・管理"
+                    value={activePersonalUser?.id || ''}
+                    onChange={e => handleSelectPersonalUserId(e.target.value)}
+                    className="bg-amber-50/80 border border-amber-300 text-slate-900 rounded px-2 py-1 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer shadow-2xs max-w-[150px] truncate"
+                    title="個人カレンダーの表示対象メンバー"
                   >
-                    {memberGroups.length > 0 ? (
-                      memberGroups.map(g => (
-                        <option key={g.id} value={g.id}>👥 {g.name} ({g.memberIds.length}名)</option>
-                      ))
-                    ) : (
-                      <option value="" disabled>登録されているマイグループはありません</option>
-                    )}
-                    <option value="__manage__">⚙️ マイグループの管理・作成...</option>
+                    {personalCandidateUsers.map(u => (
+                      <option key={u.id} value={u.id}>
+                        👤 {u.name}
+                      </option>
+                    ))}
                   </select>
-                )}
-              </div>
-            )}
+                  <button
+                    type="button"
+                    onClick={() => setIsPersonalModalOpen(true)}
+                    className="p-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg transition-colors shadow-2xs cursor-pointer"
+                    title="所属・拠点・部署・個人名を選択（モーダルを開く）"
+                  >
+                    <UserIcon className="w-3.5 h-3.5 text-amber-600" />
+                  </button>
+                </>
+              )}
+            </div>
 
             {/* 区分フィルター */}
             <select
@@ -2772,6 +3005,8 @@ export function Calendar({
                   if (selectedDivision && selectedDivision !== '全部署') {
                     shareParams.division = selectedDivision;
                   }
+                } else if (activePersonalUser) {
+                  shareParams.targetUserId = String(activePersonalUser.id);
                 }
                 if (selectedTypeFilter && selectedTypeFilter !== 'all') {
                   shareParams.type = selectedTypeFilter;
@@ -3015,8 +3250,8 @@ export function Calendar({
                 <Plus className="w-4 h-4 stroke-[2.5]" />
               </button>
 
-              {/* Mobile Team Settings Button */}
-              {calendarMode === 'team' && (
+              {/* Mobile Team / Personal Settings Button */}
+              {calendarMode === 'team' ? (
                 <button
                   type="button"
                   onClick={() => setIsMobileTeamModalOpen(true)}
@@ -3025,6 +3260,16 @@ export function Calendar({
                 >
                   <Users className="w-3.5 h-3.5 text-indigo-700" />
                   <span className="hidden xs:inline">チーム設定</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setIsPersonalModalOpen(true)}
+                  className="h-7 px-1.5 bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 rounded-lg flex items-center gap-1 text-[11px] font-bold shadow-2xs transition-colors shrink-0 cursor-pointer"
+                  title="個人表示対象の設定（所属・拠点・部署・個人名）"
+                >
+                  <UserIcon className="w-3.5 h-3.5 text-amber-700" />
+                  <span className="hidden xs:inline">個人設定</span>
                 </button>
               )}
 
@@ -3188,97 +3433,112 @@ export function Calendar({
                       </select>
                     </div>
 
-                    {/* チーム表示時フィルター */}
-                    {calendarMode === 'team' && (
-                      <div className="space-y-2 pt-1 border-t border-slate-100">
-                        <div>
-                          <label className="text-[11px] font-bold text-slate-600 mb-1 block">チーム表示基準</label>
-                          <select
-                            value={selectedGroupId === 'org' ? 'org' : 'mygroup'}
-                            onChange={e => {
-                              const mode = e.target.value;
-                              if (mode === 'org') {
-                                setSelectedGroupId('org');
+                    {/* 表示対象フィルター（チーム・個人共通） */}
+                    <div className="space-y-2 pt-1 border-t border-slate-100">
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-600 mb-1 block">
+                          {calendarMode === 'team' ? 'チーム表示基準' : '個人表示基準'}
+                        </label>
+                        <select
+                          value={selectedGroupId === 'org' ? 'org' : 'mygroup'}
+                          onChange={e => {
+                            const mode = e.target.value;
+                            if (mode === 'org') {
+                              handleChangeGroupWithSync('org');
+                            } else {
+                              if (memberGroups.length > 0) {
+                                if (selectedGroupId === 'org') {
+                                  handleChangeGroupWithSync(memberGroups[0].id);
+                                }
                               } else {
-                                if (memberGroups.length > 0) {
-                                  if (selectedGroupId === 'org') {
-                                    setSelectedGroupId(memberGroups[0].id);
-                                  }
-                                } else {
-                                  setSettingsModalTab('groups');
-                                  setIsSettingsModalOpen(true);
-                                  setIsFavoritesMobileOpen(false);
-                                }
+                                setSettingsModalTab('groups');
+                                setIsSettingsModalOpen(true);
+                                setIsFavoritesMobileOpen(false);
                               }
-                            }}
-                            className={`w-full border rounded px-2 py-1 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
-                              selectedGroupId !== 'org'
-                                ? 'bg-indigo-50/80 border-indigo-300 text-indigo-900'
-                                : 'bg-slate-50 border-slate-200 text-slate-800'
-                            }`}
-                          >
-                            <option value="org">🏢 所属</option>
-                            <option value="mygroup">👥 マイグループ</option>
-                          </select>
-                        </div>
+                            }
+                          }}
+                          className={`w-full border rounded px-2 py-1 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
+                            selectedGroupId !== 'org'
+                              ? 'bg-indigo-50/80 border-indigo-300 text-indigo-900'
+                              : 'bg-slate-50 border-slate-200 text-slate-800'
+                          }`}
+                        >
+                          <option value="org">🏢 所属</option>
+                          <option value="mygroup">👥 マイグループ</option>
+                        </select>
+                      </div>
 
-                        {selectedGroupId === 'org' ? (
-                          <>
-                            <div>
-                              <label className="text-[11px] font-bold text-slate-600 mb-1 block">拠点</label>
-                              <select
-                                value={selectedOffice}
-                                onChange={e => setSelectedOffice(e.target.value)}
-                                className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs font-semibold text-slate-800"
-                              >
-                                {officeNames.filter(o => o !== '全社' && o !== '全拠点').map(o => (
-                                  <option key={o} value={o}>{o}</option>
-                                ))}
-                              </select>
-                            </div>
-                            <div>
-                              <label className="text-[11px] font-bold text-slate-600 mb-1 block">部署</label>
-                              <select
-                                value={selectedDivision}
-                                onChange={e => setSelectedDivision(e.target.value)}
-                                className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs font-semibold text-slate-800"
-                              >
-                                {divisionNames.filter(d => d !== '全部署').map(d => (
-                                  <option key={d} value={d}>{d}</option>
-                                ))}
-                              </select>
-                            </div>
-                          </>
-                        ) : (
+                      {selectedGroupId === 'org' ? (
+                        <>
                           <div>
-                            <label className="text-[11px] font-bold text-slate-600 mb-1 block">マイグループ選択</label>
+                            <label className="text-[11px] font-bold text-slate-600 mb-1 block">拠点</label>
                             <select
-                              value={selectedGroupId}
-                              onChange={e => {
-                                const val = e.target.value;
-                                if (val === '__manage__') {
-                                  setSettingsModalTab('groups');
-                                  setIsSettingsModalOpen(true);
-                                  setIsFavoritesMobileOpen(false);
-                                } else {
-                                  setSelectedGroupId(val);
-                                }
-                              }}
-                              className="w-full bg-indigo-50/80 border border-indigo-300 text-indigo-900 rounded px-2 py-1 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                              value={selectedOffice}
+                              onChange={e => handleChangeOfficeWithSync(e.target.value)}
+                              className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs font-semibold text-slate-800"
                             >
-                              {memberGroups.length > 0 ? (
-                                memberGroups.map(g => (
-                                  <option key={g.id} value={g.id}>👥 {g.name} ({g.memberIds.length}名)</option>
-                                ))
-                              ) : (
-                                <option value="" disabled>登録されているマイグループはありません</option>
-                              )}
-                              <option value="__manage__">⚙️ マイグループの管理・作成...</option>
+                              {officeNames.filter(o => o !== '全社' && o !== '全拠点').map(o => (
+                                <option key={o} value={o}>{o}</option>
+                              ))}
                             </select>
                           </div>
-                        )}
-                      </div>
-                    )}
+                          <div>
+                            <label className="text-[11px] font-bold text-slate-600 mb-1 block">部署</label>
+                            <select
+                              value={selectedDivision}
+                              onChange={e => handleChangeDivisionWithSync(e.target.value)}
+                              className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs font-semibold text-slate-800"
+                            >
+                              {divisionNames.filter(d => d !== '全部署').map(d => (
+                                <option key={d} value={d}>{d}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </>
+                      ) : (
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-600 mb-1 block">マイグループ選択</label>
+                          <select
+                            value={selectedGroupId}
+                            onChange={e => {
+                              const val = e.target.value;
+                              if (val === '__manage__') {
+                                setSettingsModalTab('groups');
+                                setIsSettingsModalOpen(true);
+                                setIsFavoritesMobileOpen(false);
+                              } else {
+                                handleChangeGroupWithSync(val);
+                              }
+                            }}
+                            className="w-full bg-indigo-50/80 border border-indigo-300 text-indigo-900 rounded px-2 py-1 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                          >
+                            {memberGroups.length > 0 ? (
+                              memberGroups.map(g => (
+                                <option key={g.id} value={g.id}>👥 {g.name} ({g.memberIds.length}名)</option>
+                              ))
+                            ) : (
+                              <option value="" disabled>登録されているマイグループはありません</option>
+                            )}
+                            <option value="__manage__">⚙️ マイグループの管理・作成...</option>
+                          </select>
+                        </div>
+                      )}
+
+                      {calendarMode === 'personal' && (
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-600 mb-1 block">個人名</label>
+                          <select
+                            value={activePersonalUser?.id || ''}
+                            onChange={e => handleSelectPersonalUserId(e.target.value)}
+                            className="w-full bg-amber-50/80 border border-amber-300 rounded px-2 py-1 text-xs font-bold text-slate-900"
+                          >
+                            {personalCandidateUsers.map(u => (
+                              <option key={u.id} value={u.id}>👤 {u.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+                    </div>
 
                     {/* クイックツールボタン一覧（スマホでは一括登録Excelは非表示） */}
                     <div className="pt-2 border-t border-slate-100 flex flex-col gap-1.5">
@@ -3300,6 +3560,8 @@ export function Calendar({
                             if (selectedDivision && selectedDivision !== '全部署') {
                               shareParams.division = selectedDivision;
                             }
+                          } else if (activePersonalUser) {
+                            shareParams.targetUserId = String(activePersonalUser.id);
                           }
                           if (selectedTypeFilter && selectedTypeFilter !== 'all') {
                             shareParams.type = selectedTypeFilter;
@@ -3341,8 +3603,8 @@ export function Calendar({
             </div>
           </div>
 
-          {/* Mobile Team Target Bar: チーム表示時に現在の対象（所属またはマイグループ）を表示＆タップで設定ポップアップ */}
-          {calendarMode === 'team' && (
+          {/* Mobile Team / Personal Target Bar: 現在の対象（所属・マイグループ・個人名）を表示＆タップで設定ポップアップ */}
+          {calendarMode === 'team' ? (
             <div className="flex items-center justify-between gap-1.5 bg-gradient-to-r from-indigo-50/95 via-indigo-50/80 to-blue-50/80 border border-indigo-200/90 rounded-xl px-2.5 py-1.5 text-xs shadow-2xs">
               <button
                 type="button"
@@ -3376,6 +3638,55 @@ export function Calendar({
                 className="px-2.5 py-1 bg-white hover:bg-indigo-50 active:bg-indigo-100 border border-indigo-300 text-indigo-800 rounded-lg text-xs font-bold shrink-0 shadow-2xs transition-colors flex items-center gap-1 cursor-pointer"
               >
                 <SlidersHorizontal className="w-3 h-3 text-indigo-600" />
+                <span>設定</span>
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between gap-1.5 bg-gradient-to-r from-amber-50/95 via-amber-50/80 to-orange-50/80 border border-amber-200/90 rounded-xl px-2.5 py-1.5 text-xs shadow-2xs">
+              <button
+                type="button"
+                onClick={() => setIsPersonalModalOpen(true)}
+                className="flex items-center gap-2 min-w-0 flex-1 text-left cursor-pointer group"
+              >
+                {activePersonalUser ? (
+                  <img
+                    src={getAvatarUrl(
+                      currentUser && String(activePersonalUser.id) === String(currentUser.id)
+                        ? (currentUser.avatarUrl || activePersonalUser.avatarUrl)
+                        : activePersonalUser.avatarUrl
+                    )}
+                    alt={activePersonalUser.name}
+                    onError={handleAvatarError}
+                    className="w-7 h-7 rounded-full object-cover border border-amber-300 shrink-0 shadow-2xs"
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <span className="p-1.5 bg-amber-500 text-white rounded-lg shrink-0 shadow-2xs group-hover:bg-amber-600 transition-colors">
+                    <UserIcon className="w-3.5 h-3.5" />
+                  </span>
+                )}
+                <div className="min-w-0 flex-1 truncate">
+                  <div className="text-[10px] text-amber-800 font-bold leading-tight flex items-center gap-1 truncate">
+                    <span>個人表示対象</span>
+                    <span className="text-[9px] px-1 py-0.1 bg-amber-100 text-amber-900 rounded font-bold truncate">
+                      {selectedGroupId === 'org'
+                        ? `🏢 ${selectedOffice || '全社'} / ${selectedDivision || '全部署'}`
+                        : `👥 ${activeSelectedGroup?.name || 'マイグループ'}`}
+                    </span>
+                  </div>
+                  <div className="text-xs font-bold text-slate-900 truncate">
+                    👤 {activePersonalUser?.name || '未選択'}
+                  </div>
+                </div>
+                <ChevronDown className="w-4 h-4 text-amber-500 shrink-0 group-hover:text-amber-700 transition-colors" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsPersonalModalOpen(true)}
+                className="px-2.5 py-1 bg-white hover:bg-amber-50 active:bg-amber-100 border border-amber-300 text-amber-900 rounded-lg text-xs font-bold shrink-0 shadow-2xs transition-colors flex items-center gap-1 cursor-pointer"
+              >
+                <SlidersHorizontal className="w-3 h-3 text-amber-600" />
                 <span>設定</span>
               </button>
             </div>
@@ -4497,7 +4808,18 @@ export function Calendar({
                                 <Users className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                                 <div className="flex -space-x-1.5">
                                   {e.attendees.map(u => (
-                                    <img key={u.id} src={getAvatarUrl(u.id === currentUser.id ? (currentUser.avatarUrl || u.avatarUrl) : u.avatarUrl)} onError={handleAvatarError} alt={u.name} title={u.name} className="w-4 h-4 rounded-full border border-white object-cover" />
+                                    <img
+                                      key={u.id}
+                                      src={getAvatarUrl(u.id === currentUser.id ? (currentUser.avatarUrl || u.avatarUrl) : u.avatarUrl)}
+                                      onError={handleAvatarError}
+                                      onClick={(ev) => {
+                                        ev.stopPropagation();
+                                        triggerOpenUserModal(u);
+                                      }}
+                                      alt={u.name}
+                                      title={`${u.name} (クリックで社員詳細を表示)`}
+                                      className="w-4 h-4 rounded-full border border-white object-cover cursor-pointer hover:scale-125 hover:z-10 transition-transform"
+                                    />
                                   ))}
                                 </div>
                                 <span>({e.attendees.length}名)</span>
@@ -4621,16 +4943,20 @@ export function Calendar({
                 <label className="block text-xs font-bold text-slate-500 mb-1">
                   宛先 (メンバー)
                 </label>
-                <div className="flex items-center gap-2 p-2 sm:p-2.5 bg-indigo-50/50 border border-indigo-100/60 rounded-xl">
+                <div
+                  onClick={() => triggerOpenUserModal(memoTargetUser)}
+                  title={`${memoTargetUser.name} の社員詳細を表示`}
+                  className="flex items-center gap-2 p-2 sm:p-2.5 bg-indigo-50/50 hover:bg-indigo-50 border border-indigo-100/60 hover:border-indigo-200 rounded-xl cursor-pointer transition-colors group/memotarget"
+                >
                   <img
                     src={getAvatarUrl(memoTargetUser.id === currentUser.id ? (currentUser.avatarUrl || memoTargetUser.avatarUrl) : memoTargetUser.avatarUrl)}
                     alt={memoTargetUser.name}
                     onError={handleAvatarError}
-                    className="w-7 h-7 sm:w-8 sm:h-8 rounded-full border border-slate-200 shrink-0 object-cover"
+                    className="w-7 h-7 sm:w-8 sm:h-8 rounded-full border border-slate-200 shrink-0 object-cover group-hover/memotarget:ring-2 group-hover/memotarget:ring-indigo-300 transition-all"
                     referrerPolicy="no-referrer"
                   />
                   <div className="min-w-0">
-                    <p className="font-extrabold text-xs text-slate-800 truncate">{memoTargetUser.name}</p>
+                    <p className="font-extrabold text-xs text-slate-800 group-hover/memotarget:text-indigo-600 group-hover/memotarget:underline truncate transition-colors">{memoTargetUser.name}</p>
                     <p className="text-[10px] text-slate-500 mt-0.5 truncate">{memoTargetUser.office}・{memoTargetUser.division}</p>
                   </div>
                 </div>
@@ -5001,6 +5327,34 @@ export function Calendar({
         offices={offices}
         divisions={divisions}
         teamMembersCount={teamMembers.length}
+        selectedTypeFilter={selectedTypeFilter}
+        onSelectTypeFilter={setSelectedTypeFilter}
+        typeLabels={typeLabels}
+        onOpenManageGroups={() => {
+          setSettingsModalTab('groups');
+          setIsSettingsModalOpen(true);
+        }}
+      />
+
+      {/* 個人カレンダー表示対象メンバー設定ポップアップ（所属・拠点・部署・マイグループ・個人名） */}
+      <PersonalMemberSettingsModal
+        isOpen={isPersonalModalOpen}
+        onClose={() => setIsPersonalModalOpen(false)}
+        selectedGroupId={selectedGroupId}
+        onSelectGroupId={handleChangeGroupWithSync}
+        selectedOffice={selectedOffice}
+        onSelectOffice={handleChangeOfficeWithSync}
+        officeNames={officeNames}
+        selectedDivision={selectedDivision}
+        onSelectDivision={handleChangeDivisionWithSync}
+        divisionNames={divisionNames}
+        selectedUserId={activePersonalUser?.id || ''}
+        onSelectUserId={handleSelectPersonalUserId}
+        memberGroups={memberGroups}
+        allUsers={allUsers}
+        currentUser={currentUser}
+        offices={offices}
+        divisions={divisions}
         selectedTypeFilter={selectedTypeFilter}
         onSelectTypeFilter={setSelectedTypeFilter}
         typeLabels={typeLabels}

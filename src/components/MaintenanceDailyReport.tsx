@@ -53,6 +53,7 @@ import {
   Undo2
 } from 'lucide-react';
 import { getAvatarUrl } from '../utils/avatar';
+import { triggerOpenUserModal } from '../utils/userModal';
 import { getLocalDateStr } from '../utils/dateUtils';
 import { expandRecurringEvents } from '../utils/recurrenceUtils';
 import { ApplicationModal } from './ApplicationModal';
@@ -2395,15 +2396,20 @@ export function MaintenanceDailyReportView({
 
               <div className="flex items-center flex-wrap gap-2 text-xs">
                 {/* Step 0: 作成者 */}
-                <div className="flex items-center gap-1.5 bg-white px-2.5 py-1.5 rounded-lg border border-slate-200 shadow-2xs">
+                <button
+                  type="button"
+                  onClick={() => triggerOpenUserModal(reportAuthor || reportAuthorName)}
+                  className="flex items-center gap-1.5 bg-white hover:bg-indigo-50/70 px-2.5 py-1.5 rounded-lg border border-slate-200 hover:border-indigo-300 shadow-2xs transition-colors cursor-pointer text-left"
+                  title="作成者の社員詳細を表示"
+                >
                   <span className="w-5 h-5 rounded-full bg-emerald-500 text-white text-[10px] font-bold flex items-center justify-center shrink-0">
                     ✓
                   </span>
                   <div className="leading-tight">
                     <span className="text-[10px] text-slate-400 block font-normal">作成者</span>
-                    <span className="font-bold text-slate-800">{reportAuthorName}</span>
+                    <span className="font-bold text-slate-800 hover:text-indigo-600">{reportAuthorName}</span>
                   </div>
-                </div>
+                </button>
 
                 <ArrowRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
 
@@ -2420,13 +2426,17 @@ export function MaintenanceDailyReportView({
 
                   return (
                     <React.Fragment key={stepUser.id}>
-                      <div className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border shadow-2xs transition-all ${
-                        approvedRecord 
-                          ? 'bg-emerald-50/80 border-emerald-300 text-emerald-950' 
-                          : isCurrentlyPending 
-                            ? 'bg-amber-50 border-amber-300 ring-2 ring-amber-400/30 text-amber-950 animate-pulse' 
-                            : 'bg-white border-slate-200 text-slate-600 opacity-75'
-                      }`}>
+                      <div
+                        onClick={() => triggerOpenUserModal(stepUser)}
+                        title={`${stepUser.name} さんの社員詳細を表示`}
+                        className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border shadow-2xs transition-all cursor-pointer hover:ring-2 hover:ring-indigo-300/60 ${
+                          approvedRecord 
+                            ? 'bg-emerald-50/80 border-emerald-300 text-emerald-950' 
+                            : isCurrentlyPending 
+                              ? 'bg-amber-50 border-amber-300 ring-2 ring-amber-400/30 text-amber-950 animate-pulse' 
+                              : 'bg-white border-slate-200 text-slate-600 opacity-75'
+                        }`}
+                      >
                         <span className={`w-5 h-5 rounded-full text-[10px] font-bold flex items-center justify-center shrink-0 ${
                           approvedRecord 
                             ? 'bg-emerald-600 text-white' 
@@ -2473,7 +2483,14 @@ export function MaintenanceDailyReportView({
                         }`}>
                           {item.action === 'final_approved' ? '支店長最終承認' : item.action === 'remanded' ? '差し戻し' : '上長提出・回覧'}
                         </span>
-                        <strong className="text-slate-800">{item.approverName} ({item.approverPosition || '上長'}):</strong>
+                        <button
+                          type="button"
+                          onClick={() => triggerOpenUserModal(item.approverId || item.approverName)}
+                          className="font-bold text-slate-800 hover:text-indigo-600 hover:underline transition-colors cursor-pointer"
+                          title="承認者の社員詳細を表示"
+                        >
+                          {item.approverName} ({item.approverPosition || '上長'}):
+                        </button>
                         <span className="text-slate-700">{item.comment || <span className="text-slate-400">（コメントなし）</span>}</span>
                       </div>
                       {item.approvedAt && (
@@ -2606,15 +2623,20 @@ export function MaintenanceDailyReportView({
             {/* 氏名 */}
             <div className="flex items-center gap-2">
               <label className="text-xs font-bold text-slate-600 shrink-0">氏名:</label>
-              <div className="flex-1 px-3 py-1.5 bg-[#FAF3E0] border border-amber-200 rounded-lg text-xs font-bold text-slate-900 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => triggerOpenUserModal(reportAuthor || reportAuthorName)}
+                className="flex-1 px-3 py-1.5 bg-[#FAF3E0] hover:bg-amber-100/80 border border-amber-200 rounded-lg text-xs font-bold text-slate-900 hover:text-indigo-700 flex items-center gap-2 transition-colors cursor-pointer text-left"
+                title="社員詳細を表示"
+              >
                 <img
                   src={getAvatarUrl(reportAuthorAvatar)}
                   alt={reportAuthorName}
                   className="w-5 h-5 rounded-full object-cover"
                 />
-                <span>{reportAuthorName}</span>
+                <span className="hover:underline">{reportAuthorName}</span>
                 <span className="text-[10px] text-amber-700 font-normal ml-auto">({reportAuthorDept})</span>
-              </div>
+              </button>
             </div>
 
             {/* 報告先上長 */}

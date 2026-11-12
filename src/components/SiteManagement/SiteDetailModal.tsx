@@ -8,6 +8,7 @@ import {
 import { Site, SiteMainPart, SiteSubPart, SiteComment, SiteStatus, PartStatus, SiteAttachment } from '../../types/site';
 import { User, AttachmentFile, CalendarEvent } from '../../types';
 import { getAvatarUrl, handleAvatarError } from '../../utils/avatar';
+import { triggerOpenUserModal } from '../../utils/userModal';
 import { API_BASE_URL } from '../../config/api';
 import { FilePreviewModal } from '../FilePreviewModal';
 import { ConfirmModal, ConfirmModalState } from '../ConfirmModal';
@@ -1024,7 +1025,16 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
                                 <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-slate-400 mt-0.5">
                                   {formattedSize && <span>{formattedSize}</span>}
                                   {formattedSize && att.uploadedBy && <span>•</span>}
-                                  {att.uploadedBy && <span>{att.uploadedBy}</span>}
+                                  {att.uploadedBy && (
+                                    <button
+                                      type="button"
+                                      onClick={() => triggerOpenUserModal(att.uploadedBy)}
+                                      className="hover:text-indigo-600 hover:underline font-medium transition-colors cursor-pointer"
+                                      title="登録者の社員詳細を表示"
+                                    >
+                                      {att.uploadedBy}
+                                    </button>
+                                  )}
                                   {formattedDate && <span>•</span>}
                                   {formattedDate && <span>{formattedDate}</span>}
                                 </div>
@@ -1318,7 +1328,14 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
                     currentSite.comments.map(c => (
                       <div key={c.id} className="p-3 bg-white rounded-xl border border-slate-200 space-y-1 shadow-2xs">
                         <div className="flex items-center justify-between text-xs">
-                          <span className="font-bold text-slate-800">{c.userName}</span>
+                          <button
+                            type="button"
+                            onClick={() => triggerOpenUserModal((c as any).user || c.userId || c.userName)}
+                            className="font-bold text-slate-800 hover:text-indigo-600 hover:underline transition-colors cursor-pointer"
+                            title="投稿者の社員詳細を表示"
+                          >
+                            {c.userName}
+                          </button>
                           <span className="text-[10px] text-slate-400">
                             {new Date(c.createdAt).toLocaleString('ja-JP')}
                           </span>
@@ -1417,7 +1434,21 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
                     <div><strong>発注No:</strong> <span className="ml-1 text-slate-800">{currentSite.orderNo || '未設定'}</span></div>
                     <div className="sm:col-span-2"><strong>施工場所:</strong> <span className="ml-1 text-slate-800">{currentSite.address || '未設定'}</span></div>
                     <div><strong>EG台数:</strong> <span className="ml-1 font-bold text-indigo-700">{currentSite.egCount} 台</span></div>
-                    <div><strong>主担当施工者:</strong> <span className="ml-1 text-slate-800">{currentSite.primaryWorkerName || '未定'}</span></div>
+                    <div>
+                      <strong>主担当施工者:</strong>{' '}
+                      {currentSite.primaryWorkerName || currentSite.primaryWorkerId ? (
+                        <button
+                          type="button"
+                          onClick={() => triggerOpenUserModal(currentSite.primaryWorkerId || currentSite.primaryWorkerName)}
+                          className="ml-1 font-bold text-slate-800 hover:text-indigo-600 hover:underline transition-colors cursor-pointer"
+                          title="主担当施工者の社員詳細を表示"
+                        >
+                          {currentSite.primaryWorkerName}
+                        </button>
+                      ) : (
+                        <span className="ml-1 text-slate-800">未定</span>
+                      )}
+                    </div>
                     <div><strong>工期（着工〜完工）:</strong> <span className="ml-1 text-slate-800">{currentSite.startDate || '未定'} 〜 {currentSite.endDate || '未定'}</span></div>
                     <div><strong>主な施工日:</strong> <span className="ml-1 text-slate-800">{currentSite.constructionDate || '未定'}</span></div>
                     <div className="sm:col-span-2"><strong>進捗状況:</strong> <span className="ml-1 font-bold">{
@@ -1613,7 +1644,19 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
                       </div>
                       <div>
                         <div className="font-bold text-slate-800">
-                          主担当施工者: {currentSite.primaryWorkerName || '未割当'}
+                          主担当施工者:{' '}
+                          {currentSite.primaryWorkerName || currentSite.primaryWorkerId ? (
+                            <button
+                              type="button"
+                              onClick={() => triggerOpenUserModal(currentSite.primaryWorkerId || currentSite.primaryWorkerName)}
+                              className="hover:text-indigo-600 hover:underline transition-colors cursor-pointer"
+                              title="主担当施工者の社員詳細を表示"
+                            >
+                              {currentSite.primaryWorkerName}
+                            </button>
+                          ) : (
+                            '未割当'
+                          )}
                         </div>
                         <div className="text-[11px] text-slate-400 mt-0.5">
                           カレンダー画面で本現場を選択して施工予定を追加できます
@@ -1726,18 +1769,24 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
                               {attendees.length > 0 ? (
                                 <div className="flex items-center gap-2 flex-wrap">
                                   {attendees.map(u => (
-                                    <div key={u.id} className="flex items-center gap-1.5 bg-slate-50 px-2.5 py-0.5 rounded-full border border-slate-200">
+                                    <button
+                                      key={u.id}
+                                      type="button"
+                                      onClick={() => triggerOpenUserModal(u)}
+                                      className="flex items-center gap-1.5 bg-slate-50 hover:bg-indigo-50 px-2.5 py-0.5 rounded-full border border-slate-200 hover:border-indigo-300 transition-colors cursor-pointer group/att"
+                                      title={`${u.name} さんの社員詳細を表示`}
+                                    >
                                       <img
                                         src={getAvatarUrl(u.avatarUrl)}
                                         onError={handleAvatarError}
                                         alt={u.name}
                                         className="w-4 h-4 rounded-full object-cover"
                                       />
-                                      <span className="font-bold text-slate-800">{u.name}</span>
+                                      <span className="font-bold text-slate-800 group-hover/att:text-indigo-700">{u.name}</span>
                                       {u.department && (
                                         <span className="text-[10px] text-slate-400">({u.department})</span>
                                       )}
-                                    </div>
+                                    </button>
                                   ))}
                                 </div>
                               ) : (
@@ -2022,18 +2071,24 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
                             {attendees.length > 0 ? (
                               <div className="flex items-center gap-2 flex-wrap">
                                 {attendees.map(u => (
-                                  <div key={u.id} className="flex items-center gap-1.5 bg-slate-50 px-2 py-0.5 rounded-full border border-slate-200">
+                                  <button
+                                    key={u.id}
+                                    type="button"
+                                    onClick={() => triggerOpenUserModal(u)}
+                                    className="flex items-center gap-1.5 bg-slate-50 hover:bg-indigo-50 px-2 py-0.5 rounded-full border border-slate-200 hover:border-indigo-300 transition-colors cursor-pointer group/att"
+                                    title={`${u.name} さんの社員詳細を表示`}
+                                  >
                                     <img
                                       src={getAvatarUrl(u.avatarUrl)}
                                       onError={handleAvatarError}
                                       alt={u.name}
                                       className="w-4 h-4 rounded-full object-cover"
                                     />
-                                    <span className="font-bold text-slate-800">{u.name}</span>
+                                    <span className="font-bold text-slate-800 group-hover/att:text-indigo-700">{u.name}</span>
                                     {u.department && (
                                       <span className="text-[10px] text-slate-400">({u.department})</span>
                                     )}
-                                  </div>
+                                  </button>
                                 ))}
                               </div>
                             ) : (

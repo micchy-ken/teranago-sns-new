@@ -215,6 +215,8 @@ export default function App() {
     view?: 'month' | 'week' | 'day' | 'list';
     date?: string;
     type?: string;
+    targetUserId?: string;
+    requestKey?: number;
   }>(() => ({
     office: initialUrlParams.office,
     division: initialUrlParams.division,
@@ -222,6 +224,7 @@ export default function App() {
     view: initialUrlParams.view,
     date: initialUrlParams.date,
     type: initialUrlParams.type,
+    targetUserId: initialUrlParams.targetUserId,
   }));
 
   // コンテンツディープリンク用のターゲットID状態
@@ -248,12 +251,37 @@ export default function App() {
   const [memoInitialRecipientId, setMemoInitialRecipientId] = useState<string | undefined>(undefined);
 
   const handleOpenUserDetail = (userOrId: User | string) => {
+    const normalizeName = (s?: string) => String(s || '').replace(/[\s　]+/g, '').trim();
+    const allKnownUsers = userState.id
+      ? [userState, ...usersList.filter(u => u.id !== userState.id)]
+      : usersList;
+
     if (typeof userOrId === 'string') {
-      const found = usersList.find(u => u.id === userOrId);
+      const targetStr = userOrId.trim();
+      if (!targetStr || targetStr === 'システム' || targetStr === '匿名メンバー') return;
+      const normTarget = normalizeName(targetStr);
+      const found = allKnownUsers.find(
+        u =>
+          String(u.id) === targetStr ||
+          (u.loginId && String(u.loginId) === targetStr) ||
+          u.name === targetStr ||
+          (normTarget && normalizeName(u.name) === normTarget)
+      );
       if (found) setGlobalSelectedUser(found);
     } else if (userOrId) {
-      const enriched = usersList.find(u => u.id === userOrId.id) || userOrId;
-      setGlobalSelectedUser(enriched);
+      const targetId = userOrId.id ? String(userOrId.id) : '';
+      const targetLoginId = (userOrId as any).loginId ? String((userOrId as any).loginId) : '';
+      const normName = normalizeName(userOrId.name);
+      const enriched =
+        allKnownUsers.find(
+          u =>
+            (targetId && String(u.id) === targetId) ||
+            (targetLoginId && u.loginId && String(u.loginId) === targetLoginId) ||
+            (normName && normalizeName(u.name) === normName)
+        ) || userOrId;
+      if (enriched && (enriched.id || enriched.name)) {
+        setGlobalSelectedUser(enriched);
+      }
     }
   };
 
@@ -266,11 +294,34 @@ export default function App() {
 
   const handleViewScheduleFromModal = (targetUser: User) => {
     setGlobalSelectedUser(null);
+    if (targetUser?.id) {
+      setCalendarParams(prev => ({
+        ...prev,
+        mode: 'personal',
+        targetUserId: String(targetUser.id),
+        office: targetUser.office || prev.office,
+        division: targetUser.division || prev.division,
+        requestKey: Date.now(),
+      }));
+    }
     setActiveTab('calendar');
   };
 
   const handleOpenChatFromModal = (targetUser: User) => {
     setGlobalSelectedUser(null);
+    if (targetUser?.id && targetUser.id !== userState?.id) {
+      const dmRoom = chatRooms.find(
+        r =>
+          r.type === 'dm' &&
+          Array.isArray(r.participants) &&
+          r.participants.length === 2 &&
+          r.participants.some(p => String(p.id) === String(targetUser.id)) &&
+          r.participants.some(p => String(p.id) === String(userState.id))
+      );
+      if (dmRoom) {
+        setTargetChatRoomId(dmRoom.id);
+      }
+    }
     setActiveTab('chat');
   };
 
@@ -3673,6 +3724,8 @@ export default function App() {
               initialView={calendarParams.view}
               initialDate={calendarParams.date}
               initialTypeFilter={calendarParams.type}
+              initialTargetUserId={calendarParams.targetUserId}
+              targetUserRequestKey={calendarParams.requestKey}
               memos={memos}
               onUpdateMemos={handleUpdateMemos}
               onRefetchEvents={(opts) => refetchEvents(usersList, false, opts)}

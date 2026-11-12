@@ -33,6 +33,7 @@ import {
   RotateCcw
 } from 'lucide-react';
 import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
+import { triggerOpenUserModal } from '../utils/userModal';
 import { MaintenanceDailyReportView } from './MaintenanceDailyReport';
 import { markReportAsRead } from '../utils/notifications';
 import { getLocalDateStr } from '../utils/dateUtils';
@@ -828,7 +829,18 @@ export function DailyReportView({
                             </span>
                           </div>
                           <p className="text-xs text-slate-500 mt-0.5">
-                            担当者: <strong className="text-slate-800 font-semibold">{authorName}</strong>
+                            担当者:{' '}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                triggerOpenUserModal(mReport.author || authorId || authorName);
+                              }}
+                              className="text-slate-800 hover:text-indigo-600 hover:underline font-semibold transition-colors cursor-pointer"
+                              title={`${authorName} さんの社員詳細を表示`}
+                            >
+                              {authorName}
+                            </button>
                           </p>
                         </div>
                       </div>
@@ -940,7 +952,21 @@ export function DailyReportView({
                         <RotateCcw className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
                         <div className="text-xs flex-1">
                           <div className="font-bold text-rose-900 flex items-center gap-2">
-                            <span>上長（{remandApprover}）より差し戻されました</span>
+                            <span>
+                              上長（
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  triggerOpenUserModal(remandApprover);
+                                }}
+                                className="underline hover:text-indigo-700 cursor-pointer"
+                                title={`${remandApprover} さんの社員詳細を表示`}
+                              >
+                                {remandApprover}
+                              </button>
+                              ）より差し戻されました
+                            </span>
                           </div>
                           {hasSpecificComment ? (
                             <p className="text-rose-800 mt-1 font-medium bg-white/90 p-2.5 rounded-lg border border-rose-200 whitespace-pre-wrap">
@@ -1055,7 +1081,9 @@ export function DailyReportView({
                         src={getAvatarUrl(report.author?.id === currentUser?.id ? (currentUser?.avatarUrl || report.author?.avatarUrl) : report.author?.avatarUrl)} 
                         alt={report.author?.name || (report as any).authorName} 
                         onError={handleAvatarError}
-                        className="w-10 h-10 rounded-full border border-slate-200 object-cover shadow-xs" 
+                        onClick={() => triggerOpenUserModal(report.author || (report as any).authorId || (report as any).authorName)}
+                        title="提出者の社員詳細を表示"
+                        className="w-10 h-10 rounded-full border border-slate-200 object-cover shadow-xs cursor-pointer hover:ring-2 hover:ring-indigo-400 transition-all" 
                       />
                       <div>
                         <div className="flex items-center gap-2">
@@ -1063,9 +1091,14 @@ export function DailyReportView({
                               <FileText className="w-3 h-3 text-indigo-700" />
                               週報
                             </span>
-                            <span className="text-sm font-bold text-slate-900">
+                            <button
+                              type="button"
+                              onClick={() => triggerOpenUserModal(report.author || (report as any).authorId || (report as any).authorName)}
+                              className="text-sm font-bold text-slate-900 hover:text-indigo-600 hover:underline transition-colors cursor-pointer"
+                              title="提出者の社員詳細を表示"
+                            >
                               {report.author?.name || (report as any).authorName || '氏名未設定'}
-                            </span>
+                            </button>
                             
                             {/* Department Badge */}
                             <span className="text-[11px] font-medium px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200">
@@ -1083,7 +1116,15 @@ export function DailyReportView({
                           {(report.supervisor || (report as any).supervisorName) && (
                             <span className="flex items-center gap-1 text-slate-400">
                               <ArrowRight className="w-3 h-3" />
-                              上長: <strong className="text-slate-600 font-semibold">{report.supervisor?.name || (report as any).supervisorName}</strong>
+                              上長:{' '}
+                              <button
+                                type="button"
+                                onClick={() => triggerOpenUserModal(report.supervisor || report.supervisorId || (report as any).supervisorName)}
+                                className="text-slate-600 hover:text-indigo-600 hover:underline font-semibold transition-colors cursor-pointer"
+                                title="上長の社員詳細を表示"
+                              >
+                                {report.supervisor?.name || (report as any).supervisorName}
+                              </button>
                             </span>
                           )}
                         </div>
@@ -1609,7 +1650,15 @@ export function DailyReportView({
                     </span>
                   </div>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    作成者: <strong className="text-slate-800 font-semibold">{viewingReport.author?.name || (viewingReport as any).authorName || '不明'}</strong> 
+                    作成者:{' '}
+                    <button
+                      type="button"
+                      onClick={() => triggerOpenUserModal(viewingReport.author || (viewingReport as any).authorId || (viewingReport as any).authorName)}
+                      className="text-slate-800 hover:text-indigo-600 hover:underline font-semibold transition-colors cursor-pointer"
+                      title="作成者の社員詳細を表示"
+                    >
+                      {viewingReport.author?.name || (viewingReport as any).authorName || '不明'}
+                    </button>
                     {viewingReport.department ? ` (${viewingReport.department})` : ''}
                   </p>
                 </div>
@@ -1634,9 +1683,17 @@ export function DailyReportView({
                 </div>
                 <div>
                   <span className="text-slate-500 block text-[11px]">報告先上長:</span>
-                  <span className="font-bold text-indigo-900">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const sup = viewingReport.supervisor || viewingReport.supervisorId;
+                      if (sup) triggerOpenUserModal(sup);
+                    }}
+                    className="font-bold text-indigo-900 hover:text-indigo-600 hover:underline transition-colors cursor-pointer"
+                    title="報告先上長の社員詳細を表示"
+                  >
                     {viewingReport.supervisor?.name || (supervisorCandidates.find(u => u.id === viewingReport.supervisorId)?.name) || '指定なし'}
-                  </span>
+                  </button>
                 </div>
                 <div>
                   <span className="text-slate-500 block text-[11px]">確認日時:</span>
@@ -1824,10 +1881,15 @@ export function DailyReportView({
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <span className="text-slate-500">提出者:</span>
-                    <span className="font-bold text-slate-800 text-sm">
+                    <button
+                      type="button"
+                      onClick={() => triggerOpenUserModal(reviewingReport.author || (reviewingReport as any).authorId || (reviewingReport as any).authorName)}
+                      className="font-bold text-slate-800 hover:text-indigo-600 hover:underline text-sm transition-colors cursor-pointer"
+                      title="提出者の社員詳細を表示"
+                    >
                       {reviewingReport.author?.name || (reviewingReport as any).authorName || '不明'} 
                       {reviewingReport.department || reviewingReport.author?.department ? ` (${reviewingReport.department || reviewingReport.author?.department})` : ''}
-                    </span>
+                    </button>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-slate-500">対象週:</span>

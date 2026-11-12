@@ -6,6 +6,7 @@ import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { FilePreviewModal } from './FilePreviewModal';
 import { isPreviewable } from '../utils/fileUpload';
 import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
+import { triggerOpenUserModal } from '../utils/userModal';
 import { filterStepsForApplicant, getSupervisorAtLevel, resolveApproverForStep, isDuplicateApproverStep, isUserCurrentApprover as isUserCurrentApproverHelper } from '../utils/workflowHelpers';
 
 interface WorkflowProps {
@@ -535,18 +536,34 @@ export const Workflow = React.memo(function Workflow({ applications, onAddApplic
                     {filter === 'my_applications' ? (
                       <>
                         <span className="text-xs text-slate-500 font-medium">承認者</span>
-                        <div className="flex items-center gap-2">
-                          <img src={getAvatarUrl(app.approver?.id === currentUser.id ? (currentUser.avatarUrl || app.approver?.avatarUrl) : app.approver?.avatarUrl)} onError={handleAvatarError} alt={app.approver?.name} className="w-6 h-6 rounded-full border border-slate-200 object-cover" />
-                          <span className="text-sm font-semibold text-slate-800">{app.approver?.name || '未設定'}</span>
-                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (app.approver) triggerOpenUserModal(app.approver);
+                          }}
+                          className="flex items-center gap-2 hover:opacity-80 transition-opacity cursor-pointer group/usr"
+                          title="承認者の社員詳細を表示"
+                        >
+                          <img src={getAvatarUrl(app.approver?.id === currentUser.id ? (currentUser.avatarUrl || app.approver?.avatarUrl) : app.approver?.avatarUrl)} onError={handleAvatarError} alt={app.approver?.name} className="w-6 h-6 rounded-full border border-slate-200 object-cover group-hover/usr:ring-2 group-hover/usr:ring-indigo-400 transition-all" />
+                          <span className="text-sm font-semibold text-slate-800 group-hover/usr:text-indigo-600 transition-colors">{app.approver?.name || '未設定'}</span>
+                        </button>
                       </>
                     ) : (
                       <>
                         <span className="text-xs text-slate-500 font-medium">申請者</span>
-                        <div className="flex items-center gap-2">
-                          <img src={getAvatarUrl(app.applicant?.id === currentUser.id ? (currentUser.avatarUrl || app.applicant?.avatarUrl) : app.applicant?.avatarUrl)} onError={handleAvatarError} alt={app.applicant?.name} className="w-6 h-6 rounded-full border border-slate-200 object-cover" />
-                          <span className="text-sm font-semibold text-slate-800">{app.applicant?.name || '未設定'}</span>
-                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (app.applicant) triggerOpenUserModal(app.applicant);
+                          }}
+                          className="flex items-center gap-2 hover:opacity-80 transition-opacity cursor-pointer group/usr"
+                          title="申請者の社員詳細を表示"
+                        >
+                          <img src={getAvatarUrl(app.applicant?.id === currentUser.id ? (currentUser.avatarUrl || app.applicant?.avatarUrl) : app.applicant?.avatarUrl)} onError={handleAvatarError} alt={app.applicant?.name} className="w-6 h-6 rounded-full border border-slate-200 object-cover group-hover/usr:ring-2 group-hover/usr:ring-indigo-400 transition-all" />
+                          <span className="text-sm font-semibold text-slate-800 group-hover/usr:text-indigo-600 transition-colors">{app.applicant?.name || '未設定'}</span>
+                        </button>
                       </>
                     )}
                   </div>
@@ -593,10 +610,19 @@ export const Workflow = React.memo(function Workflow({ applications, onAddApplic
                         </span>
                       )}
                       {app.purchaseMethod === 'delegate' && (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-indigo-50 text-indigo-800 border border-indigo-200 shadow-2xs">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const target = app.purchaserDelegateUser || app.purchaserDelegateUserId;
+                            if (target) triggerOpenUserModal(target);
+                          }}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 shadow-2xs transition-colors cursor-pointer"
+                          title="購入依頼先の社員詳細を表示"
+                        >
                           <UserPlus className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                          <span>購入依頼先: <strong>{app.purchaserDelegateUser?.name || '指定担当者'}</strong></span>
-                        </span>
+                          <span>購入依頼先: <strong className="underline decoration-indigo-300">{app.purchaserDelegateUser?.name || '指定担当者'}</strong></span>
+                        </button>
                       )}
                     </div>
 
@@ -805,7 +831,19 @@ export const Workflow = React.memo(function Workflow({ applications, onAddApplic
                             <div className="flex items-center gap-1.5 font-bold text-amber-900 bg-amber-100/80 px-2.5 py-1 rounded-lg border border-amber-300 animate-pulse">
                               <Clock className="w-3.5 h-3.5 text-amber-700" />
                               <span>
-                                確認待ち: 今 <strong className="underline decoration-amber-500 font-extrabold">{app.approver?.name || '承認者'}</strong> さんの承認確認待ちです
+                                確認待ち: 今{' '}
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (app.approver) triggerOpenUserModal(app.approver);
+                                  }}
+                                  className="underline decoration-amber-500 font-extrabold hover:text-indigo-700 cursor-pointer"
+                                  title="承認者の社員詳細を表示"
+                                >
+                                  {app.approver?.name || '承認者'}
+                                </button>{' '}
+                                さんの承認確認待ちです
                               </span>
                             </div>
                           )}
@@ -843,11 +881,19 @@ export const Workflow = React.memo(function Workflow({ applications, onAddApplic
                           {/* ステップ進行プログレスルート */}
                           <div className="flex flex-wrap items-center gap-2 pt-1">
                             {/* 申請者 */}
-                            <div className="flex items-center gap-1.5 px-2 py-1 bg-white rounded-lg border border-slate-200 text-slate-700 font-medium">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (app.applicant) triggerOpenUserModal(app.applicant);
+                              }}
+                              className="flex items-center gap-1.5 px-2 py-1 bg-white hover:bg-indigo-50/70 rounded-lg border border-slate-200 hover:border-indigo-300 text-slate-700 font-medium transition-colors cursor-pointer"
+                              title="申請者の社員詳細を表示"
+                            >
                               <span className="w-4 h-4 rounded-full bg-slate-200 text-slate-700 text-[10px] font-bold flex items-center justify-center shrink-0">発</span>
-                              <span className="font-bold text-slate-900">{app.applicant?.name}</span>
+                              <span className="font-bold text-slate-900 hover:text-indigo-600">{app.applicant?.name}</span>
                               <span className="text-[10px] text-slate-400">(申請)</span>
-                            </div>
+                            </button>
 
                             {displaySteps.map((step, idx) => {
                               const stepNum = idx + 1;
@@ -872,7 +918,14 @@ export const Workflow = React.memo(function Workflow({ applications, onAddApplic
                                   <ArrowRight className="w-3.5 h-3.5 text-slate-300 shrink-0" />
 
                                   <div
-                                    className={`flex items-center gap-2 px-2.5 py-1.5 rounded-xl border text-xs transition-all ${
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (userInfo.name && userInfo.name !== '未定' && userInfo.name !== '承認者') {
+                                        triggerOpenUserModal(userInfo.name);
+                                      }
+                                    }}
+                                    title={`${userInfo.name} さんの社員詳細を表示`}
+                                    className={`flex items-center gap-2 px-2.5 py-1.5 rounded-xl border text-xs transition-all cursor-pointer hover:ring-2 hover:ring-indigo-300/60 ${
                                       isDuplicate
                                         ? 'bg-slate-100/90 border-dashed border-slate-300 text-slate-400 opacity-60'
                                         : stepState === 'completed'
@@ -932,7 +985,12 @@ export const Workflow = React.memo(function Workflow({ applications, onAddApplic
                               {app.history.map((hist, hIdx) => (
                                 <span
                                   key={hIdx}
-                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-medium border ${
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (hist.approver) triggerOpenUserModal(hist.approver);
+                                  }}
+                                  title={`${hist.approver.name} さんの社員詳細を表示`}
+                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-medium border cursor-pointer hover:opacity-85 transition-opacity ${
                                     hist.status === 'approved'
                                       ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
                                       : 'bg-rose-50 text-rose-800 border-rose-200'
@@ -944,7 +1002,7 @@ export const Workflow = React.memo(function Workflow({ applications, onAddApplic
                                     <XCircle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
                                   )}
                                   <span>
-                                    {hist.stepNumber === 0 ? '再申請' : `ステップ${hist.stepNumber}`}: <strong>{hist.approver.name}</strong> {hist.status === 'approved' ? (hist.stepNumber === 0 ? '提出' : '承認') : '却下'}
+                                    {hist.stepNumber === 0 ? '再申請' : `ステップ${hist.stepNumber}`}: <strong className="underline decoration-current/40">{hist.approver.name}</strong> {hist.status === 'approved' ? (hist.stepNumber === 0 ? '提出' : '承認') : '却下'}
                                     {hist.comment && <span className="text-slate-600 font-normal ml-1">「{hist.comment}」</span>}
                                   </span>
                                 </span>
