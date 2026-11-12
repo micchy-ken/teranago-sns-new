@@ -19,7 +19,7 @@ interface SiteManagementProps {
   events?: CalendarEvent[];
   initialSiteId?: string;
   onClearInitialSiteId?: () => void;
-  onNavigateToCalendar?: (eventId: string, date?: string) => void;
+  onNavigateToCalendar?: (eventId: string, date?: string, targetUser?: User) => void;
 }
 
 export const SiteManagement: React.FC<SiteManagementProps> = ({ 
@@ -430,6 +430,7 @@ export const SiteManagement: React.FC<SiteManagementProps> = ({
           currentUser={currentUser}
           allUsers={allUsers}
           onSelectSite={handleOpenDetail}
+          onNavigateToCalendar={onNavigateToCalendar}
         />
       )}
 

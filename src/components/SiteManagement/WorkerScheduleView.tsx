@@ -10,13 +10,15 @@ interface WorkerScheduleViewProps {
   currentUser: User;
   allUsers: User[];
   onSelectSite: (site: Site) => void;
+  onNavigateToCalendar?: (eventId: string, date?: string, targetUser?: User) => void;
 }
 
 export const WorkerScheduleView: React.FC<WorkerScheduleViewProps> = ({
   sites,
   currentUser,
   allUsers,
-  onSelectSite
+  onSelectSite,
+  onNavigateToCalendar,
 }) => {
   // 選択施工者 (デフォルトはログインユーザー)
   const [selectedWorkerId, setSelectedWorkerId] = useState<string>(currentUser.id);
@@ -138,7 +140,7 @@ export const WorkerScheduleView: React.FC<WorkerScheduleViewProps> = ({
     <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden flex flex-col">
       {/* 施工者選択ヘッダー */}
       <div className="p-4 border-b border-slate-200 bg-slate-50/70 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-2xs">
             <UserIcon className="w-4 h-4 text-indigo-600" />
             <span className="text-xs font-semibold text-slate-600">施工者:</span>
@@ -164,6 +166,18 @@ export const WorkerScheduleView: React.FC<WorkerScheduleViewProps> = ({
             <UserIcon className="w-3.5 h-3.5 text-indigo-600" />
             <span>社員詳細</span>
           </button>
+
+          {onNavigateToCalendar && (
+            <button
+              type="button"
+              onClick={() => onNavigateToCalendar('', undefined, selectedUser)}
+              className="px-2.5 py-1.5 bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer shadow-2xs"
+              title={`${selectedUser.name} さんの所属チーム予定表を開く`}
+            >
+              <Calendar className="w-3.5 h-3.5 text-indigo-600" />
+              <span>チーム予定表で開く</span>
+            </button>
+          )}
 
           <span className="text-xs text-slate-500">
             乗り込み予定: <strong className="text-indigo-600 text-sm">{myAssignments.length}</strong> 件

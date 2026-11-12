@@ -24,7 +24,7 @@ interface SiteDetailModalProps {
   currentUser: User;
   allUsers: User[];
   events?: CalendarEvent[];
-  onNavigateToCalendar?: (eventId: string, date?: string) => void;
+  onNavigateToCalendar?: (eventId: string, date?: string, targetUser?: User) => void;
 }
 
 /**
@@ -1667,8 +1667,13 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
                       type="button"
                       onClick={() => {
                         if (onNavigateToCalendar) {
+                          const primaryUser = allUsers.find(
+                            u =>
+                              (currentSite.primaryWorkerId && String(u.id) === String(currentSite.primaryWorkerId)) ||
+                              (currentSite.primaryWorkerName && u.name === currentSite.primaryWorkerName)
+                          );
                           onClose();
-                          onNavigateToCalendar('', currentSite.constructionDate || currentSite.startDate);
+                          onNavigateToCalendar('', currentSite.constructionDate || currentSite.startDate, primaryUser);
                         }
                       }}
                       className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-lg border border-indigo-200 flex items-center gap-1.5 transition-colors cursor-pointer text-xs shrink-0"
@@ -1798,12 +1803,26 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
                               type="button"
                               onClick={() => {
                                 if (onNavigateToCalendar) {
+                                  const firstAtt = attendees[0];
+                                  const evtUser =
+                                    (firstAtt &&
+                                      allUsers.find(
+                                        u =>
+                                          String(u.id) === String(firstAtt.id) ||
+                                          (firstAtt.name && u.name === firstAtt.name)
+                                      )) ||
+                                    firstAtt ||
+                                    allUsers.find(
+                                      u =>
+                                        (currentSite.primaryWorkerId && String(u.id) === String(currentSite.primaryWorkerId)) ||
+                                        (currentSite.primaryWorkerName && u.name === currentSite.primaryWorkerName)
+                                    );
                                   onClose();
-                                  onNavigateToCalendar(evt.id, evt.start);
+                                  onNavigateToCalendar(evt.id, evt.start, evtUser);
                                 }
                               }}
                               className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg border border-indigo-200 shadow-2xs transition-all cursor-pointer"
-                              title="カレンダー画面に移動してこの予定の詳細を表示"
+                              title="該当担当者のチーム予定表に移動してこの予定を表示"
                             >
                               <Calendar className="w-3.5 h-3.5 text-indigo-600" />
                               <span>カレンダーで開く</span>
@@ -2116,12 +2135,26 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
                             type="button"
                             onClick={() => {
                               if (onNavigateToCalendar) {
+                                const firstAtt = attendees[0];
+                                const evtUser =
+                                  (firstAtt &&
+                                    allUsers.find(
+                                      u =>
+                                        String(u.id) === String(firstAtt.id) ||
+                                        (firstAtt.name && u.name === firstAtt.name)
+                                    )) ||
+                                  firstAtt ||
+                                  allUsers.find(
+                                    u =>
+                                      (currentSite.primaryWorkerId && String(u.id) === String(currentSite.primaryWorkerId)) ||
+                                      (currentSite.primaryWorkerName && u.name === currentSite.primaryWorkerName)
+                                  );
                                 onClose();
-                                onNavigateToCalendar(evt.id, evt.start);
+                                onNavigateToCalendar(evt.id, evt.start, evtUser);
                               }
                             }}
                             className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg border border-indigo-200 shadow-2xs hover:shadow-xs transition-all cursor-pointer"
-                            title="カレンダー画面に移動してこの予定の詳細を表示"
+                            title="該当担当者のチーム予定表に移動してこの予定を表示"
                           >
                             <Calendar className="w-3.5 h-3.5 text-indigo-600" />
                             <span>カレンダーで開く</span>

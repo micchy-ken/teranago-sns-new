@@ -296,6 +296,7 @@ export function Calendar({
     if (initialView) return initialView;
     const presetInfo = getInitialPresetInfo(currentUser, { initialOffice, initialDivision, initialMode, initialView, initialTypeFilter });
     if (presetInfo?.preset.view) return presetInfo.preset.view;
+    if (initialMode === 'team') return 'week';
     return 'month';
   });
 
@@ -394,7 +395,7 @@ export function Calendar({
     }
   }, [currentUser?.id, selectedPersonalUserId]);
 
-  // 社員詳細ポップアップの「予定を見る」やURLパラメータから対象メンバーが指定された場合の同期
+  // 社員詳細ポップアップの「予定を見る」や現場管理・URLパラメータから対象メンバー・チームが指定された場合の同期
   useEffect(() => {
     if (initialTargetUserId) {
       setCalendarMode('personal');
@@ -407,29 +408,46 @@ export function Calendar({
         const divName = getUserDivisionName(targetU, divisions);
         if (divName) setSelectedDivision(divName);
       }
+    } else if (initialMode === 'team') {
+      setCalendarMode('team');
+      setSelectedGroupId('org');
+      if (initialOffice) {
+        setSelectedOffice(resolveOfficeName(initialOffice, offices) || initialOffice);
+      }
+      if (initialDivision) {
+        setSelectedDivision(resolveDivisionName(initialDivision, divisions) || initialDivision);
+      }
+      setView(prev => {
+        if (initialView === 'day' || initialView === 'week') return initialView;
+        return prev === 'day' ? 'day' : 'week';
+      });
     }
-  }, [initialTargetUserId, targetUserRequestKey, allUsers, offices, divisions]);
+  }, [initialTargetUserId, initialMode, initialOffice, initialDivision, initialView, targetUserRequestKey, allUsers, offices, divisions]);
 
   // initialPropsの動的変更を反映
   useEffect(() => {
     if (initialView) setView(initialView);
-  }, [initialView]);
+  }, [initialView, targetUserRequestKey]);
 
   useEffect(() => {
     if (initialMode && !initialTargetUserId) setCalendarMode(initialMode);
-  }, [initialMode, initialTargetUserId]);
+  }, [initialMode, initialTargetUserId, targetUserRequestKey]);
 
   useEffect(() => {
-    if (initialOffice) setSelectedOffice(initialOffice);
-  }, [initialOffice]);
+    if (initialOffice) {
+      setSelectedOffice(resolveOfficeName(initialOffice, offices) || initialOffice);
+    }
+  }, [initialOffice, offices, targetUserRequestKey]);
 
   useEffect(() => {
-    if (initialDivision) setSelectedDivision(initialDivision);
-  }, [initialDivision]);
+    if (initialDivision) {
+      setSelectedDivision(resolveDivisionName(initialDivision, divisions) || initialDivision);
+    }
+  }, [initialDivision, divisions, targetUserRequestKey]);
 
   useEffect(() => {
     if (initialTypeFilter) setSelectedTypeFilter(initialTypeFilter);
-  }, [initialTypeFilter]);
+  }, [initialTypeFilter, targetUserRequestKey]);
 
   useEffect(() => {
     if (initialDate) {
@@ -440,7 +458,7 @@ export function Calendar({
         if (!isNaN(d.getTime())) setCurrentDate(d);
       }
     }
-  }, [initialDate]);
+  }, [initialDate, targetUserRequestKey]);
 
   // --- カレンダー表示設定 (平日のみ / 時間帯 / 密度) & マイグループ ---
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);

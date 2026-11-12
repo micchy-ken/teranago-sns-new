@@ -68,6 +68,7 @@ import { UserDetailModal } from './components/UserDetailModal';
 import { filterStepsForApplicant, resolveApproverForStep, getSupervisorAtLevel } from './utils/workflowHelpers';
 import { planRecurrenceSave, planRecurrenceDelete, safeParseRecurrence, safeParseExceptions, expandRecurringEvents, isExpandedRecurrenceId, extractParentIdFromInstanceId, extractDateFromInstanceId } from './utils/recurrenceUtils';
 import { sortUsersByDivision } from './utils/userSort';
+import { getUserOfficeName, getUserDivisionName } from './utils/masterResolver';
 import { RecurrenceActionScope } from './components/RecurrenceActionModal';
 import { parseAppQueryParams, updateBrowserUrl, AppQueryParams } from './utils/urlParams';
 import { initColorTheme, initFontSize, applyFontSize, applyColorTheme } from './utils/theme';
@@ -292,21 +293,6 @@ export default function App() {
     setActiveTab('memo');
   };
 
-  const handleViewScheduleFromModal = (targetUser: User) => {
-    setGlobalSelectedUser(null);
-    if (targetUser?.id) {
-      setCalendarParams(prev => ({
-        ...prev,
-        mode: 'personal',
-        targetUserId: String(targetUser.id),
-        office: targetUser.office || prev.office,
-        division: targetUser.division || prev.division,
-        requestKey: Date.now(),
-      }));
-    }
-    setActiveTab('calendar');
-  };
-
   const handleOpenChatFromModal = (targetUser: User) => {
     setGlobalSelectedUser(null);
     if (targetUser?.id && targetUser.id !== userState?.id) {
@@ -449,15 +435,6 @@ export default function App() {
   const handleNavigateToSite = (siteIdOrCode: string) => {
     setTargetSiteId(siteIdOrCode);
     setActiveTab('site_management');
-  };
-
-  const handleNavigateToCalendar = (eventId: string, date?: string) => {
-    setTargetEventId(eventId);
-    if (date) {
-      const datePart = date.includes('T') ? date.split('T')[0] : date;
-      setCalendarParams(prev => ({ ...prev, date: datePart }));
-    }
-    setActiveTab('calendar');
   };
 
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
@@ -803,6 +780,69 @@ export default function App() {
   const [safetyResponses, setSafetyResponses] = useState<SafetyConfirmationResponse[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
+
+  const handleViewScheduleFromModal = (targetUser: User) => {
+    setGlobalSelectedUser(null);
+    if (targetUser) {
+      const resolvedUser =
+        usersList.find(
+          u =>
+            (targetUser.id && String(u.id) === String(targetUser.id)) ||
+            (targetUser.name && u.name === targetUser.name)
+        ) || targetUser;
+      const targetOffice = getUserOfficeName(resolvedUser, offices) || resolvedUser.office;
+      const targetDivision = getUserDivisionName(resolvedUser, divisions) || resolvedUser.division;
+      setCalendarParams(prev => ({
+        ...prev,
+        mode: 'team',
+        view: prev.view === 'day' ? 'day' : 'week',
+        office: targetOffice || prev.office,
+        division: targetDivision || prev.division,
+        targetUserId: undefined,
+        requestKey: Date.now(),
+      }));
+    }
+    setActiveTab('calendar');
+  };
+
+  const handleNavigateToCalendar = (eventId: string, date?: string, targetUser?: User) => {
+    setTargetEventId(eventId || undefined);
+    let resolvedUser: User | undefined = targetUser;
+    if (!resolvedUser && eventId) {
+      const targetEv = events.find(e => String(e.id) === String(eventId));
+      const firstAtt = targetEv?.attendees?.[0] || targetEv?.createdBy;
+      if (firstAtt) {
+        resolvedUser =
+          usersList.find(
+            u =>
+              (firstAtt.id && String(u.id) === String(firstAtt.id)) ||
+              (firstAtt.name && u.name === firstAtt.name)
+          ) || firstAtt;
+      }
+    } else if (resolvedUser) {
+      resolvedUser =
+        usersList.find(
+          u =>
+            (resolvedUser?.id && String(u.id) === String(resolvedUser.id)) ||
+            (resolvedUser?.name && u.name === resolvedUser.name)
+        ) || resolvedUser;
+    }
+    const fallbackUser = resolvedUser || userState;
+    const targetOffice = getUserOfficeName(fallbackUser, offices) || fallbackUser?.office;
+    const targetDivision = getUserDivisionName(fallbackUser, divisions) || fallbackUser?.division;
+    const datePart = date ? (date.includes('T') ? date.split('T')[0] : date) : undefined;
+    setCalendarParams(prev => ({
+      ...prev,
+      mode: 'team',
+      view: prev.view === 'day' ? 'day' : 'week',
+      office: targetOffice || prev.office,
+      division: targetDivision || prev.division,
+      date: datePart || prev.date,
+      targetUserId: undefined,
+      requestKey: Date.now(),
+    }));
+    setActiveTab('calendar');
+  };
 
   // URLパラメータ等で targetApplicationId が指定されている場合に初期ロード完了時にピンポイントモーダル表示
   useEffect(() => {
