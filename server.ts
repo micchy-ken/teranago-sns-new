@@ -1965,12 +1965,13 @@ async function startServer() {
   app.put('/api/chats/:roomId', (req, res) => {
     try {
       const { roomId } = req.params;
-      const { name, participants, adminIds } = req.body;
+      const { name, avatarUrl, participants, adminIds } = req.body;
       const rooms = loadChatRooms();
       const room = rooms.find((r) => String(r.id) === String(roomId));
 
       if (room) {
         if (name !== undefined) room.name = name;
+        if (avatarUrl !== undefined) room.avatarUrl = avatarUrl;
         if (participants !== undefined) room.participants = participants;
         if (adminIds !== undefined) room.adminIds = adminIds;
         room.updatedAt = new Date().toISOString();

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { ChatRoom, ChatMessage, User, OfficeMaster, DivisionMaster, AttachmentFile } from '../types';
-import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
+import { getAvatarUrl, handleAvatarError, optimizeAvatarFile } from '../utils/avatar';
 import { MemberSelector } from './MemberSelector';
 import { markChatRoomAsRead, getReadChatTimestamps, getChatRoomUnreadCount } from '../utils/notifications';
 import { API_BASE_URL } from '../config/api';
@@ -1415,10 +1415,82 @@ export function Chat({
   // 新規ルーム作成フォーム状態
   const [newRoomType, setNewRoomType] = useState<'group' | 'dm'>('group');
   const [newRoomName, setNewRoomName] = useState('');
+  const [newRoomAvatarUrl, setNewRoomAvatarUrl] = useState<string | null>(null);
+  const [isUploadingNewRoomAvatar, setIsUploadingNewRoomAvatar] = useState(false);
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [modalSearch, setModalSearch] = useState('');
   const [modalOffice, setModalOffice] = useState('all');
   const [modalDivision, setModalDivision] = useState('all');
+  const newRoomAvatarInputRef = useRef<HTMLInputElement>(null);
+  const activeRoomAvatarInputRef = useRef<HTMLInputElement>(null);
+  const [isUpdatingActiveRoomAvatar, setIsUpdatingActiveRoomAvatar] = useState(false);
+
+  // ルームアイコン画像のアップロードハンドラー（256px最適化）
+  const handleUploadRoomIconFile = async (file: File): Promise<string> => {
+    const optimized = await optimizeAvatarFile(file, 256);
+    const formData = new FormData();
+    formData.append('avatar', optimized);
+    const res = await fetch(`${API_BASE_URL}/upload-avatar`, {
+      method: 'POST',
+      body: formData,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'アイコンのアップロードに失敗しました');
+    }
+    const data = await res.json();
+    return data.avatarUrl;
+  };
+
+  const handleActiveRoomIconChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !activeRoom) return;
+    setIsUpdatingActiveRoomAvatar(true);
+    try {
+      const url = await handleUploadRoomIconFile(file);
+      const updated = rooms.map(r => {
+        if (r.id === activeRoom.id) {
+          return {
+            ...r,
+            avatarUrl: url,
+            lastUpdated: new Date().toISOString()
+          };
+        }
+        return r;
+      });
+      if (onUpdateRooms) {
+        onUpdateRooms(updated);
+      }
+    } catch (err: any) {
+      setConfirmModal({
+        isOpen: true,
+        title: 'アイコン設定エラー',
+        message: err.message || 'アイコンの保存に失敗しました。',
+        confirmText: '閉じる',
+        onConfirm: () => {}
+      });
+    } finally {
+      setIsUpdatingActiveRoomAvatar(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleRemoveActiveRoomIcon = () => {
+    if (!activeRoom) return;
+    const updated = rooms.map(r => {
+      if (r.id === activeRoom.id) {
+        return {
+          ...r,
+          avatarUrl: null,
+          lastUpdated: new Date().toISOString()
+        };
+      }
+      return r;
+    });
+    if (onUpdateRooms) {
+      onUpdateRooms(updated);
+    }
+  };
 
   // 写真プレビュー＆アップロード（2段階サムネイル対応）
   const [pendingPhotoUrl, setPendingPhotoUrl] = useState<string | null>(null);
@@ -1604,12 +1676,22 @@ export function Chat({
     return `D:${targetName}`;
   };
 
-  const getRoomIcon = (room: ChatRoom) => {
+  const getRoomIcon = (room: ChatRoom, sizeClass = 'w-10 h-10', iconSizeClass = 'w-5 h-5') => {
     if (!room) return null;
     if (isGroupRoom(room)) {
+      if (room.avatarUrl) {
+        return (
+          <img
+            src={getAvatarUrl(room.avatarUrl)}
+            alt={getRoomName(room)}
+            onError={handleAvatarError}
+            className={`${sizeClass} rounded-full border border-indigo-200 object-cover shrink-0 shadow-2xs`}
+          />
+        );
+      }
       return (
-        <div className="w-10 h-10 rounded-full bg-indigo-100 border border-indigo-200 flex items-center justify-center text-indigo-600 shrink-0">
-          <Users className="w-5 h-5" />
+        <div className={`${sizeClass} rounded-full bg-indigo-100 border border-indigo-200 flex items-center justify-center text-indigo-600 shrink-0 shadow-2xs`}>
+          <Users className={iconSizeClass} />
         </div>
       );
     }
@@ -1623,7 +1705,7 @@ export function Chat({
         src={getAvatarUrl(effectiveAvatar)}
         alt={effectiveName}
         onError={handleAvatarError}
-        className="w-10 h-10 rounded-full border border-slate-200 object-cover shrink-0"
+        className={`${sizeClass} rounded-full border border-slate-200 object-cover shrink-0`}
       />
     );
   };
@@ -2077,6 +2159,7 @@ export function Chat({
     const newRoom: ChatRoom = {
       id: `c_${Date.now()}`,
       name: newRoomType === 'group' ? ((newRoomName || '').trim() || '新規グループトーク') : undefined,
+      avatarUrl: newRoomType === 'group' ? (newRoomAvatarUrl || null) : null,
       type: newRoomType,
       participants: allParticipants,
       adminIds: newRoomType === 'group' ? [currentUser.id] : [],
@@ -2303,6 +2386,7 @@ export function Chat({
   const resetCreateForm = () => {
     setNewRoomType('group');
     setNewRoomName('');
+    setNewRoomAvatarUrl(null);
     setSelectedUserIds([]);
     setModalSearch('');
     setModalOffice('all');
@@ -2551,8 +2635,32 @@ export function Chat({
                   </>
                 )}
               </button>
-              <div className="shrink-0">
+              <div className="shrink-0 relative group/icon">
                 {getRoomIcon(activeRoom)}
+                {isGroupRoom(activeRoom) && isUserRoomAdmin(activeRoom, currentUser.id) && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => activeRoomAvatarInputRef.current?.click()}
+                      className="absolute inset-0 bg-black/40 text-white rounded-full flex items-center justify-center opacity-0 group-hover/icon:opacity-100 transition-opacity cursor-pointer shadow-xs"
+                      title="グループアイコンを変更"
+                      disabled={isUpdatingActiveRoomAvatar}
+                    >
+                      {isUpdatingActiveRoomAvatar ? (
+                        <Loader2 className="w-4 h-4 animate-spin text-white" />
+                      ) : (
+                        <Camera className="w-4 h-4" />
+                      )}
+                    </button>
+                    <input
+                      ref={activeRoomAvatarInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleActiveRoomIconChange}
+                    />
+                  </>
+                )}
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5 sm:gap-2">
@@ -2803,6 +2911,59 @@ export function Chat({
                       <X className="w-4 h-4" />
                     </button>
                   </div>
+
+                  {/* グループルームアイコン設定（グループトークの場合） */}
+                  {isGroupRoom(activeRoom) && (
+                    <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex flex-col items-center text-center space-y-2">
+                      <div className="relative group/sideicon">
+                        {getRoomIcon(activeRoom, 'w-16 h-16', 'w-8 h-8')}
+                        {isUserRoomAdmin(activeRoom, currentUser.id) && (
+                          <button
+                            type="button"
+                            onClick={() => activeRoomAvatarInputRef.current?.click()}
+                            className="absolute inset-0 bg-black/45 text-white rounded-full flex items-center justify-center opacity-0 group-hover/sideicon:opacity-100 transition-opacity cursor-pointer shadow-sm"
+                            title="グループアイコンを変更"
+                            disabled={isUpdatingActiveRoomAvatar}
+                          >
+                            {isUpdatingActiveRoomAvatar ? (
+                              <Loader2 className="w-5 h-5 animate-spin text-white" />
+                            ) : (
+                              <Camera className="w-5 h-5" />
+                            )}
+                          </button>
+                        )}
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold text-slate-800 line-clamp-1">{getRoomName(activeRoom)}</p>
+                        <p className="text-[10px] text-slate-400">
+                          {activeRoom.avatarUrl ? 'カスタムアイコン設定中' : 'デフォルトアイコン'}
+                        </p>
+                      </div>
+                      {isUserRoomAdmin(activeRoom, currentUser.id) && (
+                        <div className="flex items-center gap-1.5 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => activeRoomAvatarInputRef.current?.click()}
+                            disabled={isUpdatingActiveRoomAvatar}
+                            className="px-2.5 py-1 bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-lg text-[11px] font-bold flex items-center gap-1 shadow-2xs transition-colors cursor-pointer"
+                          >
+                            <Camera className="w-3 h-3" />
+                            <span>変更</span>
+                          </button>
+                          {activeRoom.avatarUrl && (
+                            <button
+                              type="button"
+                              onClick={handleRemoveActiveRoomIcon}
+                              className="px-2 py-1 bg-white hover:bg-rose-50 text-rose-600 border border-slate-200 hover:border-rose-200 rounded-lg text-[11px] font-semibold transition-colors cursor-pointer"
+                              title="アイコンをデフォルトに戻す"
+                            >
+                              解除
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   <div>
                     <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">
@@ -3381,20 +3542,98 @@ export function Chat({
                 </div>
               </div>
 
-              {/* グループ名（グループトークの場合） */}
+              {/* グループ名 & アイコン（グループトークの場合） */}
               {newRoomType === 'group' && (
-                <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">
-                    グループ名 <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={newRoomName}
-                    onChange={(e) => setNewRoomName(e.target.value)}
-                    placeholder="例: 名古屋営業チーム、開発プロジェクト"
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
-                  />
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">
+                      グループ名 <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={newRoomName}
+                      onChange={(e) => setNewRoomName(e.target.value)}
+                      placeholder="例: 名古屋営業チーム、開発プロジェクト"
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1.5">
+                      グループアイコン <span className="text-[11px] font-normal text-slate-400">（任意）</span>
+                    </label>
+                    <div className="flex items-center gap-3">
+                      <div className="relative group shrink-0">
+                        {newRoomAvatarUrl ? (
+                          <img
+                            src={getAvatarUrl(newRoomAvatarUrl)}
+                            alt="プレビュー"
+                            className="w-12 h-12 rounded-full border border-indigo-200 object-cover shadow-2xs"
+                          />
+                        ) : (
+                          <div className="w-12 h-12 rounded-full bg-indigo-50 border border-indigo-200 flex items-center justify-center text-indigo-500 shadow-2xs">
+                            <Users className="w-6 h-6" />
+                          </div>
+                        )}
+                        {isUploadingNewRoomAvatar && (
+                          <div className="absolute inset-0 bg-black/40 rounded-full flex items-center justify-center">
+                            <Loader2 className="w-5 h-5 animate-spin text-white" />
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => newRoomAvatarInputRef.current?.click()}
+                            disabled={isUploadingNewRoomAvatar}
+                            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer border border-slate-200"
+                          >
+                            <Camera className="w-3.5 h-3.5 text-slate-500" />
+                            <span>{newRoomAvatarUrl ? '画像を変更' : '画像を登録'}</span>
+                          </button>
+                          {newRoomAvatarUrl && (
+                            <button
+                              type="button"
+                              onClick={() => setNewRoomAvatarUrl(null)}
+                              className="px-2.5 py-1.5 bg-white hover:bg-rose-50 text-rose-600 rounded-lg text-xs font-semibold transition-colors cursor-pointer border border-slate-200"
+                            >
+                              解除
+                            </button>
+                          )}
+                        </div>
+                        <span className="text-[10px] text-slate-400">PNG / JPEG / WebP (自動正方形最適化)</span>
+                      </div>
+                      <input
+                        ref={newRoomAvatarInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          setIsUploadingNewRoomAvatar(true);
+                          try {
+                            const url = await handleUploadRoomIconFile(file);
+                            setNewRoomAvatarUrl(url);
+                          } catch (err: any) {
+                            setConfirmModal({
+                              isOpen: true,
+                              title: 'アイコン設定エラー',
+                              message: err.message || 'アイコンのアップロードに失敗しました。',
+                              confirmText: '閉じる',
+                              onConfirm: () => {}
+                            });
+                          } finally {
+                            setIsUploadingNewRoomAvatar(false);
+                            e.target.value = '';
+                          }
+                        }}
+                      />
+                    </div>
+                  </div>
                 </div>
               )}
 

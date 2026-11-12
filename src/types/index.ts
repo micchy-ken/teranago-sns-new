@@ -462,6 +462,7 @@ export interface ChatMessage {
 export interface ChatRoom {
   id: string;
   name?: string;
+  avatarUrl?: string | null;
   type: 'dm' | 'group';
   participants: User[];
   messages: ChatMessage[];

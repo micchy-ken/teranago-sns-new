@@ -743,7 +743,7 @@ router.post(['/chats/messages/:messageId/viewers', '/messages/:messageId/viewers
 // チャットルーム更新
 router.put(['/chats/:roomId', '/chats/:roomId/', '/chats/rooms/:roomId'], async (req, res) => {
   const { roomId } = req.params;
-  const { name, participants, adminIds } = req.body;
+  const { name, avatarUrl, participants, adminIds } = req.body;
   try {
     const pool = await getPool();
     if (!pool) return res.status(500).json({ success: false, error: 'DB接続が利用できません' });
@@ -759,6 +759,10 @@ router.put(['/chats/:roomId', '/chats/:roomId/', '/chats/rooms/:roomId'], async 
     if (name !== undefined) {
       query += ', name = @name';
       request.input('name', sql.NVarChar, name);
+    }
+    if (avatarUrl !== undefined) {
+      query += ', avatarUrl = @avatarUrl';
+      request.input('avatarUrl', sql.VarChar, avatarUrl || null);
     }
     if (participants !== undefined) {
       const colName = dbColumns.includes('participantsJson') ? 'participantsJson' : (dbColumns.includes('participants') ? 'participants' : null);

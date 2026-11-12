@@ -3431,19 +3431,21 @@ export default function App() {
         const isParticipantsChanged = !originalRoom || 
           JSON.stringify(originalRoom.participants) !== JSON.stringify(updatedRoom.participants) ||
           JSON.stringify(originalRoom.adminIds) !== JSON.stringify(updatedRoom.adminIds) ||
-          originalRoom.name !== updatedRoom.name;
+          originalRoom.name !== updatedRoom.name ||
+          originalRoom.avatarUrl !== updatedRoom.avatarUrl;
         
         const originalMsgs = originalRoom?.messages || [];
         const updatedMsgs = updatedRoom.messages || [];
         const isMessagesChanged = originalMsgs.length !== updatedMsgs.length;
 
         if (isParticipantsChanged || isMessagesChanged) {
-          // 1. チャットルーム情報（参加者、既読ステータスなど）を PUT で更新
+          // 1. チャットルーム情報（参加者、既読ステータス、アイコンなど）を PUT で更新
           await fetch(`${API_BASE_URL}/chats/${updatedRoom.id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               name: updatedRoom.name,
+              avatarUrl: updatedRoom.avatarUrl || null,
               participants: updatedRoom.participants || [],
               adminIds: updatedRoom.adminIds || [],
               readStatus: updatedRoom.readStatus || {},

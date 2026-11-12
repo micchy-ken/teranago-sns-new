@@ -1,7 +1,7 @@
 export const RECOMMEND_SERVER_JS = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年11月11日 (マスターID/コード主軸化 Step3：保守日報拠点設定(maintenance-configs)のofficeId主軸照合＆拠点名表記ゆれ吸収・Positionsマスターcode/level保存対応版)
+ * 最終更新日時 (最終アップデート): 2026年11月12日 (トークルーム・グループアイコン画像登録＆更新対応版)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -1986,12 +1986,13 @@ async function startServer() {
   app.put('/api/chats/:roomId', (req, res) => {
     try {
       const { roomId } = req.params;
-      const { name, participants, adminIds } = req.body;
+      const { name, avatarUrl, participants, adminIds } = req.body;
       const rooms = loadChatRooms();
       const room = rooms.find((r) => String(r.id) === String(roomId));
 
       if (room) {
         if (name !== undefined) room.name = name;
+        if (avatarUrl !== undefined) room.avatarUrl = avatarUrl;
         if (participants !== undefined) room.participants = participants;
         if (adminIds !== undefined) room.adminIds = adminIds;
         room.updatedAt = new Date().toISOString();
