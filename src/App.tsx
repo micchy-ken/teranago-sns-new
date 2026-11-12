@@ -3428,7 +3428,8 @@ export default function App() {
       for (const updatedRoom of updatedRooms) {
         const originalRoom = prevRooms.find(r => r.id === updatedRoom.id);
         
-        const isParticipantsChanged = !originalRoom || 
+        const isNewRoom = !originalRoom;
+        const isParticipantsChanged = isNewRoom || 
           JSON.stringify(originalRoom.participants) !== JSON.stringify(updatedRoom.participants) ||
           JSON.stringify(originalRoom.adminIds) !== JSON.stringify(updatedRoom.adminIds) ||
           originalRoom.name !== updatedRoom.name ||
@@ -3439,7 +3440,27 @@ export default function App() {
         const isMessagesChanged = originalMsgs.length !== updatedMsgs.length;
 
         if (isParticipantsChanged || isMessagesChanged) {
-          // 1. チャットルーム情報（参加者、既読ステータス、アイコンなど）を PUT で更新
+          // 1-A. 新規ルーム作成時は専用の POST /api/chats/rooms を明示的に呼び出してアイコン・管理者・参加者を初期保存
+          if (isNewRoom) {
+            try {
+              await fetch(`${API_BASE_URL}/chats/rooms`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  id: updatedRoom.id,
+                  name: updatedRoom.name,
+                  type: updatedRoom.type || 'group',
+                  avatarUrl: updatedRoom.avatarUrl || null,
+                  participants: updatedRoom.participants || [],
+                  adminIds: updatedRoom.adminIds || []
+                })
+              });
+            } catch (createErr) {
+              console.warn('[Chat] Failed to create room via /chats/rooms, falling back to PUT:', createErr);
+            }
+          }
+
+          // 1-B. チャットルーム情報（参加者、既読ステータス、アイコンなど）を PUT で更新
           await fetch(`${API_BASE_URL}/chats/${updatedRoom.id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
@@ -3468,6 +3489,9 @@ export default function App() {
                 createdAt: lastMsg.createdAt,
                 roomName: updatedRoom.name,
                 roomType: updatedRoom.type,
+                avatarUrl: updatedRoom.avatarUrl || null,
+                roomAvatarUrl: updatedRoom.avatarUrl || null,
+                adminIds: updatedRoom.adminIds || [],
                 participants: updatedRoom.participants,
                 type: lastMsg.type || 'text',
                 quizId: lastMsg.quizId || null,

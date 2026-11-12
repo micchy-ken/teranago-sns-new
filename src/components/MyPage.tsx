@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { User, CalendarEvent, BoardTopic, Memo, WorkflowApplication, ChatRoom, OfficeMaster, DivisionMaster, PositionMaster, DailyReport, EmailNotificationSettings, ApplicationType } from '../types';
 import { AppTab } from './Sidebar';
-import { getAvatarUrl, SILHOUETTE_SVG, optimizeAvatarFile } from '../utils/avatar';
+import { getAvatarUrl, handleAvatarError, SILHOUETTE_SVG, optimizeAvatarFile } from '../utils/avatar';
 import { API_BASE_URL } from '../config/api';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { getLocalDateStr, formatTimeJST, getJstDateParts } from '../utils/dateUtils';
@@ -97,6 +97,7 @@ import {
   Type,
   Palette,
   BarChart2,
+  HelpCircle,
 } from 'lucide-react';
 import { AppFontSize, FONT_SIZE_OPTIONS, getSavedFontSize, applyFontSize, ColorTheme, THEME_OPTIONS, getSavedTheme, applyColorTheme } from '../utils/theme';
 import { TopicDetailModal } from './TopicDetailModal';
@@ -2013,16 +2014,108 @@ export function MyPage({
             onDragOver={(e) => handleDragOver(e, index)}
             onDrop={(e) => handleDrop(e, index)}
           >
-            <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 2xl:grid-cols-2">
+            <div className="grid gap-2.5 grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 2xl:grid-cols-2">
               {(() => {
                 const chatLimit = sectionCounts.chats;
                 const displayedChats = myChatRooms.slice(0, chatLimit);
+
+                // JST対応のコンパクトな日付フォーマッター
+                const formatChatShortDate = (dateInput?: string | null): string => {
+                  if (!dateInput) return '';
+                  const d = new Date(dateInput);
+                  if (isNaN(d.getTime())) return '';
+                  const todayStr = getLocalDateStr(new Date());
+                  const targetDateStr = getLocalDateStr(d);
+                  const timeStr = formatTimeJST(d);
+                  if (todayStr === targetDateStr) {
+                    return timeStr;
+                  }
+                  const todayParts = todayStr.split('-').map(Number);
+                  const targetParts = targetDateStr.split('-').map(Number);
+                  const todayUtc = Date.UTC(todayParts[0], todayParts[1] - 1, todayParts[2]);
+                  const targetUtc = Date.UTC(targetParts[0], targetParts[1] - 1, targetParts[2]);
+                  const diffDays = Math.round((todayUtc - targetUtc) / (1000 * 60 * 60 * 24));
+                  if (diffDays === 1) {
+                    return `昨日 ${timeStr}`;
+                  }
+                  if (todayParts[0] === targetParts[0]) {
+                    return `${targetParts[1]}/${targetParts[2]} ${timeStr}`;
+                  }
+                  return `${targetParts[0]}/${targetParts[1]}/${targetParts[2]}`;
+                };
+
+                // 最新メッセージのスニペット生成
+                const getMessageSnippet = (msg: any) => {
+                  if (!msg) return { prefix: '', text: 'メッセージはありません', type: 'empty' };
+                  const isMyMsg = String(msg.sender?.id || '') === String(user?.id || '');
+                  const senderName = isMyMsg ? 'あなた' : (msg.sender?.name || 'メンバー');
+
+                  if (msg.type === 'quiz' || msg.quizId) {
+                    return {
+                      prefix: `${senderName}:`,
+                      text: msg.quiz?.question || msg.content || 'クイズが送信されました',
+                      type: 'quiz',
+                    };
+                  }
+                  if (msg.type === 'image' || msg.imageUrl || (msg.images && msg.images.length > 0)) {
+                    return {
+                      prefix: `${senderName}:`,
+                      text: '画像を送信しました',
+                      type: 'image',
+                    };
+                  }
+                  if (msg.type === 'stamp' || msg.stampId) {
+                    return {
+                      prefix: `${senderName}:`,
+                      text: msg.stampText || 'スタンプを送信しました',
+                      type: 'stamp',
+                    };
+                  }
+                  if (msg.attachments && msg.attachments.length > 0) {
+                    return {
+                      prefix: `${senderName}:`,
+                      text: msg.attachments[0].name || 'ファイルを送信しました',
+                      type: 'file',
+                    };
+                  }
+
+                  let text = msg.content || '';
+                  text = text.replace(/\[quote[^\]]*\][\s\S]*?\[\/quote\]/g, '').trim();
+                  return {
+                    prefix: `${senderName}:`,
+                    text: text || 'メッセージを送信しました',
+                    type: 'text',
+                  };
+                };
 
                 return displayedChats.length > 0 ? (
                   <>
                     {displayedChats.map((room) => {
                       const isUnread = isChatUnread(room, user, readChatTimestamps);
                       const lastMsg = room.messages && room.messages.length > 0 ? room.messages[room.messages.length - 1] : null;
+                      const isGroup = room.type === 'group' || (room.participants && room.participants.length > 2);
+                      const participants = room.participants || [];
+
+                      // DM相手の特定とallUsersマスター照合
+                      const otherParticipant = !isGroup
+                        ? participants.find((p) => p && String(p.id) !== String(user?.id)) || participants[0]
+                        : null;
+                      const resolvedPartner = otherParticipant
+                        ? allUsers.find((u) => String(u.id) === String(otherParticipant.id)) || otherParticipant
+                        : null;
+
+                      const partnerName = resolvedPartner?.name || otherParticipant?.name || 'メンバー';
+                      const partnerAvatar = resolvedPartner?.avatarUrl || otherParticipant?.avatarUrl;
+                      const partnerAffiliation = resolvedPartner
+                        ? [resolvedPartner.office, resolvedPartner.division || resolvedPartner.department, resolvedPartner.position].filter(Boolean).join(' ')
+                        : '';
+
+                      const groupName = room.name || 'グループトーク';
+                      const memberCount = participants.length;
+                      const groupMembersPreview = participants.map((p) => p.name || 'メンバー').join(', ');
+
+                      const snippet = getMessageSnippet(lastMsg);
+                      const timestampStr = formatChatShortDate(lastMsg?.createdAt || room.lastUpdated);
 
                       return (
                         <div
@@ -2035,45 +2128,137 @@ export function MyPage({
                               onChangeTab('chat');
                             }
                           }}
-                          className={`p-3.5 rounded-xl border transition-all cursor-pointer flex flex-col gap-2 ${
+                          className={`group relative p-3 rounded-xl border transition-all cursor-pointer flex items-center gap-3 ${
                             isUnread
-                              ? 'bg-blue-50/50 border-blue-300 shadow-xs hover:border-blue-400'
-                              : 'bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50/50'
+                              ? 'bg-blue-50/70 border-blue-300 shadow-2xs hover:border-blue-400 hover:bg-blue-50/90'
+                              : 'bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50/80 hover:shadow-2xs'
                           }`}
                         >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-xs font-extrabold text-slate-900 line-clamp-1">
-                              {room.name || (lastMsg ? lastMsg.sender?.name : 'チャットルーム')}
-                            </span>
-                            {isUnread && (
-                              <span className="px-2 py-0.5 bg-blue-600 text-white text-[9px] font-black rounded-full shrink-0">
-                                NEW 未読
-                              </span>
+                          {/* ルームアイコン / 相手アバター */}
+                          <div className="relative shrink-0">
+                            {isGroup ? (
+                              room.avatarUrl ? (
+                                <img
+                                  src={getAvatarUrl(room.avatarUrl)}
+                                  alt={groupName}
+                                  onError={handleAvatarError}
+                                  className="w-11 h-11 rounded-full object-cover border border-indigo-200/90 shadow-2xs"
+                                />
+                              ) : (
+                                <div className="w-11 h-11 rounded-full bg-gradient-to-br from-indigo-50 to-indigo-100 border border-indigo-200/90 flex items-center justify-center text-indigo-600 shadow-2xs">
+                                  <Users className="w-5 h-5" />
+                                </div>
+                              )
+                            ) : (
+                              <img
+                                src={getAvatarUrl(partnerAvatar)}
+                                alt={partnerName}
+                                onError={handleAvatarError}
+                                className="w-11 h-11 rounded-full object-cover border border-slate-200/90 shadow-2xs group-hover:scale-102 transition-transform"
+                              />
                             )}
+
+                            {/* アイコン種別バッジ（右下に小さく表示） */}
+                            <div
+                              className={`absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full flex items-center justify-center text-white ring-2 ring-white shadow-2xs ${
+                                isGroup ? 'bg-indigo-600' : 'bg-emerald-500'
+                              }`}
+                              title={isGroup ? 'グループトーク' : 'ダイレクトトーク'}
+                            >
+                              {isGroup ? <Users className="w-2.5 h-2.5" /> : <UserIcon className="w-2.5 h-2.5" />}
+                            </div>
                           </div>
 
-                          {lastMsg ? (
-                            <p className="text-xs text-slate-600 line-clamp-2 bg-slate-50/80 p-2 rounded-lg border border-slate-100">
-                              <span
-                                onClick={(e) => {
-                                  if (lastMsg.sender) {
-                                    e.stopPropagation();
-                                    triggerOpenUserModal(lastMsg.sender);
-                                  }
-                                }}
-                                className="font-semibold text-slate-800 hover:text-blue-600 hover:underline cursor-pointer transition-colors"
-                                title="送信者の社員詳細を表示"
-                              >
-                                {lastMsg.sender?.name}:{' '}
-                              </span>
-                              {lastMsg.content}
-                            </p>
-                          ) : (
-                            <p className="text-xs text-slate-400 italic">メッセージはありません</p>
-                          )}
+                          {/* ルーム情報 & メッセージスニペット */}
+                          <div className="min-w-0 flex-1 flex flex-col justify-center gap-0.5">
+                            {/* 1行目: ルーム名/相手名 + 種別バッジ + 日時 + 未読バッジ */}
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <span className="text-xs font-bold text-slate-900 truncate">
+                                  {isGroup ? groupName : `${partnerName} さん`}
+                                </span>
+                                {isGroup ? (
+                                  <span className="px-1.5 py-0.2 rounded text-[10px] font-medium bg-indigo-50 text-indigo-700 border border-indigo-200/70 shrink-0">
+                                    グループ
+                                  </span>
+                                ) : (
+                                  <span className="px-1.5 py-0.2 rounded text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200/70 shrink-0">
+                                    ダイレクト
+                                  </span>
+                                )}
+                              </div>
 
-                          <div className="text-[10px] text-slate-400 text-right">
-                            {lastMsg?.createdAt ? new Date(lastMsg.createdAt).toLocaleString('ja-JP') : ''}
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                {timestampStr && (
+                                  <span className="text-[10px] text-slate-400 font-medium">
+                                    {timestampStr}
+                                  </span>
+                                )}
+                                {isUnread && (
+                                  <span className="px-1.5 py-0.2 bg-blue-600 text-white text-[9px] font-black rounded-full shrink-0 shadow-2xs">
+                                    NEW
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* 2行目: 相手情報（ダイレクト時: 相手の氏名・所属） / グループ情報（参加メンバー一覧） */}
+                            <div className="text-[11px] text-slate-500 flex items-center gap-1 truncate">
+                              {isGroup ? (
+                                <>
+                                  <span className="text-slate-400 text-[10px] shrink-0">メンバー:</span>
+                                  <span className="truncate text-slate-600 text-[11px]" title={groupMembersPreview}>
+                                    {groupMembersPreview || `${memberCount}名`}
+                                  </span>
+                                </>
+                              ) : (
+                                <>
+                                  <span className="text-slate-400 text-[10px] shrink-0">相手:</span>
+                                  <span
+                                    onClick={(e) => {
+                                      if (resolvedPartner) {
+                                        e.stopPropagation();
+                                        triggerOpenUserModal(resolvedPartner);
+                                      }
+                                    }}
+                                    className="font-semibold text-slate-700 hover:text-blue-600 hover:underline cursor-pointer transition-colors truncate"
+                                    title="社員プロフィールを表示"
+                                  >
+                                    {partnerName} さん
+                                  </span>
+                                  {partnerAffiliation && (
+                                    <span className="text-slate-400 text-[10px] truncate">
+                                      ({partnerAffiliation})
+                                    </span>
+                                  )}
+                                </>
+                              )}
+                            </div>
+
+                            {/* 3行目: 最新メッセージ（間延びしない1行スッキリ表示） */}
+                            <div className="text-xs text-slate-600 flex items-center gap-1.5 truncate bg-slate-50/80 px-2 py-0.5 rounded-md border border-slate-100 group-hover:bg-slate-100/70 transition-colors mt-0.5">
+                              {snippet.type === 'quiz' && (
+                                <HelpCircle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                              )}
+                              {snippet.type === 'image' && (
+                                <Camera className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                              )}
+                              {snippet.type === 'stamp' && (
+                                <Sparkles className="w-3.5 h-3.5 text-pink-500 shrink-0" />
+                              )}
+                              {snippet.type === 'file' && (
+                                <FileText className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                              )}
+
+                              {snippet.prefix && (
+                                <span className="font-semibold text-slate-700 shrink-0 text-[11px]">
+                                  {snippet.prefix}
+                                </span>
+                              )}
+                              <span className="truncate text-[11px] text-slate-600">
+                                {snippet.text}
+                              </span>
+                            </div>
                           </div>
                         </div>
                       );

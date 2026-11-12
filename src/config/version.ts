@@ -7,11 +7,11 @@
  * - 機能追加・バグ修正・仕様変更のたびに必ず更新すること
  */
 export const APP_VERSION = {
-  version: '2026.11.12.7',
+  version: '2026.11.12.9',
   date: '2026.11.12',
-  releaseNumber: 7,
-  display: 'v2026.11.12 #7 (JST)',
+  releaseNumber: 9,
+  display: 'v2026.11.12 #9 (JST)',
   timeZone: 'Asia/Tokyo (JST)',
-  description: 'トークルーム（グループチャット）へのカスタムアイコン登録・変更・解除機能の実装（新規作成時およびトーク詳細・ヘッダーからの設定対応）'
+  description: 'マイページのチャットルーム一覧UI改善（ルームアイコン/相手アバター表示、ダイレクトトーク相手情報・所属明記、コンパクト＆スッキリ整列レイアウト）'
 };
 

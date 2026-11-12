@@ -522,7 +522,8 @@ router.post(['/chats/rooms', '/chats/room', '/rooms', '/room'], async (req, res)
 // メッセージ送信
 router.post(['/chats', '/chats/', '/chats/message', '/chats/message/'], async (req, res) => {
   try {
-    const { senderId, roomId, message, content, attachments, roomName, roomType, participants, type, imageUrl, thumbnailUrl, images, stampId, stampText, stampCategory, adminIds } = req.body;
+    const { senderId, roomId, message, content, attachments, roomName, roomType, avatarUrl, roomAvatarUrl, participants, type, imageUrl, thumbnailUrl, images, stampId, stampText, stampCategory, adminIds } = req.body;
+    const finalRoomAvatarUrl = avatarUrl || roomAvatarUrl || null;
     const msgContent = message || content || '';
     const pool = await getPool();
     if (!pool) return res.status(500).json({ error: 'DB接続が利用できません' });
@@ -547,8 +548,8 @@ router.post(['/chats', '/chats/', '/chats/message', '/chats/message/'], async (r
       const admins = adminIds ? (Array.isArray(adminIds) ? adminIds : [adminIds]) : (rType === 'group' && senderId ? [senderId] : []);
       const adminIdsStr = JSON.stringify(admins);
 
-      const insertCols = ['id', 'name', 'type', 'lastMessage', 'updatedAt'];
-      const insertVals = ['@roomId', '@name', '@type', "''", 'GETDATE()'];
+      const insertCols = ['id', 'name', 'type', 'avatarUrl', 'lastMessage', 'updatedAt'];
+      const insertVals = ['@roomId', '@name', '@type', '@avatarUrl', "''", 'GETDATE()'];
 
       if (dbColumns.includes('last_updated')) {
         insertCols.push('last_updated');
@@ -558,7 +559,8 @@ router.post(['/chats', '/chats/', '/chats/message', '/chats/message/'], async (r
       const request = pool.request()
         .input('roomId', sql.VarChar, String(targetRoomId))
         .input('name', sql.NVarChar, rName)
-        .input('type', sql.NVarChar, rType);
+        .input('type', sql.NVarChar, rType)
+        .input('avatarUrl', sql.VarChar, finalRoomAvatarUrl);
 
       const partCol = dbColumns.includes('participantsJson') ? 'participantsJson' : (dbColumns.includes('participants') ? 'participants' : null);
       if (partCol) {
@@ -749,6 +751,43 @@ router.put(['/chats/:roomId', '/chats/:roomId/', '/chats/rooms/:roomId'], async 
     if (!pool) return res.status(500).json({ success: false, error: 'DB接続が利用できません' });
 
     const dbColumns = await ensureChatSchemaOnce(pool);
+
+    // 存在チェック（未作成ルームに対するPUT時にも安全に新規作成するUPSERT仕様）
+    const checkRes = await pool.request()
+      .input('roomId', sql.VarChar, roomId)
+      .query('SELECT 1 FROM dbo.ChatRooms WHERE id = @roomId');
+
+    if ((checkRes.recordset || []).length === 0) {
+      const insertCols = ['id', 'name', 'type', 'avatarUrl', 'lastMessage', 'updatedAt'];
+      const insertVals = ['@roomId', '@name', "'group'", '@avatarUrl', "''", 'GETDATE()'];
+      if (dbColumns.includes('last_updated')) {
+        insertCols.push('last_updated');
+        insertVals.push('GETDATE()');
+      }
+      const insReq = pool.request()
+        .input('roomId', sql.VarChar, roomId)
+        .input('name', sql.NVarChar, name || '新規グループトーク')
+        .input('avatarUrl', sql.VarChar, avatarUrl || null);
+
+      if (participants !== undefined) {
+        const colName = dbColumns.includes('participantsJson') ? 'participantsJson' : (dbColumns.includes('participants') ? 'participants' : null);
+        if (colName) {
+          insertCols.push(colName);
+          insertVals.push('@participantsJson');
+          insReq.input('participantsJson', sql.NVarChar, JSON.stringify(participants));
+        }
+      }
+      if (adminIds !== undefined) {
+        const colName = dbColumns.includes('adminIdsJson') ? 'adminIdsJson' : (dbColumns.includes('adminIds') ? 'adminIds' : null);
+        if (colName) {
+          insertCols.push(colName);
+          insertVals.push('@adminIdsJson');
+          insReq.input('adminIdsJson', sql.NVarChar, JSON.stringify(adminIds));
+        }
+      }
+      await insReq.query(`INSERT INTO dbo.ChatRooms (${insertCols.join(', ')}) VALUES (${insertVals.join(', ')})`);
+      return res.status(200).json({ success: true, message: 'チャットルームを作成しました。' });
+    }
 
     let query = 'UPDATE dbo.ChatRooms SET updatedAt = GETDATE()';
     if (dbColumns.includes('last_updated')) {

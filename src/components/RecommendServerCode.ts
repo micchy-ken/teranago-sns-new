@@ -1,7 +1,7 @@
 export const RECOMMEND_SERVER_JS = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年11月12日 (トークルーム・グループアイコン画像登録＆更新対応版)
+ * 最終更新日時 (最終アップデート): 2026年11月12日 (新規トークルーム作成時グループアイコン即時反映＆UPSERT対応版)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -1861,7 +1861,7 @@ async function startServer() {
           id: targetRoomId,
           name: roomName || (roomType === 'dm' ? 'ダイレクトトーク' : '新規グループトーク'),
           type: roomType || 'group',
-          avatarUrl: null,
+          avatarUrl: req.body.avatarUrl || req.body.roomAvatarUrl || null,
           lastMessage: '',
           updatedAt: new Date().toISOString(),
           lastUpdated: new Date().toISOString(),
@@ -1997,6 +1997,21 @@ async function startServer() {
         if (adminIds !== undefined) room.adminIds = adminIds;
         room.updatedAt = new Date().toISOString();
         room.lastUpdated = new Date().toISOString();
+        saveChatRooms(rooms);
+      } else {
+        const newRoom = {
+          id: String(roomId),
+          name: name || '新規グループトーク',
+          type: 'group',
+          avatarUrl: avatarUrl || null,
+          lastMessage: '',
+          updatedAt: new Date().toISOString(),
+          lastUpdated: new Date().toISOString(),
+          participants: Array.isArray(participants) ? participants : [],
+          adminIds: Array.isArray(adminIds) ? adminIds : [],
+          messages: Array.isArray(req.body.messages) ? req.body.messages : []
+        };
+        rooms.unshift(newRoom);
         saveChatRooms(rooms);
       }
       res.json({ success: true, message: 'チャットルーム情報を更新しました。' });
