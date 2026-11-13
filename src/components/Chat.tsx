@@ -56,6 +56,7 @@ import { renderContentWithLinks } from '../utils/renderContentWithLinks';
 import { UrlPastePopup, useUrlPasteHandler } from './common/UrlPastePopup';
 import { logActivity } from '../utils/logger';
 import { buildAppUrl, copyTextToClipboard } from '../utils/urlParams';
+import { upsertBookmarkForUser } from '../utils/bookmarks';
 import { ChatQuizModal } from './chat/ChatQuizModal';
 import { ChatQuizCard } from './chat/ChatQuizCard';
 import { ChatCommandHelpModal } from './chat/ChatCommandHelpModal';
@@ -74,7 +75,9 @@ interface ChatProps {
   onDeleteRoom?: (roomId: string) => void;
   onDeleteMessage?: (roomId: string, messageId: string) => void;
   initialRoomId?: string;
+  onClearInitialRoomId?: () => void;
   refetchRooms?: () => void;
+  onUpdateUser?: (updatedUser: User) => void;
 }
 
 /**
@@ -782,7 +785,9 @@ export function Chat({
   onDeleteRoom,
   onDeleteMessage,
   initialRoomId,
-  refetchRooms
+  onClearInitialRoomId,
+  refetchRooms,
+  onUpdateUser
 }: ChatProps) {
   // 自分が参加している部屋のみを抽出し、最近の書き込みがあった順（最新メッセージ日時または更新日時降順）に並べ替え
   const myRooms = useMemo(() => {
@@ -1029,11 +1034,29 @@ export function Chat({
       setCopiedLink(true);
       setTimeout(() => setCopiedLink(false), 2500);
     }
+    if (currentUser && onUpdateUser) {
+      const roomTitle = getRoomName(activeRoom) || 'チャットルーム';
+      const subtitle =
+        activeRoom.type === 'dm'
+          ? 'ダイレクトメッセージ'
+          : `グループ (${activeRoom.participants?.length || 0}名)`;
+      const { updatedUser } = upsertBookmarkForUser(currentUser, {
+        category: 'chat',
+        title: roomTitle,
+        subtitle,
+        params: { tab: 'chat', chatRoomId: activeRoom.id },
+      });
+      onUpdateUser(updatedUser);
+    }
   };
 
   const processedInitialRoomIdRef = useRef<string | null>(null);
 
   useEffect(() => {
+    if (!initialRoomId) {
+      processedInitialRoomIdRef.current = null;
+      return;
+    }
     if (initialRoomId && processedInitialRoomIdRef.current !== initialRoomId) {
       if (rooms.length > 0) {
         processedInitialRoomIdRef.current = initialRoomId;
@@ -1063,9 +1086,10 @@ export function Chat({
             onConfirm: () => {}
           });
         }
+        onClearInitialRoomId?.();
       }
     }
-  }, [initialRoomId, rooms, currentUser.id]);
+  }, [initialRoomId, rooms, currentUser.id, onClearInitialRoomId]);
 
   // 「ここから未読メッセージ」ライン用の最初の未読メッセージIDを記録するステート
   const [firstUnreadMessageId, setFirstUnreadMessageId] = useState<string | null>(null);

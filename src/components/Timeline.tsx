@@ -30,6 +30,7 @@ import { formatRelativeTime, formatEventScheduleBadge } from '../utils';
 import { API_BASE_URL } from '../config/api';
 import { renderContentWithLinks } from '../utils/renderContentWithLinks';
 import { buildAppUrl, copyTextToClipboard } from '../utils/urlParams';
+import { upsertBookmarkForUser } from '../utils/bookmarks';
 import { FilePreviewModal } from './FilePreviewModal';
 import { isPreviewable } from '../utils/fileUpload';
 import { isEventVisibleToUser } from '../utils/eventVisibility';
@@ -51,6 +52,7 @@ interface TimelineProps {
   onRefetchPosts?: () => Promise<void>;
   onDeletePost?: (postId: string) => void;
   currentUser?: User;
+  onUpdateUser?: (updatedUser: User) => void;
 }
 
 type TimelineFeedItem = 
@@ -69,6 +71,7 @@ export const Timeline = React.memo(function Timeline({
   isLoading = false,
   error = null,
   currentUser,
+  onUpdateUser,
 }: TimelineProps) {
   // 表示コンテンツ種別フィルター (スケジュール / 掲示板)
   const [showEvents, setShowEvents] = useState<boolean>(true);
@@ -814,6 +817,19 @@ export const Timeline = React.memo(function Timeline({
                             if (ok) {
                               setCopiedDetailLink(true);
                               setTimeout(() => setCopiedDetailLink(false), 2500);
+                            }
+                            if (currentUser && onUpdateUser) {
+                              const subtitleParts = [
+                                topic.author?.name,
+                                topic.office && topic.office !== '全社' ? topic.office : undefined,
+                              ].filter(Boolean);
+                              const { updatedUser } = upsertBookmarkForUser(currentUser, {
+                                category: 'board',
+                                title: topic.title || '掲示板トピック',
+                                subtitle: subtitleParts.join(' ・ ') || undefined,
+                                params: { tab: 'board', topicId: topic.id },
+                              });
+                              onUpdateUser(updatedUser);
                             }
                           }}
                           className={`px-3 py-2 rounded-xl text-xs font-bold border transition-colors flex items-center gap-1.5 cursor-pointer ${

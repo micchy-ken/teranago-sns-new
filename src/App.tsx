@@ -332,6 +332,13 @@ export default function App() {
     reportId?: string;
     safetyEventId?: string;
     openCreateMemo?: boolean;
+    office?: string;
+    division?: string;
+    mode?: 'personal' | 'team';
+    view?: 'month' | 'week' | 'day' | 'list';
+    date?: string;
+    type?: string;
+    targetUserId?: string;
   }) => {
     // スケジュール（eventId）
     if (target.eventId) {
@@ -350,6 +357,23 @@ export default function App() {
         setGlobalSelectedEvent(found);
         return; // 画面遷移せずにポップアップ
       }
+    }
+    // カレンダー表示条件（ブックマーク・共有リンクからの遷移）
+    if (target.tab === 'calendar' && !target.eventId && (target.mode || target.view || target.date || target.office || target.division || target.type || target.targetUserId)) {
+      setCalendarParams({
+        office: target.office || '全社',
+        division: target.division || '全部署',
+        mode: target.mode,
+        view: target.view,
+        date: target.date,
+        type: target.type || 'all',
+        targetUserId: target.targetUserId,
+        requestKey: Date.now(),
+      });
+      setActiveTab('calendar');
+      setTargetEventId(undefined);
+      updateBrowserUrl();
+      return;
     }
     // 掲示板（topicId）
     if (target.topicId) {
@@ -3770,6 +3794,7 @@ export default function App() {
               onRefetchPosts={refetchAll}
               onDeletePost={handleDeletePost}
               currentUser={userState}
+              onUpdateUser={handleUpdateUser}
             />
           )}
           {activeTab === 'calendar' && (
@@ -3888,7 +3913,9 @@ export default function App() {
               onDeleteRoom={handleDeleteChatRoom}
               onDeleteMessage={handleDeleteChatMessage}
               initialRoomId={targetChatRoomId}
+              onClearInitialRoomId={() => setTargetChatRoomId(undefined)}
               refetchRooms={refetchChatRooms}
+              onUpdateUser={handleUpdateUser}
             />
           )}
           {activeTab === 'memo' && (
@@ -4103,6 +4130,7 @@ export default function App() {
           offices={offices}
           divisions={divisions}
           users={usersList}
+          onUpdateUser={handleUpdateUser}
         />
       )}
 

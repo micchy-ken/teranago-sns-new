@@ -1,3 +1,5 @@
+import type { AppQueryParams } from '../utils/urlParams';
+
 export interface CategoryEmailNotificationOption {
   pc: boolean;      // PCメール (email) 送信
   mobile: boolean;  // 携帯メール (mobileEmail) 送信
@@ -59,6 +61,29 @@ export interface CalendarMemberGroup {
   createdAt?: string;
 }
 
+export type UserBookmarkCategory =
+  | 'calendar'
+  | 'board'
+  | 'chat'
+  | 'timeline'
+  | 'workflow'
+  | 'memo'
+  | 'daily_report'
+  | 'site'
+  | 'other';
+
+export interface UserBookmarkItem {
+  id: string;                 // 重複判定用一意キー (例: 'board:t-123', 'chat:room-1')
+  category: UserBookmarkCategory;
+  title: string;              // 一覧表示用タイトル
+  subtitle?: string;          // 補足情報 (例: 投稿者、拠点/部署、日付)
+  params: AppQueryParams;     // 遷移＆URL再生成用パラメータ
+  isPinned?: boolean;         // ピン留めフラグ（trueの項目を一覧先頭に固定）
+  pinnedAt?: string;          // ピン留め日時 (ISO string)
+  createdAt: string;          // 初回登録日時 (ISO string)
+  updatedAt?: string;         // 最終ストック日時 (ISO string)
+}
+
 export interface UserPreferences {
   mypageSectionOrder?: string[];
   mypageSectionCounts?: MyPageSectionCounts; // マイページ各セクションの表示件数
@@ -78,6 +103,7 @@ export interface UserPreferences {
   calendarViewSettings?: CalendarViewSettings; // カレンダー表示設定 (平日のみ/時間帯/密度)
   calendarMemberGroups?: CalendarMemberGroup[]; // カレンダー用マイグループ一覧
   favoriteTopicIds?: string[];       // 掲示板のお気に入りトピックID一覧
+  bookmarks?: UserBookmarkItem[];    // 共有リンク等から自動ストックされる個人ブックマーク一覧
   colorTheme?: string;               // 選択カラーテーマ (soft, sage, terracotta等)
   fontSize?: 'small' | 'standard' | 'medium' | 'large'; // 選択フォントサイズ (小/標準/中/大)
   [key: string]: any;

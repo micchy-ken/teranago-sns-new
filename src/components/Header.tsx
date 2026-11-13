@@ -1,12 +1,20 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Search, Bell, Menu, Phone, FileText, Monitor, Calendar as CalendarIcon, MessageSquare, CheckCheck, ChevronRight, X, Smartphone, Users, MessageCircle, Palette, Check, Pin, ShieldAlert, Type, Undo2, Minimize2 } from 'lucide-react';
-import { User, Memo, WorkflowApplication, BoardTopic, CalendarEvent, ChatRoom, Post, DailyReport, SafetyConfirmationEvent, SafetyConfirmationResponse } from '../types';
+import { Search, Bell, Menu, Phone, FileText, Monitor, Calendar as CalendarIcon, MessageSquare, CheckCheck, ChevronRight, X, Smartphone, Users, MessageCircle, Palette, Check, Pin, ShieldAlert, Type, Undo2, Minimize2, Bookmark, Trash2, Share2, ExternalLink } from 'lucide-react';
+import { User, Memo, WorkflowApplication, BoardTopic, CalendarEvent, ChatRoom, Post, DailyReport, SafetyConfirmationEvent, SafetyConfirmationResponse, UserBookmarkCategory, UserBookmarkItem } from '../types';
 import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
 import { AppTab } from './Sidebar';
 import { MiniNotificationMode } from './MiniNotificationMode';
 import { expandRecurringEvents } from '../utils/recurrenceUtils';
 import { ColorTheme, THEME_OPTIONS, getSavedTheme, applyColorTheme, AppFontSize, FONT_SIZE_OPTIONS, getSavedFontSize, applyFontSize } from '../utils/theme';
 import { API_BASE_URL } from '../config/api';
+import { buildAppUrl, copyTextToClipboard } from '../utils/urlParams';
+import {
+  getBookmarks,
+  removeBookmarkForUser,
+  restoreBookmarkForUser,
+  toggleBookmarkPinForUser,
+  getBookmarkCategoryLabel,
+} from '../utils/bookmarks';
 import {
   getAllNotifications,
   getUnreadNotifications,
@@ -75,6 +83,13 @@ interface HeaderProps {
     postId?: string;
     reportId?: string;
     safetyEventId?: string;
+    office?: string;
+    division?: string;
+    mode?: 'personal' | 'team';
+    view?: 'month' | 'week' | 'day' | 'list';
+    date?: string;
+    type?: string;
+    targetUserId?: string;
   }) => void;
   onUpdateMemos?: (memos: Memo[]) => void;
   onUpdateTopic?: (topic: BoardTopic) => void;
@@ -178,6 +193,15 @@ export function Header({
 
   // Mini notification mode state (PC専用 縮小表示 / 最前面常駐)
   const [isMiniNotificationOpen, setIsMiniNotificationOpen] = useState(false);
+
+  // Personal Bookmarks popover state
+  const [isBookmarkOpen, setIsBookmarkOpen] = useState(false);
+  const [bookmarkFilter, setBookmarkFilter] = useState<'all' | 'pinned' | UserBookmarkCategory>('all');
+  const [bookmarkSearch, setBookmarkSearch] = useState('');
+  const [copiedBookmarkId, setCopiedBookmarkId] = useState<string | null>(null);
+  const [deletedBookmarkUndo, setDeletedBookmarkUndo] = useState<UserBookmarkItem | null>(null);
+  const undoTimeoutRef = useRef<number | null>(null);
+  const bookmarkPopoverRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     applyColorTheme(currentTheme);
@@ -572,14 +596,136 @@ export function Header({
       if (popoverRef.current && !popoverRef.current.contains(event.target as Node)) {
         setIsOpen(false);
       }
+      if (bookmarkPopoverRef.current && !bookmarkPopoverRef.current.contains(event.target as Node)) {
+        setIsBookmarkOpen(false);
+      }
     };
-    if (isOpen) {
+    if (isOpen || isBookmarkOpen) {
       document.addEventListener('mousedown', handleClickOutside);
     }
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [isOpen]);
+  }, [isOpen, isBookmarkOpen]);
+
+  // 個人ブックマーク一覧＆操作ハンドラー
+  const bookmarks = useMemo(() => getBookmarks(currentUser), [currentUser]);
+  const pinnedBookmarkCount = useMemo(() => bookmarks.filter((b) => b.isPinned).length, [bookmarks]);
+
+  const bookmarkCategoryCounts = useMemo(() => {
+    const counts: Partial<Record<UserBookmarkCategory, number>> = {};
+    bookmarks.forEach((b) => {
+      counts[b.category] = (counts[b.category] || 0) + 1;
+    });
+    return counts;
+  }, [bookmarks]);
+
+  const filteredBookmarks = useMemo(() => {
+    let list = bookmarks;
+    if (bookmarkFilter === 'pinned') {
+      list = list.filter((b) => b.isPinned);
+    } else if (bookmarkFilter !== 'all') {
+      list = list.filter((b) => b.category === bookmarkFilter);
+    }
+    const q = bookmarkSearch.trim().toLowerCase();
+    if (q) {
+      list = list.filter(
+        (b) =>
+          b.title.toLowerCase().includes(q) ||
+          (b.subtitle && b.subtitle.toLowerCase().includes(q)) ||
+          getBookmarkCategoryLabel(b.category).toLowerCase().includes(q)
+      );
+    }
+    return list;
+  }, [bookmarks, bookmarkFilter, bookmarkSearch]);
+
+  const handleNavigateBookmark = (item: UserBookmarkItem) => {
+    setIsBookmarkOpen(false);
+    if (onNavigateToContent) {
+      onNavigateToContent({
+        tab: item.params.tab || 'mypage',
+        topicId: item.params.topicId,
+        chatRoomId: item.params.chatRoomId,
+        memoId: item.params.memoId,
+        applicationId: item.params.applicationId,
+        eventId: item.params.eventId,
+        reportId: item.params.reportId,
+        safetyEventId: item.params.safetyEventId,
+        office: item.params.office,
+        division: item.params.division,
+        mode: item.params.mode,
+        view: item.params.view,
+        date: item.params.date,
+        type: item.params.type,
+        targetUserId: item.params.targetUserId,
+      });
+    } else if (onSelectTab && item.params.tab) {
+      onSelectTab(item.params.tab);
+    }
+  };
+
+  const handleTogglePinBookmark = (bookmarkId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!currentUser || !onUpdateUser) return;
+    const { updatedUser } = toggleBookmarkPinForUser(currentUser, bookmarkId);
+    onUpdateUser(updatedUser);
+  };
+
+  const handleOneClickDeleteBookmark = (item: UserBookmarkItem, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!currentUser || !onUpdateUser) return;
+    const updatedUser = removeBookmarkForUser(currentUser, item.id);
+    onUpdateUser(updatedUser);
+    setDeletedBookmarkUndo(item);
+    if (undoTimeoutRef.current) {
+      window.clearTimeout(undoTimeoutRef.current);
+    }
+    undoTimeoutRef.current = window.setTimeout(() => {
+      setDeletedBookmarkUndo(null);
+    }, 4500);
+  };
+
+  const handleUndoDeleteBookmark = () => {
+    if (!deletedBookmarkUndo || !currentUser || !onUpdateUser) return;
+    const updatedUser = restoreBookmarkForUser(currentUser, deletedBookmarkUndo);
+    onUpdateUser(updatedUser);
+    setDeletedBookmarkUndo(null);
+    if (undoTimeoutRef.current) {
+      window.clearTimeout(undoTimeoutRef.current);
+      undoTimeoutRef.current = null;
+    }
+  };
+
+  const handleCopyBookmarkUrl = async (item: UserBookmarkItem, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const url = buildAppUrl(item.params);
+    const ok = await copyTextToClipboard(url);
+    if (ok) {
+      setCopiedBookmarkId(item.id);
+      setTimeout(() => {
+        setCopiedBookmarkId((prev) => (prev === item.id ? null : prev));
+      }, 2000);
+    }
+  };
+
+  const getBookmarkBadgeStyle = (category: UserBookmarkCategory) => {
+    switch (category) {
+      case 'calendar':
+        return { icon: CalendarIcon, bg: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
+      case 'board':
+        return { icon: Monitor, bg: 'bg-indigo-50 text-indigo-700 border-indigo-200' };
+      case 'chat':
+        return { icon: MessageSquare, bg: 'bg-violet-50 text-violet-700 border-violet-200' };
+      case 'workflow':
+        return { icon: FileText, bg: 'bg-blue-50 text-blue-700 border-blue-200' };
+      case 'memo':
+        return { icon: Phone, bg: 'bg-amber-50 text-amber-700 border-amber-200' };
+      case 'daily_report':
+        return { icon: FileText, bg: 'bg-teal-50 text-teal-700 border-teal-200' };
+      default:
+        return { icon: Bookmark, bg: 'bg-slate-100 text-slate-700 border-slate-200' };
+    }
+  };
 
   // Unified Notification Items (未確認＋確認済み履歴)
   const allNotifications = useMemo<NotificationItem[]>(() => {
@@ -1515,6 +1661,7 @@ export function Header({
             onClick={() => {
               setIsMiniNotificationOpen((prev) => !prev);
               setIsOpen(false);
+              setIsBookmarkOpen(false);
             }}
             className={`w-9 h-9 rounded-xl transition-all items-center justify-center cursor-pointer border select-none shrink-0 hidden lg:flex ${
               isMiniNotificationOpen
@@ -1527,11 +1674,269 @@ export function Header({
             <Minimize2 className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
           </button>
 
+          {/* Personal Bookmarks / Favorites Button */}
+          <div className="relative shrink-0" ref={bookmarkPopoverRef}>
+            <button
+              type="button"
+              onClick={() => {
+                setIsBookmarkOpen((prev) => !prev);
+                setIsOpen(false);
+              }}
+              className={`w-9 h-9 rounded-xl transition-all flex items-center justify-center cursor-pointer border select-none shrink-0 relative ${
+                isBookmarkOpen
+                  ? 'bg-amber-50 border-amber-300 ring-2 ring-amber-400/20 text-amber-600'
+                  : bookmarks.length > 0
+                  ? 'border-slate-200/80 bg-white/80 hover:bg-amber-50/70 hover:border-amber-300 text-slate-700 hover:text-amber-600 shadow-2xs'
+                  : 'border-slate-200/80 bg-white/80 hover:bg-slate-50 hover:border-slate-300 text-slate-600 shadow-2xs'
+              }`}
+              title={`お気に入り・ブックマーク (${bookmarks.length}件)`}
+              aria-label={`お気に入り・ブックマーク (${bookmarks.length}件)`}
+            >
+              <Bookmark className={`w-4 h-4 sm:w-4.5 sm:h-4.5 ${pinnedBookmarkCount > 0 ? 'fill-amber-400 text-amber-500' : ''}`} />
+              {bookmarks.length > 0 && (
+                <span className="absolute -top-1 -right-1 flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold text-white bg-indigo-600 rounded-full ring-2 ring-white shadow-xs">
+                  {bookmarks.length > 99 ? '99+' : bookmarks.length}
+                </span>
+              )}
+            </button>
+
+            {isBookmarkOpen && (
+              <div className="fixed sm:absolute left-2 right-2 sm:left-auto sm:right-0 top-16 sm:top-full sm:mt-2 sm:w-96 bg-white rounded-2xl shadow-xl border border-slate-200/90 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150 ring-1 ring-slate-900/5">
+                {/* Header */}
+                <div className="p-3.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Bookmark className="w-4 h-4 text-amber-500 fill-amber-400 shrink-0" />
+                    <span className="font-bold text-slate-800 text-sm whitespace-nowrap">お気に入り</span>
+                    <span className="px-2 py-0.5 text-[11px] font-bold bg-indigo-100 text-indigo-700 rounded-full whitespace-nowrap">
+                      {bookmarks.length}件
+                    </span>
+                    {pinnedBookmarkCount > 0 && (
+                      <span className="px-1.5 py-0.5 text-[10px] font-bold bg-amber-100 text-amber-800 rounded-full inline-flex items-center gap-0.5 whitespace-nowrap">
+                        <Pin className="w-2.5 h-2.5 fill-amber-500 text-amber-600" />
+                        {pinnedBookmarkCount}
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsBookmarkOpen(false)}
+                    className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-200/60 rounded-lg transition-colors cursor-pointer"
+                    title="閉じる"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* Search & Category Filter */}
+                {bookmarks.length > 0 && (
+                  <div className="border-b border-slate-100 bg-white">
+                    {bookmarks.length >= 3 && (
+                      <div className="px-3 pt-2.5 pb-1">
+                        <div className="relative">
+                          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                          <input
+                            type="text"
+                            value={bookmarkSearch}
+                            onChange={(e) => setBookmarkSearch(e.target.value)}
+                            placeholder="お気に入りを絞り込み..."
+                            className="w-full bg-slate-100 focus:bg-white border border-transparent focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/20 rounded-lg py-1.5 pl-8 pr-7 text-xs text-slate-800 outline-none transition-all"
+                          />
+                          {bookmarkSearch && (
+                            <button
+                              type="button"
+                              onClick={() => setBookmarkSearch('')}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-1 p-2 overflow-x-auto text-xs no-scrollbar">
+                      <button
+                        type="button"
+                        onClick={() => setBookmarkFilter('all')}
+                        className={`px-2.5 py-1 rounded-lg font-medium whitespace-nowrap transition-colors cursor-pointer ${
+                          bookmarkFilter === 'all'
+                            ? 'bg-slate-800 text-white font-bold'
+                            : 'text-slate-600 hover:bg-slate-100'
+                        }`}
+                      >
+                        すべて ({bookmarks.length})
+                      </button>
+                      {pinnedBookmarkCount > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setBookmarkFilter('pinned')}
+                          className={`px-2.5 py-1 rounded-lg font-medium whitespace-nowrap transition-colors cursor-pointer inline-flex items-center gap-1 ${
+                            bookmarkFilter === 'pinned'
+                              ? 'bg-amber-500 text-white font-bold'
+                              : 'text-amber-700 bg-amber-50 hover:bg-amber-100'
+                          }`}
+                        >
+                          <Pin className="w-3 h-3" />
+                          <span>ピン留め ({pinnedBookmarkCount})</span>
+                        </button>
+                      )}
+                      {(['board', 'calendar', 'chat', 'workflow', 'memo', 'daily_report'] as UserBookmarkCategory[]).map((cat) => {
+                        const cnt = bookmarkCategoryCounts[cat] || 0;
+                        if (cnt === 0) return null;
+                        return (
+                          <button
+                            key={cat}
+                            type="button"
+                            onClick={() => setBookmarkFilter(cat)}
+                            className={`px-2.5 py-1 rounded-lg font-medium whitespace-nowrap transition-colors cursor-pointer ${
+                              bookmarkFilter === cat
+                                ? 'bg-indigo-600 text-white font-bold'
+                                : 'text-slate-600 hover:bg-indigo-50'
+                            }`}
+                          >
+                            {getBookmarkCategoryLabel(cat)} ({cnt})
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Undo Toast Bar */}
+                {deletedBookmarkUndo && (
+                  <div className="px-3 py-2 bg-slate-900 text-white text-xs flex items-center justify-between gap-2">
+                    <span className="truncate">「{deletedBookmarkUndo.title}」を削除しました</span>
+                    <button
+                      type="button"
+                      onClick={handleUndoDeleteBookmark}
+                      className="px-2 py-0.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold rounded text-[11px] inline-flex items-center gap-1 shrink-0 cursor-pointer transition-colors"
+                    >
+                      <Undo2 className="w-3 h-3" />
+                      <span>元に戻す</span>
+                    </button>
+                  </div>
+                )}
+
+                {/* Bookmarks List */}
+                <div className="max-h-[380px] overflow-y-auto divide-y divide-slate-100">
+                  {filteredBookmarks.length > 0 ? (
+                    filteredBookmarks.map((item) => {
+                      const badge = getBookmarkBadgeStyle(item.category);
+                      const IconComp = badge.icon;
+                      const isCopied = copiedBookmarkId === item.id;
+                      return (
+                        <div
+                          key={item.id}
+                          onClick={() => handleNavigateBookmark(item)}
+                          className={`p-3 cursor-pointer transition-colors flex items-start gap-2.5 group ${
+                            item.isPinned
+                              ? 'bg-amber-50/45 hover:bg-amber-50/80'
+                              : 'bg-white hover:bg-indigo-50/50'
+                          }`}
+                        >
+                          <div className={`p-2 rounded-xl border shrink-0 mt-0.5 ${badge.bg}`}>
+                            <IconComp className="w-4 h-4" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
+                              {item.isPinned && (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200 whitespace-nowrap">
+                                  <Pin className="w-2.5 h-2.5 fill-amber-500 text-amber-600" />
+                                  ピン留め
+                                </span>
+                              )}
+                              <span className="text-[10px] font-bold text-slate-500 whitespace-nowrap">
+                                {getBookmarkCategoryLabel(item.category)}
+                              </span>
+                              <span className="text-[10px] text-slate-400 ml-auto whitespace-nowrap">
+                                {formatRelativeTime(item.updatedAt || item.createdAt)}
+                              </span>
+                            </div>
+                            <h4 className="text-xs sm:text-sm font-bold text-slate-800 group-hover:text-indigo-600 line-clamp-1 transition-colors">
+                              {item.title}
+                            </h4>
+                            {item.subtitle && (
+                              <p className="text-[11px] text-slate-500 line-clamp-1 mt-0.5">
+                                {item.subtitle}
+                              </p>
+                            )}
+                          </div>
+                          {/* Actions: ピン留め / URL再コピー / ワンボタン削除 */}
+                          <div className="flex items-center gap-1 shrink-0 self-center">
+                            <button
+                              type="button"
+                              onClick={(e) => handleTogglePinBookmark(item.id, e)}
+                              className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
+                                item.isPinned
+                                  ? 'bg-amber-100 text-amber-700 border-amber-300 hover:bg-amber-200'
+                                  : 'bg-white text-slate-400 border-slate-200 hover:text-amber-600 hover:border-amber-300 hover:bg-amber-50'
+                              }`}
+                              title={item.isPinned ? 'ピン留めを解除' : '上部にピン留め'}
+                            >
+                              <Pin className={`w-3.5 h-3.5 ${item.isPinned ? 'fill-amber-500 text-amber-600' : ''}`} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => handleCopyBookmarkUrl(item, e)}
+                              className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
+                                isCopied
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                                  : 'bg-white text-slate-400 border-slate-200 hover:text-indigo-600 hover:border-indigo-300 hover:bg-indigo-50'
+                              }`}
+                              title="共有リンクをコピー"
+                            >
+                              {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Share2 className="w-3.5 h-3.5" />}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => handleOneClickDeleteBookmark(item, e)}
+                              className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-400 hover:text-rose-600 hover:border-rose-300 hover:bg-rose-50 transition-colors cursor-pointer"
+                              title="お気に入りから削除"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="p-8 text-center text-slate-400 flex flex-col items-center justify-center gap-2">
+                      <div className="w-12 h-12 bg-amber-50 rounded-full flex items-center justify-center text-amber-400 mb-1 border border-amber-100">
+                        <Bookmark className="w-6 h-6" />
+                      </div>
+                      <p className="text-sm font-semibold text-slate-600">
+                        {bookmarks.length === 0 ? 'お気に入りはまだありません' : '条件に一致するお気に入りがありません'}
+                      </p>
+                      <p className="text-xs text-slate-400 leading-relaxed max-w-[260px]">
+                        {bookmarks.length === 0
+                          ? '掲示板・カレンダー・チャットなどの「共有」ボタンを押すと、URLコピーと同時にここへストックされます。'
+                          : '絞り込み条件や検索ワードを変更してみてください。'}
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Footer */}
+                {bookmarks.length > 0 && (
+                  <div className="px-3.5 py-2 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
+                    <span className="inline-flex items-center gap-1">
+                      <ExternalLink className="w-3 h-3 text-indigo-500" />
+                      項目クリックで該当画面へ移動
+                    </span>
+                    <span>ピン留め項目は常に上部固定</span>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Notifications Bell */}
           <div className="relative shrink-0" ref={popoverRef}>
             <button
               type="button"
-              onClick={() => setIsOpen(!isOpen)}
+              onClick={() => {
+                setIsOpen(!isOpen);
+                setIsBookmarkOpen(false);
+              }}
               className={`w-9 h-9 rounded-xl transition-all flex items-center justify-center cursor-pointer border select-none shrink-0 relative ${
                 isOpen
                   ? 'bg-slate-100/90 border-slate-300 ring-2 ring-indigo-500/20 text-indigo-600'

@@ -2801,6 +2801,7 @@ export function MyPage({
           offices={offices}
           divisions={divisions}
           users={allUsers}
+          onUpdateUser={onUpdateUser}
         />
       )}
 

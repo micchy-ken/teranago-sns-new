@@ -19,7 +19,8 @@ import { triggerPushNotification } from '../utils/pushNotifications';
 import { expandRecurringEvents, planRecurrenceSave, isExpandedRecurrenceId, extractDateFromInstanceId, extractParentIdFromInstanceId, isRecurringEvent } from '../utils/recurrenceUtils';
 import { RecurrenceActionModal, RecurrenceActionScope } from './RecurrenceActionModal';
 import { TeamEventDeleteModal, TeamDeleteMemberScope } from './TeamEventDeleteModal';
-import { buildAppUrl, AppQueryParams } from '../utils/urlParams';
+import { buildAppUrl, copyTextToClipboard, AppQueryParams } from '../utils/urlParams';
+import { upsertBookmarkForUser } from '../utils/bookmarks';
 import { TeamDayMemberRow } from './TeamDayMemberRow';
 import { TeamWeekMemberRow } from './TeamWeekMemberRow';
 import { TeamLocationMap } from './TeamLocationMap';
@@ -989,6 +990,72 @@ export function Calendar({
     onUpdateUser(updatedUser);
     setFavoritesFeedback(isSetting ? 'カレンダー起動時の初期表示に設定しました' : '初期表示の設定を解除しました');
     setTimeout(() => setFavoritesFeedback(null), 3000);
+  };
+
+  // 共有リンクコピー＆個人ブックマーク自動ストック
+  const handleShareCalendarView = async () => {
+    const currentDateStr = getLocalDateStr(currentDate);
+    const shareParams: AppQueryParams = {
+      tab: 'calendar',
+      mode: calendarMode,
+      view: view,
+      date: currentDateStr,
+    };
+    if (calendarMode === 'team') {
+      if (selectedOffice && selectedOffice !== '全社' && selectedOffice !== '全拠点') {
+        shareParams.office = selectedOffice;
+      }
+      if (selectedDivision && selectedDivision !== '全部署') {
+        shareParams.division = selectedDivision;
+      }
+    } else if (activePersonalUser) {
+      shareParams.targetUserId = String(activePersonalUser.id);
+    }
+    if (selectedTypeFilter && selectedTypeFilter !== 'all') {
+      shareParams.type = selectedTypeFilter;
+    }
+
+    const url = buildAppUrl(shareParams);
+    const ok = await copyTextToClipboard(url);
+    if (ok) {
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2500);
+    }
+
+    if (currentUser && onUpdateUser) {
+      const viewLabelMap: Record<'month' | 'week' | 'day' | 'list', string> = {
+        month: '月表示',
+        week: '週表示',
+        day: '日表示',
+        list: 'リスト',
+      };
+      const viewLabel = viewLabelMap[view] || view;
+      const title =
+        calendarMode === 'team'
+          ? `チーム予定 (${selectedOffice} / ${selectedDivision}・${viewLabel})`
+          : `${activePersonalUser?.name || '個人'}の予定 (${viewLabel})`;
+      const subtitleParts = [currentDateStr];
+      if (selectedTypeFilter && selectedTypeFilter !== 'all') {
+        subtitleParts.push(typeLabels[selectedTypeFilter as EventType] || selectedTypeFilter);
+      }
+
+      const bookmarkParams: AppQueryParams = {
+        ...shareParams,
+        office: selectedOffice || '全社',
+        division: selectedDivision || '全部署',
+        type: selectedTypeFilter || 'all',
+      };
+
+      const { updatedUser } = upsertBookmarkForUser(currentUser, {
+        category: 'calendar',
+        title,
+        subtitle: subtitleParts.join(' ・ '),
+        params: bookmarkParams,
+      });
+      onUpdateUser(updatedUser);
+      setFavoritesFeedback('共有リンクをコピーし、お気に入りにストックしました');
+      setTimeout(() => setFavoritesFeedback(null), 3000);
+    }
   };
 
   // チーム・日表示以外に変更されたらサイネージモードを自動解除
@@ -3227,44 +3294,16 @@ export function Calendar({
               ))}
             </select>
 
-            {/* 共有リンクコピー */}
+            {/* 共有リンクコピー＆お気に入りストック */}
             <button
               type="button"
-              onClick={() => {
-                const currentDateStr = getLocalDateStr(currentDate);
-                const shareParams: AppQueryParams = {
-                  tab: 'calendar',
-                  mode: calendarMode,
-                  view: view,
-                  date: currentDateStr,
-                };
-                if (calendarMode === 'team') {
-                  if (selectedOffice && selectedOffice !== '全社' && selectedOffice !== '全拠点') {
-                    shareParams.office = selectedOffice;
-                  }
-                  if (selectedDivision && selectedDivision !== '全部署') {
-                    shareParams.division = selectedDivision;
-                  }
-                } else if (activePersonalUser) {
-                  shareParams.targetUserId = String(activePersonalUser.id);
-                }
-                if (selectedTypeFilter && selectedTypeFilter !== 'all') {
-                  shareParams.type = selectedTypeFilter;
-                }
-                const url = buildAppUrl(shareParams);
-                if (navigator.clipboard && window.isSecureContext) {
-                  navigator.clipboard.writeText(url).then(() => {
-                    setCopiedLink(true);
-                    setTimeout(() => setCopiedLink(false), 2500);
-                  });
-                }
-              }}
+              onClick={handleShareCalendarView}
               className={`p-1.5 rounded-lg border text-xs font-semibold transition-all shadow-2xs cursor-pointer ${
                 copiedLink
                   ? 'bg-emerald-50 text-emerald-700 border-emerald-300 ring-2 ring-emerald-200'
                   : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
               }`}
-              title="URL共有リンクをコピー"
+              title="URL共有リンクをコピー（お気に入りにも自動ストック）"
             >
               {copiedLink ? <Check className="w-4 h-4 text-emerald-600" /> : <Share2 className="w-4 h-4 text-slate-500" />}
             </button>
@@ -3672,39 +3711,11 @@ export function Calendar({
                       {/* URL共有 */}
                       <button
                         type="button"
-                        onClick={() => {
-                          const currentDateStr = getLocalDateStr(currentDate);
-                          const shareParams: AppQueryParams = {
-                            tab: 'calendar',
-                            mode: calendarMode,
-                            view: view,
-                            date: currentDateStr,
-                          };
-                          if (calendarMode === 'team') {
-                            if (selectedOffice && selectedOffice !== '全社' && selectedOffice !== '全拠点') {
-                              shareParams.office = selectedOffice;
-                            }
-                            if (selectedDivision && selectedDivision !== '全部署') {
-                              shareParams.division = selectedDivision;
-                            }
-                          } else if (activePersonalUser) {
-                            shareParams.targetUserId = String(activePersonalUser.id);
-                          }
-                          if (selectedTypeFilter && selectedTypeFilter !== 'all') {
-                            shareParams.type = selectedTypeFilter;
-                          }
-                          const url = buildAppUrl(shareParams);
-                          if (navigator.clipboard && window.isSecureContext) {
-                            navigator.clipboard.writeText(url).then(() => {
-                              setCopiedLink(true);
-                              setTimeout(() => setCopiedLink(false), 2500);
-                            });
-                          }
-                        }}
+                        onClick={handleShareCalendarView}
                         className="w-full flex items-center justify-center gap-1.5 py-1.5 px-2 bg-slate-50 hover:bg-slate-100 rounded-lg text-xs font-semibold text-slate-700 border border-slate-200"
                       >
                         {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Share2 className="w-3.5 h-3.5 text-slate-500" />}
-                        <span>{copiedLink ? 'URLコピー完了!' : '現在の表示URLをコピー'}</span>
+                        <span>{copiedLink ? 'URLコピー＆ストック完了!' : '現在の表示URLをコピー'}</span>
                       </button>
 
                       {/* 日程調整アンケート */}

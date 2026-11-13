@@ -10,6 +10,7 @@ import { UrlPastePopup, useUrlPasteHandler } from './common/UrlPastePopup';
 import { markTopicAsRead } from '../utils/notifications';
 import { triggerOpenUserModal } from '../utils/userModal';
 import { buildAppUrl, copyTextToClipboard } from '../utils/urlParams';
+import { upsertBookmarkForUser } from '../utils/bookmarks';
 import { API_BASE_URL } from '../config/api';
 import { isTopicCurrentlyPinned, formatPinnedUntilBadge, getPollDeadlineMs } from '../utils/boardHelpers';
 import { resolveOffice, resolveOfficeName, resolveDivision, resolveDivisionName } from '../utils/masterResolver';
@@ -57,6 +58,7 @@ interface TopicDetailModalProps {
   divisions?: DivisionMaster[];
   isFavorite?: boolean;
   onToggleFavorite?: (topicId: string) => void;
+  onUpdateUser?: (updatedUser: User) => void;
   users?: User[];
 }
 
@@ -80,6 +82,7 @@ export function TopicDetailModal({
   divisions = [],
   isFavorite = false,
   onToggleFavorite,
+  onUpdateUser,
   users = [],
 }: TopicDetailModalProps) {
   const [activeTab, setActiveTab] = useState<'content' | 'viewers'>('content');
@@ -176,6 +179,19 @@ export function TopicDetailModal({
     if (success) {
       setCopiedLink(true);
       setTimeout(() => setCopiedLink(false), 2500);
+    }
+    if (currentUser && onUpdateUser) {
+      const subtitleParts = [
+        topic.author?.name,
+        topic.office && topic.office !== '全社' ? topic.office : undefined,
+      ].filter(Boolean);
+      const { updatedUser } = upsertBookmarkForUser(currentUser, {
+        category: 'board',
+        title: topic.title || '掲示板トピック',
+        subtitle: subtitleParts.join(' ・ ') || undefined,
+        params: { tab: 'board', topicId: topic.id },
+      });
+      onUpdateUser(updatedUser);
     }
   };
 

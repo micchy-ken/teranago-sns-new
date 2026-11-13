@@ -7,11 +7,11 @@
  * - 機能追加・バグ修正・仕様変更のたびに必ず更新すること
  */
 export const APP_VERSION = {
-  version: '2026.11.13.1',
+  version: '2026.11.13.2',
   date: '2026.11.13',
-  releaseNumber: 1,
-  display: 'v2026.11.13 #1 (JST)',
+  releaseNumber: 2,
+  display: 'v2026.11.13 #2 (JST)',
   timeZone: 'Asia/Tokyo (JST)',
-  description: 'AGENTS.md にバージョン表記の日本時間 (JST) 厳守ルールを追記し、バージョンを JST 日付基準へ改訂'
+  description: '共有ボタン押下時の個人お気に入り（ブックマーク）自動ストック・ピン留め・ワンボタン削除・ヘッダーからの即遷移機能を実装'
 };
 

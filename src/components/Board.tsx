@@ -8,6 +8,7 @@ import { TopicCreateModal } from './TopicCreateModal';
 import { TopicDetailModal } from './TopicDetailModal';
 import { ConfirmModal } from './ConfirmModal';
 import { buildAppUrl, copyTextToClipboard } from '../utils/urlParams';
+import { upsertBookmarkForUser } from '../utils/bookmarks';
 import { isTopicCurrentlyPinned, formatPinnedUntilBadge } from '../utils/boardHelpers';
 import { triggerOpenUserModal } from '../utils/userModal';
 import {
@@ -120,6 +121,23 @@ export function Board({
       setTimeout(() => {
         setCopiedTopicId(prev => (prev === topicId ? null : prev));
       }, 2500);
+    }
+
+    if (currentUser && onUpdateUser) {
+      const targetTopic = topics.find(t => t.id === topicId);
+      const subtitleParts = [
+        targetTopic?.author?.name,
+        targetTopic?.office && targetTopic.office !== '全社' ? targetTopic.office : undefined,
+      ].filter(Boolean);
+      const { updatedUser } = upsertBookmarkForUser(currentUser, {
+        category: 'board',
+        title: targetTopic?.title || '掲示板トピック',
+        subtitle: subtitleParts.join(' ・ ') || undefined,
+        params: { tab: 'board', topicId },
+      });
+      onUpdateUser(updatedUser);
+      setFavoriteFeedback('共有リンクをコピーし、お気に入りにストックしました');
+      setTimeout(() => setFavoriteFeedback(null), 2500);
     }
   };
 
@@ -719,6 +737,7 @@ export function Board({
         divisions={divisions}
         isFavorite={selectedTopic ? favoriteSet.has(selectedTopic.id) : false}
         onToggleFavorite={handleToggleFavorite}
+        onUpdateUser={onUpdateUser}
       />
 
       {/* 削除確認モーダル */}
