@@ -143,6 +143,9 @@ export function AssetManagement({
   const handleChangeMainMode = (mode: MainMode) => {
     setMainMode(mode);
     setAlertFilter('none');
+    if (mode !== 'catalog') {
+      setSelectedOfficeFilter('all');
+    }
     if (mode === 'catalog' && selectedCategoryId === 'all' && categories.length > 0) {
       setSelectedCategoryId(categories[0].id);
     }
@@ -228,7 +231,7 @@ export function AssetManagement({
         return false;
       }
 
-      if (selectedOfficeFilter !== 'all') {
+      if (mainMode === 'catalog' && selectedOfficeFilter !== 'all') {
         const assetOffice = a.officeId || a.office || '';
         if (!isSameOffice(assetOffice, selectedOfficeFilter, offices)) {
           return false;
@@ -622,9 +625,9 @@ export function AssetManagement({
   };
 
   return (
-    <div className="space-y-5">
+    <div className="flex-1 min-w-0 w-full space-y-5">
       {/* Header & Main Mode Switcher */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 space-y-4">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 space-y-4 min-w-0 w-full">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-xl font-extrabold text-slate-900 flex items-center gap-2">
@@ -846,7 +849,7 @@ export function AssetManagement({
           onSelectAsset={openEditModal}
         />
       ) : (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden min-w-0 w-full">
           {/* Category Pills Bar */}
           <div className="px-4 py-3 border-b border-slate-200 bg-slate-50/60 flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap items-center gap-1.5">
@@ -912,20 +915,35 @@ export function AssetManagement({
               </div>
 
               {mainMode === 'catalog' && (
-                <select
-                  value={assigneeFilter}
-                  onChange={(e) => setAssigneeFilter(e.target.value)}
-                  className="px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-700"
-                >
-                  <option value="all">使用者: すべて</option>
-                  <option value="__shared__">共用（限定なし）</option>
-                  <option value="__unassigned__">未割当</option>
-                  {allUsers.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.name}
-                    </option>
-                  ))}
-                </select>
+                <>
+                  <select
+                    value={selectedOfficeFilter}
+                    onChange={(e) => setSelectedOfficeFilter(e.target.value)}
+                    className="px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-700"
+                  >
+                    <option value="all">拠点: すべて</option>
+                    {offices.map((off) => (
+                      <option key={off.id} value={off.id}>
+                        {off.name}
+                      </option>
+                    ))}
+                  </select>
+
+                  <select
+                    value={assigneeFilter}
+                    onChange={(e) => setAssigneeFilter(e.target.value)}
+                    className="px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-700"
+                  >
+                    <option value="all">使用者: すべて</option>
+                    <option value="__shared__">共用（限定なし）</option>
+                    <option value="__unassigned__">未割当</option>
+                    {allUsers.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.name}
+                      </option>
+                    ))}
+                  </select>
+                </>
               )}
 
               <label className="inline-flex items-center gap-1 text-[11px] text-slate-500 cursor-pointer whitespace-nowrap px-2">
@@ -940,43 +958,19 @@ export function AssetManagement({
             </div>
           </div>
 
-          {/* Notion-Style Sub-View Pills (拠点フィルタ & ビューレンズ) */}
+          {/* Notion-Style Sub-View Pills (ビューレンズ) */}
           <div className="px-4 py-2.5 border-b border-slate-200 bg-white flex flex-wrap items-center gap-1.5">
             <button
               type="button"
-              onClick={() => {
-                setSelectedOfficeFilter('all');
-                setSubLens('all');
-              }}
+              onClick={() => setSubLens('all')}
               className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap ${
-                selectedOfficeFilter === 'all' && subLens === 'all'
+                subLens === 'all'
                   ? 'bg-slate-200 text-slate-900 font-bold'
                   : 'text-slate-600 hover:bg-slate-100'
               }`}
             >
               すべて
             </button>
-
-            {offices.map((off) => (
-              <button
-                key={off.id}
-                type="button"
-                onClick={() =>
-                  setSelectedOfficeFilter((prev) =>
-                    prev === off.id ? 'all' : off.id
-                  )
-                }
-                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap ${
-                  selectedOfficeFilter === off.id
-                    ? 'bg-indigo-100 text-indigo-800 font-bold'
-                    : 'text-slate-600 hover:bg-slate-100'
-                }`}
-              >
-                {off.name}
-              </button>
-            ))}
-
-            <span className="h-4 w-px bg-slate-200 mx-1" />
 
             {(
               [
@@ -1004,11 +998,11 @@ export function AssetManagement({
           </div>
 
           {/* Notion-Style Spreadsheet Table */}
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
+          <div className="w-full overflow-x-auto">
+            <table className="w-full min-w-max text-left border-collapse">
               <thead>
-                <tr className="border-b border-slate-200 bg-slate-50/80 text-[11px] font-bold text-slate-500">
-                  <th className="py-2.5 px-3 border-r border-slate-200/80 whitespace-nowrap min-w-[170px]">
+                <tr className="border-b border-slate-200 bg-slate-50/95 text-[11px] font-bold text-slate-500">
+                  <th className="sticky left-0 z-20 bg-slate-50 py-2.5 px-3 border-r border-slate-200/80 shadow-[2px_0_5px_-2px_rgba(15,23,42,0.08)] whitespace-nowrap min-w-[170px] max-w-[230px]">
                     {activeCategory?.id === 'cat-vehicle' ? '登録番号' : '管理番号 / 資産名'}
                   </th>
                   {!activeCategory && (
@@ -1111,7 +1105,13 @@ export function AssetManagement({
                       }`}
                     >
                       {/* 登録番号 / 名称 + Hover 開く */}
-                      <td className="py-2 px-3 border-r border-slate-200/70">
+                      <td
+                        className={`sticky left-0 z-10 py-2 px-3 border-r border-slate-200/70 shadow-[2px_0_5px_-2px_rgba(15,23,42,0.08)] max-w-[230px] transition-colors ${
+                          asset.status === 'retired'
+                            ? 'bg-slate-50 group-hover:bg-slate-100'
+                            : 'bg-white group-hover:bg-indigo-50'
+                        }`}
+                      >
                         <div className="flex items-center justify-between gap-2">
                           <div className="flex items-center gap-1.5 min-w-0">
                             <CatIcon className="w-3.5 h-3.5 text-slate-400 shrink-0" />
