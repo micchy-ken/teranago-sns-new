@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Plus,
   Download,
+  Upload,
   Settings2,
   Calendar as CalendarIcon,
   User as UserIcon,
@@ -43,6 +44,7 @@ import { isSameOffice, resolveOfficeName } from '../../utils/masterResolver';
 import { getAvatarUrl } from '../../utils/avatar';
 import { AssetDetailModal } from './AssetDetailModal';
 import { AssetCategoryEditorModal } from './AssetCategoryEditorModal';
+import { AssetCsvImportModal } from './AssetCsvImportModal';
 import { AssetCalendarView } from './AssetCalendarView';
 
 interface AssetManagementProps {
@@ -87,6 +89,7 @@ export function AssetManagement({
   const [editingAsset, setEditingAsset] = useState<AssetItem | null>(null);
   const [categoryModalOpen, setCategoryModalOpen] = useState<boolean>(false);
   const [editingCategory, setEditingCategory] = useState<AssetCategory | null>(null);
+  const [csvImportModalOpen, setCsvImportModalOpen] = useState<boolean>(false);
 
   const todayStr = getJstTodayStr();
 
@@ -657,15 +660,25 @@ export function AssetManagement({
               {activeCategory ? `「${activeCategory.name}」項目設定` : '資産種類を追加'}
             </button>
             {mainMode !== 'calendar' && (
-              <button
-                type="button"
-                onClick={handleExportCsv}
-                disabled={displayedAssets.length === 0}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-40 cursor-pointer whitespace-nowrap"
-              >
-                <Download className="w-3.5 h-3.5 text-emerald-600" />
-                CSV出力
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => setCsvImportModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold border border-indigo-200 bg-indigo-50/70 text-indigo-700 hover:bg-indigo-100 cursor-pointer whitespace-nowrap"
+                >
+                  <Upload className="w-3.5 h-3.5 text-indigo-600" />
+                  CSVインポート
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportCsv}
+                  disabled={displayedAssets.length === 0}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-40 cursor-pointer whitespace-nowrap"
+                >
+                  <Download className="w-3.5 h-3.5 text-emerald-600" />
+                  CSV出力
+                </button>
+              </>
             )}
             <button
               type="button"
@@ -1285,6 +1298,22 @@ export function AssetManagement({
         category={editingCategory}
         onSave={handleSaveCategory}
         onDelete={handleDeleteCategory}
+      />
+
+      <AssetCsvImportModal
+        isOpen={csvImportModalOpen}
+        onClose={() => setCsvImportModalOpen(false)}
+        categories={categories}
+        defaultCategoryId={
+          selectedCategoryId !== 'all' ? selectedCategoryId : categories[0]?.id
+        }
+        existingAssets={assets}
+        users={allUsers}
+        offices={offices}
+        divisions={divisions}
+        onImportAsset={handleSaveAsset}
+        onSaveCategory={handleSaveCategory}
+        onComplete={fetchAllData}
       />
     </div>
   );

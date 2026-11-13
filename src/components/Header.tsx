@@ -202,14 +202,8 @@ export function Header({
     return getSavedNotificationWindowSize();
   });
 
-  // Mini notification mode state (PC専用 縮小表示 / 最前面常駐 - リロード復元対応)
-  const [isMiniNotificationOpen, setIsMiniNotificationOpen] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem('app_mini_notification_open') === 'true';
-    } catch {
-      return false;
-    }
-  });
+  // Mini notification mode state (PC専用 縮小表示 / 最前面PiP常駐 — 起動時自動復元は廃止し、操作時のみPiP起動)
+  const [isMiniNotificationOpen, setIsMiniNotificationOpen] = useState<boolean>(false);
 
   useEffect(() => {
     try {
@@ -219,9 +213,9 @@ export function Header({
 
   useEffect(() => {
     try {
-      localStorage.setItem('app_mini_notification_open', String(isMiniNotificationOpen));
+      localStorage.removeItem('app_mini_notification_open');
     } catch (_) {}
-  }, [isMiniNotificationOpen]);
+  }, []);
 
   // Personal Bookmarks popover state
   const [isBookmarkOpen, setIsBookmarkOpen] = useState(false);

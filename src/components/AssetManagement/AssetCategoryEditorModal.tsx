@@ -19,6 +19,7 @@ import {
 } from '../../types';
 import {
   ASSET_ICON_OPTIONS,
+  buildAlignedPcCategoryFields,
   getAssetIconComponent,
   getCategoryTheme
 } from '../../utils/assets';
@@ -182,6 +183,19 @@ export function AssetCategoryEditorModal({
       });
       return next;
     });
+  };
+
+  const isPcCategory =
+    category?.id === 'cat-pc' || name.toUpperCase().includes('PC');
+
+  const handleApplyPcCsvPreset = () => {
+    const nextFields = buildAlignedPcCategoryFields(fields);
+    setFields(nextFields);
+    const nextMap: Record<number, string> = {};
+    nextFields.forEach((f, idx) => {
+      nextMap[idx] = (f.options || []).join(', ');
+    });
+    setOptionsTextMap(nextMap);
   };
 
   const handleAlertPresetChange = (index: number, preset: AlertPresetKey) => {
@@ -388,7 +402,7 @@ export function AssetCategoryEditorModal({
 
           {/* 動的パラメータ一覧 */}
           <div className="space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <Settings2 className="w-4 h-4 text-indigo-600" />
                 <h4 className="text-sm font-bold text-slate-900">
@@ -396,14 +410,26 @@ export function AssetCategoryEditorModal({
                 </h4>
                 <span className="text-xs text-slate-500">({fields.length}項目)</span>
               </div>
-              <button
-                type="button"
-                onClick={handleAddField}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 cursor-pointer whitespace-nowrap"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                パラメータを追加
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                {isPcCategory && (
+                  <button
+                    type="button"
+                    onClick={handleApplyPcCsvPreset}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 cursor-pointer whitespace-nowrap"
+                  >
+                    <CheckSquare className="w-3.5 h-3.5" />
+                    PC管理CSV（Notion）項目に合わせる
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={handleAddField}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 cursor-pointer whitespace-nowrap"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  パラメータを追加
+                </button>
+              </div>
             </div>
 
             <div className="space-y-2.5">

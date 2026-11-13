@@ -299,7 +299,7 @@ export function MiniNotificationMode({
           return;
         } catch (err) {
           console.warn('Document PiP request failed, falling back to floating widget:', err);
-          // 権限エラーや非対応・リロード自動復元時はインアプリのフロートミニモードにフォールバック
+          // 権限エラーやPiP非対応ブラウザの場合はインアプリのフロートミニモードにフォールバック
           setPipWindow(null);
         }
       }

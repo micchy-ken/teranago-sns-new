@@ -450,3 +450,349 @@ export function exportAssetsToCsv(params: {
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
 }
+
+// ============================================================================
+// CSV インポート用パーサー & Notion/和文データクレンジングヘルパー
+// ============================================================================
+
+/**
+ * バイナリFileを UTF-8 / Shift-JIS 自動判定してテキストへデコードする
+ */
+export async function readCsvFileAsText(file: File): Promise<string> {
+  const buffer = await file.arrayBuffer();
+  try {
+    const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
+    return utf8Decoder.decode(buffer);
+  } catch {
+    try {
+      const sjisDecoder = new TextDecoder('shift_jis');
+      return sjisDecoder.decode(buffer);
+    } catch {
+      return new TextDecoder('utf-8').decode(buffer);
+    }
+  }
+}
+
+/**
+ * RFC 4180 準拠の CSV パーサー (クォート内カンマ・改行・BOM対応)
+ */
+export function parseCsvMatrix(rawText: string): string[][] {
+  const text = String(rawText || '').replace(/^\uFEFF/, '');
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    const next = text[i + 1];
+
+    if (inQuotes) {
+      if (ch === '"' && next === '"') {
+        cell += '"';
+        i++;
+      } else if (ch === '"') {
+        inQuotes = false;
+      } else {
+        cell += ch;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === ',') {
+      row.push(cell.trim());
+      cell = '';
+    } else if (ch === '\r' && next === '\n') {
+      row.push(cell.trim());
+      if (row.some((c) => c !== '')) rows.push(row);
+      row = [];
+      cell = '';
+      i++;
+    } else if (ch === '\n' || ch === '\r') {
+      row.push(cell.trim());
+      if (row.some((c) => c !== '')) rows.push(row);
+      row = [];
+      cell = '';
+    } else {
+      cell += ch;
+    }
+  }
+
+  row.push(cell.trim());
+  if (row.some((c) => c !== '')) {
+    rows.push(row);
+  }
+
+  return rows;
+}
+
+/**
+ * Notion エクスポート等に含まれる ` (https://app.notion.com/...)` リンク表記を除去する
+ */
+export function cleanNotionLinkText(raw?: string | null): string {
+  if (!raw) return '';
+  return String(raw)
+    .replace(/\s*\(https?:\/\/[^)]+\)/gi, '')
+    .replace(/\s*,\s*/g, ', ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * 「2026年05月23日」「2020/6/15」「2025-06-14」などを 'YYYY-MM-DD' に正規化する
+ */
+export function parseFlexibleCsvDate(raw?: string | null): string {
+  if (!raw) return '';
+  const cleaned = cleanNotionLinkText(raw)
+    .replace(/[０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xfee0))
+    .trim();
+  if (!cleaned) return '';
+
+  const jpMatch = cleaned.match(/^(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日?/);
+  if (jpMatch) {
+    return `${jpMatch[1]}-${jpMatch[2].padStart(2, '0')}-${jpMatch[3].padStart(2, '0')}`;
+  }
+
+  const slashMatch = cleaned.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+  if (slashMatch) {
+    return `${slashMatch[1]}-${slashMatch[2].padStart(2, '0')}-${slashMatch[3].padStart(2, '0')}`;
+  }
+
+  return '';
+}
+
+/**
+ * 氏名文字列の空白を除去して社員マスターから照合する
+ */
+export function matchUserByCsvName(rawName: string, users: User[]): User | undefined {
+  const cleaned = cleanNotionLinkText(rawName);
+  if (!cleaned) return undefined;
+  const compact = cleaned.replace(/[\s\u3000]+/g, '').toLowerCase();
+  if (!compact) return undefined;
+
+  const exact = users.find((u) => {
+    const uCompact = String(u.name || '')
+      .replace(/[\s\u3000]+/g, '')
+      .toLowerCase();
+    return uCompact === compact;
+  });
+  if (exact) return exact;
+
+  return users.find((u) => {
+    const uCompact = String(u.name || '')
+      .replace(/[\s\u3000]+/g, '')
+      .toLowerCase();
+    return uCompact.length >= 2 && (uCompact.includes(compact) || compact.includes(uCompact));
+  });
+}
+
+/**
+ * 登録番号（例: 名古屋401 ふ976）や拠点名文字列から OfficeMaster を推測する
+ */
+export function inferOfficeFromText(
+  rawText: string,
+  offices: OfficeMaster[]
+): OfficeMaster | undefined {
+  const cleaned = cleanNotionLinkText(rawText);
+  if (!cleaned || !offices || offices.length === 0) return undefined;
+
+  for (const off of offices) {
+    const base = String(off.name || '')
+      .replace(/(支店|営業所|本社|出張所|事務所|センター)$/, '')
+      .trim();
+    if (base && cleaned.includes(base)) {
+      return off;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * PC管理CSV（Notionエクスポート形式）に合わせた標準PC項目定義
+ */
+export const PC_CSV_ALIGNED_FIELDS: AssetFieldDefinition[] = [
+  {
+    key: 'makerModel',
+    label: '機種名',
+    type: 'text',
+    placeholder: '例: DELL Latitude 3540',
+    showInList: true,
+    showInMyAssets: true,
+    sortOrder: 1
+  },
+  {
+    key: 'assignedDate',
+    label: '導入日',
+    type: 'date',
+    showInList: true,
+    showInMyAssets: false,
+    sortOrder: 2
+  },
+  {
+    key: 'deviceType',
+    label: 'タイプ',
+    type: 'select',
+    options: [
+      'ノートPC',
+      'デスクトップPC',
+      'ミニPC',
+      'サーバー',
+      'FAX複合機',
+      'プリンタ',
+      'ネットワーク機器',
+      'その他'
+    ],
+    showInList: true,
+    showInMyAssets: true,
+    sortOrder: 3
+  },
+  {
+    key: 'os',
+    label: 'OS',
+    type: 'select',
+    options: [
+      'Win11 Pro',
+      'Win11',
+      'Win11 Home',
+      'Windows 11 Pro',
+      'Windows 11 Home',
+      'Win10 Home 64bit',
+      'Win10 Home 32bit',
+      'Win10 Pro 64bit',
+      'Win10 Pro 32bit',
+      'Windows 10',
+      'ChromeOS',
+      'macOS',
+      'その他'
+    ],
+    showInList: true,
+    showInMyAssets: true,
+    sortOrder: 4
+  },
+  {
+    key: 'officeLicense',
+    label: 'Officeライセンス',
+    type: 'select',
+    options: ['2024', '2021', '2019', '2016', 'オンライン', 'プリ', 'なし', 'その他'],
+    showInList: true,
+    showInMyAssets: false,
+    sortOrder: 5
+  },
+  {
+    key: 'cpuMemory',
+    label: 'メモリ',
+    type: 'text',
+    placeholder: '例: 8GB / 16GB',
+    showInList: true,
+    showInMyAssets: false,
+    sortOrder: 6
+  },
+  {
+    key: 'storage',
+    label: 'HDD',
+    type: 'text',
+    placeholder: '例: SSD 250GB / SSD 1TB',
+    showInList: true,
+    showInMyAssets: false,
+    sortOrder: 7
+  },
+  {
+    key: 'msAccount',
+    label: 'MSアカウント',
+    type: 'text',
+    placeholder: '例: tn-example@outlook.jp',
+    showInList: true,
+    showInMyAssets: false,
+    sortOrder: 8
+  },
+  {
+    key: 'msPassword',
+    label: 'MSパスワード',
+    type: 'text',
+    showInList: true,
+    showInMyAssets: false,
+    sortOrder: 9
+  },
+  {
+    key: 'confirmedDate',
+    label: '確認日',
+    type: 'date',
+    showInList: true,
+    showInMyAssets: false,
+    sortOrder: 10
+  },
+  {
+    key: 'eset',
+    label: 'eset',
+    type: 'checkbox',
+    showInList: true,
+    showInMyAssets: true,
+    sortOrder: 11
+  },
+  {
+    key: 'serialNo',
+    label: 'シリアルNo',
+    type: 'text',
+    showInList: false,
+    showInMyAssets: false,
+    sortOrder: 12
+  },
+  {
+    key: 'nextCheckDate',
+    label: '定期点検予定',
+    type: 'date',
+    showInList: false,
+    showInMyAssets: true,
+    alertRule: { kind: 'inspection', daysBefore: 30, label: '点検アラート' },
+    sortOrder: 13
+  },
+  {
+    key: 'leaseEndDate',
+    label: 'リース満了・入替目安',
+    type: 'date',
+    showInList: false,
+    showInMyAssets: true,
+    alertRule: { kind: 'replacement', daysBefore: 180, label: '入替アラート' },
+    sortOrder: 14
+  }
+];
+
+/**
+ * 既存のPC項目とカスタム追加項目を保持しつつ、Notion PC CSV互換の項目セットを構築する
+ */
+export function buildAlignedPcCategoryFields(
+  existingFields: AssetFieldDefinition[] = []
+): AssetFieldDefinition[] {
+  const existingMap = new Map<string, AssetFieldDefinition>();
+  existingFields.forEach((f) => {
+    existingMap.set(f.key, f);
+  });
+
+  const merged: AssetFieldDefinition[] = PC_CSV_ALIGNED_FIELDS.map((preset) => {
+    const prev = existingMap.get(preset.key);
+    if (!prev) return { ...preset };
+    const mergedOptions =
+      preset.type === 'select'
+        ? Array.from(new Set([...(preset.options || []), ...(prev.options || [])]))
+        : prev.options;
+    return {
+      ...prev,
+      ...preset,
+      options: mergedOptions,
+      alertRule: preset.alertRule ?? prev.alertRule
+    };
+  });
+
+  const presetKeys = new Set(PC_CSV_ALIGNED_FIELDS.map((f) => f.key));
+  existingFields.forEach((f) => {
+    if (!presetKeys.has(f.key)) {
+      merged.push({ ...f });
+    }
+  });
+
+  return merged.map((f, idx) => ({ ...f, sortOrder: idx + 1 }));
+}
+
+
