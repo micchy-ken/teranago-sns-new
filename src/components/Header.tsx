@@ -5,7 +5,7 @@ import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
 import { AppTab } from './Sidebar';
 import { MiniNotificationMode } from './MiniNotificationMode';
 import { expandRecurringEvents } from '../utils/recurrenceUtils';
-import { ColorTheme, THEME_OPTIONS, getSavedTheme, applyColorTheme, AppFontSize, FONT_SIZE_OPTIONS, getSavedFontSize, applyFontSize } from '../utils/theme';
+import { ColorTheme, THEME_OPTIONS, getSavedTheme, applyColorTheme, AppFontSize, FONT_SIZE_OPTIONS, getSavedFontSize, applyFontSize, NotificationWindowSize, NOTIFICATION_WINDOW_SIZE_OPTIONS, getSavedNotificationWindowSize, applyNotificationWindowSize } from '../utils/theme';
 import { API_BASE_URL } from '../config/api';
 import { buildAppUrl, copyTextToClipboard } from '../utils/urlParams';
 import {
@@ -181,15 +181,20 @@ export function Header({
   const [readReportIds, setReadReportIds] = useState<string[]>(() => getReadReportIds(currentUser?.id));
   const popoverRef = useRef<HTMLDivElement>(null);
 
-  // Color theme picker state
+  // Unified Appearance picker state (文字の大きさ + カラー設定)
   const [currentTheme, setCurrentTheme] = useState<ColorTheme>(() => getSavedTheme());
-  const [isThemePickerOpen, setIsThemePickerOpen] = useState(false);
-  const themePickerRef = useRef<HTMLDivElement>(null);
-
-  // Font size picker state
   const [currentFontSize, setCurrentFontSize] = useState<AppFontSize>(() => getSavedFontSize());
-  const [isFontSizePickerOpen, setIsFontSizePickerOpen] = useState(false);
-  const fontSizePickerRef = useRef<HTMLDivElement>(null);
+  const [isAppearancePickerOpen, setIsAppearancePickerOpen] = useState(false);
+  const appearancePickerRef = useRef<HTMLDivElement>(null);
+
+  // Notification window size state (小 / 中 / 大 - 記憶対応)
+  const [notificationWindowSize, setNotificationWindowSize] = useState<NotificationWindowSize>(() => {
+    const prefSize = currentUser?.preferences?.notificationWindowSize;
+    if (prefSize && NOTIFICATION_WINDOW_SIZE_OPTIONS.some((o) => o.id === prefSize)) {
+      return prefSize;
+    }
+    return getSavedNotificationWindowSize();
+  });
 
   // Mini notification mode state (PC専用 縮小表示 / 最前面常駐)
   const [isMiniNotificationOpen, setIsMiniNotificationOpen] = useState(false);
@@ -209,74 +214,74 @@ export function Header({
   }, []);
 
   useEffect(() => {
+    const prefSize = currentUser?.preferences?.notificationWindowSize;
+    if (prefSize && NOTIFICATION_WINDOW_SIZE_OPTIONS.some((o) => o.id === prefSize)) {
+      setNotificationWindowSize(prefSize);
+      applyNotificationWindowSize(prefSize);
+    }
+  }, [currentUser?.preferences?.notificationWindowSize]);
+
+  useEffect(() => {
     const handleFontSizeChange = (e: any) => {
       if (e.detail) setCurrentFontSize(e.detail);
     };
     const handleColorThemeChange = (e: any) => {
       if (e.detail) setCurrentTheme(e.detail);
     };
+    const handleNotifWindowSizeChange = (e: any) => {
+      if (e.detail && NOTIFICATION_WINDOW_SIZE_OPTIONS.some((o) => o.id === e.detail)) {
+        setNotificationWindowSize(e.detail);
+      }
+    };
     window.addEventListener('teranago:font-size-changed' as any, handleFontSizeChange);
     window.addEventListener('teranago:color-theme-changed' as any, handleColorThemeChange);
+    window.addEventListener('teranago:notification-window-size-changed' as any, handleNotifWindowSizeChange);
     return () => {
       window.removeEventListener('teranago:font-size-changed' as any, handleFontSizeChange);
       window.removeEventListener('teranago:color-theme-changed' as any, handleColorThemeChange);
+      window.removeEventListener('teranago:notification-window-size-changed' as any, handleNotifWindowSizeChange);
     };
   }, []);
+
+  const persistUserPreferencePatch = (patch: Record<string, any>) => {
+    if (!currentUser?.id) return;
+    try {
+      const cached = localStorage.getItem(`user_preferences_${currentUser.id}`);
+      const currentPrefs = cached ? JSON.parse(cached) : (currentUser.preferences || {});
+      const updatedPrefs = { ...currentPrefs, ...patch };
+      localStorage.setItem(`user_preferences_${currentUser.id}`, JSON.stringify(updatedPrefs));
+
+      if (onUpdateUser) {
+        onUpdateUser({
+          ...currentUser,
+          preferences: updatedPrefs,
+        });
+      } else {
+        fetch(`${API_BASE_URL}/users/${currentUser.id}/preferences`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updatedPrefs),
+        }).catch(() => {});
+      }
+    } catch (_) {}
+  };
 
   const handleChangeFontSize = (size: AppFontSize) => {
     setCurrentFontSize(size);
     applyFontSize(size);
-    setIsFontSizePickerOpen(false);
-
-    if (currentUser?.id) {
-      try {
-        const cached = localStorage.getItem(`user_preferences_${currentUser.id}`);
-        const currentPrefs = cached ? JSON.parse(cached) : (currentUser.preferences || {});
-        const updatedPrefs = { ...currentPrefs, fontSize: size };
-        localStorage.setItem(`user_preferences_${currentUser.id}`, JSON.stringify(updatedPrefs));
-
-        if (onUpdateUser) {
-          onUpdateUser({
-            ...currentUser,
-            preferences: updatedPrefs,
-          });
-        } else {
-          fetch(`${API_BASE_URL}/users/${currentUser.id}/preferences`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(updatedPrefs),
-          }).catch(() => {});
-        }
-      } catch (_) {}
-    }
+    persistUserPreferencePatch({ fontSize: size });
   };
 
   const handleChangeColorTheme = (theme: ColorTheme) => {
     setCurrentTheme(theme);
     applyColorTheme(theme);
-    setIsThemePickerOpen(false);
+    persistUserPreferencePatch({ colorTheme: theme });
+  };
 
-    if (currentUser?.id) {
-      try {
-        const cached = localStorage.getItem(`user_preferences_${currentUser.id}`);
-        const currentPrefs = cached ? JSON.parse(cached) : (currentUser.preferences || {});
-        const updatedPrefs = { ...currentPrefs, colorTheme: theme };
-        localStorage.setItem(`user_preferences_${currentUser.id}`, JSON.stringify(updatedPrefs));
-
-        if (onUpdateUser) {
-          onUpdateUser({
-            ...currentUser,
-            preferences: updatedPrefs,
-          });
-        } else {
-          fetch(`${API_BASE_URL}/users/${currentUser.id}/preferences`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(updatedPrefs),
-          }).catch(() => {});
-        }
-      } catch (_) {}
-    }
+  const handleChangeNotificationWindowSize = (size: NotificationWindowSize) => {
+    setNotificationWindowSize(size);
+    applyNotificationWindowSize(size);
+    persistUserPreferencePatch({ notificationWindowSize: size });
   };
 
   // Cross-functional search state
@@ -294,19 +299,19 @@ export function Header({
       if (popoverRef.current && !popoverRef.current.contains(target)) {
         setIsOpen(false);
       }
-      if (themePickerRef.current && !themePickerRef.current.contains(target)) {
-        setIsThemePickerOpen(false);
+      if (appearancePickerRef.current && !appearancePickerRef.current.contains(target)) {
+        setIsAppearancePickerOpen(false);
       }
-      if (fontSizePickerRef.current && !fontSizePickerRef.current.contains(target)) {
-        setIsFontSizePickerOpen(false);
+      if (bookmarkPopoverRef.current && !bookmarkPopoverRef.current.contains(target)) {
+        setIsBookmarkOpen(false);
       }
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setIsSearchFocused(false);
         setIsOpen(false);
-        setIsThemePickerOpen(false);
-        setIsFontSizePickerOpen(false);
+        setIsAppearancePickerOpen(false);
+        setIsBookmarkOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -1273,118 +1278,31 @@ export function Header({
 
         {/* Right actions */}
         <div className="flex items-center gap-1.5 sm:gap-2 lg:gap-3 shrink-0">
-          {/* Font Size Scale Switcher */}
-          <div className="relative shrink-0" ref={fontSizePickerRef}>
+          {/* Unified Appearance Settings Switcher (文字の大きさ設定 + カラー設定) */}
+          <div className="relative shrink-0" ref={appearancePickerRef}>
             {(() => {
+              const activeOpt = THEME_OPTIONS.find(t => t.id === currentTheme) || THEME_OPTIONS[0];
               const activeSizeOpt = FONT_SIZE_OPTIONS.find(f => f.id === currentFontSize) || FONT_SIZE_OPTIONS[1];
               return (
                 <button
                   type="button"
-                  id="header-font-size-picker-button"
-                  onClick={() => setIsFontSizePickerOpen(!isFontSizePickerOpen)}
+                  id="header-appearance-picker-button"
+                  onClick={() => {
+                    setIsAppearancePickerOpen((prev) => !prev);
+                    setIsOpen(false);
+                    setIsBookmarkOpen(false);
+                  }}
                   className={`w-9 h-9 rounded-xl transition-all flex items-center justify-center cursor-pointer border select-none shrink-0 ${
-                    isFontSizePickerOpen
+                    isAppearancePickerOpen
                       ? 'bg-slate-100/90 border-slate-300 ring-2 ring-indigo-500/20'
                       : 'border-slate-200/80 bg-white/80 hover:bg-slate-50 hover:border-slate-300 shadow-2xs'
                   }`}
-                  title={`文字の大きさ設定（現在: ${activeSizeOpt.name}）`}
-                  aria-label={`文字の大きさ設定（現在: ${activeSizeOpt.name}）`}
-                >
-                  <span className="text-sm font-bold text-slate-800 tracking-tight leading-none font-sans">
-                    T
-                  </span>
-                </button>
-              );
-            })()}
-
-            {isFontSizePickerOpen && (
-              <div className="absolute right-0 top-full mt-2 w-72 sm:w-80 bg-white rounded-2xl shadow-2xl border border-slate-200/90 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150 ring-1 ring-slate-900/5 max-h-[85vh] flex flex-col">
-                <div className="flex items-center justify-between p-3.5 bg-slate-50/80 border-b border-slate-100 shrink-0">
-                  <div className="flex items-center gap-2 font-bold text-xs text-slate-800">
-                    <Type className="w-4 h-4 text-indigo-600" />
-                    <span>文字の大きさ設定</span>
-                  </div>
-                  <span className="text-[10px] text-slate-500 font-medium">全4段階（全画面連動）</span>
-                </div>
-
-                <div className="p-3 space-y-2 overflow-y-auto">
-                  <p className="text-[11px] text-slate-500 mb-2 leading-relaxed">
-                    画面全体の文字やボタンサイズを見やすく調整します。端末とアカウントに自動保存されます。
-                  </p>
-
-                  <div className="space-y-1.5">
-                    {FONT_SIZE_OPTIONS.map((opt) => {
-                      const isSelected = currentFontSize === opt.id;
-                      return (
-                        <button
-                          key={opt.id}
-                          type="button"
-                          onClick={() => handleChangeFontSize(opt.id)}
-                          className={`w-full text-left p-2.5 rounded-xl border transition-all flex items-center justify-between gap-3 cursor-pointer ${
-                            isSelected
-                              ? 'border-indigo-500 bg-indigo-50/80 ring-1 ring-indigo-500/30'
-                              : 'border-slate-100 hover:border-slate-200 hover:bg-slate-50'
-                          }`}
-                        >
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className={`text-xs font-bold ${isSelected ? 'text-indigo-950' : 'text-slate-800'}`}>
-                                {opt.label}（{opt.badgeText}）
-                              </span>
-                              {opt.id === 'standard' && (
-                                <span className="text-[9px] px-1.5 py-0.2 rounded font-medium bg-emerald-100 text-emerald-800">
-                                  推奨標準
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-[10px] text-slate-500 mt-0.5 leading-snug">
-                              {opt.description}
-                            </p>
-                          </div>
-
-                          <div className="flex items-center gap-2 shrink-0">
-                            <span
-                              className={`font-bold transition-all px-2 py-1 rounded border ${
-                                isSelected
-                                  ? 'text-indigo-700 border-indigo-300 bg-white shadow-2xs'
-                                  : 'text-slate-600 border-slate-200 bg-slate-100'
-                              }`}
-                              style={{ fontSize: opt.basePx }}
-                            >
-                              あA
-                            </span>
-                            {isSelected && <Check className="w-4 h-4 text-indigo-600 shrink-0" />}
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Color Palette Theme Switcher - PC表示のみ（タブレット・スマホでは表示をシンプル化） */}
-          <div className="relative shrink-0 hidden lg:block" ref={themePickerRef}>
-            {(() => {
-              const activeOpt = THEME_OPTIONS.find(t => t.id === currentTheme) || THEME_OPTIONS[0];
-              return (
-                <button
-                  type="button"
-                  id="header-theme-picker-button"
-                  onClick={() => setIsThemePickerOpen(!isThemePickerOpen)}
-                  className={`w-9 h-9 rounded-xl transition-all flex items-center justify-center cursor-pointer border select-none shrink-0 ${
-                    isThemePickerOpen
-                      ? 'bg-slate-100/90 border-slate-300 ring-2 ring-indigo-500/20'
-                      : 'border-slate-200/80 bg-white/80 hover:bg-slate-50 hover:border-slate-300 shadow-2xs'
-                  }`}
-                  title={`配色・背景色設定（現在: ${activeOpt.name}）`}
-                  aria-label={`配色・背景色設定（現在: ${activeOpt.name}）`}
+                  title={`見た目設定（文字: ${activeSizeOpt.label} / 配色: ${activeOpt.name}）`}
+                  aria-label={`見た目設定（文字: ${activeSizeOpt.label} / 配色: ${activeOpt.name}）`}
                 >
                   <div
                     className="w-5 h-5 rounded-lg border border-slate-300/80 shadow-2xs flex items-center justify-center relative overflow-hidden"
                     style={{ backgroundColor: activeOpt.bgPreview }}
-                    title={`現在の背景色: ${activeOpt.bgLabel}`}
                   >
                     <div className="flex items-center -space-x-1 scale-75">
                       <span className="w-2.5 h-2.5 rounded-full inline-block shadow-2xs ring-1 ring-white" style={{ backgroundColor: activeOpt.previewColors[1] }} />
@@ -1396,258 +1314,324 @@ export function Header({
               );
             })()}
 
-            {isThemePickerOpen && (
-              <div className="absolute right-0 top-full mt-2 w-84 sm:w-96 bg-white rounded-2xl shadow-2xl border border-slate-200/90 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150 ring-1 ring-slate-900/5 max-h-[85vh] flex flex-col">
+            {isAppearancePickerOpen && (
+              <div className="fixed sm:absolute left-2 right-2 sm:left-auto sm:right-0 top-16 sm:top-full sm:mt-2 sm:w-96 bg-white rounded-2xl shadow-2xl border border-slate-200/90 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150 ring-1 ring-slate-900/5 max-h-[85vh] flex flex-col">
                 <div className="flex items-center justify-between p-3.5 bg-slate-50/80 border-b border-slate-100 shrink-0">
                   <div className="flex items-center gap-2 font-bold text-xs text-slate-800">
                     <Palette className="w-4 h-4 text-indigo-600" />
-                    <span>画面の配色・テーマ設定</span>
+                    <span>見た目設定（文字サイズ・配色）</span>
                   </div>
-                  <span className="text-[10px] text-slate-500 font-medium">全10テーマ（高視認性）</span>
+                  <button
+                    type="button"
+                    onClick={() => setIsAppearancePickerOpen(false)}
+                    className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-200/60 rounded-lg transition-colors cursor-pointer"
+                    title="閉じる"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
                 </div>
 
                 <div className="overflow-y-auto p-3 space-y-3.5 divide-y divide-slate-100">
-                  {/* Category 1: 🌙 ダーク＆大人系 */}
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
+                  {/* Section 1: 文字の大きさ設定 (カラー設定の上) */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
                       <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
-                        🌙 ダーク＆大人系（夜間・高コントラスト）
+                        <Type className="w-3.5 h-3.5 text-indigo-600" />
+                        文字の大きさ設定
+                      </span>
+                      <span className="text-[10px] text-slate-500 font-medium">
+                        現在: {(FONT_SIZE_OPTIONS.find(f => f.id === currentFontSize) || FONT_SIZE_OPTIONS[1]).label}（{(FONT_SIZE_OPTIONS.find(f => f.id === currentFontSize) || FONT_SIZE_OPTIONS[1]).badgeText}）
                       </span>
                     </div>
-                    <div className="space-y-1.5">
-                      {THEME_OPTIONS.filter((o) => o.category === 'dark').map((opt) => {
-                        const isSelected = currentTheme === opt.id;
+
+                    <div className="grid grid-cols-4 gap-1.5">
+                      {FONT_SIZE_OPTIONS.map((opt) => {
+                        const isSelected = currentFontSize === opt.id;
                         return (
                           <button
                             key={opt.id}
                             type="button"
-                            onClick={() => handleChangeColorTheme(opt.id)}
-                            className={`w-full text-left p-2.5 rounded-xl border transition-all flex items-start gap-2.5 cursor-pointer ${
+                            onClick={() => handleChangeFontSize(opt.id)}
+                            title={opt.description}
+                            className={`p-2 rounded-xl border transition-all flex flex-col items-center justify-center gap-1 cursor-pointer ${
                               isSelected
-                                ? 'border-indigo-500 bg-indigo-50/70 ring-1 ring-indigo-500/30'
-                                : 'border-slate-100 hover:border-slate-200 hover:bg-slate-50'
+                                ? 'border-indigo-500 bg-indigo-50/80 ring-1 ring-indigo-500/30 shadow-2xs'
+                                : 'border-slate-200/80 bg-white hover:border-slate-300 hover:bg-slate-50'
                             }`}
                           >
-                            <div
-                              className="w-9 h-9 rounded-lg border border-slate-700/60 shadow-2xs shrink-0 flex flex-col items-center justify-center p-1 relative overflow-hidden"
-                              style={{ backgroundColor: opt.bgPreview }}
-                              title={opt.bgLabel}
+                            <span
+                              className={`font-bold leading-none ${isSelected ? 'text-indigo-700' : 'text-slate-700'}`}
+                              style={{ fontSize: opt.basePx }}
                             >
-                              <div
-                                className="w-6 h-4 rounded border border-slate-600/50 flex items-center justify-center shadow-xs"
-                                style={{ backgroundColor: opt.cardPreview }}
-                              >
-                                <div className="flex items-center -space-x-1 scale-75">
-                                  {opt.previewColors.map((color, idx) => (
-                                    <span
-                                      key={idx}
-                                      className="w-2 h-2 rounded-full shadow-2xs ring-1 ring-slate-800 inline-block"
-                                      style={{ backgroundColor: color }}
-                                    />
-                                  ))}
-                                </div>
-                              </div>
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center justify-between gap-1">
-                                <span className={`text-xs font-bold ${isSelected ? 'text-indigo-950 font-black' : 'text-slate-800'}`}>
-                                  {opt.name}
-                                </span>
-                                {isSelected && <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />}
-                              </div>
-                              <p className="text-[10px] text-slate-500 mt-0.5 leading-snug">
-                                {opt.description}
-                              </p>
-                              <span className="inline-block mt-1 text-[9px] px-1.5 py-0.5 rounded bg-slate-900 text-slate-200 font-medium">
-                                背景: {opt.bgLabel}
+                              あA
+                            </span>
+                            <div className="flex items-center gap-0.5">
+                              <span className={`text-[11px] font-bold whitespace-nowrap ${isSelected ? 'text-indigo-900' : 'text-slate-700'}`}>
+                                {opt.label}
                               </span>
+                              {isSelected && <Check className="w-3 h-3 text-indigo-600 shrink-0" />}
                             </div>
+                            <span className="text-[9px] text-slate-400 font-mono leading-none">
+                              {opt.badgeText}
+                            </span>
                           </button>
                         );
                       })}
                     </div>
                   </div>
 
-                  {/* Category 2: 📜 クラシック＆シック */}
-                  <div className="pt-3">
-                    <div className="flex items-center justify-between mb-2">
+                  {/* Section 2: カラー設定 */}
+                  <div className="pt-3 space-y-3.5 divide-y divide-slate-100">
+                    <div className="flex items-center justify-between">
                       <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
-                        📜 クラシック＆シック（書斎・ミニマル）
+                        <Palette className="w-3.5 h-3.5 text-indigo-600" />
+                        カラー・テーマ設定
                       </span>
+                      <span className="text-[10px] text-slate-500 font-medium">全10テーマ</span>
                     </div>
-                    <div className="space-y-1.5">
-                      {THEME_OPTIONS.filter((o) => o.category === 'classic').map((opt) => {
-                        const isSelected = currentTheme === opt.id;
-                        return (
-                          <button
-                            key={opt.id}
-                            type="button"
-                            onClick={() => handleChangeColorTheme(opt.id)}
-                            className={`w-full text-left p-2.5 rounded-xl border transition-all flex items-start gap-2.5 cursor-pointer ${
-                              isSelected
-                                ? 'border-indigo-500 bg-indigo-50/70 ring-1 ring-indigo-500/30'
-                                : 'border-slate-100 hover:border-slate-200 hover:bg-slate-50'
-                            }`}
-                          >
-                            <div
-                              className="w-9 h-9 rounded-lg border border-slate-300/80 shadow-2xs shrink-0 flex flex-col items-center justify-center p-1 relative overflow-hidden"
-                              style={{ backgroundColor: opt.bgPreview }}
-                              title={opt.bgLabel}
-                            >
-                              <div
-                                className="w-6 h-4 rounded border border-slate-200 flex items-center justify-center shadow-xs"
-                                style={{ backgroundColor: opt.cardPreview }}
-                              >
-                                <div className="flex items-center -space-x-1 scale-75">
-                                  {opt.previewColors.map((color, idx) => (
-                                    <span
-                                      key={idx}
-                                      className="w-2 h-2 rounded-full shadow-2xs ring-1 ring-white/90 inline-block"
-                                      style={{ backgroundColor: color }}
-                                    />
-                                  ))}
-                                </div>
-                              </div>
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center justify-between gap-1">
-                                <span className={`text-xs font-bold ${isSelected ? 'text-indigo-950 font-black' : 'text-slate-800'}`}>
-                                  {opt.name}
-                                </span>
-                                {isSelected && <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />}
-                              </div>
-                              <p className="text-[10px] text-slate-500 mt-0.5 leading-snug">
-                                {opt.description}
-                              </p>
-                              <span className="inline-block mt-1 text-[9px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-medium">
-                                背景: {opt.bgLabel}
-                              </span>
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
 
-                  {/* Category 3: 🎨 カラー＆アース */}
-                  <div className="pt-3">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
-                        🎨 カラー＆アース（自然・寒色・暖色・パステル）
-                      </span>
-                    </div>
-                    <div className="space-y-1.5">
-                      {THEME_OPTIONS.filter((o) => o.category === 'color').map((opt) => {
-                        const isSelected = currentTheme === opt.id;
-                        return (
-                          <button
-                            key={opt.id}
-                            type="button"
-                            onClick={() => handleChangeColorTheme(opt.id)}
-                            className={`w-full text-left p-2.5 rounded-xl border transition-all flex items-start gap-2.5 cursor-pointer ${
-                              isSelected
-                                ? 'border-indigo-500 bg-indigo-50/70 ring-1 ring-indigo-500/30'
-                                : 'border-slate-100 hover:border-slate-200 hover:bg-slate-50'
-                            }`}
-                          >
-                            <div
-                              className="w-9 h-9 rounded-lg border border-slate-300/80 shadow-2xs shrink-0 flex flex-col items-center justify-center p-1 relative overflow-hidden"
-                              style={{ backgroundColor: opt.bgPreview }}
-                              title={opt.bgLabel}
+                    {/* Category 1: 🌙 ダーク＆大人系 */}
+                    <div className="pt-2.5">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
+                          🌙 ダーク＆大人系（夜間・高コントラスト）
+                        </span>
+                      </div>
+                      <div className="space-y-1.5">
+                        {THEME_OPTIONS.filter((o) => o.category === 'dark').map((opt) => {
+                          const isSelected = currentTheme === opt.id;
+                          return (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              onClick={() => handleChangeColorTheme(opt.id)}
+                              className={`w-full text-left p-2.5 rounded-xl border transition-all flex items-start gap-2.5 cursor-pointer ${
+                                isSelected
+                                  ? 'border-indigo-500 bg-indigo-50/70 ring-1 ring-indigo-500/30'
+                                  : 'border-slate-100 hover:border-slate-200 hover:bg-slate-50'
+                              }`}
                             >
                               <div
-                                className="w-6 h-4 rounded border border-slate-200 flex items-center justify-center shadow-xs"
-                                style={{ backgroundColor: opt.cardPreview }}
+                                className="w-9 h-9 rounded-lg border border-slate-700/60 shadow-2xs shrink-0 flex flex-col items-center justify-center p-1 relative overflow-hidden"
+                                style={{ backgroundColor: opt.bgPreview }}
+                                title={opt.bgLabel}
                               >
-                                <div className="flex items-center -space-x-1 scale-75">
-                                  {opt.previewColors.map((color, idx) => (
-                                    <span
-                                      key={idx}
-                                      className="w-2 h-2 rounded-full shadow-2xs ring-1 ring-white/90 inline-block"
-                                      style={{ backgroundColor: color }}
-                                    />
-                                  ))}
+                                <div
+                                  className="w-6 h-4 rounded border border-slate-600/50 flex items-center justify-center shadow-xs"
+                                  style={{ backgroundColor: opt.cardPreview }}
+                                >
+                                  <div className="flex items-center -space-x-1 scale-75">
+                                    {opt.previewColors.map((color, idx) => (
+                                      <span
+                                        key={idx}
+                                        className="w-2 h-2 rounded-full shadow-2xs ring-1 ring-slate-800 inline-block"
+                                        style={{ backgroundColor: color }}
+                                      />
+                                    ))}
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center justify-between gap-1">
-                                <span className={`text-xs font-bold ${isSelected ? 'text-indigo-950 font-black' : 'text-slate-800'}`}>
-                                  {opt.name}
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center justify-between gap-1">
+                                  <span className={`text-xs font-bold ${isSelected ? 'text-indigo-950 font-black' : 'text-slate-800'}`}>
+                                    {opt.name}
+                                  </span>
+                                  {isSelected && <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />}
+                                </div>
+                                <p className="text-[10px] text-slate-500 mt-0.5 leading-snug">
+                                  {opt.description}
+                                </p>
+                                <span className="inline-block mt-1 text-[9px] px-1.5 py-0.5 rounded bg-slate-900 text-slate-200 font-medium">
+                                  背景: {opt.bgLabel}
                                 </span>
-                                {isSelected && <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />}
                               </div>
-                              <p className="text-[10px] text-slate-500 mt-0.5 leading-snug">
-                                {opt.description}
-                              </p>
-                              <span className="inline-block mt-1 text-[9px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-medium">
-                                背景: {opt.bgLabel}
-                              </span>
-                            </div>
-                          </button>
-                        );
-                      })}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
 
-                  {/* Category 4: ⚪ スタンダード */}
-                  <div className="pt-3">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
-                        ⚪ スタンダード（標準）
-                      </span>
-                    </div>
-                    <div className="space-y-1.5">
-                      {THEME_OPTIONS.filter((o) => o.category === 'standard').map((opt) => {
-                        const isSelected = currentTheme === opt.id;
-                        return (
-                          <button
-                            key={opt.id}
-                            type="button"
-                            onClick={() => handleChangeColorTheme(opt.id)}
-                            className={`w-full text-left p-2.5 rounded-xl border transition-all flex items-start gap-2.5 cursor-pointer ${
-                              isSelected
-                                ? 'border-indigo-500 bg-indigo-50/70 ring-1 ring-indigo-500/30'
-                                : 'border-slate-100 hover:border-slate-200 hover:bg-slate-50'
-                            }`}
-                          >
-                            <div
-                              className="w-9 h-9 rounded-lg border border-slate-300/80 shadow-2xs shrink-0 flex flex-col items-center justify-center p-1 relative overflow-hidden"
-                              style={{ backgroundColor: opt.bgPreview }}
-                              title={opt.bgLabel}
+                    {/* Category 2: 📜 クラシック＆シック */}
+                    <div className="pt-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
+                          📜 クラシック＆シック（書斎・ミニマル）
+                        </span>
+                      </div>
+                      <div className="space-y-1.5">
+                        {THEME_OPTIONS.filter((o) => o.category === 'classic').map((opt) => {
+                          const isSelected = currentTheme === opt.id;
+                          return (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              onClick={() => handleChangeColorTheme(opt.id)}
+                              className={`w-full text-left p-2.5 rounded-xl border transition-all flex items-start gap-2.5 cursor-pointer ${
+                                isSelected
+                                  ? 'border-indigo-500 bg-indigo-50/70 ring-1 ring-indigo-500/30'
+                                  : 'border-slate-100 hover:border-slate-200 hover:bg-slate-50'
+                              }`}
                             >
                               <div
-                                className="w-6 h-4 rounded border border-slate-200 flex items-center justify-center shadow-xs"
-                                style={{ backgroundColor: opt.cardPreview }}
+                                className="w-9 h-9 rounded-lg border border-slate-300/80 shadow-2xs shrink-0 flex flex-col items-center justify-center p-1 relative overflow-hidden"
+                                style={{ backgroundColor: opt.bgPreview }}
+                                title={opt.bgLabel}
                               >
-                                <div className="flex items-center -space-x-1 scale-75">
-                                  {opt.previewColors.map((color, idx) => (
-                                    <span
-                                      key={idx}
-                                      className="w-2 h-2 rounded-full shadow-2xs ring-1 ring-white/90 inline-block"
-                                      style={{ backgroundColor: color }}
-                                    />
-                                  ))}
+                                <div
+                                  className="w-6 h-4 rounded border border-slate-200 flex items-center justify-center shadow-xs"
+                                  style={{ backgroundColor: opt.cardPreview }}
+                                >
+                                  <div className="flex items-center -space-x-1 scale-75">
+                                    {opt.previewColors.map((color, idx) => (
+                                      <span
+                                        key={idx}
+                                        className="w-2 h-2 rounded-full shadow-2xs ring-1 ring-white/90 inline-block"
+                                        style={{ backgroundColor: color }}
+                                      />
+                                    ))}
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center justify-between gap-1">
-                                <span className={`text-xs font-bold ${isSelected ? 'text-indigo-950 font-black' : 'text-slate-800'}`}>
-                                  {opt.name}
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center justify-between gap-1">
+                                  <span className={`text-xs font-bold ${isSelected ? 'text-indigo-950 font-black' : 'text-slate-800'}`}>
+                                    {opt.name}
+                                  </span>
+                                  {isSelected && <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />}
+                                </div>
+                                <p className="text-[10px] text-slate-500 mt-0.5 leading-snug">
+                                  {opt.description}
+                                </p>
+                                <span className="inline-block mt-1 text-[9px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-medium">
+                                  背景: {opt.bgLabel}
                                 </span>
-                                {isSelected && <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />}
                               </div>
-                              <p className="text-[10px] text-slate-500 mt-0.5 leading-snug">
-                                {opt.description}
-                              </p>
-                              <span className="inline-block mt-1 text-[9px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-medium">
-                                背景: {opt.bgLabel}
-                              </span>
-                            </div>
-                          </button>
-                        );
-                      })}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Category 3: 🎨 カラー＆アース */}
+                    <div className="pt-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
+                          🎨 カラー＆アース（自然・寒色・暖色・パステル）
+                        </span>
+                      </div>
+                      <div className="space-y-1.5">
+                        {THEME_OPTIONS.filter((o) => o.category === 'color').map((opt) => {
+                          const isSelected = currentTheme === opt.id;
+                          return (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              onClick={() => handleChangeColorTheme(opt.id)}
+                              className={`w-full text-left p-2.5 rounded-xl border transition-all flex items-start gap-2.5 cursor-pointer ${
+                                isSelected
+                                  ? 'border-indigo-500 bg-indigo-50/70 ring-1 ring-indigo-500/30'
+                                  : 'border-slate-100 hover:border-slate-200 hover:bg-slate-50'
+                              }`}
+                            >
+                              <div
+                                className="w-9 h-9 rounded-lg border border-slate-300/80 shadow-2xs shrink-0 flex flex-col items-center justify-center p-1 relative overflow-hidden"
+                                style={{ backgroundColor: opt.bgPreview }}
+                                title={opt.bgLabel}
+                              >
+                                <div
+                                  className="w-6 h-4 rounded border border-slate-200 flex items-center justify-center shadow-xs"
+                                  style={{ backgroundColor: opt.cardPreview }}
+                                >
+                                  <div className="flex items-center -space-x-1 scale-75">
+                                    {opt.previewColors.map((color, idx) => (
+                                      <span
+                                        key={idx}
+                                        className="w-2 h-2 rounded-full shadow-2xs ring-1 ring-white/90 inline-block"
+                                        style={{ backgroundColor: color }}
+                                      />
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center justify-between gap-1">
+                                  <span className={`text-xs font-bold ${isSelected ? 'text-indigo-950 font-black' : 'text-slate-800'}`}>
+                                    {opt.name}
+                                  </span>
+                                  {isSelected && <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />}
+                                </div>
+                                <p className="text-[10px] text-slate-500 mt-0.5 leading-snug">
+                                  {opt.description}
+                                </p>
+                                <span className="inline-block mt-1 text-[9px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-medium">
+                                  背景: {opt.bgLabel}
+                                </span>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Category 4: ⚪ スタンダード */}
+                    <div className="pt-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
+                          ⚪ スタンダード（標準）
+                        </span>
+                      </div>
+                      <div className="space-y-1.5">
+                        {THEME_OPTIONS.filter((o) => o.category === 'standard').map((opt) => {
+                          const isSelected = currentTheme === opt.id;
+                          return (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              onClick={() => handleChangeColorTheme(opt.id)}
+                              className={`w-full text-left p-2.5 rounded-xl border transition-all flex items-start gap-2.5 cursor-pointer ${
+                                isSelected
+                                  ? 'border-indigo-500 bg-indigo-50/70 ring-1 ring-indigo-500/30'
+                                  : 'border-slate-100 hover:border-slate-200 hover:bg-slate-50'
+                              }`}
+                            >
+                              <div
+                                className="w-9 h-9 rounded-lg border border-slate-300/80 shadow-2xs shrink-0 flex flex-col items-center justify-center p-1 relative overflow-hidden"
+                                style={{ backgroundColor: opt.bgPreview }}
+                                title={opt.bgLabel}
+                              >
+                                <div
+                                  className="w-6 h-4 rounded border border-slate-200 flex items-center justify-center shadow-xs"
+                                  style={{ backgroundColor: opt.cardPreview }}
+                                >
+                                  <div className="flex items-center -space-x-1 scale-75">
+                                    {opt.previewColors.map((color, idx) => (
+                                      <span
+                                        key={idx}
+                                        className="w-2 h-2 rounded-full shadow-2xs ring-1 ring-white/90 inline-block"
+                                        style={{ backgroundColor: color }}
+                                      />
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center justify-between gap-1">
+                                  <span className={`text-xs font-bold ${isSelected ? 'text-indigo-950 font-black' : 'text-slate-800'}`}>
+                                    {opt.name}
+                                  </span>
+                                  {isSelected && <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />}
+                                </div>
+                                <p className="text-[10px] text-slate-500 mt-0.5 leading-snug">
+                                  {opt.description}
+                                </p>
+                                <span className="inline-block mt-1 text-[9px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-medium">
+                                  背景: {opt.bgLabel}
+                                </span>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1953,30 +1937,59 @@ export function Header({
             </button>
 
             {/* Notification Popover Dropdown */}
-            {isOpen && (
-              <div className="absolute right-0 top-full mt-2 w-80 sm:w-96 bg-white rounded-2xl shadow-xl border border-slate-200/90 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150 ring-1 ring-slate-900/5">
+            {isOpen && (() => {
+              const activeNotifSizeOpt =
+                NOTIFICATION_WINDOW_SIZE_OPTIONS.find((o) => o.id === notificationWindowSize) ||
+                NOTIFICATION_WINDOW_SIZE_OPTIONS[1];
+              return (
+              <div className={`fixed sm:absolute left-2 right-2 sm:left-auto sm:right-0 top-16 sm:top-full sm:mt-2 ${activeNotifSizeOpt.popoverWidthClass} max-w-[calc(100vw-1rem)] bg-white rounded-2xl shadow-xl border border-slate-200/90 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150 ring-1 ring-slate-900/5 transition-[width] duration-150`}>
                 {/* Header */}
-                <div className="p-3.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
+                <div className="p-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2 shrink-0">
                     <span className="font-bold text-slate-800 text-sm">通知</span>
                     {unreadCount > 0 ? (
-                      <span className="px-2 py-0.5 text-xs font-bold bg-red-100 text-red-700 rounded-full animate-pulse">
+                      <span className="px-2 py-0.5 text-xs font-bold bg-red-100 text-red-700 rounded-full animate-pulse whitespace-nowrap">
                         {unreadCount}件の未読
                       </span>
                     ) : (
-                      <span className="px-2 py-0.5 text-xs font-medium bg-slate-200/80 text-slate-600 rounded-full">
+                      <span className="px-2 py-0.5 text-xs font-medium bg-slate-200/80 text-slate-600 rounded-full whitespace-nowrap">
                         未読なし
                       </span>
                     )}
                   </div>
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {/* 通知ウィンドウサイズ切替 (小 / 中 / 大) */}
+                    <div
+                      className="inline-flex items-center bg-slate-200/70 p-0.5 rounded-lg border border-slate-200/90 shrink-0"
+                      title="通知ウィンドウの大きさを変更（設定は記憶されます）"
+                    >
+                      {NOTIFICATION_WINDOW_SIZE_OPTIONS.map((sizeOpt) => {
+                        const isSizeActive = notificationWindowSize === sizeOpt.id;
+                        return (
+                          <button
+                            key={sizeOpt.id}
+                            type="button"
+                            onClick={() => handleChangeNotificationWindowSize(sizeOpt.id)}
+                            className={`px-2 py-0.5 text-[10px] font-bold rounded-md transition-all cursor-pointer whitespace-nowrap ${
+                              isSizeActive
+                                ? 'bg-white text-indigo-700 shadow-2xs ring-1 ring-slate-200/80'
+                                : 'text-slate-600 hover:text-slate-900'
+                            }`}
+                            title={`${sizeOpt.label}サイズ（${sizeOpt.description}）`}
+                          >
+                            {sizeOpt.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+
                     <button
                       type="button"
                       onClick={() => {
                         setIsMiniNotificationOpen(true);
                         setIsOpen(false);
                       }}
-                      className="hidden lg:inline-flex items-center gap-1 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 hover:text-indigo-900 px-2 py-1 rounded-lg transition-colors border border-indigo-200/80 cursor-pointer"
+                      className="hidden lg:inline-flex items-center gap-1 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 hover:text-indigo-900 px-2 py-1 rounded-lg transition-colors border border-indigo-200/80 cursor-pointer whitespace-nowrap"
                       title="最前面ミニウィンドウで通知のみ常駐表示 (PiP)"
                     >
                       <Minimize2 className="w-3.5 h-3.5" />
@@ -1986,7 +1999,7 @@ export function Header({
                       <button
                         type="button"
                         onClick={handleMarkAllAsRead}
-                        className="flex items-center gap-1 text-xs font-bold text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 px-2 py-1 rounded-lg transition-colors cursor-pointer border border-indigo-200/60"
+                        className="flex items-center gap-1 text-xs font-bold text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 px-2 py-1 rounded-lg transition-colors cursor-pointer border border-indigo-200/60 whitespace-nowrap"
                         title="すべての未読通知を既読にする"
                       >
                         <CheckCheck className="w-3.5 h-3.5 text-indigo-600" />
@@ -1996,7 +2009,7 @@ export function Header({
                     <button
                       type="button"
                       onClick={() => setIsOpen(false)}
-                      className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-200/60 rounded-lg transition-colors ml-1 cursor-pointer"
+                      className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-200/60 rounded-lg transition-colors cursor-pointer"
                     >
                       <X className="w-4 h-4" />
                     </button>
@@ -2152,7 +2165,7 @@ export function Header({
                 </div>
 
                 {/* Items List */}
-                <div className="max-h-[380px] overflow-y-auto divide-y divide-slate-100">
+                <div className={`${activeNotifSizeOpt.listMaxHeightClass} overflow-y-auto divide-y divide-slate-100`}>
                   {filteredNotifications.length > 0 ? (
                     filteredNotifications.map((item) => {
                       const isRead = !!item.isRead;
@@ -2203,7 +2216,9 @@ export function Header({
                               </span>
                             </div>
                             <p
-                              className={`text-xs line-clamp-2 leading-relaxed ${
+                              className={`text-xs leading-relaxed ${
+                                notificationWindowSize === 'large' ? 'line-clamp-4' : 'line-clamp-2'
+                              } ${
                                 isRead ? 'text-slate-400' : 'text-slate-600'
                               }`}
                             >
@@ -2261,7 +2276,8 @@ export function Header({
                   )}
                 </div>
               </div>
-            )}
+              );
+            })()}
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3 pl-2 sm:pl-3 border-l border-slate-200 shrink-0">
@@ -2327,6 +2343,8 @@ export function Header({
           setIsMiniNotificationOpen(false);
           window.focus();
         }}
+        windowSize={notificationWindowSize}
+        onChangeWindowSize={handleChangeNotificationWindowSize}
       />
     </header>
   );

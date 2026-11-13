@@ -296,3 +296,72 @@ export function initFontSize(): AppFontSize {
   return size;
 }
 
+// ==========================================================================
+// 通知ウィンドウの大きさ設定 (小 / 中 / 大)
+// ==========================================================================
+
+export type NotificationWindowSize = 'small' | 'medium' | 'large';
+
+export interface NotificationWindowSizeOption {
+  id: NotificationWindowSize;
+  label: string;
+  description: string;
+  popoverWidthClass: string;
+  listMaxHeightClass: string;
+  miniFloatingClass: string;
+  pipWidth: number;
+  pipHeight: number;
+}
+
+export const NOTIFICATION_WINDOW_SIZE_OPTIONS: NotificationWindowSizeOption[] = [
+  {
+    id: 'small',
+    label: '小',
+    description: 'コンパクト表示',
+    popoverWidthClass: 'w-[calc(100vw-1rem)] sm:w-[340px]',
+    listMaxHeightClass: 'max-h-[280px]',
+    miniFloatingClass: 'w-80 h-[420px]',
+    pipWidth: 340,
+    pipHeight: 440,
+  },
+  {
+    id: 'medium',
+    label: '中',
+    description: '標準サイズ',
+    popoverWidthClass: 'w-[calc(100vw-1rem)] sm:w-[400px]',
+    listMaxHeightClass: 'max-h-[400px]',
+    miniFloatingClass: 'w-96 h-[540px]',
+    pipWidth: 390,
+    pipHeight: 560,
+  },
+  {
+    id: 'large',
+    label: '大',
+    description: 'ワイド表示（一覧・詳細が見やすい）',
+    popoverWidthClass: 'w-[calc(100vw-1rem)] sm:w-[560px] lg:w-[660px]',
+    listMaxHeightClass: 'max-h-[65vh]',
+    miniFloatingClass: 'w-[520px] h-[680px]',
+    pipWidth: 520,
+    pipHeight: 700,
+  },
+];
+
+const NOTIFICATION_WINDOW_SIZE_STORAGE_KEY = 'app_notification_window_size';
+
+export function getSavedNotificationWindowSize(): NotificationWindowSize {
+  if (typeof window === 'undefined') return 'medium';
+  const saved = localStorage.getItem(NOTIFICATION_WINDOW_SIZE_STORAGE_KEY) as NotificationWindowSize | null;
+  if (saved && NOTIFICATION_WINDOW_SIZE_OPTIONS.some((opt) => opt.id === saved)) {
+    return saved;
+  }
+  return 'medium';
+}
+
+export function applyNotificationWindowSize(size: NotificationWindowSize) {
+  if (typeof window === 'undefined') return;
+  const valid = NOTIFICATION_WINDOW_SIZE_OPTIONS.some((opt) => opt.id === size) ? size : 'medium';
+  localStorage.setItem(NOTIFICATION_WINDOW_SIZE_STORAGE_KEY, valid);
+  window.dispatchEvent(new CustomEvent('teranago:notification-window-size-changed', { detail: valid }));
+}
+
+

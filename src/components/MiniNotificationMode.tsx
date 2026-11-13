@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { NotificationItem } from '../utils/notifications';
 import { User } from '../types';
+import { NotificationWindowSize, NOTIFICATION_WINDOW_SIZE_OPTIONS, getSavedNotificationWindowSize, applyNotificationWindowSize } from '../utils/theme';
 
 declare global {
   interface Window {
@@ -39,6 +40,8 @@ interface MiniNotificationModeProps {
   isOpen: boolean;
   onClose: () => void;
   onRestoreMain: () => void;
+  windowSize?: NotificationWindowSize;
+  onChangeWindowSize?: (size: NotificationWindowSize) => void;
 }
 
 /**
@@ -49,7 +52,7 @@ function copyStylesToWindow(targetDoc: Document) {
   head.innerHTML = '';
 
   const title = targetDoc.createElement('title');
-  title.textContent = '新着通知 - 寺子屋SNS (最前面常駐)';
+  title.textContent = '新着通知 - TERAPO (最前面常駐)';
   head.appendChild(title);
 
   // Favicon
@@ -98,12 +101,35 @@ export function MiniNotificationMode({
   isOpen,
   onClose,
   onRestoreMain,
+  windowSize: propWindowSize,
+  onChangeWindowSize,
 }: MiniNotificationModeProps) {
   const [pipWindow, setPipWindow] = useState<Window | null>(null);
   const [pipSupported, setPipSupported] = useState<boolean>(false);
   const [selectedFilter, setSelectedFilter] = useState<'all' | 'memo' | 'workflow' | 'board' | 'event' | 'chat' | 'report' | 'safety'>('all');
   const [readFilter, setReadFilter] = useState<'all' | 'unread'>('all');
   const [lastActionMessage, setLastActionMessage] = useState<string | null>(null);
+  const [internalWindowSize, setInternalWindowSize] = useState<NotificationWindowSize>(() => getSavedNotificationWindowSize());
+
+  const currentWindowSize = propWindowSize || internalWindowSize;
+  const activeSizeOption =
+    NOTIFICATION_WINDOW_SIZE_OPTIONS.find((o) => o.id === currentWindowSize) ||
+    NOTIFICATION_WINDOW_SIZE_OPTIONS[1];
+
+  const handleSelectWindowSize = (size: NotificationWindowSize) => {
+    setInternalWindowSize(size);
+    if (onChangeWindowSize) {
+      onChangeWindowSize(size);
+    } else {
+      applyNotificationWindowSize(size);
+    }
+    const targetOpt = NOTIFICATION_WINDOW_SIZE_OPTIONS.find((o) => o.id === size);
+    if (targetOpt && pipWindow && !pipWindow.closed) {
+      try {
+        pipWindow.resizeTo(targetOpt.pipWidth, targetOpt.pipHeight);
+      } catch (_) {}
+    }
+  };
 
   // Document Picture-in-Picture API のサポート確認
   useEffect(() => {
@@ -136,8 +162,8 @@ export function MiniNotificationMode({
       if (window.documentPictureInPicture && typeof window.documentPictureInPicture.requestWindow === 'function') {
         try {
           const win = await window.documentPictureInPicture.requestWindow({
-            width: 390,
-            height: 560,
+            width: activeSizeOption.pipWidth,
+            height: activeSizeOption.pipHeight,
           });
 
           copyStylesToWindow(win.document);
@@ -283,11 +309,33 @@ export function MiniNotificationMode({
         </div>
 
         {/* Header Right Actions */}
-        <div className="flex items-center gap-1 shrink-0">
+        <div className="flex items-center gap-1.5 shrink-0">
+          <div
+            className="inline-flex items-center bg-slate-800 p-0.5 rounded-lg border border-slate-700"
+            title="ウィンドウの大きさを変更（設定は記憶されます）"
+          >
+            {NOTIFICATION_WINDOW_SIZE_OPTIONS.map((opt) => {
+              const isSelected = currentWindowSize === opt.id;
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => handleSelectWindowSize(opt.id)}
+                  className={`px-1.5 py-0.5 text-[10px] font-bold rounded transition-colors cursor-pointer whitespace-nowrap ${
+                    isSelected
+                      ? 'bg-indigo-600 text-white shadow-2xs'
+                      : 'text-slate-300 hover:text-white'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
           <button
             type="button"
             onClick={handleRestore}
-            className="flex items-center gap-1 px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-lg shadow-xs transition-colors cursor-pointer"
+            className="flex items-center gap-1 px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-lg shadow-xs transition-colors cursor-pointer whitespace-nowrap"
             title="メイン画面を元に戻す（通常画面へ）"
           >
             <Maximize2 className="w-3.5 h-3.5" />
@@ -584,7 +632,7 @@ export function MiniNotificationMode({
 
   // 2. PiP非対応またはリクエスト中の場合は画面右下のコンパクトフロートウィジェットとして描画
   return (
-    <div className="fixed bottom-4 right-4 z-50 w-96 max-w-[calc(100vw-2rem)] h-[540px] max-h-[calc(100vh-2rem)] rounded-2xl shadow-2xl border border-slate-300/80 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-200 ring-1 ring-slate-900/10">
+    <div className={`fixed bottom-4 right-4 z-50 ${activeSizeOption.miniFloatingClass} max-w-[calc(100vw-2rem)] max-h-[calc(100vh-2rem)] rounded-2xl shadow-2xl border border-slate-300/80 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-200 ring-1 ring-slate-900/10 transition-all`}>
       {renderContent(false)}
     </div>
   );

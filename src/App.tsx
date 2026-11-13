@@ -71,7 +71,7 @@ import { sortUsersByDivision } from './utils/userSort';
 import { getUserOfficeName, getUserDivisionName } from './utils/masterResolver';
 import { RecurrenceActionScope } from './components/RecurrenceActionModal';
 import { parseAppQueryParams, updateBrowserUrl, AppQueryParams } from './utils/urlParams';
-import { initColorTheme, initFontSize, applyFontSize, applyColorTheme } from './utils/theme';
+import { initColorTheme, initFontSize, applyFontSize, applyColorTheme, applyNotificationWindowSize } from './utils/theme';
 import { logActivity } from './utils/logger';
 import { schedulePreviewPrefetch } from './utils/previewPrefetch';
 
@@ -778,12 +778,15 @@ export default function App() {
             setUserState(found);
             localStorage.setItem('logged_in_user_data', JSON.stringify(found));
 
-            // ユーザー設定のフォントサイズ・カラーテーマがあれば同期
+            // ユーザー設定のフォントサイズ・カラーテーマ・通知ウィンドウサイズがあれば同期
             if (found.preferences?.fontSize) {
               applyFontSize(found.preferences.fontSize as any);
             }
             if (found.preferences?.colorTheme) {
               applyColorTheme(found.preferences.colorTheme as any);
+            }
+            if (found.preferences?.notificationWindowSize) {
+              applyNotificationWindowSize(found.preferences.notificationWindowSize as any);
             }
           }
         }

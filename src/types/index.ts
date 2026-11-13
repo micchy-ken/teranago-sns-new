@@ -106,6 +106,7 @@ export interface UserPreferences {
   bookmarks?: UserBookmarkItem[];    // 共有リンク等から自動ストックされる個人ブックマーク一覧
   colorTheme?: string;               // 選択カラーテーマ (soft, sage, terracotta等)
   fontSize?: 'small' | 'standard' | 'medium' | 'large'; // 選択フォントサイズ (小/標準/中/大)
+  notificationWindowSize?: 'small' | 'medium' | 'large'; // 通知ウィンドウの大きさ (小/中/大)
   [key: string]: any;
 }
 

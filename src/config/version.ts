@@ -7,11 +7,11 @@
  * - 機能追加・バグ修正・仕様変更のたびに必ず更新すること
  */
 export const APP_VERSION = {
-  version: '2026.11.13.3',
+  version: '2026.11.13.4',
   date: '2026.11.13',
-  releaseNumber: 3,
-  display: 'v2026.11.13 #3 (JST)',
+  releaseNumber: 4,
+  display: 'v2026.11.13 #4 (JST)',
   timeZone: 'Asia/Tokyo (JST)',
-  description: 'タイムラインをユーティリティーへ移動、安否確認へ改名・不要バッジ削除、ロゴ表記をTERAPOへ変更'
+  description: 'ヘッダー右上の見た目設定を1つに統合（文字の大きさ設定＋カラー設定）し、通知ウィンドウのサイズ選択・記憶機能を追加'
 };
 
