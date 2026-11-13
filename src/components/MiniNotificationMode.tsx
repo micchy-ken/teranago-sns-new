@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Bell,
@@ -20,6 +20,31 @@ import {
 import { NotificationItem } from '../utils/notifications';
 import { User } from '../types';
 import { NotificationWindowSize, NOTIFICATION_WINDOW_SIZE_OPTIONS, getSavedNotificationWindowSize, applyNotificationWindowSize } from '../utils/theme';
+
+const MINI_POS_STORAGE_KEY = 'app_mini_notification_position';
+
+function getSavedMiniPosition(): { left: number; top: number } | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(MINI_POS_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (typeof parsed?.left === 'number' && typeof parsed?.top === 'number') {
+      return parsed;
+    }
+  } catch (_) {}
+  return null;
+}
+
+function clampMiniPosition(pos: { left: number; top: number }, width: number, height: number): { left: number; top: number } {
+  if (typeof window === 'undefined') return pos;
+  const maxLeft = Math.max(8, window.innerWidth - Math.min(width, window.innerWidth - 16) - 8);
+  const maxTop = Math.max(8, window.innerHeight - Math.min(height, window.innerHeight - 16) - 8);
+  return {
+    left: Math.min(Math.max(8, pos.left), maxLeft),
+    top: Math.min(Math.max(8, pos.top), maxTop),
+  };
+}
 
 declare global {
   interface Window {
@@ -110,11 +135,104 @@ export function MiniNotificationMode({
   const [readFilter, setReadFilter] = useState<'all' | 'unread'>('all');
   const [lastActionMessage, setLastActionMessage] = useState<string | null>(null);
   const [internalWindowSize, setInternalWindowSize] = useState<NotificationWindowSize>(() => getSavedNotificationWindowSize());
+  const [floatingPos, setFloatingPos] = useState<{ left: number; top: number } | null>(() => getSavedMiniPosition());
+  const floatingContainerRef = useRef<HTMLDivElement>(null);
+  const dragStateRef = useRef<{ startX: number; startY: number; originLeft: number; originTop: number } | null>(null);
+  const isUnloadingRef = useRef(false);
 
   const currentWindowSize = propWindowSize || internalWindowSize;
   const activeSizeOption =
     NOTIFICATION_WINDOW_SIZE_OPTIONS.find((o) => o.id === currentWindowSize) ||
     NOTIFICATION_WINDOW_SIZE_OPTIONS[1];
+
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      isUnloadingRef.current = true;
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, []);
+
+  useEffect(() => {
+    const clampOnResize = () => {
+      setFloatingPos((prev) => {
+        if (!prev) return null;
+        const clamped = clampMiniPosition(prev, activeSizeOption.pipWidth, activeSizeOption.pipHeight);
+        try {
+          localStorage.setItem(MINI_POS_STORAGE_KEY, JSON.stringify(clamped));
+        } catch (_) {}
+        return clamped;
+      });
+    };
+    clampOnResize();
+    window.addEventListener('resize', clampOnResize);
+    return () => window.removeEventListener('resize', clampOnResize);
+  }, [activeSizeOption.pipWidth, activeSizeOption.pipHeight]);
+
+  const handleHeaderDragStart = (e: React.MouseEvent<HTMLElement>) => {
+    if (pipWindow) return;
+    if ((e.target as HTMLElement).closest('button')) return;
+    const container = floatingContainerRef.current;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    dragStateRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      originLeft: rect.left,
+      originTop: rect.top,
+    };
+
+    const handleMouseMove = (moveEvt: MouseEvent) => {
+      const ds = dragStateRef.current;
+      if (!ds) return;
+      const next = clampMiniPosition(
+        {
+          left: ds.originLeft + (moveEvt.clientX - ds.startX),
+          top: ds.originTop + (moveEvt.clientY - ds.startY),
+        },
+        rect.width,
+        rect.height
+      );
+      setFloatingPos(next);
+    };
+
+    const handleMouseUp = () => {
+      dragStateRef.current = null;
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      setFloatingPos((latest) => {
+        if (latest) {
+          try {
+            localStorage.setItem(MINI_POS_STORAGE_KEY, JSON.stringify(latest));
+          } catch (_) {}
+        }
+        return latest;
+      });
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  };
+
+  const handleOpenPipManual = async () => {
+    if (!window.documentPictureInPicture || typeof window.documentPictureInPicture.requestWindow !== 'function') return;
+    try {
+      const win = await window.documentPictureInPicture.requestWindow({
+        width: activeSizeOption.pipWidth,
+        height: activeSizeOption.pipHeight,
+      });
+      copyStylesToWindow(win.document);
+      win.addEventListener('pagehide', () => {
+        setPipWindow(null);
+        if (!isUnloadingRef.current) {
+          onClose();
+        }
+      });
+      setPipWindow(win);
+    } catch (err) {
+      console.warn('Manual Document PiP request failed:', err);
+    }
+  };
 
   const handleSelectWindowSize = (size: NotificationWindowSize) => {
     setInternalWindowSize(size);
@@ -170,7 +288,9 @@ export function MiniNotificationMode({
 
           const handlePageHide = () => {
             setPipWindow(null);
-            onClose();
+            if (!isUnloadingRef.current) {
+              onClose();
+            }
           };
 
           win.addEventListener('pagehide', handlePageHide);
@@ -179,7 +299,7 @@ export function MiniNotificationMode({
           return;
         } catch (err) {
           console.warn('Document PiP request failed, falling back to floating widget:', err);
-          // 権限エラーや非対応時はインアプリのフロートミニモードにフォールバック
+          // 権限エラーや非対応・リロード自動復元時はインアプリのフロートミニモードにフォールバック
           setPipWindow(null);
         }
       }
@@ -279,39 +399,37 @@ export function MiniNotificationMode({
 
   // ミニウィンドウのメインUIコンテンツ
   const renderContent = (isAlwaysOnTop: boolean) => (
-    <div className="flex flex-col h-screen w-full bg-slate-100 text-slate-900 font-sans select-none overflow-hidden">
-      {/* Top Bar / Header */}
-      <header className="bg-slate-900 text-white px-3.5 py-2.5 flex items-center justify-between shadow-md shrink-0">
-        <div className="flex items-center gap-2 min-w-0">
-          <div className="w-7 h-7 bg-indigo-600 rounded-lg flex items-center justify-center font-black text-sm shadow-xs shrink-0">
+    <div className="flex flex-col h-full w-full bg-slate-100 text-slate-900 font-sans select-none overflow-hidden">
+      {/* Top Bar / Header (ドラッグで位置移動可能・位置は記憶) */}
+      <header
+        onMouseDown={handleHeaderDragStart}
+        className={`bg-slate-900 text-white px-2.5 py-2 flex items-center justify-between shadow-md shrink-0 gap-1 ${
+          isAlwaysOnTop ? '' : 'cursor-move'
+        }`}
+        title={isAlwaysOnTop ? undefined : 'ドラッグして表示位置を移動（位置は記憶されます）'}
+      >
+        <div className="flex items-center gap-1.5 min-w-0">
+          <div className="w-6 h-6 bg-indigo-600 rounded-md flex items-center justify-center font-black text-xs shadow-xs shrink-0">
             T
           </div>
-          <div className="min-w-0">
-            <div className="flex items-center gap-1.5">
-              <span className="font-extrabold text-xs tracking-tight">新着通知</span>
-              {unreadCount > 0 ? (
-                <span className="px-1.5 py-0.2 text-[10px] font-bold bg-red-500 text-white rounded-full">
-                  {unreadCount}
-                </span>
-              ) : (
-                <span className="px-1.5 py-0.2 text-[10px] font-medium bg-slate-700 text-slate-300 rounded-full">
-                  0
-                </span>
-              )}
-            </div>
-            {isAlwaysOnTop && (
-              <div className="flex items-center gap-1 text-[10px] text-emerald-400 font-medium">
-                <Pin className="w-2.5 h-2.5" />
-                <span>最前面で常駐中</span>
-              </div>
+          <div className="min-w-0 flex items-center gap-1">
+            <span className="font-extrabold text-[11px] tracking-tight whitespace-nowrap">通知</span>
+            {unreadCount > 0 ? (
+              <span className="px-1.5 py-0 text-[9.5px] font-bold bg-red-500 text-white rounded-full">
+                {unreadCount}
+              </span>
+            ) : (
+              <span className="px-1.5 py-0 text-[9.5px] font-medium bg-slate-700 text-slate-300 rounded-full">
+                0
+              </span>
             )}
           </div>
         </div>
 
         {/* Header Right Actions */}
-        <div className="flex items-center gap-1.5 shrink-0">
+        <div className="flex items-center gap-1 shrink-0">
           <div
-            className="inline-flex items-center bg-slate-800 p-0.5 rounded-lg border border-slate-700"
+            className="inline-flex items-center bg-slate-800 p-0.5 rounded-md border border-slate-700"
             title="ウィンドウの大きさを変更（設定は記憶されます）"
           >
             {NOTIFICATION_WINDOW_SIZE_OPTIONS.map((opt) => {
@@ -321,7 +439,7 @@ export function MiniNotificationMode({
                   key={opt.id}
                   type="button"
                   onClick={() => handleSelectWindowSize(opt.id)}
-                  className={`px-1.5 py-0.5 text-[10px] font-bold rounded transition-colors cursor-pointer whitespace-nowrap ${
+                  className={`px-1.5 py-0.5 text-[9.5px] font-bold rounded transition-colors cursor-pointer whitespace-nowrap ${
                     isSelected
                       ? 'bg-indigo-600 text-white shadow-2xs'
                       : 'text-slate-300 hover:text-white'
@@ -332,22 +450,32 @@ export function MiniNotificationMode({
               );
             })}
           </div>
+          {!isAlwaysOnTop && pipSupported && (
+            <button
+              type="button"
+              onClick={handleOpenPipManual}
+              className="p-1 bg-slate-800 hover:bg-slate-700 text-emerald-300 rounded-md transition-colors cursor-pointer"
+              title="最前面別ウィンドウ (PiP) として切り出す"
+            >
+              <Pin className="w-3 h-3" />
+            </button>
+          )}
           <button
             type="button"
             onClick={handleRestore}
-            className="flex items-center gap-1 px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-lg shadow-xs transition-colors cursor-pointer whitespace-nowrap"
-            title="メイン画面を元に戻す（通常画面へ）"
+            className="flex items-center gap-0.5 px-1.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-bold rounded-md shadow-xs transition-colors cursor-pointer whitespace-nowrap"
+            title="メイン画面に戻る"
           >
-            <Maximize2 className="w-3.5 h-3.5" />
-            <span>元に戻す</span>
+            <Maximize2 className="w-3 h-3" />
+            <span>戻す</span>
           </button>
           <button
             type="button"
             onClick={onClose}
-            className="p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+            className="p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded-md transition-colors cursor-pointer"
             title="ミニ画面を閉じる"
           >
-            <X className="w-4 h-4" />
+            <X className="w-3.5 h-3.5" />
           </button>
         </div>
       </header>
@@ -498,18 +626,18 @@ export function MiniNotificationMode({
         </button>
       </div>
 
-      {/* Notifications List */}
-      <div className="flex-1 overflow-y-auto p-2.5 space-y-2">
+      {/* Notifications List (コンパクト表示で縦情報量アップ) */}
+      <div className="flex-1 overflow-y-auto p-1.5 space-y-1">
         {filteredList.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-400">
-            <div className="w-12 h-12 rounded-full bg-slate-200/80 flex items-center justify-center text-slate-400 mb-2">
-              <CheckCheck className="w-6 h-6 text-emerald-500" />
+          <div className="h-full flex flex-col items-center justify-center text-center p-4 text-slate-400">
+            <div className="w-10 h-10 rounded-full bg-slate-200/80 flex items-center justify-center text-slate-400 mb-1.5">
+              <CheckCheck className="w-5 h-5 text-emerald-500" />
             </div>
             <p className="text-xs font-bold text-slate-700">
               {readFilter === 'unread' ? '未読の通知はありません' : '通知はありません'}
             </p>
-            <p className="text-[11px] text-slate-400 mt-0.5">
-              {readFilter === 'unread' ? 'すべての通知を確認済みです' : '最新情報はここにリアルタイムで表示されます'}
+            <p className="text-[10.5px] text-slate-400 mt-0.5">
+              {readFilter === 'unread' ? 'すべての通知を確認済みです' : '最新情報はリアルタイムに表示されます'}
             </p>
           </div>
         ) : (
@@ -519,17 +647,18 @@ export function MiniNotificationMode({
             return (
               <div
                 key={item.id}
-                className={`rounded-xl border p-3 transition-all flex flex-col gap-2 ${
+                onClick={() => handleItemClick(item)}
+                className={`rounded-lg border px-2 py-1.5 transition-all cursor-pointer group ${
                   isRead
-                    ? 'bg-slate-50/80 border-slate-200/80 text-slate-500 opacity-75 shadow-2xs'
-                    : 'bg-white border-indigo-200/90 shadow-xs hover:border-indigo-300 ring-1 ring-indigo-500/10'
+                    ? 'bg-slate-50/80 border-slate-200/80 text-slate-500 opacity-75 hover:bg-slate-100'
+                    : 'bg-white border-indigo-200/90 shadow-2xs hover:border-indigo-400 hover:bg-indigo-50/40'
                 }`}
               >
-                {/* Card Top: Type badge & Time */}
-                <div className="flex items-center justify-between text-[11px]">
-                  <div className="flex items-center gap-1.5">
+                {/* Card Top: Type badge, Status & Time */}
+                <div className="flex items-center justify-between gap-1 text-[10px]">
+                  <div className="flex items-center gap-1 min-w-0">
                     <span
-                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-bold border ${
+                      className={`inline-flex items-center gap-0.5 px-1.5 py-0 rounded font-bold border whitespace-nowrap ${
                         isRead ? 'bg-slate-100 text-slate-500 border-slate-200' : badge.bgColor
                       }`}
                     >
@@ -537,58 +666,42 @@ export function MiniNotificationMode({
                       {badge.label}
                     </span>
                     {isRead ? (
-                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[10px] font-medium bg-slate-200/70 text-slate-500">
-                        <Check className="w-2.5 h-2.5 text-slate-400" />
-                        確認済
+                      <span className="px-1 py-0 rounded text-[9px] font-medium bg-slate-200/70 text-slate-500 shrink-0">
+                        済
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[10px] font-bold bg-red-100 text-red-700 border border-red-200">
-                        未確認
+                      <span className="px-1 py-0 rounded text-[9px] font-bold bg-red-100 text-red-700 border border-red-200 shrink-0">
+                        未
                       </span>
                     )}
                   </div>
-                  <span className="text-slate-400 font-medium">{item.createdAt}</span>
+                  <span className="text-[9.5px] text-slate-400 font-medium whitespace-nowrap shrink-0">
+                    {item.createdAt}
+                  </span>
                 </div>
 
                 {/* Card Middle: Title & Snippet */}
-                <div>
+                <div className="flex items-center justify-between gap-1 mt-0.5">
                   <h4
-                    className={`text-xs leading-snug line-clamp-2 ${
-                      isRead ? 'font-medium text-slate-500' : 'font-bold text-slate-900'
+                    className={`text-[11.5px] leading-snug line-clamp-1 flex-1 min-w-0 ${
+                      isRead ? 'font-medium text-slate-500' : 'font-bold text-slate-900 group-hover:text-indigo-700'
                     }`}
                   >
                     {item.title}
                   </h4>
-                  {item.description && (
-                    <p
-                      className={`text-[11px] mt-1 line-clamp-2 leading-relaxed ${
-                        isRead ? 'text-slate-400' : 'text-slate-600'
-                      }`}
-                    >
-                      {item.description}
-                    </p>
-                  )}
+                  <ExternalLink className={`w-3 h-3 shrink-0 ${isRead ? 'text-slate-300' : 'text-indigo-500'}`} />
                 </div>
-
-                {/* Card Bottom: Action Button */}
-                <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
-                  <span className="text-[10px] text-slate-400">
-                    {isRead ? '確認済み' : 'クリックで詳細表示'}
-                  </span>
-
-                  <button
-                    type="button"
-                    onClick={() => handleItemClick(item)}
-                    className={`flex items-center gap-1 px-2.5 py-1 text-xs rounded-lg transition-colors cursor-pointer ${
-                      isRead
-                        ? 'bg-slate-100 hover:bg-slate-200 text-slate-600 font-medium'
-                        : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold'
+                {item.description && (
+                  <p
+                    className={`text-[10.5px] mt-0.5 leading-snug ${
+                      currentWindowSize === 'large' ? 'line-clamp-2' : 'line-clamp-1'
+                    } ${
+                      isRead ? 'text-slate-400' : 'text-slate-600'
                     }`}
                   >
-                    <span>{isRead ? '詳細を表示' : '通知内容を表示する'}</span>
-                    <ExternalLink className={`w-3 h-3 ${isRead ? 'text-slate-400' : 'text-indigo-600'}`} />
-                  </button>
-                </div>
+                    {item.description}
+                  </p>
+                )}
               </div>
             );
           })
@@ -596,27 +709,27 @@ export function MiniNotificationMode({
       </div>
 
       {/* Footer Bar */}
-      <footer className="bg-white border-t border-slate-200 px-3 py-2 flex items-center justify-between gap-2 shrink-0">
+      <footer className="bg-white border-t border-slate-200 px-2.5 py-1.5 flex items-center justify-between gap-2 shrink-0">
         {unreadCount > 0 ? (
           <button
             type="button"
             onClick={onMarkAllAsRead}
-            className="flex items-center gap-1 text-[11px] font-bold text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 px-2 py-1 rounded-md transition-colors cursor-pointer"
+            className="flex items-center gap-1 text-[10.5px] font-bold text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 px-1.5 py-0.5 rounded transition-colors cursor-pointer whitespace-nowrap"
             title="すべての通知を既読にする"
           >
-            <CheckCheck className="w-3.5 h-3.5" />
+            <CheckCheck className="w-3 h-3" />
             <span>すべて既読</span>
           </button>
         ) : (
-          <span className="text-[11px] text-slate-400 font-medium">すべて確認済み</span>
+          <span className="text-[10.5px] text-slate-400 font-medium whitespace-nowrap">すべて確認済み</span>
         )}
 
         <button
           type="button"
           onClick={handleRestore}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer"
+          className="flex items-center gap-1 px-2.5 py-1 bg-slate-900 hover:bg-slate-800 text-white font-bold text-[11px] rounded-lg shadow-xs transition-colors cursor-pointer whitespace-nowrap"
         >
-          <Maximize2 className="w-3.5 h-3.5 text-indigo-300" />
+          <Maximize2 className="w-3 h-3 text-indigo-300" />
           <span>通常画面に戻る</span>
         </button>
       </footer>
@@ -630,9 +743,13 @@ export function MiniNotificationMode({
     return createPortal(renderContent(true), pipWindow.document.body);
   }
 
-  // 2. PiP非対応またはリクエスト中の場合は画面右下のコンパクトフロートウィジェットとして描画
+  // 2. PiP非対応・リロード復元時は記憶された位置のフロートウィジェットとして描画
   return (
-    <div className={`fixed bottom-4 right-4 z-50 ${activeSizeOption.miniFloatingClass} max-w-[calc(100vw-2rem)] max-h-[calc(100vh-2rem)] rounded-2xl shadow-2xl border border-slate-300/80 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-200 ring-1 ring-slate-900/10 transition-all`}>
+    <div
+      ref={floatingContainerRef}
+      style={floatingPos ? { left: `${floatingPos.left}px`, top: `${floatingPos.top}px` } : undefined}
+      className={`fixed z-50 ${floatingPos ? '' : 'bottom-4 right-4'} ${activeSizeOption.miniFloatingClass} max-w-[calc(100vw-1rem)] max-h-[calc(100vh-1rem)] rounded-2xl shadow-2xl border border-slate-300/80 overflow-hidden animate-in fade-in duration-150 ring-1 ring-slate-900/10`}
+    >
       {renderContent(false)}
     </div>
   );

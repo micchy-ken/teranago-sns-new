@@ -617,6 +617,7 @@ export function MyPage({
   };
 
   // 安否確認 個人メール暗号化設定用状態
+  const [isAppearanceSettingsOpen, setIsAppearanceSettingsOpen] = useState(false);
   const [isEmergencyEmailOpen, setIsEmergencyEmailOpen] = useState(false);
   const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
   const [isICalOpen, setIsICalOpen] = useState(false);
@@ -3142,13 +3143,34 @@ export function MyPage({
                 </div>
               </div>
 
-              {/* 🔤 画面表示・文字サイズ設定 */}
-              <div className="pt-4 border-t border-slate-100 space-y-4">
-                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5 pb-1 border-b border-slate-100">
-                  <Type className="w-4 h-4 text-indigo-600" />
-                  画面表示・文字サイズ設定
-                </h3>
+              {/* 🔤 画面表示・文字サイズ設定 (トグル折りたたみ) */}
+              <div className="pt-4 border-t border-slate-100">
+                <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs bg-white transition-all">
+                  <button
+                    type="button"
+                    onClick={() => setIsAppearanceSettingsOpen((prev) => !prev)}
+                    className="w-full p-3.5 bg-slate-50/80 hover:bg-slate-100/90 flex items-center justify-between gap-3 text-left transition-colors cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-8 h-8 rounded-lg bg-indigo-100 border border-indigo-200 flex items-center justify-center shrink-0">
+                        <Type className="w-4 h-4 text-indigo-700" />
+                      </div>
+                      <div className="truncate">
+                        <h3 className="text-xs font-bold text-slate-800">
+                          画面表示・文字サイズ設定
+                        </h3>
+                        <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                          文字: {(FONT_SIZE_OPTIONS.find(f => f.id === (settingsForm.preferences?.fontSize || getSavedFontSize())) || FONT_SIZE_OPTIONS[1]).label}（{(FONT_SIZE_OPTIONS.find(f => f.id === (settingsForm.preferences?.fontSize || getSavedFontSize())) || FONT_SIZE_OPTIONS[1]).badgeText}） ／ 配色: {(THEME_OPTIONS.find(t => t.id === (settingsForm.preferences?.colorTheme || getSavedTheme())) || THEME_OPTIONS[0]).name.split('（')[0]}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="p-1 rounded-md text-slate-400 hover:text-slate-600 bg-white border border-slate-200 shadow-2xs shrink-0">
+                      {isAppearanceSettingsOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    </div>
+                  </button>
 
+                  {isAppearanceSettingsOpen && (
+                    <div className="p-4 border-t border-slate-200/80 space-y-4 bg-white animate-fade-in">
                 {/* 文字の大きさ（方式A: ルートスケール連動） */}
                 <div className="p-4 bg-slate-50/80 rounded-xl border border-slate-200/80 space-y-3">
                   <div className="flex items-center justify-between">
@@ -3315,6 +3337,9 @@ export function MyPage({
                     <SlidersHorizontal className="w-3.5 h-3.5 text-indigo-600" />
                     表示件数を設定する
                   </button>
+                </div>
+                    </div>
+                  )}
                 </div>
               </div>
 

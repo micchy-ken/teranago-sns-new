@@ -7,11 +7,11 @@
  * - 機能追加・バグ修正・仕様変更のたびに必ず更新すること
  */
 export const APP_VERSION = {
-  version: '2026.11.13.4',
+  version: '2026.11.13.5',
   date: '2026.11.13',
-  releaseNumber: 4,
-  display: 'v2026.11.13 #4 (JST)',
+  releaseNumber: 5,
+  display: 'v2026.11.13 #5 (JST)',
   timeZone: 'Asia/Tokyo (JST)',
-  description: 'ヘッダー右上の見た目設定を1つに統合（文字の大きさ設定＋カラー設定）し、通知ウィンドウのサイズ選択・記憶機能を追加'
+  description: 'マイページ表示設定の折りたたみ化、通知ウィンドウ横2/3コンパクト表示、リロード時の開閉・表示位置記憶機能を追加'
 };
 

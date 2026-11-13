@@ -170,7 +170,13 @@ export function Header({
   onToggleMobileMenu,
   onUpdateUser,
 }: HeaderProps) {
-  const [isOpen, setIsOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('app_notification_popover_open') === 'true';
+    } catch {
+      return false;
+    }
+  });
   const [filterType, setFilterType] = useState<'all' | 'memo' | 'workflow' | 'board' | 'event' | 'chat' | 'report' | 'safety'>('all');
   const [readFilter, setReadFilter] = useState<'all' | 'unread'>('all');
   const [readEventIds, setReadEventIds] = useState<string[]>(() => getReadEventIds(currentUser?.id));
@@ -196,8 +202,26 @@ export function Header({
     return getSavedNotificationWindowSize();
   });
 
-  // Mini notification mode state (PC専用 縮小表示 / 最前面常駐)
-  const [isMiniNotificationOpen, setIsMiniNotificationOpen] = useState(false);
+  // Mini notification mode state (PC専用 縮小表示 / 最前面常駐 - リロード復元対応)
+  const [isMiniNotificationOpen, setIsMiniNotificationOpen] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('app_mini_notification_open') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('app_notification_popover_open', String(isOpen));
+    } catch (_) {}
+  }, [isOpen]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('app_mini_notification_open', String(isMiniNotificationOpen));
+    } catch (_) {}
+  }, [isMiniNotificationOpen]);
 
   // Personal Bookmarks popover state
   const [isBookmarkOpen, setIsBookmarkOpen] = useState(false);
@@ -932,19 +956,19 @@ export function Header({
   const getItemIcon = (type: NotificationItem['type']) => {
     switch (type) {
       case 'memo':
-        return <Phone className="w-4 h-4 text-amber-600" />;
+        return <Phone className="w-3.5 h-3.5 text-amber-600" />;
       case 'workflow':
-        return <FileText className="w-4 h-4 text-blue-600" />;
+        return <FileText className="w-3.5 h-3.5 text-blue-600" />;
       case 'board':
-        return <Monitor className="w-4 h-4 text-indigo-600" />;
+        return <Monitor className="w-3.5 h-3.5 text-indigo-600" />;
       case 'event':
-        return <CalendarIcon className="w-4 h-4 text-emerald-600" />;
+        return <CalendarIcon className="w-3.5 h-3.5 text-emerald-600" />;
       case 'chat':
-        return <MessageSquare className="w-4 h-4 text-violet-600" />;
+        return <MessageSquare className="w-3.5 h-3.5 text-violet-600" />;
       case 'report':
-        return <FileText className="w-4 h-4 text-teal-600" />;
+        return <FileText className="w-3.5 h-3.5 text-teal-600" />;
       case 'safety':
-        return <ShieldAlert className="w-4 h-4 text-rose-600" />;
+        return <ShieldAlert className="w-3.5 h-3.5 text-rose-600" />;
     }
   };
 
@@ -1944,23 +1968,23 @@ export function Header({
               return (
               <div className={`fixed sm:absolute left-2 right-2 sm:left-auto sm:right-0 top-16 sm:top-full sm:mt-2 ${activeNotifSizeOpt.popoverWidthClass} max-w-[calc(100vw-1rem)] bg-white rounded-2xl shadow-xl border border-slate-200/90 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150 ring-1 ring-slate-900/5 transition-[width] duration-150`}>
                 {/* Header */}
-                <div className="p-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between gap-2 flex-wrap">
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className="font-bold text-slate-800 text-sm">通知</span>
+                <div className="px-2.5 py-2 bg-slate-50 border-b border-slate-100 flex items-center justify-between gap-1.5">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="font-bold text-slate-800 text-xs whitespace-nowrap">通知</span>
                     {unreadCount > 0 ? (
-                      <span className="px-2 py-0.5 text-xs font-bold bg-red-100 text-red-700 rounded-full animate-pulse whitespace-nowrap">
-                        {unreadCount}件の未読
+                      <span className="px-1.5 py-0.2 text-[10px] font-bold bg-red-100 text-red-700 rounded-full animate-pulse whitespace-nowrap">
+                        {unreadCount}件
                       </span>
                     ) : (
-                      <span className="px-2 py-0.5 text-xs font-medium bg-slate-200/80 text-slate-600 rounded-full whitespace-nowrap">
-                        未読なし
+                      <span className="px-1.5 py-0.2 text-[10px] font-medium bg-slate-200/80 text-slate-600 rounded-full whitespace-nowrap">
+                        0
                       </span>
                     )}
                   </div>
-                  <div className="flex items-center gap-1.5 shrink-0">
+                  <div className="flex items-center gap-1 shrink-0">
                     {/* 通知ウィンドウサイズ切替 (小 / 中 / 大) */}
                     <div
-                      className="inline-flex items-center bg-slate-200/70 p-0.5 rounded-lg border border-slate-200/90 shrink-0"
+                      className="inline-flex items-center bg-slate-200/70 p-0.5 rounded-md border border-slate-200/90 shrink-0"
                       title="通知ウィンドウの大きさを変更（設定は記憶されます）"
                     >
                       {NOTIFICATION_WINDOW_SIZE_OPTIONS.map((sizeOpt) => {
@@ -1970,7 +1994,7 @@ export function Header({
                             key={sizeOpt.id}
                             type="button"
                             onClick={() => handleChangeNotificationWindowSize(sizeOpt.id)}
-                            className={`px-2 py-0.5 text-[10px] font-bold rounded-md transition-all cursor-pointer whitespace-nowrap ${
+                            className={`px-1.5 py-0.5 text-[10px] font-bold rounded transition-all cursor-pointer whitespace-nowrap ${
                               isSizeActive
                                 ? 'bg-white text-indigo-700 shadow-2xs ring-1 ring-slate-200/80'
                                 : 'text-slate-600 hover:text-slate-900'
@@ -1989,81 +2013,81 @@ export function Header({
                         setIsMiniNotificationOpen(true);
                         setIsOpen(false);
                       }}
-                      className="hidden lg:inline-flex items-center gap-1 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 hover:text-indigo-900 px-2 py-1 rounded-lg transition-colors border border-indigo-200/80 cursor-pointer whitespace-nowrap"
-                      title="最前面ミニウィンドウで通知のみ常駐表示 (PiP)"
+                      className="hidden lg:inline-flex items-center gap-0.5 text-[10px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 hover:text-indigo-900 px-1.5 py-1 rounded-md transition-colors border border-indigo-200/80 cursor-pointer whitespace-nowrap"
+                      title="最前面ミニウィンドウで常駐表示"
                     >
-                      <Minimize2 className="w-3.5 h-3.5" />
-                      <span>最前面ミニ表示</span>
+                      <Minimize2 className="w-3 h-3" />
+                      <span>ミニ</span>
                     </button>
-                    {unreadCount > 0 && (
-                      <button
-                        type="button"
-                        onClick={handleMarkAllAsRead}
-                        className="flex items-center gap-1 text-xs font-bold text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 px-2 py-1 rounded-lg transition-colors cursor-pointer border border-indigo-200/60 whitespace-nowrap"
-                        title="すべての未読通知を既読にする"
-                      >
-                        <CheckCheck className="w-3.5 h-3.5 text-indigo-600" />
-                        <span>すべて既読</span>
-                      </button>
-                    )}
                     <button
                       type="button"
                       onClick={() => setIsOpen(false)}
-                      className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-200/60 rounded-lg transition-colors cursor-pointer"
+                      className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-200/60 rounded-md transition-colors cursor-pointer"
+                      title="閉じる"
                     >
-                      <X className="w-4 h-4" />
+                      <X className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 </div>
 
                 {/* Read / Unread Status Filter Toggle Bar */}
-                <div className="flex items-center justify-between px-3 py-1.5 bg-slate-100/70 border-b border-slate-200/80 text-xs">
+                <div className="flex items-center justify-between px-2.5 py-1 bg-slate-100/70 border-b border-slate-200/80 text-xs gap-1">
                   <div className="flex items-center gap-1">
                     <button
                       type="button"
                       onClick={() => setReadFilter('all')}
-                      className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
+                      className={`px-2 py-0.5 rounded text-[10.5px] font-bold transition-all cursor-pointer whitespace-nowrap ${
                         readFilter === 'all'
                           ? 'bg-slate-800 text-white shadow-2xs'
                           : 'text-slate-600 hover:bg-white hover:text-slate-800'
                       }`}
                     >
-                      すべて (履歴含む: {allNotifications.length})
+                      すべて ({allNotifications.length})
                     </button>
                     <button
                       type="button"
                       onClick={() => setReadFilter('unread')}
-                      className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                      className={`px-2 py-0.5 rounded text-[10.5px] font-bold transition-all cursor-pointer flex items-center gap-1 whitespace-nowrap ${
                         readFilter === 'unread'
                           ? 'bg-indigo-600 text-white shadow-2xs'
                           : 'text-slate-600 hover:bg-white hover:text-slate-800'
                       }`}
                     >
-                      <span>未読のみ</span>
+                      <span>未読</span>
                       {unreadCount > 0 ? (
-                        <span className={`px-1.5 py-0.2 text-[10px] rounded-full font-bold ${
+                        <span className={`px-1 py-0 text-[9.5px] rounded-full font-bold ${
                           readFilter === 'unread' ? 'bg-white text-indigo-700' : 'bg-red-500 text-white'
                         }`}>
                           {unreadCount}
                         </span>
                       ) : (
-                        <span className="text-[10px] text-slate-400">0</span>
+                        <span className="text-[9.5px] text-slate-400">0</span>
                       )}
                     </button>
                   </div>
-                  {readFilter === 'all' && allNotifications.some((n) => n.isRead) && (
-                    <span className="text-[10px] text-slate-400">
-                      ※確認済はグレイ表示
+                  {unreadCount > 0 ? (
+                    <button
+                      type="button"
+                      onClick={handleMarkAllAsRead}
+                      className="flex items-center gap-0.5 text-[10px] font-bold text-indigo-600 hover:text-indigo-800 hover:bg-white px-1.5 py-0.5 rounded transition-colors cursor-pointer border border-indigo-200/60 whitespace-nowrap"
+                      title="すべての未読通知を既読にする"
+                    >
+                      <CheckCheck className="w-3 h-3 text-indigo-600" />
+                      <span>すべて既読</span>
+                    </button>
+                  ) : readFilter === 'all' && allNotifications.some((n) => n.isRead) ? (
+                    <span className="text-[9.5px] text-slate-400 whitespace-nowrap">
+                      確認済は灰表示
                     </span>
-                  )}
+                  ) : null}
                 </div>
 
                 {/* Categories Filter Bar */}
-                <div className="flex items-center gap-1 p-2 bg-white border-b border-slate-100 overflow-x-auto text-xs no-scrollbar">
+                <div className="flex items-center gap-1 px-2 py-1 bg-white border-b border-slate-100 overflow-x-auto text-[11px] no-scrollbar">
                   <button
                     type="button"
                     onClick={() => setFilterType('all')}
-                    className={`px-2.5 py-1 rounded-lg font-medium whitespace-nowrap transition-colors ${
+                    className={`px-2 py-0.5 rounded-md font-medium whitespace-nowrap transition-colors ${
                       filterType === 'all'
                         ? 'bg-slate-800 text-white font-bold'
                         : 'text-slate-600 hover:bg-slate-100'
@@ -2075,7 +2099,7 @@ export function Header({
                     <button
                       type="button"
                       onClick={() => setFilterType('memo')}
-                      className={`px-2.5 py-1 rounded-lg font-medium whitespace-nowrap transition-colors ${
+                      className={`px-2 py-0.5 rounded-md font-medium whitespace-nowrap transition-colors ${
                         filterType === 'memo'
                           ? 'bg-amber-600 text-white font-bold'
                           : 'text-slate-600 hover:bg-amber-50'
@@ -2088,7 +2112,7 @@ export function Header({
                     <button
                       type="button"
                       onClick={() => setFilterType('workflow')}
-                      className={`px-2.5 py-1 rounded-lg font-medium whitespace-nowrap transition-colors ${
+                      className={`px-2 py-0.5 rounded-md font-medium whitespace-nowrap transition-colors ${
                         filterType === 'workflow'
                           ? 'bg-blue-600 text-white font-bold'
                           : 'text-slate-600 hover:bg-blue-50'
@@ -2101,7 +2125,7 @@ export function Header({
                     <button
                       type="button"
                       onClick={() => setFilterType('board')}
-                      className={`px-2.5 py-1 rounded-lg font-medium whitespace-nowrap transition-colors ${
+                      className={`px-2 py-0.5 rounded-md font-medium whitespace-nowrap transition-colors ${
                         filterType === 'board'
                           ? 'bg-indigo-600 text-white font-bold'
                           : 'text-slate-600 hover:bg-indigo-50'
@@ -2114,7 +2138,7 @@ export function Header({
                     <button
                       type="button"
                       onClick={() => setFilterType('event')}
-                      className={`px-2.5 py-1 rounded-lg font-medium whitespace-nowrap transition-colors ${
+                      className={`px-2 py-0.5 rounded-md font-medium whitespace-nowrap transition-colors ${
                         filterType === 'event'
                           ? 'bg-emerald-600 text-white font-bold'
                           : 'text-slate-600 hover:bg-emerald-50'
@@ -2127,7 +2151,7 @@ export function Header({
                     <button
                       type="button"
                       onClick={() => setFilterType('chat')}
-                      className={`px-2.5 py-1 rounded-lg font-medium whitespace-nowrap transition-colors ${
+                      className={`px-2 py-0.5 rounded-md font-medium whitespace-nowrap transition-colors ${
                         filterType === 'chat'
                           ? 'bg-violet-600 text-white font-bold'
                           : 'text-slate-600 hover:bg-violet-50'
@@ -2140,7 +2164,7 @@ export function Header({
                     <button
                       type="button"
                       onClick={() => setFilterType('report')}
-                      className={`px-2.5 py-1 rounded-lg font-medium whitespace-nowrap transition-colors ${
+                      className={`px-2 py-0.5 rounded-md font-medium whitespace-nowrap transition-colors ${
                         filterType === 'report'
                           ? 'bg-teal-600 text-white font-bold'
                           : 'text-slate-600 hover:bg-teal-50'
@@ -2153,7 +2177,7 @@ export function Header({
                     <button
                       type="button"
                       onClick={() => setFilterType('safety')}
-                      className={`px-2.5 py-1 rounded-lg font-medium whitespace-nowrap transition-colors ${
+                      className={`px-2 py-0.5 rounded-md font-medium whitespace-nowrap transition-colors ${
                         filterType === 'safety'
                           ? 'bg-rose-600 text-white font-bold'
                           : 'text-slate-600 hover:bg-rose-50'
@@ -2164,7 +2188,7 @@ export function Header({
                   )}
                 </div>
 
-                {/* Items List */}
+                {/* Items List (コンパクト表示で縦情報量を最大化) */}
                 <div className={`${activeNotifSizeOpt.listMaxHeightClass} overflow-y-auto divide-y divide-slate-100`}>
                   {filteredNotifications.length > 0 ? (
                     filteredNotifications.map((item) => {
@@ -2173,14 +2197,14 @@ export function Header({
                         <div
                           key={item.id}
                           onClick={() => handleNotificationClick(item)}
-                          className={`p-3.5 cursor-pointer transition-colors flex items-start gap-3 group relative border-b border-slate-100 ${
+                          className={`px-2.5 py-1.5 cursor-pointer transition-colors flex items-start gap-2 group relative ${
                             isRead
-                              ? 'bg-slate-50/70 hover:bg-slate-100/70 opacity-75'
-                              : 'bg-white hover:bg-indigo-50/60 shadow-2xs'
+                              ? 'bg-slate-50/70 hover:bg-slate-100/80 opacity-75'
+                              : 'bg-white hover:bg-indigo-50/60'
                           }`}
                         >
                           <div
-                            className={`p-2 rounded-xl shrink-0 border flex items-center justify-center mt-0.5 ${
+                            className={`p-1.5 rounded-lg shrink-0 border flex items-center justify-center mt-0.5 ${
                               isRead
                                 ? 'bg-slate-100 border-slate-200/90 text-slate-400'
                                 : getItemBg(item.type)
@@ -2188,21 +2212,20 @@ export function Header({
                           >
                             {getItemIcon(item.type)}
                           </div>
-                          <div className="flex-1 min-w-0 pr-2">
-                            <div className="flex items-center justify-between gap-2 mb-1">
-                              <div className="flex items-center gap-1.5 min-w-0">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-1">
+                              <div className="flex items-center gap-1 min-w-0">
                                 {isRead ? (
-                                  <span className="text-[10px] text-slate-500 bg-slate-200/80 px-1.5 py-0.2 rounded font-medium inline-flex items-center gap-0.5 shrink-0">
-                                    <Check className="w-2.5 h-2.5 text-slate-400" />
-                                    確認済
+                                  <span className="text-[9px] text-slate-500 bg-slate-200/80 px-1 py-0 rounded font-medium shrink-0">
+                                    済
                                   </span>
                                 ) : (
-                                  <span className="text-[10px] text-red-700 bg-red-100 px-1.5 py-0.2 rounded font-bold inline-flex items-center gap-0.5 shrink-0">
-                                    未確認
+                                  <span className="text-[9px] text-red-700 bg-red-100 px-1 py-0 rounded font-bold shrink-0">
+                                    未
                                   </span>
                                 )}
                                 <h4
-                                  className={`text-xs sm:text-sm line-clamp-1 transition-colors ${
+                                  className={`text-[11.5px] leading-tight line-clamp-1 transition-colors ${
                                     isRead
                                       ? 'font-medium text-slate-500'
                                       : 'font-bold text-slate-900 group-hover:text-indigo-600'
@@ -2211,38 +2234,40 @@ export function Header({
                                   {item.title}
                                 </h4>
                               </div>
-                              <span className="text-[10px] text-slate-400 whitespace-nowrap shrink-0">
+                              <span className="text-[9.5px] text-slate-400 whitespace-nowrap shrink-0">
                                 {formatRelativeTime(item.createdAt)}
                               </span>
                             </div>
-                            <p
-                              className={`text-xs leading-relaxed ${
-                                notificationWindowSize === 'large' ? 'line-clamp-4' : 'line-clamp-2'
-                              } ${
-                                isRead ? 'text-slate-400' : 'text-slate-600'
-                              }`}
-                            >
-                              {item.description}
-                            </p>
-                          </div>
-                          <div className="shrink-0 self-center flex items-center gap-1">
-                            {!isRead && (
-                              <span className="w-2 h-2 rounded-full bg-red-500 ring-2 ring-red-200" title="未読" />
+                            {item.description && (
+                              <p
+                                className={`text-[10.5px] leading-snug mt-0.5 ${
+                                  notificationWindowSize === 'large' ? 'line-clamp-2' : 'line-clamp-1'
+                                } ${
+                                  isRead ? 'text-slate-400' : 'text-slate-600'
+                                }`}
+                              >
+                                {item.description}
+                              </p>
                             )}
-                            <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-500 transition-colors" />
+                          </div>
+                          <div className="shrink-0 self-center flex items-center gap-0.5">
+                            {!isRead && (
+                              <span className="w-1.5 h-1.5 rounded-full bg-red-500" title="未読" />
+                            )}
+                            <ChevronRight className="w-3.5 h-3.5 text-slate-300 group-hover:text-indigo-500 transition-colors" />
                           </div>
                         </div>
                       );
                     })
                   ) : (
-                    <div className="p-8 text-center text-slate-400 flex flex-col items-center justify-center gap-2">
-                      <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center text-slate-300 mb-1">
-                        <Bell className="w-6 h-6" />
+                    <div className="p-6 text-center text-slate-400 flex flex-col items-center justify-center gap-1.5">
+                      <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-300 mb-0.5">
+                        <Bell className="w-5 h-5" />
                       </div>
-                      <p className="text-sm font-semibold text-slate-600">
+                      <p className="text-xs font-semibold text-slate-600">
                         {readFilter === 'unread' ? '未読の通知はありません' : '通知はありません'}
                       </p>
-                      <p className="text-xs text-slate-400">
+                      <p className="text-[11px] text-slate-400">
                         {readFilter === 'unread' ? 'すべての通知を確認済みです' : '新着通知や履歴はここに表示されます'}
                       </p>
                     </div>
@@ -2250,16 +2275,16 @@ export function Header({
                 </div>
 
                 {/* Footer */}
-                <div className="p-2.5 bg-slate-50 border-t border-slate-100 flex flex-col gap-1.5 text-center">
+                <div className="px-2 py-1.5 bg-slate-50 border-t border-slate-100 flex flex-col gap-1 text-center">
                   <button
                     type="button"
                     onClick={() => {
                       setIsOpen(false);
                       if (onSelectTab) onSelectTab('mypage');
                     }}
-                    className="w-full py-1.5 px-3 text-xs font-semibold text-slate-600 hover:text-indigo-600 hover:bg-white rounded-lg transition-colors border border-transparent hover:border-slate-200"
+                    className="w-full py-1 px-2 text-[11px] font-semibold text-slate-600 hover:text-indigo-600 hover:bg-white rounded-md transition-colors border border-transparent hover:border-slate-200"
                   >
-                    マイページですべての通知とタスクを確認 →
+                    マイページですべて確認 →
                   </button>
                   {onOpenSettings && (
                     <button
@@ -2268,10 +2293,10 @@ export function Header({
                         setIsOpen(false);
                         onOpenSettings();
                       }}
-                      className="w-full py-1 px-3 text-[11px] font-medium text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 rounded-md transition-colors flex items-center justify-center gap-1.5"
+                      className="w-full py-0.5 px-2 text-[10.5px] font-medium text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 rounded-md transition-colors flex items-center justify-center gap-1"
                     >
-                      <Smartphone className="w-3.5 h-3.5" />
-                      <span>スマホのプッシュ通知設定を開く</span>
+                      <Smartphone className="w-3 h-3" />
+                      <span>プッシュ通知設定を開く</span>
                     </button>
                   )}
                 </div>
