@@ -7,11 +7,11 @@
  * - 機能追加・バグ修正・仕様変更のたびに必ず更新すること
  */
 export const APP_VERSION = {
-  version: '2026.11.12.12',
+  version: '2026.11.12.17',
   date: '2026.11.12',
-  releaseNumber: 12,
-  display: 'v2026.11.12 #12 (JST)',
+  releaseNumber: 17,
+  display: 'v2026.11.12 #17 (JST)',
   timeZone: 'Asia/Tokyo (JST)',
-  description: '管理者メニューUI改善（マスターの下に「様式」セクションを新設、保守日報様式移動および点検項目マスター設定へのアクセス追加）'
+  description: '現在地マップの初期表示時にチーム全員が極力収まるように表示位置・縮尺を自動調整する機能を追加'
 };
 
