@@ -4906,10 +4906,10 @@ END;`}
                   <label className="flex items-center justify-between cursor-pointer">
                     <div>
                       <span className="text-xs font-bold text-rose-800 block">
-                        「安否確認発動」メニューを表示
+                        「安否確認」メニューを表示
                       </span>
                       <span className="text-[10px] text-slate-500">
-                        ONにすると、このメンバーのユーティリティメニュー内に「安否確認発動」が表示されます
+                        ONにすると、このメンバーのユーティリティメニュー内に「安否確認」が表示されます
                       </span>
                     </div>
                     <input

@@ -642,7 +642,7 @@ export function LoginScreen({
               <ShieldCheck className="w-9 h-9 text-white" />
             </div>
             <h1 className="text-2xl font-black tracking-tight text-white mb-2">
-              TERANAGO 社内ポータル
+              TERAPO 社内ポータル
             </h1>
             <p className="text-sm text-slate-400 font-medium">
               社内SNS・グループウェアへログインしてください
@@ -724,7 +724,7 @@ export function LoginScreen({
           </div>
 
           <div className="text-center mt-6 text-xs text-slate-500 font-medium">
-            © TERANAGO SNS Portal System
+            © TERAPO Portal System
           </div>
         </div>
       )}
@@ -742,7 +742,7 @@ export function LoginScreen({
               アカウント初期登録
             </h1>
             <p className="text-xs text-slate-400">
-              TERANAGO 社内ポータルへのご参加ありがとうございます。<br />
+              TERAPO 社内ポータルへのご参加ありがとうございます。<br />
               必須項目を入力してアカウントを開設してください。
             </p>
           </div>

@@ -1041,14 +1041,14 @@ export function Header({
           <div
             onClick={() => onSelectTab && onSelectTab('mypage')}
             className="flex items-center gap-2 cursor-pointer select-none hover:opacity-90 transition-opacity relative group/teranago-logo shrink-0"
-            title={`マイページへ (TERANAGO SNS ${APP_VERSION.display})`}
+            title={`マイページへ (TERAPO ${APP_VERSION.display})`}
           >
             <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center shadow-xs shrink-0">
               <span className="text-white font-bold text-lg leading-none">T</span>
             </div>
             <div className="relative flex items-center">
               <span className="text-xl font-bold tracking-tight text-slate-800 hidden lg:block">
-                TERANAGO<span className="text-indigo-600">SNS</span>
+                TERA<span className="text-indigo-600">PO</span>
               </span>
               {/* バージョン表示ツールチップ（マウスオーバーで表示） */}
               <div className="absolute left-0 top-full mt-2 hidden group-hover/teranago-logo:flex items-center gap-1.5 px-2.5 py-1 bg-slate-900/95 text-white text-[11px] font-medium rounded-md shadow-xl border border-slate-700/60 backdrop-blur-xs whitespace-nowrap z-50 pointer-events-none transition-all duration-150 animate-in fade-in slide-in-from-top-1">

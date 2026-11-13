@@ -7,11 +7,11 @@
  * - 機能追加・バグ修正・仕様変更のたびに必ず更新すること
  */
 export const APP_VERSION = {
-  version: '2026.11.13.2',
+  version: '2026.11.13.3',
   date: '2026.11.13',
-  releaseNumber: 2,
-  display: 'v2026.11.13 #2 (JST)',
+  releaseNumber: 3,
+  display: 'v2026.11.13 #3 (JST)',
   timeZone: 'Asia/Tokyo (JST)',
-  description: '共有ボタン押下時の個人お気に入り（ブックマーク）自動ストック・ピン留め・ワンボタン削除・ヘッダーからの即遷移機能を実装'
+  description: 'タイムラインをユーティリティーへ移動、安否確認へ改名・不要バッジ削除、ロゴ表記をTERAPOへ変更'
 };
 

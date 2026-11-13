@@ -120,11 +120,13 @@ export const Sidebar = React.memo(function Sidebar({
   };
 
   const hasUtilityItems = 
+    isTabAllowed('timeline') ||
     isTabAllowed('members') ||
     isTabAllowed('photo_reports') ||
     isTabAllowed('inspection_scheduler') || 
     isTabAllowed('files') || 
     isTabAllowed('safety_confirmation') || 
+    Boolean(onOpenSchedulePollModal) ||
     currentUser?.isAdmin;
 
   return (
@@ -154,19 +156,6 @@ export const Sidebar = React.memo(function Sidebar({
           >
             <User className="w-4 h-4" />
             マイページ
-          </button>
-        )}
-        {isTabAllowed('timeline') && (
-          <button
-            onClick={() => onChangeTab('timeline')}
-            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${
-              activeTab === 'timeline'
-                ? 'bg-indigo-50 text-indigo-700'
-                : 'text-slate-600 hover:bg-slate-50'
-            }`}
-          >
-            <Home className="w-4 h-4" />
-            タイムライン
           </button>
         )}
         {isTabAllowed('calendar') && (
@@ -359,6 +348,20 @@ export const Sidebar = React.memo(function Sidebar({
 
             {utilityOpen && (
               <div className="pl-2 space-y-0.5 pt-0.5">
+                {isTabAllowed('timeline') && (
+                  <button
+                    type="button"
+                    onClick={() => onChangeTab('timeline')}
+                    className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${
+                      activeTab === 'timeline'
+                        ? 'bg-indigo-50 text-indigo-700 font-bold shadow-2xs'
+                        : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                    }`}
+                  >
+                    <Home className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                    <span className="truncate">タイムライン</span>
+                  </button>
+                )}
                 {isTabAllowed('members') && (
                   <button
                     type="button"
@@ -427,15 +430,11 @@ export const Sidebar = React.memo(function Sidebar({
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
                       <ShieldAlert className="w-3.5 h-3.5 text-rose-600 shrink-0" />
-                      <span className="truncate">安否確認発動</span>
+                      <span className="truncate">安否確認</span>
                     </div>
-                    {Boolean(unreadCounts?.safety) ? (
+                    {Boolean(unreadCounts?.safety) && (
                       <span className="px-1.5 py-0.2 text-[10px] font-extrabold text-white bg-rose-600 rounded-full shrink-0 ml-1 animate-pulse shadow-xs">
                         {unreadCounts?.safety}
-                      </span>
-                    ) : (
-                      <span className="text-[9px] px-1.5 py-0.2 rounded font-extrabold bg-rose-100 text-rose-700 border border-rose-200 shrink-0 ml-1">
-                        緊急
                       </span>
                     )}
                   </button>
@@ -452,13 +451,9 @@ export const Sidebar = React.memo(function Sidebar({
                       <CalendarDays className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                       <span className="truncate font-semibold">日程調整</span>
                     </div>
-                    {pendingPollCount > 0 ? (
+                    {pendingPollCount > 0 && (
                       <span className="text-[9px] px-1.5 py-0.2 rounded-full font-bold bg-rose-500 text-white shrink-0 ml-1 animate-pulse shadow-2xs">
                         未回答 {pendingPollCount}
-                      </span>
-                    ) : (
-                      <span className="text-[9px] px-1.5 py-0.2 rounded font-bold bg-amber-100 text-amber-800 shrink-0 ml-1">
-                        New
                       </span>
                     )}
                   </button>
@@ -500,19 +495,14 @@ export const Sidebar = React.memo(function Sidebar({
                   <button
                     type="button"
                     onClick={() => onChangeTab('admin')}
-                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${
+                    className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${
                       activeTab === 'admin'
                         ? 'bg-indigo-50 text-indigo-700 font-bold'
                         : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                     }`}
                   >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <Shield className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                      <span className="truncate">管理者メニュー</span>
-                    </div>
-                    <span className="text-[9px] px-1.5 py-0.2 rounded font-bold bg-indigo-100 text-indigo-700 shrink-0 ml-1">
-                      管理者
-                    </span>
+                    <Shield className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                    <span className="truncate">管理者メニュー</span>
                   </button>
                 )}
               </div>
