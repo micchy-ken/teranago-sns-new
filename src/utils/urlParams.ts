@@ -29,6 +29,8 @@ export interface AppQueryParams {
   openSettings?: boolean;
   // Schedule Poll (日程調整) specific
   pollId?: string;
+  // Assets (資産管理) specific
+  assetId?: string;
   // User Invitation & Password Reset
   inviteToken?: string;
   resetToken?: string;
@@ -51,6 +53,7 @@ export function normalizeTab(tabStr?: string | null): AppTab | undefined {
   if (['timeline', 'sns', 'posts', 'post', 'タイムライン'].includes(lower)) return 'timeline';
   if (['inspection_scheduler', 'inspection', 'scheduler', 'tenken', '点検'].includes(lower)) return 'inspection_scheduler';
   if (['site_management', 'sites', 'genba', 'site', '現場', '現場管理'].includes(lower)) return 'site_management';
+  if (['assets', 'asset', 'shisan', 'vehicles', 'vehicle', 'pc', '資産', '資産管理', '車両'].includes(lower)) return 'assets';
   if (['files', 'file', 'nas', 'ファイル'].includes(lower)) return 'files';
   if (['mypage', 'my', 'profile', 'personal', 'マイページ', '個人設定'].includes(lower)) return 'mypage';
   if (['safety_confirmation', 'safety', 'anpi', 'anzen', '安否確認', '安否'].includes(lower)) return 'safety_confirmation';
@@ -160,6 +163,10 @@ export function parseAppQueryParams(searchString?: string): AppQueryParams {
   const rawReportId = params.get('reportId') || params.get('report_id') || (result.tab === 'daily_report' ? params.get('id') : undefined);
   if (rawReportId) result.reportId = rawReportId;
 
+  // 7.5. Asset Management Specific
+  const rawAssetId = params.get('assetId') || params.get('asset_id') || (result.tab === 'assets' ? params.get('id') : undefined);
+  if (rawAssetId) result.assetId = rawAssetId;
+
   // 8. Safety Confirmation Specific
   const rawSafetyEventId = params.get('safetyEventId') || params.get('safety_event_id') || params.get('eventId') || (result.tab === 'safety_confirmation' ? params.get('id') : undefined);
   if (rawSafetyEventId) {
@@ -225,6 +232,9 @@ export function parseAppQueryParams(searchString?: string): AppQueryParams {
   }
   if (!result.tab && result.safetyEventId) {
     result.tab = 'safety_confirmation';
+  }
+  if (!result.tab && result.assetId) {
+    result.tab = 'assets';
   }
 
   return result;
@@ -380,6 +390,9 @@ export function buildAppUrl(params?: AppQueryParams, baseUrl?: string): string {
   }
   if (params.safetyEventId) {
     searchParams.set('safetyEventId', params.safetyEventId);
+  }
+  if (params.assetId) {
+    searchParams.set('assetId', params.assetId);
   }
   if (params.openEmergencyContact) {
     searchParams.set('openEmergencyContact', 'true');

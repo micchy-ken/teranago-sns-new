@@ -7,11 +7,11 @@
  * - 機能追加・バグ修正・仕様変更のたびに必ず更新すること
  */
 export const APP_VERSION = {
-  version: '2026.11.13.5',
+  version: '2026.11.13.8',
   date: '2026.11.13',
-  releaseNumber: 5,
-  display: 'v2026.11.13 #5 (JST)',
+  releaseNumber: 8,
+  display: 'v2026.11.13 #8 (JST)',
   timeZone: 'Asia/Tokyo (JST)',
-  description: 'マイページ表示設定の折りたたみ化、通知ウィンドウ横2/3コンパクト表示、リロード時の開閉・表示位置記憶機能を追加'
+  description: '資産管理メニュー・ヘッダーへの「開発中」バッジ追加'
 };
 

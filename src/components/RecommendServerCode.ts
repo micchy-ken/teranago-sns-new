@@ -1,7 +1,7 @@
 export const RECOMMEND_SERVER_JS = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年11月12日 (新規トークルーム作成時グループアイコン即時反映＆UPSERT対応版)
+ * 最終更新日時 (最終アップデート): 2026年11月13日 (資産管理APIルーター routes/assets.js マウント順序・ルート競合修正版)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -41,6 +41,7 @@ import inspectionsRouter from './routes/inspections.js';
 import eventsRouter from './routes/events.js';
 import safetyRouter from './routes/safety.js';
 import chatQuizzesRouter from './routes/chatQuizzes.js';
+import assetsRouter from './routes/assets.js';
 
 // サーバークラッシュ防止（非同期未処理例外・Promise拒否でプロセスが落ちるのを完全防止）
 process.on('uncaughtException', (err) => {
@@ -820,6 +821,19 @@ async function startServer() {
   // スタンプ管理APIルーター
   app.use('/api/stamps', stampsRouter);
 
+  // アクセス・操作ログ管理APIルーター
+  app.use('/api/logs', logsRouter);
+  app.use('/api/access-logs', logsRouter);
+
+  // 現場管理・施工スケジュール・在庫DB部品連携APIルーター
+  app.use(['/api/sites', '/api/genba-sites'], sitesRouter);
+
+  // 安否確認・災害速報・連送抑制APIルーター
+  app.use(['/api/safety-events', '/api/safety/events', '/api/safety'], safetyRouter);
+
+  // 資産管理・動的スキーマ・点検/入替アラート・履歴APIルーター（/api 汎用ルーターより先にマウント）
+  app.use(['/api/assets', '/api/asset-management'], assetsRouter);
+
   // 文書管理・フォルダ機能APIルーター
   const documentsFilesDir = path.join(uploadsDir, 'documents');
   if (!fs.existsSync(documentsFilesDir)) {
@@ -845,21 +859,11 @@ async function startServer() {
   app.use(['/api/chats/quizzes', '/api/chat-quizzes'], chatQuizzesRouter);
   app.use('/api', chatQuizzesRouter);
 
-  // アクセス・操作ログ管理APIルーター
-  app.use('/api/logs', logsRouter);
-  app.use('/api/access-logs', logsRouter);
-
-  // 現場管理・施工スケジュール・在庫DB部品連携APIルーター
-  app.use(['/api/sites', '/api/genba-sites'], sitesRouter);
-
   // 点検報告書・CRM点検データ・点検予定下書きAPIルーター
   app.use(['/api/inspections', '/api/inspection', '/api'], inspectionsRouter);
 
   // カレンダー行事・予定・現場工事スケジュールAPIルーター
   app.use(['/api/events', '/api'], eventsRouter);
-
-  // 安否確認・災害速報・連送抑制APIルーター
-  app.use(['/api/safety-events', '/api/safety/events', '/api/safety'], safetyRouter);
 
   // PWA・静的アイコン・マニフェスト等の明示的エンドポイント（開発/本番問わずバイナリとして確実に返却）
   const publicStaticFiles = ['pwa-192x192.png', 'pwa-512x512.png', 'icon.svg', 'manifest.json'];

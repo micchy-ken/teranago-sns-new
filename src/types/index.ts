@@ -928,3 +928,5 @@ export * from './schedulePoll';
 export * from './photoReport';
 export * from './site';
 export * from './chatQuiz';
+export * from './asset';
+

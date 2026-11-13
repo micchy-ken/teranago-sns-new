@@ -26,6 +26,7 @@ const DailyReportView = lazyWithRetry(() => import('./components/DailyReport').t
 const InspectionScheduler = lazyWithRetry(() => import('./components/InspectionScheduler').then(m => ({ default: m.InspectionScheduler })));
 const InspectionReportTab = lazyWithRetry(() => import('./components/inspection/InspectionReportTab').then(m => ({ default: m.InspectionReportTab })));
 const SiteManagement = lazyWithRetry(() => import('./components/SiteManagement/SiteManagement').then(m => ({ default: m.SiteManagement })));
+const AssetManagement = lazyWithRetry(() => import('./components/AssetManagement/AssetManagement').then(m => ({ default: m.AssetManagement })));
 const SafetyConfirmation = lazyWithRetry(() => import('./components/SafetyConfirmation').then(m => ({ default: m.SafetyConfirmation })));
 const GuestSafetyResponse = lazyWithRetry(() => import('./components/GuestSafetyResponse').then(m => ({ default: m.GuestSafetyResponse })));
 const MyPage = lazyWithRetry(() => import('./components/MyPage').then(m => ({ default: m.MyPage })));
@@ -235,6 +236,7 @@ export default function App() {
   const [targetApplicationId, setTargetApplicationId] = useState<string | undefined>(initialUrlParams.applicationId);
   const [targetEventId, setTargetEventId] = useState<string | undefined>(initialUrlParams.eventId);
   const [targetSiteId, setTargetSiteId] = useState<string | undefined>(undefined);
+  const [targetAssetId, setTargetAssetId] = useState<string | undefined>(initialUrlParams.assetId);
   const [targetReportId, setTargetReportId] = useState<string | undefined>(initialUrlParams.reportId);
   const [targetSafetyEventId, setTargetSafetyEventId] = useState<string | undefined>(initialUrlParams.safetyEventId);
   const [targetSafetyUserId, setTargetSafetyUserId] = useState<string | undefined>(initialUrlParams.safetyUserId);
@@ -447,6 +449,7 @@ export default function App() {
     setActiveTab(tab);
     setTargetEventId(undefined);
     setTargetSiteId(undefined);
+    setTargetAssetId(undefined);
     setTargetTopicId(undefined);
     setTargetMemoId(undefined);
     setTargetChatRoomId(undefined);
@@ -3874,6 +3877,16 @@ export default function App() {
               initialSiteId={targetSiteId}
               onClearInitialSiteId={() => setTargetSiteId(undefined)}
               onNavigateToCalendar={handleNavigateToCalendar}
+            />
+          )}
+          {activeTab === 'assets' && (
+            <AssetManagement
+              currentUser={userState}
+              allUsers={usersList}
+              offices={offices}
+              divisions={divisions}
+              initialAssetId={targetAssetId}
+              onClearInitialAssetId={() => setTargetAssetId(undefined)}
             />
           )}
           {activeTab === 'workflow' && (
