@@ -16,8 +16,9 @@ import { UrlPastePopup, useUrlPasteHandler } from './common/UrlPastePopup';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { getLocalDateStr, addMinutesToLocalDatetime, getJstHourAndMinutes, formatDateJST, formatTimeJST, getJstDateParts } from '../utils/dateUtils';
 import { triggerPushNotification } from '../utils/pushNotifications';
-import { expandRecurringEvents, planRecurrenceSave, isExpandedRecurrenceId, extractDateFromInstanceId } from '../utils/recurrenceUtils';
+import { expandRecurringEvents, planRecurrenceSave, isExpandedRecurrenceId, extractDateFromInstanceId, extractParentIdFromInstanceId, isRecurringEvent } from '../utils/recurrenceUtils';
 import { RecurrenceActionModal, RecurrenceActionScope } from './RecurrenceActionModal';
+import { TeamEventDeleteModal, TeamDeleteMemberScope } from './TeamEventDeleteModal';
 import { buildAppUrl, AppQueryParams } from '../utils/urlParams';
 import { TeamDayMemberRow } from './TeamDayMemberRow';
 import { TeamWeekMemberRow } from './TeamWeekMemberRow';
@@ -277,8 +278,11 @@ export function Calendar({
     const merged = events.map(ev => {
       const opt = optMap.get(String(ev.id));
       if (!opt) return ev;
-      // 親のデータが新時間に完全に同期されていれば楽観的保持を解除
-      if (ev.start === opt.event.start && ev.end === opt.event.end) {
+      // 親のデータが新時間・参加者に完全に同期されていれば楽観的保持を解除
+      const isSameAttendees =
+        JSON.stringify((ev.attendees || []).map(a => String(a.id))) ===
+        JSON.stringify((opt.event.attendees || []).map(a => String(a.id)));
+      if (ev.start === opt.event.start && ev.end === opt.event.end && isSameAttendees) {
         optMap.delete(String(ev.id));
         return ev;
       }
@@ -1061,7 +1065,17 @@ export function Calendar({
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
+  const [editingEventMember, setEditingEventMember] = useState<User | null>(null);
   const [selectedDetailEvent, setSelectedDetailEvent] = useState<CalendarEvent | null>(null);
+  const [selectedDetailMember, setSelectedDetailMember] = useState<User | null>(null);
+  const [teamDeleteState, setTeamDeleteState] = useState<{
+    step: 'member_scope' | 'recurrence_scope';
+    event: CalendarEvent;
+    targetMember: User;
+    memberScope?: TeamDeleteMemberScope;
+    isRecurring: boolean;
+    instanceDate?: string;
+  } | null>(null);
   const [isCopyMode, setIsCopyMode] = useState<boolean>(false);
   const [selectedInitialDate, setSelectedInitialDate] = useState<string | undefined>(undefined);
   const [selectedEndDate, setSelectedEndDate] = useState<string | undefined>(undefined);
@@ -1140,7 +1154,7 @@ export function Calendar({
       ro.disconnect();
       window.removeEventListener('resize', measureHourLayouts);
     };
-  }, [measureHourLayouts, currentDate, localEvents, calendarMode, view, isSignageMode]);
+  }, [measureHourLayouts, currentDate, localEvents, calendarMode, view, teamDaySubView, selectedOffice, selectedDivision, selectedGroupId, isSignageMode]);
 
   // Drag and drop state
   const [draggedEventId, setDraggedEventId] = useState<string | null>(null);
@@ -1577,6 +1591,7 @@ export function Calendar({
     isAllDay?: boolean
   ) => {
     setEditingEvent(null);
+    setEditingEventMember(null);
     setSelectedInitialDate(dateStr);
     let calculatedEnd = endDateStr;
     if (!calculatedEnd && dateStr && dateStr.includes('T')) {
@@ -1844,7 +1859,7 @@ export function Calendar({
     };
   }, [isSelectingRange, getSelectionRange, selectionAttendees]);
 
-  const handleEventClick = (e: React.MouseEvent, event: CalendarEvent) => {
+  const handleEventClick = (e: React.MouseEvent, event: CalendarEvent, member?: User) => {
     e.stopPropagation();
     e.preventDefault();
     if (event.isSchedulePoll && event.pollId) {
@@ -1854,6 +1869,7 @@ export function Calendar({
       return;
     }
     if (wasResizedRef.current) return; // リサイズ操作直後のクリックを無効化
+    setSelectedDetailMember(calendarMode === 'team' && member ? member : null);
     setSelectedDetailEvent(event);
   };
 
@@ -1875,6 +1891,111 @@ export function Calendar({
     } else {
       onAddEvent(eventData as Omit<CalendarEvent, 'id'>);
     }
+  };
+
+  // チーム表示で複数メンバーの予定から「この1名のみを削除」を選んだ際、削除ではなく参加者調整として保存する
+  const executeSingleMemberRemoval = (
+    ev: CalendarEvent,
+    targetMember: User,
+    recurrenceScope: RecurrenceActionScope,
+    instanceDate?: string
+  ) => {
+    const remainingAttendees = (ev.attendees || []).filter(
+      a => String(a.id) !== String(targetMember.id)
+    );
+    if (remainingAttendees.length === 0) {
+      onDeleteEvent?.(ev.id, recurrenceScope, instanceDate || ev.instanceDate);
+      return;
+    }
+
+    const isExpanded = isExpandedRecurrenceId(ev.id);
+    const parentId = ev.recurrenceParentId || (isExpanded ? extractParentIdFromInstanceId(ev.id) : ev.id);
+    const parentEvent = localEvents.find(item => String(item.id) === String(parentId));
+
+    let payloadToSave: CalendarEvent;
+    if (recurrenceScope === 'all' && parentEvent) {
+      // シリーズ全体から1名を外す場合は、親イベント本来の開始日時・繰り返し設定を維持して参加者のみ更新する
+      payloadToSave = {
+        ...parentEvent,
+        attendees: remainingAttendees,
+      };
+    } else {
+      payloadToSave = {
+        ...ev,
+        attendees: remainingAttendees,
+        ...(recurrenceScope === 'this_and_following' && !ev.recurrence && parentEvent?.recurrence
+          ? { recurrence: parentEvent.recurrence }
+          : {}),
+      };
+    }
+
+    handleSaveEvent(payloadToSave, recurrenceScope, instanceDate || ev.instanceDate);
+  };
+
+  const closeAllEventActionModals = () => {
+    setTeamDeleteState(null);
+    setSelectedDetailEvent(null);
+    setSelectedDetailMember(null);
+    setIsModalOpen(false);
+    setEditingEvent(null);
+    setEditingEventMember(null);
+    setIsCopyMode(false);
+    if (onClearInitialEventId) onClearInitialEventId();
+  };
+
+  const handleRequestTeamDelete = (event: CalendarEvent, targetMember: User) => {
+    const isRecurring = Boolean(
+      isRecurringEvent(event) ||
+      isExpandedRecurrenceId(event.id) ||
+      event.recurrenceParentId ||
+      event.instanceDate ||
+      event.recurrenceOriginalDate
+    );
+    const instanceDate =
+      event.instanceDate ||
+      event.recurrenceOriginalDate ||
+      (isExpandedRecurrenceId(event.id)
+        ? extractDateFromInstanceId(event.id)
+        : (event.start ? getLocalDateStr(event.start) : undefined));
+
+    setTeamDeleteState({
+      step: 'member_scope',
+      event,
+      targetMember,
+      isRecurring,
+      instanceDate,
+    });
+  };
+
+  const handleConfirmTeamMemberScope = (memberScope: TeamDeleteMemberScope) => {
+    if (!teamDeleteState) return;
+    if (teamDeleteState.isRecurring) {
+      setTeamDeleteState({
+        ...teamDeleteState,
+        step: 'recurrence_scope',
+        memberScope,
+      });
+      return;
+    }
+
+    const { event, targetMember, instanceDate } = teamDeleteState;
+    if (memberScope === 'all_members') {
+      onDeleteEvent?.(event.id, 'all', instanceDate);
+    } else {
+      executeSingleMemberRemoval(event, targetMember, 'all', instanceDate);
+    }
+    closeAllEventActionModals();
+  };
+
+  const handleConfirmTeamRecurrenceScope = (recurrenceScope: RecurrenceActionScope) => {
+    if (!teamDeleteState) return;
+    const { event, targetMember, memberScope, instanceDate } = teamDeleteState;
+    if (memberScope === 'all_members') {
+      onDeleteEvent?.(event.id, recurrenceScope, instanceDate);
+    } else {
+      executeSingleMemberRemoval(event, targetMember, recurrenceScope, instanceDate);
+    }
+    closeAllEventActionModals();
   };
 
   const handleCreateMemo = (e: React.FormEvent) => {
@@ -4875,10 +4996,13 @@ export function Calendar({
           onNavigateToSite={onNavigateToSite}
           onClose={() => {
             setSelectedDetailEvent(null);
+            setSelectedDetailMember(null);
             if (onClearInitialEventId) onClearInitialEventId();
           }}
           onEdit={(event) => {
+            setEditingEventMember(calendarMode === 'team' ? selectedDetailMember : null);
             setSelectedDetailEvent(null);
+            setSelectedDetailMember(null);
             if (onClearInitialEventId) onClearInitialEventId();
             setEditingEvent(event);
             setIsCopyMode(false);
@@ -4886,6 +5010,8 @@ export function Calendar({
           }}
           onCopyAndAdd={(event) => {
             setSelectedDetailEvent(null);
+            setSelectedDetailMember(null);
+            setEditingEventMember(null);
             if (onClearInitialEventId) onClearInitialEventId();
             setEditingEvent(event);
             setIsCopyMode(true);
@@ -4896,15 +5022,18 @@ export function Calendar({
               onDeleteEvent(event.id, scope || 'all', instanceDate || event.instanceDate);
             }
             setSelectedDetailEvent(null);
+            setSelectedDetailMember(null);
             if (onClearInitialEventId) onClearInitialEventId();
           }}
           currentUser={currentUser}
+          teamDeleteMember={calendarMode === 'team' ? selectedDetailMember : null}
+          onRequestTeamDelete={handleRequestTeamDelete}
         />
       )}
 
       <EventModal
         isOpen={isModalOpen}
-        onClose={() => { setIsModalOpen(false); setEditingEvent(null); setIsCopyMode(false); }}
+        onClose={() => { setIsModalOpen(false); setEditingEvent(null); setEditingEventMember(null); setIsCopyMode(false); }}
         onSave={handleSaveEvent}
         onDelete={onDeleteEvent}
         editingEvent={editingEvent}
@@ -4919,6 +5048,8 @@ export function Calendar({
         currentUser={currentUser}
         sites={internalSites}
         allEvents={localEvents}
+        teamDeleteMember={calendarMode === 'team' ? editingEventMember : null}
+        onRequestTeamDelete={handleRequestTeamDelete}
       />
 
       {/* 伝言メモ新規作成モーダル */}
@@ -5170,6 +5301,31 @@ export function Calendar({
           }}
         />
       )}
+
+      {/* チーム表示時の複数メンバー予定削除対象選択モーダル */}
+      <TeamEventDeleteModal
+        isOpen={!!teamDeleteState && teamDeleteState.step === 'member_scope'}
+        event={teamDeleteState?.event || null}
+        targetMember={teamDeleteState?.targetMember || null}
+        isRecurring={!!teamDeleteState?.isRecurring}
+        instanceDate={teamDeleteState?.instanceDate}
+        onClose={() => setTeamDeleteState(null)}
+        onConfirm={handleConfirmTeamMemberScope}
+      />
+
+      {/* チーム表示時の複数メンバー予定削除 → 繰り返し適用範囲選択モーダル */}
+      <RecurrenceActionModal
+        isOpen={!!teamDeleteState && teamDeleteState.step === 'recurrence_scope'}
+        mode="delete"
+        instanceDate={teamDeleteState?.instanceDate}
+        targetMemberName={
+          teamDeleteState?.memberScope === 'this_member'
+            ? teamDeleteState?.targetMember?.name
+            : undefined
+        }
+        onClose={() => setTeamDeleteState(null)}
+        onConfirm={handleConfirmTeamRecurrenceScope}
+      />
       {/* デジタルサイネージモード 全画面オーバーレイ */}
       {isSignageMode && (
         <div className="fixed inset-0 z-[9999] bg-slate-900 text-slate-100 flex flex-col font-sans overflow-hidden select-none">

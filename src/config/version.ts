@@ -7,11 +7,11 @@
  * - 機能追加・バグ修正・仕様変更のたびに必ず更新すること
  */
 export const APP_VERSION = {
-  version: '2026.11.12.17',
-  date: '2026.11.12',
-  releaseNumber: 17,
-  display: 'v2026.11.12 #17 (JST)',
+  version: '2026.11.13.1',
+  date: '2026.11.13',
+  releaseNumber: 1,
+  display: 'v2026.11.13 #1 (JST)',
   timeZone: 'Asia/Tokyo (JST)',
-  description: '現在地マップの初期表示時にチーム全員が極力収まるように表示位置・縮尺を自動調整する機能を追加'
+  description: 'AGENTS.md にバージョン表記の日本時間 (JST) 厳守ルールを追記し、バージョンを JST 日付基準へ改訂'
 };
 

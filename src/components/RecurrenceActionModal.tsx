@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { RefreshCw, Trash2, Calendar, Check, X, AlertTriangle } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { RefreshCw, Trash2, Check, X } from 'lucide-react';
 
 export type RecurrenceActionScope = 'this_only' | 'this_and_following' | 'all';
 
@@ -8,6 +8,7 @@ interface RecurrenceActionModalProps {
   mode: 'edit' | 'delete';
   title?: string;
   instanceDate?: string;
+  targetMemberName?: string;
   onClose: () => void;
   onConfirm: (scope: RecurrenceActionScope) => void;
 }
@@ -17,14 +18,22 @@ export function RecurrenceActionModal({
   mode,
   title = '定期予定の変更',
   instanceDate,
+  targetMemberName,
   onClose,
   onConfirm,
 }: RecurrenceActionModalProps) {
   const [selectedScope, setSelectedScope] = useState<RecurrenceActionScope>('this_only');
 
+  useEffect(() => {
+    if (isOpen) {
+      setSelectedScope('this_only');
+    }
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   const isDelete = mode === 'delete';
+  const isSingleMemberRemoval = isDelete && !!targetMemberName;
 
   return (
     <div
@@ -47,11 +56,13 @@ export function RecurrenceActionModal({
             </div>
             <div>
               <h3 className="text-base font-bold text-slate-800">
-                {isDelete ? '定期予定の削除' : '定期予定の変更'}
+                {isSingleMemberRemoval ? `定期予定から ${targetMemberName} さんを削除` : (isDelete ? '定期予定の削除' : title)}
               </h3>
-              {instanceDate && (
+              {(instanceDate || isSingleMemberRemoval) && (
                 <p className="text-xs text-slate-500 mt-0.5">
-                  対象日: {instanceDate}
+                  {instanceDate ? `対象日: ${instanceDate}` : ''}
+                  {instanceDate && isSingleMemberRemoval ? ' / ' : ''}
+                  {isSingleMemberRemoval ? `対象: ${targetMemberName} さんのみ` : ''}
                 </p>
               )}
             </div>
@@ -68,7 +79,9 @@ export function RecurrenceActionModal({
         {/* Body */}
         <div className="p-5 space-y-4">
           <p className="text-xs sm:text-sm text-slate-600">
-            これは繰り返しの定期予定です。{isDelete ? '削除' : '変更'}の適用範囲を選択してください。
+            {isSingleMemberRemoval
+              ? `これは繰り返しの定期予定です。${targetMemberName} さんを参加者から外す適用範囲を選択してください。`
+              : `これは繰り返しの定期予定です。${isDelete ? '削除' : '変更'}の適用範囲を選択してください。`}
           </p>
 
           <div className="space-y-2.5">
@@ -96,7 +109,9 @@ export function RecurrenceActionModal({
                   <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-medium">個別</span>
                 </div>
                 <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
-                  {instanceDate ? `${instanceDate} の予定` : 'この日時の予定'}のみを{isDelete ? '削除' : '変更'}します。他の日時の予定には影響しません。
+                  {isSingleMemberRemoval
+                    ? `${instanceDate ? `${instanceDate} の予定` : 'この日時の予定'}からのみ ${targetMemberName} さんを外します。他の日時や他のメンバーには影響しません。`
+                    : `${instanceDate ? `${instanceDate} の予定` : 'この日時の予定'}のみを${isDelete ? '削除' : '変更'}します。他の日時の予定には影響しません。`}
                 </p>
               </div>
             </label>
@@ -125,7 +140,9 @@ export function RecurrenceActionModal({
                   <span className="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded font-medium">以降一括</span>
                 </div>
                 <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
-                  この日以降の定期予定をすべて{isDelete ? '削除' : '更新'}します。過去の予定はそのまま残ります。
+                  {isSingleMemberRemoval
+                    ? `この日以降の定期予定から ${targetMemberName} さんを外します。過去の予定や他のメンバーはそのまま残ります。`
+                    : `この日以降の定期予定をすべて${isDelete ? '削除' : '更新'}します。過去の予定はそのまま残ります。`}
                 </p>
               </div>
             </label>
@@ -154,7 +171,9 @@ export function RecurrenceActionModal({
                   <span className="text-[10px] bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded font-medium">全体</span>
                 </div>
                 <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
-                  定期予定シリーズ全体のすべての予定（過去を含む）を一括で{isDelete ? '削除' : '変更'}します。
+                  {isSingleMemberRemoval
+                    ? `定期予定シリーズ全体から ${targetMemberName} さんを外します。他のメンバーの予定はそのまま残ります。`
+                    : `定期予定シリーズ全体のすべての予定（過去を含む）を一括で${isDelete ? '削除' : '変更'}します。`}
                 </p>
               </div>
             </label>

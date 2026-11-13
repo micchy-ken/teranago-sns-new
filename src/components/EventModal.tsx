@@ -38,6 +38,8 @@ export interface EventModalProps {
   currentUser?: User;
   sites?: Site[];
   allEvents?: CalendarEvent[];
+  teamDeleteMember?: User | null;
+  onRequestTeamDelete?: (event: CalendarEvent, targetMember: User) => void;
 }
 
 
@@ -158,6 +160,8 @@ export function EventModal({
   currentUser,
   sites = [],
   allEvents = [],
+  teamDeleteMember,
+  onRequestTeamDelete,
 }: EventModalProps) {
   const [title, setTitle] = useState('');
   const [type, setType] = useState<EventType>('personal');
@@ -809,6 +813,21 @@ export function EventModal({
   // 削除ボタン押下時のハンドラ
   const handleDeleteClick = () => {
     if (!editingEvent || !onDelete) return;
+
+    if (teamDeleteMember && onRequestTeamDelete) {
+      const attendees = editingEvent.attendees || [];
+      const uniqueAttendeeIds = new Set(attendees.map(a => String(a.id)));
+      const isTargetIncluded = attendees.some(
+        a => String(a.id) === String(teamDeleteMember.id) || (a.name && a.name === teamDeleteMember.name)
+      );
+      const remainingCount = attendees.filter(
+        a => String(a.id) !== String(teamDeleteMember.id)
+      ).length;
+      if (uniqueAttendeeIds.size > 1 && isTargetIncluded && remainingCount > 0) {
+        onRequestTeamDelete(editingEvent, teamDeleteMember);
+        return;
+      }
+    }
 
     if (isCurrentlyRecurring) {
       setActionModalState({

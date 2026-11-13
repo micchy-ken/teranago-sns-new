@@ -15,7 +15,7 @@ export interface TeamWeekMemberRowProps {
   isSignageMode: boolean;
   onCellMouseDown: (e: React.MouseEvent, dateStr: string, members: User[]) => void;
   onCellMouseEnter: (dateStr: string) => void;
-  onEventClick: (e: React.MouseEvent, event: CalendarEvent) => void;
+  onEventClick: (e: React.MouseEvent, event: CalendarEvent, member?: User) => void;
   onDragStart: (e: React.DragEvent, eventId: string, memberId?: string) => void;
   onDragEnd: () => void;
   onDrop: (
@@ -167,7 +167,7 @@ export const TeamWeekMemberRow: React.FC<TeamWeekMemberRowProps> = React.memo(({
                       onDrop(eDrop, dateStr, undefined, member.id);
                     }}
                     onMouseDown={(evt) => evt.stopPropagation()}
-                    onClick={(evt) => onEventClick(evt, e)}
+                    onClick={(evt) => onEventClick(evt, e, member)}
                     className={`border text-[9px] sm:text-[10px] font-bold leading-snug transition-all hover:shadow-xs shadow-2xs truncate select-none ${getEventStyle(e)} ${multiProps.containerClass} ${
                       draggedEventId === e.id ? 'opacity-40 select-none' : (draggedEventId ? 'pointer-events-none' : '')
                     } ${

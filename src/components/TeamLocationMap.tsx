@@ -1689,108 +1689,121 @@ export const TeamLocationMap: React.FC<TeamLocationMapProps> = ({
 
       {/* 2. Main Area: Map View or Standalone Cards View */}
       {displayMode === 'cards' ? (
-        <div className="flex-1 p-3 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 z-10 bg-slate-100">
-          {REGION_SECTIONS.map((sec) => {
-            const membersInRegion = filteredMemberStatuses.filter((s) => s.regionKey === sec.key);
+        <div className="flex-1 p-3 overflow-y-auto z-10 bg-slate-100">
+          {(() => {
+            const visibleSections = REGION_SECTIONS
+              .map((sec) => ({
+                sec,
+                membersInRegion: filteredMemberStatuses.filter((s) => s.regionKey === sec.key),
+              }))
+              .filter(({ membersInRegion }) => membersInRegion.length > 0);
+
+            if (visibleSections.length === 0) {
+              return (
+                <div className="h-full min-h-[260px] flex items-center justify-center text-xs text-slate-400">
+                  表示対象のメンバーがいません
+                </div>
+              );
+            }
 
             return (
-              <div key={sec.key} className={`p-3.5 rounded-xl border shadow-2xs flex flex-col justify-between ${sec.bg} ${sec.border}`}>
-                <div>
-                  <div className="flex items-center justify-between pb-2 border-b border-slate-200/80">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {visibleSections.map(({ sec, membersInRegion }) => (
+                  <div key={sec.key} className={`p-3.5 rounded-xl border shadow-2xs flex flex-col justify-between ${sec.bg} ${sec.border}`}>
                     <div>
-                      <h4 className="text-xs font-extrabold text-slate-900">{sec.title}</h4>
-                      <p className="text-[10px] text-slate-500">{sec.subtitle}</p>
-                    </div>
-                    <span className="text-xs font-extrabold px-2.5 py-0.5 bg-white rounded-full border border-slate-200 text-indigo-700 shadow-2xs">
-                      {membersInRegion.length} 名
-                    </span>
-                  </div>
+                      <div className="flex items-center justify-between pb-2 border-b border-slate-200/80">
+                        <div>
+                          <h4 className="text-xs font-extrabold text-slate-900">{sec.title}</h4>
+                          <p className="text-[10px] text-slate-500">{sec.subtitle}</p>
+                        </div>
+                        <span className="text-xs font-extrabold px-2.5 py-0.5 bg-white rounded-full border border-slate-200 text-indigo-700 shadow-2xs">
+                          {membersInRegion.length} 名
+                        </span>
+                      </div>
 
-                  <div className="mt-2.5 space-y-2 max-h-80 overflow-y-auto pr-1">
-                    {membersInRegion.length === 0 ? (
-                      <div className="text-[11px] text-slate-400 py-4 text-center">このエリアに所属・滞在している社員はいません</div>
-                    ) : (
-                      membersInRegion.map((st) => (
-                        <div
-                          key={st.member.id}
-                          onClick={() => setSelectedMemberStatus(st)}
-                          className="p-2.5 bg-white rounded-xl border border-slate-200/90 shadow-2xs flex items-center justify-between gap-2 hover:border-indigo-400 hover:shadow-xs transition-all cursor-pointer"
-                        >
-                          <div className="flex items-center gap-2.5">
-                            <img
-                              src={st.member.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(st.member.name)}&background=random`}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                triggerOpenUserModal(st.member);
-                              }}
-                              title={`${st.member.name} の社員詳細を表示`}
-                              className="w-9 h-9 rounded-full object-cover border border-slate-200 shrink-0 hover:ring-2 hover:ring-indigo-400 transition-all cursor-pointer"
-                              alt={st.member.name}
-                            />
-                            <div>
-                              <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5 whitespace-nowrap">
-                                <span
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    triggerOpenUserModal(st.member);
-                                  }}
-                                  title={`${st.member.name} の社員詳細を表示`}
-                                  className="hover:text-indigo-600 hover:underline transition-colors cursor-pointer"
-                                >
-                                  {st.member.name}
-                                </span>
-                                <span className="text-[10px] text-slate-500 font-normal">
-                                  ({st.member.department || '所属未指定'})
-                                </span>
-                              </div>
-                              <div className="text-[10px] font-extrabold mt-0.5">
-                                {st.statusType === 'in_transit' && (
-                                  <span className="text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
-                                    {st.isReturningToBase ? (
-                                      <>🚗 「{st.prevLocationName}」から帰社中</>
-                                    ) : (
-                                      <>
-                                        🚗 「{st.prevLocationName}」から移動中
-                                        {st.nextLocationName && ` → 「${st.nextLocationName}」へ`}
-                                      </>
-                                    )}
+                      <div className="mt-2.5 space-y-2 max-h-80 overflow-y-auto pr-1">
+                        {membersInRegion.map((st) => (
+                          <div
+                            key={st.member.id}
+                            onClick={() => setSelectedMemberStatus(st)}
+                            className="p-2.5 bg-white rounded-xl border border-slate-200/90 shadow-2xs flex items-center justify-between gap-2 hover:border-indigo-400 hover:shadow-xs transition-all cursor-pointer"
+                          >
+                            <div className="flex items-center gap-2.5">
+                              <img
+                                src={st.member.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(st.member.name)}&background=random`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  triggerOpenUserModal(st.member);
+                                }}
+                                title={`${st.member.name} の社員詳細を表示`}
+                                className="w-9 h-9 rounded-full object-cover border border-slate-200 shrink-0 hover:ring-2 hover:ring-indigo-400 transition-all cursor-pointer"
+                                alt={st.member.name}
+                              />
+                              <div>
+                                <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5 whitespace-nowrap">
+                                  <span
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      triggerOpenUserModal(st.member);
+                                    }}
+                                    title={`${st.member.name} の社員詳細を表示`}
+                                    className="hover:text-indigo-600 hover:underline transition-colors cursor-pointer"
+                                  >
+                                    {st.member.name}
                                   </span>
-                                )}
-                                {st.statusType === 'on_site' && (
-                                  <span className="text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
-                                    📍 「{st.locationName}」滞在中
+                                  <span className="text-[10px] text-slate-500 font-normal">
+                                    ({st.member.department || '所属未指定'})
                                   </span>
-                                )}
-                                {st.statusType === 'at_base' && (
-                                  <span className="text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
-                                    {st.officeBadge}
-                                    {st.currentEvent?.title ? `・${st.currentEvent.title}` : ''}
-                                  </span>
-                                )}
+                                </div>
+                                <div className="text-[10px] font-extrabold mt-0.5">
+                                  {st.statusType === 'in_transit' && (
+                                    <span className="text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                                      {st.isReturningToBase ? (
+                                        <>🚗 「{st.prevLocationName}」から帰社中</>
+                                      ) : (
+                                        <>
+                                          🚗 「{st.prevLocationName}」から移動中
+                                          {st.nextLocationName && ` → 「${st.nextLocationName}」へ`}
+                                        </>
+                                      )}
+                                    </span>
+                                  )}
+                                  {st.statusType === 'on_site' && (
+                                    <span className="text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                                      📍 「{st.locationName}」滞在中
+                                    </span>
+                                  )}
+                                  {st.statusType === 'at_base' && (
+                                    <span className="text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                                      {st.officeBadge}
+                                      {st.currentEvent?.title ? `・${st.currentEvent.title}` : ''}
+                                    </span>
+                                  )}
+                                </div>
                               </div>
                             </div>
-                          </div>
 
-                          {onOpenMemoModal && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onOpenMemoModal(st.member);
-                              }}
-                              className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors shrink-0"
-                              title={`${st.member.name}さんへ伝言送信`}
-                            >
-                              <Send className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
-                      ))
-                    )}
+                            {onOpenMemoModal && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onOpenMemoModal(st.member);
+                                }}
+                                className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors shrink-0"
+                                title={`${st.member.name}さんへ伝言送信`}
+                              >
+                                <Send className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   </div>
-                </div>
+                ))}
               </div>
             );
-          })}
+          })()}
         </div>
       ) : (
         /* Leaflet 地図キャンバス + サイドバー */

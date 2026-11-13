@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { CalendarEvent, User } from '../types';
 import { Phone } from 'lucide-react';
 import { getAvatarUrl } from '../utils/avatar';
-import { getJstHourAndMinutes } from '../utils/dateUtils';
+import { getJstHourAndMinutes, getLocalDateStr } from '../utils/dateUtils';
 import { triggerOpenUserModal } from '../utils/userModal';
 
 export interface TeamDayMemberRowProps {
@@ -24,7 +24,7 @@ export interface TeamDayMemberRowProps {
     direction: 'horizontal' | 'vertical';
     currentEndMs: number;
   } | null;
-  onEventClick: (e: React.MouseEvent, event: CalendarEvent) => void;
+  onEventClick: (e: React.MouseEvent, event: CalendarEvent, member?: User) => void;
   onDragStart: (e: React.DragEvent, eventId: string, memberId?: string) => void;
   onDragEnd: () => void;
   onDrop: (
@@ -78,12 +78,29 @@ export const TeamDayMemberRow: React.FC<TeamDayMemberRowProps> = React.memo(({
   // 当日予定のレーン計算（重なり判定）
   const placedEvents = useMemo(() => {
     const sorted = [...memberEvents].sort((a, b) => {
+      const aStartStr = getLocalDateStr(a.start);
+      const aEndStr = a.end ? getLocalDateStr(a.end) : aStartStr;
+      const bStartStr = getLocalDateStr(b.start);
+      const bEndStr = b.end ? getLocalDateStr(b.end) : bStartStr;
+      const aFullSpan = !!a.isAllDay || aStartStr !== aEndStr;
+      const bFullSpan = !!b.isAllDay || bStartStr !== bEndStr;
+      if (aFullSpan && !bFullSpan) return -1;
+      if (!aFullSpan && bFullSpan) return 1;
+
       const { sDate: as, eDate: ae } = getEventSpan(a);
       const { sDate: bs, eDate: be } = getEventSpan(b);
       const startDiff = as.getTime() - bs.getTime();
       if (startDiff !== 0) return startDiff;
       return (be.getTime() - bs.getTime()) - (ae.getTime() - as.getTime());
     });
+
+    const maxLayoutRight = Object.values(hourLayouts).reduce(
+      (acc, layout) => Math.max(acc, (layout?.left || 0) + (layout?.width || 0)),
+      0
+    );
+    const fullRightPx = hourLayouts[maxHour]
+      ? hourLayouts[maxHour].left + hourLayouts[maxHour].width
+      : (maxLayoutRight > 0 ? maxLayoutRight : (timelineTotalWidth || 1000));
 
     const result: Array<{
       event: CalendarEvent;
@@ -95,16 +112,16 @@ export const TeamDayMemberRow: React.FC<TeamDayMemberRowProps> = React.memo(({
 
     sorted.forEach((e) => {
       const { sDate, eDate } = getEventSpan(e);
+      const startDateStr = getLocalDateStr(sDate);
+      const endDateStr = getLocalDateStr(eDate);
       const { hour: sH, minute: sM } = getJstHourAndMinutes(sDate);
       const { hour: eH, minute: eM } = getJstHourAndMinutes(eDate);
-      const isStartBeforeMin = (sH + sM / 60) < minHour;
+      const isStartBeforeMin = !!e.isAllDay || startDateStr < dateStr || (sH + sM / 60) < minHour;
       const endHourFloat = eH + eM / 60;
-      const isEndAfterMax = endHourFloat >= (maxHour + 1);
+      const isEndAfterMax = !!e.isAllDay || endDateStr > dateStr || endHourFloat >= (maxHour + 1);
 
       const leftPx = isStartBeforeMin ? 0 : getXPositionFromDate(sDate);
-      const rightPx = isEndAfterMax
-        ? (hourLayouts[maxHour] ? hourLayouts[maxHour].left + hourLayouts[maxHour].width : (timelineTotalWidth || 1000))
-        : getXPositionFromDate(eDate);
+      const rightPx = isEndAfterMax ? fullRightPx : getXPositionFromDate(eDate);
 
       const widthPx = Math.max(28, rightPx - leftPx);
 
@@ -126,7 +143,7 @@ export const TeamDayMemberRow: React.FC<TeamDayMemberRowProps> = React.memo(({
     });
 
     return { result, totalLanes: Math.max(1, laneEndPxList.length) };
-  }, [memberEvents, hourLayouts, timelineTotalWidth, minHour, maxHour, getEventSpan, getXPositionFromDate]);
+  }, [memberEvents, hourLayouts, timelineTotalWidth, minHour, maxHour, dateStr, getEventSpan, getXPositionFromDate]);
 
   const totalLanes = placedEvents.totalLanes;
   const lanePitch = 48;
@@ -320,6 +337,9 @@ export const TeamDayMemberRow: React.FC<TeamDayMemberRowProps> = React.memo(({
             const slotW = activeSlotLayout?.width || 100;
 
             const isDraggedThis = draggedEventId === e.id;
+            const evStartStr = getLocalDateStr(e.start);
+            const evEndStr = e.end ? getLocalDateStr(e.end) : evStartStr;
+            const isSolidCard = !!e.isAllDay || evStartStr !== evEndStr;
 
             return (
               <div
@@ -329,7 +349,7 @@ export const TeamDayMemberRow: React.FC<TeamDayMemberRowProps> = React.memo(({
                 onDragStart={(eDrag) => onDragStart(eDrag, e.id, member.id)}
                 onDragEnd={onDragEnd}
                 onMouseDown={(evt) => evt.stopPropagation()}
-                onClick={(evt) => onEventClick(evt, e)}
+                onClick={(evt) => onEventClick(evt, e, member)}
                 style={{
                   left: `${leftPx + 2}px`,
                   width: `${Math.max(24, displayWidthPx - 4)}px`,
@@ -346,7 +366,7 @@ export const TeamDayMemberRow: React.FC<TeamDayMemberRowProps> = React.memo(({
                 }`}
                 title={`${e.isIcal ? '[iCal] ' : ''}${e.title} (${displayTimeString})${e.location ? `\n場所: ${e.location}` : ''}${e.memo ? `\nメモ: ${e.memo}` : ''}`}
               >
-                <div className={`font-medium text-[11px] sm:text-xs truncate leading-tight select-none pointer-events-none flex items-center gap-1 ${e.isAllDay ? 'text-white font-bold' : 'text-slate-800'}`}>
+                <div className={`font-medium text-[11px] sm:text-xs truncate leading-tight select-none pointer-events-none flex items-center gap-1 ${isSolidCard ? 'text-white font-bold' : 'text-slate-800'}`}>
                   {e.constructionPhase === 'new' && (
                     <span className="px-1 py-0.2 bg-emerald-600 text-white rounded font-black text-[8px] sm:text-[9px] shrink-0 leading-tight">新規</span>
                   )}
@@ -359,13 +379,13 @@ export const TeamDayMemberRow: React.FC<TeamDayMemberRowProps> = React.memo(({
                   <span className="truncate">{e.isIcal ? `[iCal] ${e.title}` : e.title}</span>
                 </div>
                 {displayWidthPx > 50 && (
-                  <div className={`text-[9px] sm:text-[10px] font-medium truncate leading-tight mt-0.5 opacity-90 pointer-events-none ${e.isAllDay ? 'text-white/90' : 'text-slate-500'}`}>
+                  <div className={`text-[9px] sm:text-[10px] font-medium truncate leading-tight mt-0.5 opacity-90 pointer-events-none ${isSolidCard ? 'text-white/90' : 'text-slate-500'}`}>
                     {displayTimeString}{e.location ? ` • ${e.location}` : ''}
                   </div>
                 )}
 
                 {/* 横方向リサイズハンドル */}
-                {!e.isIcal && (
+                {!e.isIcal && !e.isAllDay && (
                   <div
                     onMouseDown={(evt) => {
                       evt.stopPropagation();

@@ -42,6 +42,8 @@ export interface GlobalEventDetailModalProps {
   onEditInCalendar?: (eventId: string) => void;
   onNavigateToSite?: (siteIdOrCode: string) => void;
   currentUser?: User;
+  teamDeleteMember?: User | null;
+  onRequestTeamDelete?: (event: CalendarEvent, targetMember: User) => void;
 }
 
 const typeStyles: Record<EventType, string> = {
@@ -76,6 +78,8 @@ export function GlobalEventDetailModal({
   onEditInCalendar,
   onNavigateToSite,
   currentUser,
+  teamDeleteMember,
+  onRequestTeamDelete,
 }: GlobalEventDetailModalProps) {
   const [previewFile, setPreviewFile] = useState<AttachmentFile | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
@@ -109,6 +113,20 @@ export function GlobalEventDetailModal({
 
   const handleDeleteClick = () => {
     if (!event || !onDelete) return;
+    if (teamDeleteMember && onRequestTeamDelete) {
+      const attendees = event.attendees || [];
+      const uniqueAttendeeIds = new Set(attendees.map(a => String(a.id)));
+      const isTargetIncluded = attendees.some(
+        a => String(a.id) === String(teamDeleteMember.id) || (a.name && a.name === teamDeleteMember.name)
+      );
+      const remainingCount = attendees.filter(
+        a => String(a.id) !== String(teamDeleteMember.id)
+      ).length;
+      if (uniqueAttendeeIds.size > 1 && isTargetIncluded && remainingCount > 0) {
+        onRequestTeamDelete(event, teamDeleteMember);
+        return;
+      }
+    }
     if (isRecurring) {
       setIsRecurrenceModalOpen(true);
     } else {
