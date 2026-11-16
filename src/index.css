@@ -580,21 +580,25 @@ img.avatar-img,
     display: none !important;
   }
 
-  /* ポータル外フォールバック（#photo-report-print-area または #inspection-report-print-area が存在する場合） */
+  /* ポータル外フォールバック（#photo-report-print-area / #inspection-report-print-area / #driving-log-print-area が存在する場合） */
   body:has(#photo-report-print-area),
-  body:has(#inspection-report-print-area) {
+  body:has(#inspection-report-print-area),
+  body:has(#driving-log-print-area) {
     visibility: hidden !important;
   }
 
   #photo-report-print-area,
   #photo-report-print-area *,
   #inspection-report-print-area,
-  #inspection-report-print-area * {
+  #inspection-report-print-area *,
+  #driving-log-print-area,
+  #driving-log-print-area * {
     visibility: visible !important;
   }
 
   #photo-report-print-area,
-  #inspection-report-print-area {
+  #inspection-report-print-area,
+  #driving-log-print-area {
     position: absolute !important;
     left: 0 !important;
     top: 0 !important;

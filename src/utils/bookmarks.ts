@@ -69,6 +69,7 @@ export function buildBookmarkId(category: UserBookmarkCategory, params: AppQuery
       params.mode || 'personal',
       params.view || 'week',
       params.date || '',
+      params.groupId || '',
       params.office || '全社',
       params.division || '全部署',
       params.targetUserId || '',

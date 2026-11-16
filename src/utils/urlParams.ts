@@ -5,6 +5,7 @@ export interface AppQueryParams {
   // Calendar specific
   office?: string;
   division?: string;
+  groupId?: string;
   mode?: 'personal' | 'team';
   view?: 'month' | 'week' | 'day' | 'list';
   date?: string;
@@ -159,6 +160,9 @@ export function parseAppQueryParams(searchString?: string): AppQueryParams {
   const rawDivision = params.get('division') || params.get('dept') || params.get('department') || params.get('busho') || params.get('部署');
   if (rawDivision) result.division = decodeURIComponent(rawDivision);
 
+  const rawGroupId = params.get('groupId') || params.get('group_id');
+  if (rawGroupId) result.groupId = decodeURIComponent(rawGroupId);
+
   const rawMode = params.get('mode') || params.get('calendarMode') || params.get('target');
   const normalizedMode = normalizeCalendarMode(rawMode);
   if (normalizedMode) result.mode = normalizedMode;
@@ -304,8 +308,8 @@ export function parseAppQueryParams(searchString?: string): AppQueryParams {
   ) {
     result.tab = 'assets';
   }
-  // If office/division/mode/view/eventId/targetUserId were specified but no explicit tab, imply tab=calendar
-  if (!result.tab && (result.office || result.division || result.mode || result.view || result.eventId || result.targetUserId)) {
+  // If office/division/groupId/mode/view/eventId/targetUserId were specified but no explicit tab, imply tab=calendar
+  if (!result.tab && (result.office || result.division || result.groupId || result.mode || result.view || result.eventId || result.targetUserId)) {
     result.tab = 'calendar';
   }
   if (!result.tab && result.topicId) {
@@ -447,6 +451,9 @@ export function buildAppUrl(params?: AppQueryParams, baseUrl?: string): string {
   }
   if (params.date) {
     searchParams.set('date', params.date);
+  }
+  if (params.groupId && params.groupId !== 'org') {
+    searchParams.set('groupId', params.groupId);
   }
   if (params.office && params.office !== '全社' && params.office !== '全拠点') {
     searchParams.set('office', params.office);

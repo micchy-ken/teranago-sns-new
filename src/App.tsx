@@ -213,6 +213,7 @@ export default function App() {
   const [calendarParams, setCalendarParams] = useState<{
     office?: string;
     division?: string;
+    groupId?: string;
     mode?: 'personal' | 'team';
     view?: 'month' | 'week' | 'day' | 'list';
     date?: string;
@@ -222,6 +223,7 @@ export default function App() {
   }>(() => ({
     office: initialUrlParams.office,
     division: initialUrlParams.division,
+    groupId: initialUrlParams.groupId,
     mode: initialUrlParams.mode,
     view: initialUrlParams.view,
     date: initialUrlParams.date,
@@ -360,6 +362,7 @@ export default function App() {
     openCreateMemo?: boolean;
     office?: string;
     division?: string;
+    groupId?: string;
     mode?: 'personal' | 'team';
     view?: 'month' | 'week' | 'day' | 'list';
     date?: string;
@@ -416,13 +419,14 @@ export default function App() {
       }
     }
     // カレンダー表示条件（ブックマーク・共有リンクからの遷移）
-    if (target.tab === 'calendar' && !target.eventId && (target.mode || target.view || target.date || target.office || target.division || target.type || target.targetUserId)) {
+    if (target.tab === 'calendar' && !target.eventId && (target.mode || target.view || target.date || target.office || target.division || target.groupId || target.type || target.targetUserId)) {
       setCalendarParams({
         office: target.office || '全社',
         division: target.division || '全部署',
+        groupId: target.groupId,
         mode: target.mode,
         view: target.view,
-        date: target.date,
+        date: target.date || 'today',
         type: target.type || 'all',
         targetUserId: target.targetUserId,
         requestKey: Date.now(),
@@ -634,11 +638,12 @@ export default function App() {
       if (parsed.tab) {
         setActiveTab(parsed.tab);
       }
-      if (parsed.office || parsed.division || parsed.mode || parsed.view || parsed.date || parsed.type) {
+      if (parsed.office || parsed.division || parsed.groupId || parsed.mode || parsed.view || parsed.date || parsed.type) {
         setCalendarParams(prev => ({
           ...prev,
           office: parsed.office ?? prev.office,
           division: parsed.division ?? prev.division,
+          groupId: parsed.groupId,
           mode: parsed.mode ?? prev.mode,
           view: parsed.view ?? prev.view,
           date: parsed.date ?? prev.date,
@@ -911,6 +916,7 @@ export default function App() {
         view: prev.view === 'day' ? 'day' : 'week',
         office: targetOffice || prev.office,
         division: targetDivision || prev.division,
+        groupId: undefined,
         targetUserId: undefined,
         requestKey: Date.now(),
       }));
@@ -950,6 +956,7 @@ export default function App() {
       view: prev.view === 'day' ? 'day' : 'week',
       office: targetOffice || prev.office,
       division: targetDivision || prev.division,
+      groupId: undefined,
       date: datePart || prev.date,
       targetUserId: undefined,
       requestKey: Date.now(),
@@ -3900,6 +3907,7 @@ export default function App() {
               onClearInitialEventId={() => setTargetEventId(undefined)}
               initialOffice={calendarParams.office}
               initialDivision={calendarParams.division}
+              initialGroupId={calendarParams.groupId}
               initialMode={calendarParams.mode}
               initialView={calendarParams.view}
               initialDate={calendarParams.date}

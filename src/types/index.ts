@@ -603,8 +603,45 @@ export interface AppNotification {
   createdAt?: string;
 }
 
-export type WorkReportType = 'daily' | 'weekly' | 'maintenance_daily' | 'construction_daily' | 'sales_daily';
+export type WorkReportType = 'daily' | 'weekly' | 'maintenance_daily' | 'construction_daily' | 'sales_daily' | 'driving_log';
 export type WorkReportStatus = 'draft' | 'submitted' | 'reviewed';
+
+export interface DrivingLogRow {
+  date: string;                         // YYYY-MM-DD (JST)
+  monthDayLabel: string;                // e.g. '10月26日'
+  alcoholPresence: '無' | '有' | '';    // 酒気帯びの有無
+  alcoholValue: string;                 // e.g. '0.00'
+  driverName: string;                   // 運転者氏名
+  departureTime: string;                // 出発時刻 e.g. '08:30'
+  departureMeter: number | '';          // 出発時メーター (Km)
+  destination: string;                  // 訪問先
+  arrivalTime: string;                  // 帰着時刻 e.g. '17:30'
+  arrivalMeter: number | '';            // 帰着時メーター (Km)
+  distanceKm: number | '';              // 走行距離 (Km)
+  fuelLiters: number | '';              // ガソリン給油 (㍑)
+  fuelAmount: number | '';              // 給油金額 (円)
+}
+
+export interface DrivingLogData {
+  targetYear: number;                   // 対象年度 (例: 2026)
+  targetMonth: number;                  // 対象月度 (例: 11 -> 10月26日〜11月25日)
+  periodStart: string;                  // YYYY-MM-DD (例: '2026-10-26')
+  periodEnd: string;                    // YYYY-MM-DD (例: '2026-11-25')
+  reportDate: string;                   // 報告日 YYYY-MM-DD
+  vehicleAssetId?: string;              // 資産管理の車両ID
+  officeAndDepartment: string;          // 拠点・部署名 (例: '名古屋支店 工務課')
+  driverAssigneeName: string;           // 車両担当者 (例: '安藤 浩靖')
+  vehicleModel: string;                 // 車種 (例: 'レジアスエース')
+  registrationNumber: string;           // 登録番号 (例: '名古屋401ま8977')
+  inspectionChecks: Record<string, boolean>; // 点検項目12個の実施チェック
+  rows: DrivingLogRow[];                // 期間内の日別記録 (最大31行)
+  cashTollAmount?: number | '';         // 現金払い: 通行料
+  cashFuelAmount?: number | '';         // 現金払い: 給油代
+  totalDistanceKm?: number;             // 走行距離合計 (Km)
+  totalFuelLiters?: number;             // 給油量合計 (㍑)
+  totalFuelAmount?: number;             // 給油金額合計 (円)
+  driverStamp?: { name: string; date: string }; // 担当者印
+}
 
 export interface MaintenanceWorkRow {
   id: string;
@@ -780,6 +817,7 @@ export interface DailyReport {
   remandedBy?: string; // 差し戻し実行者
   approvalHistory?: ReportApprovalRecord[]; // 多段階承認履歴
   maintenanceData?: MaintenanceDailyReportData; // 保守日報専用構造データ
+  drivingLogData?: DrivingLogData; // 運転記録簿専用構造データ
   constructionData?: Record<string, any>; // 工務日報専用拡張データ (JSON)
   salesData?: Record<string, any>; // 営業日報専用拡張データ (JSON)
   createdAt: string; // ISO string

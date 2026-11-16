@@ -30,16 +30,20 @@ import {
   ExternalLink,
   Eye,
   Undo2,
-  RotateCcw
+  RotateCcw,
+  Car
 } from 'lucide-react';
 import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
 import { triggerOpenUserModal } from '../utils/userModal';
 import { MaintenanceDailyReportView } from './MaintenanceDailyReport';
+import { DrivingLogReportView } from './DrivingLogReport';
 import { markReportAsRead } from '../utils/notifications';
 import { getLocalDateStr } from '../utils/dateUtils';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { isUserInMaintenanceDivision, resolveDivision } from '../utils/masterResolver';
 import { VoiceInputButton } from './common/VoiceInputButton';
+import { API_BASE_URL } from '../config/api';
+import { AssetItem, AssetCategory } from '../types/asset';
 
 interface DailyReportProps {
   reports: DailyReport[];
@@ -120,10 +124,56 @@ export function DailyReportView({
   approvalFlows = [],
   itemMasters = [],
 }: DailyReportProps) {
-  // モード切り替え: 'weekly' (週報) | 'maintenance' (保守日報)（マスターID/コード/名称対応）
-  const [reportMode, setReportMode] = useState<'weekly' | 'maintenance'>(() => {
+  // モード切り替え: 'weekly' (週報) | 'maintenance' (保守日報) | 'driving_log' (運転記録簿)（マスターID/コード/名称対応）
+  const [reportMode, setReportMode] = useState<'weekly' | 'maintenance' | 'driving_log'>(() => {
     return isUserInMaintenanceDivision(currentUser, divisions) ? 'maintenance' : 'weekly';
   });
+
+  // 車両資産データの取得（運転記録簿タブの車両使用者判定・自動連携用）
+  const [vehicleAssets, setVehicleAssets] = useState<AssetItem[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchVehicleAssets = async () => {
+      try {
+        const [catRes, itemRes] = await Promise.all([
+          fetch(`${API_BASE_URL}/assets/categories`),
+          fetch(`${API_BASE_URL}/assets/items`),
+        ]);
+        if (!catRes.ok || !itemRes.ok) return;
+        const [cats, items]: [AssetCategory[], AssetItem[]] = await Promise.all([
+          catRes.json(),
+          itemRes.json(),
+        ]);
+        if (cancelled) return;
+        const vehicleCatIds = new Set(
+          (Array.isArray(cats) ? cats : [])
+            .filter((c) => c.id === 'cat-vehicle' || (c.name && c.name.includes('車両')))
+            .map((c) => c.id)
+        );
+        const vehicles = (Array.isArray(items) ? items : []).filter(
+          (it) => it.categoryId === 'cat-vehicle' || vehicleCatIds.has(it.categoryId)
+        );
+        setVehicleAssets(vehicles);
+      } catch (_) {}
+    };
+    fetchVehicleAssets();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // 自分が使用者に設定されている担当車両リスト
+  const myAssignedVehicles = useMemo(() => {
+    const norm = (s?: string) => (s || '').replace(/[\s　]+/g, '').trim();
+    const myNorm = norm(currentUser.name);
+    return vehicleAssets.filter(
+      (v) =>
+        v.status !== 'retired' &&
+        (String(v.assigneeUserId || '') === String(currentUser.id) ||
+          (v.assigneeUserName && norm(v.assigneeUserName) === myNorm))
+    );
+  }, [vehicleAssets, currentUser.id, currentUser.name]);
 
   // 保守日報編集・表示用ステート
   const [activeMaintenanceReport, setActiveMaintenanceReport] = useState<DailyReport | null>(null);
@@ -178,7 +228,9 @@ export function DailyReportView({
           markReportAsRead(currentUser.id, target.id);
         }
 
-        if (target.reportType === 'maintenance_daily') {
+        if (target.reportType === 'driving_log' || target.drivingLogData || target.constructionData?.__kind === 'driving_log') {
+          setReportMode('driving_log');
+        } else if (target.reportType === 'maintenance_daily') {
           setReportMode('maintenance');
           setActiveMaintenanceReport(target);
           setIsEditingMaintenance(true);
@@ -209,7 +261,14 @@ export function DailyReportView({
   // 【厳格な可視性ルール】週報は基本的に「自分」と「自分の部下」のものしか見えない
   const accessibleWeeklyReports = useMemo(() => {
     return reports.filter(report => {
-      if (report.reportType === 'maintenance_daily') return false;
+      if (
+        report.reportType === 'maintenance_daily' ||
+        report.reportType === 'driving_log' ||
+        report.drivingLogData ||
+        report.constructionData?.__kind === 'driving_log'
+      ) {
+        return false;
+      }
       const authorId = report.author?.id || (report as any).authorId;
       const supervisorId = report.supervisorId || report.supervisor?.id || (report.author as any)?.supervisorId;
       
@@ -513,8 +572,8 @@ export function DailyReportView({
     <div className="flex-1 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-[calc(100vh-8rem)]">
       {/* Header Bar */}
       <div className="p-4 sm:p-5 border-b border-slate-200 bg-slate-50 shrink-0">
-        {/* レポート種類切り替えタブ (週報 ↔ 保守日報) */}
-        <div className="flex items-center gap-2 mb-3 bg-slate-200/80 p-1 rounded-xl w-fit">
+        {/* レポート種類切り替えタブ (週報 ↔ 保守日報 ↔ 運転記録簿) */}
+        <div className="flex flex-wrap items-center gap-2 mb-3 bg-slate-200/80 p-1 rounded-xl w-fit">
           <button
             onClick={() => setReportMode('weekly')}
             className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
@@ -537,9 +596,50 @@ export function DailyReportView({
             <Wrench className="w-4 h-4 text-amber-100" />
             保守日報 (平日月〜金・保守部)
           </button>
+          <button
+            onClick={() => setReportMode('driving_log')}
+            className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+              reportMode === 'driving_log'
+                ? 'bg-emerald-600 text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Car className={`w-4 h-4 ${reportMode === 'driving_log' ? 'text-emerald-100' : 'text-emerald-600'}`} />
+            運転記録簿
+            {myAssignedVehicles.length > 0 && (
+              <span
+                className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
+                  reportMode === 'driving_log'
+                    ? 'bg-emerald-700 text-white'
+                    : 'bg-emerald-100 text-emerald-800'
+                }`}
+              >
+                担当車両: {myAssignedVehicles[0].assetCode}
+              </span>
+            )}
+          </button>
         </div>
 
-        {reportMode === 'maintenance' ? (
+        {reportMode === 'driving_log' ? (
+          /* 運転記録簿 ヘッダー */
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-emerald-600 flex items-center justify-center text-white shadow-sm shadow-emerald-200">
+                  <Car className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                    車両 運転記録簿（26日〜翌25日・A4縦PDF出力対応）
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    資産台帳の担当車両と自動連動し、日常点検12項目・アルコール検知数値・走行距離・給油記録を管理してA4帳票に出力します
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : reportMode === 'maintenance' ? (
           /* 保守日報 一覧ヘッダー */
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
@@ -611,7 +711,8 @@ export function DailyReportView({
           </div>
         )}
 
-        {/* Filter Navigation Tabs */}
+        {/* Filter Navigation Tabs (週報・保守日報のみ表示) */}
+        {reportMode !== 'driving_log' && (
         <div className="mt-4 pt-4 border-t border-slate-200/80 flex flex-wrap items-center justify-between gap-3">
           {/* Main Category Tabs */}
           {reportMode === 'weekly' ? (
@@ -732,12 +833,29 @@ export function DailyReportView({
             </div>
           </div>
         </div>
+        )}
       </div>
 
       {/* Reports List Feed */}
       <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-50/50">
-        <div className="max-w-4xl mx-auto space-y-6">
-          {reportMode === 'maintenance' ? (
+        <div className={reportMode === 'driving_log' ? 'max-w-6xl mx-auto' : 'max-w-4xl mx-auto space-y-6'}>
+          {reportMode === 'driving_log' ? (
+            <DrivingLogReportView
+              currentUser={currentUser}
+              reports={reports}
+              vehicleAssets={vehicleAssets}
+              offices={offices}
+              divisions={divisions}
+              calendarEvents={calendarEvents}
+              onSaveReport={async (reportId, payload) => {
+                if (reportId && onUpdateReport) {
+                  await onUpdateReport(reportId, payload);
+                } else if (onAddReport) {
+                  await onAddReport(payload);
+                }
+              }}
+            />
+          ) : reportMode === 'maintenance' ? (
             /* ================= 保守日報リスト表示 ================= */
             filteredMaintenanceReports.length === 0 ? (
               <div className="text-center py-16 bg-white border border-amber-200/80 rounded-2xl p-8 shadow-xs">

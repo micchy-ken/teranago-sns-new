@@ -114,11 +114,17 @@ export function useReportManagement({
               }
             }
 
+            const dLogData = r.drivingLogData || r.driving_log_data || (cData && cData.__kind === 'driving_log' ? cData : (cData && cData.rows && cData.registrationNumber !== undefined ? cData : undefined));
+            const rawRepType = r.reportType || r.report_type;
+            const resolvedRepType = rawRepType === 'driving_log' || dLogData
+              ? 'driving_log'
+              : (rawRepType || (r.weekStartDate || r.week_start_date ? 'weekly' : 'daily'));
+
             return {
               id: String(r.id),
               author: authorUser,
               authorId: authorUser?.id || r.authorId || r.author_id,
-              reportType: r.reportType || r.report_type || (r.weekStartDate || r.week_start_date ? 'weekly' : 'daily'),
+              reportType: resolvedRepType,
               date: r.date || r.reportDate || r.report_date || (r.createdAt ? String(r.createdAt).substring(0, 10) : ''),
               weekStartDate: r.weekStartDate || r.week_start_date,
               weekLabel: r.weekLabel || r.week_label,
@@ -133,6 +139,7 @@ export function useReportManagement({
               status: r.status || 'submitted',
               feedbackComment: r.feedbackComment || r.feedback_comment || '',
               maintenanceData: mData,
+              drivingLogData: dLogData,
               constructionData: cData,
               salesData: sData,
               submittedAt: r.submittedAt || r.submitted_at,
@@ -150,6 +157,7 @@ export function useReportManagement({
   }, [currentUser, usersList, onClearError, onRecordError]);
 
   const getReportTypeLabel = (type?: string, isWeeklyFallback = true) => {
+    if (type === 'driving_log') return '運転記録簿';
     if (type === 'maintenance_daily' || type === 'maintenance') return '保守日報';
     if (type === 'sales_daily') return '営業日報';
     if (type === 'construction_daily') return '工務日報';
@@ -173,9 +181,11 @@ export function useReportManagement({
     status?: any;
   }) => {
     if (!currentUser) return;
-    const tempId = `rep_${Date.now()}`;
+    const tempId = (reportData as any).id || `rep_${Date.now()}`;
     const targetSupervisor = reportData.supervisorId ? usersList.find(u => u.id === reportData.supervisorId) : undefined;
-    const resolvedType = reportData.reportType || ((reportData as any).maintenanceData ? 'maintenance_daily' : (reportData.weekStartDate ? 'weekly' : 'daily'));
+    const dLog = (reportData as any).drivingLogData;
+    const cData = dLog ? { ...dLog, __kind: 'driving_log' } : (reportData as any).constructionData;
+    const resolvedType = reportData.reportType || (dLog ? 'driving_log' : ((reportData as any).maintenanceData ? 'maintenance_daily' : (reportData.weekStartDate ? 'weekly' : 'daily')));
     const newReport: DailyReport = {
       id: tempId,
       author: currentUser,
@@ -194,7 +204,8 @@ export function useReportManagement({
       status: reportData.status || 'submitted',
       submittedAt: reportData.status === 'submitted' ? new Date().toISOString() : undefined,
       maintenanceData: (reportData as any).maintenanceData,
-      constructionData: (reportData as any).constructionData,
+      drivingLogData: dLog,
+      constructionData: cData,
       salesData: (reportData as any).salesData,
       createdAt: new Date().toISOString(),
     };
@@ -287,8 +298,9 @@ export function useReportManagement({
         status: reportData.status || 'submitted',
         maintenanceData: (reportData as any).maintenanceData,
         maintenance_data: (reportData as any).maintenanceData,
-        constructionData: (reportData as any).constructionData,
-        construction_data: (reportData as any).constructionData,
+        drivingLogData: dLog,
+        constructionData: cData,
+        construction_data: cData,
         salesData: (reportData as any).salesData,
         sales_data: (reportData as any).salesData,
       };
@@ -316,16 +328,22 @@ export function useReportManagement({
   const handleUpdateReport = useCallback(async (id: string, reportData: Partial<DailyReport>) => {
     if (!currentUser) return;
     const oldReport = reports.find(r => r.id === id);
-    const resolvedReportType = reportData.reportType || oldReport?.reportType || ((reportData as any).maintenanceData || (reportData as any).maintenance_data || oldReport?.maintenanceData ? 'maintenance_daily' : (reportData.weekStartDate || oldReport?.weekStartDate ? 'weekly' : 'daily'));
+    const dLog = (reportData as any).drivingLogData || oldReport?.drivingLogData;
+    const resolvedReportType = reportData.reportType || oldReport?.reportType || (dLog ? 'driving_log' : ((reportData as any).maintenanceData || (reportData as any).maintenance_data || oldReport?.maintenanceData ? 'maintenance_daily' : (reportData.weekStartDate || oldReport?.weekStartDate ? 'weekly' : 'daily')));
 
     // 作成者（author / author_id）の厳格な保護: 既存日報の作成者を最優先し、上長承認・回覧時に上長へすり替わらないよう防御
     const originalAuthorId = (oldReport?.author && oldReport.author.id) || oldReport?.authorId || (oldReport as any)?.author_id;
     const resolvedAuthorId = originalAuthorId || (reportData.author && reportData.author.id) || reportData.authorId || (reportData as any)?.author_id || currentUser.id;
     const resolvedAuthor = oldReport?.author || (originalAuthorId ? usersList.find(u => u.id === originalAuthorId) : undefined) || reportData.author || currentUser;
+    const nextConstructionData = (reportData as any).drivingLogData
+      ? { ...(reportData as any).drivingLogData, __kind: 'driving_log' }
+      : ((reportData as any).constructionData !== undefined ? (reportData as any).constructionData : (reportData as any).construction_data);
 
     setReports(prev => prev.map(r => r.id === id ? {
       ...r,
       ...reportData,
+      drivingLogData: (reportData as any).drivingLogData || r.drivingLogData,
+      constructionData: nextConstructionData !== undefined ? nextConstructionData : r.constructionData,
       author: resolvedAuthor,
       authorId: resolvedAuthorId,
       author_id: resolvedAuthorId,
@@ -452,8 +470,9 @@ export function useReportManagement({
         next_week_plans: reportData.tomorrowPlan !== undefined ? reportData.tomorrowPlan : (reportData as any).next_week_plans,
         maintenance_data: (reportData as any).maintenanceData !== undefined ? (reportData as any).maintenanceData : (reportData as any).maintenance_data,
         maintenanceData: (reportData as any).maintenanceData !== undefined ? (reportData as any).maintenanceData : (reportData as any).maintenance_data,
-        construction_data: (reportData as any).constructionData !== undefined ? (reportData as any).constructionData : (reportData as any).construction_data,
-        constructionData: (reportData as any).constructionData !== undefined ? (reportData as any).constructionData : (reportData as any).construction_data,
+        drivingLogData: (reportData as any).drivingLogData,
+        construction_data: nextConstructionData,
+        constructionData: nextConstructionData,
         sales_data: (reportData as any).salesData !== undefined ? (reportData as any).salesData : (reportData as any).sales_data,
         salesData: (reportData as any).salesData !== undefined ? (reportData as any).salesData : (reportData as any).sales_data,
       };

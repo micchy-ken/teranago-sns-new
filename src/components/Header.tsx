@@ -85,6 +85,7 @@ interface HeaderProps {
     safetyEventId?: string;
     office?: string;
     division?: string;
+    groupId?: string;
     mode?: 'personal' | 'team';
     view?: 'month' | 'week' | 'day' | 'list';
     date?: string;
@@ -687,6 +688,7 @@ export function Header({
         safetyEventId: item.params.safetyEventId,
         office: item.params.office,
         division: item.params.division,
+        groupId: item.params.groupId,
         mode: item.params.mode,
         view: item.params.view,
         date: item.params.date,

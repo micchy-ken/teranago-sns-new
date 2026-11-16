@@ -7,11 +7,11 @@
  * - 機能追加・バグ修正・仕様変更のたびに必ず更新すること
  */
 export const APP_VERSION = {
-  version: '2026.11.16.3',
+  version: '2026.11.16.6',
   date: '2026.11.16',
-  releaseNumber: 3,
-  display: 'v2026.11.16 #3 (JST)',
+  releaseNumber: 6,
+  display: 'v2026.11.16 #6 (JST)',
   timeZone: 'Asia/Tokyo (JST)',
-  description: '資産管理テーブルのタイトル行ソート・列幅ドラッグ変更・種類別の個人設定記憶（「この並びを記憶する」＆リセットボタン）・共有リンク並び順引き継ぎ対応'
+  description: 'カレンダー共有・お気に入り保存時のマイグループ（groupId）対応、およびユーザー設定更新時に直前の遷移条件へ強制巻き戻りしていた不具合を修正'
 };
 

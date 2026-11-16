@@ -20,7 +20,7 @@ import { expandRecurringEvents, planRecurrenceSave, isExpandedRecurrenceId, extr
 import { RecurrenceActionModal, RecurrenceActionScope } from './RecurrenceActionModal';
 import { TeamEventDeleteModal, TeamDeleteMemberScope } from './TeamEventDeleteModal';
 import { buildAppUrl, copyTextToClipboard, AppQueryParams } from '../utils/urlParams';
-import { upsertBookmarkForUser } from '../utils/bookmarks';
+import { upsertBookmarkForUser, removeBookmarkForUser } from '../utils/bookmarks';
 import { TeamDayMemberRow } from './TeamDayMemberRow';
 import { TeamWeekMemberRow } from './TeamWeekMemberRow';
 import { TeamLocationMap } from './TeamLocationMap';
@@ -52,6 +52,7 @@ interface CalendarProps {
   onClearInitialEventId?: () => void;
   initialOffice?: string;
   initialDivision?: string;
+  initialGroupId?: string;
   initialMode?: 'personal' | 'team';
   initialView?: ViewMode;
   initialDate?: string;
@@ -99,6 +100,7 @@ function getInitialPresetInfo(
   initials?: {
     initialOffice?: string;
     initialDivision?: string;
+    initialGroupId?: string;
     initialMode?: 'personal' | 'team';
     initialView?: ViewMode;
     initialTypeFilter?: string;
@@ -115,6 +117,7 @@ function getInitialPresetInfo(
     initials?.initialView || initials?.view ||
     initials?.initialOffice || initials?.office ||
     initials?.initialDivision || initials?.division ||
+    initials?.initialGroupId ||
     initials?.initialTypeFilter || initials?.typeFilter ||
     initials?.initialTargetUserId
   );
@@ -152,6 +155,7 @@ export function Calendar({
   onClearInitialEventId,
   initialOffice,
   initialDivision,
+  initialGroupId,
   initialMode,
   initialView,
   initialDate,
@@ -400,71 +404,6 @@ export function Calendar({
     }
   }, [currentUser?.id, selectedPersonalUserId]);
 
-  // 社員詳細ポップアップの「予定を見る」や現場管理・URLパラメータから対象メンバー・チームが指定された場合の同期
-  useEffect(() => {
-    if (initialTargetUserId) {
-      setCalendarMode('personal');
-      setSelectedPersonalUserId(String(initialTargetUserId));
-      setSelectedGroupId('org');
-      const targetU = (allUsers || []).find(u => String(u.id) === String(initialTargetUserId));
-      if (targetU) {
-        const offName = getUserOfficeName(targetU, offices);
-        if (offName) setSelectedOffice(offName);
-        const divName = getUserDivisionName(targetU, divisions);
-        if (divName) setSelectedDivision(divName);
-      }
-    } else if (initialMode === 'team') {
-      setCalendarMode('team');
-      setSelectedGroupId('org');
-      if (initialOffice) {
-        setSelectedOffice(resolveOfficeName(initialOffice, offices) || initialOffice);
-      }
-      if (initialDivision) {
-        setSelectedDivision(resolveDivisionName(initialDivision, divisions) || initialDivision);
-      }
-      setView(prev => {
-        if (initialView === 'day' || initialView === 'week') return initialView;
-        return prev === 'day' ? 'day' : 'week';
-      });
-    }
-  }, [initialTargetUserId, initialMode, initialOffice, initialDivision, initialView, targetUserRequestKey, allUsers, offices, divisions]);
-
-  // initialPropsの動的変更を反映
-  useEffect(() => {
-    if (initialView) setView(initialView);
-  }, [initialView, targetUserRequestKey]);
-
-  useEffect(() => {
-    if (initialMode && !initialTargetUserId) setCalendarMode(initialMode);
-  }, [initialMode, initialTargetUserId, targetUserRequestKey]);
-
-  useEffect(() => {
-    if (initialOffice) {
-      setSelectedOffice(resolveOfficeName(initialOffice, offices) || initialOffice);
-    }
-  }, [initialOffice, offices, targetUserRequestKey]);
-
-  useEffect(() => {
-    if (initialDivision) {
-      setSelectedDivision(resolveDivisionName(initialDivision, divisions) || initialDivision);
-    }
-  }, [initialDivision, divisions, targetUserRequestKey]);
-
-  useEffect(() => {
-    if (initialTypeFilter) setSelectedTypeFilter(initialTypeFilter);
-  }, [initialTypeFilter, targetUserRequestKey]);
-
-  useEffect(() => {
-    if (initialDate) {
-      if (initialDate.toLowerCase() === 'today') {
-        setCurrentDate(new Date());
-      } else {
-        const d = new Date(initialDate.includes('T') ? initialDate : `${initialDate}T00:00:00`);
-        if (!isNaN(d.getTime())) setCurrentDate(d);
-      }
-    }
-  }, [initialDate, targetUserRequestKey]);
-
   // --- カレンダー表示設定 (平日のみ / 時間帯 / 密度) & マイグループ ---
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [settingsModalTab, setSettingsModalTab] = useState<'display' | 'groups'>('display');
@@ -502,7 +441,10 @@ export function Calendar({
 
   // 選択中マイグループ ('org' = 組織/拠点・部署、または group.id)
   const [selectedGroupId, setSelectedGroupId] = useState<string>(() => {
-    const presetInfo = getInitialPresetInfo(currentUser, { initialOffice, initialDivision, initialMode, initialView, initialTypeFilter });
+    if (initialGroupId && memberGroups.some(g => g.id === initialGroupId)) {
+      return initialGroupId;
+    }
+    const presetInfo = getInitialPresetInfo(currentUser, { initialOffice, initialDivision, initialGroupId, initialMode, initialView, initialTypeFilter });
     if (presetInfo?.groupId) return presetInfo.groupId;
     return 'org';
   });
@@ -519,6 +461,120 @@ export function Calendar({
       setMemberGroups(currentUser.preferences.calendarMemberGroups);
     }
   }, [currentUser?.preferences?.calendarMemberGroups]);
+
+  // 社員詳細ポップアップの「予定を見る」や現場管理・URLパラメータ・お気に入りから対象メンバー・チームが指定された場合の同期
+  // ※ allUsers / offices / divisions / memberGroups 変更（お気に入り保存時の onUpdateUser 等）で現在操作中の画面が強制上書きされないよう、
+  //    外部遷移パラメータ自体の変化時のみ適用する
+  const lastNavSyncSigRef = useRef<string>('');
+  const pendingInitialGroupIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const navSig = JSON.stringify({
+      initialTargetUserId: initialTargetUserId || '',
+      initialMode: initialMode || '',
+      initialOffice: initialOffice || '',
+      initialDivision: initialDivision || '',
+      initialGroupId: initialGroupId || '',
+      initialView: initialView || '',
+      initialTypeFilter: initialTypeFilter || '',
+      initialDate: initialDate || '',
+      targetUserRequestKey: targetUserRequestKey || 0,
+    });
+    if (lastNavSyncSigRef.current === navSig) return;
+    lastNavSyncSigRef.current = navSig;
+
+    if (initialTargetUserId) {
+      setCalendarMode('personal');
+      setSelectedPersonalUserId(String(initialTargetUserId));
+      if (initialGroupId && memberGroups.some(g => g.id === initialGroupId)) {
+        setSelectedGroupId(initialGroupId);
+        pendingInitialGroupIdRef.current = null;
+      } else {
+        pendingInitialGroupIdRef.current = initialGroupId || null;
+        setSelectedGroupId('org');
+      }
+      const targetU = (allUsers || []).find(u => String(u.id) === String(initialTargetUserId));
+      if (targetU) {
+        const offName = getUserOfficeName(targetU, offices);
+        if (offName) setSelectedOffice(offName);
+        const divName = getUserDivisionName(targetU, divisions);
+        if (divName) setSelectedDivision(divName);
+      }
+    } else if (initialMode === 'team') {
+      setCalendarMode('team');
+      if (initialGroupId && memberGroups.some(g => g.id === initialGroupId)) {
+        setSelectedGroupId(initialGroupId);
+        pendingInitialGroupIdRef.current = null;
+      } else {
+        pendingInitialGroupIdRef.current = initialGroupId || null;
+        setSelectedGroupId('org');
+        if (initialOffice) {
+          setSelectedOffice(resolveOfficeName(initialOffice, offices) || initialOffice);
+        }
+        if (initialDivision) {
+          setSelectedDivision(resolveDivisionName(initialDivision, divisions) || initialDivision);
+        }
+      }
+      if (initialView) {
+        setView(initialView);
+      } else {
+        setView(prev => (prev === 'day' ? 'day' : 'week'));
+      }
+    } else {
+      if (initialMode) setCalendarMode(initialMode);
+      if (initialView) setView(initialView);
+      if (initialGroupId && memberGroups.some(g => g.id === initialGroupId)) {
+        setSelectedGroupId(initialGroupId);
+        pendingInitialGroupIdRef.current = null;
+      } else {
+        pendingInitialGroupIdRef.current = initialGroupId || null;
+        if (initialOffice || initialDivision) {
+          setSelectedGroupId('org');
+          if (initialOffice) {
+            setSelectedOffice(resolveOfficeName(initialOffice, offices) || initialOffice);
+          }
+          if (initialDivision) {
+            setSelectedDivision(resolveDivisionName(initialDivision, divisions) || initialDivision);
+          }
+        }
+      }
+    }
+
+    if (initialTypeFilter) {
+      setSelectedTypeFilter(initialTypeFilter);
+    }
+
+    if (initialDate) {
+      if (initialDate.toLowerCase() === 'today') {
+        setCurrentDate(new Date());
+      } else {
+        const d = new Date(initialDate.includes('T') ? initialDate : `${initialDate}T00:00:00`);
+        if (!isNaN(d.getTime())) setCurrentDate(d);
+      }
+    }
+  }, [
+    initialTargetUserId,
+    initialMode,
+    initialOffice,
+    initialDivision,
+    initialGroupId,
+    initialView,
+    initialTypeFilter,
+    initialDate,
+    targetUserRequestKey,
+    allUsers,
+    offices,
+    divisions,
+    memberGroups,
+  ]);
+
+  // 初期表示時の groupId が memberGroups の遅延読込後に解決された場合の追従
+  useEffect(() => {
+    const pendingId = pendingInitialGroupIdRef.current;
+    if (pendingId && memberGroups.some(g => g.id === pendingId)) {
+      setSelectedGroupId(pendingId);
+      pendingInitialGroupIdRef.current = null;
+    }
+  }, [memberGroups]);
 
   // 設定の保存ハンドラー
   const handleSaveCalendarSettings = async (newSettings: CalendarViewSettings) => {
@@ -567,6 +623,16 @@ export function Calendar({
   const [isFavoritesOpen, setIsFavoritesOpen] = useState(false);
   const [customPresetName, setCustomPresetName] = useState('');
   const [favoritesFeedback, setFavoritesFeedback] = useState<string | null>(null);
+  const [shareWithDateAction, setShareWithDateAction] = useState<{
+    dateStr: string;
+    shortLabel: string;
+    shareParams: AppQueryParams;
+    bookmarkParams: AppQueryParams;
+    title: string;
+    typeSubtitle?: string;
+    createdDatelessBookmarkId?: string;
+  } | null>(null);
+  const feedbackTimerRef = useRef<number | null>(null);
   const favoritesRef = useRef<HTMLDivElement>(null);
 
   const presets: CalendarPreset[] = useMemo(() => {
@@ -576,13 +642,13 @@ export function Calendar({
   const defaultPresetId = currentUser?.preferences?.defaultCalendarPresetId;
 
   // 初期ロード時：URLパラメータで明示指定がない場合、ユーザーの「初期表示」プリセット（defaultCalendarPresetId）を自動適用
-  const hasAppliedDefaultPresetRef = useRef(Boolean(getInitialPresetInfo(currentUser, { initialOffice, initialDivision, initialMode, initialView, initialTypeFilter, initialTargetUserId })));
+  const hasAppliedDefaultPresetRef = useRef(Boolean(getInitialPresetInfo(currentUser, { initialOffice, initialDivision, initialGroupId, initialMode, initialView, initialTypeFilter, initialTargetUserId })));
   useEffect(() => {
     if (hasAppliedDefaultPresetRef.current) return;
     if (!currentUser?.preferences) return;
 
     // URLでの明示的な指定があるかチェック
-    const hasExplicitUrlParams = Boolean(initialMode || initialView || initialOffice || initialDivision || initialTypeFilter || initialTargetUserId);
+    const hasExplicitUrlParams = Boolean(initialMode || initialView || initialOffice || initialDivision || initialGroupId || initialTypeFilter || initialTargetUserId);
     if (hasExplicitUrlParams) {
       hasAppliedDefaultPresetRef.current = true;
       return;
@@ -992,21 +1058,41 @@ export function Calendar({
     setTimeout(() => setFavoritesFeedback(null), 3000);
   };
 
-  // 共有リンクコピー＆個人ブックマーク自動ストック
+  const showFeedbackToast = useCallback((message: string, durationMs = 3000) => {
+    setFavoritesFeedback(message);
+    if (feedbackTimerRef.current) {
+      window.clearTimeout(feedbackTimerRef.current);
+    }
+    feedbackTimerRef.current = window.setTimeout(() => {
+      setFavoritesFeedback(null);
+      setShareWithDateAction(null);
+      feedbackTimerRef.current = null;
+    }, durationMs);
+  }, []);
+
+  // 共有リンクコピー＆個人ブックマーク自動ストック（デフォルトは日付なし・常に今日を開く）
   const handleShareCalendarView = async () => {
     const currentDateStr = getLocalDateStr(currentDate);
+    const [, mPart, dPart] = currentDateStr.split('-');
+    const shortLabel = mPart && dPart ? `${Number(mPart)}/${Number(dPart)}` : currentDateStr;
+    const isUsingMyGroup = selectedGroupId !== 'org' && Boolean(activeSelectedGroup);
+
     const shareParams: AppQueryParams = {
       tab: 'calendar',
       mode: calendarMode,
       view: view,
-      date: currentDateStr,
     };
+    if (isUsingMyGroup && activeSelectedGroup) {
+      shareParams.groupId = activeSelectedGroup.id;
+    }
     if (calendarMode === 'team') {
-      if (selectedOffice && selectedOffice !== '全社' && selectedOffice !== '全拠点') {
-        shareParams.office = selectedOffice;
-      }
-      if (selectedDivision && selectedDivision !== '全部署') {
-        shareParams.division = selectedDivision;
+      if (!isUsingMyGroup) {
+        if (selectedOffice && selectedOffice !== '全社' && selectedOffice !== '全拠点') {
+          shareParams.office = selectedOffice;
+        }
+        if (selectedDivision && selectedDivision !== '全部署') {
+          shareParams.division = selectedDivision;
+        }
       }
     } else if (activePersonalUser) {
       shareParams.targetUserId = String(activePersonalUser.id);
@@ -1032,30 +1118,85 @@ export function Calendar({
       const viewLabel = viewLabelMap[view] || view;
       const title =
         calendarMode === 'team'
-          ? `チーム予定 (${selectedOffice} / ${selectedDivision}・${viewLabel})`
+          ? isUsingMyGroup && activeSelectedGroup
+            ? `チーム予定 (👥${activeSelectedGroup.name}・${viewLabel})`
+            : `チーム予定 (${selectedOffice} / ${selectedDivision}・${viewLabel})`
           : `${activePersonalUser?.name || '個人'}の予定 (${viewLabel})`;
-      const subtitleParts = [currentDateStr];
-      if (selectedTypeFilter && selectedTypeFilter !== 'all') {
-        subtitleParts.push(typeLabels[selectedTypeFilter as EventType] || selectedTypeFilter);
-      }
+      const typeSubtitle =
+        selectedTypeFilter && selectedTypeFilter !== 'all'
+          ? typeLabels[selectedTypeFilter as EventType] || selectedTypeFilter
+          : undefined;
+      const subtitleParts = ['常に今日表示', ...(typeSubtitle ? [typeSubtitle] : [])];
 
       const bookmarkParams: AppQueryParams = {
         ...shareParams,
-        office: selectedOffice || '全社',
-        division: selectedDivision || '全部署',
+        groupId: isUsingMyGroup && activeSelectedGroup ? activeSelectedGroup.id : undefined,
+        office: isUsingMyGroup ? '全社' : (selectedOffice || '全社'),
+        division: isUsingMyGroup ? '全部署' : (selectedDivision || '全部署'),
         type: selectedTypeFilter || 'all',
       };
 
-      const { updatedUser } = upsertBookmarkForUser(currentUser, {
+      const { updatedUser, bookmark, isNew } = upsertBookmarkForUser(currentUser, {
         category: 'calendar',
         title,
         subtitle: subtitleParts.join(' ・ '),
         params: bookmarkParams,
       });
       onUpdateUser(updatedUser);
-      setFavoritesFeedback('共有リンクをコピーし、お気に入りにストックしました');
-      setTimeout(() => setFavoritesFeedback(null), 3000);
+      setShareWithDateAction({
+        dateStr: currentDateStr,
+        shortLabel,
+        shareParams,
+        bookmarkParams,
+        title,
+        typeSubtitle,
+        createdDatelessBookmarkId: isNew ? bookmark.id : undefined,
+      });
+      showFeedbackToast('共有リンク（日付なし）をコピーし、お気に入りにストックしました', 6000);
+    } else {
+      setShareWithDateAction(null);
+      showFeedbackToast('共有リンク（日付なし）をコピーしました', 3000);
     }
+  };
+
+  // レアケース用：共有直後の通知バーから「表示中の日付を含めて再コピー＆お気に入り更新」
+  const handleIncludeDateInShare = async () => {
+    if (!shareWithDateAction) return;
+    const {
+      dateStr,
+      shareParams,
+      bookmarkParams,
+      title,
+      typeSubtitle,
+      createdDatelessBookmarkId,
+    } = shareWithDateAction;
+
+    const datedShareParams: AppQueryParams = { ...shareParams, date: dateStr };
+    const datedUrl = buildAppUrl(datedShareParams);
+    const ok = await copyTextToClipboard(datedUrl);
+    if (ok) {
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2500);
+    }
+
+    if (currentUser && onUpdateUser) {
+      let baseUser = currentUser;
+      if (createdDatelessBookmarkId) {
+        baseUser = removeBookmarkForUser(baseUser, createdDatelessBookmarkId);
+      }
+      const datedBookmarkParams: AppQueryParams = { ...bookmarkParams, date: dateStr };
+      const subtitleParts = [dateStr, ...(typeSubtitle ? [typeSubtitle] : [])];
+      const { updatedUser } = upsertBookmarkForUser(baseUser, {
+        category: 'calendar',
+        title,
+        subtitle: subtitleParts.join(' ・ '),
+        params: datedBookmarkParams,
+      });
+      onUpdateUser(updatedUser);
+    }
+
+    setShareWithDateAction(null);
+    showFeedbackToast(`表示中の日付（${dateStr}）を含めて再コピー・お気に入りを更新しました`, 3500);
   };
 
   // チーム・日表示以外に変更されたらサイネージモードを自動解除
@@ -3303,7 +3444,7 @@ export function Calendar({
                   ? 'bg-emerald-50 text-emerald-700 border-emerald-300 ring-2 ring-emerald-200'
                   : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
               }`}
-              title="URL共有リンクをコピー（お気に入りにも自動ストック）"
+              title="日付なしのURL共有リンクをコピー（お気に入りにも自動ストック）"
             >
               {copiedLink ? <Check className="w-4 h-4 text-emerald-600" /> : <Share2 className="w-4 h-4 text-slate-500" />}
             </button>
@@ -5539,9 +5680,19 @@ export function Calendar({
 
       {/* お気に入り操作トースト通知 */}
       {favoritesFeedback && (
-        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 bg-slate-900/95 text-white px-4 py-2.5 rounded-xl shadow-2xl border border-slate-700 text-xs font-semibold backdrop-blur-xs">
+        <div className="fixed bottom-6 right-6 z-50 flex flex-wrap items-center gap-2.5 bg-slate-900/95 text-white px-4 py-2.5 rounded-xl shadow-2xl border border-slate-700 text-xs font-semibold backdrop-blur-xs max-w-[calc(100vw-2rem)]">
           <Star className="w-4 h-4 text-amber-400 fill-amber-400 shrink-0" />
           <span>{favoritesFeedback}</span>
+          {shareWithDateAction && (
+            <button
+              type="button"
+              onClick={handleIncludeDateInShare}
+              className="ml-1 px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-[11px] font-bold flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap border border-indigo-400/50"
+            >
+              <CalendarIcon className="w-3 h-3" />
+              表示中の日付 ({shareWithDateAction.shortLabel}) を含める
+            </button>
+          )}
         </div>
       )}
     </div>
