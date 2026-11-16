@@ -60,6 +60,7 @@ export function buildBookmarkId(category: UserBookmarkCategory, params: AppQuery
       params.assetAlert || 'none',
       (params.assetQ || '').trim(),
       params.assetShowRetired ? '1' : '0',
+      params.assetSort || '',
     ].join(':');
   }
   if (params.tab === 'calendar') {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Plus,
   Download,
@@ -18,7 +18,11 @@ import {
   ExternalLink,
   Check,
   Share2,
-  Star
+  Star,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
+  RotateCcw
 } from 'lucide-react';
 import { API_BASE_URL } from '../../config/api';
 import { AppQueryParams, buildAppUrl, copyTextToClipboard } from '../../utils/urlParams';
@@ -30,6 +34,8 @@ import {
   AssetItem,
   AssetLogActionType,
   AssetLogItem,
+  AssetSortConfig,
+  AssetViewSettings,
   DivisionMaster,
   OfficeMaster,
   User
@@ -61,7 +67,18 @@ export interface AssetInitialParams {
   assetQ?: string;
   assetShowRetired?: boolean;
   assetSubTab?: 'details' | 'history';
+  assetSort?: string;
   requestKey?: number;
+}
+
+function parseAssetSortStr(raw?: string): AssetSortConfig | null {
+  if (!raw) return null;
+  const idx = raw.lastIndexOf(':');
+  if (idx <= 0) return null;
+  const key = raw.slice(0, idx).trim();
+  const dir = raw.slice(idx + 1).trim();
+  if (!key || (dir !== 'asc' && dir !== 'desc')) return null;
+  return { key, dir };
 }
 
 interface AssetManagementProps {
@@ -112,6 +129,32 @@ export function AssetManagement({
     () => initialAssetParams || null
   );
 
+  // Sort & Column Width states (personal preference per category)
+  const assetViewSettings = currentUser?.preferences?.assetViewSettings;
+  const categorySettingKey = selectedCategoryId || 'all';
+  const [sortConfig, setSortConfig] = useState<AssetSortConfig | null>(() =>
+    parseAssetSortStr(initialAssetParams?.assetSort)
+  );
+  const [columnWidthsByCategory, setColumnWidthsByCategory] = useState<
+    Record<string, Record<string, number>>
+  >(() => assetViewSettings?.columnWidths || {});
+  const columnWidthsRef = useRef(columnWidthsByCategory);
+  columnWidthsRef.current = columnWidthsByCategory;
+  const isResizingRef = useRef(false);
+  const justResizedRef = useRef(false);
+  const sharedSortOverrideRef = useRef<boolean>(
+    Boolean(
+      initialAssetParams?.assetSort ||
+        initialAssetParams?.assetMode ||
+        initialAssetParams?.assetCategory ||
+        initialAssetParams?.assetOffice ||
+        initialAssetParams?.assetAssignee ||
+        initialAssetParams?.assetLens ||
+        initialAssetParams?.assetAlert ||
+        initialAssetParams?.assetQ
+    )
+  );
+
   // Modals
   const [detailModalOpen, setDetailModalOpen] = useState<boolean>(false);
   const [editingAsset, setEditingAsset] = useState<AssetItem | null>(null);
@@ -157,6 +200,44 @@ export function AssetManagement({
     fetchAllData();
   }, [fetchAllData]);
 
+  const persistAssetViewSettings = useCallback(
+    (updater: (prev: AssetViewSettings) => AssetViewSettings) => {
+      if (!currentUser || !onUpdateUser) return;
+      const prevSettings: AssetViewSettings = currentUser.preferences?.assetViewSettings || {};
+      const nextSettings = updater(prevSettings);
+      onUpdateUser({
+        ...currentUser,
+        preferences: {
+          ...(currentUser.preferences || {}),
+          assetViewSettings: nextSettings
+        }
+      });
+    },
+    [currentUser, onUpdateUser]
+  );
+
+  // Sync saved column widths from user preferences when user switches/loads
+  useEffect(() => {
+    if (isResizingRef.current) return;
+    setColumnWidthsByCategory(assetViewSettings?.columnWidths || {});
+  }, [currentUser?.id, assetViewSettings?.columnWidths]);
+
+  // Load remembered sort per category (unless overridden by incoming shared link)
+  useEffect(() => {
+    if (sharedSortOverrideRef.current) return;
+    const isRemembered = Boolean(assetViewSettings?.rememberSortByCategory?.[categorySettingKey]);
+    if (isRemembered) {
+      setSortConfig(assetViewSettings?.sortsByCategory?.[categorySettingKey] || null);
+    } else {
+      setSortConfig(null);
+    }
+  }, [
+    categorySettingKey,
+    currentUser?.id,
+    assetViewSettings?.rememberSortByCategory,
+    assetViewSettings?.sortsByCategory
+  ]);
+
   // Track incoming bookmark / URL param updates
   useEffect(() => {
     if (initialAssetParams?.requestKey) {
@@ -180,12 +261,16 @@ export function AssetManagement({
         p.assetLens ||
         p.assetAlert ||
         p.assetQ !== undefined ||
-        p.assetShowRetired !== undefined
+        p.assetShowRetired !== undefined ||
+        p.assetSort
     );
     if (!hasAnyViewParam) {
       setPendingAssetParams(null);
       return;
     }
+
+    sharedSortOverrideRef.current = true;
+    setSortConfig(parseAssetSortStr(p.assetSort));
 
     const targetMode: MainMode = p.assetMode || mainMode;
     if (p.assetMode) {
@@ -240,6 +325,7 @@ export function AssetManagement({
 
   // Switch to first category automatically when entering catalog mode with 'all' selected
   const handleChangeMainMode = (mode: MainMode) => {
+    sharedSortOverrideRef.current = false;
     setMainMode(mode);
     setAlertFilter('none');
     if (mode !== 'catalog') {
@@ -391,8 +477,117 @@ export function AssetManagement({
       return true;
     });
 
-    // SubLens sorting
-    if (subLens === 'inspection_due') {
+    // Explicit column sort takes priority over SubLens default sort
+    if (sortConfig) {
+      const { key, dir } = sortConfig;
+      const activeFieldDef = activeCategory?.fields?.find((f) => f.key === key);
+
+      const getSortValue = (asset: AssetItem): { empty: boolean; kind: 'num' | 'date' | 'text'; value: any } => {
+        if (key === '__name') {
+          const s = String(asset.name || asset.assetCode || '').trim();
+          return { empty: !s, kind: 'text', value: s };
+        }
+        if (key === '__category') {
+          const s = categoryMap.get(asset.categoryId)?.name || '';
+          return { empty: !s, kind: 'text', value: s };
+        }
+        if (key === '__assignee') {
+          const s = asset.isShared
+            ? '共用（限定なし）'
+            : (asset.assigneeUserId ? userMap.get(String(asset.assigneeUserId))?.name : undefined) ||
+              asset.assigneeUserName ||
+              '';
+          return { empty: !s, kind: 'text', value: s };
+        }
+        if (key === '__office') {
+          const s = asset.officeId
+            ? resolveOfficeName(asset.officeId, offices) || asset.office || ''
+            : asset.office || '';
+          return { empty: !s, kind: 'text', value: s };
+        }
+        if (key === '__alert') {
+          const minDays = (assetAlertsMap.get(asset.id) || [])[0]?.daysRemaining;
+          return minDays === undefined
+            ? { empty: true, kind: 'num', value: 0 }
+            : { empty: false, kind: 'num', value: minDays };
+        }
+        if (key === '__summary') {
+          const s = String(
+            asset.attributes?.vehicleModel ||
+              asset.attributes?.makerModel ||
+              asset.attributes?.equipmentType ||
+              asset.attributes?.toolType ||
+              asset.assetCode ||
+              ''
+          ).trim();
+          return { empty: !s, kind: 'text', value: s };
+        }
+        if (key === '__nextDate') {
+          const d =
+            asset.attributes?.nextInspectionDate ||
+            asset.attributes?.shakenExpiryDate ||
+            asset.attributes?.nextCalibrationDate ||
+            asset.attributes?.nextCheckDate ||
+            '';
+          return { empty: !d, kind: 'date', value: String(d) };
+        }
+        if (key === '__leaseDate') {
+          const d = asset.attributes?.leaseEndDate || '';
+          return { empty: !d, kind: 'date', value: String(d) };
+        }
+        if (key === '__notes') {
+          const s = String(asset.notes || '').trim();
+          return { empty: !s, kind: 'text', value: s };
+        }
+        if (key === '__attachments') {
+          return { empty: false, kind: 'num', value: asset.attachments?.length || 0 };
+        }
+
+        const raw = asset.attributes?.[key];
+        if (raw === undefined || raw === null || raw === '') {
+          return { empty: true, kind: 'text', value: '' };
+        }
+        if (activeFieldDef?.type === 'number') {
+          const n = Number(raw);
+          return Number.isNaN(n)
+            ? { empty: true, kind: 'num', value: 0 }
+            : { empty: false, kind: 'num', value: n };
+        }
+        if (activeFieldDef?.type === 'checkbox') {
+          return { empty: false, kind: 'num', value: raw ? 1 : 0 };
+        }
+        if (activeFieldDef?.type === 'date') {
+          const s = String(raw).trim();
+          return { empty: !s, kind: 'date', value: s };
+        }
+        const s = String(raw).trim();
+        return { empty: !s, kind: 'text', value: s };
+      };
+
+      list = [...list].sort((a, b) => {
+        const va = getSortValue(a);
+        const vb = getSortValue(b);
+        if (va.empty && vb.empty) return 0;
+        if (va.empty) return 1; // Always push blanks to bottom
+        if (vb.empty) return -1;
+
+        let cmp = 0;
+        if (va.kind === 'num') {
+          cmp = (va.value as number) - (vb.value as number);
+        } else if (va.kind === 'date') {
+          cmp = String(va.value).localeCompare(String(vb.value));
+        } else {
+          cmp = String(va.value).localeCompare(String(vb.value), 'ja', {
+            numeric: true,
+            sensitivity: 'base'
+          });
+        }
+        if (cmp !== 0) {
+          return dir === 'asc' ? cmp : -cmp;
+        }
+        return String(a.name || '').localeCompare(String(b.name || ''), 'ja', { numeric: true });
+      });
+    } else if (subLens === 'inspection_due') {
       list = [...list].sort((a, b) => {
         const da =
           a.attributes?.nextInspectionDate ||
@@ -439,7 +634,11 @@ export function AssetManagement({
     alertFilter,
     subLens,
     searchQuery,
-    assetAlertsMap
+    assetAlertsMap,
+    sortConfig,
+    activeCategory,
+    categoryMap,
+    userMap
   ]);
 
   // CRUD Handlers
@@ -678,9 +877,230 @@ export function AssetManagement({
       );
     }
     return (
-      <span className="text-xs text-slate-700 truncate max-w-[180px] block" title={String(val)}>
+      <span className="text-xs text-slate-700 truncate block" title={String(val)}>
         {String(val)}
       </span>
+    );
+  };
+
+  // Column sorting & resizing handlers
+  const isRememberSortChecked = Boolean(
+    assetViewSettings?.rememberSortByCategory?.[categorySettingKey]
+  );
+  const currentCategoryWidths = columnWidthsByCategory[categorySettingKey] || {};
+
+  const getColumnLabelForKey = (colKey: string): string => {
+    switch (colKey) {
+      case '__name':
+        return activeCategory?.id === 'cat-vehicle' ? '登録番号' : '管理番号 / 資産名';
+      case '__category':
+        return '種類';
+      case '__assignee':
+        return '使用者';
+      case '__office':
+        return '拠点';
+      case '__alert':
+        return '警告';
+      case '__summary':
+        return '車種・型番 / 主要情報';
+      case '__nextDate':
+        return '点検予定 / 期限';
+      case '__leaseDate':
+        return 'リース満了';
+      case '__notes':
+        return '備考';
+      case '__attachments':
+        return '資料';
+      default:
+        return listColumns.find((c) => c.key === colKey)?.label || colKey;
+    }
+  };
+
+  const handleToggleColumnSort = (colKey: string) => {
+    if (justResizedRef.current) return;
+    let nextSort: AssetSortConfig | null;
+    if (sortConfig?.key !== colKey) {
+      nextSort = { key: colKey, dir: 'asc' };
+    } else if (sortConfig.dir === 'asc') {
+      nextSort = { key: colKey, dir: 'desc' };
+    } else {
+      nextSort = null;
+    }
+    setSortConfig(nextSort);
+    if (isRememberSortChecked) {
+      sharedSortOverrideRef.current = false;
+      persistAssetViewSettings((prev) => {
+        const nextSorts = { ...(prev.sortsByCategory || {}) };
+        if (nextSort) {
+          nextSorts[categorySettingKey] = nextSort;
+        } else {
+          delete nextSorts[categorySettingKey];
+        }
+        return {
+          ...prev,
+          sortsByCategory: nextSorts
+        };
+      });
+    }
+  };
+
+  const handleToggleRememberSort = (checked: boolean) => {
+    sharedSortOverrideRef.current = false;
+    persistAssetViewSettings((prev) => {
+      const nextRemember = {
+        ...(prev.rememberSortByCategory || {}),
+        [categorySettingKey]: checked
+      };
+      const nextSorts = { ...(prev.sortsByCategory || {}) };
+      if (checked) {
+        if (sortConfig) {
+          nextSorts[categorySettingKey] = sortConfig;
+        } else {
+          delete nextSorts[categorySettingKey];
+        }
+      } else {
+        delete nextSorts[categorySettingKey];
+      }
+      return {
+        ...prev,
+        rememberSortByCategory: nextRemember,
+        sortsByCategory: nextSorts
+      };
+    });
+  };
+
+  const handleResetViewSettings = () => {
+    sharedSortOverrideRef.current = false;
+    setSortConfig(null);
+    setColumnWidthsByCategory((prev) => {
+      const next = { ...prev };
+      delete next[categorySettingKey];
+      return next;
+    });
+    persistAssetViewSettings((prev) => {
+      const nextSorts = { ...(prev.sortsByCategory || {}) };
+      delete nextSorts[categorySettingKey];
+      const nextWidths = { ...(prev.columnWidths || {}) };
+      delete nextWidths[categorySettingKey];
+      return {
+        ...prev,
+        sortsByCategory: nextSorts,
+        columnWidths: nextWidths
+      };
+    });
+    setFavoritesFeedback('この資産種類の並び替え・列幅を初期化しました');
+    setTimeout(() => setFavoritesFeedback(null), 2500);
+  };
+
+  const startColumnResize = (e: React.MouseEvent<HTMLDivElement>, colKey: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const thEl = e.currentTarget.parentElement;
+    const startWidth = thEl ? Math.round(thEl.getBoundingClientRect().width) : 140;
+    const startX = e.clientX;
+    isResizingRef.current = true;
+
+    const handleMouseMove = (moveEvt: MouseEvent) => {
+      const delta = moveEvt.clientX - startX;
+      const clampedWidth = Math.max(64, Math.min(640, startWidth + delta));
+      setColumnWidthsByCategory((prev) => ({
+        ...prev,
+        [categorySettingKey]: {
+          ...(prev[categorySettingKey] || {}),
+          [colKey]: clampedWidth
+        }
+      }));
+    };
+
+    const handleMouseUp = () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+      isResizingRef.current = false;
+      justResizedRef.current = true;
+      setTimeout(() => {
+        justResizedRef.current = false;
+      }, 100);
+      const latestWidths = columnWidthsRef.current;
+      persistAssetViewSettings((prev) => ({
+        ...prev,
+        columnWidths: latestWidths
+      }));
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  };
+
+  const resetSingleColumnWidth = (e: React.MouseEvent<HTMLDivElement>, colKey: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setColumnWidthsByCategory((prev) => {
+      const catWidths = { ...(prev[categorySettingKey] || {}) };
+      delete catWidths[colKey];
+      const next = { ...prev, [categorySettingKey]: catWidths };
+      if (Object.keys(catWidths).length === 0) {
+        delete next[categorySettingKey];
+      }
+      persistAssetViewSettings((p) => ({
+        ...p,
+        columnWidths: next
+      }));
+      return next;
+    });
+  };
+
+  const getColStyle = (colKey: string, defaultStyle?: React.CSSProperties): React.CSSProperties | undefined => {
+    const w = currentCategoryWidths[colKey];
+    if (w) {
+      return { width: `${w}px`, minWidth: `${w}px`, maxWidth: `${w}px` };
+    }
+    return defaultStyle;
+  };
+
+  const renderSortableHeader = (
+    colKey: string,
+    label: string,
+    extraClassName = '',
+    alignCenter = false,
+    defaultStyle?: React.CSSProperties
+  ) => {
+    const isSorted = sortConfig?.key === colKey;
+    const isSticky = extraClassName.includes('sticky');
+    const colStyle = getColStyle(colKey, defaultStyle);
+    return (
+      <th
+        key={colKey}
+        style={colStyle}
+        onClick={() => handleToggleColumnSort(colKey)}
+        className={`${isSticky ? '' : 'relative'} group/th select-none py-2.5 px-3 border-r border-slate-200/80 whitespace-nowrap cursor-pointer transition-colors hover:bg-slate-100/90 ${
+          isSorted ? 'bg-indigo-50/70 text-indigo-800' : ''
+        } ${extraClassName}`}
+        title={`${label}で並べ替え（クリック: 昇順→降順→解除 / 右端ドラッグ: 幅変更）`}
+      >
+        <div className={`flex items-center gap-1 pr-1.5 ${alignCenter ? 'justify-center' : 'justify-between'}`}>
+          <span className="truncate">{label}</span>
+          <span className="shrink-0 inline-flex items-center">
+            {isSorted && sortConfig?.dir === 'asc' ? (
+              <ArrowUp className="w-3 h-3 text-indigo-600" />
+            ) : isSorted && sortConfig?.dir === 'desc' ? (
+              <ArrowDown className="w-3 h-3 text-indigo-600" />
+            ) : (
+              <ArrowUpDown className="w-3 h-3 text-slate-300 opacity-0 group-hover/th:opacity-100 transition-opacity" />
+            )}
+          </span>
+        </div>
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          onMouseDown={(e) => startColumnResize(e, colKey)}
+          onDoubleClick={(e) => resetSingleColumnWidth(e, colKey)}
+          onClick={(e) => e.stopPropagation()}
+          title="左右にドラッグで枠の横幅を変更（ダブルクリックで幅リセット）"
+          className="absolute top-0 right-0 h-full w-2 cursor-col-resize z-30 flex items-center justify-end group/resize"
+        >
+          <span className="w-0.5 h-4 rounded-full bg-transparent group-hover/th:bg-slate-300 group-hover/resize:bg-indigo-500 group-hover/resize:h-full transition-all" />
+        </div>
+      </th>
     );
   };
 
@@ -779,6 +1199,9 @@ export function AssetManagement({
                   if (showRetired) {
                     shareParams.assetShowRetired = true;
                   }
+                  if (sortConfig) {
+                    shareParams.assetSort = `${sortConfig.key}:${sortConfig.dir}`;
+                  }
                 }
 
                 const url = buildAppUrl(shareParams);
@@ -843,6 +1266,11 @@ export function AssetManagement({
                   }
                   if (mainMode !== 'calendar' && showRetired) {
                     subtitleParts.push('廃棄済含む');
+                  }
+                  if (mainMode !== 'calendar' && sortConfig) {
+                    subtitleParts.push(
+                      `並び: ${getColumnLabelForKey(sortConfig.key)}${sortConfig.dir === 'asc' ? '▲' : '▼'}`
+                    );
                   }
 
                   const { updatedUser } = upsertBookmarkForUser(currentUser, {
@@ -1080,7 +1508,10 @@ export function AssetManagement({
               {(mainMode === 'my' || mainMode === 'shared') && (
                 <button
                   type="button"
-                  onClick={() => setSelectedCategoryId('all')}
+                  onClick={() => {
+                    sharedSortOverrideRef.current = false;
+                    setSelectedCategoryId('all');
+                  }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer whitespace-nowrap ${
                     selectedCategoryId === 'all'
                       ? 'bg-slate-900 text-white'
@@ -1099,7 +1530,10 @@ export function AssetManagement({
                   <button
                     key={cat.id}
                     type="button"
-                    onClick={() => setSelectedCategoryId(cat.id)}
+                    onClick={() => {
+                      sharedSortOverrideRef.current = false;
+                      setSelectedCategoryId(cat.id);
+                    }}
                     className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border transition-all cursor-pointer whitespace-nowrap ${
                       active
                         ? `${theme.pill} border-transparent shadow-2xs`
@@ -1182,43 +1616,75 @@ export function AssetManagement({
             </div>
           </div>
 
-          {/* Notion-Style Sub-View Pills (ビューレンズ) */}
-          <div className="px-4 py-2.5 border-b border-slate-200 bg-white flex flex-wrap items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => setSubLens('all')}
-              className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap ${
-                subLens === 'all'
-                  ? 'bg-slate-200 text-slate-900 font-bold'
-                  : 'text-slate-600 hover:bg-slate-100'
-              }`}
-            >
-              すべて
-            </button>
-
-            {(
-              [
-                { id: 'inspection_due', label: '点検予定' },
-                { id: 'last_inspection', label: '前回点検日' },
-                { id: 'attachments', label: '資料添付' },
-                { id: 'lease_alert', label: 'リースアップ・アラート' }
-              ] as const
-            ).map((lens) => (
+          {/* Notion-Style Sub-View Pills (ビューレンズ) + Remember Sort & Reset */}
+          <div className="px-4 py-2.5 border-b border-slate-200 bg-white flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-1.5">
               <button
-                key={lens.id}
                 type="button"
-                onClick={() =>
-                  setSubLens((prev) => (prev === lens.id ? 'all' : lens.id))
-                }
+                onClick={() => setSubLens('all')}
                 className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap ${
-                  subLens === lens.id
-                    ? 'bg-amber-100 text-amber-900 font-bold'
+                  subLens === 'all'
+                    ? 'bg-slate-200 text-slate-900 font-bold'
                     : 'text-slate-600 hover:bg-slate-100'
                 }`}
               >
-                {lens.label}
+                すべて
               </button>
-            ))}
+
+              {(
+                [
+                  { id: 'inspection_due', label: '点検予定' },
+                  { id: 'last_inspection', label: '前回点検日' },
+                  { id: 'attachments', label: '資料添付' },
+                  { id: 'lease_alert', label: 'リースアップ・アラート' }
+                ] as const
+              ).map((lens) => (
+                <button
+                  key={lens.id}
+                  type="button"
+                  onClick={() =>
+                    setSubLens((prev) => (prev === lens.id ? 'all' : lens.id))
+                  }
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap ${
+                    subLens === lens.id
+                      ? 'bg-amber-100 text-amber-900 font-bold'
+                      : 'text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  {lens.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-2 ml-auto">
+              <label
+                className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 cursor-pointer select-none whitespace-nowrap px-2 py-1 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200 transition-colors"
+                title="ONにすると、この資産種類の並べ替え順を個人設定として保存します"
+              >
+                <input
+                  type="checkbox"
+                  checked={isRememberSortChecked}
+                  onChange={(e) => handleToggleRememberSort(e.target.checked)}
+                  className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                />
+                <span>この並びを記憶する</span>
+              </label>
+
+              <button
+                type="button"
+                onClick={handleResetViewSettings}
+                disabled={
+                  !sortConfig &&
+                  Object.keys(currentCategoryWidths).length === 0 &&
+                  !assetViewSettings?.sortsByCategory?.[categorySettingKey]
+                }
+                className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-rose-600 hover:border-rose-200 hover:bg-rose-50 disabled:opacity-35 disabled:hover:bg-white disabled:hover:text-slate-500 disabled:hover:border-slate-200 transition-colors cursor-pointer disabled:cursor-default shrink-0"
+                title="この種類の並べ替え・列幅を初期状態に戻す"
+                aria-label="並べ替え・列幅をリセット"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
 
           {/* Notion-Style Spreadsheet Table */}
@@ -1226,53 +1692,32 @@ export function AssetManagement({
             <table className="w-full min-w-max text-left border-collapse">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50/95 text-[11px] font-bold text-slate-500">
-                  <th className="sticky left-0 z-20 bg-slate-50 py-2.5 px-3 border-r border-slate-200/80 shadow-[2px_0_5px_-2px_rgba(15,23,42,0.08)] whitespace-nowrap min-w-[170px] max-w-[230px]">
-                    {activeCategory?.id === 'cat-vehicle' ? '登録番号' : '管理番号 / 資産名'}
-                  </th>
-                  {!activeCategory && (
-                    <th className="py-2.5 px-3 border-r border-slate-200/80 whitespace-nowrap">
-                      種類
-                    </th>
+                  {renderSortableHeader(
+                    '__name',
+                    activeCategory?.id === 'cat-vehicle' ? '登録番号' : '管理番号 / 資産名',
+                    'sticky left-0 z-20 bg-slate-50 shadow-[2px_0_5px_-2px_rgba(15,23,42,0.08)]',
+                    false,
+                    { minWidth: '170px', maxWidth: '230px' }
                   )}
-                  <th className="py-2.5 px-3 border-r border-slate-200/80 whitespace-nowrap min-w-[130px]">
-                    使用者
-                  </th>
-                  <th className="py-2.5 px-3 border-r border-slate-200/80 whitespace-nowrap">
-                    拠点
-                  </th>
-                  <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap">
-                    警告
-                  </th>
+                  {!activeCategory && renderSortableHeader('__category', '種類')}
+                  {renderSortableHeader('__assignee', '使用者', '', false, { minWidth: '130px' })}
+                  {renderSortableHeader('__office', '拠点')}
+                  {renderSortableHeader('__alert', '警告', 'px-2.5')}
 
                   {activeCategory ? (
-                    listColumns.map((col) => (
-                      <th
-                        key={col.key}
-                        className="py-2.5 px-3 border-r border-slate-200/80 whitespace-nowrap"
-                      >
-                        {col.label}
-                      </th>
-                    ))
+                    listColumns.map((col) =>
+                      renderSortableHeader(col.key, col.label, '', false, { maxWidth: '200px' })
+                    )
                   ) : (
                     <>
-                      <th className="py-2.5 px-3 border-r border-slate-200/80 whitespace-nowrap">
-                        車種・型番 / 主要情報
-                      </th>
-                      <th className="py-2.5 px-3 border-r border-slate-200/80 whitespace-nowrap">
-                        点検予定 / 期限
-                      </th>
-                      <th className="py-2.5 px-3 border-r border-slate-200/80 whitespace-nowrap">
-                        リース満了
-                      </th>
+                      {renderSortableHeader('__summary', '車種・型番 / 主要情報')}
+                      {renderSortableHeader('__nextDate', '点検予定 / 期限')}
+                      {renderSortableHeader('__leaseDate', 'リース満了')}
                     </>
                   )}
 
-                  <th className="py-2.5 px-3 border-r border-slate-200/80 whitespace-nowrap min-w-[140px]">
-                    備考
-                  </th>
-                  <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap text-center">
-                    資料
-                  </th>
+                  {renderSortableHeader('__notes', '備考', '', false, { minWidth: '140px' })}
+                  {renderSortableHeader('__attachments', '資料', 'px-2.5 text-center', true)}
                   {activeCategory && (
                     <th className="py-2.5 px-2 text-center whitespace-nowrap">
                       <button
@@ -1330,7 +1775,8 @@ export function AssetManagement({
                     >
                       {/* 登録番号 / 名称 + Hover 開く */}
                       <td
-                        className={`sticky left-0 z-10 py-2 px-3 border-r border-slate-200/70 shadow-[2px_0_5px_-2px_rgba(15,23,42,0.08)] max-w-[230px] transition-colors ${
+                        style={getColStyle('__name', { maxWidth: '230px' })}
+                        className={`sticky left-0 z-10 py-2 px-3 border-r border-slate-200/70 shadow-[2px_0_5px_-2px_rgba(15,23,42,0.08)] transition-colors ${
                           asset.status === 'retired'
                             ? 'bg-slate-50 group-hover:bg-slate-100'
                             : 'bg-white group-hover:bg-indigo-50'
@@ -1360,7 +1806,10 @@ export function AssetManagement({
 
                       {/* 種類 (mixed view only) */}
                       {!activeCategory && (
-                        <td className="py-2 px-3 border-r border-slate-200/70 whitespace-nowrap">
+                        <td
+                          style={getColStyle('__category')}
+                          className="py-2 px-3 border-r border-slate-200/70 whitespace-nowrap overflow-hidden"
+                        >
                           <span
                             className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold border ${catTheme.badge}`}
                           >
@@ -1371,14 +1820,17 @@ export function AssetManagement({
                       )}
 
                       {/* 使用者 */}
-                      <td className="py-2 px-3 border-r border-slate-200/70 whitespace-nowrap">
+                      <td
+                        style={getColStyle('__assignee')}
+                        className="py-2 px-3 border-r border-slate-200/70 whitespace-nowrap overflow-hidden"
+                      >
                         {asset.isShared ? (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                             <Users className="w-3 h-3" />
                             共用（限定なし）
                           </span>
                         ) : assignee || asset.assigneeUserName ? (
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex items-center gap-1.5 min-w-0">
                             {assigneeAvatar ? (
                               <img
                                 src={assigneeAvatar}
@@ -1390,7 +1842,7 @@ export function AssetManagement({
                                 {(assignee?.name || asset.assigneeUserName || '?').slice(0, 1)}
                               </span>
                             )}
-                            <span className="font-medium text-slate-800">
+                            <span className="font-medium text-slate-800 truncate">
                               {assignee?.name || asset.assigneeUserName}
                             </span>
                           </div>
@@ -1400,12 +1852,18 @@ export function AssetManagement({
                       </td>
 
                       {/* 拠点 */}
-                      <td className="py-2 px-3 border-r border-slate-200/70 whitespace-nowrap text-slate-600">
-                        {officeLabel || '-'}
+                      <td
+                        style={getColStyle('__office')}
+                        className="py-2 px-3 border-r border-slate-200/70 whitespace-nowrap text-slate-600 overflow-hidden"
+                      >
+                        <span className="truncate block">{officeLabel || '-'}</span>
                       </td>
 
                       {/* 警告 */}
-                      <td className="py-2 px-2.5 border-r border-slate-200/70 whitespace-nowrap">
+                      <td
+                        style={getColStyle('__alert')}
+                        className="py-2 px-2.5 border-r border-slate-200/70 whitespace-nowrap overflow-hidden"
+                      >
                         {renderAlertIconCell(asset.id)}
                       </td>
 
@@ -1414,34 +1872,50 @@ export function AssetManagement({
                         listColumns.map((col) => (
                           <td
                             key={col.key}
-                            className="py-2 px-3 border-r border-slate-200/70"
+                            style={getColStyle(col.key, { maxWidth: '200px' })}
+                            className="py-2 px-3 border-r border-slate-200/70 overflow-hidden"
                           >
                             {renderFieldCell(asset, col)}
                           </td>
                         ))
                       ) : (
                         <>
-                          <td className="py-2 px-3 border-r border-slate-200/70 text-slate-700 whitespace-nowrap">
-                            {summaryText}
+                          <td
+                            style={getColStyle('__summary')}
+                            className="py-2 px-3 border-r border-slate-200/70 text-slate-700 whitespace-nowrap overflow-hidden"
+                          >
+                            <span className="truncate block">{summaryText}</span>
                           </td>
-                          <td className="py-2 px-3 border-r border-slate-200/70 whitespace-nowrap">
+                          <td
+                            style={getColStyle('__nextDate')}
+                            className="py-2 px-3 border-r border-slate-200/70 whitespace-nowrap overflow-hidden"
+                          >
                             {nextDate ? formatAssetDateJa(nextDate) : '-'}
                           </td>
-                          <td className="py-2 px-3 border-r border-slate-200/70 whitespace-nowrap">
+                          <td
+                            style={getColStyle('__leaseDate')}
+                            className="py-2 px-3 border-r border-slate-200/70 whitespace-nowrap overflow-hidden"
+                          >
                             {leaseDate ? formatAssetDateJa(leaseDate) : '-'}
                           </td>
                         </>
                       )}
 
                       {/* 備考 */}
-                      <td className="py-2 px-3 border-r border-slate-200/70 max-w-[200px]">
+                      <td
+                        style={getColStyle('__notes', { maxWidth: '200px' })}
+                        className="py-2 px-3 border-r border-slate-200/70 overflow-hidden"
+                      >
                         <span className="truncate block text-slate-600" title={asset.notes}>
                           {asset.notes || ''}
                         </span>
                       </td>
 
                       {/* 添付 */}
-                      <td className="py-2 px-2.5 border-r border-slate-200/70 text-center whitespace-nowrap">
+                      <td
+                        style={getColStyle('__attachments')}
+                        className="py-2 px-2.5 border-r border-slate-200/70 text-center whitespace-nowrap overflow-hidden"
+                      >
                         {asset.attachments && asset.attachments.length > 0 ? (
                           <span className="inline-flex items-center gap-0.5 text-indigo-600 font-bold">
                             <Paperclip className="w-3 h-3" />

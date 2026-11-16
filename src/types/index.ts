@@ -85,6 +85,17 @@ export interface UserBookmarkItem {
   updatedAt?: string;         // 最終ストック日時 (ISO string)
 }
 
+export interface AssetSortConfig {
+  key: string;
+  dir: 'asc' | 'desc';
+}
+
+export interface AssetViewSettings {
+  rememberSortByCategory?: Record<string, boolean>;
+  sortsByCategory?: Record<string, AssetSortConfig>;
+  columnWidths?: Record<string, Record<string, number>>;
+}
+
 export interface UserPreferences {
   mypageSectionOrder?: string[];
   mypageSectionCounts?: MyPageSectionCounts; // マイページ各セクションの表示件数
@@ -105,6 +116,7 @@ export interface UserPreferences {
   calendarMemberGroups?: CalendarMemberGroup[]; // カレンダー用マイグループ一覧
   favoriteTopicIds?: string[];       // 掲示板のお気に入りトピックID一覧
   bookmarks?: UserBookmarkItem[];    // 共有リンク等から自動ストックされる個人ブックマーク一覧
+  assetViewSettings?: AssetViewSettings; // 資産管理（種類ごとの並び替え記憶・列幅設定）
   colorTheme?: string;               // 選択カラーテーマ (soft, sage, terracotta等)
   fontSize?: 'small' | 'standard' | 'medium' | 'large'; // 選択フォントサイズ (小/標準/中/大)
   notificationWindowSize?: 'small' | 'medium' | 'large'; // 通知ウィンドウの大きさ (小/中/大)

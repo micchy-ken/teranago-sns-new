@@ -40,6 +40,7 @@ export interface AppQueryParams {
   assetAlert?: 'none' | 'all_alerts' | 'overdue' | 'inspection_1m' | 'replacement_6m';
   assetQ?: string;
   assetShowRetired?: boolean;
+  assetSort?: string;
   // User Invitation & Password Reset
   inviteToken?: string;
   resetToken?: string;
@@ -240,6 +241,11 @@ export function parseAppQueryParams(searchString?: string): AppQueryParams {
     result.assetShowRetired = true;
   }
 
+  const rawAssetSort = params.get('assetSort') || params.get('asset_sort') || (result.tab === 'assets' ? params.get('sort') : undefined);
+  if (rawAssetSort && /^[^:]+:(?:asc|desc)$/.test(rawAssetSort.trim())) {
+    result.assetSort = rawAssetSort.trim();
+  }
+
   // 8. Safety Confirmation Specific
   const rawSafetyEventId = params.get('safetyEventId') || params.get('safety_event_id') || params.get('eventId') || (result.tab === 'safety_confirmation' ? params.get('id') : undefined);
   if (rawSafetyEventId) {
@@ -293,7 +299,8 @@ export function parseAppQueryParams(searchString?: string): AppQueryParams {
       result.assetAssignee ||
       result.assetLens ||
       result.assetAlert ||
-      result.assetQ)
+      result.assetQ ||
+      result.assetSort)
   ) {
     result.tab = 'assets';
   }
@@ -503,6 +510,9 @@ export function buildAppUrl(params?: AppQueryParams, baseUrl?: string): string {
   }
   if (params.assetShowRetired) {
     searchParams.set('assetShowRetired', '1');
+  }
+  if (params.assetSort) {
+    searchParams.set('assetSort', params.assetSort);
   }
   if (params.openEmergencyContact) {
     searchParams.set('openEmergencyContact', 'true');

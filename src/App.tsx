@@ -247,6 +247,7 @@ export default function App() {
     assetQ?: string;
     assetShowRetired?: boolean;
     assetSubTab?: 'details' | 'history';
+    assetSort?: string;
     requestKey?: number;
   }>(() => ({
     assetMode: initialUrlParams.assetMode,
@@ -258,6 +259,7 @@ export default function App() {
     assetQ: initialUrlParams.assetQ,
     assetShowRetired: initialUrlParams.assetShowRetired,
     assetSubTab: initialUrlParams.assetSubTab,
+    assetSort: initialUrlParams.assetSort,
   }));
   const [targetReportId, setTargetReportId] = useState<string | undefined>(initialUrlParams.reportId);
   const [targetSafetyEventId, setTargetSafetyEventId] = useState<string | undefined>(initialUrlParams.safetyEventId);
@@ -373,6 +375,7 @@ export default function App() {
     assetAlert?: 'none' | 'all_alerts' | 'overdue' | 'inspection_1m' | 'replacement_6m';
     assetQ?: string;
     assetShowRetired?: boolean;
+    assetSort?: string;
   }) => {
     // 資産管理（単体詳細・一覧条件ビュー）
     if (target.tab === 'assets' || target.assetId) {
@@ -386,6 +389,7 @@ export default function App() {
         assetQ: target.assetQ,
         assetShowRetired: target.assetShowRetired,
         assetSubTab: target.assetSubTab,
+        assetSort: target.assetSort,
         requestKey: Date.now(),
       });
       setTargetAssetId(target.assetId);
@@ -657,7 +661,8 @@ export default function App() {
         parsed.assetAlert ||
         parsed.assetQ ||
         parsed.assetShowRetired ||
-        parsed.assetSubTab
+        parsed.assetSubTab ||
+        parsed.assetSort
       ) {
         setAssetParams({
           assetMode: parsed.assetMode,
@@ -669,6 +674,7 @@ export default function App() {
           assetQ: parsed.assetQ,
           assetShowRetired: parsed.assetShowRetired,
           assetSubTab: parsed.assetSubTab,
+          assetSort: parsed.assetSort,
           requestKey: Date.now(),
         });
       }

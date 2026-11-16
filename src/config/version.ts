@@ -7,11 +7,11 @@
  * - 機能追加・バグ修正・仕様変更のたびに必ず更新すること
  */
 export const APP_VERSION = {
-  version: '2026.11.16.2',
+  version: '2026.11.16.3',
   date: '2026.11.16',
-  releaseNumber: 2,
-  display: 'v2026.11.16 #2 (JST)',
+  releaseNumber: 3,
+  display: 'v2026.11.16 #3 (JST)',
   timeZone: 'Asia/Tokyo (JST)',
-  description: '資産管理（一覧・絞り込み＆単体資産）のフルクエリパラメータ・共有リンクコピー・お気に入り自動ストック対応'
+  description: '資産管理テーブルのタイトル行ソート・列幅ドラッグ変更・種類別の個人設定記憶（「この並びを記憶する」＆リセットボタン）・共有リンク並び順引き継ぎ対応'
 };
 

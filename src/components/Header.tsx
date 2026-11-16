@@ -100,6 +100,7 @@ interface HeaderProps {
     assetAlert?: 'none' | 'all_alerts' | 'overdue' | 'inspection_1m' | 'replacement_6m';
     assetQ?: string;
     assetShowRetired?: boolean;
+    assetSort?: string;
   }) => void;
   onUpdateMemos?: (memos: Memo[]) => void;
   onUpdateTopic?: (topic: BoardTopic) => void;
@@ -701,6 +702,7 @@ export function Header({
         assetAlert: item.params.assetAlert,
         assetQ: item.params.assetQ,
         assetShowRetired: item.params.assetShowRetired,
+        assetSort: item.params.assetSort,
       });
     } else if (onSelectTab && item.params.tab) {
       onSelectTab(item.params.tab);
