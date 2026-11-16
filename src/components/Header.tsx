@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Search, Bell, Menu, Phone, FileText, Monitor, Calendar as CalendarIcon, MessageSquare, CheckCheck, ChevronRight, X, Smartphone, Users, MessageCircle, Palette, Check, Pin, ShieldAlert, Type, Undo2, Minimize2, Bookmark, Trash2, Share2, ExternalLink } from 'lucide-react';
+import { Search, Bell, Menu, Phone, FileText, Monitor, Calendar as CalendarIcon, MessageSquare, CheckCheck, ChevronRight, X, Smartphone, Users, MessageCircle, Palette, Check, Pin, ShieldAlert, Type, Undo2, Minimize2, Bookmark, Trash2, Share2, ExternalLink, Layers } from 'lucide-react';
 import { User, Memo, WorkflowApplication, BoardTopic, CalendarEvent, ChatRoom, Post, DailyReport, SafetyConfirmationEvent, SafetyConfirmationResponse, UserBookmarkCategory, UserBookmarkItem } from '../types';
 import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
 import { AppTab } from './Sidebar';
@@ -90,6 +90,16 @@ interface HeaderProps {
     date?: string;
     type?: string;
     targetUserId?: string;
+    assetId?: string;
+    assetSubTab?: 'details' | 'history';
+    assetMode?: 'my' | 'catalog' | 'shared' | 'calendar';
+    assetCategory?: string;
+    assetOffice?: string;
+    assetAssignee?: string;
+    assetLens?: 'all' | 'inspection_due' | 'last_inspection' | 'attachments' | 'lease_alert';
+    assetAlert?: 'none' | 'all_alerts' | 'overdue' | 'inspection_1m' | 'replacement_6m';
+    assetQ?: string;
+    assetShowRetired?: boolean;
   }) => void;
   onUpdateMemos?: (memos: Memo[]) => void;
   onUpdateTopic?: (topic: BoardTopic) => void;
@@ -681,6 +691,16 @@ export function Header({
         date: item.params.date,
         type: item.params.type,
         targetUserId: item.params.targetUserId,
+        assetId: item.params.assetId,
+        assetSubTab: item.params.assetSubTab,
+        assetMode: item.params.assetMode,
+        assetCategory: item.params.assetCategory,
+        assetOffice: item.params.assetOffice,
+        assetAssignee: item.params.assetAssignee,
+        assetLens: item.params.assetLens,
+        assetAlert: item.params.assetAlert,
+        assetQ: item.params.assetQ,
+        assetShowRetired: item.params.assetShowRetired,
       });
     } else if (onSelectTab && item.params.tab) {
       onSelectTab(item.params.tab);
@@ -745,6 +765,8 @@ export function Header({
         return { icon: Phone, bg: 'bg-amber-50 text-amber-700 border-amber-200' };
       case 'daily_report':
         return { icon: FileText, bg: 'bg-teal-50 text-teal-700 border-teal-200' };
+      case 'assets':
+        return { icon: Layers, bg: 'bg-sky-50 text-sky-700 border-sky-200' };
       default:
         return { icon: Bookmark, bg: 'bg-slate-100 text-slate-700 border-slate-200' };
     }
@@ -1781,7 +1803,7 @@ export function Header({
                           <span>ピン留め ({pinnedBookmarkCount})</span>
                         </button>
                       )}
-                      {(['board', 'calendar', 'chat', 'workflow', 'memo', 'daily_report'] as UserBookmarkCategory[]).map((cat) => {
+                      {(['board', 'calendar', 'chat', 'workflow', 'memo', 'daily_report', 'assets'] as UserBookmarkCategory[]).map((cat) => {
                         const cnt = bookmarkCategoryCounts[cat] || 0;
                         if (cnt === 0) return null;
                         return (

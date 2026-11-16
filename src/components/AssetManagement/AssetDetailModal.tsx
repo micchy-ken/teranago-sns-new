@@ -15,7 +15,10 @@ import {
   User as UserIcon,
   Plus,
   CheckCircle2,
-  Wrench
+  Wrench,
+  Share2,
+  Check,
+  Star
 } from 'lucide-react';
 import {
   AssetAttachment,
@@ -42,6 +45,9 @@ import {
 import { resolveFileUrl, uploadFile } from '../../utils/fileUpload';
 import { sortUsersByDivision } from '../../utils/userSort';
 import { formatDateTimeJST } from '../../utils/dateUtils';
+import { resolveOfficeName } from '../../utils/masterResolver';
+import { AppQueryParams, buildAppUrl, copyTextToClipboard } from '../../utils/urlParams';
+import { upsertBookmarkForUser } from '../../utils/bookmarks';
 import { API_BASE_URL } from '../../config/api';
 
 interface AssetDetailModalProps {
@@ -69,6 +75,8 @@ interface AssetDetailModalProps {
     }
   ) => Promise<void>;
   onDeleteLog?: (assetId: string, logId: string) => Promise<void>;
+  initialSubTab?: 'details' | 'history';
+  onUpdateUser?: (user: User) => void;
 }
 
 export function AssetDetailModal({
@@ -86,10 +94,14 @@ export function AssetDetailModal({
   onSaveAsset,
   onDeleteAsset,
   onAddLog,
-  onDeleteLog
+  onDeleteLog,
+  initialSubTab = 'details',
+  onUpdateUser
 }: AssetDetailModalProps) {
   const isNew = !asset;
   const [activeSubTab, setActiveSubTab] = useState<'details' | 'history'>('details');
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [shareFeedback, setShareFeedback] = useState<string | null>(null);
 
   // Form States
   const [categoryId, setCategoryId] = useState('');
@@ -130,7 +142,9 @@ export function AssetDetailModal({
     if (!isOpen) return;
     setError('');
     setConfirmDelete(false);
-    setActiveSubTab('details');
+    setCopiedLink(false);
+    setShareFeedback(null);
+    setActiveSubTab(asset ? initialSubTab : 'details');
     setShowLogForm(false);
     setFetchedLogs(null);
     setLogDate(getJstTodayStr());
@@ -564,13 +578,78 @@ export function AssetDetailModal({
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 transition-colors cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            {!isNew && asset && (
+              <button
+                type="button"
+                onClick={async () => {
+                  const shareParams: AppQueryParams = {
+                    tab: 'assets',
+                    assetId: asset.id,
+                    ...(activeSubTab === 'history' ? { assetSubTab: 'history' } : {}),
+                  };
+                  const url = buildAppUrl(shareParams);
+                  const ok = await copyTextToClipboard(url);
+                  if (ok) {
+                    setCopiedLink(true);
+                    setTimeout(() => setCopiedLink(false), 2500);
+                  }
+                  if (currentUser && onUpdateUser) {
+                    const catLabel = currentCategory?.name || '資産';
+                    const displayName = asset.name || asset.assetCode || '名称未設定';
+                    const resolvedOff = resolveOfficeName(asset.officeId || asset.office, offices);
+                    const assigneeText = asset.isShared
+                      ? '共用資産'
+                      : asset.assigneeUserName
+                        ? `使用者: ${asset.assigneeUserName}`
+                        : undefined;
+                    const subtitleParts = [
+                      asset.assetCode && asset.assetCode !== displayName ? `管理番号: ${asset.assetCode}` : undefined,
+                      resolvedOff || undefined,
+                      assigneeText,
+                      activeSubTab === 'history' ? '履歴タブ' : undefined,
+                    ].filter(Boolean);
+
+                    const { updatedUser } = upsertBookmarkForUser(currentUser, {
+                      category: 'assets',
+                      title: `[${catLabel}] ${displayName}`,
+                      subtitle: subtitleParts.join(' ・ ') || undefined,
+                      params: shareParams,
+                    });
+                    onUpdateUser(updatedUser);
+                    setShareFeedback('共有リンクをコピーし、お気に入りにストックしました');
+                    setTimeout(() => setShareFeedback(null), 3000);
+                  }
+                }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all shadow-2xs cursor-pointer whitespace-nowrap ${
+                  copiedLink
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-300 ring-2 ring-emerald-200'
+                    : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200 hover:text-indigo-600'
+                }`}
+                title="この資産を開く共有リンク（URL）をコピー（お気に入りにも自動ストック）"
+              >
+                {copiedLink ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span>URLコピー完了!</span>
+                  </>
+                ) : (
+                  <>
+                    <Share2 className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                    <span className="hidden sm:inline">共有リンク</span>
+                    <span className="sm:hidden">共有</span>
+                  </>
+                )}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* SubTabs when editing existing asset */}
@@ -1179,6 +1258,14 @@ export function AssetDetailModal({
           </div>
         </div>
       </div>
+
+      {/* お気に入り操作トースト通知 */}
+      {shareFeedback && (
+        <div className="fixed bottom-6 right-6 z-[60] flex items-center gap-2 bg-slate-900/95 text-white px-4 py-2.5 rounded-xl shadow-2xl border border-slate-700 text-xs font-semibold backdrop-blur-xs">
+          <Star className="w-4 h-4 text-amber-400 fill-amber-400 shrink-0" />
+          <span>{shareFeedback}</span>
+        </div>
+      )}
     </div>
   );
 }

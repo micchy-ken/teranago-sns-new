@@ -16,9 +16,13 @@ import {
   RefreshCw,
   FolderPlus,
   ExternalLink,
-  Check
+  Check,
+  Share2,
+  Star
 } from 'lucide-react';
 import { API_BASE_URL } from '../../config/api';
+import { AppQueryParams, buildAppUrl, copyTextToClipboard } from '../../utils/urlParams';
+import { upsertBookmarkForUser } from '../../utils/bookmarks';
 import {
   AssetAlertInfo,
   AssetCategory,
@@ -40,12 +44,25 @@ import {
   getJstTodayStr,
   getSelectChipStyle
 } from '../../utils/assets';
-import { isSameOffice, resolveOfficeName } from '../../utils/masterResolver';
+import { isSameOffice, resolveOffice, resolveOfficeName } from '../../utils/masterResolver';
 import { getAvatarUrl } from '../../utils/avatar';
 import { AssetDetailModal } from './AssetDetailModal';
 import { AssetCategoryEditorModal } from './AssetCategoryEditorModal';
 import { AssetCsvImportModal } from './AssetCsvImportModal';
 import { AssetCalendarView } from './AssetCalendarView';
+
+export interface AssetInitialParams {
+  assetMode?: 'my' | 'catalog' | 'shared' | 'calendar';
+  assetCategory?: string;
+  assetOffice?: string;
+  assetAssignee?: string;
+  assetLens?: 'all' | 'inspection_due' | 'last_inspection' | 'attachments' | 'lease_alert';
+  assetAlert?: 'none' | 'all_alerts' | 'overdue' | 'inspection_1m' | 'replacement_6m';
+  assetQ?: string;
+  assetShowRetired?: boolean;
+  assetSubTab?: 'details' | 'history';
+  requestKey?: number;
+}
 
 interface AssetManagementProps {
   currentUser: User;
@@ -53,7 +70,9 @@ interface AssetManagementProps {
   offices: OfficeMaster[];
   divisions: DivisionMaster[];
   initialAssetId?: string;
+  initialAssetParams?: AssetInitialParams;
   onClearInitialAssetId?: () => void;
+  onUpdateUser?: (user: User) => void;
 }
 
 type MainMode = 'my' | 'catalog' | 'shared' | 'calendar';
@@ -66,7 +85,9 @@ export function AssetManagement({
   offices,
   divisions,
   initialAssetId,
-  onClearInitialAssetId
+  initialAssetParams,
+  onClearInitialAssetId,
+  onUpdateUser
 }: AssetManagementProps) {
   const [categories, setCategories] = useState<AssetCategory[]>([]);
   const [assets, setAssets] = useState<AssetItem[]>([]);
@@ -84,9 +105,17 @@ export function AssetManagement({
   const [assigneeFilter, setAssigneeFilter] = useState<string>('all');
   const [showRetired, setShowRetired] = useState<boolean>(false);
 
+  // Share & Bookmark feedback states
+  const [copiedLink, setCopiedLink] = useState<boolean>(false);
+  const [favoritesFeedback, setFavoritesFeedback] = useState<string | null>(null);
+  const [pendingAssetParams, setPendingAssetParams] = useState<AssetInitialParams | null>(
+    () => initialAssetParams || null
+  );
+
   // Modals
   const [detailModalOpen, setDetailModalOpen] = useState<boolean>(false);
   const [editingAsset, setEditingAsset] = useState<AssetItem | null>(null);
+  const [detailInitialSubTab, setDetailInitialSubTab] = useState<'details' | 'history'>('details');
   const [categoryModalOpen, setCategoryModalOpen] = useState<boolean>(false);
   const [editingCategory, setEditingCategory] = useState<AssetCategory | null>(null);
   const [csvImportModalOpen, setCsvImportModalOpen] = useState<boolean>(false);
@@ -128,16 +157,86 @@ export function AssetManagement({
     fetchAllData();
   }, [fetchAllData]);
 
+  // Track incoming bookmark / URL param updates
+  useEffect(() => {
+    if (initialAssetParams?.requestKey) {
+      setPendingAssetParams(initialAssetParams);
+      if (!initialAssetId) {
+        setDetailModalOpen(false);
+        setEditingAsset(null);
+      }
+    }
+  }, [initialAssetParams, initialAssetId]);
+
+  // Apply URL / bookmark parameters (resolving category & office masters once loaded)
+  useEffect(() => {
+    if (!pendingAssetParams) return;
+    const p = pendingAssetParams;
+    const hasAnyViewParam = Boolean(
+      p.assetMode ||
+        p.assetCategory ||
+        p.assetOffice ||
+        p.assetAssignee ||
+        p.assetLens ||
+        p.assetAlert ||
+        p.assetQ !== undefined ||
+        p.assetShowRetired !== undefined
+    );
+    if (!hasAnyViewParam) {
+      setPendingAssetParams(null);
+      return;
+    }
+
+    const targetMode: MainMode = p.assetMode || mainMode;
+    if (p.assetMode) {
+      setMainMode(p.assetMode);
+    }
+    setSubLens(p.assetLens || 'all');
+    setAlertFilter(p.assetAlert || 'none');
+    setSearchQuery(p.assetQ ?? '');
+    setShowRetired(Boolean(p.assetShowRetired));
+    setAssigneeFilter(p.assetAssignee || 'all');
+
+    if (categories.length === 0 && (p.assetCategory || targetMode === 'catalog')) {
+      return;
+    }
+
+    if (p.assetCategory && p.assetCategory !== 'all') {
+      const rawCat = p.assetCategory.trim();
+      const matchedCat = categories.find(
+        (c) =>
+          String(c.id) === rawCat ||
+          c.name.trim().toLowerCase() === rawCat.toLowerCase()
+      );
+      setSelectedCategoryId(matchedCat ? matchedCat.id : rawCat);
+    } else if (targetMode === 'catalog') {
+      setSelectedCategoryId(categories[0]?.id || 'all');
+    } else {
+      setSelectedCategoryId('all');
+    }
+
+    if (p.assetOffice && p.assetOffice !== 'all') {
+      if (offices.length === 0) return;
+      const resolvedOff = resolveOffice(p.assetOffice, offices);
+      setSelectedOfficeFilter(resolvedOff ? String(resolvedOff.id) : p.assetOffice);
+    } else {
+      setSelectedOfficeFilter('all');
+    }
+
+    setPendingAssetParams(null);
+  }, [pendingAssetParams, categories, offices, mainMode]);
+
   // Deep link handler (?tab=assets&assetId=...)
   useEffect(() => {
     if (!initialAssetId || assets.length === 0) return;
     const found = assets.find((a) => String(a.id) === String(initialAssetId));
     if (found) {
+      setDetailInitialSubTab(initialAssetParams?.assetSubTab || 'details');
       setEditingAsset(found);
       setDetailModalOpen(true);
       onClearInitialAssetId?.();
     }
-  }, [initialAssetId, assets, onClearInitialAssetId]);
+  }, [initialAssetId, assets, initialAssetParams?.assetSubTab, onClearInitialAssetId]);
 
   // Switch to first category automatically when entering catalog mode with 'all' selected
   const handleChangeMainMode = (mode: MainMode) => {
@@ -650,6 +749,131 @@ export function AssetManagement({
               title="最新データに更新"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                const shareParams: AppQueryParams = {
+                  tab: 'assets',
+                  assetMode: mainMode,
+                };
+                if (mainMode !== 'calendar') {
+                  if (selectedCategoryId && selectedCategoryId !== 'all') {
+                    shareParams.assetCategory = selectedCategoryId;
+                  }
+                  if (mainMode === 'catalog' && selectedOfficeFilter !== 'all') {
+                    shareParams.assetOffice = selectedOfficeFilter;
+                  }
+                  if (mainMode === 'catalog' && assigneeFilter !== 'all') {
+                    shareParams.assetAssignee = assigneeFilter;
+                  }
+                  if (subLens !== 'all') {
+                    shareParams.assetLens = subLens;
+                  }
+                  if (alertFilter !== 'none') {
+                    shareParams.assetAlert = alertFilter;
+                  }
+                  if (searchQuery.trim()) {
+                    shareParams.assetQ = searchQuery.trim();
+                  }
+                  if (showRetired) {
+                    shareParams.assetShowRetired = true;
+                  }
+                }
+
+                const url = buildAppUrl(shareParams);
+                const ok = await copyTextToClipboard(url);
+                if (ok) {
+                  setCopiedLink(true);
+                  setTimeout(() => setCopiedLink(false), 2500);
+                }
+
+                if (currentUser && onUpdateUser) {
+                  const modeLabels: Record<MainMode, string> = {
+                    my: '自分の資産',
+                    catalog: '資産台帳',
+                    shared: '共用資産',
+                    calendar: '資産カレンダー',
+                  };
+                  const catLabel =
+                    mainMode !== 'calendar' && activeCategory
+                      ? activeCategory.name
+                      : mainMode !== 'calendar'
+                        ? 'すべて'
+                        : '';
+                  const title = catLabel
+                    ? `${modeLabels[mainMode]}：${catLabel}`
+                    : modeLabels[mainMode];
+
+                  const subtitleParts: string[] = [];
+                  if (mainMode === 'catalog' && selectedOfficeFilter !== 'all') {
+                    const offName = resolveOfficeName(selectedOfficeFilter, offices);
+                    if (offName) subtitleParts.push(offName);
+                  }
+                  if (mainMode === 'catalog' && assigneeFilter !== 'all') {
+                    if (assigneeFilter === '__shared__') subtitleParts.push('共用');
+                    else if (assigneeFilter === '__unassigned__') subtitleParts.push('未割当');
+                    else {
+                      const u = userMap.get(String(assigneeFilter));
+                      if (u?.name) subtitleParts.push(u.name);
+                    }
+                  }
+                  const lensLabels: Record<SubLens, string> = {
+                    all: '',
+                    inspection_due: '点検予定',
+                    last_inspection: '前回点検日',
+                    attachments: '資料添付',
+                    lease_alert: 'リース・アラート',
+                  };
+                  if (mainMode !== 'calendar' && subLens !== 'all' && lensLabels[subLens]) {
+                    subtitleParts.push(lensLabels[subLens]);
+                  }
+                  if (mainMode !== 'calendar' && alertFilter !== 'none') {
+                    const alertLabels: Record<AlertFilterType, string> = {
+                      none: '',
+                      all_alerts: 'アラート対象',
+                      overdue: '期限超過',
+                      inspection_1m: '点検アラート',
+                      replacement_6m: '入替アラート',
+                    };
+                    if (alertLabels[alertFilter]) subtitleParts.push(alertLabels[alertFilter]);
+                  }
+                  if (mainMode !== 'calendar' && searchQuery.trim()) {
+                    subtitleParts.push(`検索: ${searchQuery.trim()}`);
+                  }
+                  if (mainMode !== 'calendar' && showRetired) {
+                    subtitleParts.push('廃棄済含む');
+                  }
+
+                  const { updatedUser } = upsertBookmarkForUser(currentUser, {
+                    category: 'assets',
+                    title,
+                    subtitle: subtitleParts.join(' ・ ') || undefined,
+                    params: shareParams,
+                  });
+                  onUpdateUser(updatedUser);
+                  setFavoritesFeedback('共有リンクをコピーし、お気に入りにストックしました');
+                  setTimeout(() => setFavoritesFeedback(null), 3000);
+                }
+              }}
+              className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold border transition-all cursor-pointer whitespace-nowrap ${
+                copiedLink
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-300 ring-2 ring-emerald-200'
+                  : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50 hover:text-indigo-600'
+              }`}
+              title="現在の表示URLをコピー（お気に入りにも自動ストック）"
+            >
+              {copiedLink ? (
+                <>
+                  <Check className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>URLコピー完了!</span>
+                </>
+              ) : (
+                <>
+                  <Share2 className="w-3.5 h-3.5 text-slate-500" />
+                  <span>共有リンク</span>
+                </>
+              )}
             </button>
             <button
               type="button"
@@ -1271,8 +1495,10 @@ export function AssetManagement({
         onClose={() => {
           setDetailModalOpen(false);
           setEditingAsset(null);
+          setDetailInitialSubTab('details');
         }}
         asset={editingAsset}
+        initialSubTab={detailInitialSubTab}
         defaultCategoryId={
           selectedCategoryId !== 'all' ? selectedCategoryId : categories[0]?.id
         }
@@ -1287,6 +1513,7 @@ export function AssetManagement({
         onDeleteAsset={handleDeleteAsset}
         onAddLog={handleAddLog}
         onDeleteLog={handleDeleteLog}
+        onUpdateUser={onUpdateUser}
       />
 
       <AssetCategoryEditorModal
@@ -1315,6 +1542,14 @@ export function AssetManagement({
         onSaveCategory={handleSaveCategory}
         onComplete={fetchAllData}
       />
+
+      {/* お気に入り操作トースト通知 */}
+      {favoritesFeedback && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 bg-slate-900/95 text-white px-4 py-2.5 rounded-xl shadow-2xl border border-slate-700 text-xs font-semibold backdrop-blur-xs">
+          <Star className="w-4 h-4 text-amber-400 fill-amber-400 shrink-0" />
+          <span>{favoritesFeedback}</span>
+        </div>
+      )}
     </div>
   );
 }

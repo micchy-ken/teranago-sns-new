@@ -237,6 +237,28 @@ export default function App() {
   const [targetEventId, setTargetEventId] = useState<string | undefined>(initialUrlParams.eventId);
   const [targetSiteId, setTargetSiteId] = useState<string | undefined>(undefined);
   const [targetAssetId, setTargetAssetId] = useState<string | undefined>(initialUrlParams.assetId);
+  const [assetParams, setAssetParams] = useState<{
+    assetMode?: 'my' | 'catalog' | 'shared' | 'calendar';
+    assetCategory?: string;
+    assetOffice?: string;
+    assetAssignee?: string;
+    assetLens?: 'all' | 'inspection_due' | 'last_inspection' | 'attachments' | 'lease_alert';
+    assetAlert?: 'none' | 'all_alerts' | 'overdue' | 'inspection_1m' | 'replacement_6m';
+    assetQ?: string;
+    assetShowRetired?: boolean;
+    assetSubTab?: 'details' | 'history';
+    requestKey?: number;
+  }>(() => ({
+    assetMode: initialUrlParams.assetMode,
+    assetCategory: initialUrlParams.assetCategory,
+    assetOffice: initialUrlParams.assetOffice,
+    assetAssignee: initialUrlParams.assetAssignee,
+    assetLens: initialUrlParams.assetLens,
+    assetAlert: initialUrlParams.assetAlert,
+    assetQ: initialUrlParams.assetQ,
+    assetShowRetired: initialUrlParams.assetShowRetired,
+    assetSubTab: initialUrlParams.assetSubTab,
+  }));
   const [targetReportId, setTargetReportId] = useState<string | undefined>(initialUrlParams.reportId);
   const [targetSafetyEventId, setTargetSafetyEventId] = useState<string | undefined>(initialUrlParams.safetyEventId);
   const [targetSafetyUserId, setTargetSafetyUserId] = useState<string | undefined>(initialUrlParams.safetyUserId);
@@ -341,7 +363,36 @@ export default function App() {
     date?: string;
     type?: string;
     targetUserId?: string;
+    assetId?: string;
+    assetSubTab?: 'details' | 'history';
+    assetMode?: 'my' | 'catalog' | 'shared' | 'calendar';
+    assetCategory?: string;
+    assetOffice?: string;
+    assetAssignee?: string;
+    assetLens?: 'all' | 'inspection_due' | 'last_inspection' | 'attachments' | 'lease_alert';
+    assetAlert?: 'none' | 'all_alerts' | 'overdue' | 'inspection_1m' | 'replacement_6m';
+    assetQ?: string;
+    assetShowRetired?: boolean;
   }) => {
+    // 資産管理（単体詳細・一覧条件ビュー）
+    if (target.tab === 'assets' || target.assetId) {
+      setAssetParams({
+        assetMode: target.assetMode,
+        assetCategory: target.assetCategory,
+        assetOffice: target.assetOffice,
+        assetAssignee: target.assetAssignee,
+        assetLens: target.assetLens,
+        assetAlert: target.assetAlert,
+        assetQ: target.assetQ,
+        assetShowRetired: target.assetShowRetired,
+        assetSubTab: target.assetSubTab,
+        requestKey: Date.now(),
+      });
+      setTargetAssetId(target.assetId);
+      setActiveTab('assets');
+      updateBrowserUrl();
+      return;
+    }
     // スケジュール（eventId）
     if (target.eventId) {
       const searchStart = new Date();
@@ -595,6 +646,32 @@ export default function App() {
       if (parsed.topicId !== undefined) setTargetTopicId(parsed.topicId);
       if (parsed.chatRoomId !== undefined) setTargetChatRoomId(parsed.chatRoomId);
       if (parsed.eventId !== undefined) setTargetEventId(parsed.eventId);
+      if (parsed.assetId !== undefined) setTargetAssetId(parsed.assetId);
+      if (
+        parsed.tab === 'assets' ||
+        parsed.assetMode ||
+        parsed.assetCategory ||
+        parsed.assetOffice ||
+        parsed.assetAssignee ||
+        parsed.assetLens ||
+        parsed.assetAlert ||
+        parsed.assetQ ||
+        parsed.assetShowRetired ||
+        parsed.assetSubTab
+      ) {
+        setAssetParams({
+          assetMode: parsed.assetMode,
+          assetCategory: parsed.assetCategory,
+          assetOffice: parsed.assetOffice,
+          assetAssignee: parsed.assetAssignee,
+          assetLens: parsed.assetLens,
+          assetAlert: parsed.assetAlert,
+          assetQ: parsed.assetQ,
+          assetShowRetired: parsed.assetShowRetired,
+          assetSubTab: parsed.assetSubTab,
+          requestKey: Date.now(),
+        });
+      }
     };
 
     window.addEventListener('popstate', handlePopState);
@@ -3886,7 +3963,9 @@ export default function App() {
               offices={offices}
               divisions={divisions}
               initialAssetId={targetAssetId}
+              initialAssetParams={assetParams}
               onClearInitialAssetId={() => setTargetAssetId(undefined)}
+              onUpdateUser={handleUpdateUser}
             />
           )}
           {activeTab === 'workflow' && (

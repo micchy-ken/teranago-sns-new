@@ -48,6 +48,20 @@ export function buildBookmarkId(category: UserBookmarkCategory, params: AppQuery
   if (params.memoId) return `memo:${params.memoId}`;
   if (params.reportId) return `daily_report:${params.reportId}`;
   if (params.safetyEventId) return `safety:${params.safetyEventId}`;
+  if (params.assetId) return `assets:item:${params.assetId}`;
+  if (params.tab === 'assets') {
+    return [
+      'assets:view',
+      params.assetMode || 'my',
+      params.assetCategory || 'all',
+      params.assetOffice || 'all',
+      params.assetAssignee || 'all',
+      params.assetLens || 'all',
+      params.assetAlert || 'none',
+      (params.assetQ || '').trim(),
+      params.assetShowRetired ? '1' : '0',
+    ].join(':');
+  }
   if (params.tab === 'calendar') {
     return [
       'calendar',
@@ -201,6 +215,8 @@ export function getBookmarkCategoryLabel(category: UserBookmarkCategory): string
       return '日報・週報';
     case 'site':
       return '現場管理';
+    case 'assets':
+      return '資産管理';
     default:
       return 'その他';
   }

@@ -3431,7 +3431,13 @@ async function startServer() {
   ], async (req, res) => {
     try {
       const userId = req.params.id || req.body?.userId;
-      const { baseUrl, senderName = '管理者' } = req.body || {};
+      const { baseUrl, senderName = '管理者', expiresInDays } = req.body || {};
+      const parsedDays = Number(expiresInDays);
+      const validDays = Number.isFinite(parsedDays) && parsedDays >= 1 && parsedDays <= 30
+        ? Math.floor(parsedDays)
+        : 7;
+      const expiresLabel = validDays === 1 ? '24時間以内' : validDays === 7 ? '7日間（1週間以内）' : `${validDays}日間以内`;
+
       const users = loadUsers();
       const user = users.find((u: any) => u.id === userId);
 
@@ -3443,7 +3449,16 @@ async function startServer() {
       }
 
       const token = crypto.randomBytes(24).toString('hex');
-      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+      const expiresAtDate = new Date(Date.now() + validDays * 24 * 60 * 60 * 1000);
+      const expiresAt = expiresAtDate.toISOString();
+      const expiresJstStr = new Intl.DateTimeFormat('ja-JP', {
+        timeZone: 'Asia/Tokyo',
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      }).format(expiresAtDate) + ' (JST)';
 
       if (!user.preferences) user.preferences = {};
       user.preferences.resetPasswordToken = token;
@@ -3456,7 +3471,7 @@ async function startServer() {
       const resetUrl = `${appBaseUrl}${appBaseUrl.includes('?') ? '&' : '?'}mode=reset-password&token=${token}`;
 
       const subject = `【TERANAGO SNS】パスワード設定のお願い`;
-      const text = `${user.name} 様\n\n${senderName}様より、TERANAGO 社内SNS・グループウェアのパスワード設定依頼が届いています。\n以下のリンクを開き、新しいパスワードを設定してください。\n\n▼ パスワード設定URL:\n${resetUrl}\n\n※有効期限: 24時間以内\n※心当たりのない場合は管理者までご連絡ください。`;
+      const text = `${user.name} 様\n\n${senderName}様より、TERANAGO 社内SNS・グループウェアのパスワード設定依頼が届いています。\n以下のリンクを開き、新しいパスワードを設定してください。\n\n▼ パスワード設定URL:\n${resetUrl}\n\n※有効期限: ${expiresLabel}（${expiresJstStr} まで）\n※心当たりのない場合は管理者までご連絡ください。`;
       const html = `
         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; background: #ffffff;">
           <div style="background: linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%); color: #ffffff; padding: 24px; text-align: center;">
@@ -3475,7 +3490,7 @@ async function startServer() {
             <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px; font-size: 12px; color: #64748b;">
               <p style="margin: 0 0 4px 0;"><b>ボタンが開けない場合:</b> 以下のURLをブラウザに貼り付けてください。</p>
               <p style="margin: 0; word-break: break-all; color: #4f46e5;">${resetUrl}</p>
-              <p style="margin: 8px 0 0 0; color: #e11d48;">※有効期限: <b>24時間以内</b></p>
+              <p style="margin: 8px 0 0 0; color: #e11d48;">※有効期限: <b>${expiresLabel}</b>（${expiresJstStr} まで）</p>
             </div>
           </div>
         </div>
@@ -3485,8 +3500,10 @@ async function startServer() {
 
       res.json({
         success: true,
-        message: `${user.name} 様（${targetEmail}）へパスワード設定案内メールを送信しました。`,
-        targetEmail
+        message: `${user.name} 様（${targetEmail}）へパスワード設定案内メールを送信しました。（有効期限: ${expiresLabel}）`,
+        targetEmail,
+        expiresInDays: validDays,
+        expiresAt
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -3501,7 +3518,13 @@ async function startServer() {
     '/api/users/request-password-reset-bulk/'
   ], async (req, res) => {
     try {
-      const { senderName = '管理者', baseUrl } = req.body || {};
+      const { senderName = '管理者', baseUrl, expiresInDays } = req.body || {};
+      const parsedDays = Number(expiresInDays);
+      const validDays = Number.isFinite(parsedDays) && parsedDays >= 1 && parsedDays <= 30
+        ? Math.floor(parsedDays)
+        : 7;
+      const expiresLabel = validDays === 1 ? '24時間以内' : validDays === 7 ? '7日間（1週間以内）' : `${validDays}日間以内`;
+
       const users = loadUsers();
       let sentCount = 0;
       let skippedCount = 0;
@@ -3516,7 +3539,16 @@ async function startServer() {
 
         if (isPasswordDefault && targetEmail && targetEmail.includes('@')) {
           const token = crypto.randomBytes(24).toString('hex');
-          const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+          const expiresAtDate = new Date(Date.now() + validDays * 24 * 60 * 60 * 1000);
+          const expiresAt = expiresAtDate.toISOString();
+          const expiresJstStr = new Intl.DateTimeFormat('ja-JP', {
+            timeZone: 'Asia/Tokyo',
+            year: 'numeric',
+            month: 'numeric',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+          }).format(expiresAtDate) + ' (JST)';
 
           if (!user.preferences) user.preferences = {};
           user.preferences.resetPasswordToken = token;
@@ -3528,7 +3560,7 @@ async function startServer() {
           const resetUrl = `${appBaseUrl}${appBaseUrl.includes('?') ? '&' : '?'}mode=reset-password&token=${token}`;
 
           const subject = `【TERANAGO SNS】パスワード設定のお願い`;
-          const text = `${user.name} 様\n\n${senderName}様より、TERANAGO 社内SNS・グループウェアのパスワード設定依頼が届いています。\n以下のリンクを開き、新しいパスワードを設定してください。\n\n▼ パスワード設定URL:\n${resetUrl}\n\n※有効期限: 24時間以内\n※心当たりのない場合は管理者までご連絡ください。`;
+          const text = `${user.name} 様\n\n${senderName}様より、TERANAGO 社内SNS・グループウェアのパスワード設定依頼が届いています。\n以下のリンクを開き、新しいパスワードを設定してください。\n\n▼ パスワード設定URL:\n${resetUrl}\n\n※有効期限: ${expiresLabel}（${expiresJstStr} まで）\n※心当たりのない場合は管理者までご連絡ください。`;
           const html = `
             <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; background: #ffffff;">
               <div style="background: linear-gradient(135deg, #e11d48 0%, #4f46e5 100%); color: #ffffff; padding: 24px; text-align: center;">
@@ -3547,7 +3579,7 @@ async function startServer() {
                 <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px; font-size: 12px; color: #64748b;">
                   <p style="margin: 0 0 4px 0;"><b>ボタンが開けない場合:</b> 以下のURLをブラウザに貼り付けてください。</p>
                   <p style="margin: 0; word-break: break-all; color: #4f46e5;">${resetUrl}</p>
-                  <p style="margin: 8px 0 0 0; color: #e11d48;">※有効期限: <b>24時間以内</b></p>
+                  <p style="margin: 8px 0 0 0; color: #e11d48;">※有効期限: <b>${expiresLabel}</b>（${expiresJstStr} まで）</p>
                 </div>
               </div>
             </div>
@@ -3570,7 +3602,8 @@ async function startServer() {
         success: true,
         sentCount,
         skippedCount,
-        message: `${sentCount}名に一括パスワード設定依頼メールを送信しました。` + (skippedCount > 0 ? ` (${skippedCount}名はメールアドレス未設定のためスキップされました)` : ''),
+        expiresInDays: validDays,
+        message: `${sentCount}名に一括パスワード設定依頼メールを送信しました。（有効期限: ${expiresLabel}）` + (skippedCount > 0 ? ` (${skippedCount}名はメールアドレス未設定のためスキップされました)` : ''),
         sentUsers
       });
     } catch (err: any) {

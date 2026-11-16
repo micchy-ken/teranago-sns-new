@@ -70,6 +70,7 @@ export type UserBookmarkCategory =
   | 'memo'
   | 'daily_report'
   | 'site'
+  | 'assets'
   | 'other';
 
 export interface UserBookmarkItem {

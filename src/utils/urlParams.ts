@@ -31,6 +31,15 @@ export interface AppQueryParams {
   pollId?: string;
   // Assets (資産管理) specific
   assetId?: string;
+  assetSubTab?: 'details' | 'history';
+  assetMode?: 'my' | 'catalog' | 'shared' | 'calendar';
+  assetCategory?: string;
+  assetOffice?: string;
+  assetAssignee?: string;
+  assetLens?: 'all' | 'inspection_due' | 'last_inspection' | 'attachments' | 'lease_alert';
+  assetAlert?: 'none' | 'all_alerts' | 'overdue' | 'inspection_1m' | 'replacement_6m';
+  assetQ?: string;
+  assetShowRetired?: boolean;
   // User Invitation & Password Reset
   inviteToken?: string;
   resetToken?: string;
@@ -84,6 +93,36 @@ export function normalizeCalendarMode(modeStr?: string | null): 'personal' | 'te
   const lower = modeStr.toLowerCase().trim();
   if (['team', 'group', 'チーム', 'グループ', '部', '部署'].includes(lower)) return 'team';
   if (['personal', 'user', 'me', '個人', '自分'].includes(lower)) return 'personal';
+  return undefined;
+}
+
+export function normalizeAssetMode(modeStr?: string | null): 'my' | 'catalog' | 'shared' | 'calendar' | undefined {
+  if (!modeStr) return undefined;
+  const lower = modeStr.toLowerCase().trim();
+  if (['my', 'mine', 'personal', '自分', '自分の資産'].includes(lower)) return 'my';
+  if (['catalog', 'list', 'daicho', 'all', '台帳', '資産台帳', '種類別'].includes(lower)) return 'catalog';
+  if (['shared', 'common', 'kyoyu', '共用', '共用資産'].includes(lower)) return 'shared';
+  if (['calendar', 'cal', 'schedule', 'カレンダー', '資産カレンダー'].includes(lower)) return 'calendar';
+  return undefined;
+}
+
+export function normalizeAssetLens(lensStr?: string | null): 'all' | 'inspection_due' | 'last_inspection' | 'attachments' | 'lease_alert' | undefined {
+  if (!lensStr) return undefined;
+  const lower = lensStr.toLowerCase().trim();
+  if (['all', 'すべて'].includes(lower)) return 'all';
+  if (['inspection_due', 'inspection', 'due', '点検予定'].includes(lower)) return 'inspection_due';
+  if (['last_inspection', 'last', '前回点検日'].includes(lower)) return 'last_inspection';
+  if (['attachments', 'files', '資料添付'].includes(lower)) return 'attachments';
+  if (['lease_alert', 'alert', 'lease', 'リースアップ・アラート'].includes(lower)) return 'lease_alert';
+  return undefined;
+}
+
+export function normalizeAssetAlert(alertStr?: string | null): 'none' | 'all_alerts' | 'overdue' | 'inspection_1m' | 'replacement_6m' | undefined {
+  if (!alertStr) return undefined;
+  const lower = alertStr.toLowerCase().trim();
+  if (['none', 'all_alerts', 'overdue', 'inspection_1m', 'replacement_6m'].includes(lower)) {
+    return lower as any;
+  }
   return undefined;
 }
 
@@ -167,6 +206,40 @@ export function parseAppQueryParams(searchString?: string): AppQueryParams {
   const rawAssetId = params.get('assetId') || params.get('asset_id') || (result.tab === 'assets' ? params.get('id') : undefined);
   if (rawAssetId) result.assetId = rawAssetId;
 
+  const rawAssetSubTab = params.get('assetSubTab') || params.get('asset_sub_tab');
+  if (rawAssetSubTab === 'history' || rawAssetSubTab === 'details') {
+    result.assetSubTab = rawAssetSubTab;
+  }
+
+  const rawAssetMode = params.get('assetMode') || params.get('asset_mode') || (result.tab === 'assets' ? params.get('mode') : undefined);
+  const normalizedAssetMode = normalizeAssetMode(rawAssetMode);
+  if (normalizedAssetMode) result.assetMode = normalizedAssetMode;
+
+  const rawAssetCategory = params.get('assetCategory') || params.get('asset_category') || (result.tab === 'assets' ? params.get('category') : undefined);
+  if (rawAssetCategory) result.assetCategory = decodeURIComponent(rawAssetCategory);
+
+  const rawAssetOffice = params.get('assetOffice') || params.get('asset_office') || (result.tab === 'assets' ? params.get('office') : undefined);
+  if (rawAssetOffice) result.assetOffice = decodeURIComponent(rawAssetOffice);
+
+  const rawAssetAssignee = params.get('assetAssignee') || params.get('asset_assignee') || (result.tab === 'assets' ? params.get('assignee') : undefined);
+  if (rawAssetAssignee) result.assetAssignee = decodeURIComponent(rawAssetAssignee);
+
+  const rawAssetLens = params.get('assetLens') || params.get('asset_lens') || (result.tab === 'assets' ? params.get('lens') : undefined);
+  const normalizedAssetLens = normalizeAssetLens(rawAssetLens);
+  if (normalizedAssetLens) result.assetLens = normalizedAssetLens;
+
+  const rawAssetAlert = params.get('assetAlert') || params.get('asset_alert');
+  const normalizedAssetAlert = normalizeAssetAlert(rawAssetAlert);
+  if (normalizedAssetAlert) result.assetAlert = normalizedAssetAlert;
+
+  const rawAssetQ = params.get('assetQ') || params.get('asset_q') || (result.tab === 'assets' ? params.get('q') : undefined);
+  if (rawAssetQ) result.assetQ = decodeURIComponent(rawAssetQ);
+
+  const rawAssetShowRetired = params.get('assetShowRetired') || params.get('asset_show_retired') || (result.tab === 'assets' ? params.get('showRetired') : undefined);
+  if (rawAssetShowRetired === '1' || rawAssetShowRetired === 'true') {
+    result.assetShowRetired = true;
+  }
+
   // 8. Safety Confirmation Specific
   const rawSafetyEventId = params.get('safetyEventId') || params.get('safety_event_id') || params.get('eventId') || (result.tab === 'safety_confirmation' ? params.get('id') : undefined);
   if (rawSafetyEventId) {
@@ -211,6 +284,19 @@ export function parseAppQueryParams(searchString?: string): AppQueryParams {
   if (rawAuthMode === 'invite') result.authMode = 'invite';
   if (rawAuthMode === 'reset-password' || rawAuthMode === 'reset' || rawAuthMode === 'password-reset') result.authMode = 'reset-password';
 
+  if (
+    !result.tab &&
+    (result.assetId ||
+      result.assetMode ||
+      result.assetCategory ||
+      result.assetOffice ||
+      result.assetAssignee ||
+      result.assetLens ||
+      result.assetAlert ||
+      result.assetQ)
+  ) {
+    result.tab = 'assets';
+  }
   // If office/division/mode/view/eventId/targetUserId were specified but no explicit tab, imply tab=calendar
   if (!result.tab && (result.office || result.division || result.mode || result.view || result.eventId || result.targetUserId)) {
     result.tab = 'calendar';
@@ -232,9 +318,6 @@ export function parseAppQueryParams(searchString?: string): AppQueryParams {
   }
   if (!result.tab && result.safetyEventId) {
     result.tab = 'safety_confirmation';
-  }
-  if (!result.tab && result.assetId) {
-    result.tab = 'assets';
   }
 
   return result;
@@ -393,6 +476,33 @@ export function buildAppUrl(params?: AppQueryParams, baseUrl?: string): string {
   }
   if (params.assetId) {
     searchParams.set('assetId', params.assetId);
+  }
+  if (params.assetSubTab && params.assetSubTab !== 'details') {
+    searchParams.set('assetSubTab', params.assetSubTab);
+  }
+  if (params.assetMode) {
+    searchParams.set('assetMode', params.assetMode);
+  }
+  if (params.assetCategory && params.assetCategory !== 'all') {
+    searchParams.set('assetCategory', params.assetCategory);
+  }
+  if (params.assetOffice && params.assetOffice !== 'all') {
+    searchParams.set('assetOffice', params.assetOffice);
+  }
+  if (params.assetAssignee && params.assetAssignee !== 'all') {
+    searchParams.set('assetAssignee', params.assetAssignee);
+  }
+  if (params.assetLens && params.assetLens !== 'all') {
+    searchParams.set('assetLens', params.assetLens);
+  }
+  if (params.assetAlert && params.assetAlert !== 'none') {
+    searchParams.set('assetAlert', params.assetAlert);
+  }
+  if (params.assetQ && params.assetQ.trim()) {
+    searchParams.set('assetQ', params.assetQ.trim());
+  }
+  if (params.assetShowRetired) {
+    searchParams.set('assetShowRetired', '1');
   }
   if (params.openEmergencyContact) {
     searchParams.set('openEmergencyContact', 'true');

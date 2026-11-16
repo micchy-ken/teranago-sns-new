@@ -497,6 +497,7 @@ export function AdminPanel({
   const [userTabSubMode, setUserTabSubMode] = useState<'members' | 'invitations'>('members');
   const [resetPasswordSendingId, setResetPasswordSendingId] = useState<string | null>(null);
   const [isSendingBulkReset, setIsSendingBulkReset] = useState(false);
+  const [resetExpiresDays, setResetExpiresDays] = useState(7);
 
   // ワンクリック・個別メニュー表示切り替え（点検予定管理）
   const handleToggleInspection = (targetUser: User) => {
@@ -934,10 +935,12 @@ export function AdminPanel({
       return;
     }
 
+    const expiresLabel = resetExpiresDays === 1 ? '24時間 (1日)' : resetExpiresDays === 7 ? '7日間 (1週間)' : `${resetExpiresDays}日間`;
+
     setConfirmModal({
       isOpen: true,
       title: 'パスワード設定依頼の送信',
-      message: `${targetUser.name} 様（${targetEmail}）宛に、ワンタイムのパスワード設定メールを送信しますか？\n\n受信者はメール内のリンクから直接新しいパスワードを設定できます。`,
+      message: `${targetUser.name} 様（${targetEmail}）宛に、ワンタイムのパスワード設定メールを送信しますか？\n\n・リンク有効期限: ${expiresLabel}\n・受信者はメール内のリンクから直接新しいパスワードを設定できます。`,
       confirmText: 'メールを送信する',
       type: 'info',
       onConfirm: async () => {
@@ -947,7 +950,8 @@ export function AdminPanel({
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              senderName: currentUser.name || '管理者'
+              senderName: currentUser.name || '管理者',
+              expiresInDays: resetExpiresDays
             })
           });
           const data = await res.json();
@@ -987,10 +991,12 @@ export function AdminPanel({
     const nameList = unsetWithEmail.slice(0, 8).map(u => `• ${u.name} (${u.mobileEmail || u.email})`).join('\n') +
       (unsetWithEmail.length > 8 ? `\n...他 ${unsetWithEmail.length - 8} 名` : '');
 
+    const expiresLabel = resetExpiresDays === 1 ? '24時間 (1日)' : resetExpiresDays === 7 ? '7日間 (1週間)' : `${resetExpiresDays}日間`;
+
     setConfirmModal({
       isOpen: true,
       title: '未設定メンバーへ一括パスワード設定依頼送信',
-      message: `パスワードが未設定（初期PW: test）のメンバー ${unsetWithEmail.length} 名へ、パスワード設定依頼メールを一括送信しますか？\n\n【対象メンバー（一部抜粋）】\n${nameList}\n\n※メールアドレス未設定のメンバー（${unsetUsers.length - unsetWithEmail.length}名）は自動的にスキップされます。`,
+      message: `パスワードが未設定（初期PW: test）のメンバー ${unsetWithEmail.length} 名へ、パスワード設定依頼メールを一括送信しますか？\n（リンク有効期限: ${expiresLabel}）\n\n【対象メンバー（一部抜粋）】\n${nameList}\n\n※メールアドレス未設定のメンバー（${unsetUsers.length - unsetWithEmail.length}名）は自動的にスキップされます。`,
       confirmText: `${unsetWithEmail.length}名に一括送信する`,
       type: 'warning',
       onConfirm: async () => {
@@ -1000,7 +1006,8 @@ export function AdminPanel({
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              senderName: currentUser.name || '管理者'
+              senderName: currentUser.name || '管理者',
+              expiresInDays: resetExpiresDays
             })
           });
           const data = await res.json();
@@ -2397,27 +2404,49 @@ export function AdminPanel({
                       )}
                     </div>
 
-                    {unsetWithEmail.length > 0 && (
-                      <button
-                        type="button"
-                        disabled={isSendingBulkReset}
-                        onClick={handleSendBulkPasswordResetRequest}
-                        title="パスワード未設定のメンバーへ一括でメールを送信します"
-                        className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white font-extrabold rounded-xl shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer text-xs self-start sm:self-auto shrink-0"
+                    <div className="flex flex-wrap items-center gap-2.5 self-start sm:self-auto">
+                      <label
+                        htmlFor="reset-expires-days-select"
+                        className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 shadow-2xs"
+                        title="個別送信・一括送信の両方に適用されるパスワード設定リンクの有効期限"
                       >
-                        {isSendingBulkReset ? (
-                          <>
-                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                            <span>送信中...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Send className="w-3.5 h-3.5" />
-                            <span>✉️ 未設定 {unsetWithEmail.length}名へ一括パスワード設定依頼を送信</span>
-                          </>
-                        )}
-                      </button>
-                    )}
+                        <span className="text-[11px] font-bold text-slate-600 whitespace-nowrap">PW設定リンク有効期限:</span>
+                        <select
+                          id="reset-expires-days-select"
+                          value={resetExpiresDays}
+                          onChange={(e) => setResetExpiresDays(Number(e.target.value))}
+                          className="text-xs font-extrabold text-indigo-700 bg-transparent focus:outline-none cursor-pointer"
+                        >
+                          <option value={1}>24時間 (1日)</option>
+                          <option value={3}>3日間</option>
+                          <option value={7}>7日間 (1週間・推奨)</option>
+                          <option value={14}>14日間</option>
+                          <option value={30}>30日間</option>
+                        </select>
+                      </label>
+
+                      {unsetWithEmail.length > 0 && (
+                        <button
+                          type="button"
+                          disabled={isSendingBulkReset}
+                          onClick={handleSendBulkPasswordResetRequest}
+                          title="パスワード未設定のメンバーへ一括でメールを送信します"
+                          className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white font-extrabold rounded-xl shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer text-xs whitespace-nowrap shrink-0"
+                        >
+                          {isSendingBulkReset ? (
+                            <>
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                              <span>送信中...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Send className="w-3.5 h-3.5" />
+                              <span>✉️ 未設定 {unsetWithEmail.length}名へ一括パスワード設定依頼を送信</span>
+                            </>
+                          )}
+                        </button>
+                      )}
+                    </div>
                   </div>
                 );
               })()}

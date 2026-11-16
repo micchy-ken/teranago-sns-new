@@ -7,11 +7,11 @@
  * - 機能追加・バグ修正・仕様変更のたびに必ず更新すること
  */
 export const APP_VERSION = {
-  version: '2026.11.13.13',
-  date: '2026.11.13',
-  releaseNumber: 13,
-  display: 'v2026.11.13 #13 (JST)',
+  version: '2026.11.16.2',
+  date: '2026.11.16',
+  releaseNumber: 2,
+  display: 'v2026.11.16 #2 (JST)',
   timeZone: 'Asia/Tokyo (JST)',
-  description: '資産管理の拠点絞り込みを資産台帳表示時のみのマスタ連動ドロップダウン（検索バー統合・自分の資産時は自動オフ）へ変更'
+  description: '資産管理（一覧・絞り込み＆単体資産）のフルクエリパラメータ・共有リンクコピー・お気に入り自動ストック対応'
 };
 
