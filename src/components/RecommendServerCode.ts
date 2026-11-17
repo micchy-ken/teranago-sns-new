@@ -1,7 +1,7 @@
 export const RECOMMEND_SERVER_JS = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年11月17日 (セキュリティ強化 Step3完: CORS完全一致リスト化・ファイルAPI認証必須化・パストラバーサル防止版)
+ * 最終更新日時 (最終アップデート): 2026年11月17日 (開発プレビューiframe表示修正・CORS完全一致・認証・パストラバーサル防止版)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -103,6 +103,7 @@ async function startServer() {
   app.options('*', cors(corsOptions));
 
   // 2. セキュリティ強化レスポンスヘッダーミドルウェア
+  const isAiStudioPreviewEnv = Boolean(process.env.APP_URL || process.env.SHARED_APP_URL);
   app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     // ドキュメントプレビューやiframe埋め込みを許可するため、許可オリジンのみ frame-ancestors に指定
@@ -117,6 +118,8 @@ async function startServer() {
         'Content-Security-Policy',
         "frame-ancestors 'self' https://micchy-ken.github.io https://sns.teranago.synology.me http://sns.teranago.synology.me http://localhost:3000 http://localhost:3001 http://localhost:5173"
       );
+    } else if (isAiStudioPreviewEnv && !req.path.startsWith('/api')) {
+      // AI Studio 開発プレビュー環境では各種プレビュー用親フレーム (*.usercontent.goog / aistudio.google.com 等) からのiframe表示を妨げないよう非APIレスポンスには制限ヘッダーを付与しない
     } else {
       res.setHeader('X-Frame-Options', 'SAMEORIGIN');
     }
@@ -8597,8 +8600,8 @@ startServer();
 
 export const SERVER_CODE_HISTORY = [
   {
-    version: "v2026.11.17 #6 (JST)",
+    version: "v2026.11.17 #7 (JST)",
     date: "2026-11-17",
-    description: "セキュリティ強化 Step3完: CORS完全一致リスト化・ファイルAPI認証必須化・パストラバーサル防止・Bearerトークン認証・IDOR防止・初期平文パスワード廃止・AES暗号鍵必須化"
+    description: "開発プレビューiframe表示対応・CORS完全一致リスト化・ファイルAPI認証必須化・パストラバーサル防止"
   }
 ];

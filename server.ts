@@ -82,6 +82,7 @@ async function startServer() {
   app.options('*', cors(corsOptions));
 
   // 2. セキュリティ強化レスポンスヘッダーミドルウェア
+  const isAiStudioPreviewEnv = Boolean(process.env.APP_URL || process.env.SHARED_APP_URL);
   app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     // ドキュメントプレビューやiframe埋め込みを許可するため、許可オリジンのみ frame-ancestors に指定
@@ -96,6 +97,8 @@ async function startServer() {
         'Content-Security-Policy',
         "frame-ancestors 'self' https://micchy-ken.github.io https://sns.teranago.synology.me http://sns.teranago.synology.me http://localhost:3000 http://localhost:3001 http://localhost:5173"
       );
+    } else if (isAiStudioPreviewEnv && !req.path.startsWith('/api')) {
+      // AI Studio 開発プレビュー環境では各種プレビュー用親フレーム (*.usercontent.goog / aistudio.google.com 等) からのiframe表示を妨げないよう非APIレスポンスには制限ヘッダーを付与しない
     } else {
       res.setHeader('X-Frame-Options', 'SAMEORIGIN');
     }

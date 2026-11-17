@@ -54,62 +54,95 @@ export function appendAuthTokenToUrl(url?: string | null): string {
   return `${url}${sep}token=${encodeURIComponent(token)}`;
 }
 
-// 全 /api/* リクエストへ Authorization: Bearer <token> を自動付与するグローバル fetch インターセプター
-if (typeof window !== 'undefined' && !(window as any).__teranagoAuthFetchInstalled) {
-  (window as any).__teranagoAuthFetchInstalled = true;
-  const originalFetch = window.fetch.bind(window);
+const originalFetch: typeof fetch | null =
+  typeof window !== 'undefined' && typeof window.fetch === 'function'
+    ? ((window as any).__teranagoOriginalFetch ||= window.fetch.bind(window))
+    : typeof globalThis !== 'undefined' && typeof globalThis.fetch === 'function'
+    ? globalThis.fetch.bind(globalThis)
+    : null;
 
-  window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    const rawUrl =
-      typeof input === 'string'
-        ? input
-        : input instanceof URL
-        ? input.toString()
-        : input instanceof Request
-        ? input.url
-        : String(input);
+/**
+ * 全 /api/* リクエストへ Authorization: Bearer <token> を自動付与し、
+ * 認証切れ (401) を検知する fetch ラッパー
+ */
+export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  if (!originalFetch) {
+    throw new Error('Fetch API is not available in this environment.');
+  }
 
-    const isApiCall =
-      rawUrl.startsWith(API_BASE_URL) ||
-      rawUrl.includes('/api/') ||
-      rawUrl.startsWith('/api');
+  const rawUrl =
+    typeof input === 'string'
+      ? input
+      : input instanceof URL
+      ? input.toString()
+      : input instanceof Request
+      ? input.url
+      : String(input);
 
-    const token = getAuthToken();
-    let nextInit: RequestInit | undefined = init;
+  const isApiCall =
+    rawUrl.startsWith(API_BASE_URL) ||
+    rawUrl.includes('/api/') ||
+    rawUrl.startsWith('/api');
 
-    if (isApiCall && token) {
-      const headers = new Headers(
-        init?.headers || (input instanceof Request ? input.headers : undefined)
-      );
-      if (!headers.has('Authorization')) {
-        headers.set('Authorization', `Bearer ${token}`);
-      }
-      nextInit = {
-        ...init,
-        headers
-      };
+  const token = getAuthToken();
+  let nextInit: RequestInit | undefined = init;
+
+  if (isApiCall && token) {
+    const headers = new Headers(
+      init?.headers || (input instanceof Request ? input.headers : undefined)
+    );
+    if (!headers.has('Authorization')) {
+      headers.set('Authorization', `Bearer ${token}`);
     }
+    nextInit = {
+      ...init,
+      headers
+    };
+  }
 
-    const response = await originalFetch(input, nextInit);
+  const response = await originalFetch(input, nextInit);
 
-    // 認証済み状態での API 401 応答検知（ログイン/ログアウトAPI自体は除外）
-    if (
-      isApiCall &&
-      response.status === 401 &&
-      token &&
-      !/\/(auth\/login|login|auth\/logout|logout)(\/|\?|$)/.test(rawUrl)
-    ) {
-      clearAuthToken();
-      try {
-        sessionStorage.setItem(
-          'auth_relogin_notice',
-          'セッションの有効期限が切れたか、セキュリティ更新が適用されました。再度ログインしてください。'
-        );
-      } catch {}
+  // 認証済み状態での API 401 応答検知（ログイン/ログアウトAPI自体は除外）
+  if (
+    isApiCall &&
+    response.status === 401 &&
+    token &&
+    !/\/(auth\/login|login|auth\/logout|logout)(\/|\?|$)/.test(rawUrl)
+  ) {
+    clearAuthToken();
+    try {
+      sessionStorage.setItem(
+        'auth_relogin_notice',
+        'セッションの有効期限が切れたか、セキュリティ更新が適用されました。再度ログインしてください。'
+      );
+    } catch {}
+    if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('auth_session_expired'));
     }
+  }
 
-    return response;
-  };
+  return response;
 }
 
+// グローバル fetch へ安全に組み込む（getter-only 環境や読み取り専用サンドボックスでもクラッシュさせない）
+if (typeof window !== 'undefined' && originalFetch && !(window as any).__teranagoAuthFetchInstalled) {
+  try {
+    const desc = Object.getOwnPropertyDescriptor(window, 'fetch');
+    if (!desc || desc.configurable) {
+      Object.defineProperty(window, 'fetch', {
+        value: apiFetch,
+        writable: true,
+        enumerable: desc ? desc.enumerable : true,
+        configurable: true,
+      });
+      (window as any).__teranagoAuthFetchInstalled = true;
+    } else if (desc.writable) {
+      window.fetch = apiFetch;
+      (window as any).__teranagoAuthFetchInstalled = true;
+    } else {
+      console.warn('window.fetch is non-configurable/read-only; global auth interceptor skipped.');
+    }
+  } catch (err) {
+    console.warn('Unable to install global auth fetch interceptor:', err);
+  }
+}

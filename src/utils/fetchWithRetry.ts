@@ -6,6 +6,8 @@
  * 透過的に自動リトライしてデータ同期エラー表示のチラつき・誤報を防止するユーティリティ
  */
 
+import { apiFetch } from '../config/api';
+
 export async function fetchWithRetry(
   input: RequestInfo | URL,
   init?: RequestInit,
@@ -15,7 +17,7 @@ export async function fetchWithRetry(
   let attempt = 0;
   while (true) {
     try {
-      const response = await fetch(input, init);
+      const response = await apiFetch(input, init);
       // 502/503/504 等の一時的なリバースプロキシエラー時もリトライ対象
       if ((response.status === 502 || response.status === 503 || response.status === 504) && attempt < retries) {
         attempt++;

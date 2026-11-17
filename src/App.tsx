@@ -3744,8 +3744,8 @@ export default function App() {
         initialInviteToken={initialUrlParams.inviteToken}
         initialResetToken={initialUrlParams.resetToken}
         isAlreadyLoggedIn={isAuthenticated}
-        onLogin={(user) => {
-          handleLogin(user);
+        onLogin={(user, token) => {
+          handleLogin(user, token);
           setShowAuthScreen(false);
         }}
         onUserRegistered={(newUser) => {
