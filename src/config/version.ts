@@ -4,10 +4,10 @@
  * その日の何番目のバージョンかを示すデイリー番号 (#1, #2, ...) を更新してください。
  */
 export const APP_VERSION = {
-  version: '2026.11.17.9',
+  version: '2026.11.17.10',
   date: '2026-11-17',
-  releaseNumber: 9,
+  releaseNumber: 10,
   timeZone: 'Asia/Tokyo (JST)',
-  display: 'v2026.11.17 #9 (JST)',
-  description: '操作マニュアルにプロジェクト管理機能（第7章）を追記'
+  display: 'v2026.11.17 #10 (JST)',
+  description: '操作マニュアルに「やること別（目的別）クイック操作ガイド」を追加'
 } as const;

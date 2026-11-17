@@ -406,6 +406,91 @@
       background: #f8fafc;
     }
 
+    /* やること別レシピカード・逆引きUI */
+    .nav-group-label {
+      font-size: 10.5px;
+      font-weight: 800;
+      color: var(--text-muted);
+      letter-spacing: 0.04em;
+      padding: 8px 10px 4px 10px;
+      margin-top: 4px;
+    }
+
+    .recipe-toc-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 10px;
+      margin: 16px 0 24px 0;
+    }
+
+    .recipe-toc-card {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 14px;
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      text-decoration: none;
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 700;
+      transition: all 0.15s ease;
+    }
+
+    .recipe-toc-card:hover {
+      background: var(--primary-light);
+      border-color: #c7d2fe;
+      color: var(--primary-dark);
+      transform: translateY(-1px);
+    }
+
+    .recipe-card {
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 20px 22px;
+      margin-bottom: 20px;
+      background: #ffffff;
+      scroll-margin-top: 24px;
+    }
+
+    .recipe-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 10px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #f1f5f9;
+    }
+
+    .recipe-card-title {
+      font-size: 16px;
+      font-weight: 800;
+      color: #0f172a;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .recipe-goal {
+      font-size: 13px;
+      color: #475569;
+      background: #f8fafc;
+      border-left: 3px solid var(--primary);
+      padding: 8px 12px;
+      border-radius: 0 8px 8px 0;
+      margin-bottom: 14px;
+    }
+
+    .recipe-subhead {
+      font-size: 13.5px;
+      font-weight: 800;
+      color: #1e293b;
+      margin: 14px 0 8px 0;
+    }
+
     /* フッター */
     .manual-footer {
       text-align: center;
@@ -462,9 +547,18 @@
         <div class="brand-subtitle">寺岡オートドアSNS / 寺子屋SNS</div>
       </div>
 
-      <input type="text" id="manualSearch" class="nav-search" placeholder="🔍 機能を検索..." onkeyup="filterMenu()">
+      <input type="text" id="manualSearch" class="nav-search" placeholder="🔍 機能・やりたいことを検索..." onkeyup="filterMenu()">
 
       <ul class="nav-menu" id="menuList">
+        <li class="nav-group-label">📌 やること別レシピ（逆引き）</li>
+        <li class="nav-item"><a href="#sec-recipes">🎯 やること別ガイド一覧 <span class="badge-auth badge-free">逆引き</span></a></li>
+        <li class="nav-item"><a href="#recipe-site">🏗️ 現場追加・作業・工程入力 <span class="badge-auth badge-free">現場</span></a></li>
+        <li class="nav-item"><a href="#recipe-daily">📝 保守日報・予定自動取込 <span class="badge-auth badge-free">日報</span></a></li>
+        <li class="nav-item"><a href="#recipe-project">🗂️ プロジェクト作成・アサイン <span class="badge-auth badge-free">案件</span></a></li>
+        <li class="nav-item"><a href="#recipe-workflow">✍️ 各種ワークフロー申請 <span class="badge-auth badge-free">承認</span></a></li>
+        <li class="nav-item"><a href="#recipe-meeting">🗓️ 日程調整・重要回覧・BCP <span class="badge-auth badge-free">日常</span></a></li>
+
+        <li class="nav-group-label">📚 機能別リファレンス</li>
         <li class="nav-item"><a href="#sec-intro">はじめに・概要・PWA <span class="badge-auth badge-free">全般</span></a></li>
         <li class="nav-item"><a href="#sec-timeline">🏠 タイムライン (SNS) <span class="badge-auth badge-free">全員</span></a></li>
         <li class="nav-item"><a href="#sec-reports">📋 業務日報・現場報告 <span class="badge-auth badge-free">全員</span></a></li>
@@ -495,9 +589,9 @@
       <!-- ヘッダーバナー -->
       <div class="header-banner">
         <h1>寺岡オートドアSNS / 寺子屋SNS 総合操作マニュアル</h1>
-        <p>社内ナレッジの蓄積・タイムライン・日報・チャット（@特殊コマンド群）・プロジェクト管理・点検予定管理・文書キャビネット・安否確認の全機能を網羅した公式操作ガイドです。</p>
+        <p>「やりたいこと」からすぐ引ける業務レシピ集と、社内ナレッジ・日報・現場管理・プロジェクト管理・ワークフロー・点検予定・文書キャビネット・安否確認の全機能を網羅した公式操作ガイドです。</p>
         <div class="meta-bar">
-          <span>バージョン: v2026.11.17 #9 (完全版)</span>
+          <span>バージョン: v2026.11.17 #10 (完全版)</span>
           <span>最終改定日: 2026年11月17日</span>
           <span>タイムゾーン: 日本標準時 (JST / UTC+09:00) 厳格準拠</span>
           <span>対象: 全社員・管理者・現場技術員</span>
@@ -557,6 +651,173 @@
           <div>
             <strong>Web Push通知の許可</strong>: 初回ログイン時またはヘッダー右側のベルアイコンから「通知を許可」してください。緊急安否確認やチャットメンション、重要掲示板の通知をリアルタイムに受け取ることができます。
           </div>
+        </div>
+      </section>
+
+      <!-- やること別・業務シナリオガイド（逆引きレシピ集） -->
+      <section id="sec-recipes" class="doc-section">
+        <div class="section-header">
+          <div class="section-title">
+            <span class="section-icon">🎯</span>
+            <span>やること別（目的別）クイック操作ガイド</span>
+          </div>
+          <span class="badge-auth badge-free">目的から探す逆引きレシピ</span>
+        </div>
+        <p>「どのメニューを開けばいいか分からない」「いつもの業務手順だけをすぐ確認したい」ときは、以下のやりたいことから手順を逆引きできます。</p>
+
+        <div class="recipe-toc-grid">
+          <a href="#recipe-site" class="recipe-toc-card"><span>🏗️</span><span>現場を追加・作業を入れる</span></a>
+          <a href="#recipe-daily" class="recipe-toc-card"><span>📝</span><span>保守日報・スケジュール取込</span></a>
+          <a href="#recipe-project" class="recipe-toc-card"><span>🗂️</span><span>プロジェクト作成・アサイン</span></a>
+          <a href="#recipe-workflow" class="recipe-toc-card"><span>✍️</span><span>各種ワークフローを申請</span></a>
+          <a href="#recipe-meeting" class="recipe-toc-card"><span>🗓️</span><span>日程調整・掲示板・安否回答</span></a>
+        </div>
+
+        <!-- レシピ1: 現場管理 -->
+        <div id="recipe-site" class="recipe-card">
+          <div class="recipe-card-header">
+            <div class="recipe-card-title"><span>🏗️</span><span>レシピ1：現場管理に現場を追加する・作業（施工日・予定）を入れる</span></div>
+            <span class="badge-auth badge-free">現場管理 ＋ カレンダー連動</span>
+          </div>
+          <div class="recipe-goal">
+            <strong>ゴール</strong>：新しい現場を台帳へ登録し、EG・主要部品ごとの施工日／施工者や、カレンダー連動の工事乗り込み予定を見える化する。
+          </div>
+
+          <div class="recipe-subhead">A. 新しい現場を追加する</div>
+          <div class="step-box">
+            <ol>
+              <li>左サイドバーの「<strong>現場管理</strong>」を開き、右上の「<strong>現場を新規登録</strong>」をクリックします。</li>
+              <li>在庫データベースと連携する場合は、フォーム上部の検索欄に<strong>現場コード（例: NHQ136A）または現場名</strong>を入力して「<strong>検索して取得</strong>」をクリックし、該当現場を選択します（基本情報・EG台数・主要部品が1台ずつ分割展開されます）。</li>
+              <li>手入力で部品を増やす場合は「<strong>部品を追加</strong>」をクリックして品名・型式等を追加し、基本情報や図面を確認して登録を完了します。</li>
+            </ol>
+          </div>
+
+          <div class="recipe-subhead">B. 現場に作業（部品進捗・施工スケジュール）を入れる</div>
+          <div class="step-box">
+            <ol>
+              <li><strong>部品ごとの施工日・施工者・進捗を入れる</strong>：現場一覧から対象現場をクリックして詳細画面を開き、「<strong>主要部品・施工進捗</strong>」欄で各台の「出庫日」「施工日」「施工者」「進捗」を入力して「<strong>保存</strong>」します（ガントチャートや全体進捗、CRM取り込みCSV出力へ自動反映されます）。</li>
+              <li><strong>工事予定（乗り込み作業）を入れる</strong>：左サイドバーの「<strong>カレンダー</strong>」から「<strong>予定を追加</strong>」を開き、区分で「<strong>工事</strong>」を選択したうえで、対象現場・乗り込み種別（【新規乗り込み】【出庫】【残工事】）・担当施工者を登録します。</li>
+            </ol>
+          </div>
+
+          <div class="callout callout-info">
+            <span class="callout-icon">💡</span>
+            <div>
+              <strong>現場管理とカレンダーの自動連動</strong>：カレンダーで区分「工事」かつ現場名を紐付けて登録すると、現場管理側の「<strong>現場施工スケジュール・施工実績</strong>」および「<strong>施工者スケジュール（乗り込み現場確認）</strong>」タブに自動集約されます。
+            </div>
+          </div>
+        </div>
+
+        <!-- レシピ2: 保守日報 -->
+        <div id="recipe-daily" class="recipe-card">
+          <div class="recipe-card-header">
+            <div class="recipe-card-title"><span>📝</span><span>レシピ2：保守日報を作る・スケジュールから自動取り込みする</span></div>
+            <span class="badge-auth badge-free">業務日報（保守日報モード）</span>
+          </div>
+          <div class="recipe-goal">
+            <strong>ゴール</strong>：カレンダーの保守・点検予定をワンクリックで保守日報へ取り込み、作業区分と点数を自動計算して提出する。
+          </div>
+
+          <div class="step-box">
+            <ol>
+              <li>左サイドバーの「<strong>業務日報</strong>」を開き、「保守日報」モードから右上の「<strong>新規 保守日報を作成</strong>」をクリックします。</li>
+              <li>画面上部で<strong>対象日付</strong>と<strong>様式（本社／名古屋支店／静岡営業所／浜松営業所／三河営業所など）</strong>を選択します。</li>
+              <li>右上の「<strong>スケジュール自動取り込み</strong>」ボタン（スマホ表示では「自動取込」）をクリックします。選択日の予定から「点検」「取替」「修理」に該当する現場名・作業時間・区分が自動で明細行へ展開され、肌色セル（点数・集計値）が自動計算されます。</li>
+              <li>緑色の手入力欄に必要な作業内容・備考等を追記します。</li>
+              <li>作業途中なら「<strong>下書き保存</strong>」、完了したら「<strong>日報を提出</strong>」をクリックして上長へ回覧します（提出後に修正したい場合は「<strong>取り下げ・編集</strong>」、差し戻された場合は修正後に「<strong>日報を再提出</strong>」を押します）。</li>
+            </ol>
+          </div>
+
+          <div class="callout callout-warning">
+            <span class="callout-icon">⚠️</span>
+            <div>
+              <strong>スケジュールに取り込まれないときのチェック</strong>：自動取り込みの対象は「① 選択した日付（JST）の予定」「② 自分が作成者または参加メンバーに含まれている予定」「③ 区分が『点検』『取替』『修理』のいずれか」に限られます。カレンダー側の予定区分や参加者設定をご確認ください。
+            </div>
+          </div>
+        </div>
+
+        <!-- レシピ3: プロジェクト作成・アサイン -->
+        <div id="recipe-project" class="recipe-card">
+          <div class="recipe-card-header">
+            <div class="recipe-card-title"><span>🗂️</span><span>レシピ3：プロジェクトを作る・カードを追加してメンバーにアサインする</span></div>
+            <span class="badge-auth badge-free">プロジェクト管理（<a href="#sec-projects" style="color:inherit;text-decoration:underline;">第7章詳細</a>）</span>
+          </div>
+          <div class="recipe-goal">
+            <strong>ゴール</strong>：個人／チーム向けのボードを立ち上げ、メンバーにタスクを割り振って進捗を漏れなく追える状態にする。
+          </div>
+
+          <div class="recipe-subhead">A. 新しいプロジェクト（ボード）を作る</div>
+          <div class="step-box">
+            <ol>
+              <li>左サイドバーの「<strong>プロジェクト</strong>」を開き、左ペイン「ボード一覧」右上の「<strong>＋ 新規</strong>」をクリックします。</li>
+              <li>「<strong>チーム共有ボード</strong>」または「<strong>個人専用ボード</strong>」を選び、ボード名・説明を入力します。チーム共有の場合は閲覧・参加範囲（指定メンバー／部署／拠点／全社公開）と参加メンバーを選択します。</li>
+              <li>必要に応じて「カンバン列のカスタマイズ」で列（例：未着手／進行中／確認待ち／完了）を調整し、「<strong>ボードを作成</strong>」をクリックします。</li>
+            </ol>
+          </div>
+
+          <div class="recipe-subhead">B. タスクを追加してメンバーにアサインする</div>
+          <div class="step-box">
+            <ol>
+              <li>カンバン各列の「<code>＋ タイトルを入力してEnter</code>」で素早くカードを作るか、右上の「<strong>カード追加</strong>」をクリックして詳細画面を開きます。</li>
+              <li>上部の種別が「<strong>Todo</strong>」になっていることを確認し、タイトル・ステータス列・<strong>優先度</strong>（高/中/低/なし）・<strong>期限</strong>を設定します。</li>
+              <li>「<strong>担当者</strong>」欄の「<strong>メンバーを選択</strong>」（自分を割り当てる場合は「<strong>＋ 自分を追加</strong>」）から担当メンバーを選んで保存します。新しく割り当てられたメンバーには自動で通知が届きます。</li>
+              <li>チャットや伝言メモの会話からタスク化したい場合は、メッセージ／メモ上の「<strong>プロジェクトへ登録</strong>」を押すと内容をそのまま引き継いで起票できます。</li>
+            </ol>
+          </div>
+
+          <div class="callout callout-success">
+            <span class="callout-icon">✅</span>
+            <div>
+              <strong>自分の担当タスクだけを抜け漏れなく見るには</strong>：ボード上部の表示切替で「<strong>マイタスク</strong>」を選ぶと、個人・共有すべてのボードから自分が担当しているTodoだけが「期限切れ」「直近（3日以内）」「その他」の順に自動整理されます。
+            </div>
+          </div>
+        </div>
+
+        <!-- レシピ4: ワークフロー -->
+        <div id="recipe-workflow" class="recipe-card">
+          <div class="recipe-card-header">
+            <div class="recipe-card-title"><span>✍️</span><span>レシピ4：各種ワークフロー（発注・購入・補充・出張・金銀日報）を申請・承認する</span></div>
+            <span class="badge-auth badge-free">ワークフロー</span>
+          </div>
+          <div class="recipe-goal">
+            <strong>ゴール</strong>：申請種別に応じた正しい項目・承認ルートで申請を提出し、承認／差し戻しをスムーズに行う。
+          </div>
+
+          <div class="recipe-subhead">A. 新規申請を出す</div>
+          <div class="step-box">
+            <ol>
+              <li>左サイドバーの「<strong>ワークフロー</strong>」を開き、右上の「<strong>新規申請</strong>」をクリックします。</li>
+              <li>申請種別を選択します（<strong>発注申請／購入申請／補充申請／出張申請／金銀日報／その他</strong>）。
+                <ul>
+                  <li><strong>発注・購入・補充申請</strong>：品目明細や数量・金額（合計額自動計算）、購入依頼先、工事予定日などを入力します。</li>
+                  <li><strong>出張申請</strong>：出張タイトル・行先・期間・目的・添付資料を入力します。</li>
+                  <li><strong>金銀日報</strong>：タイトルに「<code>金銀日報-拠点 (YYYY/MM/DD)</code>」が自動セットされ、同拠点の直近金銀日報「今回残高」が「前回残高」へ自動引き継ぎされます。本日の今回残高を入力してください。</li>
+                </ul>
+              </li>
+              <li>承認ルート欄で、事前登録済みの「<strong>承認フロー</strong>（多段階承認）」を選ぶか、「<strong>-- 手動で承認者を直接1名指定 --</strong>」から承認者を指定して提出します（途中保存は「下書き」）。</li>
+            </ol>
+          </div>
+
+          <div class="recipe-subhead">B. 承認する・却下／確認する</div>
+          <div class="step-box">
+            <ol>
+              <li>自分が承認者に指定されている申請があると、「<strong>承認待ち</strong>」タブに件数が表示されます。</li>
+              <li>対象申請を開いて内容と添付ファイルを確認し、「承認」またはコメント付きで「却下」を実行します。過去の決裁履歴は「<strong>承認済み</strong>」タブからいつでも参照できます。</li>
+            </ol>
+          </div>
+        </div>
+
+        <!-- レシピ5: 日程調整・掲示板・安否確認 -->
+        <div id="recipe-meeting" class="recipe-card">
+          <div class="recipe-card-header">
+            <div class="recipe-card-title"><span>🗓️</span><span>レシピ5：会議の日程調整・社内回覧・緊急時の安否回答（よく使う逆引き）</span></div>
+            <span class="badge-auth badge-free">日常・緊急時</span>
+          </div>
+          <ul>
+            <li><strong>複数メンバーの空き時間を探して会議を決めたい</strong>：左サイドバー「ユーティリティー」＞「<strong>日程調整</strong>」を開き、対象メンバーと期間を指定すると全員のカレンダー（JST基準）から共通の空き枠を自動抽出し、投票アンケート送信〜確定登録まで行えます。（→ <a href="#sec-calendar" style="color:var(--primary);font-weight:700;">第6章へ</a>）</li>
+            <li><strong>全社・部署へ重要連絡を回し、誰が読んだか確認したい</strong>：「<strong>掲示板</strong>」から重要ピン留め付きで投稿すると、投稿者・管理者は「閲覧済み／未読」のメンバー一覧をリアルタイムで確認できます。（→ <a href="#sec-bulletins" style="color:var(--primary);font-weight:700;">第4章へ</a>）</li>
+            <li><strong>地震・災害等で安否確認が届いたとき</strong>：画面上部の「緊急安否確認バナー」または通知から「<strong>安否を回答する</strong>」を開き、本人状況・出社可否・家族/自宅状況・現在地を送信します。（→ <a href="#sec-safety" style="color:var(--primary);font-weight:700;">第11章へ</a>）</li>
+          </ul>
         </div>
       </section>
 
@@ -1161,8 +1422,13 @@
       const items = list.getElementsByTagName('li');
 
       for (let i = 0; i < items.length; i++) {
-        const a = items[i].getElementsByTagName('a')[0];
-        const text = a.textContent || a.innerText;
+        const linksInItem = items[i].getElementsByTagName('a');
+        if (!linksInItem || linksInItem.length === 0) {
+          items[i].style.display = filter ? 'none' : '';
+          continue;
+        }
+        const a = linksInItem[0];
+        const text = a.textContent || a.innerText || '';
         if (text.toLowerCase().indexOf(filter) > -1) {
           items[i].style.display = '';
         } else {
