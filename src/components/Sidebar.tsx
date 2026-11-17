@@ -264,9 +264,6 @@ export const Sidebar = React.memo(function Sidebar({
               <FolderKanban className="w-4 h-4 text-indigo-600" />
               <span>プロジェクト</span>
             </div>
-            <span className="px-1.5 py-0.5 text-[10px] font-bold text-amber-700 bg-amber-100 rounded-full text-center whitespace-nowrap">
-              開発中
-            </span>
           </button>
         )}
         {isTabAllowed('documents') && (

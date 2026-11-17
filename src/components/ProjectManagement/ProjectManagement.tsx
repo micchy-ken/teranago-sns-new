@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   FolderKanban,
   Plus,
@@ -27,6 +27,7 @@ import {
   LayoutGrid,
   List,
   UserCheck,
+  BookOpen,
 } from 'lucide-react';
 import { User, OfficeMaster, DivisionMaster } from '../../types';
 import {
@@ -118,6 +119,36 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
   // 共有・お気に入りフィードバック
   const [copiedBoardUrl, setCopiedBoardUrl] = useState(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+
+  // 上部ボード切替ドロップダウン（案B）
+  const [isBoardSwitcherOpen, setIsBoardSwitcherOpen] = useState(false);
+  const boardSwitcherRef = useRef<HTMLDivElement>(null);
+
+  // 1行目（資料欄）の折り畳み＆カテゴリ追加状態
+  const [isMemoRowCollapsed, setIsMemoRowCollapsed] = useState(false);
+  const [isAddingMemoCat, setIsAddingMemoCat] = useState(false);
+  const [newMemoCatTitle, setNewMemoCatTitle] = useState('');
+  const [isSavingMemoCat, setIsSavingMemoCat] = useState(false);
+
+  useEffect(() => {
+    if (!isBoardSwitcherOpen) return;
+    const handlePointerDown = (e: MouseEvent) => {
+      if (boardSwitcherRef.current && !boardSwitcherRef.current.contains(e.target as Node)) {
+        setIsBoardSwitcherOpen(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsBoardSwitcherOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isBoardSwitcherOpen]);
 
   const showToast = useCallback((msg: string) => {
     setToastMsg(msg);
@@ -218,6 +249,16 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
     [boards, selectedBoardId]
   );
 
+  // 1行目（資料カテゴリ列）と2行目（Todo進行列）を分離
+  const memoColumns = useMemo(
+    () => (activeBoard?.columns || []).filter(c => c.kind === 'memo'),
+    [activeBoard?.columns]
+  );
+  const todoColumns = useMemo(
+    () => (activeBoard?.columns || []).filter(c => c.kind !== 'memo'),
+    [activeBoard?.columns]
+  );
+
   // サイドバー用ボード分類
   const filteredBoards = useMemo(() => {
     const q = boardSearch.trim().toLowerCase();
@@ -311,6 +352,50 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
     });
     setSelectedBoardId(saved.id);
     showToast(isEdit ? 'ボード設定を更新しました' : `ボード「${saved.title}」を作成しました`);
+  };
+
+  // 1行目（資料欄）へ資料カテゴリ列をクイック追加
+  const handleAddMemoCategories = async (titles: string[]) => {
+    if (!activeBoard) return;
+    const cleanTitles = titles.map(t => t.trim()).filter(Boolean);
+    if (cleanTitles.length === 0) return;
+
+    setIsSavingMemoCat(true);
+    try {
+      const existingMemos = activeBoard.columns.filter(c => c.kind === 'memo');
+      const existingTodos = activeBoard.columns.filter(c => c.kind !== 'memo');
+      const added: ProjectBoardColumn[] = cleanTitles.map((t, i) => ({
+        id: `col-memo-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 5)}`,
+        title: t,
+        kind: 'memo',
+        color: 'amber',
+        sortOrder: existingMemos.length + i + 1,
+      }));
+      const nextColumns = [...existingMemos, ...added, ...existingTodos].map((c, idx) => ({
+        ...c,
+        sortOrder: idx + 1,
+      }));
+
+      const res = await fetch(`${API_BASE_URL}/projects/boards/${encodeURIComponent(activeBoard.id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ columns: nextColumns }),
+      });
+      if (!res.ok) {
+        throw new Error('資料カテゴリの追加に失敗しました');
+      }
+      const data = await res.json();
+      const saved: ProjectBoard = data.board;
+      setBoards(prev => prev.map(b => (b.id === saved.id ? saved : b)));
+      setNewMemoCatTitle('');
+      setIsAddingMemoCat(false);
+      setIsMemoRowCollapsed(false);
+      showToast(`資料カテゴリ「${cleanTitles.join('」「')}」を追加しました`);
+    } catch (err: any) {
+      showToast(err?.message || '資料カテゴリの追加に失敗しました');
+    } finally {
+      setIsSavingMemoCat(false);
+    }
   };
 
   const handleDeleteBoard = async (boardId: string) => {
@@ -646,12 +731,15 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
     return `メンバー ${board.memberIds?.length || 1}名`;
   };
 
-  const renderCardItem = (card: ProjectCard, colIndex: number) => {
+  const renderCardItem = (
+    card: ProjectCard,
+    options?: { nextCol?: ProjectBoardColumn; hideNextArrow?: boolean }
+  ) => {
     const checkTotal = (card.checklist || []).length;
     const checkDone = (card.checklist || []).filter(c => c.done).length;
     const isOverdue = Boolean(!card.isCompleted && card.cardType !== 'memo' && card.dueDate && card.dueDate < todayStr);
     const isTodayDue = Boolean(!card.isCompleted && card.cardType !== 'memo' && card.dueDate && card.dueDate === todayStr);
-    const nextCol = activeBoard?.columns[colIndex + 1];
+    const nextCol = !options?.hideNextArrow && card.cardType !== 'memo' ? options?.nextCol : undefined;
 
     return (
       <div
@@ -806,10 +894,10 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
                     handleMoveCardToColumn(card, nextCol.id);
                   }}
                   title={`「${nextCol.title}」へ移動`}
-                  className="opacity-0 group-hover:opacity-100 inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 hover:text-indigo-700 hover:bg-indigo-50 rounded transition-opacity cursor-pointer whitespace-nowrap"
+                  className="opacity-0 group-hover:opacity-100 inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 hover:text-indigo-700 hover:bg-indigo-50 rounded transition-opacity cursor-pointer whitespace-nowrap max-w-[115px]"
                 >
-                  <span>{nextCol.title}</span>
-                  <ArrowRight className="w-2.5 h-2.5" />
+                  <span className="truncate">{nextCol.title}</span>
+                  <ArrowRight className="w-2.5 h-2.5 shrink-0" />
                 </button>
               )}
             </div>
@@ -819,554 +907,918 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
     );
   };
 
+  const renderBoardIcon = (board: ProjectBoard) => {
+    if (board.boardType === 'personal') {
+      return <Lock className="w-4 h-4 text-amber-600 shrink-0" />;
+    }
+    const dotClass = BOARD_ACCENT_DOT[board.color || 'indigo'] || 'bg-indigo-600';
+    return <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${dotClass}`} />;
+  };
+
+  const renderBoardSwitcher = (isMyTasksMode = false) => {
+    const switcherLabel = isMyTasksMode
+      ? activeBoard
+        ? `ボード切替（${activeBoard.title}）`
+        : 'ボードを選択'
+      : activeBoard?.title || 'ボードを選択';
+
+    return (
+      <div className="flex flex-wrap items-center gap-2 min-w-0">
+        <div ref={boardSwitcherRef} className="relative min-w-0">
+          <button
+            type="button"
+            onClick={() => setIsBoardSwitcherOpen(prev => !prev)}
+            aria-expanded={isBoardSwitcherOpen}
+            aria-haspopup="listbox"
+            className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-left transition-colors cursor-pointer max-w-full shadow-2xs ${
+              isBoardSwitcherOpen
+                ? 'border-indigo-400 bg-indigo-50/70 text-indigo-900'
+                : 'border-slate-200 bg-white hover:bg-slate-50 hover:border-indigo-300 text-slate-900'
+            }`}
+            title="クリックしてプロジェクト／メモボードを切り替え"
+          >
+            {!isMyTasksMode && activeBoard ? (
+              renderBoardIcon(activeBoard)
+            ) : (
+              <FolderKanban className="w-4 h-4 text-indigo-600 shrink-0" />
+            )}
+            <span className="text-sm sm:text-base font-bold truncate max-w-[210px] sm:max-w-[340px]">
+              {switcherLabel}
+            </span>
+            <ChevronDown
+              className={`w-4 h-4 text-slate-400 shrink-0 transition-transform ${
+                isBoardSwitcherOpen ? 'rotate-180 text-indigo-600' : ''
+              }`}
+            />
+          </button>
+
+          {isBoardSwitcherOpen && (
+            <div className="absolute left-0 top-full mt-1.5 w-80 sm:w-96 max-w-[calc(100vw-2rem)] bg-white rounded-xl border border-slate-200 shadow-xl z-40 overflow-hidden">
+              <div className="p-2.5 border-b border-slate-100 bg-slate-50/70">
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={boardSearch}
+                    onChange={e => setBoardSearch(e.target.value)}
+                    placeholder="ボード名・説明で検索..."
+                    autoFocus
+                    className="w-full pl-8 pr-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400"
+                  />
+                </div>
+              </div>
+
+              <div className="max-h-80 overflow-y-auto p-2 space-y-3">
+                {isLoading && boards.length === 0 ? (
+                  <div className="py-6 text-center text-xs text-slate-400">読み込み中...</div>
+                ) : filteredBoards.length === 0 ? (
+                  <div className="py-6 text-center text-xs text-slate-400">
+                    該当するボードはありません
+                  </div>
+                ) : (
+                  <>
+                    {personalBoards.length > 0 && (
+                      <div>
+                        <div className="px-2 mb-1 text-[11px] font-semibold text-slate-400">
+                          個人専用ボード ({personalBoards.length})
+                        </div>
+                        <div className="space-y-0.5">
+                          {personalBoards.map(b => {
+                            const active = activeBoard?.id === b.id && activeView !== 'mytasks';
+                            const stats = liveStatsForBoard(b.id);
+                            return (
+                              <button
+                                key={b.id}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedBoardId(b.id);
+                                  if (activeView === 'mytasks') setActiveView('kanban');
+                                  setIsBoardSwitcherOpen(false);
+                                  setBoardSearch('');
+                                }}
+                                className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg text-left text-xs transition-colors cursor-pointer ${
+                                  active
+                                    ? 'bg-indigo-50 text-indigo-800 font-semibold'
+                                    : 'text-slate-700 hover:bg-slate-50'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                                  <span className="truncate">{b.title}</span>
+                                </div>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <span className="text-[11px] text-slate-400 tabular-nums">
+                                    {stats.activeTasks + stats.memos}
+                                  </span>
+                                  {active && <Check className="w-3.5 h-3.5 text-indigo-600" />}
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {teamBoards.length > 0 && (
+                      <div>
+                        <div className="px-2 mb-1 text-[11px] font-semibold text-slate-400">
+                          チーム共有ボード ({teamBoards.length})
+                        </div>
+                        <div className="space-y-0.5">
+                          {teamBoards.map(b => {
+                            const active = activeBoard?.id === b.id && activeView !== 'mytasks';
+                            const stats = liveStatsForBoard(b.id);
+                            const dotClass = BOARD_ACCENT_DOT[b.color || 'indigo'] || 'bg-indigo-600';
+                            return (
+                              <button
+                                key={b.id}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedBoardId(b.id);
+                                  if (activeView === 'mytasks') setActiveView('kanban');
+                                  setIsBoardSwitcherOpen(false);
+                                  setBoardSearch('');
+                                }}
+                                className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg text-left text-xs transition-colors cursor-pointer ${
+                                  active
+                                    ? 'bg-indigo-50 text-indigo-800 font-semibold'
+                                    : 'text-slate-700 hover:bg-slate-50'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <span className={`w-2 h-2 rounded-full shrink-0 ${dotClass}`} />
+                                  <div className="min-w-0">
+                                    <div className="truncate">{b.title}</div>
+                                    <div className="text-[10px] font-normal text-slate-400 truncate">
+                                      {getVisibilityLabel(b)}
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  {b.isPinned && <Pin className="w-3 h-3 text-amber-500" />}
+                                  <span className="text-[11px] text-slate-400 tabular-nums">
+                                    {stats.activeTasks + stats.memos}
+                                  </span>
+                                  {active && <Check className="w-3.5 h-3.5 text-indigo-600" />}
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              <div className="p-2 border-t border-slate-100 bg-slate-50/70">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsBoardSwitcherOpen(false);
+                    setEditingBoard(null);
+                    setIsBoardModalOpen(true);
+                  }}
+                  className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>新しいボードを作成</span>
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <button
+          type="button"
+          onClick={() => {
+            setIsBoardSwitcherOpen(false);
+            setEditingBoard(null);
+            setIsBoardModalOpen(true);
+          }}
+          title="新しいプロジェクト・メモボードを作成"
+          className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition-colors cursor-pointer whitespace-nowrap"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          <span>新規ボード</span>
+        </button>
+      </div>
+    );
+  };
+
   return (
-    <div className="space-y-4">
+    <div className="flex-1 min-w-0 w-full space-y-4">
       {toastMsg && (
         <div className="fixed bottom-5 right-5 z-50 px-4 py-2.5 rounded-lg bg-slate-900 text-white text-xs font-medium shadow-lg">
           {toastMsg}
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-4 items-start">
-        {/* 左ペイン：ボード一覧（マイボード ＋ チームボード） */}
-        <aside className="bg-white rounded-xl border border-slate-200 p-3.5 space-y-3">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2 font-bold text-slate-900 text-sm">
-              <FolderKanban className="w-4 h-4 text-indigo-600" />
-              <span>ボード一覧</span>
-            </div>
+      {/* メインワークスペース：全幅使用（上部ドロップダウンボード切替 ＋ 幅フィットカンバン） */}
+      <section className="bg-white rounded-xl border border-slate-200 min-w-0 w-full">
+        {error && (
+          <div className="m-4 px-4 py-3 text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg flex items-center justify-between">
+            <span>{error}</span>
             <button
               type="button"
-              onClick={() => {
-                setEditingBoard(null);
-                setIsBoardModalOpen(true);
-              }}
-              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors cursor-pointer whitespace-nowrap"
+              onClick={fetchBoardsAndCards}
+              className="underline font-semibold cursor-pointer"
             >
-              <Plus className="w-3.5 h-3.5" />
-              <span>新規</span>
+              再読み込み
             </button>
           </div>
+        )}
 
-          <div className="relative">
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={boardSearch}
-              onChange={e => setBoardSearch(e.target.value)}
-              placeholder="ボード名で検索..."
-              className="w-full pl-8 pr-2.5 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400"
-            />
-          </div>
-
-          {isLoading && boards.length === 0 ? (
-            <div className="py-6 text-center text-xs text-slate-400">読み込み中...</div>
-          ) : (
-            <div className="space-y-4">
-              {/* マイボード */}
-              <div>
-                <div className="px-1.5 mb-1 text-[11px] font-semibold text-slate-400">
-                  個人専用ボード
+        {activeView === 'mytasks' ? (
+          <>
+            <div className="px-4 sm:px-5 py-3.5 border-b border-slate-200 flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0 space-y-1.5">
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <div className="flex items-center gap-2">
+                    <UserCheck className="w-4 h-4 text-indigo-600 shrink-0" />
+                    <h2 className="text-base sm:text-lg font-bold text-slate-900 truncate">
+                      マイタスク（全ボード横断）
+                    </h2>
+                  </div>
+                  {renderBoardSwitcher(true)}
                 </div>
-                <div className="space-y-0.5">
-                  {personalBoards.map(b => {
-                    const active = activeBoard?.id === b.id;
-                    const stats = liveStatsForBoard(b.id);
+                <p className="text-xs text-slate-500">
+                  個人ボード・共有ボードで自分が担当しているタスクを期限順にまとめて表示しています
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <div className="flex items-center gap-0.5 p-1 bg-slate-100 border border-slate-200 rounded-lg">
+                  {[
+                    { id: 'kanban', label: 'カンバン', icon: LayoutGrid },
+                    { id: 'list', label: 'リスト', icon: List },
+                    { id: 'mytasks', label: 'マイタスク', icon: UserCheck },
+                  ].map(v => {
+                    const VIcon = v.icon;
                     return (
                       <button
-                        key={b.id}
+                        key={v.id}
                         type="button"
-                        onClick={() => {
-                          setSelectedBoardId(b.id);
-                          if (activeView === 'mytasks') setActiveView('kanban');
-                        }}
-                        className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg text-left text-xs transition-colors cursor-pointer ${
-                          active && activeView !== 'mytasks'
-                            ? 'bg-indigo-50 text-indigo-800 font-semibold'
-                            : 'text-slate-700 hover:bg-slate-50'
+                        onClick={() => setActiveView(v.id as 'kanban' | 'list' | 'mytasks')}
+                        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+                          activeView === v.id
+                            ? 'bg-white text-indigo-700 shadow-2xs'
+                            : 'text-slate-600 hover:text-slate-900'
                         }`}
                       >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                          <span className="truncate">{b.title}</span>
-                        </div>
-                        <span className="text-[11px] text-slate-400 tabular-nums shrink-0">
-                          {stats.activeTasks + stats.memos}
-                        </span>
+                        <VIcon className="w-3.5 h-3.5" />
+                        <span>{v.label}</span>
                       </button>
                     );
                   })}
                 </div>
-              </div>
 
-              {/* チームボード */}
-              <div>
-                <div className="px-1.5 mb-1 text-[11px] font-semibold text-slate-400">
-                  チーム共有ボード
-                </div>
-                {teamBoards.length === 0 ? (
-                  <div className="px-2 py-3 text-[11px] text-slate-400 border border-dashed border-slate-200 rounded-lg text-center">
-                    共有ボードはまだありません
-                  </div>
-                ) : (
-                  <div className="space-y-0.5">
-                    {teamBoards.map(b => {
-                      const active = activeBoard?.id === b.id;
-                      const stats = liveStatsForBoard(b.id);
-                      const dotClass = BOARD_ACCENT_DOT[b.color || 'indigo'] || 'bg-indigo-600';
-                      return (
-                        <button
-                          key={b.id}
-                          type="button"
-                          onClick={() => {
-                            setSelectedBoardId(b.id);
-                            if (activeView === 'mytasks') setActiveView('kanban');
-                          }}
-                          className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg text-left text-xs transition-colors cursor-pointer ${
-                            active && activeView !== 'mytasks'
-                              ? 'bg-indigo-50 text-indigo-800 font-semibold'
-                              : 'text-slate-700 hover:bg-slate-50'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span className={`w-2 h-2 rounded-full shrink-0 ${dotClass}`} />
-                            <span className="truncate">{b.title}</span>
-                          </div>
-                          <div className="flex items-center gap-1 shrink-0">
-                            {b.isPinned && <Pin className="w-3 h-3 text-amber-500" />}
-                            <span className="text-[11px] text-slate-400 tabular-nums">
-                              {stats.activeTasks + stats.memos}
-                            </span>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
+                <button
+                  type="button"
+                  onClick={fetchBoardsAndCards}
+                  title="最新の状態に更新"
+                  className="p-2 rounded-lg border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-50 cursor-pointer"
+                >
+                  <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleShareBoard}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 text-xs font-medium cursor-pointer whitespace-nowrap"
+                >
+                  {copiedBoardUrl ? (
+                    <Check className="w-3.5 h-3.5 text-emerald-600" />
+                  ) : (
+                    <Share2 className="w-3.5 h-3.5" />
+                  )}
+                  <span>{copiedBoardUrl ? 'URLコピー済' : '共有・お気に入り'}</span>
+                </button>
               </div>
             </div>
-          )}
-        </aside>
 
-        {/* メインワークスペース：選択中ボードのカンバン */}
-        <section className="bg-white rounded-xl border border-slate-200 min-w-0 overflow-hidden">
-          {error && (
-            <div className="m-4 px-4 py-3 text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg flex items-center justify-between">
-              <span>{error}</span>
+            <MyTasksView
+              currentUser={currentUser}
+              boards={boards}
+              cards={cards}
+              todayStr={todayStr}
+              onSelectCard={card => {
+                setEditingCard(card);
+                setIsCardModalOpen(true);
+              }}
+              onJumpToBoard={boardId => {
+                setSelectedBoardId(boardId);
+                setActiveView('kanban');
+              }}
+              onToggleComplete={handleToggleComplete}
+            />
+          </>
+        ) : !activeBoard ? (
+          <div className="p-10 text-center space-y-4">
+            <div className="text-sm text-slate-500">
+              ボードがまだありません。「新規ボード」からプロジェクト・メモボードを作成してください。
+            </div>
+            <div className="flex justify-center">
               <button
                 type="button"
-                onClick={fetchBoardsAndCards}
-                className="underline font-semibold cursor-pointer"
+                onClick={() => {
+                  setEditingBoard(null);
+                  setIsBoardModalOpen(true);
+                }}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold cursor-pointer"
               >
-                再読み込み
+                <Plus className="w-4 h-4" />
+                <span>最初のボードを作成</span>
               </button>
             </div>
-          )}
+          </div>
+        ) : (
+          <>
+            {/* ボードヘッダー（ドロップダウン切替統合） */}
+            <div className="px-4 sm:px-5 py-3.5 border-b border-slate-200 flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0 flex-1 space-y-1.5">
+                {renderBoardSwitcher(false)}
 
-          {activeView === 'mytasks' ? (
-            <>
-              <div className="px-5 py-4 border-b border-slate-200 flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <UserCheck className="w-4 h-4 text-indigo-600 shrink-0" />
-                    <h2 className="text-lg font-bold text-slate-900 truncate">マイタスク（全ボード横断）</h2>
-                  </div>
-                  <p className="mt-1 text-xs text-slate-500">
-                    個人ボード・共有ボードで自分が担当しているタスクを期限順にまとめて表示しています
-                  </p>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-2 shrink-0">
-                  <div className="flex items-center gap-0.5 p-1 bg-slate-100 border border-slate-200 rounded-lg">
-                    {[
-                      { id: 'kanban', label: 'カンバン', icon: LayoutGrid },
-                      { id: 'list', label: 'リスト', icon: List },
-                      { id: 'mytasks', label: 'マイタスク', icon: UserCheck },
-                    ].map(v => {
-                      const VIcon = v.icon;
-                      return (
-                        <button
-                          key={v.id}
-                          type="button"
-                          onClick={() => setActiveView(v.id as 'kanban' | 'list' | 'mytasks')}
-                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
-                            activeView === v.id
-                              ? 'bg-white text-indigo-700 shadow-2xs'
-                              : 'text-slate-600 hover:text-slate-900'
-                          }`}
-                        >
-                          <VIcon className="w-3.5 h-3.5" />
-                          <span>{v.label}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={fetchBoardsAndCards}
-                    title="最新の状態に更新"
-                    className="p-2 rounded-lg border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-50 cursor-pointer"
-                  >
-                    <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleShareBoard}
-                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 text-xs font-medium cursor-pointer whitespace-nowrap"
-                  >
-                    {copiedBoardUrl ? (
-                      <Check className="w-3.5 h-3.5 text-emerald-600" />
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-slate-500 tabular-nums">
+                  <span className="inline-flex items-center gap-1 font-medium text-slate-600">
+                    {activeBoard.boardType === 'personal' ? (
+                      <Lock className="w-3 h-3 text-amber-600" />
+                    ) : activeBoard.visibility === 'org' ? (
+                      <Globe className="w-3 h-3 text-indigo-600" />
+                    ) : activeBoard.visibility === 'office' || activeBoard.visibility === 'division' ? (
+                      <Building2 className="w-3 h-3 text-indigo-600" />
                     ) : (
-                      <Share2 className="w-3.5 h-3.5" />
+                      <Users className="w-3 h-3 text-indigo-600" />
                     )}
-                    <span>{copiedBoardUrl ? 'URLコピー済' : '共有・お気に入り'}</span>
-                  </button>
+                    <span>{getVisibilityLabel(activeBoard)}</span>
+                  </span>
+                  <span aria-hidden="true">·</span>
+                  <span>未完了 {liveStatsForBoard(activeBoard.id).activeTasks}件</span>
+                  <span aria-hidden="true">·</span>
+                  <span>メモ・資料 {liveStatsForBoard(activeBoard.id).memos}件</span>
+                  <span aria-hidden="true">·</span>
+                  <span>完了 {liveStatsForBoard(activeBoard.id).completedTasks}件</span>
+                  {activeBoard.description && (
+                    <>
+                      <span aria-hidden="true" className="hidden sm:inline">·</span>
+                      <span className="text-slate-500 truncate max-w-md">{activeBoard.description}</span>
+                    </>
+                  )}
                 </div>
               </div>
 
-              <MyTasksView
-                currentUser={currentUser}
-                boards={boards}
-                cards={cards}
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                {/* ビュー切替（カンバン / リスト / マイタスク） */}
+                <div className="flex items-center gap-0.5 p-1 bg-slate-100 border border-slate-200 rounded-lg">
+                  {[
+                    { id: 'kanban', label: 'カンバン', icon: LayoutGrid },
+                    { id: 'list', label: 'リスト', icon: List },
+                    { id: 'mytasks', label: 'マイタスク', icon: UserCheck },
+                  ].map(v => {
+                    const VIcon = v.icon;
+                    return (
+                      <button
+                        key={v.id}
+                        type="button"
+                        onClick={() => setActiveView(v.id as 'kanban' | 'list' | 'mytasks')}
+                        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+                          activeView === v.id
+                            ? 'bg-white text-indigo-700 shadow-2xs'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        <VIcon className="w-3.5 h-3.5" />
+                        <span>{v.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={fetchBoardsAndCards}
+                  title="最新の状態に更新"
+                  className="p-2 rounded-lg border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-50 cursor-pointer"
+                >
+                  <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleShareBoard}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 text-xs font-medium cursor-pointer whitespace-nowrap"
+                >
+                  {copiedBoardUrl ? (
+                    <Check className="w-3.5 h-3.5 text-emerald-600" />
+                  ) : (
+                    <Share2 className="w-3.5 h-3.5" />
+                  )}
+                  <span>{copiedBoardUrl ? 'URLコピー済' : '共有・お気に入り'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingBoard(activeBoard);
+                    setIsBoardModalOpen(true);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 text-xs font-medium cursor-pointer whitespace-nowrap"
+                >
+                  <Settings className="w-3.5 h-3.5" />
+                  <span>ボード設定</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingCard(null);
+                    setModalInitialColId(todoColumns[0]?.id || activeBoard.columns[0]?.id);
+                    setModalInitialCardType('task');
+                    setIsCardModalOpen(true);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold cursor-pointer whitespace-nowrap"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>カード追加</span>
+                </button>
+              </div>
+            </div>
+
+            {/* ツールバー（キーワード検索＆種別切替） */}
+            <div className="px-4 sm:px-5 py-2.5 border-b border-slate-200 bg-slate-50/50 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-1 p-1 bg-slate-200/70 rounded-lg">
+                {[
+                  { id: 'all', label: 'すべて' },
+                  { id: 'task', label: 'Todo' },
+                  { id: 'memo', label: 'メモ・資料' },
+                  { id: 'mine', label: '自分の担当' },
+                ].map(tab => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setCardTypeFilter(tab.id as any)}
+                    className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+                      cardTypeFilter === tab.id
+                        ? 'bg-white text-slate-900 shadow-2xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="relative w-full sm:w-64">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={cardSearch}
+                  onChange={e => setCardSearch(e.target.value)}
+                  placeholder="カード・メモ・タグを検索..."
+                  className="w-full pl-8 pr-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400"
+                />
+              </div>
+            </div>
+
+            {activeView === 'list' ? (
+              <ProjectListView
+                board={activeBoard}
+                cards={activeBoardCards}
+                allUsers={allUsers}
                 todayStr={todayStr}
                 onSelectCard={card => {
                   setEditingCard(card);
                   setIsCardModalOpen(true);
                 }}
-                onJumpToBoard={boardId => {
-                  setSelectedBoardId(boardId);
-                  setActiveView('kanban');
-                }}
                 onToggleComplete={handleToggleComplete}
+                onMoveColumn={handleMoveCardToColumn}
+                onQuickCreateInList={handleQuickCreateInList}
               />
-            </>
-          ) : !activeBoard ? (
-            <div className="p-12 text-center text-sm text-slate-500">
-              ボードを選択するか、「＋ 新規」からプロジェクト・メモボードを作成してください。
-            </div>
-          ) : (
-            <>
-              {/* ボードヘッダー */}
-              <div className="px-5 py-4 border-b border-slate-200 flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    {activeBoard.boardType === 'personal' ? (
-                      <Lock className="w-4 h-4 text-amber-600 shrink-0" />
-                    ) : activeBoard.visibility === 'org' ? (
-                      <Globe className="w-4 h-4 text-indigo-600 shrink-0" />
-                    ) : activeBoard.visibility === 'office' || activeBoard.visibility === 'division' ? (
-                      <Building2 className="w-4 h-4 text-indigo-600 shrink-0" />
-                    ) : (
-                      <Users className="w-4 h-4 text-indigo-600 shrink-0" />
-                    )}
-                    <h2 className="text-lg font-bold text-slate-900 truncate">{activeBoard.title}</h2>
-                  </div>
+            ) : (
+              /* 2段構成ボード（1行目：資料欄（カテゴリ別・進行なし）／ 2行目：Todo欄（左→右に進行）） */
+              <div className="divide-y divide-slate-200">
+                {/* 1行目：資料・ドキュメント欄 */}
+                {cardTypeFilter !== 'task' && (
+                  <div className="bg-amber-50/20">
+                    <div className="px-4 sm:px-5 py-2.5 bg-amber-50/60 border-b border-amber-200/70 flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-2 min-w-0">
+                        <div className="inline-flex items-center gap-1.5">
+                          <BookOpen className="w-4 h-4 text-amber-600 shrink-0" />
+                          <h3 className="text-xs sm:text-sm font-bold text-slate-900">
+                            1. 資料欄
+                          </h3>
+                        </div>
+                        <span className="px-1.5 py-0.5 text-[11px] font-semibold bg-amber-100 text-amber-800 rounded tabular-nums">
+                          {activeBoardCards.filter(c => memoColumns.some(mc => mc.id === c.columnId)).length}件
+                        </span>
+                        <span className="text-[11px] text-slate-500 hidden sm:inline">
+                          進行しない固定資料（業務計画関係・ミーティング関係などカテゴリ別に管理）
+                        </span>
+                      </div>
 
-                  <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-slate-500 tabular-nums">
-                    <span>{getVisibilityLabel(activeBoard)}</span>
-                    <span aria-hidden="true">·</span>
-                    <span>未完了 {liveStatsForBoard(activeBoard.id).activeTasks}件</span>
-                    <span aria-hidden="true">·</span>
-                    <span>メモ・資料 {liveStatsForBoard(activeBoard.id).memos}件</span>
-                    <span aria-hidden="true">·</span>
-                    <span>完了 {liveStatsForBoard(activeBoard.id).completedTasks}件</span>
-                  </div>
+                      <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                        {isAddingMemoCat ? (
+                          <form
+                            onSubmit={e => {
+                              e.preventDefault();
+                              handleAddMemoCategories([newMemoCatTitle]);
+                            }}
+                            className="flex items-center gap-1"
+                          >
+                            <input
+                              type="text"
+                              value={newMemoCatTitle}
+                              onChange={e => setNewMemoCatTitle(e.target.value)}
+                              placeholder="例: 業務計画関係"
+                              autoFocus
+                              disabled={isSavingMemoCat}
+                              className="w-36 px-2 py-1 text-xs bg-white border border-amber-300 rounded-md focus:outline-none focus:border-amber-500"
+                            />
+                            <button
+                              type="submit"
+                              disabled={isSavingMemoCat || !newMemoCatTitle.trim()}
+                              className="px-2 py-1 text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white rounded-md disabled:opacity-40 cursor-pointer whitespace-nowrap"
+                            >
+                              追加
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsAddingMemoCat(false);
+                                setNewMemoCatTitle('');
+                              }}
+                              className="px-2 py-1 text-xs text-slate-500 hover:text-slate-800 cursor-pointer"
+                            >
+                              戻る
+                            </button>
+                          </form>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setIsAddingMemoCat(true)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-amber-300/80 bg-white hover:bg-amber-50 text-amber-800 text-xs font-medium cursor-pointer whitespace-nowrap"
+                          >
+                            <Plus className="w-3 h-3" />
+                            <span>カテゴリ追加</span>
+                          </button>
+                        )}
 
-                  {activeBoard.description && (
-                    <p className="mt-1.5 text-xs text-slate-600">{activeBoard.description}</p>
-                  )}
-                </div>
-
-                <div className="flex flex-wrap items-center gap-2 shrink-0">
-                  {/* ビュー切替（カンバン / リスト / マイタスク） */}
-                  <div className="flex items-center gap-0.5 p-1 bg-slate-100 border border-slate-200 rounded-lg">
-                    {[
-                      { id: 'kanban', label: 'カンバン', icon: LayoutGrid },
-                      { id: 'list', label: 'リスト', icon: List },
-                      { id: 'mytasks', label: 'マイタスク', icon: UserCheck },
-                    ].map(v => {
-                      const VIcon = v.icon;
-                      return (
-                        <button
-                          key={v.id}
-                          type="button"
-                          onClick={() => setActiveView(v.id as 'kanban' | 'list' | 'mytasks')}
-                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
-                            activeView === v.id
-                              ? 'bg-white text-indigo-700 shadow-2xs'
-                              : 'text-slate-600 hover:text-slate-900'
-                          }`}
-                        >
-                          <VIcon className="w-3.5 h-3.5" />
-                          <span>{v.label}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={fetchBoardsAndCards}
-                    title="最新の状態に更新"
-                    className="p-2 rounded-lg border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-50 cursor-pointer"
-                  >
-                    <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleShareBoard}
-                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 text-xs font-medium cursor-pointer whitespace-nowrap"
-                  >
-                    {copiedBoardUrl ? (
-                      <Check className="w-3.5 h-3.5 text-emerald-600" />
-                    ) : (
-                      <Share2 className="w-3.5 h-3.5" />
-                    )}
-                    <span>{copiedBoardUrl ? 'URLコピー済' : '共有・お気に入り'}</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditingBoard(activeBoard);
-                      setIsBoardModalOpen(true);
-                    }}
-                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 text-xs font-medium cursor-pointer whitespace-nowrap"
-                  >
-                    <Settings className="w-3.5 h-3.5" />
-                    <span>ボード設定</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditingCard(null);
-                      setModalInitialColId(undefined);
-                      setModalInitialCardType('task');
-                      setIsCardModalOpen(true);
-                    }}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold cursor-pointer whitespace-nowrap"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>カード追加</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* ツールバー（キーワード検索＆種別切替） */}
-              <div className="px-5 py-2.5 border-b border-slate-200 bg-slate-50/50 flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-1 p-1 bg-slate-200/70 rounded-lg">
-                  {[
-                    { id: 'all', label: 'すべて' },
-                    { id: 'task', label: 'Todo' },
-                    { id: 'memo', label: 'メモ・資料' },
-                    { id: 'mine', label: '自分の担当' },
-                  ].map(tab => (
-                    <button
-                      key={tab.id}
-                      type="button"
-                      onClick={() => setCardTypeFilter(tab.id as any)}
-                      className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
-                        cardTypeFilter === tab.id
-                          ? 'bg-white text-slate-900 shadow-2xs'
-                          : 'text-slate-600 hover:text-slate-900'
-                      }`}
-                    >
-                      {tab.label}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="relative w-full sm:w-64">
-                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    value={cardSearch}
-                    onChange={e => setCardSearch(e.target.value)}
-                    placeholder="カード・メモ・タグを検索..."
-                    className="w-full pl-8 pr-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400"
-                  />
-                </div>
-              </div>
-
-              {activeView === 'list' ? (
-                <ProjectListView
-                  board={activeBoard}
-                  cards={activeBoardCards}
-                  allUsers={allUsers}
-                  todayStr={todayStr}
-                  onSelectCard={card => {
-                    setEditingCard(card);
-                    setIsCardModalOpen(true);
-                  }}
-                  onToggleComplete={handleToggleComplete}
-                  onMoveColumn={handleMoveCardToColumn}
-                  onQuickCreateInList={handleQuickCreateInList}
-                />
-              ) : (
-                /* カンバン列エリア */
-                <div className="p-4 overflow-x-auto">
-                <div className="flex items-start gap-3.5 min-w-max">
-                  {activeBoard.columns.map((col, colIndex) => {
-                    const colCards = activeBoardCards.filter(c => c.columnId === col.id);
-                    const isDoneColumn = col.kind === 'done';
-                    const activeCardsInCol = isDoneColumn
-                      ? []
-                      : colCards.filter(c => !c.isCompleted || c.cardType === 'memo');
-                    const completedCardsInCol = isDoneColumn
-                      ? colCards
-                      : colCards.filter(c => c.isCompleted && c.cardType !== 'memo');
-                    const isDoneExpanded = Boolean(expandedDoneCols[col.id]);
-                    const isDropTarget = dragOverColId === col.id;
-
-                    return (
-                      <div
-                        key={col.id}
-                        onDragOver={e => {
-                          e.preventDefault();
-                          if (dragOverColId !== col.id) setDragOverColId(col.id);
-                        }}
-                        onDragLeave={() => {
-                          if (dragOverColId === col.id) setDragOverColId(null);
-                        }}
-                        onDrop={e => {
-                          e.preventDefault();
-                          setDragOverColId(null);
-                          if (draggingCardId) {
-                            const dragged = cards.find(c => c.id === draggingCardId);
-                            if (dragged) handleMoveCardToColumn(dragged, col.id);
-                            setDraggingCardId(null);
-                          }
-                        }}
-                        className={`w-[300px] shrink-0 rounded-xl border p-3 transition-colors ${
-                          isDropTarget
-                            ? 'border-indigo-400 bg-indigo-50/40'
-                            : 'border-slate-200 bg-slate-50/70'
-                        }`}
-                      >
-                        {/* 列ヘッダー */}
-                        <div className="flex items-center justify-between gap-2 mb-2.5">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <h3 className="text-xs font-bold text-slate-800 truncate">
-                              {col.title}
-                            </h3>
-                            <span className="text-[11px] font-medium text-slate-400 tabular-nums">
-                              {colCards.length}
-                            </span>
-                          </div>
+                        {memoColumns.length > 0 && (
                           <button
                             type="button"
                             onClick={() => {
                               setEditingCard(null);
-                              setModalInitialColId(col.id);
-                              setModalInitialCardType(col.kind === 'memo' ? 'memo' : 'task');
+                              setModalInitialColId(memoColumns[0].id);
+                              setModalInitialCardType('memo');
                               setIsCardModalOpen(true);
                             }}
-                            title="詳細画面で追加"
-                            className="p-1 rounded hover:bg-slate-200/70 text-slate-500 hover:text-slate-800 cursor-pointer"
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold cursor-pointer whitespace-nowrap"
                           >
-                            <Plus className="w-3.5 h-3.5" />
+                            <Plus className="w-3 h-3" />
+                            <span>資料追加</span>
                           </button>
-                        </div>
-
-                        {/* クイック1行入力 */}
-                        {!isDoneColumn && (
-                          <div className="mb-2.5">
-                            <input
-                              type="text"
-                              value={quickDraftByCol[col.id] || ''}
-                              onChange={e =>
-                                setQuickDraftByCol(prev => ({ ...prev, [col.id]: e.target.value }))
-                              }
-                              onKeyDown={e => {
-                                if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
-                                  e.preventDefault();
-                                  handleQuickCreateCard(col);
-                                }
-                              }}
-                              disabled={creatingColId === col.id}
-                              placeholder={
-                                col.kind === 'memo'
-                                  ? '＋ メモ・URLを入力してEnter'
-                                  : '＋ タイトルを入力してEnter'
-                              }
-                              className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg placeholder:text-slate-400 focus:outline-none focus:border-indigo-400"
-                            />
-                          </div>
                         )}
 
-                        {/* 未完了カード・メモカード一覧 */}
-                        {!isDoneColumn && (
-                          <div className="space-y-2">
-                            {activeCardsInCol.map(c => renderCardItem(c, colIndex))}
-                            {activeCardsInCol.length === 0 && completedCardsInCol.length === 0 && (
-                              <div className="py-5 text-center text-[11px] text-slate-400">
-                                カードはありません
-                              </div>
-                            )}
-                          </div>
-                        )}
+                        <button
+                          type="button"
+                          onClick={() => setIsMemoRowCollapsed(prev => !prev)}
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-slate-600 hover:bg-amber-100/60 cursor-pointer whitespace-nowrap"
+                        >
+                          {isMemoRowCollapsed ? (
+                            <>
+                              <ChevronRight className="w-3.5 h-3.5" />
+                              <span>開く</span>
+                            </>
+                          ) : (
+                            <>
+                              <ChevronDown className="w-3.5 h-3.5" />
+                              <span>折り畳む</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
 
-                        {/* 完了カードの折り畳みセクション */}
-                        {completedCardsInCol.length > 0 && (
-                          <div className={!isDoneColumn && activeCardsInCol.length > 0 ? 'mt-3 pt-2 border-t border-slate-200/80' : ''}>
+                    {!isMemoRowCollapsed && (
+                      <div className="p-3 sm:p-4 overflow-x-auto">
+                        {memoColumns.length === 0 ? (
+                          <div className="py-4 px-4 rounded-xl border border-dashed border-amber-300 bg-white/70 flex flex-wrap items-center justify-between gap-3">
+                            <p className="text-xs text-slate-600">
+                              資料カテゴリがまだ設定されていません。「業務計画関係」「ミーティング関係」などを作成して資料を分類できます。
+                            </p>
                             <button
                               type="button"
-                              onClick={() =>
-                                setExpandedDoneCols(prev => ({
-                                  ...prev,
-                                  [col.id]: !prev[col.id],
-                                }))
-                              }
-                              className="w-full flex items-center justify-between px-2.5 py-2 rounded-lg bg-white/80 hover:bg-white border border-slate-200 text-xs font-medium text-slate-600 transition-colors cursor-pointer"
+                              disabled={isSavingMemoCat}
+                              onClick={() => handleAddMemoCategories(['業務計画関係', 'ミーティング関係'])}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold cursor-pointer whitespace-nowrap disabled:opacity-50"
                             >
-                              <span className="inline-flex items-center gap-1.5">
-                                {isDoneExpanded ? (
-                                  <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
-                                ) : (
-                                  <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-                                )}
-                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                                <span>
-                                  {isDoneExpanded
-                                    ? '完了済みを折り畳む'
-                                    : `完了済み (${completedCardsInCol.length}件) を表示`}
-                                </span>
-                              </span>
-                              <span className="text-[11px] text-slate-400 tabular-nums">
-                                {completedCardsInCol.length}
-                              </span>
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>「業務計画関係」「ミーティング関係」を追加</span>
                             </button>
-
-                            {isDoneExpanded && (
-                              <div className="mt-2 space-y-2">
-                                {completedCardsInCol.map(c => renderCardItem(c, colIndex))}
-                              </div>
-                            )}
                           </div>
-                        )}
+                        ) : (
+                          <div
+                            className="grid gap-3 items-start"
+                            style={{
+                              gridTemplateColumns: `repeat(${memoColumns.length}, minmax(235px, 1fr))`,
+                            }}
+                          >
+                            {memoColumns.map(col => {
+                              const colCards = activeBoardCards.filter(c => c.columnId === col.id);
+                              const isDropTarget = dragOverColId === col.id;
+                              return (
+                                <div
+                                  key={col.id}
+                                  onDragOver={e => {
+                                    e.preventDefault();
+                                    if (dragOverColId !== col.id) setDragOverColId(col.id);
+                                  }}
+                                  onDragLeave={() => {
+                                    if (dragOverColId === col.id) setDragOverColId(null);
+                                  }}
+                                  onDrop={e => {
+                                    e.preventDefault();
+                                    setDragOverColId(null);
+                                    if (draggingCardId) {
+                                      const dragged = cards.find(c => c.id === draggingCardId);
+                                      if (dragged) handleMoveCardToColumn(dragged, col.id);
+                                      setDraggingCardId(null);
+                                    }
+                                  }}
+                                  className={`min-w-0 rounded-xl border p-2.5 sm:p-3 transition-colors ${
+                                    isDropTarget
+                                      ? 'border-amber-400 bg-amber-50'
+                                      : 'border-amber-200/80 bg-white'
+                                  }`}
+                                >
+                                  <div className="flex items-center justify-between gap-2 mb-2">
+                                    <div className="flex items-center gap-1.5 min-w-0">
+                                      <StickyNote className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                                      <h4 className="text-xs font-bold text-slate-800 truncate">
+                                        {col.title}
+                                      </h4>
+                                      <span className="text-[11px] font-medium text-slate-400 tabular-nums shrink-0">
+                                        {colCards.length}
+                                      </span>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setEditingCard(null);
+                                        setModalInitialColId(col.id);
+                                        setModalInitialCardType('memo');
+                                        setIsCardModalOpen(true);
+                                      }}
+                                      title={`「${col.title}」に資料・メモを追加`}
+                                      className="p-1 rounded hover:bg-amber-100/70 text-slate-500 hover:text-amber-800 cursor-pointer shrink-0"
+                                    >
+                                      <Plus className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
 
-                        {isDoneColumn && completedCardsInCol.length === 0 && (
-                          <div className="py-5 text-center text-[11px] text-slate-400">
-                            完了カードはありません
+                                  <div className="mb-2.5">
+                                    <input
+                                      type="text"
+                                      value={quickDraftByCol[col.id] || ''}
+                                      onChange={e =>
+                                        setQuickDraftByCol(prev => ({ ...prev, [col.id]: e.target.value }))
+                                      }
+                                      onKeyDown={e => {
+                                        if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                                          e.preventDefault();
+                                          handleQuickCreateCard(col);
+                                        }
+                                      }}
+                                      disabled={creatingColId === col.id}
+                                      placeholder="＋ 資料タイトル・URLを入力してEnter"
+                                      className="w-full px-2.5 py-1.5 text-xs bg-slate-50/70 border border-slate-200 rounded-lg placeholder:text-slate-400 focus:bg-white focus:outline-none focus:border-amber-400"
+                                    />
+                                  </div>
+
+                                  <div className="space-y-2">
+                                    {colCards.map(c => renderCardItem(c, { hideNextArrow: true }))}
+                                    {colCards.length === 0 && (
+                                      <div className="py-3 text-center text-[11px] text-slate-400">
+                                        資料はありません
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
                           </div>
                         )}
                       </div>
-                    );
-                  })}
-                </div>
+                    )}
+                  </div>
+                )}
+
+                {/* 2行目：Todo・タスク進行欄 */}
+                {cardTypeFilter !== 'memo' && (
+                  <div>
+                    <div className="px-4 sm:px-5 py-2.5 bg-slate-50/70 border-b border-slate-200/80 flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-2 min-w-0">
+                        <div className="inline-flex items-center gap-1.5">
+                          <CheckSquare className="w-4 h-4 text-indigo-600 shrink-0" />
+                          <h3 className="text-xs sm:text-sm font-bold text-slate-900">
+                            2. Todo欄
+                          </h3>
+                        </div>
+                        <span className="px-1.5 py-0.5 text-[11px] font-semibold bg-indigo-50 text-indigo-700 rounded tabular-nums">
+                          未完了 {liveStatsForBoard(activeBoard.id).activeTasks}件 / 完了 {liveStatsForBoard(activeBoard.id).completedTasks}件
+                        </span>
+                        <span className="text-[11px] text-slate-500 hidden sm:inline">
+                          左の列から右の列へ進捗を移動（ドラッグまたはカード右下の「→」）
+                        </span>
+                      </div>
+
+                      {todoColumns.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingCard(null);
+                            setModalInitialColId(todoColumns[0].id);
+                            setModalInitialCardType('task');
+                            setIsCardModalOpen(true);
+                          }}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold cursor-pointer whitespace-nowrap shrink-0"
+                        >
+                          <Plus className="w-3 h-3" />
+                          <span>Todo追加</span>
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="p-3 sm:p-4 overflow-x-auto">
+                      {todoColumns.length === 0 ? (
+                        <div className="py-8 text-center text-xs text-slate-400">
+                          Todo列がありません。「ボード設定」から進行列を追加してください。
+                        </div>
+                      ) : (
+                        <div
+                          className="grid gap-3 items-start"
+                          style={{
+                            gridTemplateColumns: `repeat(${todoColumns.length}, minmax(215px, 1fr))`,
+                          }}
+                        >
+                          {todoColumns.map((col, colIndex) => {
+                            const colCards = activeBoardCards.filter(c => c.columnId === col.id);
+                            const isDoneColumn = col.kind === 'done';
+                            const activeCardsInCol = isDoneColumn
+                              ? []
+                              : colCards.filter(c => !c.isCompleted || c.cardType === 'memo');
+                            const completedCardsInCol = isDoneColumn
+                              ? colCards
+                              : colCards.filter(c => c.isCompleted && c.cardType !== 'memo');
+                            const isDoneExpanded = Boolean(expandedDoneCols[col.id]);
+                            const isDropTarget = dragOverColId === col.id;
+                            const nextCol = todoColumns[colIndex + 1];
+
+                            return (
+                              <div
+                                key={col.id}
+                                onDragOver={e => {
+                                  e.preventDefault();
+                                  if (dragOverColId !== col.id) setDragOverColId(col.id);
+                                }}
+                                onDragLeave={() => {
+                                  if (dragOverColId === col.id) setDragOverColId(null);
+                                }}
+                                onDrop={e => {
+                                  e.preventDefault();
+                                  setDragOverColId(null);
+                                  if (draggingCardId) {
+                                    const dragged = cards.find(c => c.id === draggingCardId);
+                                    if (dragged) handleMoveCardToColumn(dragged, col.id);
+                                    setDraggingCardId(null);
+                                  }
+                                }}
+                                className={`min-w-0 rounded-xl border p-2.5 sm:p-3 transition-colors ${
+                                  isDropTarget
+                                    ? 'border-indigo-400 bg-indigo-50/40'
+                                    : 'border-slate-200 bg-slate-50/70'
+                                }`}
+                              >
+                                {/* 列ヘッダー */}
+                                <div className="flex items-center justify-between gap-2 mb-2.5">
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <h4 className="text-xs font-bold text-slate-800 truncate">
+                                      {col.title}
+                                    </h4>
+                                    <span className="text-[11px] font-medium text-slate-400 tabular-nums shrink-0">
+                                      {colCards.length}
+                                    </span>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEditingCard(null);
+                                      setModalInitialColId(col.id);
+                                      setModalInitialCardType('task');
+                                      setIsCardModalOpen(true);
+                                    }}
+                                    title="詳細画面で追加"
+                                    className="p-1 rounded hover:bg-slate-200/70 text-slate-500 hover:text-slate-800 cursor-pointer shrink-0"
+                                  >
+                                    <Plus className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+
+                                {/* クイック1行入力 */}
+                                {!isDoneColumn && (
+                                  <div className="mb-2.5">
+                                    <input
+                                      type="text"
+                                      value={quickDraftByCol[col.id] || ''}
+                                      onChange={e =>
+                                        setQuickDraftByCol(prev => ({ ...prev, [col.id]: e.target.value }))
+                                      }
+                                      onKeyDown={e => {
+                                        if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                                          e.preventDefault();
+                                          handleQuickCreateCard(col);
+                                        }
+                                      }}
+                                      disabled={creatingColId === col.id}
+                                      placeholder="＋ タスクを入力してEnter"
+                                      className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg placeholder:text-slate-400 focus:outline-none focus:border-indigo-400"
+                                    />
+                                  </div>
+                                )}
+
+                                {/* 未完了カード一覧 */}
+                                {!isDoneColumn && (
+                                  <div className="space-y-2">
+                                    {activeCardsInCol.map(c => renderCardItem(c, { nextCol }))}
+                                    {activeCardsInCol.length === 0 && completedCardsInCol.length === 0 && (
+                                      <div className="py-5 text-center text-[11px] text-slate-400">
+                                        タスクはありません
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+
+                                {/* 完了カードの折り畳みセクション */}
+                                {completedCardsInCol.length > 0 && (
+                                  <div className={!isDoneColumn && activeCardsInCol.length > 0 ? 'mt-3 pt-2 border-t border-slate-200/80' : ''}>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setExpandedDoneCols(prev => ({
+                                          ...prev,
+                                          [col.id]: !prev[col.id],
+                                        }))
+                                      }
+                                      className="w-full flex items-center justify-between px-2.5 py-2 rounded-lg bg-white/80 hover:bg-white border border-slate-200 text-xs font-medium text-slate-600 transition-colors cursor-pointer"
+                                    >
+                                      <span className="inline-flex items-center gap-1.5 min-w-0">
+                                        {isDoneExpanded ? (
+                                          <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                        ) : (
+                                          <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                        )}
+                                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                        <span className="truncate">
+                                          {isDoneExpanded
+                                            ? '完了済みを折り畳む'
+                                            : `完了済み (${completedCardsInCol.length}件) を表示`}
+                                        </span>
+                                      </span>
+                                      <span className="text-[11px] text-slate-400 tabular-nums shrink-0">
+                                        {completedCardsInCol.length}
+                                      </span>
+                                    </button>
+
+                                    {isDoneExpanded && (
+                                      <div className="mt-2 space-y-2">
+                                        {completedCardsInCol.map(c => renderCardItem(c, { nextCol }))}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+
+                                {isDoneColumn && completedCardsInCol.length === 0 && (
+                                  <div className="py-5 text-center text-[11px] text-slate-400">
+                                    完了カードはありません
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
-              )}
-            </>
-          )}
-        </section>
-      </div>
+            )}
+          </>
+        )}
+      </section>
 
       {isBoardModalOpen && (
         <BoardFormModal
+          key={editingBoard?.id || 'new'}
           isOpen={isBoardModalOpen}
           onClose={() => {
             setIsBoardModalOpen(false);

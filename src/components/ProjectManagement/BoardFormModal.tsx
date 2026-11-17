@@ -48,11 +48,12 @@ const COLOR_OPTIONS: { id: string; label: string; dotClass: string }[] = [
 ];
 
 const DEFAULT_TEAM_COLS: ProjectBoardColumn[] = [
-  { id: 'col-memo', title: '📌 資料・メモ', kind: 'memo', color: 'amber', sortOrder: 1 },
-  { id: 'col-todo', title: '未着手', kind: 'todo', color: 'slate', sortOrder: 2 },
-  { id: 'col-doing', title: '進行中', kind: 'todo', color: 'indigo', sortOrder: 3 },
-  { id: 'col-review', title: '確認待ち', kind: 'todo', color: 'sky', sortOrder: 4 },
-  { id: 'col-done', title: '完了', kind: 'done', color: 'emerald', sortOrder: 5 },
+  { id: 'col-memo-plan', title: '業務計画関係', kind: 'memo', color: 'amber', sortOrder: 1 },
+  { id: 'col-memo-meeting', title: 'ミーティング関係', kind: 'memo', color: 'amber', sortOrder: 2 },
+  { id: 'col-todo', title: '未着手', kind: 'todo', color: 'slate', sortOrder: 3 },
+  { id: 'col-doing', title: '進行中', kind: 'todo', color: 'indigo', sortOrder: 4 },
+  { id: 'col-review', title: '確認待ち', kind: 'todo', color: 'sky', sortOrder: 5 },
+  { id: 'col-done', title: '完了', kind: 'done', color: 'emerald', sortOrder: 6 },
 ];
 
 const DEFAULT_PERSONAL_COLS: ProjectBoardColumn[] = [
@@ -87,8 +88,10 @@ export const BoardFormModal: React.FC<BoardFormModalProps> = ({
   const [divisionId, setDivisionId] = useState(editingBoard?.divisionId || '');
   const [division, setDivision] = useState(editingBoard?.division || '');
   const [memberIds, setMemberIds] = useState<string[]>(() => {
-    if (editingBoard?.memberIds?.length) return editingBoard.memberIds.map(String);
-    return currentUser?.id ? [String(currentUser.id)] : [];
+    const owner = editingBoard?.ownerId ? String(editingBoard.ownerId) : (currentUser?.id ? String(currentUser.id) : '');
+    const initial = new Set((editingBoard?.memberIds || []).map(String).filter(Boolean));
+    if (owner) initial.add(owner);
+    return Array.from(initial);
   });
   const [columns, setColumns] = useState<ProjectBoardColumn[]>(() => {
     if (editingBoard?.columns?.length) {
@@ -221,6 +224,12 @@ export const BoardFormModal: React.FC<BoardFormModalProps> = ({
         sortOrder: idx + 1,
       }));
 
+    const ownerForSave = String(editingBoard?.ownerId || currentUser?.id || '');
+    const finalMemberIds =
+      boardType === 'personal'
+        ? (ownerForSave ? [ownerForSave] : [])
+        : Array.from(new Set([...memberIds.map(String), ...(ownerForSave ? [ownerForSave] : [])].filter(Boolean)));
+
     setErrorMsg(null);
     setIsSubmitting(true);
     try {
@@ -234,7 +243,7 @@ export const BoardFormModal: React.FC<BoardFormModalProps> = ({
         office: visibility === 'office' || visibility === 'division' ? office || undefined : undefined,
         divisionId: visibility === 'division' ? divisionId || undefined : undefined,
         division: visibility === 'division' ? division || undefined : undefined,
-        memberIds: boardType === 'personal' ? [String(currentUser.id)] : memberIds,
+        memberIds: finalMemberIds,
         columns: sanitizedColumns,
         color,
         isPinned,
@@ -547,9 +556,9 @@ export const BoardFormModal: React.FC<BoardFormModalProps> = ({
                       onChange={e => handleUpdateColumn(idx, { kind: e.target.value as ProjectColumnKind })}
                       className="px-2 py-1.5 text-xs bg-white border border-slate-300 rounded-md"
                     >
-                      <option value="memo">メモ・資料列</option>
-                      <option value="todo">進行・Todo列</option>
-                      <option value="done">完了列（折畳み）</option>
+                      <option value="memo">資料カテゴリ（1行目）</option>
+                      <option value="todo">進行・Todo列（2行目）</option>
+                      <option value="done">完了列（2行目・折畳み）</option>
                     </select>
                     <button
                       type="button"

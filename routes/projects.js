@@ -2,7 +2,7 @@
  * routes/projects.js
  * 寺岡オートドアSNS プロジェクト・Todo・資料メモボード APIモジュール
  * （事務・営業・設計向け チーム＆個人ボード / カンバン / リスト / URL・資料・チェックリスト / コメント / 複製 / マイタスク横断集計）
- * 最終更新: 2026年11月17日 (初回完全版・全API一括実装)
+ * 最終更新: 2026年11月17日 (SQL Server スキーマ自動補完・書込失敗サイレント隠蔽防止・JSON/SQL双方向同期強化)
  */
 import { Router } from 'express';
 import sql from 'mssql';
@@ -104,15 +104,37 @@ function upsertJsonItem(filePath, item) {
   return list;
 }
 
+/**
+ * 複数のJSON候補から配列を安全に抽出（空文字/null/二重JSON文字列対応）
+ */
+function pickFirstJsonArray(...candidates) {
+  let emptyFound = null;
+  for (const cand of candidates) {
+    if (cand === undefined || cand === null || cand === '') continue;
+    let parsed = Array.isArray(cand) ? cand : safeParseJSON(cand, null);
+    if (typeof parsed === 'string') {
+      parsed = safeParseJSON(parsed, null);
+    }
+    if (Array.isArray(parsed)) {
+      if (parsed.length > 0) return parsed;
+      if (!emptyFound) emptyFound = parsed;
+    }
+  }
+  return emptyFound || [];
+}
+
 // ---------------------------------------------------------------------------
-// SQL Server スキーマ自動初期化・検証
+// SQL Server スキーマ自動初期化・検証（既存テーブルの不足カラム自動補完を含む）
 // ---------------------------------------------------------------------------
 let tablesEnsured = false;
 let ensurePromise = null;
+let cachedBoardColumns = null;
+let cachedCardColumns = null;
 
-async function ensureProjectTables(pool) {
-  if (!pool || tablesEnsured) return;
-  if (ensurePromise) return ensurePromise;
+async function ensureProjectTables(pool, force = false) {
+  if (!pool) return;
+  if (tablesEnsured && !force) return;
+  if (ensurePromise && !force) return ensurePromise;
   ensurePromise = (async () => {
     try {
       await pool.request().query(`
@@ -139,8 +161,26 @@ async function ensureProjectTables(pool) {
             createdAt DATETIME2 NOT NULL DEFAULT SYSDATETIME(),
             updatedAt DATETIME2 NOT NULL DEFAULT SYSDATETIME()
           );
-          CREATE INDEX IX_ProjectBoards_OwnerId ON dbo.ProjectBoards(ownerId);
         END;
+
+        IF COL_LENGTH('dbo.ProjectBoards', 'title') IS NULL ALTER TABLE dbo.ProjectBoards ADD title NVARCHAR(300) NULL;
+        IF COL_LENGTH('dbo.ProjectBoards', 'description') IS NULL ALTER TABLE dbo.ProjectBoards ADD description NVARCHAR(MAX) NULL;
+        IF COL_LENGTH('dbo.ProjectBoards', 'boardType') IS NULL ALTER TABLE dbo.ProjectBoards ADD boardType NVARCHAR(50) NULL DEFAULT 'team';
+        IF COL_LENGTH('dbo.ProjectBoards', 'visibility') IS NULL ALTER TABLE dbo.ProjectBoards ADD visibility NVARCHAR(50) NULL DEFAULT 'members';
+        IF COL_LENGTH('dbo.ProjectBoards', 'ownerId') IS NULL ALTER TABLE dbo.ProjectBoards ADD ownerId NVARCHAR(100) NULL;
+        IF COL_LENGTH('dbo.ProjectBoards', 'ownerName') IS NULL ALTER TABLE dbo.ProjectBoards ADD ownerName NVARCHAR(200) NULL;
+        IF COL_LENGTH('dbo.ProjectBoards', 'officeId') IS NULL ALTER TABLE dbo.ProjectBoards ADD officeId NVARCHAR(100) NULL;
+        IF COL_LENGTH('dbo.ProjectBoards', 'office') IS NULL ALTER TABLE dbo.ProjectBoards ADD office NVARCHAR(200) NULL;
+        IF COL_LENGTH('dbo.ProjectBoards', 'divisionId') IS NULL ALTER TABLE dbo.ProjectBoards ADD divisionId NVARCHAR(100) NULL;
+        IF COL_LENGTH('dbo.ProjectBoards', 'division') IS NULL ALTER TABLE dbo.ProjectBoards ADD division NVARCHAR(200) NULL;
+        IF COL_LENGTH('dbo.ProjectBoards', 'memberIdsJson') IS NULL ALTER TABLE dbo.ProjectBoards ADD memberIdsJson NVARCHAR(MAX) NULL;
+        IF COL_LENGTH('dbo.ProjectBoards', 'columnsJson') IS NULL ALTER TABLE dbo.ProjectBoards ADD columnsJson NVARCHAR(MAX) NULL;
+        IF COL_LENGTH('dbo.ProjectBoards', 'color') IS NULL ALTER TABLE dbo.ProjectBoards ADD color NVARCHAR(50) NULL;
+        IF COL_LENGTH('dbo.ProjectBoards', 'isPinned') IS NULL ALTER TABLE dbo.ProjectBoards ADD isPinned BIT NULL DEFAULT 0;
+        IF COL_LENGTH('dbo.ProjectBoards', 'isArchived') IS NULL ALTER TABLE dbo.ProjectBoards ADD isArchived BIT NULL DEFAULT 0;
+        IF COL_LENGTH('dbo.ProjectBoards', 'sortOrder') IS NULL ALTER TABLE dbo.ProjectBoards ADD sortOrder INT NULL DEFAULT 0;
+        IF COL_LENGTH('dbo.ProjectBoards', 'createdAt') IS NULL ALTER TABLE dbo.ProjectBoards ADD createdAt DATETIME2 NULL DEFAULT SYSDATETIME();
+        IF COL_LENGTH('dbo.ProjectBoards', 'updatedAt') IS NULL ALTER TABLE dbo.ProjectBoards ADD updatedAt DATETIME2 NULL DEFAULT SYSDATETIME();
 
         IF OBJECT_ID('dbo.ProjectCards', 'U') IS NULL
         BEGIN
@@ -172,10 +212,60 @@ async function ensureProjectTables(pool) {
             createdAt DATETIME2 NOT NULL DEFAULT SYSDATETIME(),
             updatedAt DATETIME2 NOT NULL DEFAULT SYSDATETIME()
           );
-          CREATE INDEX IX_ProjectCards_ProjectId ON dbo.ProjectCards(projectId);
-          CREATE INDEX IX_ProjectCards_ColumnId ON dbo.ProjectCards(columnId);
         END;
+
+        IF COL_LENGTH('dbo.ProjectCards', 'projectId') IS NULL ALTER TABLE dbo.ProjectCards ADD projectId NVARCHAR(100) NULL;
+        IF COL_LENGTH('dbo.ProjectCards', 'columnId') IS NULL ALTER TABLE dbo.ProjectCards ADD columnId NVARCHAR(100) NULL;
+        IF COL_LENGTH('dbo.ProjectCards', 'cardType') IS NULL ALTER TABLE dbo.ProjectCards ADD cardType NVARCHAR(30) NULL DEFAULT 'task';
+        IF COL_LENGTH('dbo.ProjectCards', 'title') IS NULL ALTER TABLE dbo.ProjectCards ADD title NVARCHAR(500) NULL;
+        IF COL_LENGTH('dbo.ProjectCards', 'description') IS NULL ALTER TABLE dbo.ProjectCards ADD description NVARCHAR(MAX) NULL;
+        IF COL_LENGTH('dbo.ProjectCards', 'priority') IS NULL ALTER TABLE dbo.ProjectCards ADD priority NVARCHAR(30) NULL DEFAULT 'none';
+        IF COL_LENGTH('dbo.ProjectCards', 'assigneeIdsJson') IS NULL ALTER TABLE dbo.ProjectCards ADD assigneeIdsJson NVARCHAR(MAX) NULL;
+        IF COL_LENGTH('dbo.ProjectCards', 'dueDate') IS NULL ALTER TABLE dbo.ProjectCards ADD dueDate NVARCHAR(30) NULL;
+        IF COL_LENGTH('dbo.ProjectCards', 'startDate') IS NULL ALTER TABLE dbo.ProjectCards ADD startDate NVARCHAR(30) NULL;
+        IF COL_LENGTH('dbo.ProjectCards', 'tagsJson') IS NULL ALTER TABLE dbo.ProjectCards ADD tagsJson NVARCHAR(MAX) NULL;
+        IF COL_LENGTH('dbo.ProjectCards', 'linksJson') IS NULL ALTER TABLE dbo.ProjectCards ADD linksJson NVARCHAR(MAX) NULL;
+        IF COL_LENGTH('dbo.ProjectCards', 'attachmentsJson') IS NULL ALTER TABLE dbo.ProjectCards ADD attachmentsJson NVARCHAR(MAX) NULL;
+        IF COL_LENGTH('dbo.ProjectCards', 'checklistJson') IS NULL ALTER TABLE dbo.ProjectCards ADD checklistJson NVARCHAR(MAX) NULL;
+        IF COL_LENGTH('dbo.ProjectCards', 'commentsJson') IS NULL ALTER TABLE dbo.ProjectCards ADD commentsJson NVARCHAR(MAX) NULL;
+        IF COL_LENGTH('dbo.ProjectCards', 'isCompleted') IS NULL ALTER TABLE dbo.ProjectCards ADD isCompleted BIT NULL DEFAULT 0;
+        IF COL_LENGTH('dbo.ProjectCards', 'completedAt') IS NULL ALTER TABLE dbo.ProjectCards ADD completedAt NVARCHAR(50) NULL;
+        IF COL_LENGTH('dbo.ProjectCards', 'completedBy') IS NULL ALTER TABLE dbo.ProjectCards ADD completedBy NVARCHAR(100) NULL;
+        IF COL_LENGTH('dbo.ProjectCards', 'isPinned') IS NULL ALTER TABLE dbo.ProjectCards ADD isPinned BIT NULL DEFAULT 0;
+        IF COL_LENGTH('dbo.ProjectCards', 'isArchived') IS NULL ALTER TABLE dbo.ProjectCards ADD isArchived BIT NULL DEFAULT 0;
+        IF COL_LENGTH('dbo.ProjectCards', 'sortOrder') IS NULL ALTER TABLE dbo.ProjectCards ADD sortOrder INT NULL DEFAULT 0;
+        IF COL_LENGTH('dbo.ProjectCards', 'createdBy') IS NULL ALTER TABLE dbo.ProjectCards ADD createdBy NVARCHAR(100) NULL;
+        IF COL_LENGTH('dbo.ProjectCards', 'createdByName') IS NULL ALTER TABLE dbo.ProjectCards ADD createdByName NVARCHAR(200) NULL;
+        IF COL_LENGTH('dbo.ProjectCards', 'updatedBy') IS NULL ALTER TABLE dbo.ProjectCards ADD updatedBy NVARCHAR(100) NULL;
+        IF COL_LENGTH('dbo.ProjectCards', 'createdAt') IS NULL ALTER TABLE dbo.ProjectCards ADD createdAt DATETIME2 NULL DEFAULT SYSDATETIME();
+        IF COL_LENGTH('dbo.ProjectCards', 'updatedAt') IS NULL ALTER TABLE dbo.ProjectCards ADD updatedAt DATETIME2 NULL DEFAULT SYSDATETIME();
       `);
+
+      try {
+        await pool.request().query(`
+          IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_ProjectBoards_OwnerId' AND object_id = OBJECT_ID('dbo.ProjectBoards'))
+            CREATE INDEX IX_ProjectBoards_OwnerId ON dbo.ProjectBoards(ownerId);
+          IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_ProjectCards_ProjectId' AND object_id = OBJECT_ID('dbo.ProjectCards'))
+            CREATE INDEX IX_ProjectCards_ProjectId ON dbo.ProjectCards(projectId);
+          IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_ProjectCards_ColumnId' AND object_id = OBJECT_ID('dbo.ProjectCards'))
+            CREATE INDEX IX_ProjectCards_ColumnId ON dbo.ProjectCards(columnId);
+        `);
+      } catch (idxErr) {
+        console.warn('[Projects] Index creation notice:', idxErr.message);
+      }
+
+      try {
+        const boardColsRes = await pool.request().query(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'ProjectBoards' AND TABLE_SCHEMA = 'dbo'"
+        );
+        cachedBoardColumns = new Set((boardColsRes.recordset || []).map(r => String(r.COLUMN_NAME).toLowerCase()));
+
+        const cardColsRes = await pool.request().query(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'ProjectCards' AND TABLE_SCHEMA = 'dbo'"
+        );
+        cachedCardColumns = new Set((cardColsRes.recordset || []).map(r => String(r.COLUMN_NAME).toLowerCase()));
+      } catch (_) {}
+
       tablesEnsured = true;
     } catch (err) {
       console.warn('[Projects] ensureProjectTables warning:', err.message);
@@ -210,27 +300,46 @@ function normalizeColumns(rawColumns, boardType = 'team') {
 }
 
 function mapBoardRow(row) {
-  const memberIdsRaw = safeParseJSON(row.memberIdsJson || row.memberIds, []);
+  const memberIdsRaw = pickFirstJsonArray(
+    row.memberIdsJson,
+    row.MemberIdsJson,
+    row.memberidsjson,
+    row.memberIds,
+    row.MemberIds
+  );
   const boardType = row.boardType === 'personal' ? 'personal' : 'team';
-  const columns = normalizeColumns(row.columnsJson || row.columns, boardType);
+  const rawCols = pickFirstJsonArray(
+    row.columnsJson,
+    row.ColumnsJson,
+    row.columnsjson,
+    row.columns,
+    row.Columns
+  );
+  const columns = normalizeColumns(rawCols.length > 0 ? rawCols : (row.columnsJson || row.columns), boardType);
+  const ownerId = String(row.ownerId || '');
+  const memberSet = new Set(memberIdsRaw.map(String).filter(Boolean));
+  if (ownerId && (boardType === 'personal' || memberSet.size === 0)) {
+    memberSet.add(ownerId);
+  }
+  const sortOrderNum = Number(row.sortOrder);
   return {
     id: String(row.id),
     title: String(row.title || '無題のボード'),
     description: row.description ? String(row.description) : '',
     boardType,
     visibility: row.visibility || (boardType === 'personal' ? 'private' : 'members'),
-    ownerId: String(row.ownerId || ''),
+    ownerId,
     ownerName: row.ownerName ? String(row.ownerName) : '',
     officeId: row.officeId ? String(row.officeId) : undefined,
     office: row.office ? String(row.office) : undefined,
     divisionId: row.divisionId ? String(row.divisionId) : undefined,
     division: row.division ? String(row.division) : undefined,
-    memberIds: Array.isArray(memberIdsRaw) ? memberIdsRaw.map(String) : [],
+    memberIds: Array.from(memberSet),
     columns,
     color: row.color || (boardType === 'personal' ? 'amber' : 'indigo'),
     isPinned: Boolean(row.isPinned),
     isArchived: Boolean(row.isArchived),
-    sortOrder: typeof row.sortOrder === 'number' ? row.sortOrder : parseInt(row.sortOrder || '0', 10),
+    sortOrder: Number.isFinite(sortOrderNum) ? Math.trunc(sortOrderNum) : 0,
     createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : getJstNowIso(),
     updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : getJstNowIso(),
   };
@@ -274,6 +383,163 @@ function mapCardRow(row) {
   };
 }
 
+async function executeBoardSqlUpsert(pool, normalized) {
+  const req = pool.request();
+  const memberIdsJsonStr = JSON.stringify(normalized.memberIds || []);
+  const columnsJsonStr = JSON.stringify(normalized.columns || []);
+
+  req.input('id', sql.NVarChar(100), normalized.id);
+  req.input('title', sql.NVarChar(300), normalized.title);
+  req.input('description', sql.NVarChar(sql.MAX), normalized.description || '');
+  req.input('boardType', sql.NVarChar(50), normalized.boardType);
+  req.input('visibility', sql.NVarChar(50), normalized.visibility);
+  req.input('ownerId', sql.NVarChar(100), normalized.ownerId);
+  req.input('ownerName', sql.NVarChar(200), normalized.ownerName || '');
+  req.input('officeId', sql.NVarChar(100), normalized.officeId || null);
+  req.input('office', sql.NVarChar(200), normalized.office || null);
+  req.input('divisionId', sql.NVarChar(100), normalized.divisionId || null);
+  req.input('division', sql.NVarChar(200), normalized.division || null);
+  req.input('memberIdsJson', sql.NVarChar(sql.MAX), memberIdsJsonStr);
+  req.input('columnsJson', sql.NVarChar(sql.MAX), columnsJsonStr);
+  req.input('color', sql.NVarChar(50), normalized.color || 'indigo');
+  req.input('isPinned', sql.Bit, normalized.isPinned ? 1 : 0);
+  req.input('isArchived', sql.Bit, normalized.isArchived ? 1 : 0);
+  req.input('sortOrder', sql.Int, Number.isFinite(normalized.sortOrder) ? Math.trunc(normalized.sortOrder) : 0);
+
+  const hasLegacyMemberIds = cachedBoardColumns?.has('memberids');
+  const hasLegacyColumns = cachedBoardColumns?.has('columns');
+  const legacySetClauses = [];
+  const legacyInsertCols = [];
+  const legacyInsertVals = [];
+  if (hasLegacyMemberIds) {
+    req.input('legacyMemberIds', sql.NVarChar(sql.MAX), memberIdsJsonStr);
+    legacySetClauses.push('memberIds = @legacyMemberIds');
+    legacyInsertCols.push('memberIds');
+    legacyInsertVals.push('@legacyMemberIds');
+  }
+  if (hasLegacyColumns) {
+    req.input('legacyColumns', sql.NVarChar(sql.MAX), columnsJsonStr);
+    legacySetClauses.push('columns = @legacyColumns');
+    legacyInsertCols.push('columns');
+    legacyInsertVals.push('@legacyColumns');
+  }
+
+  const extraSets = legacySetClauses.length > 0 ? ',\n            ' + legacySetClauses.join(',\n            ') : '';
+  const extraCols = legacyInsertCols.length > 0 ? ', ' + legacyInsertCols.join(', ') : '';
+  const extraVals = legacyInsertVals.length > 0 ? ', ' + legacyInsertVals.join(', ') : '';
+
+  await req.query(`
+    IF EXISTS (SELECT 1 FROM dbo.ProjectBoards WHERE id = @id)
+    BEGIN
+      UPDATE dbo.ProjectBoards SET
+        title = @title,
+        description = @description,
+        boardType = @boardType,
+        visibility = @visibility,
+        ownerId = @ownerId,
+        ownerName = @ownerName,
+        officeId = @officeId,
+        office = @office,
+        divisionId = @divisionId,
+        division = @division,
+        memberIdsJson = @memberIdsJson,
+        columnsJson = @columnsJson,
+        color = @color,
+        isPinned = @isPinned,
+        isArchived = @isArchived,
+        sortOrder = @sortOrder${extraSets},
+        updatedAt = SYSDATETIME()
+      WHERE id = @id;
+    END
+    ELSE
+    BEGIN
+      INSERT INTO dbo.ProjectBoards (
+        id, title, description, boardType, visibility, ownerId, ownerName,
+        officeId, office, divisionId, division, memberIdsJson, columnsJson,
+        color, isPinned, isArchived, sortOrder${extraCols}, createdAt, updatedAt
+      ) VALUES (
+        @id, @title, @description, @boardType, @visibility, @ownerId, @ownerName,
+        @officeId, @office, @divisionId, @division, @memberIdsJson, @columnsJson,
+        @color, @isPinned, @isArchived, @sortOrder${extraVals}, SYSDATETIME(), SYSDATETIME()
+      );
+    END
+  `);
+}
+
+async function executeCardSqlUpsert(pool, normalized) {
+  const req = pool.request();
+  req.input('id', sql.NVarChar(100), normalized.id);
+  req.input('projectId', sql.NVarChar(100), normalized.projectId);
+  req.input('columnId', sql.NVarChar(100), normalized.columnId);
+  req.input('cardType', sql.NVarChar(30), normalized.cardType);
+  req.input('title', sql.NVarChar(500), normalized.title);
+  req.input('description', sql.NVarChar(sql.MAX), normalized.description || '');
+  req.input('priority', sql.NVarChar(30), normalized.priority);
+  req.input('assigneeIdsJson', sql.NVarChar(sql.MAX), JSON.stringify(normalized.assigneeIds || []));
+  req.input('dueDate', sql.NVarChar(30), normalized.dueDate || null);
+  req.input('startDate', sql.NVarChar(30), normalized.startDate || null);
+  req.input('tagsJson', sql.NVarChar(sql.MAX), JSON.stringify(normalized.tags || []));
+  req.input('linksJson', sql.NVarChar(sql.MAX), JSON.stringify(normalized.links || []));
+  req.input('attachmentsJson', sql.NVarChar(sql.MAX), JSON.stringify(normalized.attachments || []));
+  req.input('checklistJson', sql.NVarChar(sql.MAX), JSON.stringify(normalized.checklist || []));
+  req.input('commentsJson', sql.NVarChar(sql.MAX), JSON.stringify(normalized.comments || []));
+  req.input('isCompleted', sql.Bit, normalized.isCompleted ? 1 : 0);
+  req.input('completedAt', sql.NVarChar(50), normalized.completedAt || null);
+  req.input('completedBy', sql.NVarChar(100), normalized.completedBy || null);
+  req.input('isPinned', sql.Bit, normalized.isPinned ? 1 : 0);
+  req.input('isArchived', sql.Bit, normalized.isArchived ? 1 : 0);
+  req.input('sortOrder', sql.Int, Number.isFinite(normalized.sortOrder) ? Math.trunc(normalized.sortOrder) : 0);
+  req.input('createdBy', sql.NVarChar(100), normalized.createdBy || null);
+  req.input('createdByName', sql.NVarChar(200), normalized.createdByName || null);
+  req.input('updatedBy', sql.NVarChar(100), normalized.updatedBy || null);
+
+  await req.query(`
+    IF EXISTS (SELECT 1 FROM dbo.ProjectCards WHERE id = @id)
+    BEGIN
+      UPDATE dbo.ProjectCards SET
+        projectId = @projectId,
+        columnId = @columnId,
+        cardType = @cardType,
+        title = @title,
+        description = @description,
+        priority = @priority,
+        assigneeIdsJson = @assigneeIdsJson,
+        dueDate = @dueDate,
+        startDate = @startDate,
+        tagsJson = @tagsJson,
+        linksJson = @linksJson,
+        attachmentsJson = @attachmentsJson,
+        checklistJson = @checklistJson,
+        commentsJson = @commentsJson,
+        isCompleted = @isCompleted,
+        completedAt = @completedAt,
+        completedBy = @completedBy,
+        isPinned = @isPinned,
+        isArchived = @isArchived,
+        sortOrder = @sortOrder,
+        updatedBy = @updatedBy,
+        updatedAt = SYSDATETIME()
+      WHERE id = @id;
+    END
+    ELSE
+    BEGIN
+      INSERT INTO dbo.ProjectCards (
+        id, projectId, columnId, cardType, title, description, priority,
+        assigneeIdsJson, dueDate, startDate, tagsJson, linksJson, attachmentsJson,
+        checklistJson, commentsJson, isCompleted, completedAt, completedBy,
+        isPinned, isArchived, sortOrder, createdBy, createdByName, updatedBy,
+        createdAt, updatedAt
+      ) VALUES (
+        @id, @projectId, @columnId, @cardType, @title, @description, @priority,
+        @assigneeIdsJson, @dueDate, @startDate, @tagsJson, @linksJson, @attachmentsJson,
+        @checklistJson, @commentsJson, @isCompleted, @completedAt, @completedBy,
+        @isPinned, @isArchived, @sortOrder, @createdBy, @createdByName, @updatedBy,
+        SYSDATETIME(), SYSDATETIME()
+      );
+    END
+  `);
+}
+
 // ---------------------------------------------------------------------------
 // データ取得・保存（SQL Server Primary + Local JSON Fallback）
 // ---------------------------------------------------------------------------
@@ -291,9 +557,17 @@ async function readAllBoards() {
         saveJsonArray(boardsFilePath, rows);
         return rows;
       }
-      const localRows = loadJsonArray(boardsFilePath);
+      const localRows = loadJsonArray(boardsFilePath).map(mapBoardRow);
       if (localRows.length > 0) {
-        return localRows.map(mapBoardRow);
+        // SQL側が空でローカルJSONにボードがある場合はSQLへも同期復元
+        for (const lb of localRows) {
+          try {
+            await executeBoardSqlUpsert(pool, lb);
+          } catch (syncErr) {
+            console.warn('[Projects] SQL backfill board warning:', syncErr.message);
+          }
+        }
+        return localRows;
       }
       return [];
     } catch (err) {
@@ -323,8 +597,17 @@ async function readAllCards(projectId = null) {
           saveJsonArray(cardsFilePath, rows);
           return rows;
         }
-        const localRows = loadJsonArray(cardsFilePath);
-        if (localRows.length > 0) return localRows.map(mapCardRow);
+        const localRows = loadJsonArray(cardsFilePath).map(mapCardRow);
+        if (localRows.length > 0) {
+          for (const lc of localRows) {
+            try {
+              await executeCardSqlUpsert(pool, lc);
+            } catch (syncErr) {
+              console.warn('[Projects] SQL backfill card warning:', syncErr.message);
+            }
+          }
+          return localRows;
+        }
       }
       if (rows.length > 0) return rows;
       const localFiltered = loadJsonArray(cardsFilePath).map(mapCardRow);
@@ -345,63 +628,13 @@ async function persistBoard(board) {
   if (pool) {
     try {
       await ensureProjectTables(pool);
-      const req = pool.request();
-      req.input('id', sql.NVarChar(100), normalized.id);
-      req.input('title', sql.NVarChar(300), normalized.title);
-      req.input('description', sql.NVarChar(sql.MAX), normalized.description || '');
-      req.input('boardType', sql.NVarChar(50), normalized.boardType);
-      req.input('visibility', sql.NVarChar(50), normalized.visibility);
-      req.input('ownerId', sql.NVarChar(100), normalized.ownerId);
-      req.input('ownerName', sql.NVarChar(200), normalized.ownerName || '');
-      req.input('officeId', sql.NVarChar(100), normalized.officeId || null);
-      req.input('office', sql.NVarChar(200), normalized.office || null);
-      req.input('divisionId', sql.NVarChar(100), normalized.divisionId || null);
-      req.input('division', sql.NVarChar(200), normalized.division || null);
-      req.input('memberIdsJson', sql.NVarChar(sql.MAX), JSON.stringify(normalized.memberIds || []));
-      req.input('columnsJson', sql.NVarChar(sql.MAX), JSON.stringify(normalized.columns || []));
-      req.input('color', sql.NVarChar(50), normalized.color || 'indigo');
-      req.input('isPinned', sql.Bit, normalized.isPinned ? 1 : 0);
-      req.input('isArchived', sql.Bit, normalized.isArchived ? 1 : 0);
-      req.input('sortOrder', sql.Int, normalized.sortOrder || 0);
-
-      await req.query(`
-        IF EXISTS (SELECT 1 FROM dbo.ProjectBoards WHERE id = @id)
-        BEGIN
-          UPDATE dbo.ProjectBoards SET
-            title = @title,
-            description = @description,
-            boardType = @boardType,
-            visibility = @visibility,
-            ownerId = @ownerId,
-            ownerName = @ownerName,
-            officeId = @officeId,
-            office = @office,
-            divisionId = @divisionId,
-            division = @division,
-            memberIdsJson = @memberIdsJson,
-            columnsJson = @columnsJson,
-            color = @color,
-            isPinned = @isPinned,
-            isArchived = @isArchived,
-            sortOrder = @sortOrder,
-            updatedAt = SYSDATETIME()
-          WHERE id = @id;
-        END
-        ELSE
-        BEGIN
-          INSERT INTO dbo.ProjectBoards (
-            id, title, description, boardType, visibility, ownerId, ownerName,
-            officeId, office, divisionId, division, memberIdsJson, columnsJson,
-            color, isPinned, isArchived, sortOrder, createdAt, updatedAt
-          ) VALUES (
-            @id, @title, @description, @boardType, @visibility, @ownerId, @ownerName,
-            @officeId, @office, @divisionId, @division, @memberIdsJson, @columnsJson,
-            @color, @isPinned, @isArchived, @sortOrder, SYSDATETIME(), SYSDATETIME()
-          );
-        END
-      `);
+      await executeBoardSqlUpsert(pool, normalized);
     } catch (err) {
-      console.warn('[Projects] SQL persistBoard warning:', err.message);
+      console.warn('[Projects] SQL persistBoard retry after schema ensure:', err.message);
+      tablesEnsured = false;
+      cachedBoardColumns = null;
+      await ensureProjectTables(pool, true);
+      await executeBoardSqlUpsert(pool, normalized);
     }
   }
   return normalized;
@@ -415,79 +648,13 @@ async function persistCard(card) {
   if (pool) {
     try {
       await ensureProjectTables(pool);
-      const req = pool.request();
-      req.input('id', sql.NVarChar(100), normalized.id);
-      req.input('projectId', sql.NVarChar(100), normalized.projectId);
-      req.input('columnId', sql.NVarChar(100), normalized.columnId);
-      req.input('cardType', sql.NVarChar(30), normalized.cardType);
-      req.input('title', sql.NVarChar(500), normalized.title);
-      req.input('description', sql.NVarChar(sql.MAX), normalized.description || '');
-      req.input('priority', sql.NVarChar(30), normalized.priority);
-      req.input('assigneeIdsJson', sql.NVarChar(sql.MAX), JSON.stringify(normalized.assigneeIds || []));
-      req.input('dueDate', sql.NVarChar(30), normalized.dueDate || null);
-      req.input('startDate', sql.NVarChar(30), normalized.startDate || null);
-      req.input('tagsJson', sql.NVarChar(sql.MAX), JSON.stringify(normalized.tags || []));
-      req.input('linksJson', sql.NVarChar(sql.MAX), JSON.stringify(normalized.links || []));
-      req.input('attachmentsJson', sql.NVarChar(sql.MAX), JSON.stringify(normalized.attachments || []));
-      req.input('checklistJson', sql.NVarChar(sql.MAX), JSON.stringify(normalized.checklist || []));
-      req.input('commentsJson', sql.NVarChar(sql.MAX), JSON.stringify(normalized.comments || []));
-      req.input('isCompleted', sql.Bit, normalized.isCompleted ? 1 : 0);
-      req.input('completedAt', sql.NVarChar(50), normalized.completedAt || null);
-      req.input('completedBy', sql.NVarChar(100), normalized.completedBy || null);
-      req.input('isPinned', sql.Bit, normalized.isPinned ? 1 : 0);
-      req.input('isArchived', sql.Bit, normalized.isArchived ? 1 : 0);
-      req.input('sortOrder', sql.Int, normalized.sortOrder || 0);
-      req.input('createdBy', sql.NVarChar(100), normalized.createdBy || null);
-      req.input('createdByName', sql.NVarChar(200), normalized.createdByName || null);
-      req.input('updatedBy', sql.NVarChar(100), normalized.updatedBy || null);
-
-      await req.query(`
-        IF EXISTS (SELECT 1 FROM dbo.ProjectCards WHERE id = @id)
-        BEGIN
-          UPDATE dbo.ProjectCards SET
-            projectId = @projectId,
-            columnId = @columnId,
-            cardType = @cardType,
-            title = @title,
-            description = @description,
-            priority = @priority,
-            assigneeIdsJson = @assigneeIdsJson,
-            dueDate = @dueDate,
-            startDate = @startDate,
-            tagsJson = @tagsJson,
-            linksJson = @linksJson,
-            attachmentsJson = @attachmentsJson,
-            checklistJson = @checklistJson,
-            commentsJson = @commentsJson,
-            isCompleted = @isCompleted,
-            completedAt = @completedAt,
-            completedBy = @completedBy,
-            isPinned = @isPinned,
-            isArchived = @isArchived,
-            sortOrder = @sortOrder,
-            updatedBy = @updatedBy,
-            updatedAt = SYSDATETIME()
-          WHERE id = @id;
-        END
-        ELSE
-        BEGIN
-          INSERT INTO dbo.ProjectCards (
-            id, projectId, columnId, cardType, title, description, priority,
-            assigneeIdsJson, dueDate, startDate, tagsJson, linksJson, attachmentsJson,
-            checklistJson, commentsJson, isCompleted, completedAt, completedBy,
-            isPinned, isArchived, sortOrder, createdBy, createdByName, updatedBy,
-            createdAt, updatedAt
-          ) VALUES (
-            @id, @projectId, @columnId, @cardType, @title, @description, @priority,
-            @assigneeIdsJson, @dueDate, @startDate, @tagsJson, @linksJson, @attachmentsJson,
-            @checklistJson, @commentsJson, @isCompleted, @completedAt, @completedBy,
-            @isPinned, @isArchived, @sortOrder, @createdBy, @createdByName, @updatedBy,
-            SYSDATETIME(), SYSDATETIME()
-          );
-        END
-      `);
+      await executeCardSqlUpsert(pool, normalized);
     } catch (err) {
-      console.warn('[Projects] SQL persistCard warning:', err.message);
+      console.warn('[Projects] SQL persistCard retry after schema ensure:', err.message);
+      tablesEnsured = false;
+      cachedCardColumns = null;
+      await ensureProjectTables(pool, true);
+      await executeCardSqlUpsert(pool, normalized);
     }
   }
   return normalized;
@@ -665,11 +832,15 @@ async function handleCreateBoard(req, res) {
         ? body.visibility
         : 'members';
 
-    const memberSet = new Set(Array.isArray(body.memberIds) ? body.memberIds.map(String) : []);
+    const rawMemberList = Array.isArray(body.memberIds)
+      ? body.memberIds
+      : safeParseJSON(body.memberIdsJson || body.memberIds, []);
+    const memberSet = new Set((Array.isArray(rawMemberList) ? rawMemberList : []).map(String).filter(Boolean));
     memberSet.add(ownerId);
 
     const existingBoards = await readAllBoards();
     const maxOrder = existingBoards.reduce((acc, b) => Math.max(acc, b.sortOrder || 0), 0);
+    const parsedSortOrder = Number(body.sortOrder);
 
     const board = await persistBoard({
       id: body.id || generateId('proj'),
@@ -688,7 +859,7 @@ async function handleCreateBoard(req, res) {
       color: body.color || (boardType === 'personal' ? 'amber' : 'indigo'),
       isPinned: Boolean(body.isPinned),
       isArchived: false,
-      sortOrder: typeof body.sortOrder === 'number' ? body.sortOrder : maxOrder + 1,
+      sortOrder: Number.isFinite(parsedSortOrder) ? Math.trunc(parsedSortOrder) : maxOrder + 1,
     });
 
     return res.status(201).json({ board });
@@ -876,12 +1047,21 @@ async function handleUpdateBoard(req, res) {
       ? 'private'
       : (body.visibility !== undefined ? body.visibility : existing.visibility);
 
-    let nextMemberIds = existing.memberIds || [];
-    if (Array.isArray(body.memberIds)) {
-      const set = new Set(body.memberIds.map(String));
-      if (existing.ownerId) set.add(String(existing.ownerId));
+    let nextMemberIds = Array.isArray(existing.memberIds) ? existing.memberIds.map(String) : [];
+    const incomingMembers = body.memberIds !== undefined
+      ? (Array.isArray(body.memberIds) ? body.memberIds : safeParseJSON(body.memberIds, null))
+      : body.memberIdsJson !== undefined
+      ? safeParseJSON(body.memberIdsJson, null)
+      : null;
+
+    if (Array.isArray(incomingMembers)) {
+      const set = new Set(incomingMembers.map(String).filter(Boolean));
+      const effectiveOwnerId = existing.ownerId || (body.ownerId ? String(body.ownerId) : '');
+      if (effectiveOwnerId) set.add(String(effectiveOwnerId));
       nextMemberIds = Array.from(set);
     }
+
+    const parsedSortOrder = body.sortOrder !== undefined ? Number(body.sortOrder) : existing.sortOrder;
 
     const updated = await persistBoard({
       ...existing,
@@ -898,7 +1078,7 @@ async function handleUpdateBoard(req, res) {
       color: body.color !== undefined ? body.color : existing.color,
       isPinned: body.isPinned !== undefined ? Boolean(body.isPinned) : existing.isPinned,
       isArchived: body.isArchived !== undefined ? Boolean(body.isArchived) : existing.isArchived,
-      sortOrder: body.sortOrder !== undefined ? Number(body.sortOrder) : existing.sortOrder,
+      sortOrder: Number.isFinite(parsedSortOrder) ? Math.trunc(parsedSortOrder) : existing.sortOrder,
     });
 
     return res.json({ board: updated });

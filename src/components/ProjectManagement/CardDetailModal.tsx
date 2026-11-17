@@ -168,6 +168,26 @@ export const CardDetailModal: React.FC<CardDetailModalProps> = ({
     return [...allUsers].sort((a, b) => (a.sortOrder ?? 9999) - (b.sortOrder ?? 9999));
   }, [board, allUsers, currentUser]);
 
+  const memoColumns = useMemo(
+    () => board.columns.filter(c => c.kind === 'memo'),
+    [board.columns]
+  );
+
+  const taskColumns = useMemo(
+    () => board.columns.filter(c => c.kind !== 'memo'),
+    [board.columns]
+  );
+
+  const availableColumns = useMemo(() => {
+    const list = cardType === 'memo' ? memoColumns : taskColumns;
+    if (list.length === 0) return board.columns;
+    if (columnId && !list.some(c => c.id === columnId)) {
+      const currentCol = board.columns.find(c => c.id === columnId);
+      return currentCol ? [currentCol, ...list] : list;
+    }
+    return list;
+  }, [cardType, memoColumns, taskColumns, board.columns, columnId]);
+
   if (!isOpen) return null;
 
   const toggleAssignee = (uid: string) => {
@@ -435,7 +455,13 @@ export const CardDetailModal: React.FC<CardDetailModalProps> = ({
             <div className="flex items-center gap-1 p-0.5 bg-slate-200/70 rounded-lg">
               <button
                 type="button"
-                onClick={() => setCardType('task')}
+                onClick={() => {
+                  setCardType('task');
+                  const currentCol = board.columns.find(c => c.id === columnId);
+                  if (currentCol?.kind === 'memo' && taskColumns.length > 0) {
+                    setColumnId(taskColumns[0].id);
+                  }
+                }}
                 className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
                   cardType === 'task' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
                 }`}
@@ -448,6 +474,10 @@ export const CardDetailModal: React.FC<CardDetailModalProps> = ({
                 onClick={() => {
                   setCardType('memo');
                   setIsCompleted(false);
+                  const currentCol = board.columns.find(c => c.id === columnId);
+                  if (currentCol?.kind !== 'memo' && memoColumns.length > 0) {
+                    setColumnId(memoColumns[0].id);
+                  }
                 }}
                 className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
                   cardType === 'memo' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
@@ -529,7 +559,9 @@ export const CardDetailModal: React.FC<CardDetailModalProps> = ({
             {/* Core Attributes Row */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
-                <label className="block text-[11px] font-semibold text-slate-500 mb-1">ステータス（列）</label>
+                <label className="block text-[11px] font-semibold text-slate-500 mb-1">
+                  {cardType === 'memo' ? '資料カテゴリ（1行目）' : 'ステータス（列）'}
+                </label>
                 <select
                   value={columnId}
                   onChange={e => {
@@ -540,7 +572,7 @@ export const CardDetailModal: React.FC<CardDetailModalProps> = ({
                   }}
                   className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white text-slate-800"
                 >
-                  {board.columns.map(c => (
+                  {availableColumns.map(c => (
                     <option key={c.id} value={c.id}>
                       {c.title}
                     </option>
