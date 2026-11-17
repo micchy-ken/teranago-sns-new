@@ -1867,7 +1867,7 @@ export function AdminPanel({
               動作確認用のユーザー切り替え
             </div>
             <p>
-              「山道 健介」アカウントには管理者権限が付与されています。以下のボタンからユーザーを切り替えて操作をお試しいただけます。
+              管理者権限が付与されているアカウントでログインすると、この画面の操作を行えます。
             </p>
           </div>
 
@@ -3606,7 +3606,7 @@ export function AdminPanel({
                     <div className="bg-white/5 backdrop-blur-xs p-3 rounded-xl border border-white/10 space-y-1">
                       <span className="text-indigo-300 font-medium block">送信サーバー (SMTP)</span>
                       <span className="font-mono font-bold text-white text-sm block">
-                        {smtpConfigInfo?.host || '111.89.134.68'}
+                        {smtpConfigInfo?.host || '未設定 (.env)'}
                       </span>
                       <span className="text-[10px] text-slate-400">ポート: {smtpConfigInfo?.port || 587} (暗号化: TLS/STARTTLS)</span>
                     </div>
@@ -3614,7 +3614,7 @@ export function AdminPanel({
                     <div className="bg-white/5 backdrop-blur-xs p-3 rounded-xl border border-white/10 space-y-1">
                       <span className="text-indigo-300 font-medium block">認証ユーザー</span>
                       <span className="font-mono font-bold text-white text-sm block">
-                        {smtpConfigInfo?.user || 'nagoya-soumu2'}
+                        {smtpConfigInfo?.user || '未設定 (.env)'}
                       </span>
                       <span className="text-[10px] text-slate-400">認証方式: SMTP認証</span>
                     </div>
@@ -3622,7 +3622,7 @@ export function AdminPanel({
                     <div className="bg-white/5 backdrop-blur-xs p-3 rounded-xl border border-white/10 space-y-1">
                       <span className="text-indigo-300 font-medium block">差出人アドレス</span>
                       <span className="font-mono font-bold text-white text-xs truncate block">
-                        {smtpConfigInfo?.fromEmail || 'nagoya-soumu2@teraoka-ads.co.jp'}
+                        {smtpConfigInfo?.fromEmail || '未設定 (.env)'}
                       </span>
                       <span className="text-[10px] text-slate-400 truncate block">
                         名義: {smtpConfigInfo?.fromName || 'Aipo送信用'}
@@ -3810,7 +3810,7 @@ export function AdminPanel({
                         </label>
                         <input
                           type="text"
-                          placeholder="例: 山道 健介"
+                          placeholder="例: 山田 太郎"
                           value={testCustomRecipientName}
                           onChange={(e) => setTestCustomRecipientName(e.target.value)}
                           className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -3855,7 +3855,7 @@ export function AdminPanel({
                           </span>
                         </h4>
                         <p className="text-xs text-blue-200/70 mt-0.5">
-                          SNS専用アドレス（nagoya-soumu2@teraoka-ads.co.jp）へ届いたメールを自動巡回し、登録メンバーのメールのみ「#社内メール」タグで掲示板へ自動掲載します。
+                          SNS専用アドレス（{pop3InboundInfo?.config?.fromAddress || '環境変数設定アドレス'}）へ届いたメールを自動巡回し、登録メンバーのメールのみ「#社内メール」タグで掲示板へ自動掲載します。
                         </p>
                       </div>
                     </div>
@@ -3884,7 +3884,7 @@ export function AdminPanel({
                     <div className="bg-white/5 backdrop-blur-xs p-3 rounded-xl border border-white/10 space-y-1">
                       <span className="text-blue-300 font-medium block">受信サーバー (POP3)</span>
                       <span className="font-mono font-bold text-white text-sm block">
-                        {pop3InboundInfo?.config?.host || '111.89.134.68'}
+                        {pop3InboundInfo?.config?.host || '未設定 (.env)'}
                       </span>
                       <span className="text-[10px] text-slate-400">ポート: {pop3InboundInfo?.config?.port || 110} (セキュリティ: なし/平文)</span>
                     </div>
@@ -3892,10 +3892,10 @@ export function AdminPanel({
                     <div className="bg-white/5 backdrop-blur-xs p-3 rounded-xl border border-white/10 space-y-1">
                       <span className="text-blue-300 font-medium block">認証アカウント / 受信先</span>
                       <span className="font-mono font-bold text-white text-xs truncate block">
-                        {pop3InboundInfo?.config?.user || 'nagoya-soumu2'}
+                        {pop3InboundInfo?.config?.user || '未設定 (.env)'}
                       </span>
                       <span className="text-[10px] text-slate-400 truncate block">
-                        {pop3InboundInfo?.config?.fromAddress || 'nagoya-soumu2@teraoka-ads.co.jp'}
+                        {pop3InboundInfo?.config?.fromAddress || '未設定 (.env)'}
                       </span>
                     </div>
 
@@ -4604,7 +4604,7 @@ END;`}
                     type="text"
                     required
                     autoComplete="off"
-                    placeholder="例: 山道 健介"
+                    placeholder="例: 山田 太郎"
                     value={userFormData.name}
                     onChange={(e) => {
                       setUserFormData({ ...userFormData, name: e.target.value });
@@ -4620,7 +4620,7 @@ END;`}
                   <input
                     type="text"
                     autoComplete="off"
-                    placeholder="例: ヤマミチ ケンスケ"
+                    placeholder="例: ヤマダ タロウ"
                     value={userFormData.kanaName}
                     onChange={(e) => setUserFormData({ ...userFormData, kanaName: e.target.value })}
                     className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
@@ -4637,7 +4637,7 @@ END;`}
                   <input
                     type="text"
                     autoComplete="off"
-                    placeholder="例: yamamichi"
+                    placeholder="例: yamada"
                     value={userFormData.loginId}
                     onChange={(e) => setUserFormData({ ...userFormData, loginId: e.target.value })}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
@@ -4782,7 +4782,7 @@ END;`}
                   <input
                     type="email"
                     autoComplete="off"
-                    placeholder="yamamichi@teraoka-ads.co.jp"
+                    placeholder="user@example.com"
                     value={userFormData.email}
                     onChange={(e) => setUserFormData({ ...userFormData, email: e.target.value })}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"

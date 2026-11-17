@@ -1,4 +1,4 @@
-import { API_BASE_URL } from '../config/api';
+import { API_BASE_URL, appendAuthTokenToUrl } from '../config/api';
 
 /**
  * スタンプ画像URLを環境（GitHub Pages / Synology NAS / Local Dev）に応じて安全に解決するヘルパー関数
@@ -13,7 +13,7 @@ export function getStampUrl(url?: string | null): string {
 
   // Base64データまたは外部フルURLはそのまま返却
   if (url.startsWith('data:') || url.startsWith('http://') || url.startsWith('https://')) {
-    return url;
+    return url.startsWith('data:') ? url : appendAuthTokenToUrl(url);
   }
 
   // Windowsパス等のバックスラッシュをスラッシュに置換
@@ -38,7 +38,7 @@ export function getStampUrl(url?: string | null): string {
     }
 
     const baseUrl = API_BASE_URL.replace(/\/api$/, '');
-    return `${baseUrl}${relativePath}${queryString}`;
+    return appendAuthTokenToUrl(`${baseUrl}${relativePath}${queryString}`);
   }
 
   // ② デフォルト公式スタンプ（/stamps/xxx.svg 等）の場合：

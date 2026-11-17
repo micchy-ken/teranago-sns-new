@@ -40,6 +40,20 @@ export function clearAuthToken(): void {
   setAuthToken(null);
 }
 
+/**
+ * <img> / <iframe> / <a href> / window.location 等の直接ファイル・画像参照URLに
+ * セッショントークン (?token=...) を付与するヘルパー
+ */
+export function appendAuthTokenToUrl(url?: string | null): string {
+  if (!url) return '';
+  if (url.startsWith('data:') || url.startsWith('blob:')) return url;
+  const token = getAuthToken();
+  if (!token) return url;
+  if (/[?&]token=/.test(url)) return url;
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}token=${encodeURIComponent(token)}`;
+}
+
 // 全 /api/* リクエストへ Authorization: Bearer <token> を自動付与するグローバル fetch インターセプター
 if (typeof window !== 'undefined' && !(window as any).__teranagoAuthFetchInstalled) {
   (window as any).__teranagoAuthFetchInstalled = true;

@@ -21,7 +21,7 @@ import {
   Paperclip,
   FolderArchive
 } from 'lucide-react';
-import { API_BASE_URL } from '../config/api';
+import { API_BASE_URL, appendAuthTokenToUrl } from '../config/api';
 import { User, OfficeMaster, DivisionMaster } from '../types';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 
@@ -217,7 +217,7 @@ export default function FileManager({
       fullUrl += `${fullUrl.includes('?') ? '&' : '?'}download=1`;
     }
 
-    return fullUrl;
+    return appendAuthTokenToUrl(fullUrl);
   };
 
   // テキストファイルのコンテンツ読み込み (プレビュー用)

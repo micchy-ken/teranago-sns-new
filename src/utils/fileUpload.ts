@@ -1,4 +1,4 @@
-import { API_BASE_URL } from '../config/api';
+import { API_BASE_URL, appendAuthTokenToUrl } from '../config/api';
 import { AttachmentFile } from '../types';
 
 /**
@@ -57,19 +57,19 @@ export function resolveFileUrl(url?: string): string {
       // /bulletinsfiles/ または /uploads/ で始まっているのに /api が抜けている場合、Synologyリバースプロキシを通過させるため /api 経由に補正
       if (parsed.pathname.startsWith('/bulletinsfiles/')) {
         const subPath = parsed.pathname.replace(/^\/bulletinsfiles\//, '');
-        return `${apiBase}/bulletinsfiles/${subPath}${parsed.search}`;
+        return appendAuthTokenToUrl(`${apiBase}/bulletinsfiles/${subPath}${parsed.search}`);
       }
       if (parsed.pathname.startsWith('/uploads/photo-reports/')) {
         const filename = parsed.pathname.replace(/^\/uploads\/photo-reports\//, '');
-        return `${apiBase}/photo-reports/image/${filename}${parsed.search}`;
+        return appendAuthTokenToUrl(`${apiBase}/photo-reports/image/${filename}${parsed.search}`);
       }
       if (parsed.pathname.startsWith('/uploads/')) {
         const subPath = parsed.pathname.replace(/^\/uploads\//, '');
-        return `${apiBase}/uploads/${subPath}${parsed.search}`;
+        return appendAuthTokenToUrl(`${apiBase}/uploads/${subPath}${parsed.search}`);
       }
-      return url;
+      return appendAuthTokenToUrl(url);
     } catch (_) {
-      return url;
+      return appendAuthTokenToUrl(url);
     }
   }
 
@@ -79,46 +79,46 @@ export function resolveFileUrl(url?: string): string {
 
   if (clean.startsWith('/api/uploads/photo-reports/')) {
     const filename = clean.replace(/^\/api\/uploads\/photo-reports\//, '');
-    return `${apiBase}/photo-reports/image/${filename}`;
+    return appendAuthTokenToUrl(`${apiBase}/photo-reports/image/${filename}`);
   }
 
   if (clean.startsWith('/uploads/photo-reports/')) {
     const filename = clean.replace(/^\/uploads\/photo-reports\//, '');
-    return `${apiBase}/photo-reports/image/${filename}`;
+    return appendAuthTokenToUrl(`${apiBase}/photo-reports/image/${filename}`);
   }
 
   if (clean.startsWith('uploads/photo-reports/')) {
     const filename = clean.replace(/^uploads\/photo-reports\//, '');
-    return `${apiBase}/photo-reports/image/${filename}`;
+    return appendAuthTokenToUrl(`${apiBase}/photo-reports/image/${filename}`);
   }
 
   if (clean.startsWith('/api/')) {
     const sub = clean.substring(5);
-    return `${apiBase}/${sub}`;
+    return appendAuthTokenToUrl(`${apiBase}/${sub}`);
   }
 
   if (clean.startsWith('/bulletinsfiles/')) {
     const sub = clean.substring(16);
-    return `${apiBase}/bulletinsfiles/${sub}`;
+    return appendAuthTokenToUrl(`${apiBase}/bulletinsfiles/${sub}`);
   }
 
   if (clean.startsWith('bulletinsfiles/')) {
     const sub = clean.substring(15);
-    return `${apiBase}/bulletinsfiles/${sub}`;
+    return appendAuthTokenToUrl(`${apiBase}/bulletinsfiles/${sub}`);
   }
 
   if (clean.startsWith('/uploads/')) {
     const sub = clean.substring(9);
-    return `${apiBase}/uploads/${sub}`;
+    return appendAuthTokenToUrl(`${apiBase}/uploads/${sub}`);
   }
 
   // ファイル名単体の場合 (例: "171234_report.pdf")
   if (!clean.includes('/')) {
-    return `${apiBase}/bulletinsfiles/${encodeURIComponent(clean)}`;
+    return appendAuthTokenToUrl(`${apiBase}/bulletinsfiles/${encodeURIComponent(clean)}`);
   }
 
   const slash = clean.startsWith('/') ? clean : `/${clean}`;
-  return `${apiBase}${slash}`;
+  return appendAuthTokenToUrl(`${apiBase}${slash}`);
 }
 
 /**

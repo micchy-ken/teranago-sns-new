@@ -1,7 +1,7 @@
 /**
  * routes/safety.js (本番環境・MS SQL Server & 暗号化 & 気象庁地震連動 完全連携版)
  * 寺岡オートドアSNS 安否確認モジュール (MS SQL Server & AES-256-GCM暗号化 & 気象庁地震速報自動発動 & 24時間重複連送抑制 & ログイン不要ゲスト直接回答URL対応)
- * 最終更新: 2026年10月28日 (安否確認メールの24時間連送抑制・クールダウン制御および緊急送信フラグ対応 完全統合版)
+ * 最終更新: 2026年11月17日 (セキュリティ強化 Step2: PERSONAL_EMAIL_SECRET_KEY 固定文字列フォールバック廃止・未設定時起動エラー化・新鍵への自動再暗号化マイグレーション対応版)
  */
 import { Router } from 'express';
 import crypto from 'crypto';
@@ -14,11 +14,73 @@ import { dataDir, safeParseJSON } from '../config.js';
 
 const router = Router();
 
-const EMAIL_ENCRYPTION_SECRET = process.env.PERSONAL_EMAIL_SECRET_KEY || 'teraoka-safety-confirmation-secret-2026-auth-v1';
+/**
+ * .env ファイルが存在する場合、未設定の環境変数を補完ロードするヘルパー
+ */
+function loadEnvFileIfPresent() {
+  try {
+    const envPath = path.join(process.cwd(), '.env');
+    if (!fs.existsSync(envPath)) return;
+    const raw = fs.readFileSync(envPath, 'utf8');
+    for (const line of raw.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eqIdx = trimmed.indexOf('=');
+      if (eqIdx <= 0) continue;
+      const key = trimmed.slice(0, eqIdx).trim();
+      let val = trimmed.slice(eqIdx + 1).trim();
+      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+        val = val.slice(1, -1);
+      }
+      if (key && process.env[key] === undefined) {
+        process.env[key] = val;
+      }
+    }
+  } catch (_) {}
+}
+
+loadEnvFileIfPresent();
+
+// 固定文字列フォールバックを完全廃止し、環境変数未設定時は起動エラーとする
+const EMAIL_ENCRYPTION_SECRET = (process.env.PERSONAL_EMAIL_SECRET_KEY || '').trim();
+if (!EMAIL_ENCRYPTION_SECRET) {
+  const fatalMsg = '[Security Fatal] 環境変数 PERSONAL_EMAIL_SECRET_KEY が設定されていません。.env に新しい秘密鍵 (PERSONAL_EMAIL_SECRET_KEY) を設定してからサーバーを起動してください。';
+  console.error(fatalMsg);
+  throw new Error(fatalMsg);
+}
 const ENCRYPTION_KEY = crypto.createHash('sha256').update(EMAIL_ENCRYPTION_SECRET).digest();
 
+// 旧鍵からの自動再暗号化マイグレーション用（任意: .env に OLD_PERSONAL_EMAIL_SECRET_KEY または LEGACY_PERSONAL_EMAIL_SECRET_KEY を設定時のみ使用）
+const OLD_EMAIL_ENCRYPTION_SECRET = (
+  process.env.OLD_PERSONAL_EMAIL_SECRET_KEY ||
+  process.env.LEGACY_PERSONAL_EMAIL_SECRET_KEY ||
+  ''
+).trim();
+const OLD_ENCRYPTION_KEY = OLD_EMAIL_ENCRYPTION_SECRET
+  ? crypto.createHash('sha256').update(OLD_EMAIL_ENCRYPTION_SECRET).digest()
+  : null;
+
 /**
- * 暗号化関数 (AES-256-GCM)
+ * 指定された32バイト鍵で AES-256-GCM 復号を試行する内部ヘルパー
+ */
+function decryptWithKeyBuffer(cipherText, keyBuffer) {
+  if (!cipherText || typeof cipherText !== 'string' || !cipherText.includes(':') || !keyBuffer) return '';
+  try {
+    const parts = cipherText.split(':');
+    if (parts.length !== 3) return '';
+    const [ivHex, authTagHex, encryptedHex] = parts;
+    const decipher = crypto.createDecipheriv('aes-256-gcm', keyBuffer, Buffer.from(ivHex, 'hex'));
+    decipher.setAuthTag(Buffer.from(authTagHex, 'hex'));
+    let decrypted = decipher.update(encryptedHex, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
+  } catch (_) {
+    return '';
+  }
+}
+
+/**
+ * 暗号化関数 (AES-256-GCM) - 常に新しい PERSONAL_EMAIL_SECRET_KEY で暗号化
  */
 export function encryptText(plainText) {
   if (!plainText) return '';
@@ -36,22 +98,16 @@ export function encryptText(plainText) {
 }
 
 /**
- * 復号関数 (AES-256-GCM)
+ * 復号関数 (AES-256-GCM) - 新鍵で復号し、万一未移行データかつ旧鍵指定時は旧鍵でも復号
  */
 export function decryptText(cipherText) {
   if (!cipherText || typeof cipherText !== 'string' || !cipherText.includes(':')) return '';
-  try {
-    const parts = cipherText.split(':');
-    if (parts.length !== 3) return '';
-    const [ivHex, authTagHex, encryptedHex] = parts;
-    const decipher = crypto.createDecipheriv('aes-256-gcm', ENCRYPTION_KEY, Buffer.from(ivHex, 'hex'));
-    decipher.setAuthTag(Buffer.from(authTagHex, 'hex'));
-    let decrypted = decipher.update(encryptedHex, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-    return decrypted;
-  } catch (err) {
-    return '';
+  const decryptedNew = decryptWithKeyBuffer(cipherText, ENCRYPTION_KEY);
+  if (decryptedNew) return decryptedNew;
+  if (OLD_ENCRYPTION_KEY) {
+    return decryptWithKeyBuffer(cipherText, OLD_ENCRYPTION_KEY);
   }
+  return '';
 }
 
 /**
@@ -65,6 +121,95 @@ export function maskEmail(email) {
   }
   return `${local.slice(0, 2)}***@${domain}`;
 }
+
+/**
+ * 既存の暗号化個人メールアドレスを旧鍵から新鍵 (PERSONAL_EMAIL_SECRET_KEY) へ一括再暗号化する移行処理
+ * サーバー起動時に自動実行（SQL Server dbo.Users および data/users.json 両対応）
+ */
+export async function migratePersonalEmailEncryption() {
+  if (!OLD_ENCRYPTION_KEY || EMAIL_ENCRYPTION_SECRET === OLD_EMAIL_ENCRYPTION_SECRET) {
+    return { migratedFileCount: 0, migratedDbCount: 0 };
+  }
+
+  let migratedFileCount = 0;
+  let migratedDbCount = 0;
+
+  // 1. ローカル data/users.json の再暗号化マイグレーション
+  const usersFilePath = path.join(dataDir, 'users.json');
+  try {
+    if (fs.existsSync(usersFilePath)) {
+      const raw = fs.readFileSync(usersFilePath, 'utf8');
+      const users = raw && raw.trim() ? JSON.parse(raw) : [];
+      if (Array.isArray(users)) {
+        let updated = false;
+        for (const u of users) {
+          if (u && u.personalEmailEncrypted && typeof u.personalEmailEncrypted === 'string') {
+            const alreadyNew = decryptWithKeyBuffer(u.personalEmailEncrypted, ENCRYPTION_KEY);
+            if (!alreadyNew) {
+              const plain = decryptWithKeyBuffer(u.personalEmailEncrypted, OLD_ENCRYPTION_KEY);
+              if (plain && plain.includes('@')) {
+                u.personalEmailEncrypted = encryptText(plain);
+                u.personalEmailMasked = maskEmail(plain);
+                updated = true;
+                migratedFileCount++;
+              }
+            }
+          }
+        }
+        if (updated) {
+          fs.writeFileSync(usersFilePath, JSON.stringify(users, null, 2), 'utf8');
+          console.log(`[Security Migration] users.json 内の個人メール暗号化データ ${migratedFileCount} 件を新秘密鍵へ再暗号化しました。`);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[Security Migration] users.json の個人メール再暗号化をスキップしました:', err.message);
+  }
+
+  // 2. MS SQL Server dbo.Users の再暗号化マイグレーション
+  try {
+    const pool = await getPool();
+    if (pool) {
+      const colCheck = await pool.request().query("SELECT COL_LENGTH('dbo.Users', 'personalEmailEncrypted') AS colLen");
+      const hasEncCol = colCheck.recordset?.[0]?.colLen !== null && colCheck.recordset?.[0]?.colLen !== undefined;
+      if (hasEncCol) {
+        const res = await pool.request().query(
+          "SELECT id, personalEmailEncrypted FROM dbo.Users WHERE personalEmailEncrypted IS NOT NULL AND personalEmailEncrypted <> ''"
+        );
+        for (const row of res.recordset || []) {
+          const cipher = String(row.personalEmailEncrypted || '');
+          if (!cipher) continue;
+          const alreadyNew = decryptWithKeyBuffer(cipher, ENCRYPTION_KEY);
+          if (!alreadyNew) {
+            const plain = decryptWithKeyBuffer(cipher, OLD_ENCRYPTION_KEY);
+            if (plain && plain.includes('@')) {
+              const reEncrypted = encryptText(plain);
+              const reMasked = maskEmail(plain);
+              await pool.request()
+                .input('id', sql.VarChar, String(row.id))
+                .input('personalEmailEncrypted', sql.NVarChar, reEncrypted)
+                .input('personalEmailMasked', sql.NVarChar, reMasked)
+                .query('UPDATE dbo.Users SET personalEmailEncrypted = @personalEmailEncrypted, personalEmailMasked = @personalEmailMasked WHERE id = @id');
+              migratedDbCount++;
+            }
+          }
+        }
+        if (migratedDbCount > 0) {
+          console.log(`[Security Migration] SQL Server dbo.Users 内の個人メール暗号化データ ${migratedDbCount} 件を新秘密鍵へ再暗号化しました。`);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[Security Migration] SQL Server dbo.Users の個人メール再暗号化をスキップしました:', err.message);
+  }
+
+  return { migratedFileCount, migratedDbCount };
+}
+
+// 起動時に非同期で自動再暗号化マイグレーションを実行
+migratePersonalEmailEncryption().catch(err => {
+  console.warn('[Security Migration] 個人メール再暗号化マイグレーション警告:', err.message);
+});
 
 // -------------------------------------------------------------
 // 24時間連送抑制（クールダウン）設定 ＆ ヘルパー

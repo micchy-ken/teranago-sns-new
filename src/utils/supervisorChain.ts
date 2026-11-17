@@ -64,7 +64,7 @@ export function isChiefOrAssistant(
 
 /**
  * 作成者から支店長（最終承認者）までの多段階上長チェーンを動的解決する
- * 例: [係長 水野] -> [課長 山道] -> [支店長 寺岡]
+ * 例: [係長] -> [課長] -> [支店長]
  */
 export function resolveSupervisorChain(
   author: User | null | undefined,

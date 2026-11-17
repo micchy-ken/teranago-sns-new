@@ -1,7 +1,7 @@
 export const RECOMMEND_SERVER_JS = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年11月17日 (セキュリティ強化 Step1: routes/authSession.js セッショントークン認証・IDOR防止・ログイン試行制限対応版)
+ * 最終更新日時 (最終アップデート): 2026年11月17日 (セキュリティ強化 Step3完: CORS完全一致リスト化・ファイルAPI認証必須化・パストラバーサル防止版)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -51,7 +51,11 @@ import {
   checkLoginRateLimit,
   recordLoginAttempt,
   updateSessionsForUser,
-  revokeAllSessionsForUser
+  revokeAllSessionsForUser,
+  createStrictCorsOptions,
+  isAllowedOrigin,
+  isSafeFilename,
+  resolveSafeChildPath
 } from './routes/authSession.js';
 
 // サーバークラッシュ防止（非同期未処理例外・Promise拒否でプロセスが落ちるのを完全防止）
@@ -62,49 +66,38 @@ process.on('unhandledRejection', (reason) => {
   console.error('[Process Error Guard] Unhandled Rejection:', reason);
 });
 
+function loadEnvFileIfPresent() {
+  try {
+    const envPath = path.join(process.cwd(), '.env');
+    if (!fs.existsSync(envPath)) return;
+    const content = fs.readFileSync(envPath, 'utf8');
+    for (const rawLine of content.split(/\\r?\\n/)) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith('#')) continue;
+      const eqIdx = line.indexOf('=');
+      if (eqIdx <= 0) continue;
+      const key = line.slice(0, eqIdx).trim();
+      let val = line.slice(eqIdx + 1).trim();
+      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+        val = val.slice(1, -1);
+      }
+      if (process.env[key] === undefined) {
+        process.env[key] = val;
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
+}
+loadEnvFileIfPresent();
+
 async function startServer() {
+  loadEnvFileIfPresent();
   const app = express();
   const PORT = 3000;
 
-  // 1. CORS設定（全レスポンスおよびプリフライト/エラー時にも確実にAccess-Control-Allow-Originを付与するため最優先配置）
-  const allowedOrigins = [
-    'https://micchy-ken.github.io',
-    'https://sns.teranago.synology.me',
-    'http://sns.teranago.synology.me',
-    'http://localhost:3000',
-    'http://localhost:3001',
-    'http://localhost:5173',
-    'http://127.0.0.1:3000',
-    'http://127.0.0.1:3001'
-  ];
-
-  const corsOptions: cors.CorsOptions = {
-    origin: (origin, callback) => {
-      // 許可オリジン判定（GitHub Pages, Synology NAS, AI Studioプレビュー, ローカル環境, 社内LAN）
-      if (
-        !origin ||
-        allowedOrigins.includes(origin) ||
-        origin.startsWith('https://micchy-ken.github.io') ||
-        origin.endsWith('.run.app') ||
-        origin.endsWith('.googleusercontent.com') ||
-        origin.includes('synology.me') ||
-        origin.includes('localhost') ||
-        origin.includes('127.0.0.1') ||
-        origin.includes('192.168.') ||
-        origin.includes('10.') ||
-        origin.includes('172.')
-      ) {
-        callback(null, true);
-      } else {
-        // 社内SNS運用で通信が切断・拒否されるのを防ぐため安全に許可
-        callback(null, true);
-      }
-    },
-    credentials: true,
-    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With', 'Range', 'Origin', 'X-Target-Year-Month', 'x-target-year-month'],
-    exposedHeaders: ['Content-Range', 'X-Content-Range', 'Accept-Ranges', 'Content-Length']
-  };
+  // 1. 厳格CORS設定（完全一致リストのみ許可、部分一致や全許可フォールバックを排除）
+  const corsOptions: cors.CorsOptions = createStrictCorsOptions();
 
   app.use(cors(corsOptions));
   app.options('*', cors(corsOptions));
@@ -112,7 +105,7 @@ async function startServer() {
   // 2. セキュリティ強化レスポンスヘッダーミドルウェア
   app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    // ドキュメントプレビューやiframe埋め込みを許可するため、documents関連・静的配信・プレビューリクエストではX-Frame-Optionsを緩和
+    // ドキュメントプレビューやiframe埋め込みを許可するため、許可オリジンのみ frame-ancestors に指定
     if (
       req.path.includes('/documents') || 
       req.path.includes('/uploads/documents') ||
@@ -120,7 +113,10 @@ async function startServer() {
       req.path.includes('/file/') ||
       req.query.inline === '1'
     ) {
-      res.setHeader('Content-Security-Policy', "frame-ancestors 'self' https://micchy-ken.github.io https://sns.teranago.synology.me http://localhost:3000 http://localhost:5173 *");
+      res.setHeader(
+        'Content-Security-Policy',
+        "frame-ancestors 'self' https://micchy-ken.github.io https://sns.teranago.synology.me http://sns.teranago.synology.me http://localhost:3000 http://localhost:3001 http://localhost:5173"
+      );
     } else {
       res.setHeader('X-Frame-Options', 'SAMEORIGIN');
     }
@@ -164,7 +160,7 @@ async function startServer() {
     writeRateLimitMap.set(ip, record);
 
     if (record.count > maxWriteRequests) {
-      if (req.headers.origin) {
+      if (req.headers.origin && isAllowedOrigin(req.headers.origin)) {
         res.setHeader('Access-Control-Allow-Origin', req.headers.origin);
         res.setHeader('Access-Control-Allow-Credentials', 'true');
       }
@@ -595,11 +591,11 @@ async function startServer() {
   // SMTP メール通知設定・送信処理
   // ==========================================
   const smtpConfig = {
-    host: process.env.SMTP_HOST || '111.89.134.68',
+    host: process.env.SMTP_HOST || '',
     port: parseInt(process.env.SMTP_PORT || '587', 10),
     secure: process.env.SMTP_SECURE === 'true',
     auth: {
-      user: process.env.SMTP_USER || 'nagoya-soumu2',
+      user: process.env.SMTP_USER || '',
       pass: process.env.SMTP_PASS || ''
     },
     tls: {
@@ -607,7 +603,7 @@ async function startServer() {
     }
   };
 
-  const smtpFromEmail = process.env.SMTP_FROM_EMAIL || 'nagoya-soumu2@teraoka-ads.co.jp';
+  const smtpFromEmail = process.env.SMTP_FROM_EMAIL || 'noreply@example.com';
   const smtpFromName = process.env.SMTP_FROM_NAME || 'Aipo送信用（このメールには返信できません）';
   const smtpFromFormatted = \`"\${smtpFromName}" <\${smtpFromEmail}>\`;
 
@@ -809,14 +805,13 @@ async function startServer() {
 
   // 静的ファイル配信
   const publicDir = path.join(process.cwd(), 'public');
-  // 静的ファイル配信オプション（30日間ブラウザキャッシュ & CORS明示）
+  // 静的ファイル配信オプション（30日間ブラウザキャッシュ）
   const staticFileOptions = {
     maxAge: '30d',
     immutable: true,
     setHeaders: (res: any) => {
-      res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
-      res.setHeader('Cache-Control', 'public, max-age=2592000, immutable');
+      res.setHeader('Cache-Control', 'private, max-age=2592000, immutable');
     }
   };
 
@@ -825,12 +820,12 @@ async function startServer() {
     fs.mkdirSync(uploadsDir, { recursive: true });
   }
   app.use('/public', express.static(publicDir, { maxAge: '7d' }));
-  app.use(['/uploads', '/api/uploads'], express.static(uploadsDir, staticFileOptions));
+  app.use(['/uploads', '/api/uploads'], requireApiAuth, express.static(uploadsDir, staticFileOptions));
   app.use('/stamps', express.static(path.join(publicDir, 'stamps'), staticFileOptions));
-  app.use('/api/stamps-static', express.static(path.join(publicDir, 'stamps'), staticFileOptions));
-  app.use('/external-files', express.static(externalFilesDir, staticFileOptions));
-  app.use('/bulletinsfiles', express.static(bulletinsFilesDir, staticFileOptions));
-  app.use('/api/bulletinsfiles', express.static(bulletinsFilesDir, staticFileOptions));
+  app.use('/api/stamps-static', requireApiAuth, express.static(path.join(publicDir, 'stamps'), staticFileOptions));
+  app.use('/external-files', requireApiAuth, express.static(externalFilesDir, staticFileOptions));
+  app.use('/bulletinsfiles', requireApiAuth, express.static(bulletinsFilesDir, staticFileOptions));
+  app.use('/api/bulletinsfiles', requireApiAuth, express.static(bulletinsFilesDir, staticFileOptions));
 
   // スタンプ管理APIルーター
   app.use('/api/stamps', stampsRouter);
@@ -856,7 +851,7 @@ async function startServer() {
   if (!fs.existsSync(documentsFilesDir)) {
     fs.mkdirSync(documentsFilesDir, { recursive: true });
   }
-  app.use(['/uploads/documents', '/api/uploads/documents', '/api/documents/uploads'], express.static(documentsFilesDir, staticFileOptions));
+  app.use(['/uploads/documents', '/api/uploads/documents', '/api/documents/uploads'], requireApiAuth, express.static(documentsFilesDir, staticFileOptions));
   app.use(['/api/documents', '/api/document', '/api'], documentsRouter);
 
   // 日程調整APIルーター
@@ -868,7 +863,7 @@ async function startServer() {
   if (!fs.existsSync(photoReportsDir)) {
     fs.mkdirSync(photoReportsDir, { recursive: true });
   }
-  app.use(['/uploads/photo-reports', '/api/uploads/photo-reports', '/api/photo-reports/image', '/api/photo-reports/file'], express.static(photoReportsDir, staticFileOptions));
+  app.use(['/uploads/photo-reports', '/api/uploads/photo-reports', '/api/photo-reports/image', '/api/photo-reports/file'], requireApiAuth, express.static(photoReportsDir, staticFileOptions));
   app.use(['/api/photo-reports', '/api/inspection-photo-reports'], photoReportsRouter);
   app.use('/api', photoReportsRouter);
 
@@ -910,10 +905,17 @@ async function startServer() {
     app.get(\`/teranago-sns-new/public/\${fileName}\`, handleStaticAsset);
   });
 
-  // 公開ファイル直接ダウンロード用 API
+  // 公開ファイル直接ダウンロード用 API（パストラバーサル厳格検証）
   app.get('/api/public-files/download/:filename', (req, res) => {
-    const fileName = path.basename(req.params.filename);
-    const filePath = path.join(publicDir, fileName);
+    const rawFilename = req.params.filename;
+    if (!isSafeFilename(rawFilename)) {
+      return res.status(400).json({ error: '不正なファイル名が指定されました' });
+    }
+    const fileName = path.basename(decodeURIComponent(rawFilename));
+    const filePath = resolveSafeChildPath(publicDir, fileName);
+    if (!filePath) {
+      return res.status(400).json({ error: '不正なファイルパスです' });
+    }
     if (fs.existsSync(filePath)) {
       res.download(filePath, fileName);
     } else {
@@ -1014,8 +1016,15 @@ async function startServer() {
 
   app.get('/api/bulletins/file/:filename', (req, res) => {
     try {
-      const filename = decodeURIComponent(req.params.filename);
-      const safePath = path.join(bulletinsFilesDir, path.basename(filename));
+      const rawParam = req.params.filename;
+      if (!isSafeFilename(rawParam)) {
+        return res.status(400).json({ error: '不正なファイル名が指定されました' });
+      }
+      const filename = path.basename(decodeURIComponent(rawParam));
+      const safePath = resolveSafeChildPath(bulletinsFilesDir, filename);
+      if (!safePath) {
+        return res.status(400).json({ error: '不正なファイルパスです' });
+      }
       if (fs.existsSync(safePath)) {
         if (req.query.download === '1') {
           return res.download(safePath, filename);
@@ -1045,12 +1054,15 @@ async function startServer() {
         }
       }
 
-      if (!filename) {
-        return res.status(400).json({ error: 'ファイル名が指定されていません。' });
+      if (!filename || !isSafeFilename(filename)) {
+        return res.status(400).json({ error: '有効なファイル名が指定されていません。' });
       }
 
       const safeFilename = path.basename(filename);
-      const targetPath = path.join(bulletinsFilesDir, safeFilename);
+      const targetPath = resolveSafeChildPath(bulletinsFilesDir, safeFilename);
+      if (!targetPath) {
+        return res.status(400).json({ error: '不正なファイルパスです。' });
+      }
 
       if (fs.existsSync(targetPath)) {
         fs.unlinkSync(targetPath);
@@ -1082,10 +1094,10 @@ async function startServer() {
           filename = path.basename(fileUrl.split('?')[0]);
         }
 
-        if (filename) {
+        if (filename && isSafeFilename(filename)) {
           const safeFilename = path.basename(filename);
-          const targetPath = path.join(bulletinsFilesDir, safeFilename);
-          if (fs.existsSync(targetPath)) {
+          const targetPath = resolveSafeChildPath(bulletinsFilesDir, safeFilename);
+          if (targetPath && fs.existsSync(targetPath)) {
             try {
               fs.unlinkSync(targetPath);
               deleted.push(safeFilename);
@@ -1107,12 +1119,21 @@ async function startServer() {
   // ==========================================
   const externalStorage = multer.diskStorage({
     destination: function (req, file, cb) {
-      const subDir = typeof req.body.folder === 'string' ? req.body.folder.replace(/\\.\\./g, '') : '';
-      const targetPath = path.join(externalFilesDir, subDir);
-      if (!fs.existsSync(targetPath)) {
-        fs.mkdirSync(targetPath, { recursive: true });
+      const rawFolder = typeof req.body.folder === 'string' ? req.body.folder.trim() : '';
+      if (rawFolder) {
+        const resolvedFolder = resolveSafeChildPath(externalFilesDir, rawFolder);
+        if (!resolvedFolder) {
+          return cb(new Error('不正なフォルダパスが指定されました'), '');
+        }
+        if (!fs.existsSync(resolvedFolder)) {
+          fs.mkdirSync(resolvedFolder, { recursive: true });
+        }
+        return cb(null, resolvedFolder);
       }
-      cb(null, targetPath);
+      if (!fs.existsSync(externalFilesDir)) {
+        fs.mkdirSync(externalFilesDir, { recursive: true });
+      }
+      cb(null, externalFilesDir);
     },
     filename: function (req, file, cb) {
       let originalName = file.originalname;
@@ -1121,7 +1142,11 @@ async function startServer() {
       } catch (e) {
         originalName = file.originalname;
       }
-      cb(null, originalName);
+      const safeBaseName = path.basename(originalName);
+      if (!isSafeFilename(safeBaseName)) {
+        return cb(new Error('不正なファイル名です'), '');
+      }
+      cb(null, safeBaseName);
     }
   });
   const uploadExternal = multer({ storage: externalStorage });
@@ -1215,13 +1240,12 @@ async function startServer() {
       if (!targetRelPath || typeof targetRelPath !== 'string') {
         return res.status(400).json({ error: 'ファイルパスが指定されていません' });
       }
-      const sanitizedPath = targetRelPath.replace(/\\.\\./g, '').replace(/\\\\/g, '/').replace(/^\\/+/, '');
-      if (!sanitizedPath || sanitizedPath === '.' || sanitizedPath === '/') {
-        return res.status(400).json({ error: '有効なファイルパスが指定されていません' });
+      const safePath = resolveSafeChildPath(externalFilesDir, targetRelPath);
+      if (!safePath) {
+        return res.status(400).json({ error: '不正なファイルパスが指定されました' });
       }
-      const safePath = path.join(externalFilesDir, sanitizedPath);
       
-      if (fs.existsSync(safePath)) {
+      if (fs.existsSync(safePath) && !fs.statSync(safePath).isDirectory()) {
         const filename = path.basename(safePath);
         if (req.query.download === '1') {
           return res.download(safePath, filename);
@@ -1241,11 +1265,11 @@ async function startServer() {
       if (!folder || typeof folder !== 'string') {
         return res.status(400).json({ error: 'フォルダ名が指定されていません' });
       }
-      const sanitizedPath = folder.replace(/\\.\\./g, '').replace(/\\\\/g, '/').replace(/^\\/+/, '');
-      if (!sanitizedPath || sanitizedPath === '.' || sanitizedPath === '/') {
-        return res.status(400).json({ error: '有効なフォルダ名が指定されていません' });
+      const safePath = resolveSafeChildPath(externalFilesDir, folder);
+      if (!safePath) {
+        return res.status(400).json({ error: '不正なフォルダ名が指定されました' });
       }
-      const safePath = path.join(externalFilesDir, sanitizedPath);
+      const sanitizedPath = path.relative(path.resolve(externalFilesDir), safePath).replace(/\\\\/g, '/');
       if (!fs.existsSync(safePath)) {
         fs.mkdirSync(safePath, { recursive: true });
         res.json({ message: 'フォルダを作成しました', path: sanitizedPath });
@@ -2082,15 +2106,9 @@ async function startServer() {
       if (!targetRelPath || typeof targetRelPath !== 'string') {
         return res.status(400).json({ error: 'ファイルパスが指定されていません' });
       }
-      const sanitizedPath = targetRelPath.replace(/\\.\\./g, '').replace(/\\\\/g, '/').replace(/^\\/+/, '');
-      
-      if (!sanitizedPath || sanitizedPath === '.' || sanitizedPath === '/') {
-        return res.status(400).json({ error: 'ルートディレクトリを削除することはできません。' });
-      }
-
-      const safePath = path.join(externalFilesDir, sanitizedPath);
-      if (path.resolve(safePath) === path.resolve(externalFilesDir)) {
-        return res.status(400).json({ error: 'ルートディレクトリを削除することはできません。' });
+      const safePath = resolveSafeChildPath(externalFilesDir, targetRelPath);
+      if (!safePath || path.resolve(safePath) === path.resolve(externalFilesDir)) {
+        return res.status(400).json({ error: '不正なパスまたはルートディレクトリは削除できません。' });
       }
       
       if (fs.existsSync(safePath)) {
@@ -2639,127 +2657,60 @@ async function startServer() {
 
   const usersPath = path.join(dataDir, 'users.json');
 
-  const defaultInitialUsers = [
-    {
-      id: 'u1',
-      loginId: 'yamamichi',
-      password: 'password123',
-      name: '山道 健介',
-      office: '名古屋支店',
-      division: '総務部',
-      position: '課長補佐',
-      department: '名古屋支店 総務部 課長補佐',
-      email: 'yamamichi@teraoka-ads.co.jp',
-      mobileEmail: 'yamamichi.mobile@teraoka-ads.co.jp',
-      avatarUrl: '',
-      isAdmin: true,
-      role: 'admin'
-    },
-    {
-      id: 'u2',
-      loginId: 'teraoka',
-      password: 'password123',
-      name: '寺岡 伸悟',
-      office: '本社',
-      division: '役員',
-      position: '代表取締役社長',
-      department: '本社 役員 代表取締役社長',
-      email: 'teraoka@teraoka-ads.co.jp',
-      avatarUrl: '',
-      isAdmin: true,
-      role: 'admin'
-    },
-    {
-      id: 'u3',
-      loginId: 'kato',
-      password: 'password123',
-      name: '加藤 翼',
-      office: '名古屋支店',
-      division: '営業部',
-      position: '主任',
-      department: '名古屋支店 営業部 主任',
-      email: 'kato@teraoka-ads.co.jp',
-      avatarUrl: '',
-      isAdmin: false,
-      role: 'user'
-    },
-    {
-      id: 'u4',
-      loginId: 'mizuno',
-      password: 'password123',
-      name: '水野 浩二',
-      office: '名古屋支店',
-      division: '工務部',
-      position: '係長',
-      department: '名古屋支店 工務部 係長',
-      email: 'mizuno@teraoka-ads.co.jp',
-      avatarUrl: '',
-      isAdmin: false,
-      role: 'user'
-    },
-    {
-      id: 'u5',
-      loginId: 'ito',
-      password: 'password123',
-      name: '伊藤 美咲',
-      office: '本社',
-      division: '管理部',
-      position: '一般',
-      department: '本社 管理部 一般',
-      email: 'ito@teraoka-ads.co.jp',
-      avatarUrl: '',
-      isAdmin: false,
-      role: 'user'
-    },
-    {
-      id: 'u6',
-      loginId: 'suzuki',
-      password: 'password123',
-      name: '鈴木 大輔',
-      office: '静岡営業所',
-      division: '営業部',
-      position: '所長',
-      department: '静岡営業所 営業部 所長',
-      email: 'suzuki@teraoka-ads.co.jp',
-      avatarUrl: '',
-      isAdmin: false,
-      role: 'user'
-    },
-    {
-      id: 'u7',
-      loginId: 'sato',
-      password: 'password123',
-      name: '佐藤 雅人',
-      office: '三河営業所',
-      division: '保守部',
-      position: '主任',
-      department: '三河営業所 保守部 主任',
-      email: 'sato@teraoka-ads.co.jp',
-      avatarUrl: '',
-      isAdmin: false,
-      role: 'user'
+  // 初期管理者は環境変数（INITIAL_ADMIN_LOGIN_ID / INITIAL_ADMIN_PASSWORD）からのみ初回作成（初回ログイン時パスワード変更必須）
+  function buildInitialAdminFromEnv(): any[] {
+    const initLoginId = String(process.env.INITIAL_ADMIN_LOGIN_ID || '').trim();
+    const initPassword = String(process.env.INITIAL_ADMIN_PASSWORD || '').trim();
+    const initName = String(process.env.INITIAL_ADMIN_NAME || '初期管理者').trim();
+    if (!initLoginId || !initPassword) {
+      return [];
     }
-  ];
+    return [
+      {
+        id: 'admin-init',
+        loginId: initLoginId,
+        password: hashPassword(initPassword),
+        name: initName,
+        office: '本社',
+        division: '管理部',
+        position: '管理者',
+        department: '本社 管理部 管理者',
+        email: '',
+        avatarUrl: '',
+        isAdmin: true,
+        role: 'admin',
+        mustChangePassword: true
+      }
+    ];
+  }
 
   function loadUsers(): any[] {
     let rawUsers: any[] = [];
     if (!fs.existsSync(usersPath)) {
-      rawUsers = defaultInitialUsers;
+      rawUsers = buildInitialAdminFromEnv();
+      if (rawUsers.length > 0) {
+        try {
+          fs.writeFileSync(usersPath, JSON.stringify(rawUsers, null, 2), 'utf8');
+          console.log('[Security] Initial admin user created from environment variables (mustChangePassword=true).');
+        } catch (e) {
+          console.error('[Security] Failed to write initial admin user:', e);
+        }
+      }
     } else {
       try {
         const data = JSON.parse(fs.readFileSync(usersPath, 'utf8'));
-        rawUsers = (Array.isArray(data) && data.length > 0) ? data : defaultInitialUsers;
+        rawUsers = (Array.isArray(data) && data.length > 0) ? data : buildInitialAdminFromEnv();
       } catch (e) {
-        rawUsers = defaultInitialUsers;
+        rawUsers = [];
       }
     }
 
     // 自動一括ハッシュ化マイグレーション (平文パスワードを安全なscryptハッシュ値へ自動アップグレード)
     let hasUnhashed = false;
     const migratedUsers = rawUsers.map((u: any) => {
-      if (u.password && !u.password.startsWith('scrypt:16384:')) {
+      if (u.password && !String(u.password).startsWith('scrypt:16384:')) {
         hasUnhashed = true;
-        return { ...u, password: hashPassword(u.password) };
+        return { ...u, password: hashPassword(String(u.password)) };
       }
       return u;
     });
@@ -2779,6 +2730,9 @@ async function startServer() {
   function saveUsers(users: any[]) {
     fs.writeFileSync(usersPath, JSON.stringify(users, null, 2), 'utf8');
   }
+
+  // サーバー起動時に即座に users.json の平文パスワード一括 scrypt ハッシュ化移行を実行（ログインを待たない）
+  loadUsers();
 
   // ユーザー一覧取得 API (sortOrder 昇順、名前 昇順 / 平文パスワード非開示)
   app.get(['/api/users', '/api/users/'], (req, res) => {
@@ -2883,7 +2837,10 @@ async function startServer() {
       if (idx >= 0) {
         users[idx] = { ...users[idx], ...u };
       } else {
-        if (!u.password) u.password = hashPassword('password123');
+        if (!u.password) {
+          u.password = hashPassword(crypto.randomBytes(16).toString('hex'));
+          if (u.mustChangePassword === undefined) u.mustChangePassword = true;
+        }
         users.push(u);
       }
       saveUsers(users);
@@ -2911,7 +2868,10 @@ async function startServer() {
       if (idx >= 0) {
         users[idx] = { ...users[idx], ...u };
       } else {
-        if (!u.password) u.password = hashPassword('password123');
+        if (!u.password) {
+          u.password = hashPassword(crypto.randomBytes(16).toString('hex'));
+          if (u.mustChangePassword === undefined) u.mustChangePassword = true;
+        }
         users.push(u);
       }
       saveUsers(users);
@@ -2977,10 +2937,18 @@ async function startServer() {
   app.post(['/api/users/:id/preferences', '/api/users/:id/settings', '/api/users/:id/notification-settings'], handlePreferencesUpdate);
 
   // ==========================================
-  // 個人メールアドレス AES-256-GCM 暗号化 & 管理 API
+  // 個人メールアドレス AES-256-GCM 暗号化 & 管理 API（固定文字列フォールバック廃止・環境変数必須化）
   // ==========================================
-  const EMAIL_ENCRYPTION_SECRET = process.env.PERSONAL_EMAIL_SECRET_KEY || 'teraoka-safety-confirmation-secret-2026-auth-v1';
-  const ENCRYPTION_KEY = crypto.createHash('sha256').update(EMAIL_ENCRYPTION_SECRET).digest();
+  const EMAIL_ENCRYPTION_SECRET = (process.env.PERSONAL_EMAIL_SECRET_KEY || '').trim();
+  if (!EMAIL_ENCRYPTION_SECRET) {
+    console.error('[Security Fatal] 環境変数 PERSONAL_EMAIL_SECRET_KEY が設定されていません。サーバーを起動できません。');
+    throw new Error('PERSONAL_EMAIL_SECRET_KEY environment variable is required.');
+  }
+  const ENCRYPTION_KEY = crypto.createHash('sha256').update(EMAIL_ENCRYPTION_SECRET, 'utf8').digest();
+  const OLD_EMAIL_ENCRYPTION_SECRET = (process.env.OLD_PERSONAL_EMAIL_SECRET_KEY || process.env.LEGACY_PERSONAL_EMAIL_SECRET_KEY || '').trim();
+  const OLD_ENCRYPTION_KEY = OLD_EMAIL_ENCRYPTION_SECRET
+    ? crypto.createHash('sha256').update(OLD_EMAIL_ENCRYPTION_SECRET, 'utf8').digest()
+    : null;
 
   function encryptText(plainText: string): string {
     if (!plainText) return '';
@@ -2992,21 +2960,29 @@ async function startServer() {
     return \`\${iv.toString('hex')}:\${authTag}:\${encrypted}\`;
   }
 
-  function decryptText(cipherText: string): string {
-    if (!cipherText || !cipherText.includes(':')) return '';
+  function decryptTextWithKey(cipherText: string, keyBuf: Buffer): string {
+    if (!cipherText || !cipherText.includes(':') || !keyBuf) return '';
     try {
       const parts = cipherText.split(':');
       if (parts.length !== 3) return '';
       const [ivHex, authTagHex, encryptedHex] = parts;
-      const decipher = crypto.createDecipheriv('aes-256-gcm', ENCRYPTION_KEY, Buffer.from(ivHex, 'hex'));
+      const decipher = crypto.createDecipheriv('aes-256-gcm', keyBuf, Buffer.from(ivHex, 'hex'));
       decipher.setAuthTag(Buffer.from(authTagHex, 'hex'));
       let decrypted = decipher.update(encryptedHex, 'hex', 'utf8');
       decrypted += decipher.final('utf8');
       return decrypted;
-    } catch (err) {
-      console.error('[Crypto] 個人メール復号化エラー:', err);
+    } catch {
       return '';
     }
+  }
+
+  function decryptText(cipherText: string): string {
+    const primary = decryptTextWithKey(cipherText, ENCRYPTION_KEY);
+    if (primary) return primary;
+    if (OLD_ENCRYPTION_KEY) {
+      return decryptTextWithKey(cipherText, OLD_ENCRYPTION_KEY);
+    }
+    return '';
   }
 
   function maskEmail(email: string): string {
@@ -3016,6 +2992,42 @@ async function startServer() {
     const maskedLocal = visible + '***';
     return \`\${maskedLocal}@\${domain}\`;
   }
+
+  // 旧鍵で暗号化された個人メールアドレスを新鍵で一括再暗号化するマイグレーション
+  function migrateLocalPersonalEmailEncryption() {
+    try {
+      const users = loadUsers();
+      let updatedCount = 0;
+      const migrated = users.map((u: any) => {
+        const enc = u.personalEmailEncrypted || u.personal_email_encrypted;
+        if (!enc || typeof enc !== 'string' || !enc.includes(':')) return u;
+        if (decryptTextWithKey(enc, ENCRYPTION_KEY)) return u;
+        if (OLD_ENCRYPTION_KEY) {
+          const plain = decryptTextWithKey(enc, OLD_ENCRYPTION_KEY);
+          if (plain) {
+            const reEnc = encryptText(plain);
+            const masked = maskEmail(plain);
+            updatedCount++;
+            return {
+              ...u,
+              personalEmailEncrypted: reEnc,
+              personal_email_encrypted: reEnc,
+              personalEmailMasked: masked,
+              personal_email_masked: masked
+            };
+          }
+        }
+        return u;
+      });
+      if (updatedCount > 0) {
+        saveUsers(migrated);
+        console.log(\`[Security Migration] users.json 内の個人メール暗号化データ \${updatedCount} 件を新しい秘密鍵で再暗号化しました。\`);
+      }
+    } catch (e: any) {
+      console.warn('[Security Migration] users.json 再暗号化チェック警告:', e.message);
+    }
+  }
+  migrateLocalPersonalEmailEncryption();
 
   // 個人メールアドレスの安全な登録・更新 API (平文は一切保存せず、暗号化文字列とマスク文字列のみ保存)
   app.post('/api/users/:id/personal-email', (req, res) => {
@@ -6003,12 +6015,12 @@ async function startServer() {
   // POP3 メール受信・掲示板自動投稿 (Inbound Mail Polling Engine)
   // ==========================================
   const pop3Config = {
-    host: process.env.POP3_HOST || process.env.SMTP_HOST || '111.89.134.68',
+    host: process.env.POP3_HOST || process.env.SMTP_HOST || '',
     port: Number(process.env.POP3_PORT || 110),
     secure: false, // ポート110・セキュリティなし (平文TCP)
-    user: process.env.POP3_USER || process.env.SMTP_USER || 'nagoya-soumu2',
+    user: process.env.POP3_USER || process.env.SMTP_USER || '',
     pass: process.env.POP3_PASS || process.env.SMTP_PASS || '',
-    fromAddress: process.env.SMTP_FROM_EMAIL || 'nagoya-soumu2@teraoka-ads.co.jp',
+    fromAddress: process.env.SMTP_FROM_EMAIL || 'noreply@example.com',
     deleteAfterImport: process.env.POP3_DELETE_AFTER_IMPORT !== 'false', // サーバーのメールボックス容量圧迫防止のため取り込み後/不要メールを自動削除
     checkIntervalSec: Number(process.env.POP3_CHECK_INTERVAL_SEC || 60), // 60秒ごと自動巡回
     defaultTag: process.env.POP3_DEFAULT_TAG || '社内メール'
@@ -6206,7 +6218,7 @@ async function startServer() {
       });
       if (exactMatch) return exactMatch;
 
-      // 2. ユーザー名・ログインID一致 (例: yamamichi@teraoka-ads.co.jp -> loginId: yamamichi)
+      // 2. ユーザー名・ログインID一致 (例: user@example.com -> loginId: user)
       if (addrUserPart) {
         const loginMatch = allUsers.find(u => {
           const loginId = (u.loginId || u.username || '').trim().toLowerCase();
@@ -6777,7 +6789,7 @@ async function startServer() {
         \`To: <\${pop3Config.fromAddress}>\`,
         \`Subject: \${subject}\`,
         \`Date: \${new Date().toUTCString()}\`,
-        \`Message-ID: <simulated-\${Date.now()}@teraoka-ads.co.jp>\`,
+        \`Message-ID: <simulated-\${Date.now()}@example.com>\`,
         \`Content-Type: text/plain; charset=utf-8\`,
         \`\`,
         body
@@ -8580,88 +8592,13 @@ async function startServer() {
 }
 
 startServer();
+
 `;
 
-export interface ServerCodeHistoryItem {
-  version: string;
-  date: string;
-  summary: string;
-}
-
-export const SERVER_CODE_HISTORY: ServerCodeHistoryItem[] = [
+export const SERVER_CODE_HISTORY = [
   {
-    version: 'v2026.11.11.11',
-    date: '2026-11-11',
-    summary: 'マスターID/コード主軸化 Step3：保守日報拠点設定(maintenance-configs)のofficeId主軸照合＆拠点名表記ゆれ吸収・Positionsマスターcode/level保存対応版',
-  },
-  {
-    version: 'v2026.11.11.9',
-    date: '2026-11-11',
-    summary: 'マスターID/コード主軸化 Step1：dbo.UsersへのofficeId/divisionId/positionId自動マイグレーション＆後方互換ハイブリッド保存、招待APIのID対応版',
-  },
-  {
-    version: 'v2026.11.11.7',
-    date: '2026-11-11',
-    summary: 'チャット内クイズ(@quiz)一括同梱＆初回描画サイズ確定対応：GET /api/chats・/api/chats/:roomId/messages でのクイズ・回答状況バッチ付与により初回1フレーム目から未回答/回答済みサイズで描画し既読スクロール位置ズレを防止',
-  },
-  {
-    version: 'v2026.11.11.5',
-    date: '2026-11-11',
-    summary: 'Step 4 カレンダー・予定管理 期間ウィンドウ取得＆インデックス最適化：過去180日基準ウィンドウ取得・繰り返し予定＆現場施工予定の完全保持・ワンタイムスキーマ＆インデックス自動生成・非同期ファイルI/Oキャッシュ対応版',
-  },
-  {
-    version: 'v2026.11.11.3',
-    date: '2026-11-11',
-    summary: 'Step 3 伝言メモ・日報・週報・写真報告書 ページネーション＆非同期I/O化：未対応・未確認優先抽出・OFFSET/FETCH NEXTページネーション・fs.promises非同期I/O＆メモリキャッシュ・非クラスター化インデックス自動生成対応版',
-  },
-  {
-    version: 'v2026.11.11.2',
-    date: '2026-11-11',
-    summary: 'Step 2 チャット高速化・過去履歴ページネーション対応：ルーム一覧の最新50件抽出(ROW_NUMBER() + O(M) Map集計)・過去メッセージ遅延取得API(/api/chats/:roomId/messages)・一括既読更新API(/api/chats/:roomId/viewers/batch)・スキーマ検証キャッシュ化対応版',
-  },
-  {
-    version: 'v2026.11.11.1',
-    date: '2026-11-11',
-    summary: 'Step 1 パフォーマンス抜本改善：掲示板トピック一覧のO(1) Map集計化・コメント＆足跡のオンデマンド詳細取得API(/api/bulletins/:id/detail)追加・SQL非クラスター化インデックス自動生成・添付ファイル一覧の非同期I/O化対応版',
-  },
-  {
-    version: 'v2026.10.23.9',
-    date: '2026-10-23',
-    summary: '回覧板アンケート・意思決定投票機能：選択肢ごとの理由コメント必須化・回答期限までの自動ピン留め・routes/bulletins.jsによるdbo.Bulletins pollカラム自動マイグレーション・投票API(/api/bulletins/:id/poll/vote)対応版',
-  },
-  {
-    version: 'v2026.10.23',
-    date: '2026-10-23',
-    summary: '現場管理とカレンダースケジュール連携機能：工事選択時の現場選択・乗り込み種別【新規】【残】【出庫有】・現場管理施工実績連携・routes/events.jsによるdbo.Events自動マイグレーション対応版',
-  },
-  {
-    version: 'v2026.10.22',
-    date: '2026-10-22',
-    summary: '点検予定一括登録通信のCORS許可ヘッダー拡充および下書き通信最適化',
-  },
-  {
-    version: 'v2026.10.06',
-    date: '2026-10-06',
-    summary: 'チャットメッセージ既読数・送信者除外判定型正規化 String(id) & viewersJson 型不一致バグ修正版',
-  },
-  {
-    version: 'v2026.10.01.2',
-    date: '2026-10-01',
-    summary: '文書管理・フォルダ機能 (routes/documents.js) 連携・階層フォルダ・権限設定・バージョン履歴・複数ファイル同梱・ZIP一括DL・DL者追跡ログ 完全同期版',
-  },
-  {
-    version: 'v2026.10.01',
-    date: '2026-10-01',
-    summary: 'ユーザー複数一括招待・トークン検証登録・パスワード設定依頼メール・初回ログイン時パスワード変更強制機能 完全同期版',
-  },
-  {
-    version: 'v2026.09.30',
-    date: '2026-09-30',
-    summary: '画像・スタンプ静的配信の30日間高速キャッシュ設定 maxAge/immutable および2段階サムネイル対応 完全同期',
-  },
-  {
-    version: 'v2026.09.01',
-    date: '2026-09-01',
-    summary: 'ワークフロー補充申請・各種申請登録・表示バグ修正 & DB自動カラム追加対応版',
-  },
+    version: "v2026.11.17 #6 (JST)",
+    date: "2026-11-17",
+    description: "セキュリティ強化 Step3完: CORS完全一致リスト化・ファイルAPI認証必須化・パストラバーサル防止・Bearerトークン認証・IDOR防止・初期平文パスワード廃止・AES暗号鍵必須化"
+  }
 ];

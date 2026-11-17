@@ -1,7 +1,7 @@
 /**
  * routes/users.js (本番環境・MS SQL Server 連携 メンバー管理 & 認証モジュール)
  * 寺岡オートドアSNS ユーザー管理・所属・表示順・アバター・設定・サーバーサイド認証
- * 最終更新: 2026年11月17日 (セキュリティ強化 Step1: トークン認証発行・失効、ログイン試行制限、IDOR・管理者権限サーバー検証版)
+ * 最終更新: 2026年11月17日 (セキュリティ強化 Step2: 初期管理者環境変数化・users.json & SQL Server 平文パスワード起動時一括scryptハッシュ化対応版)
  */
 import { Router } from 'express';
 import path from 'path';
@@ -25,6 +25,33 @@ import {
 const router = Router();
 const userPrefsFile = path.join(dataDir, 'user_preferences.json');
 const usersFile = path.join(dataDir, 'users.json');
+
+/**
+ * .env ファイルが存在する場合、未設定の環境変数を補完ロードするヘルパー
+ */
+function loadEnvFileIfPresent() {
+  try {
+    const envPath = path.join(process.cwd(), '.env');
+    if (!fs.existsSync(envPath)) return;
+    const raw = fs.readFileSync(envPath, 'utf8');
+    for (const line of raw.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eqIdx = trimmed.indexOf('=');
+      if (eqIdx <= 0) continue;
+      const key = trimmed.slice(0, eqIdx).trim();
+      let val = trimmed.slice(eqIdx + 1).trim();
+      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+        val = val.slice(1, -1);
+      }
+      if (key && process.env[key] === undefined) {
+        process.env[key] = val;
+      }
+    }
+  } catch (_) {}
+}
+
+loadEnvFileIfPresent();
 
 // =============================================================
 // セキュア・パスワードハッシュ化 (scrypt) & 認証ヘルパー
@@ -61,8 +88,7 @@ function sanitizeUserForResponse(user) {
   if (!user) return user;
   const copy = { ...user };
   const rawPw = user.password || '';
-  const isTestPw = !rawPw || rawPw === 'test' || verifyPassword('test', rawPw).isValid;
-  const isPasswordDefault = isTestPw || user.mustChangePassword === true || user.isPasswordDefault === true;
+  const isPasswordDefault = !rawPw || user.mustChangePassword === true || user.isPasswordDefault === true;
 
   delete copy.password;
   delete copy.passwordHash;
@@ -73,15 +99,37 @@ function sanitizeUserForResponse(user) {
   };
 }
 
-function loadUsers() {
-  try {
-    if (fs.existsSync(usersFile)) {
-      return JSON.parse(fs.readFileSync(usersFile, 'utf8')) || [];
-    }
-  } catch (e) {
-    console.warn('[Users] Failed to read users.json:', e.message);
-  }
-  return [];
+/**
+ * 既存ユーザーが0件の場合のみ、環境変数 (INITIAL_ADMIN_LOGIN_ID / INITIAL_ADMIN_PASSWORD) から初期管理者を生成
+ * 初回ログイン時にパスワード変更を必須 (mustChangePassword: true) とする
+ */
+function buildInitialAdminFromEnv() {
+  const initLoginId = (process.env.INITIAL_ADMIN_LOGIN_ID || '').trim();
+  const initPassword = (process.env.INITIAL_ADMIN_PASSWORD || '').trim();
+  if (!initLoginId || !initPassword) return null;
+
+  const initName = (process.env.INITIAL_ADMIN_NAME || '初期管理者').trim();
+  const initOffice = (process.env.INITIAL_ADMIN_OFFICE || '本社').trim();
+  const initDivision = (process.env.INITIAL_ADMIN_DIVISION || '管理部').trim();
+  const initPosition = (process.env.INITIAL_ADMIN_POSITION || '管理者').trim();
+
+  return {
+    id: 'u1',
+    loginId: initLoginId,
+    password: hashPassword(initPassword),
+    name: initName,
+    office: initOffice,
+    division: initDivision,
+    position: initPosition,
+    department: `${initOffice} ${initDivision}`.trim(),
+    email: (process.env.INITIAL_ADMIN_EMAIL || '').trim(),
+    avatarUrl: '',
+    isAdmin: true,
+    role: 'admin',
+    roles: ['admin'],
+    mustChangePassword: true,
+    preferences: { mustChangePassword: true }
+  };
 }
 
 function saveUsers(users) {
@@ -94,6 +142,124 @@ function saveUsers(users) {
     console.error('[Users] Failed to write users.json:', e.message);
   }
 }
+
+function loadUsers() {
+  let rawUsers = [];
+  try {
+    if (fs.existsSync(usersFile)) {
+      const parsed = JSON.parse(fs.readFileSync(usersFile, 'utf8'));
+      if (Array.isArray(parsed)) {
+        rawUsers = parsed;
+      }
+    }
+  } catch (e) {
+    console.warn('[Users] Failed to read users.json:', e.message);
+  }
+
+  // ユーザーが0件の場合は環境変数からのみ初期管理者を作成
+  if (rawUsers.length === 0) {
+    const initialAdmin = buildInitialAdminFromEnv();
+    if (initialAdmin) {
+      rawUsers = [initialAdmin];
+      saveUsers(rawUsers);
+      console.log(`[Security] 環境変数から初期管理者アカウント (${initialAdmin.loginId}) を作成しました（初回ログイン時パスワード変更必須）。`);
+    }
+  }
+
+  // 平文パスワードが残っている場合は即座に一括で scrypt ハッシュ化して保存
+  let migratedCount = 0;
+  const migratedUsers = rawUsers.map(u => {
+    if (u && u.password && typeof u.password === 'string' && !u.password.startsWith('scrypt:16384:')) {
+      migratedCount++;
+      return { ...u, password: hashPassword(u.password.trim()) };
+    }
+    return u;
+  });
+
+  if (migratedCount > 0) {
+    saveUsers(migratedUsers);
+    console.log(`[Security Migration] users.json 内の平文パスワード ${migratedCount} 件を scrypt ハッシュへ一括移行しました。`);
+  }
+
+  return migratedUsers;
+}
+
+/**
+ * サーバー起動時にログインを待たず users.json および SQL Server dbo.Users の平文パスワードを一括 scrypt ハッシュ化する移行処理
+ */
+export async function migrateAllPlaintextPasswords() {
+  // 1. ローカル users.json の一括移行
+  const fileUsers = loadUsers();
+
+  // 2. MS SQL Server dbo.Users の一括移行
+  try {
+    const pool = await getPool();
+    if (!pool) return;
+
+    const cols = await getUserTableColumns(pool);
+    const hasMustChangeCol = cols ? cols.has('mustchangepassword') : false;
+
+    const result = await pool.request().query('SELECT id, loginId, password FROM dbo.Users');
+    const rows = result.recordset || [];
+
+    // DBにユーザーが0件かつファイルにも存在しない場合、環境変数から初期管理者を登録
+    if (rows.length === 0) {
+      const initialAdmin = fileUsers[0] || buildInitialAdminFromEnv();
+      if (initialAdmin) {
+        const reqInit = pool.request()
+          .input('id', sql.VarChar, String(initialAdmin.id))
+          .input('loginId', sql.VarChar, String(initialAdmin.loginId))
+          .input('password', sql.VarChar, String(initialAdmin.password))
+          .input('name', sql.NVarChar, String(initialAdmin.name))
+          .input('department', sql.NVarChar, String(initialAdmin.department || ''))
+          .input('office', sql.NVarChar, String(initialAdmin.office || ''))
+          .input('division', sql.NVarChar, String(initialAdmin.division || ''))
+          .input('position', sql.NVarChar, String(initialAdmin.position || ''))
+          .input('role', sql.VarChar, 'admin')
+          .input('isAdmin', sql.Bit, 1);
+        if (hasMustChangeCol) {
+          reqInit.input('mustChangePassword', sql.Bit, 1);
+          await reqInit.query(`
+            INSERT INTO dbo.Users (id, loginId, password, name, department, office, division, position, role, isAdmin, mustChangePassword)
+            VALUES (@id, @loginId, @password, @name, @department, @office, @division, @position, @role, @isAdmin, @mustChangePassword)
+          `);
+        } else {
+          await reqInit.query(`
+            INSERT INTO dbo.Users (id, loginId, password, name, department, office, division, position, role, isAdmin)
+            VALUES (@id, @loginId, @password, @name, @department, @office, @division, @position, @role, @isAdmin)
+          `);
+          saveUserPrefs(initialAdmin.id, { mustChangePassword: true });
+        }
+        console.log(`[Security] SQL Server dbo.Users に環境変数から初期管理者 (${initialAdmin.loginId}) を作成しました。`);
+      }
+      return;
+    }
+
+    let dbMigratedCount = 0;
+    for (const row of rows) {
+      const rawPw = row.password ? String(row.password).trim() : '';
+      if (rawPw && !rawPw.startsWith('scrypt:16384:')) {
+        const hashed = hashPassword(rawPw);
+        await pool.request()
+          .input('id', sql.VarChar, String(row.id))
+          .input('password', sql.VarChar, hashed)
+          .query('UPDATE dbo.Users SET password = @password WHERE id = @id');
+        dbMigratedCount++;
+      }
+    }
+
+    if (dbMigratedCount > 0) {
+      console.log(`[Security Migration] SQL Server dbo.Users 内の平文パスワード ${dbMigratedCount} 件を scrypt ハッシュへ一括移行しました。`);
+    }
+  } catch (err) {
+    console.warn('[Security Migration] SQL Server パスワード一括ハッシュ化チェックをスキップしました:', err.message);
+  }
+}
+
+// 起動時に即時実行（ログインを待たずに平文パスワードを一括ハッシュ化）
+migrateAllPlaintextPasswords().catch(err => {
+  console.warn('[Security Migration] 起動時パスワード移行警告:', err.message);
+});
 
 // 予約語（ユーザーIDと誤認させてはならないエンドポイント名）
 const RESERVED_USER_IDS = new Set([
@@ -711,7 +877,10 @@ async function saveOrUpdateUser(req, res, targetUserId = null, next = null) {
     } else if (existingPassword) {
       finalPassword = existingPassword;
     } else {
-      finalPassword = hashPassword('test');
+      finalPassword = hashPassword(crypto.randomBytes(16).toString('hex'));
+      if (u.mustChangePassword === undefined) {
+        u.mustChangePassword = true;
+      }
     }
 
     const rolesArr = Array.isArray(u.roles) 

@@ -5,17 +5,16 @@ export const initialOffices: OfficeMaster[] = [];
 export const initialDivisions: DivisionMaster[] = [];
 export const initialPositions: PositionMaster[] = [];
 export const currentUser: User = {
-  id: 'u1',
-  loginId: 'yamamichi',
-  password: 'test',
-  name: '山道 健介',
-  office: '名古屋',
-  division: '総務',
-  position: '課長補佐',
-  department: '名古屋 総務 課長補佐',
+  id: 'init-user',
+  loginId: '',
+  name: '未ログイン',
+  office: '',
+  division: '',
+  position: '',
+  department: '',
   avatarUrl: '',
-  isAdmin: true,
-  role: 'admin'
+  isAdmin: false,
+  role: 'user'
 };
 export const allUsers: User[] = [];
 export const initialPosts: Post[] = [];

@@ -9,7 +9,7 @@ import { Site, SiteMainPart, SiteSubPart, SiteComment, SiteStatus, PartStatus, S
 import { User, AttachmentFile, CalendarEvent } from '../../types';
 import { getAvatarUrl, handleAvatarError } from '../../utils/avatar';
 import { triggerOpenUserModal } from '../../utils/userModal';
-import { API_BASE_URL } from '../../config/api';
+import { API_BASE_URL, appendAuthTokenToUrl } from '../../config/api';
 import { FilePreviewModal } from '../FilePreviewModal';
 import { ConfirmModal, ConfirmModalState } from '../ConfirmModal';
 import { getFittingLabel, cleanPartName } from '../../utils/siteUtils';
@@ -1175,7 +1175,7 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
                                           setPreviewFile({
                                             id: `drawing-${idx}-${Date.now()}`,
                                             name: dwFileName,
-                                            url: `${API_BASE_URL}/sites/drawings/serve?path=${encodeURIComponent(norm)}`,
+                                            url: appendAuthTokenToUrl(`${API_BASE_URL}/sites/drawings/serve?path=${encodeURIComponent(norm)}`),
                                             type: 'pdf',
                                             size: 'NAS施工図PDF',
                                           });
@@ -1188,7 +1188,7 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
                                         <span>閲覧</span>
                                       </button>
                                       <a
-                                        href={`${API_BASE_URL}/sites/drawings/serve?path=${encodeURIComponent(norm)}`}
+                                        href={appendAuthTokenToUrl(`${API_BASE_URL}/sites/drawings/serve?path=${encodeURIComponent(norm)}`)}
                                         target="_blank"
                                         rel="noreferrer"
                                         className="p-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-[11px] transition-colors border border-slate-200 cursor-pointer"

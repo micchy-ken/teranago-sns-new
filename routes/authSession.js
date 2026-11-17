@@ -1,13 +1,16 @@
 /**
  * ============================================================================
- * 認証セッション管理・API認可（IDOR対策）・ログイン試行制限モジュール
+ * 認証セッション管理・API認可（IDOR対策）・ログイン試行制限・厳格CORS/パス検証モジュール
  * ファイルパス: routes/authSession.js
+ * 最終更新: 2026年11月17日 (Step3完: CORS完全一致リスト化・ファイルAPI認証必須化・パストラバーサル防止)
  * 役割:
  *  1. 暗号論的セッショントークンの発行・SHA-256ハッシュ検証・失効管理
  *     （メモリ＋ data/sessions.json の二重永続化・有効期限24時間スライディング更新）
  *  2. ログイン試行制限（アカウント＋IP単位: 5回連続失敗で15分間ロックアウト）
- *  3. 全 /api/* エンドポイント向け Bearer トークン認証ミドルウェア (requireApiAuth)
+ *  3. 全 /api/* およびファイル配信系エンドポイント向け Bearer トークン認証ミドルウェア (requireApiAuth)
  *  4. トークン由来の操作者特定 (req.authUser) と管理者権限・本人確認（IDOR防止）
+ *  5. 厳格な完全一致 CORS オリジン検証 (createStrictCorsOptions / isAllowedOrigin)
+ *  6. ファイル名・ファイルパスのパストラバーサル (../) 検証 (isSafeFilename / resolveSafeChildPath)
  * ============================================================================
  */
 
@@ -32,6 +35,210 @@ const loginAttemptStore = new Map();
 const LOGIN_MAX_ATTEMPTS = 5;
 const LOGIN_WINDOW_MS = 15 * 60 * 1000; // 15分
 const LOGIN_LOCKOUT_MS = 15 * 60 * 1000; // 15分ロック
+
+// ============================================================================
+// 厳格な完全一致 CORS オリジン許可リスト (優先4対策)
+// ============================================================================
+const STATIC_ALLOWED_ORIGINS = [
+  'https://micchy-ken.github.io',
+  'https://sns.teranago.synology.me',
+  'http://sns.teranago.synology.me',
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'http://localhost:5173',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:3001',
+  'http://127.0.0.1:5173'
+];
+
+function buildAllowedOriginSet() {
+  const set = new Set(STATIC_ALLOWED_ORIGINS);
+  const envCandidates = [
+    process.env.APP_URL,
+    process.env.SHARED_APP_URL,
+    ...(process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : [])
+  ];
+  for (const raw of envCandidates) {
+    if (!raw || typeof raw !== 'string') continue;
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    try {
+      const parsed = new URL(trimmed);
+      if (parsed.origin && parsed.origin !== 'null') {
+        set.add(parsed.origin);
+      }
+    } catch {
+      // URL形式でない場合は末尾スラッシュを除いた完全一致文字列として登録
+      set.add(trimmed.replace(/\/+$/, ''));
+    }
+  }
+  return set;
+}
+
+/**
+ * リクエストの Origin ヘッダーが許可リストに完全一致するか判定
+ * （部分一致 includes やワイルドカード許可は一切行わない）
+ */
+export function isAllowedOrigin(origin) {
+  if (!origin) return true; // 同一オリジンまたは非ブラウザリクエスト（認証は requireApiAuth で強制）
+  const normalized = String(origin).trim();
+  const allowedSet = buildAllowedOriginSet();
+  return allowedSet.has(normalized);
+}
+
+/**
+ * Express cors ミドルウェア用の厳格オプション生成
+ */
+export function createStrictCorsOptions() {
+  return {
+    origin: (origin, callback) => {
+      if (isAllowedOrigin(origin)) {
+        callback(null, true);
+      } else {
+        callback(null, false);
+      }
+    },
+    credentials: true,
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'Accept',
+      'X-Requested-With',
+      'Range',
+      'Origin',
+      'X-Auth-Token',
+      'X-Target-Year-Month',
+      'x-target-year-month'
+    ],
+    exposedHeaders: ['Content-Range', 'X-Content-Range', 'Accept-Ranges', 'Content-Length']
+  };
+}
+
+// ============================================================================
+// パストラバーサル（../）防止・ファイル名検証ヘルパー
+// ============================================================================
+
+/**
+ * 単一ファイル名パラメータ（:filename）が安全か検証
+ * - 空文字、nullバイト、スラッシュ(/, \)、親ディレクトリ参照(..)を含む場合は false
+ */
+export function isSafeFilename(rawFilename) {
+  if (!rawFilename || typeof rawFilename !== 'string') return false;
+  let decoded = rawFilename;
+  try {
+    decoded = decodeURIComponent(rawFilename);
+  } catch {
+    return false;
+  }
+  if (
+    !decoded ||
+    decoded === '.' ||
+    decoded === '..' ||
+    decoded.includes('\0') ||
+    decoded.includes('..') ||
+    decoded.includes('/') ||
+    decoded.includes('\\')
+  ) {
+    return false;
+  }
+  return path.basename(decoded) === decoded;
+}
+
+/**
+ * ベースディレクトリ配下の相対パスを安全に解決し、ディレクトリトラバーサルを防止
+ * ベースディレクトリ外を指す場合や .. を含む場合は null を返す
+ */
+export function resolveSafeChildPath(baseDir, rawRelativePath) {
+  if (!baseDir || !rawRelativePath || typeof rawRelativePath !== 'string') return null;
+  let decoded = rawRelativePath;
+  try {
+    decoded = decodeURIComponent(rawRelativePath);
+  } catch {
+    decoded = rawRelativePath;
+  }
+  if (decoded.includes('\0')) return null;
+
+  // バックスラッシュを正規化し、パスセグメントに '..' が含まれていれば即拒否
+  const normalizedSlashes = decoded.replace(/\\/g, '/').replace(/^\/+/, '');
+  const segments = normalizedSlashes.split('/').filter(Boolean);
+  if (segments.length === 0 || segments.some((seg) => seg === '..' || seg === '.')) {
+    return null;
+  }
+
+  const resolvedBase = path.resolve(baseDir);
+  const resolvedTarget = path.resolve(resolvedBase, segments.join(path.sep));
+  if (
+    resolvedTarget !== resolvedBase &&
+    !resolvedTarget.startsWith(resolvedBase + path.sep)
+  ) {
+    return null;
+  }
+  return resolvedTarget;
+}
+
+/**
+ * リクエストURL・クエリ・ボディにパストラバーサル（../ 等）が含まれていないか検証
+ */
+function hasPathTraversalAttempt(req) {
+  const candidates = [req.path, req.originalUrl?.split('?')[0]];
+  if (req.params && typeof req.params === 'object') {
+    for (const val of Object.values(req.params)) {
+      if (typeof val === 'string') candidates.push(val);
+    }
+  }
+  if (req.query && typeof req.query === 'object') {
+    for (const key of ['filename', 'file', 'path', 'folder', 'fileUrl']) {
+      if (typeof req.query[key] === 'string') {
+        candidates.push(req.query[key]);
+      }
+    }
+  }
+  if (req.body && typeof req.body === 'object') {
+    for (const key of ['filename', 'file', 'path', 'folder', 'fileUrl']) {
+      if (typeof req.body[key] === 'string') {
+        candidates.push(req.body[key]);
+      }
+    }
+  }
+
+  for (const raw of candidates) {
+    if (!raw || typeof raw !== 'string') continue;
+    let once = raw;
+    let twice = raw;
+    try {
+      once = decodeURIComponent(raw);
+      twice = decodeURIComponent(once);
+    } catch {
+      // ignore decode error and inspect raw
+    }
+    for (const str of [raw, once, twice]) {
+      if (str.includes('\0')) return true;
+      const slashNorm = str.replace(/\\/g, '/');
+      if (
+        slashNorm === '..' ||
+        slashNorm.startsWith('../') ||
+        slashNorm.endsWith('/..') ||
+        slashNorm.includes('/../')
+      ) {
+        return true;
+      }
+    }
+  }
+
+  // :filename パラメータが存在する場合はスラッシュや .. を厳格拒否
+  if (req.params && typeof req.params.filename === 'string') {
+    if (!isSafeFilename(req.params.filename)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+// ============================================================================
+// トークン管理（発行・検証・失効）
+// ============================================================================
 
 /**
  * トークン文字列の SHA-256 ハッシュ値を算出（生トークンはサーバーに保存しない）
@@ -340,7 +547,7 @@ export function extractTokenFromRequest(req) {
 
 /**
  * 認証免除（未ログイン状態でアクセスが必要な最小限のエンドポイント）判定
- * ※ req.path は app.use('/api', requireApiAuth) の場合 '/auth/login' 等の相対パスになるため正規化して判定
+ * ※ ファイルのアップロード／ダウンロード／プレビュー系APIはすべて認証必須（免除しない）
  */
 function isPublicApiEndpoint(method, normalizedPath) {
   const m = String(method || 'GET').toUpperCase();
@@ -359,11 +566,11 @@ function isPublicApiEndpoint(method, normalizedPath) {
     return true;
   }
 
-  // 3. 社員招待トークン検証＆初回アカウント有効化（未ログインの新規社員がアクセス）
+  // 3. 社員招待トークン検証＆初回アカウント有効化（未ログインの新規社員がワンタイムトークンでアクセス）
   if (m === 'GET' && p === '/invitations/verify') return true;
   if (m === 'POST' && p === '/invitations/complete') return true;
 
-  // 4. パスワード再設定トークン検証＆再設定実行（パスワード紛失時のメールリンクからアクセス）
+  // 4. パスワード再設定トークン検証＆再設定実行（パスワード紛失時のメールリンクからワンタイムトークンでアクセス）
   if (m === 'GET' && (p === '/passwords/verify' || p === '/users/reset-password/verify')) return true;
   if (m === 'POST' && (p === '/passwords/reset' || p === '/users/reset-password')) return true;
 
@@ -375,36 +582,37 @@ function isPublicApiEndpoint(method, normalizedPath) {
   if (m === 'POST' && /^\/(safety-events|safety\/events)\/[^/]+\/(respond|responses)$/.test(p)) return true;
   if (m === 'GET' && /^\/users\/guest-profile\/[^/]+$/.test(p)) return true;
 
-  // 7. ブラウザの <img> / <iframe src> / <a href> から直接読み込まれる静的アセット・プレビュー参照 (GETのみ)
-  if (m === 'GET') {
-    if (
-      p.startsWith('/stamps/image/') ||
-      p.startsWith('/stamps/file/') ||
-      p.startsWith('/stamps-static/') ||
-      p.startsWith('/uploads/') ||
-      p.startsWith('/documents/uploads/') ||
-      p.startsWith('/bulletinsfiles/') ||
-      p.startsWith('/photo-reports/image/') ||
-      p.startsWith('/photo-reports/file/') ||
-      p.startsWith('/external-files/view/') ||
-      p.startsWith('/external-files/download/') ||
-      p.startsWith('/sites/drawings/serve') ||
-      /^\/documents\/[^/]+\/(preview|download)$/.test(p)
-    ) {
-      return true;
-    }
-  }
-
   return false;
 }
 
 /**
- * 認証ミドルウェア（全 /api/* に適用）
+ * 認証ミドルウェア（全 /api/* およびファイル配信エンドポイントに適用）
+ * - 許可リスト外の Origin ヘッダーを持つリクエストを 403 でブロック
+ * - パストラバーサル（../ や null バイト）を含むリクエストを 400 でブロック
  * - 未ログイン・無効トークン・期限切れは 401 Unauthorized を返却
  * - トークンから特定したユーザー情報を req.authUser にセット
  * - 管理者専用APIおよび他人ID指定操作（IDOR）をサーバー側で厳格にブロック
  */
 export function requireApiAuth(req, res, next) {
+  // 1. 厳格CORSオリジン検証（許可リスト外のOriginヘッダーが付与されている場合は拒否）
+  const requestOrigin = req.headers.origin;
+  if (requestOrigin && !isAllowedOrigin(requestOrigin)) {
+    res.removeHeader('Access-Control-Allow-Origin');
+    res.removeHeader('Access-Control-Allow-Credentials');
+    return res.status(403).json({
+      error: '許可されていないオリジンからのリクエストです。',
+      code: 'CORS_ORIGIN_NOT_ALLOWED'
+    });
+  }
+
+  // 2. パストラバーサル (../) ＆不正ファイル名検証
+  if (hasPathTraversalAttempt(req)) {
+    return res.status(400).json({
+      error: '不正なファイル名またはディレクトリトラバーサル（../）が検出されました。',
+      code: 'INVALID_PATH_TRAVERSAL'
+    });
+  }
+
   // パス正規化 ('/api/users' -> '/users')
   const rawPath = req.path || req.originalUrl?.split('?')[0] || '/';
   const normalizedPath = rawPath.replace(/^\/api(\/|$)/, '/') || '/';
@@ -425,12 +633,12 @@ export function requireApiAuth(req, res, next) {
     req.authToken = rawToken;
   }
 
-  // 公開免除エンドポイントの判定
+  // 3. 公開免除エンドポイントの判定
   if (isPublicApiEndpoint(req.method, normalizedPath)) {
     return next();
   }
 
-  // トークン未指定または無効・期限切れの場合は 401 を返す
+  // 4. トークン未指定または無効・期限切れの場合は 401 を返す
   if (!req.authUser) {
     return res.status(401).json({
       error: '認証が必要です。再度ログインしてください。',
@@ -445,6 +653,15 @@ export function requireApiAuth(req, res, next) {
   // ==========================================================================
   // 共通 IDOR 防止 ＆ 管理者権限強制ガード
   // ==========================================================================
+
+  // 文書管理（/documents/*）の閲覧・DLログ等では操作者IDをトークンの本人で上書き（なりすまし防止）
+  if (normalizedPath.startsWith('/documents') || normalizedPath.startsWith('/download/')) {
+    if (req.query && typeof req.query === 'object') {
+      req.query.userId = authUserId;
+      req.query.userName = String(req.authUser.name || '');
+      req.query.isAdmin = isAdmin ? 'true' : 'false';
+    }
+  }
 
   // 1. 社員招待の発行・取消・削除・一覧取得（管理者のみ）
   if (normalizedPath === '/invitations' || normalizedPath.startsWith('/invitations/')) {

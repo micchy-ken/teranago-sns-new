@@ -1,4 +1,4 @@
-import { API_BASE_URL } from '../config/api';
+import { API_BASE_URL, appendAuthTokenToUrl } from '../config/api';
 
 /**
  * デフォルトの顔シルエット（SVGデータURL）
@@ -58,18 +58,18 @@ export const getAvatarUrl = (url?: string): string => {
 
   if (relativePath) {
     const baseUrl = API_BASE_URL.replace(/\/api$/, '');
-    return `${baseUrl}${relativePath}`;
+    return appendAuthTokenToUrl(`${baseUrl}${relativePath}`);
   }
 
   // http から始まる絶対URLの場合はそのまま返す
   if (sanitizedUrl.startsWith('http://') || sanitizedUrl.startsWith('https://')) {
-    return sanitizedUrl;
+    return appendAuthTokenToUrl(sanitizedUrl);
   }
 
   // それ以外の相対パスはベースドメインを付与してフォールバック
   const baseUrl = API_BASE_URL.replace(/\/api$/, '');
   const prefix = sanitizedUrl.startsWith('/') ? sanitizedUrl : `/${sanitizedUrl}`;
-  return `${baseUrl}${prefix}`;
+  return appendAuthTokenToUrl(`${baseUrl}${prefix}`);
 };
 
 /**
