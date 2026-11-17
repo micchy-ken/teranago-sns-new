@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  sns-api:
+    build: .
+    container_name: sns-api-container
+    ports:
+      - "3001:3001"
+    environment:
+      - DB_SERVER=192.168.24.50
+      - DB_HOST=192.168.24.50
+      - DB_DATABASE=CompanySNSDB
+      - DB_NAME=CompanySNSDB
+      - DB_USERNAME=sa
+      - DB_USER=sa
+      - DB_PASSWORD=TE!rana%go2361
+      - PORT=3001
+      - DRAWINGS_DIR=/app/data/drawings    # ★追加：図面参照用コンテナ内パス
+
+      # --- SMTP メール送信設定（既存） ---
+      - SMTP_HOST=111.89.134.68
+      - SMTP_PORT=587
+      - SMTP_SECURE=false
+      - SMTP_USER=nagoya-soumu2
+      - SMTP_PASS=EJ2brys7
+      - SMTP_FROM_EMAIL=nagoya-soumu2@teraoka-ads.co.jp
+      - SMTP_FROM_NAME=寺岡SNS
+
+      # --- POP3 メール受信・掲示板自動取り込み設定（追加） ---
+      - POP3_HOST=111.89.134.68
+      - POP3_PORT=110
+      - POP3_USER=nagoya-soumu2
+      - POP3_PASS=EJ2brys7
+      - POP3_DELETE_AFTER_IMPORT=true     # 取り込み後/不要メールを自動削除（サーバー容量圧迫防止）
+      - POP3_CHECK_INTERVAL_SEC=60        # 60秒おきに自動巡回チェック
+      - POP3_DEFAULT_TAG=社内メール        # 自動付与タグ
+
+    volumes:
+      - /volume1/docker/teranago-sns/uploads:/app/uploads
+      - /volume1/docker/teranago-sns/bulletinsfiles:/app/bulletinsfiles
+      - /volume1/docker/teranago-sns/external-files:/app/external-files
+      - /volume1/docker/teranago-sns/data:/app/data
+      - "/volume1/Teraoka-Sekkei/share/02-施工図PDF:/app/data/drawings:ro"  # ★修正：1行化＆ダブルクォートで囲む
+
+    restart: unless-stopped
