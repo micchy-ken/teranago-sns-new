@@ -24,6 +24,9 @@ import {
   Paperclip,
   MessageSquare,
   Link2,
+  LayoutGrid,
+  List,
+  UserCheck,
 } from 'lucide-react';
 import { User, OfficeMaster, DivisionMaster } from '../../types';
 import {
@@ -40,6 +43,9 @@ import { getAvatarUrl, handleAvatarError } from '../../utils/avatar';
 import { getUserOfficeName, getUserDivisionName } from '../../utils/masterResolver';
 import { BoardFormModal } from './BoardFormModal';
 import { CardDetailModal } from './CardDetailModal';
+import { notifyProjectAssignees } from './projectNotifications';
+import { ProjectListView } from './ProjectListView';
+import { MyTasksView } from './MyTasksView';
 
 interface ProjectManagementProps {
   currentUser: User;
@@ -75,6 +81,7 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
   divisions = [],
   initialProjectId,
   initialTaskId,
+  initialProjectView,
   onClearInitialParams,
   onUpdateUser,
 }) => {
@@ -82,6 +89,9 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
   const [cards, setCards] = useState<ProjectCard[]>([]);
   const [countsByBoard, setCountsByBoard] = useState<Record<string, ProjectBoardCountStats>>({});
   const [selectedBoardId, setSelectedBoardId] = useState<string>(initialProjectId || '');
+  const [activeView, setActiveView] = useState<'kanban' | 'list' | 'mytasks'>(
+    initialProjectView || 'kanban'
+  );
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -187,6 +197,12 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
       onClearInitialParams?.();
     }
   }, [initialTaskId, cards, onClearInitialParams]);
+
+  useEffect(() => {
+    if (initialProjectView) {
+      setActiveView(initialProjectView);
+    }
+  }, [initialProjectView]);
 
   // 選択中ボードを記憶
   useEffect(() => {
@@ -316,6 +332,69 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
     showToast('ボードを削除しました');
   };
 
+  // ボード複製（雛形コピー）
+  const handleCloneBoard = async (boardId: string) => {
+    const res = await fetch(`${API_BASE_URL}/projects/boards/${encodeURIComponent(boardId)}/clone`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ownerId: currentUser.id,
+        ownerName: currentUser.name,
+        includeCards: true,
+        resetCompletion: true,
+      }),
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || 'ボードの複製に失敗しました');
+    }
+    const data = await res.json();
+    const clonedBoard: ProjectBoard = data.board;
+    const clonedCards: ProjectCard[] = Array.isArray(data.cards) ? data.cards : [];
+    setBoards(prev => [...prev, clonedBoard]);
+    if (clonedCards.length > 0) {
+      setCards(prev => [...prev, ...clonedCards]);
+    }
+    setSelectedBoardId(clonedBoard.id);
+    setActiveView(prev => (prev === 'mytasks' ? 'kanban' : prev));
+    showToast(`ボード「${clonedBoard.title}」を複製しました`);
+  };
+
+  // リストビュー用クイック作成
+  const handleQuickCreateInList = async (title: string) => {
+    if (!activeBoard) return;
+    const trimmed = title.trim();
+    if (!trimmed) return;
+    const targetCol =
+      activeBoard.columns.find(c => c.kind === 'todo') ||
+      activeBoard.columns.find(c => c.kind !== 'done') ||
+      activeBoard.columns[0];
+    if (!targetCol) return;
+
+    const isUrlOnly = /^https?:\/\/\S+$/i.test(trimmed);
+    const cardType: ProjectCardType = targetCol.kind === 'memo' ? 'memo' : 'task';
+    const res = await fetch(`${API_BASE_URL}/projects/cards`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        projectId: activeBoard.id,
+        columnId: targetCol.id,
+        cardType,
+        title: isUrlOnly ? trimmed.replace(/^https?:\/\//i, '').slice(0, 60) : trimmed,
+        description: isUrlOnly ? trimmed : '',
+        assigneeIds: activeBoard.boardType === 'personal' ? [String(currentUser.id)] : [],
+        createdBy: currentUser.id,
+        createdByName: currentUser.name,
+      }),
+    });
+    if (!res.ok) {
+      showToast('カードの追加に失敗しました');
+      throw new Error('作成に失敗しました');
+    }
+    const data = await res.json();
+    setCards(prev => [...prev, data.card]);
+  };
+
   // クイック追加 (列上部で1行入力してEnter)
   const handleQuickCreateCard = async (col: ProjectBoardColumn) => {
     if (!activeBoard) return;
@@ -356,6 +435,9 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
   // カード詳細保存
   const handleSaveCard = async (payload: Partial<ProjectCard>) => {
     const isEdit = Boolean(payload.id);
+    const prevCard = isEdit ? cards.find(c => c.id === payload.id) : undefined;
+    const prevAssigneeSet = new Set((prevCard?.assigneeIds || []).map(String));
+
     const url = isEdit
       ? `${API_BASE_URL}/projects/cards/${encodeURIComponent(String(payload.id))}`
       : `${API_BASE_URL}/projects/cards`;
@@ -379,6 +461,24 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
       const exists = prev.some(c => c.id === saved.id);
       return exists ? prev.map(c => (c.id === saved.id ? saved : c)) : [...prev, saved];
     });
+    window.dispatchEvent(new Event('projects_updated'));
+
+    // 新規追加された担当者（操作本人以外）へ Web Push + メール通知を配信
+    const targetBoard = boards.find(b => b.id === saved.projectId) || activeBoard;
+    const newlyAssignedIds = (saved.assigneeIds || [])
+      .map(String)
+      .filter(id => id !== String(currentUser.id) && (!isEdit || !prevAssigneeSet.has(id)));
+    if (targetBoard && newlyAssignedIds.length > 0) {
+      void notifyProjectAssignees({
+        board: targetBoard,
+        card: saved,
+        targetUserIds: newlyAssignedIds,
+        actor: currentUser,
+        allUsers,
+        isNewCard: !isEdit,
+      });
+    }
+
     showToast(isEdit ? 'カードを更新しました' : 'カードを追加しました');
   };
 
@@ -419,8 +519,9 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
 
   // ドラッグ＆ドロップまたはボタンでの列移動
   const handleMoveCardToColumn = async (card: ProjectCard, targetColumnId: string) => {
-    if (!activeBoard || card.columnId === targetColumnId) return;
-    const targetCol = activeBoard.columns.find(c => c.id === targetColumnId);
+    const targetBoard = boards.find(b => b.id === card.projectId) || activeBoard;
+    if (!targetBoard || card.columnId === targetColumnId) return;
+    const targetCol = targetBoard.columns.find(c => c.id === targetColumnId);
     const nextCompleted =
       card.cardType === 'memo'
         ? false
@@ -454,11 +555,37 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
 
   // ボード共有＆お気に入り登録
   const handleShareBoard = async () => {
+    if (activeView === 'mytasks') {
+      const shareParams = {
+        tab: 'projects' as const,
+        projectView: 'mytasks' as const,
+      };
+      const url = buildAppUrl(shareParams);
+      const ok = await copyTextToClipboard(url);
+      if (ok) {
+        setCopiedBoardUrl(true);
+        window.setTimeout(() => setCopiedBoardUrl(false), 2500);
+      }
+      if (currentUser && onUpdateUser) {
+        const { updatedUser } = upsertBookmarkForUser(currentUser, {
+          category: 'projects',
+          title: 'マイタスク（横断一覧）',
+          subtitle: `${currentUser.name}の担当タスク`,
+          params: shareParams,
+        });
+        onUpdateUser(updatedUser);
+        showToast('マイタスクのURLをコピーし、お気に入りに登録しました');
+      } else {
+        showToast('マイタスクのURLをコピーしました');
+      }
+      return;
+    }
+
     if (!activeBoard) return;
     const shareParams = {
       tab: 'projects' as const,
       projectId: activeBoard.id,
-      projectView: 'kanban' as const,
+      projectView: activeView,
     };
     const url = buildAppUrl(shareParams);
     const ok = await copyTextToClipboard(url);
@@ -470,7 +597,9 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
       const { updatedUser } = upsertBookmarkForUser(currentUser, {
         category: 'projects',
         title: activeBoard.title,
-        subtitle: activeBoard.boardType === 'personal' ? 'マイボード（個人）' : 'チームボード',
+        subtitle:
+          (activeBoard.boardType === 'personal' ? 'マイボード（個人）' : 'チームボード') +
+          (activeView === 'list' ? ' · リスト' : ''),
         params: shareParams,
       });
       onUpdateUser(updatedUser);
@@ -482,10 +611,11 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
 
   // タスク単体共有＆お気に入り登録
   const handleShareSingleCard = async (card: ProjectCard) => {
-    if (!activeBoard) return;
+    const targetBoard = boards.find(b => b.id === card.projectId) || activeBoard;
+    if (!targetBoard) return;
     const shareParams = {
       tab: 'projects' as const,
-      projectId: activeBoard.id,
+      projectId: targetBoard.id,
       taskId: card.id,
     };
     const url = buildAppUrl(shareParams);
@@ -494,7 +624,7 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
       const { updatedUser } = upsertBookmarkForUser(currentUser, {
         category: 'projects',
         title: card.title,
-        subtitle: `${activeBoard.title} · ${card.cardType === 'memo' ? 'メモ・資料' : 'Todo'}`,
+        subtitle: `${targetBoard.title} · ${card.cardType === 'memo' ? 'メモ・資料' : 'Todo'}`,
         params: shareParams,
       });
       onUpdateUser(updatedUser);
@@ -746,9 +876,12 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
                       <button
                         key={b.id}
                         type="button"
-                        onClick={() => setSelectedBoardId(b.id)}
+                        onClick={() => {
+                          setSelectedBoardId(b.id);
+                          if (activeView === 'mytasks') setActiveView('kanban');
+                        }}
                         className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg text-left text-xs transition-colors cursor-pointer ${
-                          active
+                          active && activeView !== 'mytasks'
                             ? 'bg-indigo-50 text-indigo-800 font-semibold'
                             : 'text-slate-700 hover:bg-slate-50'
                         }`}
@@ -785,9 +918,12 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
                         <button
                           key={b.id}
                           type="button"
-                          onClick={() => setSelectedBoardId(b.id)}
+                          onClick={() => {
+                            setSelectedBoardId(b.id);
+                            if (activeView === 'mytasks') setActiveView('kanban');
+                          }}
                           className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg text-left text-xs transition-colors cursor-pointer ${
-                            active
+                            active && activeView !== 'mytasks'
                               ? 'bg-indigo-50 text-indigo-800 font-semibold'
                               : 'text-slate-700 hover:bg-slate-50'
                           }`}
@@ -827,7 +963,86 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
             </div>
           )}
 
-          {!activeBoard ? (
+          {activeView === 'mytasks' ? (
+            <>
+              <div className="px-5 py-4 border-b border-slate-200 flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <UserCheck className="w-4 h-4 text-indigo-600 shrink-0" />
+                    <h2 className="text-lg font-bold text-slate-900 truncate">マイタスク（全ボード横断）</h2>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">
+                    個人ボード・共有ボードで自分が担当しているタスクを期限順にまとめて表示しています
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <div className="flex items-center gap-0.5 p-1 bg-slate-100 border border-slate-200 rounded-lg">
+                    {[
+                      { id: 'kanban', label: 'カンバン', icon: LayoutGrid },
+                      { id: 'list', label: 'リスト', icon: List },
+                      { id: 'mytasks', label: 'マイタスク', icon: UserCheck },
+                    ].map(v => {
+                      const VIcon = v.icon;
+                      return (
+                        <button
+                          key={v.id}
+                          type="button"
+                          onClick={() => setActiveView(v.id as 'kanban' | 'list' | 'mytasks')}
+                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+                            activeView === v.id
+                              ? 'bg-white text-indigo-700 shadow-2xs'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          <VIcon className="w-3.5 h-3.5" />
+                          <span>{v.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={fetchBoardsAndCards}
+                    title="最新の状態に更新"
+                    className="p-2 rounded-lg border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-50 cursor-pointer"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleShareBoard}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 text-xs font-medium cursor-pointer whitespace-nowrap"
+                  >
+                    {copiedBoardUrl ? (
+                      <Check className="w-3.5 h-3.5 text-emerald-600" />
+                    ) : (
+                      <Share2 className="w-3.5 h-3.5" />
+                    )}
+                    <span>{copiedBoardUrl ? 'URLコピー済' : '共有・お気に入り'}</span>
+                  </button>
+                </div>
+              </div>
+
+              <MyTasksView
+                currentUser={currentUser}
+                boards={boards}
+                cards={cards}
+                todayStr={todayStr}
+                onSelectCard={card => {
+                  setEditingCard(card);
+                  setIsCardModalOpen(true);
+                }}
+                onJumpToBoard={boardId => {
+                  setSelectedBoardId(boardId);
+                  setActiveView('kanban');
+                }}
+                onToggleComplete={handleToggleComplete}
+              />
+            </>
+          ) : !activeBoard ? (
             <div className="p-12 text-center text-sm text-slate-500">
               ボードを選択するか、「＋ 新規」からプロジェクト・メモボードを作成してください。
             </div>
@@ -865,6 +1080,32 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  {/* ビュー切替（カンバン / リスト / マイタスク） */}
+                  <div className="flex items-center gap-0.5 p-1 bg-slate-100 border border-slate-200 rounded-lg">
+                    {[
+                      { id: 'kanban', label: 'カンバン', icon: LayoutGrid },
+                      { id: 'list', label: 'リスト', icon: List },
+                      { id: 'mytasks', label: 'マイタスク', icon: UserCheck },
+                    ].map(v => {
+                      const VIcon = v.icon;
+                      return (
+                        <button
+                          key={v.id}
+                          type="button"
+                          onClick={() => setActiveView(v.id as 'kanban' | 'list' | 'mytasks')}
+                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+                            activeView === v.id
+                              ? 'bg-white text-indigo-700 shadow-2xs'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          <VIcon className="w-3.5 h-3.5" />
+                          <span>{v.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
                   <button
                     type="button"
                     onClick={fetchBoardsAndCards}
@@ -951,8 +1192,23 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
                 </div>
               </div>
 
-              {/* カンバン列エリア */}
-              <div className="p-4 overflow-x-auto">
+              {activeView === 'list' ? (
+                <ProjectListView
+                  board={activeBoard}
+                  cards={activeBoardCards}
+                  allUsers={allUsers}
+                  todayStr={todayStr}
+                  onSelectCard={card => {
+                    setEditingCard(card);
+                    setIsCardModalOpen(true);
+                  }}
+                  onToggleComplete={handleToggleComplete}
+                  onMoveColumn={handleMoveCardToColumn}
+                  onQuickCreateInList={handleQuickCreateInList}
+                />
+              ) : (
+                /* カンバン列エリア */
+                <div className="p-4 overflow-x-auto">
                 <div className="flex items-start gap-3.5 min-w-max">
                   {activeBoard.columns.map((col, colIndex) => {
                     const colCards = activeBoardCards.filter(c => c.columnId === col.id);
@@ -1103,6 +1359,7 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
                   })}
                 </div>
               </div>
+              )}
             </>
           )}
         </section>
@@ -1122,17 +1379,18 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
           divisions={divisions}
           onSave={handleSaveBoard}
           onDelete={handleDeleteBoard}
+          onClone={handleCloneBoard}
         />
       )}
 
-      {isCardModalOpen && activeBoard && (
+      {isCardModalOpen && (editingCard ? (boards.find(b => b.id === editingCard.projectId) || activeBoard) : activeBoard) && (
         <CardDetailModal
           isOpen={isCardModalOpen}
           onClose={() => {
             setIsCardModalOpen(false);
             setEditingCard(null);
           }}
-          board={activeBoard}
+          board={(editingCard ? (boards.find(b => b.id === editingCard.projectId) || activeBoard) : activeBoard)!}
           card={editingCard}
           initialColumnId={modalInitialColId}
           initialCardType={modalInitialCardType}
@@ -1141,6 +1399,10 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
           onSave={handleSaveCard}
           onDelete={handleDeleteCard}
           onShareCard={handleShareSingleCard}
+          onCardPatched={updatedCard => {
+            setCards(prev => prev.map(c => (c.id === updatedCard.id ? updatedCard : c)));
+            setEditingCard(prev => (prev && prev.id === updatedCard.id ? updatedCard : prev));
+          }}
         />
       )}
     </div>

@@ -1,7 +1,7 @@
 import { User, EmailNotificationSettings } from '../types';
 import { API_BASE_URL } from '../config/api';
 
-export type NotificationCategoryKey = 'schedule' | 'bulletin' | 'memo' | 'workflow' | 'post' | 'inspection';
+export type NotificationCategoryKey = 'schedule' | 'bulletin' | 'memo' | 'workflow' | 'post' | 'inspection' | 'project';
 
 export interface EmailDispatchItem {
   category: NotificationCategoryKey;

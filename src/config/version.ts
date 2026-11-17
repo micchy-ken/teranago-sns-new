@@ -7,11 +7,11 @@
  * - 機能追加・バグ修正・仕様変更のたびに必ず更新すること
  */
 export const APP_VERSION = {
-  version: '2026.11.17.1',
+  version: '2026.11.17.3',
   date: '2026.11.17',
-  releaseNumber: 1,
-  display: 'v2026.11.17 #1 (JST)',
+  releaseNumber: 3,
+  display: 'v2026.11.17 #3 (JST)',
   timeZone: 'Asia/Tokyo (JST)',
-  description: '事務・営業・設計向け「プロジェクト」タブ新設（フェーズ1-①：全API一括実装＋マイボード/チームボード/カンバン/完了折り畳み/共有URL＆お気に入り対応）'
+  description: '「プロジェクト」タブ フェーズ2完了（マイページ サマリー＆マイタスクウィジェット・アサイン/コメント時のWeb Push＆メール通知連携・伝言メモ/チャットからのワンクリックタスク化）'
 };
 

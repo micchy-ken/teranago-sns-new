@@ -98,6 +98,8 @@ import {
   Palette,
   BarChart2,
   HelpCircle,
+  FolderKanban,
+  Circle,
 } from 'lucide-react';
 import { AppFontSize, FONT_SIZE_OPTIONS, getSavedFontSize, applyFontSize, ColorTheme, THEME_OPTIONS, getSavedTheme, applyColorTheme } from '../utils/theme';
 import { TopicDetailModal } from './TopicDetailModal';
@@ -110,6 +112,7 @@ import { MyPageDisplaySettingsModal, DEFAULT_SECTION_COUNTS, DEFAULT_ENV_SETTING
 import { isTopicCurrentlyPinned, formatPinnedUntilBadge, getPollDeadlineMs } from '../utils/boardHelpers';
 import { ApprovalFlowRule, ItemMaster, ApplicationStatus, MyPageSectionCounts, MyPageEnvSettings } from '../types';
 import { SchedulePoll } from '../types/schedulePoll';
+import { ProjectCard } from '../types/project';
 import { RecurrenceActionScope } from './RecurrenceActionModal';
 
 interface MyPageProps {
@@ -133,6 +136,9 @@ interface MyPageProps {
     applicationId?: string;
     eventId?: string;
     reportId?: string;
+    projectId?: string;
+    taskId?: string;
+    projectView?: 'kanban' | 'list' | 'mytasks';
     openCreateMemo?: boolean;
   }) => void;
   onSelectTag?: (tag: string) => void;
@@ -247,7 +253,7 @@ export function MyPage({
   }, [user?.id]);
 
   // D&D並び替え状態管理
-  const DEFAULT_SECTION_ORDER = ['events', 'topics', 'memos', 'workflow', 'chats', 'reports'];
+  const DEFAULT_SECTION_ORDER = ['events', 'topics', 'memos', 'projects', 'workflow', 'chats', 'reports'];
   const savedOrder = user?.preferences?.mypageSectionOrder;
   const [sectionOrder, setSectionOrder] = useState<string[]>(() => {
     if (Array.isArray(savedOrder) && savedOrder.length > 0) {
@@ -314,6 +320,7 @@ export function MyPage({
       events: fromLocal?.events ?? fromPrefs?.events ?? DEFAULT_SECTION_COUNTS.events,
       topics: fromLocal?.topics ?? fromPrefs?.topics ?? DEFAULT_SECTION_COUNTS.topics,
       memos: fromLocal?.memos ?? fromPrefs?.memos ?? DEFAULT_SECTION_COUNTS.memos,
+      projects: fromLocal?.projects ?? fromPrefs?.projects ?? DEFAULT_SECTION_COUNTS.projects,
       workflow: fromLocal?.workflow ?? fromPrefs?.workflow ?? DEFAULT_SECTION_COUNTS.workflow,
       chats: fromLocal?.chats ?? fromPrefs?.chats ?? DEFAULT_SECTION_COUNTS.chats,
       reports: fromLocal?.reports ?? fromPrefs?.reports ?? DEFAULT_SECTION_COUNTS.reports,
@@ -580,6 +587,12 @@ export function MyPage({
       desc: '日報・点検票の提出・レビュー依頼',
       icon: <Wrench className="w-4 h-4 text-rose-500 shrink-0" />,
     },
+    {
+      key: 'project',
+      label: 'プロジェクト・Todo',
+      desc: '担当タスクへのアサイン・カード内コメント通知',
+      icon: <FolderKanban className="w-4 h-4 text-emerald-600 shrink-0" />,
+    },
   ], []);
 
   const [emailTestLoading, setEmailTestLoading] = useState(false);
@@ -731,9 +744,10 @@ export function MyPage({
     workflow: { pc: false, mobile: false },
     post: { pc: false, mobile: false },
     inspection: { pc: false, mobile: false },
+    project: { pc: false, mobile: false },
   }), []);
 
-  // 推奨設定プリセット (伝言メモ・ワークフロー・点検報告書をON、他をOFF)
+  // 推奨設定プリセット (伝言メモ・ワークフロー・点検報告書・プロジェクトをON、他をOFF)
   const RECOMMENDED_EMAIL_NOTIFS: EmailNotificationSettings = useMemo(() => ({
     schedule: { pc: false, mobile: false },
     bulletin: { pc: false, mobile: false },
@@ -741,6 +755,7 @@ export function MyPage({
     workflow: { pc: true, mobile: true },
     post: { pc: false, mobile: false },
     inspection: { pc: true, mobile: true },
+    project: { pc: true, mobile: true },
   }), []);
 
   const currentEmailNotifs: EmailNotificationSettings = useMemo(() => ({
@@ -768,7 +783,7 @@ export function MyPage({
       updated = { ...RECOMMENDED_EMAIL_NOTIFS };
     } else {
       updated = { ...currentEmailNotifs };
-      const keys: (keyof EmailNotificationSettings)[] = ['schedule', 'bulletin', 'memo', 'workflow', 'post', 'inspection'];
+      const keys: (keyof EmailNotificationSettings)[] = ['schedule', 'bulletin', 'memo', 'workflow', 'post', 'inspection', 'project'];
 
       keys.forEach((k) => {
         const cur = updated[k] || { pc: false, mobile: false };
@@ -1189,6 +1204,93 @@ export function MyPage({
   const unreadReports = useMemo(() => {
     return myReports.filter((r) => isReportUnread(r, user, readReportIds));
   }, [myReports, user, readReportIds]);
+
+  // 7. プロジェクト・マイタスク サマリー取得
+  type MyProjectSummaryTask = ProjectCard & { projectTitle?: string; projectType?: string };
+  const [myProjectSummary, setMyProjectSummary] = useState<{
+    myPendingCount: number;
+    overdueCount: number;
+    dueSoonCount: number;
+    tasks: MyProjectSummaryTask[];
+  }>({
+    myPendingCount: 0,
+    overdueCount: 0,
+    dueSoonCount: 0,
+    tasks: [],
+  });
+  const [loadingProjectSummary, setLoadingProjectSummary] = useState(false);
+
+  const fetchMyProjectSummary = React.useCallback(async () => {
+    if (!user?.id) return;
+    setLoadingProjectSummary(true);
+    try {
+      const params = new URLSearchParams({
+        userId: String(user.id),
+        userName: user.name || '',
+        officeId: user.officeId || '',
+        office: user.office || '',
+        divisionId: user.divisionId || '',
+        division: user.division || '',
+        isAdmin: String(Boolean(user.isAdmin || user.role === 'admin')),
+      });
+      const res = await fetch(`${API_BASE_URL}/projects/my-summary?${params.toString()}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setMyProjectSummary({
+        myPendingCount: Number(data.myPendingCount || 0),
+        overdueCount: Number(data.overdueCount || 0),
+        dueSoonCount: Number(data.dueSoonCount || 0),
+        tasks: Array.isArray(data.tasks) ? data.tasks : [],
+      });
+    } catch (err) {
+      console.warn('[MyPage] Failed to fetch project summary:', err);
+    } finally {
+      setLoadingProjectSummary(false);
+    }
+  }, [user?.id, user?.name, user?.officeId, user?.office, user?.divisionId, user?.division, user?.isAdmin, user?.role]);
+
+  useEffect(() => {
+    fetchMyProjectSummary();
+    const handleProjectsUpdated = () => {
+      fetchMyProjectSummary();
+    };
+    window.addEventListener('projects_updated', handleProjectsUpdated);
+    return () => window.removeEventListener('projects_updated', handleProjectsUpdated);
+  }, [fetchMyProjectSummary]);
+
+  const handleToggleProjectTaskComplete = async (task: MyProjectSummaryTask, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const prevSnapshot = myProjectSummary;
+    const isOverdue = Boolean(task.dueDate && task.dueDate < todayStr);
+    const soonDate = new Date(todayStr + 'T00:00:00+09:00');
+    soonDate.setDate(soonDate.getDate() + 3);
+    const soonStr = getLocalDateStr(soonDate);
+    const isDueSoon = Boolean(task.dueDate && task.dueDate >= todayStr && task.dueDate <= soonStr);
+
+    setMyProjectSummary(prev => ({
+      myPendingCount: Math.max(0, prev.myPendingCount - 1),
+      overdueCount: isOverdue ? Math.max(0, prev.overdueCount - 1) : prev.overdueCount,
+      dueSoonCount: isDueSoon ? Math.max(0, prev.dueSoonCount - 1) : prev.dueSoonCount,
+      tasks: prev.tasks.filter(t => t.id !== task.id),
+    }));
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/projects/cards/${encodeURIComponent(task.id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          isCompleted: true,
+          completedBy: user.id,
+          updatedBy: user.id,
+          syncColumn: true,
+        }),
+      });
+      if (!res.ok) throw new Error('完了更新失敗');
+      window.dispatchEvent(new Event('projects_updated'));
+    } catch {
+      setMyProjectSummary(prevSnapshot);
+    }
+  };
 
   // ワークフロー承認・却下アクションハンドラー
   const handleWorkflowAction = (appId: string, status: 'approved' | 'rejected') => {
@@ -1818,6 +1920,203 @@ export function MyPage({
                 ) : (
                   <div className="p-8 text-center text-slate-400 text-xs">
                     自分宛ての伝言メモはありません
+                  </div>
+                );
+              })()}
+            </div>
+          </MyPageSectionCard>
+        );
+
+      case 'projects':
+        return (
+          <MyPageSectionCard
+            key="projects"
+            id="projects"
+            title="マイタスク・プロジェクト"
+            icon={FolderKanban}
+            iconBgColor="bg-emerald-600 hover:bg-emerald-700"
+            badgeCount={myProjectSummary.myPendingCount}
+            badgeLabel={
+              myProjectSummary.overdueCount > 0
+                ? `期限超過 ${myProjectSummary.overdueCount}`
+                : '未完了'
+            }
+            badgeBgColor={myProjectSummary.overdueCount > 0 ? 'bg-rose-500' : 'bg-emerald-600'}
+            onNavigate={() => {
+              if (onNavigateToContent) {
+                onNavigateToContent({ tab: 'projects', projectView: 'mytasks' });
+              } else {
+                onChangeTab('projects');
+              }
+            }}
+            onOpenSettings={() => handleOpenDisplaySettings('projects')}
+            density={envSettings.density}
+            actionButton={
+              <button
+                type="button"
+                onClick={() => {
+                  if (onNavigateToContent) {
+                    onNavigateToContent({ tab: 'projects', projectView: 'mytasks' });
+                  } else {
+                    onChangeTab('projects');
+                  }
+                }}
+                className="text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1.5 rounded-lg flex items-center gap-1 shadow-xs transition-colors cursor-pointer whitespace-nowrap"
+              >
+                <CheckSquare className="w-3.5 h-3.5" />
+                マイタスク
+              </button>
+            }
+            isFullWidth={isFullWidth}
+            isDragging={isDragging}
+            onDragStart={(e) => handleDragStart(e, index)}
+            onDragOver={(e) => handleDragOver(e, index)}
+            onDrop={(e) => handleDrop(e, index)}
+          >
+            <div className="space-y-2.5">
+              {(myProjectSummary.overdueCount > 0 || myProjectSummary.dueSoonCount > 0) && (
+                <div className="flex flex-wrap items-center gap-2 pb-2 border-b border-slate-100 text-[11px]">
+                  {myProjectSummary.overdueCount > 0 && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200 font-bold">
+                      <AlertCircle className="w-3 h-3" />
+                      期限超過 {myProjectSummary.overdueCount}件
+                    </span>
+                  )}
+                  {myProjectSummary.dueSoonCount > 0 && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 font-bold">
+                      <Clock className="w-3 h-3" />
+                      3日以内の期限 {myProjectSummary.dueSoonCount}件
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {loadingProjectSummary && myProjectSummary.tasks.length === 0 ? (
+                <div className="p-6 text-center text-slate-400 text-xs flex items-center justify-center gap-1.5">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>読み込み中...</span>
+                </div>
+              ) : (() => {
+                const projLimit = sectionCounts.projects || 5;
+                const displayedTasks = myProjectSummary.tasks.slice(0, projLimit);
+
+                return displayedTasks.length > 0 ? (
+                  <>
+                    {displayedTasks.map((task) => {
+                      const isOverdue = Boolean(task.dueDate && task.dueDate < todayStr);
+                      const isTodayDue = Boolean(task.dueDate && task.dueDate === todayStr);
+                      const checkTotal = (task.checklist || []).length;
+                      const checkDone = (task.checklist || []).filter(c => c.done).length;
+
+                      return (
+                        <div
+                          key={task.id}
+                          onClick={() => {
+                            if (onNavigateToContent) {
+                              onNavigateToContent({
+                                tab: 'projects',
+                                projectId: task.projectId,
+                                taskId: task.id,
+                              });
+                            } else {
+                              onChangeTab('projects');
+                            }
+                          }}
+                          className={`p-3 rounded-xl border transition-all cursor-pointer flex items-start gap-2.5 group ${
+                            isOverdue
+                              ? 'bg-rose-50/45 border-rose-200 hover:border-rose-300 shadow-2xs'
+                              : isTodayDue
+                              ? 'bg-amber-50/40 border-amber-200 hover:border-amber-300 shadow-2xs'
+                              : 'bg-white border-slate-200 hover:border-emerald-300 hover:bg-slate-50/50'
+                          }`}
+                        >
+                          <button
+                            type="button"
+                            onClick={(e) => handleToggleProjectTaskComplete(task, e)}
+                            title="完了にする"
+                            className="mt-0.5 text-slate-300 hover:text-emerald-600 transition-colors shrink-0 cursor-pointer"
+                          >
+                            <Circle className="w-4 h-4" />
+                          </button>
+
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                              {task.projectTitle && (
+                                <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px] font-bold truncate max-w-[140px]">
+                                  {task.projectTitle}
+                                </span>
+                              )}
+                              {task.priority === 'high' && (
+                                <span className="px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 text-[10px] font-bold">
+                                  優先: 高
+                                </span>
+                              )}
+                              {task.priority === 'medium' && (
+                                <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-bold">
+                                  優先: 中
+                                </span>
+                              )}
+                              {task.dueDate && (
+                                <span
+                                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                    isOverdue
+                                      ? 'bg-rose-600 text-white'
+                                      : isTodayDue
+                                      ? 'bg-amber-500 text-white'
+                                      : 'bg-slate-100 text-slate-600'
+                                  }`}
+                                >
+                                  {isOverdue ? `期限切れ (${task.dueDate})` : isTodayDue ? '本日期限' : `期限 ${task.dueDate}`}
+                                </span>
+                              )}
+                            </div>
+
+                            <h3 className="text-xs sm:text-sm font-bold text-slate-900 group-hover:text-emerald-700 truncate">
+                              {task.title}
+                            </h3>
+
+                            {(checkTotal > 0 || (task.comments && task.comments.length > 0)) && (
+                              <div className="flex items-center gap-3 mt-1 text-[10px] text-slate-400">
+                                {checkTotal > 0 && (
+                                  <span className="flex items-center gap-1">
+                                    <CheckSquare className="w-3 h-3" />
+                                    {checkDone}/{checkTotal}
+                                  </span>
+                                )}
+                                {task.comments && task.comments.length > 0 && (
+                                  <span className="flex items-center gap-1">
+                                    <MessageSquare className="w-3 h-3" />
+                                    {task.comments.length}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {myProjectSummary.myPendingCount > displayedTasks.length && (
+                      <div className="text-center pt-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (onNavigateToContent) {
+                              onNavigateToContent({ tab: 'projects', projectView: 'mytasks' });
+                            } else {
+                              onChangeTab('projects');
+                            }
+                          }}
+                          className="text-xs text-emerald-600 hover:text-emerald-700 font-bold hover:underline cursor-pointer"
+                        >
+                          他 {myProjectSummary.myPendingCount - displayedTasks.length} 件のマイタスクをすべて表示 →
+                        </button>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="p-8 text-center text-slate-400 text-xs">
+                    未完了のマイタスクはありません
                   </div>
                 );
               })()}
@@ -2476,8 +2775,8 @@ export function MyPage({
         </div>
       )}
 
-      {/* 6つの未読通知サマリーカード（クリックで各機能ページへ直接遷移） */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 sm:gap-3.5">
+      {/* 未読・要対応通知サマリーカード（クリックで各機能ページへ直接遷移） */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5 sm:gap-3">
         {/* スケジュール */}
         <div
           onClick={() => onChangeTab?.('calendar')}
@@ -2688,6 +2987,58 @@ export function MyPage({
               ) : (
                 <span className="inline-flex items-center px-2 py-0.5 bg-slate-100 text-slate-500 font-bold text-[10px] sm:text-[11px] rounded-full">
                   確認済
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* プロジェクト・マイタスク */}
+        <div
+          onClick={() => {
+            if (onNavigateToContent) {
+              onNavigateToContent({ tab: 'projects', projectView: 'mytasks' });
+            } else {
+              onChangeTab?.('projects');
+            }
+          }}
+          className={`flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3.5 rounded-xl border shadow-xs transition-all cursor-pointer hover:shadow-md hover:border-emerald-400 group ${
+            myProjectSummary.overdueCount > 0
+              ? 'bg-rose-50/70 border-rose-300 text-rose-950'
+              : myProjectSummary.myPendingCount > 0
+              ? 'bg-emerald-50/70 border-emerald-300 text-emerald-950'
+              : 'bg-white border-slate-200 text-slate-800'
+          }`}
+          title="プロジェクト・マイタスク画面へ移動"
+        >
+          <div
+            onClick={(e) => {
+              e.stopPropagation();
+              if (onNavigateToContent) {
+                onNavigateToContent({ tab: 'projects', projectView: 'mytasks' });
+              } else {
+                onChangeTab?.('projects');
+              }
+            }}
+            className="p-1.5 sm:p-2 bg-emerald-100 group-hover:bg-emerald-200 text-emerald-700 rounded-lg shrink-0 transition-transform group-hover:scale-105 active:scale-95 cursor-pointer shadow-2xs"
+            title="プロジェクト・マイタスクを開く"
+          >
+            <FolderKanban className="w-4 h-4 sm:w-5 sm:h-5" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-[11px] sm:text-xs font-bold text-slate-600 group-hover:text-emerald-800 transition-colors truncate">プロジェクト</div>
+            <div className="mt-0.5 sm:mt-1">
+              {myProjectSummary.overdueCount > 0 ? (
+                <span className="inline-flex items-center px-2 py-0.5 bg-rose-600 text-white font-extrabold text-[10px] sm:text-[11px] rounded-full shadow-2xs">
+                  期限超過 {myProjectSummary.overdueCount}
+                </span>
+              ) : myProjectSummary.myPendingCount > 0 ? (
+                <span className="inline-flex items-center px-2 py-0.5 bg-emerald-600 text-white font-extrabold text-[10px] sm:text-[11px] rounded-full shadow-2xs">
+                  未完了 {myProjectSummary.myPendingCount}
+                </span>
+              ) : (
+                <span className="inline-flex items-center px-2 py-0.5 bg-slate-100 text-slate-500 font-bold text-[10px] sm:text-[11px] rounded-full">
+                  完了済
                 </span>
               )}
             </div>

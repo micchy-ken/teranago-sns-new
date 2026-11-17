@@ -12,6 +12,7 @@ export interface EmailNotificationSettings {
   workflow?: CategoryEmailNotificationOption;   // ワークフロー (承認依頼・判定結果)
   post?: CategoryEmailNotificationOption;       // 社内SNS (返信・メンション)
   inspection?: CategoryEmailNotificationOption; // 点検・報告書 (提出・レビュー依頼)
+  project?: CategoryEmailNotificationOption;    // プロジェクト・Todo (担当アサイン・コメント)
 }
 
 export interface CalendarPreset {
@@ -34,6 +35,7 @@ export interface MyPageSectionCounts {
   events?: number;   // スケジュール (0 = 全件, デフォルト: 5)
   topics?: number;   // 掲示板 (デフォルト: 5)
   memos?: number;    // 伝言メモ (デフォルト: 5)
+  projects?: number; // プロジェクト・マイタスク (デフォルト: 5)
   workflow?: number; // ワークフロー (デフォルト: 5)
   chats?: number;    // チャットルーム (デフォルト: 8)
   reports?: number;  // 日報・週報 (デフォルト: 8)

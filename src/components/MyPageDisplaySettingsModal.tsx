@@ -13,6 +13,7 @@ import {
   Sliders,
   Eye,
   LayoutGrid,
+  FolderKanban,
 } from 'lucide-react';
 import { MyPageSectionCounts, MyPageEnvSettings } from '../types';
 
@@ -20,6 +21,7 @@ export const DEFAULT_SECTION_COUNTS: Required<MyPageSectionCounts> = {
   events: 5,
   topics: 5,
   memos: 5,
+  projects: 5,
   workflow: 5,
   chats: 8,
   reports: 8,
@@ -132,6 +134,22 @@ export const MyPageDisplaySettingsModal: React.FC<MyPageDisplaySettingsModalProp
       iconBg: 'bg-rose-500',
       badgeBg: 'bg-rose-100 text-rose-800 border-rose-200',
       description: '自分宛ての伝言メモの表示件数',
+      options: [
+        { label: '3件', value: 3 },
+        { label: '5件 (標準)', value: 5 },
+        { label: '8件', value: 8 },
+        { label: '10件', value: 10 },
+        { label: '15件', value: 15 },
+        { label: '20件', value: 20 },
+      ],
+    },
+    {
+      id: 'projects' as const,
+      title: 'マイタスク・プロジェクト',
+      icon: FolderKanban,
+      iconBg: 'bg-emerald-600',
+      badgeBg: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+      description: '全ボード横断の未完了マイタスク表示件数',
       options: [
         { label: '3件', value: 3 },
         { label: '5件 (標準)', value: 5 },

@@ -1,7 +1,28 @@
 import React, { useState, useMemo } from 'react';
-import { X, Lock, Users, Building2, Globe, Pin, Trash2, Check, Search } from 'lucide-react';
+import {
+  X,
+  Lock,
+  Users,
+  Building2,
+  Globe,
+  Pin,
+  Trash2,
+  Check,
+  Search,
+  Plus,
+  ArrowUp,
+  ArrowDown,
+  Copy,
+  Columns3,
+} from 'lucide-react';
 import { User, OfficeMaster, DivisionMaster, CalendarMemberGroup } from '../../types';
-import { ProjectBoard, ProjectBoardType, ProjectBoardVisibility } from '../../types/project';
+import {
+  ProjectBoard,
+  ProjectBoardColumn,
+  ProjectBoardType,
+  ProjectBoardVisibility,
+  ProjectColumnKind,
+} from '../../types/project';
 import { getAvatarUrl, handleAvatarError } from '../../utils/avatar';
 
 interface BoardFormModalProps {
@@ -14,6 +35,7 @@ interface BoardFormModalProps {
   divisions: DivisionMaster[];
   onSave: (payload: Partial<ProjectBoard>) => Promise<void>;
   onDelete?: (boardId: string) => Promise<void>;
+  onClone?: (boardId: string) => Promise<void>;
 }
 
 const COLOR_OPTIONS: { id: string; label: string; dotClass: string }[] = [
@@ -23,6 +45,21 @@ const COLOR_OPTIONS: { id: string; label: string; dotClass: string }[] = [
   { id: 'amber', label: 'アンバー', dotClass: 'bg-amber-500' },
   { id: 'rose', label: 'ローズ', dotClass: 'bg-rose-600' },
   { id: 'violet', label: 'バイオレット', dotClass: 'bg-violet-600' },
+];
+
+const DEFAULT_TEAM_COLS: ProjectBoardColumn[] = [
+  { id: 'col-memo', title: '📌 資料・メモ', kind: 'memo', color: 'amber', sortOrder: 1 },
+  { id: 'col-todo', title: '未着手', kind: 'todo', color: 'slate', sortOrder: 2 },
+  { id: 'col-doing', title: '進行中', kind: 'todo', color: 'indigo', sortOrder: 3 },
+  { id: 'col-review', title: '確認待ち', kind: 'todo', color: 'sky', sortOrder: 4 },
+  { id: 'col-done', title: '完了', kind: 'done', color: 'emerald', sortOrder: 5 },
+];
+
+const DEFAULT_PERSONAL_COLS: ProjectBoardColumn[] = [
+  { id: 'col-memo', title: '📌 個人メモ・URL', kind: 'memo', color: 'amber', sortOrder: 1 },
+  { id: 'col-todo', title: 'やること', kind: 'todo', color: 'slate', sortOrder: 2 },
+  { id: 'col-doing', title: '対応中', kind: 'todo', color: 'indigo', sortOrder: 3 },
+  { id: 'col-done', title: '完了', kind: 'done', color: 'emerald', sortOrder: 4 },
 ];
 
 export const BoardFormModal: React.FC<BoardFormModalProps> = ({
@@ -35,6 +72,7 @@ export const BoardFormModal: React.FC<BoardFormModalProps> = ({
   divisions,
   onSave,
   onDelete,
+  onClone,
 }) => {
   const isDefaultPersonal = Boolean(editingBoard?.id?.startsWith('personal-'));
 
@@ -52,9 +90,16 @@ export const BoardFormModal: React.FC<BoardFormModalProps> = ({
     if (editingBoard?.memberIds?.length) return editingBoard.memberIds.map(String);
     return currentUser?.id ? [String(currentUser.id)] : [];
   });
+  const [columns, setColumns] = useState<ProjectBoardColumn[]>(() => {
+    if (editingBoard?.columns?.length) {
+      return editingBoard.columns.map((c, idx) => ({ ...c, sortOrder: idx + 1 }));
+    }
+    return DEFAULT_TEAM_COLS.map(c => ({ ...c }));
+  });
   const [color, setColor] = useState(editingBoard?.color || 'indigo');
   const [isPinned, setIsPinned] = useState(Boolean(editingBoard?.isPinned));
   const [memberSearch, setMemberSearch] = useState('');
+  const [showColumnEditor, setShowColumnEditor] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -85,8 +130,10 @@ export const BoardFormModal: React.FC<BoardFormModalProps> = ({
     if (next === 'personal') {
       setVisibility('private');
       if (color === 'indigo') setColor('amber');
-    } else if (visibility === 'private') {
-      setVisibility('members');
+      if (!editingBoard) setColumns(DEFAULT_PERSONAL_COLS.map(c => ({ ...c })));
+    } else {
+      if (visibility === 'private') setVisibility('members');
+      if (!editingBoard) setColumns(DEFAULT_TEAM_COLS.map(c => ({ ...c })));
     }
   };
 
@@ -126,6 +173,40 @@ export const BoardFormModal: React.FC<BoardFormModalProps> = ({
     }
   };
 
+  // カンバン列編集ハンドラ
+  const handleAddColumn = () => {
+    setColumns(prev => [
+      ...prev,
+      {
+        id: `col-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+        title: '新しい列',
+        kind: 'todo',
+        color: 'slate',
+        sortOrder: prev.length + 1,
+      },
+    ]);
+  };
+
+  const handleUpdateColumn = (idx: number, patch: Partial<ProjectBoardColumn>) => {
+    setColumns(prev => prev.map((c, i) => (i === idx ? { ...c, ...patch } : c)));
+  };
+
+  const handleMoveColumn = (idx: number, delta: -1 | 1) => {
+    setColumns(prev => {
+      const target = idx + delta;
+      if (target < 0 || target >= prev.length) return prev;
+      const copy = [...prev];
+      const [item] = copy.splice(idx, 1);
+      copy.splice(target, 0, item);
+      return copy.map((c, i) => ({ ...c, sortOrder: i + 1 }));
+    });
+  };
+
+  const handleRemoveColumn = (idx: number) => {
+    if (columns.length <= 1) return;
+    setColumns(prev => prev.filter((_, i) => i !== idx).map((c, i) => ({ ...c, sortOrder: i + 1 })));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = title.trim();
@@ -133,6 +214,13 @@ export const BoardFormModal: React.FC<BoardFormModalProps> = ({
       setErrorMsg('ボード名を入力してください');
       return;
     }
+    const sanitizedColumns = columns
+      .map((c, idx) => ({
+        ...c,
+        title: c.title.trim() || `列 ${idx + 1}`,
+        sortOrder: idx + 1,
+      }));
+
     setErrorMsg(null);
     setIsSubmitting(true);
     try {
@@ -147,6 +235,7 @@ export const BoardFormModal: React.FC<BoardFormModalProps> = ({
         divisionId: visibility === 'division' ? divisionId || undefined : undefined,
         division: visibility === 'division' ? division || undefined : undefined,
         memberIds: boardType === 'personal' ? [String(currentUser.id)] : memberIds,
+        columns: sanitizedColumns,
         color,
         isPinned,
       });
@@ -171,6 +260,19 @@ export const BoardFormModal: React.FC<BoardFormModalProps> = ({
     } catch (err: any) {
       setErrorMsg(err?.message || '削除に失敗しました');
       setConfirmDelete(false);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleCloneClick = async () => {
+    if (!editingBoard || !onClone) return;
+    setIsSubmitting(true);
+    try {
+      await onClone(editingBoard.id);
+      onClose();
+    } catch (err: any) {
+      setErrorMsg(err?.message || '複製に失敗しました');
     } finally {
       setIsSubmitting(false);
     }
@@ -369,7 +471,7 @@ export const BoardFormModal: React.FC<BoardFormModalProps> = ({
                   />
                 </div>
 
-                <div className="max-h-40 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100">
+                <div className="max-h-36 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100">
                   {filteredUsers.map(u => {
                     const checked = memberIds.includes(String(u.id));
                     const isOwner = editingBoard
@@ -414,6 +516,82 @@ export const BoardFormModal: React.FC<BoardFormModalProps> = ({
             </div>
           )}
 
+          {/* カンバン列カスタマイズ */}
+          <div className="pt-2 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={() => setShowColumnEditor(prev => !prev)}
+              className="flex items-center justify-between w-full text-left text-xs font-semibold text-slate-700 hover:text-indigo-700 cursor-pointer"
+            >
+              <span className="inline-flex items-center gap-1.5">
+                <Columns3 className="w-3.5 h-3.5 text-indigo-600" />
+                <span>カンバン列のカスタマイズ（{columns.length}列）</span>
+              </span>
+              <span className="text-[11px] font-medium text-indigo-600">
+                {showColumnEditor ? '閉じる' : '列を編集する'}
+              </span>
+            </button>
+
+            {showColumnEditor && (
+              <div className="mt-2.5 space-y-2 p-3 rounded-lg bg-slate-50 border border-slate-200">
+                {columns.map((col, idx) => (
+                  <div key={col.id} className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={col.title}
+                      onChange={e => handleUpdateColumn(idx, { title: e.target.value })}
+                      className="flex-1 px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded-md focus:outline-none focus:border-indigo-500"
+                    />
+                    <select
+                      value={col.kind}
+                      onChange={e => handleUpdateColumn(idx, { kind: e.target.value as ProjectColumnKind })}
+                      className="px-2 py-1.5 text-xs bg-white border border-slate-300 rounded-md"
+                    >
+                      <option value="memo">メモ・資料列</option>
+                      <option value="todo">進行・Todo列</option>
+                      <option value="done">完了列（折畳み）</option>
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => handleMoveColumn(idx, -1)}
+                      disabled={idx === 0}
+                      className="p-1.5 rounded border border-slate-200 bg-white text-slate-500 hover:text-slate-800 disabled:opacity-30 cursor-pointer"
+                      title="上へ"
+                    >
+                      <ArrowUp className="w-3 h-3" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleMoveColumn(idx, 1)}
+                      disabled={idx === columns.length - 1}
+                      className="p-1.5 rounded border border-slate-200 bg-white text-slate-500 hover:text-slate-800 disabled:opacity-30 cursor-pointer"
+                      title="下へ"
+                    >
+                      <ArrowDown className="w-3 h-3" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveColumn(idx)}
+                      disabled={columns.length <= 1}
+                      className="p-1.5 rounded border border-slate-200 bg-white text-slate-400 hover:text-rose-600 disabled:opacity-30 cursor-pointer"
+                      title="列を削除"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={handleAddColumn}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-50 rounded-md cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>列を追加</span>
+                </button>
+              </div>
+            )}
+          </div>
+
           <div className="flex flex-wrap items-center justify-between gap-4 pt-2 border-t border-slate-100">
             <div className="flex items-center gap-2">
               <span className="text-xs font-medium text-slate-600">カラー:</span>
@@ -446,8 +624,8 @@ export const BoardFormModal: React.FC<BoardFormModalProps> = ({
             </button>
           </div>
 
-          <div className="flex items-center justify-between gap-3 pt-3 border-t border-slate-200">
-            <div>
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-200">
+            <div className="flex flex-wrap items-center gap-2">
               {editingBoard && !isDefaultPersonal && onDelete && (
                 <button
                   type="button"
@@ -461,6 +639,18 @@ export const BoardFormModal: React.FC<BoardFormModalProps> = ({
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                   <span>{confirmDelete ? '本当に削除する（配下カードも削除）' : 'ボードを削除'}</span>
+                </button>
+              )}
+              {editingBoard && onClone && (
+                <button
+                  type="button"
+                  onClick={handleCloneClick}
+                  disabled={isSubmitting}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors cursor-pointer"
+                  title="列構成と未完了カード・メモを複製して新しいボードを作成"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>複製（雛形コピー）</span>
                 </button>
               )}
             </div>

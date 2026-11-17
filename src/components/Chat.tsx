@@ -45,7 +45,8 @@ import {
   FileText,
   Share2,
   AtSign,
-  CornerUpLeft
+  CornerUpLeft,
+  CheckSquare
 } from 'lucide-react';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { uploadMultipleFiles, uploadFile, isPreviewable } from '../utils/fileUpload';
@@ -58,6 +59,7 @@ import { logActivity } from '../utils/logger';
 import { buildAppUrl, copyTextToClipboard } from '../utils/urlParams';
 import { upsertBookmarkForUser } from '../utils/bookmarks';
 import { ChatQuizModal } from './chat/ChatQuizModal';
+import { QuickTaskFromSourceModal } from './ProjectManagement/QuickTaskFromSourceModal';
 import { ChatQuizCard } from './chat/ChatQuizCard';
 import { ChatCommandHelpModal } from './chat/ChatCommandHelpModal';
 import { ChatCommandMessageCard, parseChatCommand } from './chat/ChatCommandMessageCard';
@@ -196,6 +198,7 @@ interface ChatMessageItemProps {
   isRecent?: boolean;
   onDeleteMessage: (id: string) => void;
   onReplyMessage?: (msg: ChatMessage) => void;
+  onCreateTaskFromMessage?: (msg: ChatMessage) => void;
   onOpenViewers: (msg: ChatMessage) => void;
   onOpenPreview: (att: AttachmentFile) => void;
   onOpenLightbox: (images: string | string[], initialIndex?: number) => void;
@@ -322,6 +325,7 @@ const ChatMessageItem = React.memo(function ChatMessageItem({
   isRecent,
   onDeleteMessage,
   onReplyMessage,
+  onCreateTaskFromMessage,
   onOpenViewers,
   onOpenPreview,
   onOpenLightbox,
@@ -756,6 +760,16 @@ const ChatMessageItem = React.memo(function ChatMessageItem({
                 >
                   <CornerUpLeft className="w-3.5 h-3.5" />
                 </button>
+                {onCreateTaskFromMessage && (
+                  <button
+                    type="button"
+                    onClick={() => onCreateTaskFromMessage(msg)}
+                    className="text-slate-400 hover:text-emerald-600 transition-colors cursor-pointer p-0.5 rounded hover:bg-emerald-50"
+                    title="プロジェクトにタスク化"
+                  >
+                    <CheckSquare className="w-3.5 h-3.5" />
+                  </button>
+                )}
                 {isMine && (
                   <button
                     type="button"
@@ -843,6 +857,9 @@ export function Chat({
   const [isQuizModalOpen, setIsQuizModalOpen] = useState(false);
   // 特殊機能コマンド案内モーダル用 (@コマンドヘルプ)
   const [isCommandHelpOpen, setIsCommandHelpOpen] = useState(false);
+  // メッセージからタスク化モーダル用
+  const [taskModalMsg, setTaskModalMsg] = useState<ChatMessage | null>(null);
+  const [taskCreatedToast, setTaskCreatedToast] = useState<string | null>(null);
 
   const activeRoom = myRooms.find((r) => r.id === activeRoomId) || myRooms[0];
 
@@ -2889,6 +2906,7 @@ export function Chat({
                       onOpenLightbox={handleOpenLightboxImage}
                       onDownloadAttachment={handleDownloadAttachment}
                       onReplyMessage={handleReplyMessage}
+                      onCreateTaskFromMessage={isSystem ? undefined : (m) => setTaskModalMsg(m)}
                     />
                   );
                 });
@@ -4007,6 +4025,73 @@ export function Chat({
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* チャットメッセージからプロジェクトにタスク化モーダル */}
+      {taskModalMsg && (
+        <QuickTaskFromSourceModal
+          isOpen={Boolean(taskModalMsg)}
+          onClose={() => setTaskModalMsg(null)}
+          currentUser={currentUser}
+          allUsers={users}
+          sourceLabel="チャットからプロジェクトにタスク化"
+          initialTitle={(() => {
+            const raw = (taskModalMsg.content || '')
+              .replace(/\[quote[^\]]*\][\s\S]*?\[\/quote\]/g, '')
+              .trim();
+            const firstLine = raw.split(/\r?\n/).find(l => l.trim()) || '';
+            if (firstLine) {
+              return firstLine.slice(0, 60);
+            }
+            if (taskModalMsg.attachments && taskModalMsg.attachments.length > 0) {
+              return `${taskModalMsg.attachments[0].name} の確認`;
+            }
+            return `${taskModalMsg.sender?.name || 'メンバー'}の発言より`;
+          })()}
+          initialDescription={(() => {
+            const cleaned = (taskModalMsg.content || '')
+              .replace(/\[quote[^\]]*\][\s\S]*?\[\/quote\]/g, '')
+              .trim();
+            const roomLabel = activeRoom?.name || 'チャットルーム';
+            return [
+              `【チャットルーム】${roomLabel}`,
+              `【発言者】${taskModalMsg.sender?.name || 'メンバー'}`,
+              taskModalMsg.createdAt
+                ? `【送信日時】${new Date(taskModalMsg.createdAt).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}`
+                : '',
+              '',
+              cleaned || '（メッセージ本文なし）',
+            ]
+              .filter((line, idx, arr) => line !== '' || (idx > 0 && arr[idx - 1] !== ''))
+              .join('\n');
+          })()}
+          initialTags={['チャット']}
+          initialLinks={
+            activeRoom
+              ? [
+                  {
+                    id: `chat-ref-${taskModalMsg.id}`,
+                    label: `チャット: ${activeRoom.name || 'トークルーム'}`,
+                    url: buildAppUrl({ tab: 'chat', chatRoomId: activeRoom.id }),
+                    title: activeRoom.name || 'チャットルームを開く',
+                  },
+                ]
+              : []
+          }
+          initialAttachments={taskModalMsg.attachments || []}
+          initialAssigneeIds={[String(currentUser.id)]}
+          onCreated={(_card, board) => {
+            setTaskCreatedToast(`「${board.title}」へタスクを追加しました`);
+            window.setTimeout(() => setTaskCreatedToast(null), 3500);
+          }}
+        />
+      )}
+
+      {taskCreatedToast && (
+        <div className="fixed bottom-5 right-5 z-50 px-4 py-2.5 rounded-xl bg-slate-900 text-white text-xs font-bold shadow-lg flex items-center gap-2">
+          <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{taskCreatedToast}</span>
         </div>
       )}
     </div>

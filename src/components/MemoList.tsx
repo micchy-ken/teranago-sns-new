@@ -30,11 +30,14 @@ import {
   Send,
   Lock,
   Globe,
-  MessageSquare
+  MessageSquare,
+  CheckSquare
 } from 'lucide-react';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { renderContentWithLinks } from '../utils/renderContentWithLinks';
 import { UrlPastePopup, useUrlPasteHandler } from './common/UrlPastePopup';
+import { QuickTaskFromSourceModal } from './ProjectManagement/QuickTaskFromSourceModal';
+import { buildAppUrl } from '../utils/urlParams';
 
 interface MemoListProps {
   memos: Memo[];
@@ -109,6 +112,8 @@ export function MemoList({
   // モーダル制御
   const [isCreateOpen, setIsCreateOpen] = useState(initialOpenCreate || !!initialRecipientId);
   const [detailMemo, setDetailMemo] = useState<Memo | null>(null);
+  const [taskModalMemo, setTaskModalMemo] = useState<Memo | null>(null);
+  const [taskCreatedToast, setTaskCreatedToast] = useState<string | null>(null);
 
   // コメント入力・送信制御（公開・非公開[宛先担当者本人のみ閲覧可能]対応）
   const [newCommentText, setNewCommentText] = useState('');
@@ -795,6 +800,18 @@ export function MemoList({
                           <Eye className="w-3.5 h-3.5 text-indigo-600" />
                           詳細・ログ
                         </button>
+
+                        {currentUser && (
+                          <button
+                            type="button"
+                            onClick={() => setTaskModalMemo(memo)}
+                            className="px-2.5 py-1.5 text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 rounded-lg transition-colors cursor-pointer flex items-center gap-1 whitespace-nowrap"
+                            title="この伝言メモをプロジェクトのTodo/メモに登録"
+                          >
+                            <CheckSquare className="w-3.5 h-3.5 text-emerald-600" />
+                            タスク化
+                          </button>
+                        )}
 
                         {(isCreator || currentUser?.role === 'admin') && (
                           <button
@@ -1563,21 +1580,81 @@ export function MemoList({
                   <div />
                 )}
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDetailMemo(null);
-                    if (onClearInitialMemoId) onClearInitialMemoId();
-                  }}
-                  className="px-5 py-2 text-xs font-bold text-white bg-slate-800 hover:bg-slate-900 rounded-xl transition-colors cursor-pointer"
-                >
-                  閉じる
-                </button>
+                <div className="flex items-center gap-2">
+                  {currentUser && (
+                    <button
+                      type="button"
+                      onClick={() => setTaskModalMemo(detailMemo)}
+                      className="px-3.5 py-2 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-xl transition-colors cursor-pointer flex items-center gap-1.5"
+                    >
+                      <CheckSquare className="w-4 h-4 text-emerald-600" />
+                      プロジェクトにタスク化
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDetailMemo(null);
+                      if (onClearInitialMemoId) onClearInitialMemoId();
+                    }}
+                    className="px-5 py-2 text-xs font-bold text-white bg-slate-800 hover:bg-slate-900 rounded-xl transition-colors cursor-pointer"
+                  >
+                    閉じる
+                  </button>
+                </div>
               </div>
             </div>
           </div>
         </div>
       )}
+      {/* 伝言メモからプロジェクトへタスク化モーダル */}
+      {taskModalMemo && currentUser && (
+        <QuickTaskFromSourceModal
+          isOpen={Boolean(taskModalMemo)}
+          onClose={() => setTaskModalMemo(null)}
+          currentUser={currentUser}
+          allUsers={users}
+          sourceLabel="伝言メモからプロジェクトにタスク化"
+          initialTitle={
+            taskModalMemo.fromCompany
+              ? `[${taskModalMemo.fromCompany}] ${taskModalMemo.fromName}様 伝言対応`
+              : `${taskModalMemo.fromName}様 伝言対応`
+          }
+          initialDescription={[
+            `【伝言元】${taskModalMemo.fromCompany ? `${taskModalMemo.fromCompany} ` : ''}${taskModalMemo.fromName} 様`,
+            taskModalMemo.fromPhone ? `【電話番号】${taskModalMemo.fromPhone}` : '',
+            taskModalMemo.fromEmail ? `【メール】${taskModalMemo.fromEmail}` : '',
+            `【受信日時】${new Date(taskModalMemo.createdAt).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}`,
+            '',
+            taskModalMemo.content || '',
+          ]
+            .filter((line, idx, arr) => line !== '' || (idx > 0 && arr[idx - 1] !== ''))
+            .join('\n')}
+          initialTags={['伝言メモ']}
+          initialLinks={[
+            {
+              id: `memo-ref-${taskModalMemo.id}`,
+              label: `伝言メモ: ${taskModalMemo.fromName}様`,
+              url: buildAppUrl({ tab: 'memo', memoId: taskModalMemo.id }),
+              title: `${taskModalMemo.fromName}様からの伝言メモ`,
+            },
+          ]}
+          initialAssigneeIds={[String(currentUser.id)]}
+          onCreated={(_card, board) => {
+            setTaskCreatedToast(`「${board.title}」へタスクを追加しました`);
+            window.setTimeout(() => setTaskCreatedToast(null), 3500);
+          }}
+        />
+      )}
+
+      {taskCreatedToast && (
+        <div className="fixed bottom-5 right-5 z-50 px-4 py-2.5 rounded-xl bg-slate-900 text-white text-xs font-bold shadow-lg flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{taskCreatedToast}</span>
+        </div>
+      )}
+
       {/* ----------------- 確認ダイアログ ----------------- */}
       <ConfirmModal
         {...confirmModal}
