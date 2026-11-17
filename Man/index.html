@@ -471,6 +471,7 @@
         <li class="nav-item"><a href="#sec-bulletins">📢 社内掲示板・回覧 <span class="badge-auth badge-free">全員</span></a></li>
         <li class="nav-item"><a href="#sec-chat">💬 チャット＆@特殊コマンド <span class="badge-auth badge-free">全員</span></a></li>
         <li class="nav-item"><a href="#sec-calendar">📅 共有カレンダー・調整 <span class="badge-auth badge-free">全員</span></a></li>
+        <li class="nav-item"><a href="#sec-projects">🗂️ プロジェクト管理 <span class="badge-auth badge-free">全員</span></a></li>
         <li class="nav-item"><a href="#sec-inspection">🗓️ 点検予定一括登録 <span class="badge-auth">要権限</span></a></li>
         <li class="nav-item"><a href="#sec-documents">📁 社内文書管理 <span class="badge-auth badge-free">全員</span></a></li>
         <li class="nav-item"><a href="#sec-files">🗄️ NAS共有ファイル <span class="badge-auth">要権限</span></a></li>
@@ -494,10 +495,10 @@
       <!-- ヘッダーバナー -->
       <div class="header-banner">
         <h1>寺岡オートドアSNS / 寺子屋SNS 総合操作マニュアル</h1>
-        <p>社内ナレッジの蓄積・タイムライン・日報・チャット（@特殊コマンド群）・点検予定管理・文書キャビネット・安否確認の全機能を網羅した公式操作ガイドです。</p>
+        <p>社内ナレッジの蓄積・タイムライン・日報・チャット（@特殊コマンド群）・プロジェクト管理・点検予定管理・文書キャビネット・安否確認の全機能を網羅した公式操作ガイドです。</p>
         <div class="meta-bar">
-          <span>バージョン: v2026.11.06 #7 (完全版)</span>
-          <span>最終改定日: 2026年11月6日</span>
+          <span>バージョン: v2026.11.17 #9 (完全版)</span>
+          <span>最終改定日: 2026年11月17日</span>
           <span>タイムゾーン: 日本標準時 (JST / UTC+09:00) 厳格準拠</span>
           <span>対象: 全社員・管理者・現場技術員</span>
         </div>
@@ -768,12 +769,104 @@
         </ul>
       </section>
 
-      <!-- 第7章: 点検予定一括登録 -->
+      <!-- 第7章: プロジェクト管理 -->
+      <section id="sec-projects" class="doc-section">
+        <div class="section-header">
+          <div class="section-title">
+            <span class="section-icon">🗂️</span>
+            <span>第7章: プロジェクト管理（カンバン・マイタスク・メモボード）</span>
+          </div>
+          <span class="badge-auth badge-free">全員対象</span>
+        </div>
+        <p>個人やチームのタスク（Todo）、案件フォロー、業務手順メモ・参考資料を一元管理できるボード機能です。左サイドバーの「<strong>プロジェクト</strong>」から利用できます。</p>
+
+        <h3>1. ボードの種類と閲覧・参加範囲</h3>
+        <table class="feature-table">
+          <thead>
+            <tr>
+              <th>ボード種別</th>
+              <th>公開・共有範囲</th>
+              <th>主な用途</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>個人専用ボード</strong> (🔒)</td>
+              <td>作成者本人のみ閲覧・編集可能</td>
+              <td>自分専用のTodo整理、個人メモ、参考URL・パスワード以外の備忘管理。</td>
+            </tr>
+            <tr>
+              <td><strong>チーム共有ボード</strong></td>
+              <td>
+                <strong>指定メンバー</strong>／<strong>部署</strong>／<strong>拠点</strong>／<strong>全社公開</strong> の4段階から選択
+              </td>
+              <td>部署ごとの見込み案件フォロー、共同イベント準備、チーム内の引き継ぎ事項・手順書共有。</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="step-box">
+          <ol>
+            <li><strong>ボードの新規作成</strong>: 左ペイン「ボード一覧」右上の「<strong>＋ 新規</strong>」をクリックし、ボード種別（チーム共有／個人専用）・ボード名・公開範囲・参加メンバー・カンバン列構成を設定して作成します。</li>
+            <li><strong>ボード設定・列カスタマイズ・複製</strong>: 画面右上の「<strong>ボード設定</strong>」から、列の追加・名称変更・並び替え・削除、テーマカラー設定、一覧先頭へのピン留め固定、さらに列構成と未完了カードを引き継いだ「ボードの複製」が行えます。</li>
+          </ol>
+        </div>
+
+        <h3>2. 3つの表示ビューの使い分け</h3>
+        <table class="feature-table">
+          <thead>
+            <tr>
+              <th>ビュー名</th>
+              <th>特徴と便利な使い方</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>カンバン</strong></td>
+              <td>ステータス列（「未着手」「進行中」「完了」など）ごとにカードを縦に並べて表示。ドラッグ＆ドロップやカード右下の「次の列へ移動」ボタンで進捗を更新できます。完了済みカードは自動で折り畳まれます。</td>
+            </tr>
+            <tr>
+              <td><strong>リスト</strong></td>
+              <td>ボード内のカードを表形式で一覧表示。タイトル・ステータス・優先度・期限・更新日のクリックで昇順／降順に並び替えでき、一覧上部の入力欄から素早く行追加できます。</td>
+            </tr>
+            <tr>
+              <td><strong>マイタスク</strong></td>
+              <td>個人ボード・共有ボードを横断し、<strong>自分が担当者にアサインされているTodo</strong>だけを自動集計。「期限切れ」「直近（3日以内）」「その他」に分けて期限順で確認でき、元のボードへ即ジャンプできます。</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3>3. カードの追加と詳細機能（Todo／メモ・資料）</h3>
+        <ul>
+          <li><strong>カード種別の切り替え</strong>: 詳細画面上部の切り替えタブで、完了チェック・優先度（高/中/低/なし）・期限を管理する「<strong>Todo</strong>」と、常時参照用の「<strong>メモ・資料</strong>」を使い分けられます。</li>
+          <li><strong>クイック1行入力</strong>: カンバン各列の上部にある入力欄にタイトルやURLを入力して <kbd>Enter</kbd> を押すだけで即座にカードを作成できます。</li>
+          <li><strong>メンバーアサインと通知</strong>: チーム共有ボードではカードに複数名の担当者を設定できます。新しく担当者に追加されたメンバーには自動通知が送られます。</li>
+          <li><strong>詳細モーダルの充実機能</strong>:
+            <ul>
+              <li><strong>チェックリスト（小項目）</strong>: カード内で作業手順を細かく分解し、「3 / 5 完了」のように進捗率を管理。</li>
+              <li><strong>参考URL・リンク集（OGP対応）</strong>: 関連システムや社内共有URLをタイトル・ファビコン付きリンクカードとして保存（本文内URLも自動リンク化）。</li>
+              <li><strong>資料添付（D&amp;D／スクショ貼り付け対応）</strong>: PDF・Excel・Word・画像をドラッグ＆ドロップ、または <kbd>Ctrl</kbd>+<kbd>V</kbd>（Macは <kbd>⌘</kbd>+<kbd>V</kbd>）でスクリーンショットを直接貼り付けてプレビュー・共有可能。</li>
+              <li><strong>タグ・ピン留め・コメント</strong>: <code>#タグ</code> による分類、列先頭への固定（ピン留め）、カード内コメントスレッドに対応。</li>
+            </ul>
+          </li>
+        </ul>
+
+        <h3>4. 他機能からのクイック起票 ＆ 共有URL</h3>
+        <div class="callout callout-info">
+          <span class="callout-icon">🔗</span>
+          <div>
+            <strong>チャット・伝言メモからのタスク化</strong>: チャットのメッセージや伝言メモのメニューにある「<strong>プロジェクトへ登録</strong>」ボタンから、本文や添付ファイルを引き継いで任意のボード・列へワンクリックでタスク／メモ起票できます。<br>
+            <strong>共有・お気に入り登録</strong>: ボード右上「<strong>共有・お気に入り</strong>」やカード詳細「<strong>共有</strong>」を押すと、そのボード／カードを直接開くURLがクリップボードにコピーされ、ヘッダーのお気に入りにも登録されます。
+          </div>
+        </div>
+      </section>
+
+      <!-- 第8章: 点検予定一括登録 -->
       <section id="sec-inspection" class="doc-section">
         <div class="section-header">
           <div class="section-title">
             <span class="section-icon">🗓️</span>
-            <span>第7章: 点検予定一括登録・管理</span>
+            <span>第8章: 点検予定一括登録・管理</span>
           </div>
           <span class="badge-auth">要権限（管理者または個別許可）</span>
         </div>
@@ -820,12 +913,12 @@
         </table>
       </section>
 
-      <!-- 第8章: 社内文書管理 -->
+      <!-- 第9章: 社内文書管理 -->
       <section id="sec-documents" class="doc-section">
         <div class="section-header">
           <div class="section-title">
             <span class="section-icon">📁</span>
-            <span>第8章: 社内文書管理・キャビネット</span>
+            <span>第9章: 社内文書管理・キャビネット</span>
           </div>
           <span class="badge-auth badge-free">全員対象（一部フォルダは権限制御）</span>
         </div>
@@ -840,24 +933,24 @@
         </ul>
       </section>
 
-      <!-- 第9章: NAS共有ファイル -->
+      <!-- 第10章: NAS共有ファイル -->
       <section id="sec-files" class="doc-section">
         <div class="section-header">
           <div class="section-title">
             <span class="section-icon">🗄️</span>
-            <span>第9章: NAS共有ファイル (社内ストレージ連携)</span>
+            <span>第10章: NAS共有ファイル (社内ストレージ連携)</span>
           </div>
           <span class="badge-auth">要権限（個別許可）</span>
         </div>
         <p>社内NAS（Synology）上の特定共有フォルダと直接連携し、外出先や自宅からでも安全に社内大容量ファイルを閲覧・ダウンロードできます。また、外部取引先への一時受渡ファイル（パスワード保護・有効期限付き）の作成も可能です。</p>
       </section>
 
-      <!-- 第10章: 安否確認 -->
+      <!-- 第11章: 安否確認 -->
       <section id="sec-safety" class="doc-section">
         <div class="section-header">
           <div class="section-title">
             <span class="section-icon">🦺</span>
-            <span>第10章: 安否確認・緊急BCP連絡</span>
+            <span>第11章: 安否確認・緊急BCP連絡</span>
           </div>
           <span class="badge-auth">回答:全員 / 発動:要権限</span>
         </div>
@@ -888,36 +981,36 @@
         </div>
       </section>
 
-      <!-- 第11章: 社員名簿 -->
+      <!-- 第12章: 社員名簿 -->
       <section id="sec-members" class="doc-section">
         <div class="section-header">
           <div class="section-title">
             <span class="section-icon">👥</span>
-            <span>第11章: 社員名簿・組織図・プロフィール</span>
+            <span>第12章: 社員名簿・組織図・プロフィール</span>
           </div>
           <span class="badge-auth badge-free">全員対象</span>
         </div>
         <p>全社員の所属部署、役職、内線番号、緊急連絡先、顔写真を確認できる名簿です。名前、部署名、役職によるインクリメンタル高速検索に対応しています。</p>
       </section>
 
-      <!-- 第12章: ユーティリティー -->
+      <!-- 第13章: ユーティリティー -->
       <section id="sec-utility" class="doc-section">
         <div class="section-header">
           <div class="section-title">
             <span class="section-icon">🛠️</span>
-            <span>第12章: ユーティリティー・社内便利ツール集</span>
+            <span>第13章: ユーティリティー・社内便利ツール集</span>
           </div>
           <span class="badge-auth badge-free">全員対象</span>
         </div>
         <p>左側サイドバーの「ユーティリティー」メニューから、本操作マニュアル（HTML版）の参照、各種業務ポータル、社外リンク集、印刷機能へ素早くアクセスできます。</p>
       </section>
 
-      <!-- 第13章: 管理者パネル -->
+      <!-- 第14章: 管理者パネル -->
       <section id="sec-admin" class="doc-section">
         <div class="section-header">
           <div class="section-title">
             <span class="section-icon">⚙️</span>
-            <span>第13章: 管理者パネル・システム設定・運用</span>
+            <span>第14章: 管理者パネル・システム設定・運用</span>
           </div>
           <span class="badge-auth badge-admin">要管理者権限</span>
         </div>
@@ -935,12 +1028,12 @@
         </ul>
       </section>
 
-      <!-- 第14章: 権限一覧 -->
+      <!-- 第15章: 権限一覧 -->
       <section id="sec-roles" class="doc-section">
         <div class="section-header">
           <div class="section-title">
             <span class="section-icon">🔒</span>
-            <span>第14章: 権限マトリクス一覧</span>
+            <span>第15章: 権限マトリクス一覧</span>
           </div>
           <span class="badge-auth badge-free">仕様確認</span>
         </div>
@@ -986,6 +1079,12 @@
               <td>◯</td>
             </tr>
             <tr>
+              <td>プロジェクト管理（個人／共有ボード・マイタスク）</td>
+              <td>◯</td>
+              <td>◯</td>
+              <td>◯</td>
+            </tr>
+            <tr>
               <td>社内文書管理の閲覧・DL・登録</td>
               <td>◯</td>
               <td>◯</td>
@@ -1019,12 +1118,12 @@
         </table>
       </section>
 
-      <!-- 第15章: よくある質問・FAQ -->
+      <!-- 第16章: よくある質問・FAQ -->
       <section id="sec-faq" class="doc-section">
         <div class="section-header">
           <div class="section-title">
             <span class="section-icon">❓</span>
-            <span>第15章: よくある質問・FAQ・トラブルシューティング</span>
+            <span>第16章: よくある質問・FAQ・トラブルシューティング</span>
           </div>
           <span class="badge-auth badge-free">解決ガイド</span>
         </div>

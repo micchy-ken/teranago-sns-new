@@ -4,10 +4,10 @@
  * その日の何番目のバージョンかを示すデイリー番号 (#1, #2, ...) を更新してください。
  */
 export const APP_VERSION = {
-  version: '2026.11.17.8',
+  version: '2026.11.17.9',
   date: '2026-11-17',
-  releaseNumber: 8,
+  releaseNumber: 9,
   timeZone: 'Asia/Tokyo (JST)',
-  display: 'v2026.11.17 #8 (JST)',
-  description: 'getter-only 環境での window.fetch 上書き例外 (真っ白画面) 修正'
+  display: 'v2026.11.17 #9 (JST)',
+  description: '操作マニュアルにプロジェクト管理機能（第7章）を追記'
 } as const;
