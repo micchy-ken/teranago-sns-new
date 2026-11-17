@@ -1,7 +1,7 @@
 /**
  * routes/users.js (本番環境・MS SQL Server 連携 メンバー管理 & 認証モジュール)
  * 寺岡オートドアSNS ユーザー管理・所属・表示順・アバター・設定・サーバーサイド認証
- * 最終更新: 2026年11月11日 (マスターID主軸化 Step1: officeId / divisionId / positionId カラム自動マイグレーション＆後方互換ハイブリッド保存版)
+ * 最終更新: 2026年11月17日 (セキュリティ強化 Step1: トークン認証発行・失効、ログイン試行制限、IDOR・管理者権限サーバー検証版)
  */
 import { Router } from 'express';
 import path from 'path';
@@ -12,6 +12,15 @@ import sql from 'mssql';
 import { getPool } from '../db.js';
 import { encryptText, maskEmail } from './safety.js';
 import { uploadDir, dataDir } from '../config.js';
+import {
+  issueSessionToken,
+  revokeSessionToken,
+  extractTokenFromRequest,
+  checkLoginRateLimit,
+  recordLoginAttempt,
+  updateSessionsForUser,
+  revokeAllSessionsForUser
+} from './authSession.js';
 
 const router = Router();
 const userPrefsFile = path.join(dataDir, 'user_preferences.json');
@@ -90,6 +99,8 @@ function saveUsers(users) {
 const RESERVED_USER_IDS = new Set([
   'auth',
   'login',
+  'logout',
+  'guest-profile',
   'invite',
   'invitations',
   'reorder',
@@ -226,6 +237,15 @@ router.post(loginPaths, async (req, res) => {
       return res.status(400).json({ error: 'ユーザーIDとパスワードを入力してください。' });
     }
 
+    // ログイン試行制限チェック（アカウント＋IP単位: 5回連続失敗で15分ロック）
+    const rateLimit = checkLoginRateLimit(req, loginId);
+    if (rateLimit.blocked) {
+      return res.status(429).json({
+        error: rateLimit.message,
+        retryAfterSeconds: rateLimit.retryAfterSeconds
+      });
+    }
+
     const trimmedInput = String(loginId).trim().toLowerCase();
     const pool = await getPool();
 
@@ -300,13 +320,18 @@ router.post(loginPaths, async (req, res) => {
     });
 
     if (!matchedUser) {
+      recordLoginAttempt(req, loginId, false);
       return res.status(401).json({ error: 'ユーザーIDまたはパスワードが正しくありません。' });
     }
 
     const authResult = verifyPassword(String(password).trim(), matchedUser.password);
     if (!authResult.isValid) {
+      recordLoginAttempt(req, loginId, false);
       return res.status(401).json({ error: 'ユーザーIDまたはパスワードが正しくありません。' });
     }
+
+    // ログイン成功時は試行回数カウントをリセット
+    recordLoginAttempt(req, loginId, true);
 
     // 平文パスワードで一致した場合、またはログインIDが仮生成(user_xxxx)でメールプレフィックスで入った場合の自己修復
     const updates = [];
@@ -347,13 +372,85 @@ router.post(loginPaths, async (req, res) => {
       }
     }
 
+    // 暗号論的セッショントークンの発行 (crypto.randomBytes(32))
+    const { token, expiresAt } = issueSessionToken(matchedUser);
+
     res.json({
       success: true,
       message: 'ログインに成功しました。',
+      token,
+      expiresAt,
       user: sanitizeUserForResponse(matchedUser)
     });
   } catch (err) {
     console.error('[Auth] Login error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// =============================================================
+// 0-B. ログアウト API (POST /auth/logout & /logout)
+// =============================================================
+const logoutPaths = [
+  '/auth/logout',
+  '/auth/logout/',
+  '/api/auth/logout',
+  '/api/auth/logout/',
+  '/logout',
+  '/logout/',
+  '/api/logout',
+  '/api/logout/'
+];
+
+router.post(logoutPaths, (req, res) => {
+  try {
+    const rawToken = extractTokenFromRequest(req);
+    if (rawToken) {
+      revokeSessionToken(rawToken);
+    }
+    res.json({ success: true, message: 'ログアウトしました。' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// =============================================================
+// 0-C. 緊急安否確認ワンタップ回答用 最小限プロフィール取得 API
+// (未ログイン状態でも個人メールや電話番号・権限を一切含めず氏名と所属のみ返却)
+// =============================================================
+router.get(['/users/guest-profile/:id', '/api/users/guest-profile/:id'], async (req, res) => {
+  try {
+    const targetId = String(req.params.id || '').trim();
+    if (!targetId) {
+      return res.status(400).json({ error: 'ユーザーIDが指定されていません。' });
+    }
+    const pool = await getPool();
+    if (pool) {
+      const result = await pool.request()
+        .input('id', sql.VarChar, targetId)
+        .query('SELECT id, name, office, division, department FROM dbo.Users WHERE id = @id');
+      if (result.recordset && result.recordset.length > 0) {
+        const u = result.recordset[0];
+        return res.json({
+          id: String(u.id),
+          name: u.name || '',
+          office: u.office || '',
+          division: u.division || u.department || ''
+        });
+      }
+    }
+    const fileUsers = loadUsers();
+    const found = fileUsers.find(u => String(u.id) === targetId);
+    if (found) {
+      return res.json({
+        id: String(found.id),
+        name: found.name || '',
+        office: found.office || '',
+        division: found.division || found.department || ''
+      });
+    }
+    return res.status(404).json({ error: '対象ユーザーが見つかりません。' });
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
@@ -371,6 +468,9 @@ const reorderPaths = [
 
 async function reorderUsersHandler(req, res) {
   try {
+    if (req.authUser && !req.authUser.isAdmin) {
+      return res.status(403).json({ error: 'ユーザーの並び順変更には管理者権限が必要です。' });
+    }
     const body = req.body || {};
     const orders = Array.isArray(body) 
       ? body 
@@ -562,6 +662,18 @@ async function saveOrUpdateUser(req, res, targetUserId = null, next = null) {
     if (rawId && isReservedUserId(rawId)) {
       if (typeof next === 'function') return next();
       return res.status(400).json({ error: '不正なユーザーIDです' });
+    }
+
+    // IDOR防止・管理者権限チェック（一般ユーザーは自分のID以外の更新や新規ユーザー追加不可）
+    if (req.authUser && !req.authUser.isAdmin) {
+      if (!rawId || String(rawId) !== String(req.authUser.id)) {
+        return res.status(403).json({ error: '他のユーザー情報の更新または新規ユーザー作成には管理者権限が必要です。' });
+      }
+      if (req.body && typeof req.body === 'object') {
+        delete req.body.isAdmin;
+        delete req.body.role;
+        delete req.body.roles;
+      }
     }
 
     const u = req.body || {};
@@ -767,6 +879,7 @@ async function saveOrUpdateUser(req, res, targetUserId = null, next = null) {
         fileUsers.push(savedUserObj);
       }
       saveUsers(fileUsers);
+      updateSessionsForUser(savedUserObj);
     } catch (_) {}
 
     res.json({
@@ -808,6 +921,9 @@ const preferencesPaths = [
 async function updatePreferencesHandler(req, res) {
   try {
     const userId = String(req.params.id);
+    if (req.authUser && !req.authUser.isAdmin && userId !== String(req.authUser.id)) {
+      return res.status(403).json({ error: '他のユーザーの個人設定を変更することはできません。' });
+    }
     const body = req.body || {};
     const pool = await getPool();
     const cols = await getUserTableColumns(pool);
@@ -873,6 +989,9 @@ router.post(preferencesPaths, updatePreferencesHandler);
 // =============================================================
 router.delete(['/users/:id', '/api/users/:id', '/:id'], async (req, res) => {
   try {
+    if (req.authUser && !req.authUser.isAdmin) {
+      return res.status(403).json({ error: 'ユーザーの削除には管理者権限が必要です。' });
+    }
     const userId = String(req.params.id);
 
     const pool = await getPool();
@@ -890,6 +1009,7 @@ router.delete(['/users/:id', '/api/users/:id', '/:id'], async (req, res) => {
     const users = loadUsers();
     const filteredUsers = users.filter(u => String(u.id) !== userId && String(u.loginId) !== userId);
     saveUsers(filteredUsers);
+    revokeAllSessionsForUser(userId);
 
     // user_preferences.json からも削除
     const allPrefs = loadAllUserPrefs();
@@ -912,6 +1032,9 @@ router.delete(['/users/:id', '/api/users/:id', '/:id'], async (req, res) => {
 router.post(['/users/:id/personal-email', '/api/users/:id/personal-email'], async (req, res) => {
   try {
     const userId = req.params.id;
+    if (req.authUser && !req.authUser.isAdmin && String(userId) !== String(req.authUser.id)) {
+      return res.status(403).json({ error: '他のユーザーの個人メールアドレスを変更することはできません。' });
+    }
     const { personalEmail } = req.body || {};
     const emailTrimmed = personalEmail ? String(personalEmail).trim() : '';
 

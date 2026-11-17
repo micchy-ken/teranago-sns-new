@@ -17,7 +17,7 @@ import {
   Check,
   Building2
 } from 'lucide-react';
-import { API_BASE_URL } from '../config/api';
+import { API_BASE_URL, getAuthToken } from '../config/api';
 import { User } from '../types';
 import { markSafetyEventAsResponded } from '../utils/notifications';
 
@@ -55,19 +55,36 @@ export const GuestSafetyResponse: React.FC<GuestSafetyResponseProps> = ({
   const [submittedData, setSubmittedData] = useState<any>(null);
   const [isLocating, setIsLocating] = useState(false);
 
-  // 1. ユーザー一覧の取得（未設定時の選択用およびユーザー特定用）
+  // 1. ユーザー情報の取得（ログイン中は一覧取得、未ログイン直通URL時は対象ユーザーの最小限プロフィールのみ取得）
   useEffect(() => {
-    if (userList.length === 0) {
+    if (userList.length === 0 && getAuthToken()) {
       fetch(`${API_BASE_URL}/users`)
-        .then(res => res.json())
+        .then(res => (res.ok ? res.json() : null))
         .then(data => {
           if (Array.isArray(data)) {
             setUserList(data);
           }
         })
         .catch(err => console.warn('Failed to load users in guest mode:', err));
+    } else if (selectedUserId && !user) {
+      fetch(`${API_BASE_URL}/users/guest-profile/${encodeURIComponent(selectedUserId)}`)
+        .then(res => (res.ok ? res.json() : null))
+        .then(data => {
+          if (data && data.id) {
+            setUser({
+              id: String(data.id),
+              name: data.name || '社員',
+              office: data.office || '',
+              division: data.division || '',
+              department: data.division || '',
+              role: 'user',
+              avatarUrl: ''
+            });
+          }
+        })
+        .catch(() => {});
     }
-  }, [userList.length]);
+  }, [userList.length, selectedUserId, user]);
 
   // 2. ユーザー特定
   useEffect(() => {

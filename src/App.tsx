@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense } from 'react';
-import { API_BASE_URL } from './config/api';
+import { API_BASE_URL, getAuthToken, setAuthToken, clearAuthToken } from './config/api';
 import { APP_VERSION } from './config/version';
 import { getAvatarUrl, sanitizeAvatarUrlForSave } from './utils/avatar';
 import { ensureJstIsoString } from './utils/dateUtils';
@@ -540,13 +540,38 @@ export default function App() {
   };
 
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    return localStorage.getItem('is_logged_in') === 'true';
+    const wasLoggedIn = localStorage.getItem('is_logged_in') === 'true';
+    const hasToken = Boolean(getAuthToken());
+    if (wasLoggedIn && !hasToken) {
+      localStorage.removeItem('is_logged_in');
+      try {
+        sessionStorage.setItem(
+          'auth_relogin_notice',
+          'セキュリティ強化アップデートのため、再度ログインしてください。'
+        );
+      } catch {}
+      return false;
+    }
+    return wasLoggedIn && hasToken;
   });
 
   // URLの招待/パスワード再設定トークン優先表示フラグ（ログイン中ユーザーでもURLトークンがあれば設定画面を最優先表示）
   const [showAuthScreen, setShowAuthScreen] = useState<boolean>(() => {
-    return !localStorage.getItem('is_logged_in') || !!(initialUrlParams.resetToken || initialUrlParams.inviteToken || initialUrlParams.authMode === 'reset-password' || initialUrlParams.authMode === 'invite');
+    const validLogin = localStorage.getItem('is_logged_in') === 'true' && Boolean(getAuthToken());
+    return !validLogin || !!(initialUrlParams.resetToken || initialUrlParams.inviteToken || initialUrlParams.authMode === 'reset-password' || initialUrlParams.authMode === 'invite');
   });
+
+  // サーバー側トークン失効・401検知時の自動ログアウト制御
+  useEffect(() => {
+    const handleSessionExpired = () => {
+      clearAuthToken();
+      localStorage.removeItem('is_logged_in');
+      setIsAuthenticated(false);
+      setShowAuthScreen(true);
+    };
+    window.addEventListener('auth_session_expired', handleSessionExpired);
+    return () => window.removeEventListener('auth_session_expired', handleSessionExpired);
+  }, []);
 
   const [userState, setUserState] = useState<User>(() => {
     const cachedUserData = localStorage.getItem('logged_in_user_data');
@@ -592,9 +617,16 @@ export default function App() {
     }
   }, [userState, isAuthenticated]);
 
-  const handleLogin = (user: User) => {
+  const handleLogin = (user: User, token?: string) => {
+    if (token) {
+      setAuthToken(token);
+    }
+    try {
+      sessionStorage.removeItem('auth_relogin_notice');
+    } catch {}
     setUserState(user);
     setIsAuthenticated(true);
+    setShowAuthScreen(false);
     localStorage.setItem('is_logged_in', 'true');
     localStorage.setItem('logged_in_user_id', user.id);
     localStorage.setItem('logged_in_user_data', JSON.stringify(user));
@@ -606,7 +638,15 @@ export default function App() {
 
   const handleLogout = () => {
     logActivity('logout', 'ログアウトしました', userState);
+    if (getAuthToken()) {
+      fetch(`${API_BASE_URL}/auth/logout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      }).catch(() => {});
+    }
+    clearAuthToken();
     setIsAuthenticated(false);
+    setShowAuthScreen(true);
     localStorage.removeItem('is_logged_in');
     localStorage.removeItem('logged_in_user_id');
     localStorage.removeItem('logged_in_user_data');
@@ -863,6 +903,7 @@ export default function App() {
   });
 
   const refetchUsers = async () => {
+    if (!getAuthToken()) return usersList;
     try {
       const response = await fetchWithRetry(`${API_BASE_URL}/users`, {
         headers: {
@@ -1947,12 +1988,12 @@ export default function App() {
     // アプリ起動後、アイドル時にファイルプレビュー用ライブラリ（PDF/Excel/Word）を裏で先読み
     schedulePreviewPrefetch(3000);
 
-    // Load latest users from API on mount, then refetch other data if authenticated
-    refetchUsers().then((latestUsers) => {
-      if (isAuthenticated) {
+    // 認証トークン保持時のみユーザー一覧および各機能データを取得
+    if (isAuthenticated && getAuthToken()) {
+      refetchUsers().then((latestUsers) => {
         refetchAll(latestUsers);
-      }
-    });
+      });
+    }
   }, [isAuthenticated]);
 
   useEffect(() => {

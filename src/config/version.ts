@@ -7,11 +7,12 @@
  * - 機能追加・バグ修正・仕様変更のたびに必ず更新すること
  */
 export const APP_VERSION = {
-  version: '2026.11.17.3',
+  version: '2026.11.17.4',
   date: '2026.11.17',
-  releaseNumber: 3,
-  display: 'v2026.11.17 #3 (JST)',
+  releaseNumber: 4,
+  display: 'v2026.11.17 #4 (JST)',
   timeZone: 'Asia/Tokyo (JST)',
-  description: '「プロジェクト」タブ フェーズ2完了（マイページ サマリー＆マイタスクウィジェット・アサイン/コメント時のWeb Push＆メール通知連携・伝言メモ/チャットからのワンクリックタスク化）'
+  description: 'セキュリティ強化 ステップ1（全APIセッショントークン認証・IDOR防止・管理者権限サーバー検証・ログイン試行制限）'
 };
+
 

@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { API_BASE_URL } from '../config/api';
+import { API_BASE_URL, getAuthToken } from '../config/api';
 import { OfficeMaster, DivisionMaster, PositionMaster, ItemMaster, ApprovalFlowRule } from '../types';
 
 export interface UseMasterManagementOptions {
@@ -59,6 +59,7 @@ export function useMasterManagement(
   };
 
   const refetchMasters = useCallback(async () => {
+    if (!getAuthToken()) return;
     if (isFetchingRef.current) return;
     isFetchingRef.current = true;
 

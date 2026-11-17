@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { User, OfficeMaster, DivisionMaster, PositionMaster } from '../types';
-import { API_BASE_URL } from '../config/api';
+import { API_BASE_URL, getAuthToken, setAuthToken } from '../config/api';
 import { 
   Lock, 
   User as UserIcon, 
@@ -68,7 +68,7 @@ interface LoginScreenProps {
   initialInviteToken?: string;
   initialResetToken?: string;
   isAlreadyLoggedIn?: boolean;
-  onLogin: (user: User) => void;
+  onLogin: (user: User, token?: string) => void;
   onUserRegistered?: (user: User) => void;
   onCancelReset?: () => void;
   onRefetchUsers?: () => Promise<User[] | void>;
@@ -90,14 +90,14 @@ export function LoginScreen({
 }: LoginScreenProps) {
   const [authMode, setAuthMode] = useState<'login' | 'invite' | 'reset-password'>(initialAuthMode);
 
-  // ログイン画面表示時にサーバーから最新のユーザーリストを自動フェッチ
+  // ログイン済みトークンがある場合のみ最新ユーザーリストを取得
   useEffect(() => {
-    if (onRefetchUsers) {
+    if (onRefetchUsers && getAuthToken()) {
       onRefetchUsers();
     }
   }, [onRefetchUsers]);
   
-  // マスタデータ（プロップスまたはデフォルト、マスタAPI直接取得で補完）
+  // マスタデータ（プロップスまたはデフォルト、認証済み時はマスタAPI直接取得で補完）
   const [masterOffices, setMasterOffices] = useState<OfficeMaster[]>(offices.length > 0 ? offices : DEFAULT_OFFICES);
   const [masterDivisions, setMasterDivisions] = useState<DivisionMaster[]>(divisions.length > 0 ? divisions : DEFAULT_DIVISIONS);
   const [masterPositions, setMasterPositions] = useState<PositionMaster[]>(positions.length > 0 ? positions : DEFAULT_POSITIONS);
@@ -115,6 +115,7 @@ export function LoginScreen({
   }, [positions]);
 
   useEffect(() => {
+    if (!getAuthToken()) return;
     if (offices.length > 0 && divisions.length > 0 && positions.length > 0) return;
     const fetchMasters = async () => {
       try {
@@ -145,7 +146,16 @@ export function LoginScreen({
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(() => {
+    try {
+      const notice = sessionStorage.getItem('auth_relogin_notice');
+      if (notice) {
+        sessionStorage.removeItem('auth_relogin_notice');
+        return notice;
+      }
+    } catch {}
+    return null;
+  });
   const [loading, setLoading] = useState(false);
 
   // 初回ログイン・強制パスワード変更モーダル用
@@ -298,6 +308,10 @@ export function LoginScreen({
         throw new Error(data.error || 'ユーザーIDまたはパスワードが正しくありません。');
       }
 
+      if (data.token) {
+        setAuthToken(data.token);
+      }
+
       const authenticatedUser: User = data.user;
 
       // パスワード強制変更が必要なユーザーかチェック
@@ -308,7 +322,7 @@ export function LoginScreen({
         setForceError(null);
         return;
       }
-      onLogin(authenticatedUser);
+      onLogin(authenticatedUser, data.token);
     } catch (err: any) {
       setError(err.message || 'ユーザーIDまたはパスワードが正しくありません。');
     } finally {
@@ -431,7 +445,32 @@ export function LoginScreen({
       if (onUserRegistered) {
         onUserRegistered(newUser);
       }
-      onLogin(newUser);
+
+      // 招待登録完了後、直ちにセッショントークンを取得してログイン状態を確立
+      let issuedToken: string | undefined = data.token;
+      if (!issuedToken) {
+        try {
+          const loginRes = await fetch(`${API_BASE_URL}/auth/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              loginId: inviteForm.loginId.trim(),
+              password: inviteForm.password
+            })
+          });
+          if (loginRes.ok) {
+            const loginData = await loginRes.json();
+            if (loginData?.token) {
+              issuedToken = loginData.token;
+            }
+          }
+        } catch (_) {}
+      }
+      if (issuedToken) {
+        setAuthToken(issuedToken);
+      }
+
+      onLogin(newUser, issuedToken);
     } catch (err: any) {
       setError(err.message || 'アカウント登録処理中にエラーが発生しました。');
     } finally {
@@ -520,8 +559,32 @@ export function LoginScreen({
         localStorage.removeItem('impersonator_admin_user');
       } catch (_) {}
 
+      // パスワード再設定完了後、直ちにセッショントークンを取得
+      let issuedToken: string | undefined = data?.token;
+      if (!issuedToken) {
+        try {
+          const loginRes = await fetch(`${API_BASE_URL}/auth/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              loginId: resolvedUser.loginId || resolvedUser.email || resolvedUser.id,
+              password: resetNewPassword
+            })
+          });
+          if (loginRes.ok) {
+            const loginData = await loginRes.json();
+            if (loginData?.token) {
+              issuedToken = loginData.token;
+            }
+          }
+        } catch (_) {}
+      }
+      if (issuedToken) {
+        setAuthToken(issuedToken);
+      }
+
       // ユーザー一覧の再取得は非同期（バックグラウンド）で行う
-      if (onRefetchUsers) {
+      if (onRefetchUsers && getAuthToken()) {
         onRefetchUsers().catch(err => console.warn('User refetch warning:', err));
       }
 
@@ -529,7 +592,7 @@ export function LoginScreen({
 
       // ログイン画面へ戻さず、そのまま直接メイン画面へログイン遷移
       setTimeout(() => {
-        onLogin(resolvedUser);
+        onLogin(resolvedUser, issuedToken);
       }, 600);
     } catch (err: any) {
       setError(err.message || 'パスワード再設定中にエラーが発生しました。');

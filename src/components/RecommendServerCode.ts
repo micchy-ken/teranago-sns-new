@@ -1,7 +1,7 @@
 export const RECOMMEND_SERVER_JS = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年11月17日 (プロジェクト・Todo・資料メモボード API /routes/projects.js 追加・全機能対応版)
+ * 最終更新日時 (最終アップデート): 2026年11月17日 (セキュリティ強化 Step1: routes/authSession.js セッショントークン認証・IDOR防止・ログイン試行制限対応版)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -43,6 +43,16 @@ import safetyRouter from './routes/safety.js';
 import chatQuizzesRouter from './routes/chatQuizzes.js';
 import assetsRouter from './routes/assets.js';
 import projectsRouter from './routes/projects.js';
+import {
+  requireApiAuth,
+  issueSessionToken,
+  revokeSessionToken,
+  extractTokenFromRequest,
+  checkLoginRateLimit,
+  recordLoginAttempt,
+  updateSessionsForUser,
+  revokeAllSessionsForUser
+} from './routes/authSession.js';
 
 // サーバークラッシュ防止（非同期未処理例外・Promise拒否でプロセスが落ちるのを完全防止）
 process.on('uncaughtException', (err) => {
@@ -166,6 +176,9 @@ async function startServer() {
   // リクエストボディ上限設定 (DoS攻撃対策: 10MB)
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+  // 4. 全 /api/* エンドポイントに対する Bearer セッショントークン認証・IDOR防止ミドルウェア
+  app.use('/api', requireApiAuth);
 
   const dataDir = path.join(process.cwd(), 'data');
   if (!fs.existsSync(dataDir)) {
@@ -2536,7 +2549,7 @@ async function startServer() {
     };
   }
 
-  // サーバーサイドログイン認証 API
+  // サーバーサイドログイン認証 API（試行制限＋暗号論的セッショントークン発行）
   app.post(['/api/auth/login', '/api/auth/login/', '/api/login', '/api/login/'], (req, res) => {
     try {
       const { loginId, password } = req.body || {};
@@ -2544,15 +2557,38 @@ async function startServer() {
         return res.status(400).json({ error: 'ユーザーIDとパスワードを入力してください。' });
       }
 
+      // ログイン試行制限チェック（アカウント＋IP単位: 5回連続失敗で15分ロック）
+      const rateLimit = checkLoginRateLimit(req, loginId);
+      if (rateLimit.blocked) {
+        return res.status(429).json({
+          error: rateLimit.message,
+          retryAfterSeconds: rateLimit.retryAfterSeconds
+        });
+      }
+
       const trimmedId = String(loginId).trim().toLowerCase();
       const users = loadUsers();
-      const matchedIndex = users.findIndex((u: any) =>
-        (u.loginId && String(u.loginId).toLowerCase() === trimmedId) ||
-        (u.email && String(u.email).toLowerCase() === trimmedId) ||
-        (u.id && String(u.id).toLowerCase() === trimmedId)
-      );
+      const matchedIndex = users.findIndex((u: any) => {
+        const uLoginId = (u.loginId || '').trim().toLowerCase();
+        const uEmail = (u.email || '').trim().toLowerCase();
+        const uEmailPrefix = uEmail.includes('@') ? uEmail.split('@')[0] : '';
+        const uMobile = (u.mobileEmail || '').trim().toLowerCase();
+        const uMobilePrefix = uMobile.includes('@') ? uMobile.split('@')[0] : '';
+        const uId = String(u.id || '').trim().toLowerCase();
+        const uName = String(u.name || '').trim().toLowerCase();
+        return (
+          (uLoginId && uLoginId === trimmedId) ||
+          (uEmail && uEmail === trimmedId) ||
+          (uEmailPrefix && uEmailPrefix === trimmedId) ||
+          (uMobile && uMobile === trimmedId) ||
+          (uMobilePrefix && uMobilePrefix === trimmedId) ||
+          (uId && uId === trimmedId) ||
+          (uName && uName === trimmedId)
+        );
+      });
 
       if (matchedIndex === -1) {
+        recordLoginAttempt(req, loginId, false);
         return res.status(401).json({ error: 'ユーザーIDまたはパスワードが正しくありません。' });
       }
 
@@ -2560,8 +2596,11 @@ async function startServer() {
       const authResult = verifyPassword(String(password).trim(), user.password);
 
       if (!authResult.isValid) {
+        recordLoginAttempt(req, loginId, false);
         return res.status(401).json({ error: 'ユーザーIDまたはパスワードが正しくありません。' });
       }
+
+      recordLoginAttempt(req, loginId, true);
 
       // 平文マッチの場合は即座にハッシュ値へアップグレード更新
       if (authResult.needsRehash) {
@@ -2570,14 +2609,31 @@ async function startServer() {
         saveUsers(users);
       }
 
+      const { token, expiresAt } = issueSessionToken(user);
+
       res.json({
         success: true,
         message: 'ログインに成功しました。',
+        token,
+        expiresAt,
         user: sanitizeUserForResponse(user)
       });
     } catch (err: any) {
       console.error('[Auth] Login error:', err);
       res.status(500).json({ error: 'ログイン処理中にエラーが発生しました。' });
+    }
+  });
+
+  // ログアウト API（サーバー側セッショントークン破棄）
+  app.post(['/api/auth/logout', '/api/auth/logout/', '/api/logout', '/api/logout/'], (req, res) => {
+    try {
+      const rawToken = extractTokenFromRequest(req);
+      if (rawToken) {
+        revokeSessionToken(rawToken);
+      }
+      res.json({ success: true, message: 'ログアウトしました。' });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
   });
 
@@ -2778,6 +2834,24 @@ async function startServer() {
   app.put(['/api/users/reorder', '/api/users/reorder/'], handleUsersReorder);
   app.post(['/api/users/reorder', '/api/users/reorder/'], handleUsersReorder);
 
+  // 緊急安否確認ワンタップ回答用 最小限プロフィール取得 API (氏名・所属のみ)
+  app.get(['/api/users/guest-profile/:id', '/api/users/guest-profile/:id/'], (req, res) => {
+    try {
+      const targetId = String(req.params.id || '').trim();
+      const users = loadUsers();
+      const user = users.find((u: any) => String(u.id) === targetId);
+      if (!user) return res.status(404).json({ error: '対象ユーザーが見つかりません' });
+      res.json({
+        id: String(user.id),
+        name: user.name || '',
+        office: user.office || '',
+        division: user.division || user.department || ''
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // 単一ユーザー取得 API (平文パスワード非開示)
   app.get('/api/users/:id', (req, res) => {
     try {
@@ -2814,6 +2888,7 @@ async function startServer() {
       }
       saveUsers(users);
       const savedUser = users[idx >= 0 ? idx : users.length - 1];
+      updateSessionsForUser(savedUser);
       res.json({ success: true, user: sanitizeUserForResponse(savedUser) });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -2841,6 +2916,7 @@ async function startServer() {
       }
       saveUsers(users);
       const savedUser = users[idx >= 0 ? idx : users.length - 1];
+      updateSessionsForUser(savedUser);
       res.json({ success: true, user: sanitizeUserForResponse(savedUser) });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -2853,6 +2929,7 @@ async function startServer() {
       const users = loadUsers();
       const filtered = users.filter((u: any) => String(u.id) !== userId && String(u.loginId) !== userId);
       saveUsers(filtered);
+      revokeAllSessionsForUser(userId);
       res.json({ success: true, message: 'ユーザーを削除しました', deletedId: userId });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
