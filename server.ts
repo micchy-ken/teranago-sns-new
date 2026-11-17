@@ -21,6 +21,7 @@ import eventsRouter from './routes/events.js';
 import safetyRouter from './routes/safety.js';
 import chatQuizzesRouter from './routes/chatQuizzes.js';
 import assetsRouter from './routes/assets.js';
+import projectsRouter from './routes/projects.js';
 
 // サーバークラッシュ防止（非同期未処理例外・Promise拒否でプロセスが落ちるのを完全防止）
 process.on('uncaughtException', (err) => {
@@ -812,6 +813,9 @@ async function startServer() {
 
   // 資産管理・動的スキーマ・点検/入替アラート・履歴APIルーター（/api 汎用ルーターより先にマウント）
   app.use(['/api/assets', '/api/asset-management'], assetsRouter);
+
+  // プロジェクト・Todo・資料メモボードAPIルーター（/api 汎用ルーターより先にマウント）
+  app.use(['/api/projects', '/api/project-boards', '/api/tasks'], projectsRouter);
 
   // 文書管理・フォルダ機能APIルーター
   const documentsFilesDir = path.join(uploadsDir, 'documents');

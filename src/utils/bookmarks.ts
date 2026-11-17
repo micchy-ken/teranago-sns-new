@@ -49,6 +49,10 @@ export function buildBookmarkId(category: UserBookmarkCategory, params: AppQuery
   if (params.reportId) return `daily_report:${params.reportId}`;
   if (params.safetyEventId) return `safety:${params.safetyEventId}`;
   if (params.assetId) return `assets:item:${params.assetId}`;
+  if (params.taskId) return `projects:card:${params.projectId || 'all'}:${params.taskId}`;
+  if (params.tab === 'projects') {
+    return `projects:board:${params.projectId || 'home'}:${params.projectView || 'kanban'}`;
+  }
   if (params.tab === 'assets') {
     return [
       'assets:view',
@@ -219,6 +223,8 @@ export function getBookmarkCategoryLabel(category: UserBookmarkCategory): string
       return '現場管理';
     case 'assets':
       return '資産管理';
+    case 'projects':
+      return 'プロジェクト';
     default:
       return 'その他';
   }

@@ -71,6 +71,7 @@ export type UserBookmarkCategory =
   | 'daily_report'
   | 'site'
   | 'assets'
+  | 'projects'
   | 'other';
 
 export interface UserBookmarkItem {
@@ -980,4 +981,5 @@ export * from './photoReport';
 export * from './site';
 export * from './chatQuiz';
 export * from './asset';
+export * from './project';
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Search, Bell, Menu, Phone, FileText, Monitor, Calendar as CalendarIcon, MessageSquare, CheckCheck, ChevronRight, X, Smartphone, Users, MessageCircle, Palette, Check, Pin, ShieldAlert, Type, Undo2, Minimize2, Bookmark, Trash2, Share2, ExternalLink, Layers } from 'lucide-react';
+import { Search, Bell, Menu, Phone, FileText, Monitor, Calendar as CalendarIcon, MessageSquare, CheckCheck, ChevronRight, X, Smartphone, Users, MessageCircle, Palette, Check, Pin, ShieldAlert, Type, Undo2, Minimize2, Bookmark, Trash2, Share2, ExternalLink, Layers, FolderKanban } from 'lucide-react';
 import { User, Memo, WorkflowApplication, BoardTopic, CalendarEvent, ChatRoom, Post, DailyReport, SafetyConfirmationEvent, SafetyConfirmationResponse, UserBookmarkCategory, UserBookmarkItem } from '../types';
 import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
 import { AppTab } from './Sidebar';
@@ -102,6 +102,9 @@ interface HeaderProps {
     assetQ?: string;
     assetShowRetired?: boolean;
     assetSort?: string;
+    projectId?: string;
+    taskId?: string;
+    projectView?: 'kanban' | 'list' | 'mytasks';
   }) => void;
   onUpdateMemos?: (memos: Memo[]) => void;
   onUpdateTopic?: (topic: BoardTopic) => void;
@@ -705,6 +708,9 @@ export function Header({
         assetQ: item.params.assetQ,
         assetShowRetired: item.params.assetShowRetired,
         assetSort: item.params.assetSort,
+        projectId: item.params.projectId,
+        taskId: item.params.taskId,
+        projectView: item.params.projectView,
       });
     } else if (onSelectTab && item.params.tab) {
       onSelectTab(item.params.tab);
@@ -771,6 +777,8 @@ export function Header({
         return { icon: FileText, bg: 'bg-teal-50 text-teal-700 border-teal-200' };
       case 'assets':
         return { icon: Layers, bg: 'bg-sky-50 text-sky-700 border-sky-200' };
+      case 'projects':
+        return { icon: FolderKanban, bg: 'bg-indigo-50 text-indigo-700 border-indigo-200' };
       default:
         return { icon: Bookmark, bg: 'bg-slate-100 text-slate-700 border-slate-200' };
     }
@@ -1807,7 +1815,7 @@ export function Header({
                           <span>ピン留め ({pinnedBookmarkCount})</span>
                         </button>
                       )}
-                      {(['board', 'calendar', 'chat', 'workflow', 'memo', 'daily_report', 'assets'] as UserBookmarkCategory[]).map((cat) => {
+                      {(['board', 'calendar', 'chat', 'workflow', 'memo', 'projects', 'daily_report', 'assets'] as UserBookmarkCategory[]).map((cat) => {
                         const cnt = bookmarkCategoryCounts[cat] || 0;
                         if (cnt === 0) return null;
                         return (

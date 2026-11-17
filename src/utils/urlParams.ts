@@ -42,6 +42,10 @@ export interface AppQueryParams {
   assetQ?: string;
   assetShowRetired?: boolean;
   assetSort?: string;
+  // Projects / Todo Boards specific
+  projectId?: string;
+  taskId?: string;
+  projectView?: 'kanban' | 'list' | 'mytasks';
   // User Invitation & Password Reset
   inviteToken?: string;
   resetToken?: string;
@@ -65,6 +69,7 @@ export function normalizeTab(tabStr?: string | null): AppTab | undefined {
   if (['inspection_scheduler', 'inspection', 'scheduler', 'tenken', '点検'].includes(lower)) return 'inspection_scheduler';
   if (['site_management', 'sites', 'genba', 'site', '現場', '現場管理'].includes(lower)) return 'site_management';
   if (['assets', 'asset', 'shisan', 'vehicles', 'vehicle', 'pc', '資産', '資産管理', '車両'].includes(lower)) return 'assets';
+  if (['projects', 'project', 'tasks', 'task', 'todo', 'todos', 'プロジェクト', 'タスク', 'ボード'].includes(lower)) return 'projects';
   if (['files', 'file', 'nas', 'ファイル'].includes(lower)) return 'files';
   if (['mypage', 'my', 'profile', 'personal', 'マイページ', '個人設定'].includes(lower)) return 'mypage';
   if (['safety_confirmation', 'safety', 'anpi', 'anzen', '安否確認', '安否'].includes(lower)) return 'safety_confirmation';
@@ -250,6 +255,18 @@ export function parseAppQueryParams(searchString?: string): AppQueryParams {
     result.assetSort = rawAssetSort.trim();
   }
 
+  // 7.5 Projects / Todo Boards Specific
+  const rawProjectId = params.get('projectId') || params.get('project_id') || params.get('boardId') || (result.tab === 'projects' ? params.get('id') : undefined);
+  if (rawProjectId) result.projectId = decodeURIComponent(rawProjectId);
+
+  const rawTaskId = params.get('taskId') || params.get('task_id') || params.get('cardId');
+  if (rawTaskId) result.taskId = decodeURIComponent(rawTaskId);
+
+  const rawProjectView = (params.get('projectView') || params.get('project_view') || '').toLowerCase().trim();
+  if (rawProjectView === 'kanban' || rawProjectView === 'list' || rawProjectView === 'mytasks') {
+    result.projectView = rawProjectView;
+  }
+
   // 8. Safety Confirmation Specific
   const rawSafetyEventId = params.get('safetyEventId') || params.get('safety_event_id') || params.get('eventId') || (result.tab === 'safety_confirmation' ? params.get('id') : undefined);
   if (rawSafetyEventId) {
@@ -294,6 +311,12 @@ export function parseAppQueryParams(searchString?: string): AppQueryParams {
   if (rawAuthMode === 'invite') result.authMode = 'invite';
   if (rawAuthMode === 'reset-password' || rawAuthMode === 'reset' || rawAuthMode === 'password-reset') result.authMode = 'reset-password';
 
+  if (
+    !result.tab &&
+    (result.projectId || result.taskId || result.projectView)
+  ) {
+    result.tab = 'projects';
+  }
   if (
     !result.tab &&
     (result.assetId ||
@@ -520,6 +543,15 @@ export function buildAppUrl(params?: AppQueryParams, baseUrl?: string): string {
   }
   if (params.assetSort) {
     searchParams.set('assetSort', params.assetSort);
+  }
+  if (params.projectId) {
+    searchParams.set('projectId', params.projectId);
+  }
+  if (params.taskId) {
+    searchParams.set('taskId', params.taskId);
+  }
+  if (params.projectView && params.projectView !== 'kanban') {
+    searchParams.set('projectView', params.projectView);
   }
   if (params.openEmergencyContact) {
     searchParams.set('openEmergencyContact', 'true');

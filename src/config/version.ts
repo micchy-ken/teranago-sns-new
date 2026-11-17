@@ -7,11 +7,11 @@
  * - 機能追加・バグ修正・仕様変更のたびに必ず更新すること
  */
 export const APP_VERSION = {
-  version: '2026.11.16.6',
-  date: '2026.11.16',
-  releaseNumber: 6,
-  display: 'v2026.11.16 #6 (JST)',
+  version: '2026.11.17.1',
+  date: '2026.11.17',
+  releaseNumber: 1,
+  display: 'v2026.11.17 #1 (JST)',
   timeZone: 'Asia/Tokyo (JST)',
-  description: 'カレンダー共有・お気に入り保存時のマイグループ（groupId）対応、およびユーザー設定更新時に直前の遷移条件へ強制巻き戻りしていた不具合を修正'
+  description: '事務・営業・設計向け「プロジェクト」タブ新設（フェーズ1-①：全API一括実装＋マイボード/チームボード/カンバン/完了折り畳み/共有URL＆お気に入り対応）'
 };
 

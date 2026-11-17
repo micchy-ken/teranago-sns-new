@@ -27,6 +27,7 @@ const InspectionScheduler = lazyWithRetry(() => import('./components/InspectionS
 const InspectionReportTab = lazyWithRetry(() => import('./components/inspection/InspectionReportTab').then(m => ({ default: m.InspectionReportTab })));
 const SiteManagement = lazyWithRetry(() => import('./components/SiteManagement/SiteManagement').then(m => ({ default: m.SiteManagement })));
 const AssetManagement = lazyWithRetry(() => import('./components/AssetManagement/AssetManagement').then(m => ({ default: m.AssetManagement })));
+const ProjectManagement = lazyWithRetry(() => import('./components/ProjectManagement/ProjectManagement').then(m => ({ default: m.ProjectManagement })));
 const SafetyConfirmation = lazyWithRetry(() => import('./components/SafetyConfirmation').then(m => ({ default: m.SafetyConfirmation })));
 const GuestSafetyResponse = lazyWithRetry(() => import('./components/GuestSafetyResponse').then(m => ({ default: m.GuestSafetyResponse })));
 const MyPage = lazyWithRetry(() => import('./components/MyPage').then(m => ({ default: m.MyPage })));
@@ -239,6 +240,9 @@ export default function App() {
   const [targetEventId, setTargetEventId] = useState<string | undefined>(initialUrlParams.eventId);
   const [targetSiteId, setTargetSiteId] = useState<string | undefined>(undefined);
   const [targetAssetId, setTargetAssetId] = useState<string | undefined>(initialUrlParams.assetId);
+  const [targetProjectId, setTargetProjectId] = useState<string | undefined>(initialUrlParams.projectId);
+  const [targetTaskId, setTargetTaskId] = useState<string | undefined>(initialUrlParams.taskId);
+  const [projectViewParam, setProjectViewParam] = useState<'kanban' | 'list' | 'mytasks' | undefined>(initialUrlParams.projectView);
   const [assetParams, setAssetParams] = useState<{
     assetMode?: 'my' | 'catalog' | 'shared' | 'calendar';
     assetCategory?: string;
@@ -379,7 +383,19 @@ export default function App() {
     assetQ?: string;
     assetShowRetired?: boolean;
     assetSort?: string;
+    projectId?: string;
+    taskId?: string;
+    projectView?: 'kanban' | 'list' | 'mytasks';
   }) => {
+    // プロジェクト・Todo・資料メモボード
+    if (target.tab === 'projects' || target.projectId || target.taskId) {
+      setTargetProjectId(target.projectId);
+      setTargetTaskId(target.taskId);
+      setProjectViewParam(target.projectView);
+      setActiveTab('projects');
+      updateBrowserUrl();
+      return;
+    }
     // 資産管理（単体詳細・一覧条件ビュー）
     if (target.tab === 'assets' || target.assetId) {
       setAssetParams({
@@ -656,6 +672,9 @@ export default function App() {
       if (parsed.chatRoomId !== undefined) setTargetChatRoomId(parsed.chatRoomId);
       if (parsed.eventId !== undefined) setTargetEventId(parsed.eventId);
       if (parsed.assetId !== undefined) setTargetAssetId(parsed.assetId);
+      if (parsed.projectId !== undefined) setTargetProjectId(parsed.projectId);
+      if (parsed.taskId !== undefined) setTargetTaskId(parsed.taskId);
+      if (parsed.projectView !== undefined) setProjectViewParam(parsed.projectView);
       if (
         parsed.tab === 'assets' ||
         parsed.assetMode ||
@@ -3979,6 +3998,23 @@ export default function App() {
               initialAssetId={targetAssetId}
               initialAssetParams={assetParams}
               onClearInitialAssetId={() => setTargetAssetId(undefined)}
+              onUpdateUser={handleUpdateUser}
+            />
+          )}
+          {activeTab === 'projects' && (
+            <ProjectManagement
+              currentUser={userState}
+              allUsers={usersList}
+              offices={offices}
+              divisions={divisions}
+              initialProjectId={targetProjectId}
+              initialTaskId={targetTaskId}
+              initialProjectView={projectViewParam}
+              onClearInitialParams={() => {
+                setTargetProjectId(undefined);
+                setTargetTaskId(undefined);
+                setProjectViewParam(undefined);
+              }}
               onUpdateUser={handleUpdateUser}
             />
           )}
