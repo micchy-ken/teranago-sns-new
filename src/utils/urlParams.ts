@@ -36,6 +36,7 @@ export interface AppQueryParams {
   assetMode?: 'my' | 'catalog' | 'shared' | 'inspections' | 'calendar';
   assetCategory?: string;
   assetOffice?: string;
+  assetDivision?: string;
   assetAssignee?: string;
   assetLens?: 'all' | 'inspection_due' | 'last_inspection' | 'attachments' | 'lease_alert';
   assetAlert?: 'none' | 'all_alerts' | 'overdue' | 'inspection_1m' | 'replacement_6m';
@@ -232,6 +233,9 @@ export function parseAppQueryParams(searchString?: string): AppQueryParams {
   const rawAssetOffice = params.get('assetOffice') || params.get('asset_office') || (result.tab === 'assets' ? params.get('office') : undefined);
   if (rawAssetOffice) result.assetOffice = decodeURIComponent(rawAssetOffice);
 
+  const rawAssetDivision = params.get('assetDivision') || params.get('asset_division') || (result.tab === 'assets' ? params.get('division') : undefined);
+  if (rawAssetDivision) result.assetDivision = decodeURIComponent(rawAssetDivision);
+
   const rawAssetAssignee = params.get('assetAssignee') || params.get('asset_assignee') || (result.tab === 'assets' ? params.get('assignee') : undefined);
   if (rawAssetAssignee) result.assetAssignee = decodeURIComponent(rawAssetAssignee);
 
@@ -324,6 +328,7 @@ export function parseAppQueryParams(searchString?: string): AppQueryParams {
       result.assetMode ||
       result.assetCategory ||
       result.assetOffice ||
+      result.assetDivision ||
       result.assetAssignee ||
       result.assetLens ||
       result.assetAlert ||
@@ -524,8 +529,14 @@ export function buildAppUrl(params?: AppQueryParams, baseUrl?: string): string {
   if (params.assetCategory && params.assetCategory !== 'all') {
     searchParams.set('assetCategory', params.assetCategory);
   }
-  if (params.assetOffice && params.assetOffice !== 'all') {
+  if (
+    params.assetOffice &&
+    (params.assetOffice !== 'all' || params.assetMode === 'catalog' || params.assetMode === 'shared')
+  ) {
     searchParams.set('assetOffice', params.assetOffice);
+  }
+  if (params.assetDivision && params.assetDivision !== 'all') {
+    searchParams.set('assetDivision', params.assetDivision);
   }
   if (params.assetAssignee && params.assetAssignee !== 'all') {
     searchParams.set('assetAssignee', params.assetAssignee);

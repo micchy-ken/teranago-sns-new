@@ -59,6 +59,7 @@ export function buildBookmarkId(category: UserBookmarkCategory, params: AppQuery
       params.assetMode || 'my',
       params.assetCategory || 'all',
       params.assetOffice || 'all',
+      params.assetDivision || 'all',
       params.assetAssignee || 'all',
       params.assetLens || 'all',
       params.assetAlert || 'none',

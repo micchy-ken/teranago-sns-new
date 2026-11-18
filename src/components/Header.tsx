@@ -96,6 +96,7 @@ interface HeaderProps {
     assetMode?: 'my' | 'catalog' | 'shared' | 'inspections' | 'calendar';
     assetCategory?: string;
     assetOffice?: string;
+    assetDivision?: string;
     assetAssignee?: string;
     assetLens?: 'all' | 'inspection_due' | 'last_inspection' | 'attachments' | 'lease_alert';
     assetAlert?: 'none' | 'all_alerts' | 'overdue' | 'inspection_1m' | 'replacement_6m';
@@ -699,6 +700,7 @@ export function Header({
         assetMode: item.params.assetMode,
         assetCategory: item.params.assetCategory,
         assetOffice: item.params.assetOffice,
+        assetDivision: item.params.assetDivision,
         assetAssignee: item.params.assetAssignee,
         assetLens: item.params.assetLens,
         assetAlert: item.params.assetAlert,

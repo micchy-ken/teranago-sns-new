@@ -247,6 +247,7 @@ export default function App() {
     assetMode?: 'my' | 'catalog' | 'shared' | 'inspections' | 'calendar';
     assetCategory?: string;
     assetOffice?: string;
+    assetDivision?: string;
     assetAssignee?: string;
     assetLens?: 'all' | 'inspection_due' | 'last_inspection' | 'attachments' | 'lease_alert';
     assetAlert?: 'none' | 'all_alerts' | 'overdue' | 'inspection_1m' | 'replacement_6m';
@@ -259,6 +260,7 @@ export default function App() {
     assetMode: initialUrlParams.assetMode,
     assetCategory: initialUrlParams.assetCategory,
     assetOffice: initialUrlParams.assetOffice,
+    assetDivision: initialUrlParams.assetDivision,
     assetAssignee: initialUrlParams.assetAssignee,
     assetLens: initialUrlParams.assetLens,
     assetAlert: initialUrlParams.assetAlert,
@@ -377,6 +379,7 @@ export default function App() {
     assetMode?: 'my' | 'catalog' | 'shared' | 'inspections' | 'calendar';
     assetCategory?: string;
     assetOffice?: string;
+    assetDivision?: string;
     assetAssignee?: string;
     assetLens?: 'all' | 'inspection_due' | 'last_inspection' | 'attachments' | 'lease_alert';
     assetAlert?: 'none' | 'all_alerts' | 'overdue' | 'inspection_1m' | 'replacement_6m';
@@ -402,6 +405,7 @@ export default function App() {
         assetMode: target.assetMode,
         assetCategory: target.assetCategory,
         assetOffice: target.assetOffice,
+        assetDivision: target.assetDivision,
         assetAssignee: target.assetAssignee,
         assetLens: target.assetLens,
         assetAlert: target.assetAlert,
@@ -720,6 +724,7 @@ export default function App() {
         parsed.assetMode ||
         parsed.assetCategory ||
         parsed.assetOffice ||
+        parsed.assetDivision ||
         parsed.assetAssignee ||
         parsed.assetLens ||
         parsed.assetAlert ||
@@ -732,6 +737,7 @@ export default function App() {
           assetMode: parsed.assetMode,
           assetCategory: parsed.assetCategory,
           assetOffice: parsed.assetOffice,
+          assetDivision: parsed.assetDivision,
           assetAssignee: parsed.assetAssignee,
           assetLens: parsed.assetLens,
           assetAlert: parsed.assetAlert,

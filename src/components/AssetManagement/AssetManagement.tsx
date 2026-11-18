@@ -58,7 +58,15 @@ import {
   getJstTodayStr,
   getSelectChipStyle
 } from '../../utils/assets';
-import { isSameOffice, resolveOffice, resolveOfficeName } from '../../utils/masterResolver';
+import {
+  getUserOffice,
+  isSameDivision,
+  isSameOffice,
+  resolveDivision,
+  resolveDivisionName,
+  resolveOffice,
+  resolveOfficeName
+} from '../../utils/masterResolver';
 import { getAvatarUrl } from '../../utils/avatar';
 import { AssetDetailModal } from './AssetDetailModal';
 import { AssetCategoryEditorModal } from './AssetCategoryEditorModal';
@@ -75,6 +83,7 @@ export interface AssetInitialParams {
   assetMode?: 'my' | 'catalog' | 'shared' | 'inspections' | 'calendar';
   assetCategory?: string;
   assetOffice?: string;
+  assetDivision?: string;
   assetAssignee?: string;
   assetLens?: 'all' | 'inspection_due' | 'last_inspection' | 'attachments' | 'lease_alert';
   assetAlert?: 'none' | 'all_alerts' | 'overdue' | 'inspection_1m' | 'replacement_6m';
@@ -126,10 +135,29 @@ export function AssetManagement({
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string>('');
 
+  // Default office for catalog & shared views (user's own office)
+  const defaultUserOfficeId = useMemo(() => {
+    const resolved = getUserOffice(currentUser, offices);
+    if (resolved) return String(resolved.id);
+    if (offices.length === 0 && currentUser?.officeId) {
+      return String(currentUser.officeId);
+    }
+    return 'all';
+  }, [currentUser, offices]);
+
   // Navigation / Filter states
   const [mainMode, setMainMode] = useState<MainMode>('my');
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>('all');
-  const [selectedOfficeFilter, setSelectedOfficeFilter] = useState<string>('all');
+  const hasUserSelectedOfficeRef = useRef<boolean>(Boolean(initialAssetParams?.assetOffice));
+  const [selectedOfficeFilter, setSelectedOfficeFilter] = useState<string>(() => {
+    const resolved = getUserOffice(currentUser, offices);
+    if (resolved) return String(resolved.id);
+    if (offices.length === 0 && currentUser?.officeId) {
+      return String(currentUser.officeId);
+    }
+    return 'all';
+  });
+  const [selectedDivisionFilter, setSelectedDivisionFilter] = useState<string>('all');
   const [subLens, setSubLens] = useState<SubLens>('all');
   const [alertFilter, setAlertFilter] = useState<AlertFilterType>('none');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -162,6 +190,7 @@ export function AssetManagement({
         initialAssetParams?.assetMode ||
         initialAssetParams?.assetCategory ||
         initialAssetParams?.assetOffice ||
+        initialAssetParams?.assetDivision ||
         initialAssetParams?.assetAssignee ||
         initialAssetParams?.assetLens ||
         initialAssetParams?.assetAlert ||
@@ -303,7 +332,24 @@ export function AssetManagement({
     }
   }, [initialAssetParams, initialAssetId]);
 
-  // Apply URL / bookmark parameters (resolving category & office masters once loaded)
+  // Sync default office when offices master loads or user changes (unless manually overridden)
+  useEffect(() => {
+    if (pendingAssetParams || hasUserSelectedOfficeRef.current) return;
+    setSelectedOfficeFilter(defaultUserOfficeId);
+  }, [defaultUserOfficeId, pendingAssetParams]);
+
+  // Reset manual office override when logged-in user switches
+  const prevUserIdRef = useRef<string | number | undefined>(currentUser?.id);
+  useEffect(() => {
+    if (prevUserIdRef.current !== currentUser?.id) {
+      prevUserIdRef.current = currentUser?.id;
+      hasUserSelectedOfficeRef.current = false;
+      setSelectedOfficeFilter(defaultUserOfficeId);
+      setSelectedDivisionFilter('all');
+    }
+  }, [currentUser?.id, defaultUserOfficeId]);
+
+  // Apply URL / bookmark parameters (resolving category, office & division masters once loaded)
   useEffect(() => {
     if (!pendingAssetParams) return;
     const p = pendingAssetParams;
@@ -311,6 +357,7 @@ export function AssetManagement({
       p.assetMode ||
         p.assetCategory ||
         p.assetOffice ||
+        p.assetDivision ||
         p.assetAssignee ||
         p.assetLens ||
         p.assetAlert ||
@@ -339,6 +386,12 @@ export function AssetManagement({
     if (categories.length === 0 && (p.assetCategory || targetMode === 'catalog')) {
       return;
     }
+    if (p.assetOffice && p.assetOffice !== 'all' && offices.length === 0) {
+      return;
+    }
+    if (p.assetDivision && p.assetDivision !== 'all' && divisions.length === 0) {
+      return;
+    }
 
     if (p.assetCategory && p.assetCategory !== 'all') {
       const rawCat = p.assetCategory.trim();
@@ -354,16 +407,28 @@ export function AssetManagement({
       setSelectedCategoryId('all');
     }
 
-    if (p.assetOffice && p.assetOffice !== 'all') {
-      if (offices.length === 0) return;
-      const resolvedOff = resolveOffice(p.assetOffice, offices);
-      setSelectedOfficeFilter(resolvedOff ? String(resolvedOff.id) : p.assetOffice);
+    if (p.assetOffice) {
+      hasUserSelectedOfficeRef.current = true;
+      if (p.assetOffice === 'all') {
+        setSelectedOfficeFilter('all');
+      } else {
+        const resolvedOff = resolveOffice(p.assetOffice, offices);
+        setSelectedOfficeFilter(resolvedOff ? String(resolvedOff.id) : p.assetOffice);
+      }
     } else {
-      setSelectedOfficeFilter('all');
+      hasUserSelectedOfficeRef.current = false;
+      setSelectedOfficeFilter(defaultUserOfficeId);
+    }
+
+    if (p.assetDivision && p.assetDivision !== 'all') {
+      const resolvedDiv = resolveDivision(p.assetDivision, divisions);
+      setSelectedDivisionFilter(resolvedDiv ? String(resolvedDiv.id) : p.assetDivision);
+    } else {
+      setSelectedDivisionFilter('all');
     }
 
     setPendingAssetParams(null);
-  }, [pendingAssetParams, categories, offices, mainMode]);
+  }, [pendingAssetParams, categories, offices, divisions, mainMode, defaultUserOfficeId]);
 
   // Deep link handler (?tab=assets&assetId=...)
   useEffect(() => {
@@ -380,10 +445,15 @@ export function AssetManagement({
   // Switch to first category automatically when entering catalog mode with 'all' selected
   const handleChangeMainMode = (mode: MainMode) => {
     sharedSortOverrideRef.current = false;
+    if (mode !== mainMode) {
+      hasUserSelectedOfficeRef.current = false;
+      setSelectedOfficeFilter(defaultUserOfficeId);
+      setSelectedDivisionFilter('all');
+    }
     setMainMode(mode);
     setAlertFilter('none');
     if (mode !== 'catalog') {
-      setSelectedOfficeFilter('all');
+      setAssigneeFilter('all');
     } else if (assigneeFilter === '__shared__') {
       setAssigneeFilter('all');
     }
@@ -484,9 +554,16 @@ export function AssetManagement({
         return false;
       }
 
-      if (mainMode === 'catalog' && selectedOfficeFilter !== 'all') {
+      if ((mainMode === 'catalog' || mainMode === 'shared') && selectedOfficeFilter !== 'all') {
         const assetOffice = a.officeId || a.office || '';
         if (!isSameOffice(assetOffice, selectedOfficeFilter, offices)) {
+          return false;
+        }
+      }
+
+      if ((mainMode === 'catalog' || mainMode === 'shared') && selectedDivisionFilter !== 'all') {
+        const assetDivision = a.divisionId || a.division || '';
+        if (!isSameDivision(assetDivision, selectedDivisionFilter, divisions)) {
           return false;
         }
       }
@@ -696,7 +773,9 @@ export function AssetManagement({
     currentUser.id,
     selectedCategoryId,
     selectedOfficeFilter,
+    selectedDivisionFilter,
     offices,
+    divisions,
     assigneeFilter,
     alertFilter,
     subLens,
@@ -1687,8 +1766,11 @@ export function AssetManagement({
                   if (selectedCategoryId && selectedCategoryId !== 'all') {
                     shareParams.assetCategory = selectedCategoryId;
                   }
-                  if (mainMode === 'catalog' && selectedOfficeFilter !== 'all') {
+                  if (mainMode === 'catalog' || mainMode === 'shared') {
                     shareParams.assetOffice = selectedOfficeFilter;
+                    if (selectedDivisionFilter !== 'all') {
+                      shareParams.assetDivision = selectedDivisionFilter;
+                    }
                   }
                   if (mainMode === 'catalog' && assigneeFilter !== 'all') {
                     shareParams.assetAssignee = assigneeFilter;
@@ -1736,9 +1818,17 @@ export function AssetManagement({
                     : modeLabels[mainMode];
 
                   const subtitleParts: string[] = [];
-                  if (mainMode === 'catalog' && selectedOfficeFilter !== 'all') {
-                    const offName = resolveOfficeName(selectedOfficeFilter, offices);
-                    if (offName) subtitleParts.push(offName);
+                  if (mainMode === 'catalog' || mainMode === 'shared') {
+                    if (selectedOfficeFilter === 'all') {
+                      subtitleParts.push('全拠点');
+                    } else {
+                      const offName = resolveOfficeName(selectedOfficeFilter, offices);
+                      if (offName) subtitleParts.push(offName);
+                    }
+                    if (selectedDivisionFilter !== 'all') {
+                      const divName = resolveDivisionName(selectedDivisionFilter, divisions);
+                      if (divName) subtitleParts.push(divName);
+                    }
                   }
                   if (mainMode === 'catalog' && assigneeFilter !== 'all') {
                     if (assigneeFilter === '__shared__') subtitleParts.push('共用');
@@ -2164,11 +2254,15 @@ export function AssetManagement({
                 />
               </div>
 
-              {mainMode === 'catalog' && (
+              {(mainMode === 'catalog' || mainMode === 'shared') && (
                 <>
                   <select
                     value={selectedOfficeFilter}
-                    onChange={(e) => setSelectedOfficeFilter(e.target.value)}
+                    onChange={(e) => {
+                      hasUserSelectedOfficeRef.current = true;
+                      setSelectedOfficeFilter(e.target.value);
+                    }}
+                    aria-label="拠点で絞り込み"
                     className="px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-700"
                   >
                     <option value="all">拠点: すべて</option>
@@ -2180,19 +2274,36 @@ export function AssetManagement({
                   </select>
 
                   <select
-                    value={assigneeFilter}
-                    onChange={(e) => setAssigneeFilter(e.target.value)}
+                    value={selectedDivisionFilter}
+                    onChange={(e) => setSelectedDivisionFilter(e.target.value)}
+                    aria-label="管理部署で絞り込み"
                     className="px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-700"
                   >
-                    <option value="all">使用者: すべて</option>
-                    <option value="__unassigned__">未割当</option>
-                    {allUsers.map((u) => (
-                      <option key={u.id} value={u.id}>
-                        {u.name}
+                    <option value="all">管理部署: すべて</option>
+                    {divisions.map((div) => (
+                      <option key={div.id} value={div.id}>
+                        {div.name}
                       </option>
                     ))}
                   </select>
                 </>
+              )}
+
+              {mainMode === 'catalog' && (
+                <select
+                  value={assigneeFilter}
+                  onChange={(e) => setAssigneeFilter(e.target.value)}
+                  aria-label="使用者で絞り込み"
+                  className="px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-700"
+                >
+                  <option value="all">使用者: すべて</option>
+                  <option value="__unassigned__">未割当</option>
+                  {allUsers.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.name}
+                    </option>
+                  ))}
+                </select>
               )}
 
               <label className="inline-flex items-center gap-1 text-[11px] text-slate-500 cursor-pointer whitespace-nowrap px-2">

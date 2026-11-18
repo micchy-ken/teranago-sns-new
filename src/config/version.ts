@@ -4,10 +4,10 @@
  * その日の何番目のバージョンかを示すデイリー番号 (#1, #2, ...) を更新してください。
  */
 export const APP_VERSION = {
-  version: '2026.11.18.9',
+  version: '2026.11.18.10',
   date: '2026-11-18',
-  releaseNumber: 9,
+  releaseNumber: 10,
   timeZone: 'Asia/Tokyo (JST)',
-  display: 'v2026.11.18 #9 (JST)',
-  description: '通知・マイページの一時的な未読数字点滅解消、資産管理の開発中バッジ削除、資産台帳からの共用資産除外に対応'
+  display: 'v2026.11.18 #10 (JST)',
+  description: '共用資産の拠点絞り込み追加、資産台帳・共用資産の拠点初期値を自拠点化、管理部署フィルター（初期値: すべて）追加に対応'
 } as const;
