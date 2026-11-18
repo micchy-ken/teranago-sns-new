@@ -10,13 +10,16 @@ import {
   Eye,
   CheckSquare,
   Settings2,
-  Edit3
+  Edit3,
+  ClipboardCheck,
+  Sparkles
 } from 'lucide-react';
 import {
   AssetAlertKind,
   AssetCategory,
   AssetFieldDefinition,
-  AssetFieldType
+  AssetFieldType,
+  AssetInspectionChecklistItem
 } from '../../types';
 import {
   ASSET_ICON_OPTIONS,
@@ -24,7 +27,9 @@ import {
   MILEAGE_FIELD_KEYS,
   buildAlignedPcCategoryFields,
   getAssetIconComponent,
-  getCategoryTheme
+  getCategoryInspectionItems,
+  getCategoryTheme,
+  getDefaultInspectionChecklistPreset
 } from '../../utils/assets';
 
 interface AssetCategoryEditorModalProps {
@@ -82,6 +87,7 @@ export function AssetCategoryEditorModal({
   const [allowInlineNotes, setAllowInlineNotes] = useState(true);
   const [allowInlineAssignee, setAllowInlineAssignee] = useState(false);
   const [fields, setFields] = useState<AssetFieldDefinition[]>([]);
+  const [inspectionItems, setInspectionItems] = useState<AssetInspectionChecklistItem[]>([]);
   const [optionsTextMap, setOptionsTextMap] = useState<Record<number, string>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -102,6 +108,7 @@ export function AssetCategoryEditorModal({
         (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)
       );
       setFields(sorted);
+      setInspectionItems(getCategoryInspectionItems(category));
       const map: Record<number, string> = {};
       sorted.forEach((f, idx) => {
         map[idx] = (f.options || []).join(', ');
@@ -136,6 +143,7 @@ export function AssetCategoryEditorModal({
         }
       ];
       setFields(initialFields);
+      setInspectionItems(getDefaultInspectionChecklistPreset(null));
       setOptionsTextMap({});
     }
   }, [isOpen, category]);
@@ -231,6 +239,39 @@ export function AssetCategoryEditorModal({
     }
   };
 
+  const handleAddChecklistItem = () => {
+    setInspectionItems((prev) => [
+      ...prev,
+      {
+        id: `chk-${Date.now()}-${prev.length + 1}`,
+        label: '',
+        method: '目視',
+        sortOrder: prev.length + 1
+      }
+    ]);
+  };
+
+  const handleMoveChecklistItem = (index: number, dir: -1 | 1) => {
+    const target = index + dir;
+    if (target < 0 || target >= inspectionItems.length) return;
+    setInspectionItems((prev) => {
+      const next = [...prev];
+      const temp = next[index];
+      next[index] = next[target];
+      next[target] = temp;
+      return next.map((it, idx) => ({ ...it, sortOrder: idx + 1 }));
+    });
+  };
+
+  const handleLoadChecklistPreset = () => {
+    setInspectionItems(
+      getDefaultInspectionChecklistPreset({
+        id: category?.id || '',
+        name: name.trim() || category?.name || ''
+      } as AssetCategory)
+    );
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
@@ -263,6 +304,15 @@ export function AssetCategoryEditorModal({
         };
       });
 
+    const sanitizedInspectionItems: AssetInspectionChecklistItem[] = inspectionItems
+      .filter((it) => it.label.trim() !== '')
+      .map((it, idx) => ({
+        id: it.id || `chk-${Date.now()}-${idx}`,
+        label: it.label.trim(),
+        method: it.method?.trim() || '',
+        sortOrder: idx + 1
+      }));
+
     setSaving(true);
     setError('');
     try {
@@ -275,6 +325,7 @@ export function AssetCategoryEditorModal({
         allowInlineNotes,
         allowInlineAssignee,
         fields: sanitizedFields,
+        inspectionItems: sanitizedInspectionItems,
         sortOrder: category?.sortOrder ?? 99
       });
       onClose();
@@ -302,7 +353,7 @@ export function AssetCategoryEditorModal({
   const theme = getCategoryTheme(color);
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[60] bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50/70">
@@ -725,6 +776,110 @@ export function AssetCategoryEditorModal({
                 </div>
               )}
             </div>
+          </div>
+
+          {/* 資産種類ごとの点検チェックリスト項目設定 */}
+          <div className="space-y-3 pt-4 border-t border-slate-200">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h4 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+                  <ClipboardCheck className="w-4 h-4 text-emerald-600" />
+                  点検チェックリスト項目（{name.trim() || category?.name || 'この資産種類'} 共通・{inspectionItems.length}項目）
+                </h4>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  ここで設定した点検項目は、この種類（{name.trim() || category?.name || '例: 車両'}）に属するすべての資産の点検実施確認時に共通で使用されます
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleLoadChecklistPreset}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 cursor-pointer whitespace-nowrap"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                  標準プリセット読込
+                </button>
+                <button
+                  type="button"
+                  onClick={handleAddChecklistItem}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 cursor-pointer whitespace-nowrap"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  点検項目を追加
+                </button>
+              </div>
+            </div>
+
+            {inspectionItems.length > 0 ? (
+              <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden bg-white">
+                {inspectionItems.map((item, idx) => (
+                  <div
+                    key={item.id || idx}
+                    className="p-2.5 flex flex-wrap sm:flex-nowrap items-center gap-2"
+                  >
+                    <div className="flex items-center gap-0.5 shrink-0">
+                      <button
+                        type="button"
+                        disabled={idx === 0}
+                        onClick={() => handleMoveChecklistItem(idx, -1)}
+                        className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 cursor-pointer"
+                        title="上へ"
+                      >
+                        <ArrowUp className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={idx === inspectionItems.length - 1}
+                        onClick={() => handleMoveChecklistItem(idx, 1)}
+                        className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 cursor-pointer"
+                        title="下へ"
+                      >
+                        <ArrowDown className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                    <span className="text-[11px] font-bold text-slate-400 w-5 text-center tabular-nums">
+                      {idx + 1}
+                    </span>
+                    <input
+                      type="text"
+                      value={item.label}
+                      onChange={(e) =>
+                        setInspectionItems((prev) =>
+                          prev.map((it, i) => (i === idx ? { ...it, label: e.target.value } : it))
+                        )
+                      }
+                      placeholder="例: エンジンオイルの油量・汚れ確認"
+                      className="flex-1 min-w-[200px] px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                    <input
+                      type="text"
+                      value={item.method || ''}
+                      onChange={(e) =>
+                        setInspectionItems((prev) =>
+                          prev.map((it, i) => (i === idx ? { ...it, method: e.target.value } : it))
+                        )
+                      }
+                      placeholder="方法 (例: 目視/実測)"
+                      className="w-28 px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setInspectionItems((prev) => prev.filter((_, i) => i !== idx))
+                      }
+                      className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer"
+                      title="項目を削除"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="p-5 text-center text-xs text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                点検項目が登録されていません。「標準プリセット読込」または「点検項目を追加」で設定できます。
+              </div>
+            )}
           </div>
         </form>
 

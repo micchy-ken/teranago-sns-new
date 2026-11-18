@@ -153,6 +153,15 @@ export function getDefaultInspectionChecklistPreset(
   ];
 }
 
+export function getCategoryInspectionItems(
+  category?: AssetCategory | null
+): AssetInspectionChecklistItem[] {
+  if (category && Array.isArray(category.inspectionItems)) {
+    return [...category.inspectionItems].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+  }
+  return getDefaultInspectionChecklistPreset(category);
+}
+
 export function isScheduledInspectionLog(log?: AssetLogItem | null): boolean {
   return Boolean(
     log &&

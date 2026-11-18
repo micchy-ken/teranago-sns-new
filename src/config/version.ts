@@ -4,10 +4,10 @@
  * その日の何番目のバージョンかを示すデイリー番号 (#1, #2, ...) を更新してください。
  */
 export const APP_VERSION = {
-  version: '2026.11.18.3',
+  version: '2026.11.18.4',
   date: '2026-11-18',
-  releaseNumber: 3,
+  releaseNumber: 4,
   timeZone: 'Asia/Tokyo (JST)',
-  display: 'v2026.11.18 #3 (JST)',
-  description: '資産管理の走行距離を運転記録簿の最新値から自動取得（未記録時は空白）に統一'
+  display: 'v2026.11.18 #4 (JST)',
+  description: '点検チェックリスト項目を資産種類（車両・PC等）単位での一括設定に変更'
 } as const;

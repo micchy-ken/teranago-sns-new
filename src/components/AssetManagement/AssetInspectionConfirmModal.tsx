@@ -21,7 +21,7 @@ import {
   formatAssetDateJa,
   getActiveScheduledInspection,
   getAssetIconComponent,
-  getDefaultInspectionChecklistPreset,
+  getCategoryInspectionItems,
   getEffectiveAssetMileage,
   getJstTodayStr
 } from '../../utils/assets';
@@ -102,10 +102,7 @@ export function AssetInspectionConfirmModal({
 
   const checklistDefs: AssetInspectionChecklistItem[] = useMemo(() => {
     if (!asset) return [];
-    if (Array.isArray(asset.inspectionItems) && asset.inspectionItems.length > 0) {
-      return [...asset.inspectionItems].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-    }
-    return getDefaultInspectionChecklistPreset(category);
+    return getCategoryInspectionItems(category);
   }, [asset, category]);
 
   const effectiveMileage = useMemo(
@@ -467,8 +464,8 @@ export function AssetInspectionConfirmModal({
                 <div className="flex items-center justify-between">
                   <div className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                     <ClipboardCheck className="w-4 h-4 text-emerald-600" />
-                    資産別 点検項目チェック ({checkResults.length}項目)
-                    {(!asset.inspectionItems || asset.inspectionItems.length === 0) && (
+                    {category?.name || '資産種類'}共通 点検項目チェック ({checkResults.length}項目)
+                    {(!category?.inspectionItems || category.inspectionItems.length === 0) && (
                       <span className="text-[11px] font-normal text-slate-500">
                         · 標準プリセット適用
                       </span>

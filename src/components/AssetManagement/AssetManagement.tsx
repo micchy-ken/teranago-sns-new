@@ -1895,6 +1895,10 @@ export function AssetManagement({
           onSaveAssetInline={handleSaveAssetInline}
           onOpenConfirmModal={(asset) => setConfirmModalAsset(asset)}
           onOpenDetailModal={(asset, subTab) => openEditModal(asset, subTab || 'inspections')}
+          onOpenCategoryEditor={(cat) => {
+            setEditingCategory(cat);
+            setCategoryModalOpen(true);
+          }}
         />
       ) : mainMode === 'calendar' ? (
         <AssetCalendarView
@@ -2489,6 +2493,10 @@ export function AssetManagement({
         onDeleteLog={handleDeleteLog}
         onSaveScheduledInspection={handleSaveScheduledInspection}
         onOpenConfirmModal={(asset) => setConfirmModalAsset(asset)}
+        onOpenCategoryEditor={(cat) => {
+          setEditingCategory(cat);
+          setCategoryModalOpen(true);
+        }}
         onUpdateUser={onUpdateUser}
       />
 

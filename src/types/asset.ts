@@ -39,6 +39,7 @@ export interface AssetCategory {
   allowInlineNotes?: boolean;
   allowInlineAssignee?: boolean;
   fields: AssetFieldDefinition[];
+  inspectionItems?: AssetInspectionChecklistItem[];
   sortOrder: number;
   isSystem?: boolean;
   createdAt?: string;
@@ -94,6 +95,7 @@ export interface AssetItem {
   nextAlertDate?: string;
   attributes: Record<string, any>;
   attachments: AssetAttachment[];
+  /** @deprecated 資産種類 (AssetCategory.inspectionItems) で一元管理 */
   inspectionItems?: AssetInspectionChecklistItem[];
   latestDrivingMileage?: number;
   latestDrivingMileageDate?: string;

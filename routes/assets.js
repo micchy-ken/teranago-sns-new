@@ -1,7 +1,7 @@
 /**
  * routes/assets.js
  * 寺岡オートドアSNS 資産管理モジュール (車両・PC・工具・共用機器・動的スキーマ・履歴・点検予定/確定SSOT・運転記録簿連動)
- * 最終更新: 2026年11月18日 (走行距離を運転記録簿の最新値から自動取得専用・未記録時空白対応)
+ * 最終更新: 2026年11月18日 (点検チェックリスト項目を資産種類単位での一括管理に変更)
  */
 import { Router } from 'express';
 import sql from 'mssql';
@@ -103,6 +103,20 @@ export const DEFAULT_ASSET_CATEGORIES = [
       { key: 'mileage', label: '走行距離', type: 'number', unit: 'km', showInList: true, showInMyAssets: false, inlineEditable: false, sortOrder: 11 },
       { key: 'tireType', label: 'タイヤ種別', type: 'select', options: ['夏タイヤ', 'スタッドレス', 'オールシーズン'], showInList: false, showInMyAssets: false, inlineEditable: false, sortOrder: 12 },
       { key: 'insuranceInfo', label: 'リース・保険会社', type: 'text', showInList: false, showInMyAssets: false, inlineEditable: false, sortOrder: 13 }
+    ],
+    inspectionItems: [
+      { id: 'chk-ky_declaration', label: 'ＫＹ宣言の実施', method: '発声', sortOrder: 1 },
+      { id: 'chk-instruments_brake', label: '各計器・エンジン・ブレーキランプに異常はないか', method: '音・目視', sortOrder: 2 },
+      { id: 'chk-tire_groove_air', label: 'タイヤの溝・空気圧は十分か', method: '目視', sortOrder: 3 },
+      { id: 'chk-phone_drive_mode', label: '携帯電話をドライブモードに変更', method: '操作', sortOrder: 4 },
+      { id: 'chk-bluetooth_connect', label: 'Bluetooth等に接続', method: '操作', sortOrder: 5 },
+      { id: 'chk-engine_exhaust', label: 'エンジンの掛かり具合、排気は正常か', method: '目視', sortOrder: 6 },
+      { id: 'chk-lever_brake_light', label: 'レバー・ブレーキ・ライト・ウインカーに異常はないか', method: '目視・実測', sortOrder: 7 },
+      { id: 'chk-washer_coolant', label: 'ウォッシャー液・クーラント液は十分か', method: '実測', sortOrder: 8 },
+      { id: 'chk-engine_oil', label: 'エンジンオイルの油量', method: '実測', sortOrder: 9 },
+      { id: 'chk-battery', label: 'バッテリーは正常か', method: '実測', sortOrder: 10 },
+      { id: 'chk-wiper_belt', label: 'ワイパー・エンジンベルトに問題はないか', method: '目視', sortOrder: 11 },
+      { id: 'chk-air_pressure_kpa', label: '空気圧（2.0kpa～2.5kpa）', method: '実測', sortOrder: 12 }
     ]
   },
   {
@@ -124,6 +138,12 @@ export const DEFAULT_ASSET_CATEGORIES = [
       { key: 'assignedDate', label: '支給・導入日', type: 'date', showInList: true, showInMyAssets: false, inlineEditable: false, sortOrder: 6 },
       { key: 'nextCheckDate', label: '定期点検予定', type: 'date', showInList: true, showInMyAssets: true, inlineEditable: true, alertRule: { kind: 'inspection', daysBefore: 30, label: '点検アラート' }, sortOrder: 7 },
       { key: 'leaseEndDate', label: 'リース満了・入替目安', type: 'date', showInList: true, showInMyAssets: true, inlineEditable: false, alertRule: { kind: 'replacement', daysBefore: 180, label: '入替アラート' }, sortOrder: 8 }
+    ],
+    inspectionItems: [
+      { id: 'chk-os-update', label: 'OS・セキュリティパッチの適用確認', method: '操作', sortOrder: 1 },
+      { id: 'chk-av-status', label: 'セキュリティソフト(ESET等)の稼働・定義最新化確認', method: '操作', sortOrder: 2 },
+      { id: 'chk-storage-health', label: 'ストレージ空き容量・動作速度の確認', method: '目視', sortOrder: 3 },
+      { id: 'chk-battery-cable', label: 'バッテリー膨張・ACアダプタ・外装の破損確認', method: '目視', sortOrder: 4 }
     ]
   },
   {
@@ -145,6 +165,12 @@ export const DEFAULT_ASSET_CATEGORIES = [
       { key: 'lastCalibrationDate', label: '前回点検・校正日', type: 'date', showInList: true, showInMyAssets: false, inlineEditable: false, sortOrder: 6 },
       { key: 'storageLocation', label: '保管場所・車載先', type: 'text', showInList: true, showInMyAssets: true, inlineEditable: false, sortOrder: 7 },
       { key: 'purchaseDate', label: '購入日', type: 'date', showInList: false, showInMyAssets: false, inlineEditable: false, sortOrder: 8 }
+    ],
+    inspectionItems: [
+      { id: 'chk-exterior', label: '本体・コード・プラグの破損・緩み確認', method: '目視', sortOrder: 1 },
+      { id: 'chk-operation', label: '動作確認・異音・異常発熱の有無', method: '作動', sortOrder: 2 },
+      { id: 'chk-calibration', label: '校正精度・計測値の正常確認', method: '実測', sortOrder: 3 },
+      { id: 'chk-accessories', label: '付属品・安全カバー・保管状態の確認', method: '目視', sortOrder: 4 }
     ]
   },
   {
@@ -167,6 +193,11 @@ export const DEFAULT_ASSET_CATEGORIES = [
       { key: 'lastInspectionDate', label: '前回点検日', type: 'date', showInList: true, showInMyAssets: false, inlineEditable: false, sortOrder: 7 },
       { key: 'leaseEndDate', label: 'リース満了', type: 'date', showInList: true, showInMyAssets: true, inlineEditable: false, alertRule: { kind: 'replacement', daysBefore: 180, label: '入替アラート' }, sortOrder: 8 },
       { key: 'contractNo', label: '契約・保守番号', type: 'text', showInList: false, showInMyAssets: false, inlineEditable: false, sortOrder: 9 }
+    ],
+    inspectionItems: [
+      { id: 'chk-power-conn', label: '電源・配線・ネットワーク接続の正常確認', method: '目視', sortOrder: 1 },
+      { id: 'chk-error-log', label: '本体エラー表示・警告ランプの有無', method: '目視', sortOrder: 2 },
+      { id: 'chk-consumables', label: '消耗品・清掃・メンテナンス実施確認', method: '実測', sortOrder: 3 }
     ]
   }
 ];
@@ -303,6 +334,7 @@ async function ensureAssetTables(pool) {
           allowInlineNotes BIT NULL DEFAULT 1,
           allowInlineAssignee BIT NULL DEFAULT 0,
           fieldsJson NVARCHAR(MAX) NULL,
+          inspectionItemsJson NVARCHAR(MAX) NULL,
           sortOrder INT NOT NULL DEFAULT 0,
           isSystem BIT NOT NULL DEFAULT 0,
           createdAt DATETIME2 NOT NULL DEFAULT SYSDATETIME(),
@@ -319,6 +351,10 @@ async function ensureAssetTables(pool) {
         IF COL_LENGTH('dbo.AssetCategories', 'allowInlineAssignee') IS NULL
         BEGIN
           ALTER TABLE dbo.AssetCategories ADD allowInlineAssignee BIT NULL DEFAULT 0;
+        END;
+        IF COL_LENGTH('dbo.AssetCategories', 'inspectionItemsJson') IS NULL
+        BEGIN
+          ALTER TABLE dbo.AssetCategories ADD inspectionItemsJson NVARCHAR(MAX) NULL;
         END;
       END;
 
@@ -390,6 +426,7 @@ async function ensureAssetTables(pool) {
 // ---------------------------------------------------------------------------
 function mapCategoryRow(row) {
   const fields = normalizeCategoryFields(safeParseJSON(row.fieldsJson || row.fields, []));
+  const inspectionItems = safeParseJSON(row.inspectionItemsJson || row.inspectionItems, undefined);
   return {
     id: String(row.id),
     name: String(row.name || ''),
@@ -402,6 +439,7 @@ function mapCategoryRow(row) {
         : Boolean(row.allowInlineNotes),
     allowInlineAssignee: Boolean(row.allowInlineAssignee),
     fields: Array.isArray(fields) ? fields : [],
+    inspectionItems: Array.isArray(inspectionItems) ? inspectionItems : undefined,
     sortOrder: typeof row.sortOrder === 'number' ? row.sortOrder : parseInt(row.sortOrder || '0', 10),
     isSystem: Boolean(row.isSystem),
     createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : undefined,
@@ -606,12 +644,17 @@ async function seedDefaultCategoriesIfNeeded(pool) {
               .input('allowInlineNotes', sql.Bit, cat.allowInlineNotes !== false ? 1 : 0)
               .input('allowInlineAssignee', sql.Bit, cat.allowInlineAssignee ? 1 : 0)
               .input('fieldsJson', sql.NVarChar(sql.MAX), JSON.stringify(cat.fields))
+              .input(
+                'inspectionItemsJson',
+                sql.NVarChar(sql.MAX),
+                Array.isArray(cat.inspectionItems) ? JSON.stringify(cat.inspectionItems) : null
+              )
               .input('sortOrder', sql.Int, cat.sortOrder)
               .input('isSystem', sql.Bit, cat.isSystem ? 1 : 0)
               .query(`
                 IF NOT EXISTS (SELECT 1 FROM dbo.AssetCategories WHERE id = @id)
-                INSERT INTO dbo.AssetCategories (id, name, icon, color, defaultShared, allowInlineNotes, allowInlineAssignee, fieldsJson, sortOrder, isSystem, createdAt, updatedAt)
-                VALUES (@id, @name, @icon, @color, @defaultShared, @allowInlineNotes, @allowInlineAssignee, @fieldsJson, @sortOrder, @isSystem, SYSDATETIME(), SYSDATETIME())
+                INSERT INTO dbo.AssetCategories (id, name, icon, color, defaultShared, allowInlineNotes, allowInlineAssignee, fieldsJson, inspectionItemsJson, sortOrder, isSystem, createdAt, updatedAt)
+                VALUES (@id, @name, @icon, @color, @defaultShared, @allowInlineNotes, @allowInlineAssignee, @fieldsJson, @inspectionItemsJson, @sortOrder, @isSystem, SYSDATETIME(), SYSDATETIME())
               `);
           }
         }
@@ -908,6 +951,7 @@ router.post(['/categories', '/asset-categories'], async (req, res) => {
       allowInlineNotes: body.allowInlineNotes === undefined ? true : Boolean(body.allowInlineNotes),
       allowInlineAssignee: Boolean(body.allowInlineAssignee),
       fields: normalizeCategoryFields(Array.isArray(body.fields) ? body.fields : []),
+      inspectionItems: sanitizeInspectionItems(body.inspectionItems),
       sortOrder: typeof body.sortOrder === 'number' ? body.sortOrder : maxSort + 1,
       isSystem: Boolean(body.isSystem),
       createdAt: nowIso,
@@ -925,11 +969,16 @@ router.post(['/categories', '/asset-categories'], async (req, res) => {
         .input('allowInlineNotes', sql.Bit, newCat.allowInlineNotes ? 1 : 0)
         .input('allowInlineAssignee', sql.Bit, newCat.allowInlineAssignee ? 1 : 0)
         .input('fieldsJson', sql.NVarChar(sql.MAX), JSON.stringify(newCat.fields))
+        .input(
+          'inspectionItemsJson',
+          sql.NVarChar(sql.MAX),
+          Array.isArray(newCat.inspectionItems) ? JSON.stringify(newCat.inspectionItems) : null
+        )
         .input('sortOrder', sql.Int, newCat.sortOrder)
         .input('isSystem', sql.Bit, newCat.isSystem ? 1 : 0)
         .query(`
-          INSERT INTO dbo.AssetCategories (id, name, icon, color, defaultShared, allowInlineNotes, allowInlineAssignee, fieldsJson, sortOrder, isSystem, createdAt, updatedAt)
-          VALUES (@id, @name, @icon, @color, @defaultShared, @allowInlineNotes, @allowInlineAssignee, @fieldsJson, @sortOrder, @isSystem, SYSDATETIME(), SYSDATETIME())
+          INSERT INTO dbo.AssetCategories (id, name, icon, color, defaultShared, allowInlineNotes, allowInlineAssignee, fieldsJson, inspectionItemsJson, sortOrder, isSystem, createdAt, updatedAt)
+          VALUES (@id, @name, @icon, @color, @defaultShared, @allowInlineNotes, @allowInlineAssignee, @fieldsJson, @inspectionItemsJson, @sortOrder, @isSystem, SYSDATETIME(), SYSDATETIME())
         `);
     }
 
@@ -970,6 +1019,10 @@ router.put(['/categories/:id', '/asset-categories/:id'], async (req, res) => {
           ? Boolean(body.allowInlineAssignee)
           : Boolean(current.allowInlineAssignee),
       fields: Array.isArray(body.fields) ? normalizeCategoryFields(body.fields) : current.fields,
+      inspectionItems:
+        body.inspectionItems !== undefined
+          ? sanitizeInspectionItems(body.inspectionItems)
+          : current.inspectionItems,
       sortOrder: typeof body.sortOrder === 'number' ? body.sortOrder : current.sortOrder,
       updatedAt: getJstNowIso()
     };
@@ -985,6 +1038,11 @@ router.put(['/categories/:id', '/asset-categories/:id'], async (req, res) => {
         .input('allowInlineNotes', sql.Bit, updatedCat.allowInlineNotes ? 1 : 0)
         .input('allowInlineAssignee', sql.Bit, updatedCat.allowInlineAssignee ? 1 : 0)
         .input('fieldsJson', sql.NVarChar(sql.MAX), JSON.stringify(updatedCat.fields))
+        .input(
+          'inspectionItemsJson',
+          sql.NVarChar(sql.MAX),
+          Array.isArray(updatedCat.inspectionItems) ? JSON.stringify(updatedCat.inspectionItems) : null
+        )
         .input('sortOrder', sql.Int, updatedCat.sortOrder)
         .query(`
           UPDATE dbo.AssetCategories
@@ -995,6 +1053,7 @@ router.put(['/categories/:id', '/asset-categories/:id'], async (req, res) => {
               allowInlineNotes = @allowInlineNotes,
               allowInlineAssignee = @allowInlineAssignee,
               fieldsJson = @fieldsJson,
+              inspectionItemsJson = @inspectionItemsJson,
               sortOrder = @sortOrder,
               updatedAt = SYSDATETIME()
           WHERE id = @id

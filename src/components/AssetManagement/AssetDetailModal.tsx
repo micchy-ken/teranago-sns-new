@@ -20,18 +20,15 @@ import {
   Check,
   Star,
   ClipboardCheck,
-  ArrowUp,
-  ArrowDown,
   Gauge,
   ChevronDown,
   ChevronUp,
-  Sparkles
+  Settings2
 } from 'lucide-react';
 import {
   AssetAttachment,
   AssetCategory,
   AssetFieldDefinition,
-  AssetInspectionChecklistItem,
   AssetItem,
   AssetLogActionType,
   AssetLogItem,
@@ -51,9 +48,9 @@ import {
   formatAssetDateJa,
   getActiveScheduledInspection,
   getAssetIconComponent,
+  getCategoryInspectionItems,
   getCategoryTheme,
   getConfirmedInspectionLogs,
-  getDefaultInspectionChecklistPreset,
   getDerivedLastInspectionDate,
   getEffectiveAssetMileage,
   getJstTodayStr,
@@ -103,6 +100,7 @@ interface AssetDetailModalProps {
     memo?: string;
   }) => Promise<void>;
   onOpenConfirmModal?: (asset: AssetItem) => void;
+  onOpenCategoryEditor?: (category: AssetCategory) => void;
   initialSubTab?: 'details' | 'inspections' | 'history';
   onUpdateUser?: (user: User) => void;
 }
@@ -125,6 +123,7 @@ export function AssetDetailModal({
   onDeleteLog,
   onSaveScheduledInspection,
   onOpenConfirmModal,
+  onOpenCategoryEditor,
   initialSubTab = 'details',
   onUpdateUser
 }: AssetDetailModalProps) {
@@ -144,13 +143,10 @@ export function AssetDetailModal({
   const [assigneeUserId, setAssigneeUserId] = useState('');
   const [attributes, setAttributes] = useState<Record<string, any>>({});
   const [attachments, setAttachments] = useState<AssetAttachment[]>([]);
-  const [inspectionItems, setInspectionItems] = useState<AssetInspectionChecklistItem[]>([]);
   const [notes, setNotes] = useState('');
 
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [savingChecklist, setSavingChecklist] = useState(false);
-  const [checklistSavedMsg, setChecklistSavedMsg] = useState('');
   const [error, setError] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -185,7 +181,6 @@ export function AssetDetailModal({
     setConfirmDelete(false);
     setCopiedLink(false);
     setShareFeedback(null);
-    setChecklistSavedMsg('');
     setActiveSubTab(asset ? initialSubTab : 'details');
     setShowLogForm(false);
     setFetchedLogs(null);
@@ -207,11 +202,6 @@ export function AssetDetailModal({
       setAssigneeUserId(asset.assigneeUserId || '');
       setAttributes({ ...(asset.attributes || {}) });
       setAttachments([...(asset.attachments || [])]);
-      setInspectionItems(
-        Array.isArray(asset.inspectionItems)
-          ? [...asset.inspectionItems].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
-          : []
-      );
       setNotes(asset.notes || '');
     } else {
       const initialCatId = defaultCategoryId || categories[0]?.id || '';
@@ -230,7 +220,6 @@ export function AssetDetailModal({
       setAssigneeUserId('');
       setAttributes({});
       setAttachments([]);
-      setInspectionItems(getDefaultInspectionChecklistPreset(initialCat));
       setNotes('');
     }
   }, [isOpen, asset, defaultCategoryId, defaultIsShared, categories, currentUser, initialSubTab]);
@@ -255,6 +244,11 @@ export function AssetDetailModal({
   const currentCategory = useMemo(
     () => categories.find((c) => c.id === categoryId) || categories[0],
     [categories, categoryId]
+  );
+
+  const categoryChecklist = useMemo(
+    () => getCategoryInspectionItems(currentCategory),
+    [currentCategory]
   );
 
   const sortedFields = useMemo(() => {
@@ -355,9 +349,6 @@ export function AssetDetailModal({
       if (nextCat && defaultIsShared === undefined) {
         setIsShared(Boolean(nextCat.defaultShared));
       }
-      if (inspectionItems.length === 0) {
-        setInspectionItems(getDefaultInspectionChecklistPreset(nextCat));
-      }
     }
   };
 
@@ -434,10 +425,6 @@ export function AssetDetailModal({
         status,
         attributes: cleanedAttributes,
         attachments,
-        inspectionItems: inspectionItems.map((it, idx) => ({
-          ...it,
-          sortOrder: idx + 1
-        })),
         notes
       });
       onClose();
@@ -472,58 +459,6 @@ export function AssetDetailModal({
     } finally {
       setSavingSchedule(false);
     }
-  };
-
-  const handleSaveInspectionItemsOnly = async () => {
-    if (!asset?.id) return;
-    setSavingChecklist(true);
-    setChecklistSavedMsg('');
-    setError('');
-    try {
-      const normalizedItems = inspectionItems
-        .filter((it) => it.label.trim() !== '')
-        .map((it, idx) => ({
-          id: it.id || `chk-${Date.now()}-${idx}`,
-          label: it.label.trim(),
-          method: it.method?.trim() || '',
-          sortOrder: idx + 1
-        }));
-      await onSaveAsset({
-        id: asset.id,
-        inspectionItems: normalizedItems
-      });
-      setInspectionItems(normalizedItems);
-      setChecklistSavedMsg('個別点検項目を保存しました');
-      setTimeout(() => setChecklistSavedMsg(''), 2500);
-    } catch (err: any) {
-      setError(err?.message || '点検項目の保存に失敗しました');
-    } finally {
-      setSavingChecklist(false);
-    }
-  };
-
-  const handleAddChecklistItem = () => {
-    setInspectionItems((prev) => [
-      ...prev,
-      {
-        id: `chk-${Date.now()}-${prev.length + 1}`,
-        label: '',
-        method: '目視',
-        sortOrder: prev.length + 1
-      }
-    ]);
-  };
-
-  const handleMoveChecklistItem = (index: number, dir: -1 | 1) => {
-    const target = index + dir;
-    if (target < 0 || target >= inspectionItems.length) return;
-    setInspectionItems((prev) => {
-      const next = [...prev];
-      const temp = next[index];
-      next[index] = next[target];
-      next[target] = temp;
-      return next.map((it, idx) => ({ ...it, sortOrder: idx + 1 }));
-    });
   };
 
   const handleSaveLogEntry = async (e: React.FormEvent) => {
@@ -920,7 +855,7 @@ export function AssetDetailModal({
               }`}
             >
               <ClipboardCheck className="w-3.5 h-3.5" />
-              点検・項目設定
+              点検予定・履歴
               {activeScheduled?.isDueOrOverdue ? (
                 <span className="px-1.5 py-0.2 text-[10px] rounded bg-rose-100 text-rose-800 font-bold">
                   要確認
@@ -1361,121 +1296,52 @@ export function AssetDetailModal({
                 </form>
               </div>
 
-              {/* 2. 資産別の個別点検項目設定 */}
+              {/* 2. 資産種類共通の点検チェックリスト項目（参照表示 + 種類項目設定リンク） */}
               <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <h4 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
                       <ClipboardCheck className="w-4 h-4 text-emerald-600" />
-                      この資産専用の点検項目設定 ({inspectionItems.length}項目)
+                      「{currentCategory?.name || '資産'}」共通の点検チェック項目 ({categoryChecklist.length}項目)
                     </h4>
                     <p className="text-[11px] text-slate-500 mt-0.5">
-                      資産1件ごとに確認すべき点検チェックリストを設定できます（実施確認時にこの項目が表示されます）
+                      点検項目は資産ごとの個別設定ではなく、資産種類（{currentCategory?.name || '車両'}等）単位で共通管理されます
                     </p>
                   </div>
-                  <div className="flex flex-wrap items-center gap-1.5">
+                  {currentCategory && onOpenCategoryEditor && (
                     <button
                       type="button"
-                      onClick={() =>
-                        setInspectionItems(getDefaultInspectionChecklistPreset(currentCategory))
-                      }
-                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 cursor-pointer whitespace-nowrap"
+                      onClick={() => onOpenCategoryEditor(currentCategory)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 cursor-pointer whitespace-nowrap"
                     >
-                      <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
-                      標準プリセット読込
+                      <Settings2 className="w-3.5 h-3.5" />
+                      「{currentCategory.name}」の点検項目を編集
                     </button>
-                    <button
-                      type="button"
-                      onClick={handleAddChecklistItem}
-                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 cursor-pointer whitespace-nowrap"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      項目を追加
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleSaveInspectionItemsOnly}
-                      disabled={savingChecklist}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 cursor-pointer whitespace-nowrap"
-                    >
-                      <Save className="w-3.5 h-3.5" />
-                      {savingChecklist ? '保存中...' : '点検項目を保存'}
-                    </button>
-                  </div>
+                  )}
                 </div>
 
-                {checklistSavedMsg && (
-                  <div className="px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold">
-                    {checklistSavedMsg}
-                  </div>
-                )}
-
-                {inspectionItems.length > 0 ? (
-                  <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden">
-                    {inspectionItems.map((item, idx) => (
+                {categoryChecklist.length > 0 ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                    {categoryChecklist.map((item, idx) => (
                       <div
                         key={item.id || idx}
-                        className="p-2 bg-white flex flex-wrap sm:flex-nowrap items-center gap-2"
+                        className="px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200/80 flex items-center justify-between gap-2 text-xs"
                       >
-                        <div className="flex items-center gap-0.5 shrink-0">
-                          <button
-                            type="button"
-                            disabled={idx === 0}
-                            onClick={() => handleMoveChecklistItem(idx, -1)}
-                            className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 cursor-pointer"
-                          >
-                            <ArrowUp className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            disabled={idx === inspectionItems.length - 1}
-                            onClick={() => handleMoveChecklistItem(idx, 1)}
-                            className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 cursor-pointer"
-                          >
-                            <ArrowDown className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                        <span className="text-[11px] font-bold text-slate-400 w-5 text-center tabular-nums">
-                          {idx + 1}
+                        <span className="text-slate-800 truncate">
+                          <span className="font-bold text-slate-400 mr-1.5 tabular-nums">{idx + 1}.</span>
+                          {item.label}
                         </span>
-                        <input
-                          type="text"
-                          value={item.label}
-                          onChange={(e) =>
-                            setInspectionItems((prev) =>
-                              prev.map((it, i) => (i === idx ? { ...it, label: e.target.value } : it))
-                            )
-                          }
-                          placeholder="例: エンジンオイルの油量・汚れ確認"
-                          className="flex-1 min-w-[200px] px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg"
-                        />
-                        <input
-                          type="text"
-                          value={item.method || ''}
-                          onChange={(e) =>
-                            setInspectionItems((prev) =>
-                              prev.map((it, i) => (i === idx ? { ...it, method: e.target.value } : it))
-                            )
-                          }
-                          placeholder="方法 (例: 目視/実測)"
-                          className="w-28 px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg"
-                        />
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setInspectionItems((prev) => prev.filter((_, i) => i !== idx))
-                          }
-                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer"
-                          title="項目を削除"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        {item.method && (
+                          <span className="text-[10px] font-semibold text-slate-500 bg-white px-1.5 py-0.5 rounded border border-slate-200 shrink-0">
+                            {item.method}
+                          </span>
+                        )}
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <div className="p-5 text-center text-xs text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200">
-                    個別項目が未設定です（「標準プリセット読込」または「項目を追加」で設定できます。未設定時は標準チェックリストを使用します）
+                  <div className="p-4 text-center text-xs text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                    この種類に点検項目が登録されていません
                   </div>
                 )}
               </div>

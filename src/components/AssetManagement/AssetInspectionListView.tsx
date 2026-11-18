@@ -21,7 +21,7 @@ import {
   getAssetIconComponent,
   getCategoryTheme,
   getConfirmedInspectionLogs,
-  getDefaultInspectionChecklistPreset,
+  getCategoryInspectionItems,
   getDerivedLastInspectionDate,
   getEffectiveAssetMileage,
   getJstTodayStr
@@ -44,6 +44,7 @@ interface AssetInspectionListViewProps {
   onSaveAssetInline: (asset: AssetItem, patch: Partial<AssetItem>) => Promise<void>;
   onOpenConfirmModal: (asset: AssetItem) => void;
   onOpenDetailModal: (asset: AssetItem, subTab?: 'details' | 'inspections' | 'history') => void;
+  onOpenCategoryEditor?: (category: AssetCategory) => void;
 }
 
 type InspectionStatusFilter = 'all' | 'due_confirm' | 'scheduled' | 'unscheduled' | 'has_confirmed';
@@ -57,7 +58,8 @@ export function AssetInspectionListView({
   onSaveScheduledInspection,
   onSaveAssetInline,
   onOpenConfirmModal,
-  onOpenDetailModal
+  onOpenDetailModal,
+  onOpenCategoryEditor
 }: AssetInspectionListViewProps) {
   const todayStr = getJstTodayStr();
   const [statusFilter, setStatusFilter] = useState<InspectionStatusFilter>('all');
@@ -83,11 +85,7 @@ export function AssetInspectionListView({
         const confirmedLogs = getConfirmedInspectionLogs(asset.id, logs);
         const lastInspectionDate = getDerivedLastInspectionDate(asset, logs);
         const mileageInfo = getEffectiveAssetMileage(asset);
-        const checklistCount =
-          asset.inspectionItems && asset.inspectionItems.length > 0
-            ? asset.inspectionItems.length
-            : getDefaultInspectionChecklistPreset(category).length;
-        const isCustomChecklist = Boolean(asset.inspectionItems && asset.inspectionItems.length > 0);
+        const checklistCount = getCategoryInspectionItems(category).length;
         return {
           asset,
           category,
@@ -95,8 +93,7 @@ export function AssetInspectionListView({
           confirmedLogs,
           lastInspectionDate,
           mileageInfo,
-          checklistCount,
-          isCustomChecklist
+          checklistCount
         };
       });
   }, [assets, categoryMap, logs, todayStr]);
@@ -346,8 +343,7 @@ export function AssetInspectionListView({
                 confirmedLogs,
                 lastInspectionDate,
                 mileageInfo,
-                checklistCount,
-                isCustomChecklist
+                checklistCount
               } = row;
               const CatIcon = getAssetIconComponent(category?.icon);
               const catTheme = getCategoryTheme(category?.color);
@@ -577,19 +573,22 @@ export function AssetInspectionListView({
                     ) : null}
                   </td>
 
-                  {/* 点検項目 */}
+                  {/* 点検項目（種類別共通） */}
                   <td className="py-2.5 px-3 border-r border-slate-200/70 whitespace-nowrap text-center">
                     <button
                       type="button"
-                      onClick={() => onOpenDetailModal(asset, 'inspections')}
+                      onClick={() => {
+                        if (category && onOpenCategoryEditor) {
+                          onOpenCategoryEditor(category);
+                        } else {
+                          onOpenDetailModal(asset, 'inspections');
+                        }
+                      }}
                       className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-700 hover:underline cursor-pointer tabular-nums"
-                      title="この資産専用の点検チェックリストを設定・確認"
+                      title={`「${category?.name || '資産種類'}」共通の点検項目を設定・確認`}
                     >
                       <ClipboardList className="w-3.5 h-3.5" />
                       {checklistCount}項目
-                      {isCustomChecklist && (
-                        <span className="text-[10px] text-emerald-700">· 個別</span>
-                      )}
                     </button>
                   </td>
 
