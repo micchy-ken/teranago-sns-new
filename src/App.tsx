@@ -1357,8 +1357,8 @@ export default function App() {
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data)) {
-          setSafetyEvents(data);
           const activeEvents = data.filter((e: any) => e.status === 'active');
+          let allResp: any[] = [];
           if (activeEvents.length > 0) {
             try {
               const respPromises = activeEvents.map(async (ev: any) => {
@@ -1374,7 +1374,7 @@ export default function App() {
                 return [];
               });
               const results = await Promise.allSettled(respPromises);
-              const allResp = results
+              allResp = results
                 .filter((r): r is PromiseFulfilledResult<any[]> => r.status === 'fulfilled')
                 .flatMap(r => r.value)
                 .map((r: any) => ({
@@ -1396,13 +1396,12 @@ export default function App() {
                   comment: r.comment || r.message || '',
                   respondedAt: r.respondedAt || new Date().toISOString()
                 }));
-              setSafetyResponses(allResp);
             } catch (err) {
               console.warn('Failed to fetch safety responses:', err);
             }
-          } else {
-            setSafetyResponses([]);
           }
+          setSafetyEvents(data);
+          setSafetyResponses(allResp);
         }
       }
     } catch (err) {
@@ -3790,6 +3789,7 @@ export default function App() {
         onUpdateRooms={handleUpdateChatRooms}
         onToggleMobileMenu={() => setIsMobileMenuOpen(prev => !prev)}
         onUpdateUser={handleUpdateUser}
+        activeTab={activeTab}
       />
 
       {/* Mobile Navigation Drawer */}

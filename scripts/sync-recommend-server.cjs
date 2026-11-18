@@ -15,7 +15,7 @@ const escapedContent = serverContent
 const header = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年11月11日 (マスターID/コード主軸化 Step3：保守日報拠点設定(maintenance-configs)のofficeId主軸照合＆拠点名表記ゆれ吸収・Positionsマスターcode/level保存対応版)
+ * 最終更新日時 (最終アップデート): 2026年11月18日 (掲示板サマリーAPI /api/bulletins/summary への閲覧者viewers情報同梱対応：未読バッジ一時点滅解消・拠点マスター項目拡充版)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -43,6 +43,11 @@ export interface ServerCodeHistoryItem {
 }
 
 export const SERVER_CODE_HISTORY: ServerCodeHistoryItem[] = [
+  {
+    version: 'v2026.11.18.9',
+    date: '2026-11-18',
+    summary: '掲示板サマリーAPI(/api/bulletins/summary)への閲覧者(viewers)情報同梱対応（未読バッジ一時点滅解消）・拠点マスターFAX＆担当者項目拡充対応版',
+  },
   {
     version: 'v2026.11.11.11',
     date: '2026-11-11',

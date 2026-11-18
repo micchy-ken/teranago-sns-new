@@ -301,12 +301,52 @@ router.get([
     `);
     const bulletins = result.recordset || [];
 
+    // 既読（足跡）チラつき防止のため、取得したトピックID分のみの閲覧者を軽量取得
+    const viewersMap = new Map();
+    if (bulletins.length > 0) {
+      try {
+        const viewerReq = pool.request();
+        const idPlaceholders = bulletins.map((row, idx) => {
+          const paramName = `bid${idx}`;
+          viewerReq.input(paramName, sql.VarChar, String(row.id));
+          return `@${paramName}`;
+        });
+        const inClause = idPlaceholders.join(', ');
+        const viewersRes = await viewerReq.query(`
+          SELECT COALESCE(NULLIF(topicId, ''), NULLIF(bulletinId, '')) AS tid,
+                 userId,
+                 viewedAt
+          FROM dbo.BoardViewers
+          WHERE topicId IN (${inClause}) OR bulletinId IN (${inClause})
+        `);
+        for (const v of (viewersRes.recordset || [])) {
+          const tid = String(v.tid || '');
+          const uid = String(v.userId || '');
+          if (!tid || !uid) continue;
+          let list = viewersMap.get(tid);
+          if (!list) {
+            list = [];
+            viewersMap.set(tid, list);
+          }
+          list.push({
+            viewedAt: v.viewedAt || new Date(),
+            userId: uid,
+            user: { id: uid }
+          });
+        }
+      } catch (viewerErr) {
+        console.warn('[routes/bulletins] summary viewers fetch warning:', viewerErr.message);
+      }
+    }
+
     const nowMs = Date.now();
     const formatted = bulletins.map(row => {
+      const topicIdStr = String(row.id);
       const { safePoll, isCurrentlyPinned } = formatPollAndPinState(row, nowMs);
+      const topicViewers = viewersMap.get(topicIdStr) || [];
 
       return {
-        id: String(row.id),
+        id: topicIdStr,
         category: row.category,
         title: row.title,
         content: row.content,
@@ -318,7 +358,7 @@ router.get([
           avatarUrl: row.authorAvatarUrl || ''
         },
         createdAt: row.createdAt,
-        views: row.views || 0,
+        views: topicViewers.length || row.views || 0,
         likes: row.likes || 0,
         office: row.office || '全社',
         division: row.division || '全部署',
@@ -334,7 +374,7 @@ router.get([
         attachments: safeParseJSON(row.attachments, []),
         poll: safePoll,
         comments: [],
-        viewers: [],
+        viewers: topicViewers,
         commentsCount: Number(row.calcCommentsCount) || 0
       };
     });

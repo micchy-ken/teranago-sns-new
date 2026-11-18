@@ -36,6 +36,7 @@ import {
   isWorkflowPending,
   isChatUnread,
   isReportUnread,
+  isUserReadStatusSynced,
 } from '../utils/notifications';
 import { resolveApproverForStepDetails } from '../utils/workflowHelpers';
 import { triggerOpenUserModal } from '../utils/userModal';
@@ -201,22 +202,19 @@ export function MyPage({
   schedulePolls = [],
   onOpenSchedulePollModal,
 }: MyPageProps) {
-  // ローカル既読状態管理
-  const [readEventIds, setReadEventIds] = useState<string[]>(() => getReadEventIds(user?.id));
-  const [readTopicIds, setReadTopicIds] = useState<string[]>(() => getReadTopicIds(user?.id));
-  const [readChatTimestamps, setReadChatTimestamps] = useState<Record<string, string>>(() => getReadChatTimestamps(user?.id));
-  const [readMemoIds, setReadMemoIds] = useState<string[]>(() => getReadMemoIds(user?.id));
-  const [readReportIds, setReadReportIds] = useState<string[]>(() => getReadReportIds(user?.id));
+  // ローカル既読状態管理（サーバー既読データ同期状態を含めて即時参照し1フレームのチラつきを防止）
+  const [notificationSyncTick, setNotificationSyncTick] = useState(0);
+  const isReadSynced = isUserReadStatusSynced(user?.id);
+  const readEventIds = useMemo(() => getReadEventIds(user?.id), [user?.id, notificationSyncTick]);
+  const readTopicIds = useMemo(() => getReadTopicIds(user?.id), [user?.id, notificationSyncTick]);
+  const readChatTimestamps = useMemo(() => getReadChatTimestamps(user?.id), [user?.id, notificationSyncTick]);
+  const readMemoIds = useMemo(() => getReadMemoIds(user?.id), [user?.id, notificationSyncTick]);
+  const readReportIds = useMemo(() => getReadReportIds(user?.id), [user?.id, notificationSyncTick]);
 
   useEffect(() => {
     const handleSync = () => {
-      setReadEventIds(getReadEventIds(user?.id));
-      setReadTopicIds(getReadTopicIds(user?.id));
-      setReadChatTimestamps(getReadChatTimestamps(user?.id));
-      setReadMemoIds(getReadMemoIds(user?.id));
-      setReadReportIds(getReadReportIds(user?.id));
+      setNotificationSyncTick((t) => t + 1);
     };
-    handleSync();
     window.addEventListener('notifications_updated', handleSync);
     return () => window.removeEventListener('notifications_updated', handleSync);
   }, [user?.id]);
@@ -1006,7 +1004,10 @@ export function MyPage({
       .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
   }, [expandedMyPageEvents, user?.id, user?.name, todayStart, weekEnd]);
 
-  const unreadEvents = myEvents.filter((e) => isEventUnread(e, user, readEventIds));
+  const unreadEvents = useMemo(() => {
+    if (!isReadSynced) return [];
+    return myEvents.filter((e) => isEventUnread(e, user, readEventIds));
+  }, [myEvents, user, readEventIds, isReadSynced]);
 
   // 確定前（オープン）の日程調整一覧（主催または参加対象）
   const allActivePolls = useMemo(() => {
@@ -1108,8 +1109,9 @@ export function MyPage({
   }, [topics, user?.id, user?.name, user?.office, user?.division, user?.department]);
 
   const unreadTopics = useMemo(() => {
+    if (!isReadSynced) return [];
     return myTopics.filter((t) => isTopicUnread(t, user, readTopicIds));
-  }, [myTopics, user, readTopicIds]);
+  }, [myTopics, user, readTopicIds, isReadSynced]);
 
   // 未回答のアンケート付きトピック（期限内かつ自分が未回答）
   const unansweredPollTopics = useMemo(() => {
@@ -1148,7 +1150,10 @@ export function MyPage({
   }, [memos, user]);
 
   const unhandledMemos = myMemos.filter((m) => isMemoUnhandled(m, user));
-  const unreadMemos = myMemos.filter((m) => isMemoUnread(m, user, readMemoIds));
+  const unreadMemos = useMemo(() => {
+    if (!isReadSynced) return [];
+    return myMemos.filter((m) => isMemoUnread(m, user, readMemoIds));
+  }, [myMemos, user, readMemoIds, isReadSynced]);
 
   // 4. 自分に関係するワークフロー（自分が申請者、または承認者・承認履歴・ステップ対象者）
   // ※ 金銀日報はマイページ内ワークフローの表示対象外
@@ -1176,7 +1181,10 @@ export function MyPage({
       return new Date(bTime || 0).getTime() - new Date(aTime || 0).getTime();
     });
 
-  const unreadChatRooms = myChatRooms.filter((room) => isChatUnread(room, user, readChatTimestamps));
+  const unreadChatRooms = useMemo(() => {
+    if (!isReadSynced) return [];
+    return myChatRooms.filter((room) => isChatUnread(room, user, readChatTimestamps));
+  }, [myChatRooms, user, readChatTimestamps, isReadSynced]);
 
   // 6. 自分に関係する日報・週報（自分が作成者 または 上長）
   const myReports = useMemo(() => {
@@ -1202,8 +1210,9 @@ export function MyPage({
   }, [reports, user?.id]);
 
   const unreadReports = useMemo(() => {
+    if (!isReadSynced) return [];
     return myReports.filter((r) => isReportUnread(r, user, readReportIds));
-  }, [myReports, user, readReportIds]);
+  }, [myReports, user, readReportIds, isReadSynced]);
 
   // 7. プロジェクト・マイタスク サマリー取得
   type MyProjectSummaryTask = ProjectCard & { projectTitle?: string; projectType?: string };
@@ -1480,7 +1489,7 @@ export function MyPage({
                 return displayedEvents.length > 0 ? (
                   <>
                     {displayedEvents.map((evt) => {
-                      const isUnread = isEventUnread(evt, user, readEventIds);
+                      const isUnread = isReadSynced && isEventUnread(evt, user, readEventIds);
                       const eventDate = new Date(evt.start);
 
                       return (
@@ -1666,7 +1675,7 @@ export function MyPage({
                 return displayedTopics.length > 0 ? (
                   <>
                     {displayedTopics.map((topic) => {
-                      const unread = isTopicUnread(topic, user, readTopicIds);
+                      const unread = isReadSynced && isTopicUnread(topic, user, readTopicIds);
                       const isPinned = isTopicCurrentlyPinned(topic);
 
                       return (
@@ -1820,7 +1829,7 @@ export function MyPage({
                   <>
                     {displayedMemos.map((memo) => {
                       const isUnhandled = isMemoUnhandled(memo, user);
-                      const isUnread = isMemoUnread(memo, user, readMemoIds);
+                      const isUnread = isReadSynced && isMemoUnread(memo, user, readMemoIds);
                       const rawContent = (memo.content || '').replace(/[\r\n\t]+/g, ' ').trim();
                       const memoSnippet = rawContent.length > 45 ? `${rawContent.slice(0, 45)}…` : rawContent;
 
@@ -2391,7 +2400,7 @@ export function MyPage({
                 return displayedChats.length > 0 ? (
                   <>
                     {displayedChats.map((room) => {
-                      const isUnread = isChatUnread(room, user, readChatTimestamps);
+                      const isUnread = isReadSynced && isChatUnread(room, user, readChatTimestamps);
                       const lastMsg = room.messages && room.messages.length > 0 ? room.messages[room.messages.length - 1] : null;
                       const isGroup = room.type === 'group' || (room.participants && room.participants.length > 2);
                       const participants = room.participants || [];
@@ -2624,7 +2633,7 @@ export function MyPage({
                 return displayedReports.length > 0 ? (
                   <>
                     {displayedReports.map((report) => {
-                      const isUnread = isReportUnread(report, user, readReportIds);
+                      const isUnread = isReadSynced && isReportUnread(report, user, readReportIds);
                       const isAuthor = (report.author?.id || (report as any).authorId) === user?.id;
                       const isWeekly = report.reportType === 'weekly';
                       const isMaintenance = report.reportType === 'maintenance_daily';

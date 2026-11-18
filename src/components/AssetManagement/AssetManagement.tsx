@@ -334,7 +334,7 @@ export function AssetManagement({
     setAlertFilter(p.assetAlert || 'none');
     setSearchQuery(p.assetQ ?? '');
     setShowRetired(Boolean(p.assetShowRetired));
-    setAssigneeFilter(p.assetAssignee || 'all');
+    setAssigneeFilter(targetMode === 'catalog' && p.assetAssignee === '__shared__' ? 'all' : (p.assetAssignee || 'all'));
 
     if (categories.length === 0 && (p.assetCategory || targetMode === 'catalog')) {
       return;
@@ -384,6 +384,8 @@ export function AssetManagement({
     setAlertFilter('none');
     if (mode !== 'catalog') {
       setSelectedOfficeFilter('all');
+    } else if (assigneeFilter === '__shared__') {
+      setAssigneeFilter('all');
     }
     if (mode === 'catalog' && selectedCategoryId === 'all' && categories.length > 0) {
       setSelectedCategoryId(categories[0].id);
@@ -445,7 +447,7 @@ export function AssetManagement({
       }
     }
     return {
-      totalActive: assets.filter((a) => a.status !== 'retired').length,
+      totalActive: assets.filter((a) => a.status !== 'retired' && !a.isShared).length,
       myCount,
       sharedCount,
       overdueCount,
@@ -472,6 +474,8 @@ export function AssetManagement({
         if (a.isShared || String(a.assigneeUserId) !== String(currentUser.id)) {
           return false;
         }
+      } else if (mainMode === 'catalog') {
+        if (a.isShared) return false;
       } else if (mainMode === 'shared') {
         if (!a.isShared) return false;
       }
@@ -488,11 +492,9 @@ export function AssetManagement({
       }
 
       if (mainMode === 'catalog' && assigneeFilter !== 'all') {
-        if (assigneeFilter === '__shared__') {
-          if (!a.isShared) return false;
-        } else if (assigneeFilter === '__unassigned__') {
+        if (assigneeFilter === '__unassigned__') {
           if (a.isShared || a.assigneeUserId) return false;
-        } else if (String(a.assigneeUserId) !== String(assigneeFilter)) {
+        } else if (assigneeFilter !== '__shared__' && String(a.assigneeUserId) !== String(assigneeFilter)) {
           return false;
         }
       }
@@ -1659,9 +1661,6 @@ export function AssetManagement({
             <h2 className="text-xl font-extrabold text-slate-900 flex items-center gap-2">
               <Layers className="w-6 h-6 text-indigo-600" />
               <span>資産管理</span>
-              <span className="px-2 py-0.5 text-[11px] font-bold text-amber-700 bg-amber-100 rounded-full border border-amber-200 whitespace-nowrap">
-                開発中
-              </span>
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
               車両・PC・工具・共用機器を一元管理し、点検（1ヶ月前）・リース満了入替（6ヶ月前）を自動検知します
@@ -2186,7 +2185,6 @@ export function AssetManagement({
                     className="px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-700"
                   >
                     <option value="all">使用者: すべて</option>
-                    <option value="__shared__">共用（限定なし）</option>
                     <option value="__unassigned__">未割当</option>
                     {allUsers.map((u) => (
                       <option key={u.id} value={u.id}>

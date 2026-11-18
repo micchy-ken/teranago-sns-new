@@ -4,10 +4,10 @@
  * その日の何番目のバージョンかを示すデイリー番号 (#1, #2, ...) を更新してください。
  */
 export const APP_VERSION = {
-  version: '2026.11.18.8',
+  version: '2026.11.18.9',
   date: '2026-11-18',
-  releaseNumber: 8,
+  releaseNumber: 9,
   timeZone: 'Asia/Tokyo (JST)',
-  display: 'v2026.11.18 #8 (JST)',
-  description: '点検予定確定時の点検内容空白化および車検確定時の車検満期自動更新に対応'
+  display: 'v2026.11.18 #9 (JST)',
+  description: '通知・マイページの一時的な未読数字点滅解消、資産管理の開発中バッジ削除、資産台帳からの共用資産除外に対応'
 } as const;

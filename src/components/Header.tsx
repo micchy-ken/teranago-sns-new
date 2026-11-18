@@ -112,6 +112,7 @@ interface HeaderProps {
   onUpdateRooms?: (rooms: ChatRoom[]) => void;
   onToggleMobileMenu?: () => void;
   onUpdateUser?: (user: User) => void;
+  activeTab?: AppTab;
 }
 
 function formatLocalDateStr(isoStr?: string): string {
@@ -184,6 +185,7 @@ export function Header({
   onUpdateRooms,
   onToggleMobileMenu,
   onUpdateUser,
+  activeTab,
 }: HeaderProps) {
   const [isOpen, setIsOpen] = useState<boolean>(() => {
     try {
@@ -194,12 +196,13 @@ export function Header({
   });
   const [filterType, setFilterType] = useState<'all' | 'memo' | 'workflow' | 'board' | 'event' | 'chat' | 'report' | 'safety'>('all');
   const [readFilter, setReadFilter] = useState<'all' | 'unread'>('all');
-  const [readEventIds, setReadEventIds] = useState<string[]>(() => getReadEventIds(currentUser?.id));
-  const [readTopicIds, setReadTopicIds] = useState<string[]>(() => getReadTopicIds(currentUser?.id));
-  const [readChatTimestamps, setReadChatTimestamps] = useState<Record<string, string>>(() => getReadChatTimestamps(currentUser?.id));
-  const [readMemoIds, setReadMemoIds] = useState<string[]>(() => getReadMemoIds(currentUser?.id));
-  const [readWorkflowIds, setReadWorkflowIds] = useState<string[]>(() => getReadWorkflowIds(currentUser?.id));
-  const [readReportIds, setReadReportIds] = useState<string[]>(() => getReadReportIds(currentUser?.id));
+  const [notificationSyncTick, setNotificationSyncTick] = useState(0);
+  const readEventIds = useMemo(() => getReadEventIds(currentUser?.id), [currentUser?.id, notificationSyncTick]);
+  const readTopicIds = useMemo(() => getReadTopicIds(currentUser?.id), [currentUser?.id, notificationSyncTick]);
+  const readChatTimestamps = useMemo(() => getReadChatTimestamps(currentUser?.id), [currentUser?.id, notificationSyncTick]);
+  const readMemoIds = useMemo(() => getReadMemoIds(currentUser?.id), [currentUser?.id, notificationSyncTick]);
+  const readWorkflowIds = useMemo(() => getReadWorkflowIds(currentUser?.id), [currentUser?.id, notificationSyncTick]);
+  const readReportIds = useMemo(() => getReadReportIds(currentUser?.id), [currentUser?.id, notificationSyncTick]);
   const popoverRef = useRef<HTMLDivElement>(null);
 
   // Unified Appearance picker state (文字の大きさ + カラー設定)
@@ -616,14 +619,8 @@ export function Header({
   // Sync read states when custom event fires or user changes
   useEffect(() => {
     const handleSync = () => {
-      setReadEventIds(getReadEventIds(currentUser?.id));
-      setReadTopicIds(getReadTopicIds(currentUser?.id));
-      setReadChatTimestamps(getReadChatTimestamps(currentUser?.id));
-      setReadMemoIds(getReadMemoIds(currentUser?.id));
-      setReadWorkflowIds(getReadWorkflowIds(currentUser?.id));
-      setReadReportIds(getReadReportIds(currentUser?.id));
+      setNotificationSyncTick((t) => t + 1);
     };
-    handleSync();
     window.addEventListener('notifications_updated', handleSync);
     return () => window.removeEventListener('notifications_updated', handleSync);
   }, [currentUser?.id]);
@@ -786,7 +783,7 @@ export function Header({
 
   // Unified Notification Items (未確認＋確認済み履歴)
   const allNotifications = useMemo<NotificationItem[]>(() => {
-    return getAllNotifications({
+    const items = getAllNotifications({
       user: currentUser,
       memos,
       applications,
@@ -806,7 +803,19 @@ export function Header({
       readWorkflowIds,
       readReportIds,
     });
-  }, [currentUser, memos, applications, topics, events, chatRooms, reports, safetyEvents, safetyResponses, userRespondedSafetyEventIds, readEventIds, readTopicIds, readChatTimestamps, readMemoIds, readWorkflowIds, readReportIds]);
+
+    // 現在開いている自動既読対象タブの通知は 1フレーム目のバッジ点滅を防ぐため既読扱いとして扱う
+    const autoReadType: NotificationItem['type'] | null =
+      activeTab === 'memo' ? 'memo' :
+      activeTab === 'board' ? 'board' :
+      activeTab === 'workflow' ? 'workflow' :
+      (activeTab === 'calendar' || activeTab === 'inspection_scheduler') ? 'event' :
+      activeTab === 'daily_report' ? 'report' :
+      null;
+
+    if (!autoReadType) return items;
+    return items.map((item) => (item.type === autoReadType && !item.isRead ? { ...item, isRead: true } : item));
+  }, [currentUser, activeTab, memos, applications, topics, events, chatRooms, reports, safetyEvents, safetyResponses, userRespondedSafetyEventIds, readEventIds, readTopicIds, readChatTimestamps, readMemoIds, readWorkflowIds, readReportIds, notificationSyncTick]);
 
   const memoNotifications = useMemo(() => allNotifications.filter((n) => n.type === 'memo'), [allNotifications]);
   const workflowNotifications = useMemo(() => allNotifications.filter((n) => n.type === 'workflow'), [allNotifications]);

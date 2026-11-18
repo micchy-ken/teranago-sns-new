@@ -5429,10 +5429,30 @@ async function startServer() {
       const sliced = allBulletins.slice(0, limit);
 
       const allComments = loadBulletinComments();
+      const allViewers = loadBulletinViewers();
       const commentsCountMap = new Map<string, number>();
       for (const c of allComments) {
         const tid = String(c.topicId || c.topic_id || c.bulletinId || '');
         if (tid) commentsCountMap.set(tid, (commentsCountMap.get(tid) || 0) + 1);
+      }
+
+      const targetIds = new Set(sliced.map((t: any) => String(t.id)));
+      const viewersMap = new Map<string, any[]>();
+      for (const v of allViewers) {
+        const tid = String(v.topicId || v.topic_id || v.bulletinId || '');
+        if (!tid || !targetIds.has(tid)) continue;
+        let list = viewersMap.get(tid);
+        if (!list) {
+          list = [];
+          viewersMap.set(tid, list);
+        }
+        const uid = String(v.user?.id || v.userId || v.id || '');
+        if (!uid) continue;
+        list.push({
+          viewedAt: v.viewedAt,
+          userId: uid,
+          user: { id: uid }
+        });
       }
 
       const summaryList = sliced.map((topic: any) => {
@@ -5466,6 +5486,7 @@ async function startServer() {
         }
 
         const tid = String(topic.id);
+        const topicViewers = viewersMap.get(tid) || [];
         return {
           id: tid,
           category: topic.category || 'general',
@@ -5473,7 +5494,7 @@ async function startServer() {
           content: topic.content,
           author: topic.author || { id: 'unknown', name: '匿名' },
           createdAt: topic.createdAt,
-          views: topic.views || 0,
+          views: topicViewers.length || topic.views || 0,
           likes: topic.likes || 0,
           office: topic.office || '全社',
           division: topic.division || '全部署',
@@ -5488,7 +5509,7 @@ async function startServer() {
           attachments: topic.attachments || [],
           poll: safePoll,
           comments: [],
-          viewers: [],
+          viewers: topicViewers,
           commentsCount: commentsCountMap.get(tid) || topic.commentsCount || 0
         };
       });
